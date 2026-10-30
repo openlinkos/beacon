@@ -382,6 +382,25 @@ func TestAPIOperations(t *testing.T) {
 	}
 }
 
+func TestGroupedPathWarning(t *testing.T) {
+	e := newEnv(t)
+	w := alertmanager.Webhook{Version: "4", GroupKey: `{}:{alertname="OverseasOnlyFailing"}`, Status: "firing",
+		GroupLabels:  map[string]string{"alertname": "OverseasOnlyFailing"},
+		CommonLabels: map[string]string{"alertname": "OverseasOnlyFailing", "severity": "warning"}}
+	for _, svc := range []string{"hub.linkos.io", "git.linkos.io", "ci.linkos.io"} {
+		w.Alerts = append(w.Alerts, alertmanager.Alert{Status: "firing", Fingerprint: svc, StartsAt: e.now,
+			Labels:      map[string]string{"alertname": "OverseasOnlyFailing", "service": svc},
+			Annotations: map[string]string{"summary": svc + " fails only from overseas"}})
+	}
+	if err := e.b.HandleWebhook(context.Background(), w); err != nil {
+		t.Fatal(err)
+	}
+	c := cardText(e.fs.sends[0])
+	if !strings.Contains(c, "hub.linkos.io fails only from overseas and 2 more") || !strings.Contains(c, "ci.linkos.io, git.linkos.io, hub.linkos.io") || !strings.Contains(c, "3 firing") {
+		t.Errorf("grouped card: %s", c)
+	}
+}
+
 func TestChineseCard(t *testing.T) {
 	e := newEnv(t)
 	e.b.lang = "zh"

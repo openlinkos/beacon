@@ -34,6 +34,8 @@ var zh = map[string]string{
 	"Since %s (%s)":                              "%s 起（已 %s）",
 	"Resolved at %s after %s":                    "%[1]s 恢复，持续 %[2]s",
 	"Resolved":                                   "已恢复",
+	"**Services**: %s":                           "**服务**：%s",
+	"%s and %d more":                             "%s 等 %d 项",
 	"**Service**: %s":                            "**服务**：%s",
 	"**Alerts**: %d firing":                      "**告警**：%d 条在触发",
 	"**Locations**: %s":                          "**检测点**：%s",

@@ -27,10 +27,18 @@ func (b *Bridge) severityName(sev string) string {
 	return b.t("Warning")
 }
 
-// title is the alert's summary annotation, or its name and service.
+// title is the alert's summary annotation; for a group of several services (path warnings are grouped
+// by alert name), the first one's summary and how many more; otherwise its name and service.
 func (b *Bridge) title(g *store.Group) string {
 	if s := g.Annotations["summary"]; s != "" {
 		return s
+	}
+	if svcs := b.services(g); len(svcs) > 1 {
+		for _, a := range g.Alerts {
+			if s := a.Annotations["summary"]; s != "" && a.Status == "firing" {
+				return b.t("%s and %d more", s, len(svcs)-1)
+			}
+		}
 	}
 	name := g.Common["alertname"]
 	if name == "" {
@@ -47,6 +55,22 @@ func (b *Bridge) service(g *store.Group) string {
 		return s
 	}
 	return g.Common["service"]
+}
+
+// services lists the distinct services of the firing alerts, in order.
+func (b *Bridge) services(g *store.Group) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, a := range g.Alerts {
+		s := a.Labels["service"]
+		if a.Status != "firing" || s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // link fills a URL template's {service} and {alertname}.
@@ -165,6 +189,13 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 	}
 	if svc := b.service(g); svc != "" {
 		md = append(md, b.t("**Service**: %s", svc))
+	} else if svcs := b.services(g); len(svcs) > 0 {
+		const show = 10
+		list := strings.Join(svcs[:min(len(svcs), show)], ", ")
+		if len(svcs) > show {
+			list = b.t("%s and %d more", list, len(svcs)-show)
+		}
+		md = append(md, b.t("**Services**: %s", list))
 	}
 	n := 0
 	for _, a := range g.Alerts {
