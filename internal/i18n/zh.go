@@ -1,0 +1,53 @@
+package i18n
+
+// The Chinese catalogue, keyed by the English format string. TestCatalogue checks that every format
+// used in the code has an entry here with the same verbs, and that no entry is unused.
+
+const zhName = "简体中文"
+
+var zh = map[string]string{
+	// the status page
+	"The status page is on its way.": "状态页正在建设中。",
+	// alert cards, the group bot and Pushover
+	"%s: %s":  "%s：%s",
+	"Runbook": "处理手册",
+	"Only the people on call can act on alerts":  "只有值班的人可以处理告警",
+	"Unknown alert; it may have been cleaned up": "找不到这条告警，可能已经清理掉了",
+	"This alert has already resolved":            "这条告警已经恢复",
+	"Acknowledged":                               "已认领",
+	"Unknown action":                             "不支持的操作",
+	"Could not silence: %s":                      "静默失败：%s",
+	"Silenced for %s":                            "已静默 %s",
+	"Feishu":                                     "飞书",
+	"%s acknowledged \"%s\" via %s":              "%[1]s 经%[3]s认领了「%[2]s」",
+	"Note: %s":                                   "备注：%s",
+	"%s silenced \"%s\" for %s via %s: %s":       "%[1]s 经%[4]s把「%[2]s」静默了 %[3]s：%[5]s",
+	"%s ended silence %s via %s":                 "%[1]s 经%[3]s取消了静默 %[2]s",
+	"Critical":                                   "严重",
+	"Info":                                       "提示",
+	"Warning":                                    "警告",
+	"under a minute":                             "不到 1 分钟",
+	"%d min":                                     "%d 分钟",
+	"%d h":                                       "%d 小时",
+	"%d h %d min":                                "%d 小时 %d 分钟",
+	"%d d %d h":                                  "%d 天 %d 小时",
+	"Since %s (%s)":                              "%s 起（已 %s）",
+	"Resolved at %s after %s":                    "%[1]s 恢复，持续 %[2]s",
+	"Resolved":                                   "已恢复",
+	"**Service**: %s":                            "**服务**：%s",
+	"**Alerts**: %d firing":                      "**告警**：%d 条在触发",
+	"**Locations**: %s":                          "**检测点**：%s",
+	"Acknowledged by %s at %s via %s":            "%[1]s 于 %[2]s 经%[3]s认领",
+	"Silenced until %s by %s":                    "%[2]s 已静默到 %[1]s",
+	"Buzzed in Feishu at %s":                     "%s 已在飞书加急",
+	"Pushover alert sent at %s":                  "%s 已发出 Pushover 紧急通知",
+	"Dashboard":                                  "面板",
+	"Acknowledge":                                "认领",
+	"Silence 1h":                                 "静默 1 小时",
+	"Silence 4h":                                 "静默 4 小时",
+	"Silence 24h":                                "静默 24 小时",
+	"What are you doing about it?":               "打算怎么处理？",
+	"Acknowledge with note":                      "认领并备注",
+	"Firing (%s): %s":                            "告警（%s）：%s",
+	"Resolved: %s, after %s":                     "已恢复：%s，持续 %s",
+}

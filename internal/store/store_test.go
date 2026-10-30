@@ -1,0 +1,133 @@
+package store
+
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func open(t *testing.T) (*Store, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "status.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s, path
+}
+
+func TestGroups(t *testing.T) {
+	s, _ := open(t)
+	now := time.Now()
+	for i, st := range []string{"resolved", "firing", "firing"} {
+		g := Group{ID: string(rune('a' + i)), Status: st, StartsAt: now.Add(time.Duration(i) * time.Minute), Ack: &Ack{By: "x"}}
+		if err := s.PutGroup(g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gs := s.Groups()
+	if len(gs) != 3 || gs[0].ID != "c" || gs[1].ID != "b" || gs[2].ID != "a" {
+		t.Fatalf("firing first, newest first: %v", []string{gs[0].ID, gs[1].ID, gs[2].ID})
+	}
+	if g, ok := s.Group("b"); !ok || g.Ack == nil || g.Ack.By != "x" || g.Updated.IsZero() {
+		t.Fatalf("Group: %+v", g)
+	}
+	if n := s.DeleteGroups(func(g Group) bool { return !g.Firing() }); n != 1 {
+		t.Fatalf("deleted %d", n)
+	}
+	if _, ok := s.Group("a"); ok {
+		t.Fatal("resolved group should be gone")
+	}
+}
+
+func TestTokens(t *testing.T) {
+	s, path := open(t)
+	secret, tok, err := s.CreateToken("claude-code", []string{"status:read", "alerts:write"}, 24*time.Hour, "cli:root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(secret, TokenPrefix) || len(secret) < 50 || tok.Hash == secret {
+		t.Fatalf("secret %q, token %+v", secret, tok)
+	}
+	if _, _, err := s.CreateToken("claude-code", []string{"status:read"}, time.Hour, ""); err == nil {
+		t.Error("duplicate names should be refused")
+	}
+	for _, bad := range []struct {
+		name   string
+		scopes []string
+		ttl    time.Duration
+	}{{"Bad Name", []string{"status:read"}, time.Hour}, {"x", nil, time.Hour}, {"x", []string{"root"}, time.Hour}, {"x", []string{"status:read"}, time.Minute}} {
+		if _, _, err := s.CreateToken(bad.name, bad.scopes, bad.ttl, ""); err == nil {
+			t.Errorf("%+v should be refused", bad)
+		}
+	}
+	if got, ok := s.VerifyToken(secret); !ok || !got.Has("alerts:write") || got.Has("incidents:write") {
+		t.Fatalf("VerifyToken: %+v %v", got, ok)
+	}
+	if _, ok := s.VerifyToken(secret + "x"); ok {
+		t.Error("a wrong secret verified")
+	}
+	if _, ok := s.VerifyToken("Bearer " + secret); ok {
+		t.Error("a malformed secret verified")
+	}
+	// survives a restart
+	_ = s.Close()
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if _, ok := s2.VerifyToken(secret); !ok {
+		t.Fatal("token lost on reopen")
+	}
+	s2.now = func() time.Time { return time.Now().Add(25 * time.Hour) }
+	if _, ok := s2.VerifyToken(secret); ok {
+		t.Error("an expired token verified")
+	}
+	if err := s2.RevokeToken("claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.RevokeToken("claude-code"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("revoking twice: %v", err)
+	}
+	if len(s2.Tokens()) != 0 {
+		t.Error("token still listed")
+	}
+}
+
+func TestLocked(t *testing.T) {
+	_, path := open(t)
+	if _, err := Open(path); !errors.Is(err, ErrLocked) {
+		t.Fatalf("second open: %v", err)
+	}
+}
+
+func TestAuditAndMeta(t *testing.T) {
+	s, _ := open(t)
+	for i := range 3 {
+		if err := s.Audit(AuditEntry{Actor: "a", Action: "ack", Target: string(rune('x' + i))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	log := s.AuditLog(2)
+	if len(log) != 2 || log[0].Target != "z" || log[0].Time.IsZero() {
+		t.Fatalf("audit log: %+v", log)
+	}
+	if s.Add("feishu-2026-10", 3) != 3 || s.Add("feishu-2026-10", 2) != 5 || s.Counter("feishu-2026-10") != 5 {
+		t.Error("counter")
+	}
+	when := time.Now().Add(time.Hour).Truncate(time.Second)
+	if err := s.SetTime("drill", when); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Time("drill").Equal(when) {
+		t.Errorf("SetTime/Time: %v", s.Time("drill"))
+	}
+	_ = s.SetTime("drill", time.Time{})
+	if !s.Time("drill").IsZero() {
+		t.Error("zero time should delete")
+	}
+}

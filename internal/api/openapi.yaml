@@ -1,0 +1,210 @@
+openapi: 3.1.0
+info:
+  title: LinkOS Status API
+  version: "1"
+  description: |
+    Alerts, acknowledgements and silences of LinkOS Status. Every route except this description needs
+    a bearer token (`Authorization: Bearer lst_…`) with the scope listed on the operation. Writes are
+    recorded in the audit log and echoed to the alert chat. The same operations are available as MCP
+    tools at /mcp.
+  license:
+    name: Apache-2.0
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    token:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error: {type: string}
+        code:
+          type: string
+          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream]
+    Ack:
+      type: object
+      properties:
+        by: {type: string}
+        via: {type: string, enum: [feishu, pushover, api, mcp]}
+        note: {type: string}
+        at: {type: string, format: date-time}
+    SilenceRef:
+      type: object
+      properties:
+        id: {type: string}
+        by: {type: string}
+        until: {type: string, format: date-time}
+    Alert:
+      type: object
+      properties:
+        id: {type: string, description: Stable id of the Alertmanager alert group}
+        status: {type: string, enum: [firing, resolved]}
+        severity: {type: string, enum: [critical, warning, info]}
+        title: {type: string}
+        description: {type: string}
+        service: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
+        alerts: {type: integer, description: Alerts firing in the group}
+        starts_at: {type: string, format: date-time}
+        resolved_at: {type: string, format: date-time}
+        channel: {type: string, enum: [app, webhook, none]}
+        ack: {$ref: "#/components/schemas/Ack"}
+        silence: {$ref: "#/components/schemas/SilenceRef"}
+        buzzed_at: {type: string, format: date-time}
+        pushover_at: {type: string, format: date-time}
+        runbook: {type: string, format: uri}
+        dashboard: {type: string, format: uri}
+  responses:
+    Error:
+      description: An error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+security:
+  - token: []
+paths:
+  /openapi.yaml:
+    get:
+      summary: This description
+      security: []
+      responses:
+        "200": {description: The OpenAPI document}
+  /bridge:
+    get:
+      summary: Whether alerts can reach people, alerts firing by severity, Feishu API usage
+      description: "Scope: status:read"
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready: {type: boolean}
+                  not_ready: {type: array, items: {type: string}}
+                  firing: {type: object, additionalProperties: {type: integer}}
+                  acknowledged: {type: integer}
+                  feishu_api_calls_this_month: {type: integer}
+                  feishu_api_budget: {type: integer}
+        default: {$ref: "#/components/responses/Error"}
+  /alerts:
+    get:
+      summary: Alert groups
+      description: "Scope: status:read. Resolved groups are kept for seven days."
+      parameters:
+        - name: state
+          in: query
+          schema: {type: string, enum: [firing, all], default: firing}
+      responses:
+        "200":
+          description: Alert groups, firing first, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts: {type: array, items: {$ref: "#/components/schemas/Alert"}}
+        default: {$ref: "#/components/responses/Error"}
+  /alerts/{id}:
+    get:
+      summary: One alert group
+      description: "Scope: status:read"
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The alert group
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /alerts/{id}/ack:
+    post:
+      summary: Acknowledge a firing alert group
+      description: "Scope: alerts:write. Stops escalation (Feishu buzz, Pushover) for four hours."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: {type: string, description: What is being done about it}
+      responses:
+        "200":
+          description: The acknowledged group
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /silences:
+    get:
+      summary: Active and pending Alertmanager silences
+      description: "Scope: status:read"
+      responses:
+        "200":
+          description: Silences, ending soonest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  silences: {type: array, items: {type: object}}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Silence a firing alert group in Alertmanager
+      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [alert, duration, comment]
+              properties:
+                alert: {type: string, description: Alert group id}
+                duration: {type: string, examples: ["1h", "30m"]}
+                comment: {type: string}
+      responses:
+        "201":
+          description: The silenced group
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /silences/{id}:
+    delete:
+      summary: End a silence now
+      description: "Scope: alerts:write"
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Ended}
+        default: {$ref: "#/components/responses/Error"}
+  /audit:
+    get:
+      summary: The latest writes, newest first
+      description: "Scope: status:read"
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries: {type: array, items: {type: object}}
+        default: {$ref: "#/components/responses/Error"}

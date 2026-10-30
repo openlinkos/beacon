@@ -1,0 +1,62 @@
+# LinkOS Status configuration. Every credential is a *_file path: put the secret in that file (mode 0600)
+# and keep the file out of git. `linkos-status check-config -config <this file>` validates it.
+
+listen: ":17001"
+data_dir: /var/lib/linkos-status            # bbolt state: alert groups, tokens, audit log
+catalog_dir: /etc/linkos-status/catalog     # probe locations, heartbeats, expiring resources (*.yaml)
+public_url: https://status.example.com
+# The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
+trusted_proxies: [172.16.0.0/12]
+language: zh                                # language of cards and chat messages: zh or en
+timezone: Asia/Shanghai                     # times on cards
+
+alertmanager:
+  url: http://alertmanager:9093
+  # Alertmanager sends this token as "Authorization: Bearer …" (http_config.authorization.credentials_file).
+  webhook_token_file: /etc/linkos-status/secrets/alertmanager-webhook-token
+
+# Optional: per-location probe results on cards (probe_success{service=…} by location).
+victoriametrics:
+  url: http://victoriametrics:8428
+
+links:
+  # {service} and {alertname} are filled in; an alert's own runbook/dashboard annotation wins.
+  grafana_service: "https://grafana.example.com/d/linkos-service/service?var-service={service}"
+  runbook: "https://github.com/example/ops/blob/main/runbooks/{alertname}.md"
+
+feishu:
+  # The self-built app (cards, button callbacks, buzz). See docs/feishu.md.
+  app_id_file: /etc/linkos-status/secrets/feishu-app-id
+  app_secret_file: /etc/linkos-status/secrets/feishu-app-secret
+  domain: feishu                            # feishu (open.feishu.cn) or lark (open.larksuite.com)
+  callback: websocket                       # websocket: Feishu's long connection; http: POST /hooks/feishu
+  # verification_token_file: …              # http callbacks only
+  # encrypt_key_file: …                     # http callbacks, when encryption is on
+  chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  on_call:                                  # only they may act on cards; they are buzzed on escalation
+    - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}
+  monthly_budget: 10000                     # the app's API calls per month (Feishu's free-plan limit)
+  # The group's custom bot: plain messages, no API quota. Used for info alerts, over budget, and echoes.
+  webhook_url_file: /etc/linkos-status/secrets/feishu-webhook-url
+  # webhook_secret_file: …                  # when the bot signs requests
+  webhook_keyword: LinkOS                   # when the bot's security setting is a keyword
+
+pushover:
+  user_key_file: /etc/linkos-status/secrets/pushover-user-key
+  token_file: /etc/linkos-status/secrets/pushover-app-token
+  retry: 60s                                # emergency alerts repeat this often until acknowledged
+  expire: 3h                                # and stop after this long
+
+# bark:
+#   url_file: /etc/linkos-status/secrets/bark-url   # https://api.day.app/<key>
+
+healthchecks:
+  # Pinged every minute while the bridge can deliver alerts (/fail when it cannot).
+  bridge_url_file: /etc/linkos-status/secrets/healthchecks-bridge-url
+
+escalation:
+  critical: {channel: app, buzz: 10m, pushover: 15m}
+  warning: {channel: app}
+  info: {channel: webhook}
+
+ack_ttl: 4h                                 # an acknowledgement lapses after this; escalation starts again

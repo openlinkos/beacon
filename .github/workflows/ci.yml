@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: go mod tidy
+        run: go mod tidy -diff
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -race -shuffle=on -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+      - name: govulncheck
+        # the x/tools bundled with v1.1.4 is too old and panics when analysing the Go 1.27 standard library; pinned for
+        # now to a main-branch commit that has the upgraded x/tools, back to a tag once the next version is released
+        run: go run golang.org/x/vuln/cmd/govulncheck@e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5 ./...
+      - name: actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: zizmor
+        run: pipx run zizmor==1.31.1 --min-severity medium .github/workflows
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [linux/amd64, linux/arm64, linux/arm/v7]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: build ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          IFS=/ read -r GOOS GOARCH GOARM <<<"$TARGET"
+          export GOOS GOARCH CGO_ENABLED=0
+          [ -n "$GOARM" ] && export GOARM="${GOARM#v}"
+          go build -trimpath -o /dev/null ./cmd/linkos-status
+
+  release-snapshot:
+    name: release (snapshot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.18.3
+          args: release --snapshot --clean --skip=sign
+      - name: check the images
+        run: |
+          docker images ghcr.io/openlinkos/status
+          for arch in amd64 arm64 armv7; do
+            ref="$(docker images ghcr.io/openlinkos/status --format '{{.Repository}}:{{.Tag}}' | grep -- "-$arch\$" | head -n 1)"
+            [ -n "$ref" ] || { echo "No image for $arch"; exit 1; }
+            docker image inspect "$ref" --format "$arch {{.Os}}/{{.Architecture}}{{with .Variant}}/{{.}}{{end}} user={{.Config.User}}"
+          done
+          docker run --rm "$(docker images ghcr.io/openlinkos/status --format '{{.Repository}}:{{.Tag}}' | grep -- '-amd64$' | head -n 1)" version

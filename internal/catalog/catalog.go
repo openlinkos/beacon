@@ -1,0 +1,186 @@
+// Package catalog loads what is monitored and where from: the probe locations, the heartbeats that
+// jobs must send, and the resources (servers, domains, certificates, tokens) whose expiry dates are
+// watched. The files live in git (the ops repository) and are mounted read-only.
+//
+// The catalogue is also exported as metrics, so that alert rules can join against it: a location
+// that should report but does not, a heartbeat older than its limit, a resource close to expiry.
+package catalog
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/openlinkos/status/internal/config"
+	"github.com/openlinkos/status/internal/metrics"
+)
+
+// Location is a probe location. Name is public: it says where and on which network, never which vendor.
+type Location struct {
+	ID      string `yaml:"id"`
+	Name    string `yaml:"name"`
+	Region  string `yaml:"region"` // overseas or mainland
+	Network string `yaml:"network"`
+}
+
+// Heartbeat is a job that must report success at least every MaxAge.
+type Heartbeat struct {
+	Name        string          `yaml:"name"`
+	MaxAge      config.Duration `yaml:"max_age"`
+	Severity    string          `yaml:"severity"`
+	Description string          `yaml:"description"`
+}
+
+// Resource is something that expires: a server, a domain, a certificate, a token.
+type Resource struct {
+	Name    string `yaml:"name"`
+	Kind    string `yaml:"kind"`
+	Expires string `yaml:"expires"` // YYYY-MM-DD
+	Note    string `yaml:"note"`
+	expires time.Time
+}
+
+// ExpiresAt is the expiry date (midnight UTC).
+func (r Resource) ExpiresAt() time.Time { return r.expires }
+
+// Catalog is the loaded catalogue.
+type Catalog struct {
+	Locations  []Location  `yaml:"locations"`
+	Heartbeats []Heartbeat `yaml:"heartbeats"`
+	Resources  []Resource  `yaml:"resources"`
+}
+
+var (
+	idRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	resourceRes = []string{"vps", "domain", "cert", "token", "service"}
+)
+
+// Load reads every *.yaml file in dir and merges them. A missing directory is an empty catalogue.
+func Load(dir string) (*Catalog, error) {
+	c := &Catalog{}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return c, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // inside the catalogue directory
+		if err != nil {
+			return nil, err
+		}
+		var part Catalog
+		dec := yaml.NewDecoder(strings.NewReader(string(b)))
+		dec.KnownFields(true)
+		if err := dec.Decode(&part); err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		c.Locations = append(c.Locations, part.Locations...)
+		c.Heartbeats = append(c.Heartbeats, part.Heartbeats...)
+		c.Resources = append(c.Resources, part.Resources...)
+	}
+	return c, c.validate()
+}
+
+func (c *Catalog) validate() error {
+	var errs []error
+	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	seen := map[string]bool{}
+	for _, l := range c.Locations {
+		if !idRe.MatchString(l.ID) {
+			bad("location %q: the id must be lower case letters, digits and dashes", l.ID)
+		}
+		if seen["l:"+l.ID] {
+			bad("location %q is listed twice", l.ID)
+		}
+		seen["l:"+l.ID] = true
+		if l.Name == "" {
+			bad("location %q needs a public name such as \"United States - Los Angeles\"", l.ID)
+		}
+		if l.Region != "overseas" && l.Region != "mainland" {
+			bad("location %q: region must be overseas or mainland, not %q", l.ID, l.Region)
+		}
+	}
+	for _, h := range c.Heartbeats {
+		if !idRe.MatchString(h.Name) {
+			bad("heartbeat %q: the name must be lower case letters, digits and dashes", h.Name)
+		}
+		if seen["h:"+h.Name] {
+			bad("heartbeat %q is listed twice", h.Name)
+		}
+		seen["h:"+h.Name] = true
+		if h.MaxAge.D() < time.Minute {
+			bad("heartbeat %q: max_age must be at least 1m", h.Name)
+		}
+		if !slices.Contains(config.Severities, h.Severity) {
+			bad("heartbeat %q: severity must be one of %s", h.Name, strings.Join(config.Severities, ", "))
+		}
+	}
+	for i := range c.Resources {
+		r := &c.Resources[i]
+		if r.Name == "" {
+			bad("a resource has no name")
+		}
+		if seen["r:"+r.Name] {
+			bad("resource %q is listed twice", r.Name)
+		}
+		seen["r:"+r.Name] = true
+		if !slices.Contains(resourceRes, r.Kind) {
+			bad("resource %q: kind must be one of %s", r.Name, strings.Join(resourceRes, ", "))
+		}
+		t, err := time.Parse(time.DateOnly, r.Expires)
+		if err != nil {
+			bad("resource %q: expires %q is not a date such as 2026-11-27", r.Name, r.Expires)
+		}
+		r.expires = t
+	}
+	return errors.Join(errs...)
+}
+
+// Location returns the location with id.
+func (c *Catalog) Location(id string) (Location, bool) {
+	for _, l := range c.Locations {
+		if l.ID == id {
+			return l, true
+		}
+	}
+	return Location{}, false
+}
+
+// Register exports the catalogue as metrics. cat is read on every scrape, so a reload takes effect.
+func Register(m *metrics.Metrics, cat func() *Catalog) {
+	m.Register("linkos_expected_location", "Probe locations that should report (1 each)", "gauge", func() []metrics.Sample {
+		var out []metrics.Sample
+		for _, l := range cat().Locations {
+			out = append(out, metrics.Sample{Labels: metrics.Labels("location", l.ID, "region", l.Region, "network", l.Network), Value: 1})
+		}
+		return out
+	})
+	m.Register("linkos_heartbeat_max_age_seconds", "How old a heartbeat may get before it alerts", "gauge", func() []metrics.Sample {
+		var out []metrics.Sample
+		for _, h := range cat().Heartbeats {
+			out = append(out, metrics.Sample{Labels: metrics.Labels("heartbeat", h.Name, "severity", h.Severity), Value: h.MaxAge.D().Seconds()})
+		}
+		return out
+	})
+	m.Register("linkos_resource_expiry_timestamp_seconds", "When a server, domain, certificate or token expires", "gauge", func() []metrics.Sample {
+		var out []metrics.Sample
+		for _, r := range cat().Resources {
+			out = append(out, metrics.Sample{Labels: metrics.Labels("resource", r.Name, "kind", r.Kind), Value: float64(r.expires.Unix())})
+		}
+		return out
+	})
+}
