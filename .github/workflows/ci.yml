@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [linux/amd64, linux/arm64, linux/arm/v7]
+        target: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,7 +99,7 @@ jobs:
       - name: check the images
         run: |
           docker images ghcr.io/openlinkos/status
-          for arch in amd64 arm64 armv7; do
+          for arch in amd64 arm64; do
             ref="$(docker images ghcr.io/openlinkos/status --format '{{.Repository}}:{{.Tag}}' | grep -- "-$arch\$" | head -n 1)"
             [ -n "$ref" ] || { echo "No image for $arch"; exit 1; }
             docker image inspect "$ref" --format "$arch {{.Os}}/{{.Architecture}}{{with .Variant}}/{{.}}{{end}} user={{.Config.User}}"

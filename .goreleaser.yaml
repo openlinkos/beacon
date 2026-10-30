@@ -1,6 +1,6 @@
 # Release process (.github/workflows/release.yml runs it when a v* tag is pushed):
-#   - binaries and archives for linux/amd64, arm64 and arm/v7, reproducible builds (-trimpath, timestamps taken
-#     from the commit time);
+#   - binaries and archives for linux/amd64 and arm64 (the Feishu SDK does not build for 32-bit platforms),
+#     reproducible builds (-trimpath, timestamps taken from the commit time);
 #   - SHA256SUMS, signed with cosign keyless (Sigstore, bundle SHA256SUMS.sigstore.json);
 #   - one SPDX SBOM per archive (syft);
 #   - multi-platform image ghcr.io/openlinkos/status: only copies the compiled binaries, carries
@@ -20,8 +20,7 @@ builds:
     env:
       - CGO_ENABLED=0
     goos: [linux]
-    goarch: [amd64, arm64, arm]
-    goarm: ["7"]
+    goarch: [amd64, arm64]
     flags:
       - -trimpath
     ldflags:
@@ -70,7 +69,6 @@ dockers_v2:
     platforms:
       - linux/amd64
       - linux/arm64
-      - linux/arm/v7
     labels:
       org.opencontainers.image.title: linkos-status
       org.opencontainers.image.description: Status pages and closed-loop alerting with an API and MCP.
