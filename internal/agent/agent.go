@@ -52,8 +52,9 @@ type Config struct {
 type Agent struct {
 	cfg Config
 
-	mods   *probe.Modules
-	groups []targets.Group
+	mods     *probe.Modules
+	groups   []targets.Group
+	settings targets.Settings
 
 	pushErrors atomic.Int64
 	lastPush   atomic.Int64 // unix seconds of the last successful push
@@ -65,7 +66,7 @@ func New(cfg Config) *Agent {
 		cfg.Interval = time.Minute
 	}
 	if cfg.Parallel <= 0 {
-		cfg.Parallel = 8
+		cfg.Parallel = 16
 	}
 	if cfg.MaxQueue <= 0 {
 		cfg.MaxQueue = 64 << 20
@@ -134,16 +135,24 @@ func (a *Agent) get(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s %s", path, resp.Status, strings.TrimSpace(string(body)))
+		return nil, &httpError{path: path, code: resp.StatusCode, status: resp.Status, body: strings.TrimSpace(string(body))}
 	}
 	return body, nil
 }
+
+type httpError struct {
+	path, status, body string
+	code               int
+}
+
+func (e *httpError) Error() string { return fmt.Sprintf("%s: %s %s", e.path, e.status, e.body) }
 
 // refresh fetches the targets and modules, falling back to the cache on disk, then to what it had.
 func (a *Agent) refresh(ctx context.Context) {
 	for _, f := range []struct {
 		path, cache string
 		use         func([]byte) error
+		optional    bool // a gateway older than the agent may not have it: then the defaults, quietly
 	}{
 		{"/api/v1/modules", "modules.yml", func(b []byte) error {
 			m, err := probe.ParseModules(b)
@@ -151,7 +160,7 @@ func (a *Agent) refresh(ctx context.Context) {
 				a.mods = m
 			}
 			return err
-		}},
+		}, false},
 		{"/api/v1/targets", "targets.json", func(b []byte) error {
 			var gs []targets.Group
 			err := json.Unmarshal(b, &gs)
@@ -159,10 +168,23 @@ func (a *Agent) refresh(ctx context.Context) {
 				a.groups = gs
 			}
 			return err
-		}},
+		}, false},
+		{"/api/v1/agent", "agent.json", func(b []byte) error {
+			var s targets.Settings
+			err := json.Unmarshal(b, &s)
+			if err == nil {
+				a.settings = s
+			}
+			return err
+		}, true},
 	} {
 		cache := filepath.Join(a.cfg.StateDir, f.cache)
 		b, err := a.get(ctx, f.path)
+		var he *httpError
+		if f.optional && errors.As(err, &he) && he.code == http.StatusNotFound {
+			_ = f.use([]byte("{}"))
+			continue
+		}
 		if err == nil {
 			if err = f.use(b); err == nil {
 				_ = writeAtomic(cache, b)
@@ -207,10 +229,7 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 	sem := make(chan struct{}, a.cfg.Parallel)
 	var wg sync.WaitGroup
 	for i, j := range jobs {
-		var m *probe.Module
-		if a.mods != nil {
-			m = a.mods.Modules[j.labels["module"]]
-		}
+		m := a.module(j.labels["module"])
 		if m == nil {
 			results[i] = probe.Result{Reason: probe.ReasonConfig, Detail: "no module " + j.labels["module"]}
 			continue
@@ -243,6 +262,22 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 			writeSample(w, "probe_failure_info", base, `reason="`+r.Reason+`"`, 1, at)
 		}
 	}
+}
+
+// module is the named module as this location runs it: with the location's least timeout from the
+// gateway, when that is longer than the module's own. nil when there is no such module.
+func (a *Agent) module(name string) *probe.Module {
+	if a.mods == nil || a.mods.Modules[name] == nil {
+		return nil
+	}
+	m := a.mods.Modules[name]
+	least := time.Duration(a.settings.ProbeTimeoutSeconds * float64(time.Second))
+	if least > time.Duration(m.Timeout) {
+		c := *m
+		c.Timeout = probe.Duration(least)
+		m = &c
+	}
+	return m
 }
 
 // ---- Host, self

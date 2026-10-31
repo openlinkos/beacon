@@ -31,14 +31,27 @@ import (
 // which vendor or machine.
 //
 // A location on a CDN node may also name the node's Address and its cluster's DNS name (Rotation): the
-// inventory check then reports when the node drops out of the cluster's answers.
+// inventory check then reports when the node drops out of the cluster's answers. A Standby node joins the
+// rotation only when another fails, so for it being out is normal and being in is the news.
+//
+// Probe changes how the location's agent probes, for a machine whose path is slower or lossier than the
+// others'; the gateway hands it to that agent.
 type Location struct {
-	ID       string `yaml:"id"`
-	Name     string `yaml:"name"`
-	Region   string `yaml:"region"` // overseas or mainland
-	Network  string `yaml:"network"`
-	Address  string `yaml:"address"`
-	Rotation string `yaml:"rotation"`
+	ID       string        `yaml:"id"`
+	Name     string        `yaml:"name"`
+	Region   string        `yaml:"region"` // overseas or mainland
+	Network  string        `yaml:"network"`
+	Address  string        `yaml:"address"`
+	Rotation string        `yaml:"rotation"`
+	Standby  bool          `yaml:"standby"`
+	Probe    ProbeSettings `yaml:"probe"`
+}
+
+// ProbeSettings change how one location's agent probes. Zero values keep the modules' own settings.
+type ProbeSettings struct {
+	// Timeout is the least time any probe gets at this location: a module with a shorter timeout gets
+	// this one. At most a minute, the agent's interval.
+	Timeout config.Duration `yaml:"timeout"`
 }
 
 // Heartbeat is a job that must report success at least every MaxAge.
@@ -125,6 +138,12 @@ func (c *Catalog) validate() error {
 		}
 		if l.Rotation != "" && l.Address == "" {
 			bad("location %q: a rotation needs the node's address", l.ID)
+		}
+		if l.Standby && l.Rotation == "" {
+			bad("location %q: standby means standby in a rotation; name the rotation", l.ID)
+		}
+		if d := l.Probe.Timeout.D(); d < 0 || d > time.Minute {
+			bad("location %q: probe.timeout must be between 0 and 1m (the agent probes every minute)", l.ID)
 		}
 	}
 	for _, h := range c.Heartbeats {

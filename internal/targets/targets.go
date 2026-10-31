@@ -30,6 +30,14 @@ type Group struct {
 	Labels  map[string]string `yaml:"labels" json:"labels"`
 }
 
+// Settings is what the gateway tells one probe agent besides its targets and modules
+// (GET /api/v1/agent): the location it probes as and how, from the catalogue.
+type Settings struct {
+	Location string `json:"location"`
+	// ProbeTimeoutSeconds is the least time any probe gets (0: the modules' own timeouts).
+	ProbeTimeoutSeconds float64 `json:"probe_timeout_seconds,omitempty"`
+}
+
 // Set is the loaded target files, by file name.
 type Set struct {
 	files map[string][]Group

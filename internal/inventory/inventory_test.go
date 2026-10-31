@@ -20,7 +20,7 @@ func TestRotation(t *testing.T) {
 	body := `
 locations:
   - {id: cdn-pre-us1, name: a, region: overseas, network: x, address: 192.0.2.1, rotation: 192.0.2.1}
-  - {id: cdn-pre-us3, name: b, region: overseas, network: x, address: 192.0.2.3, rotation: 192.0.2.1}
+  - {id: cdn-pre-us3, name: b, region: overseas, network: x, address: 192.0.2.3, rotation: 192.0.2.1, standby: true}
   - {id: cdn-old, name: c, region: overseas, network: x, address: 192.0.2.9, rotation: 192.0.2.9}
   - {id: monitor-us1, name: d, region: overseas, network: x}
 resources:
@@ -43,8 +43,8 @@ resources:
 	for _, want := range []string{
 		`linkos_rotation_resolve_success{rotation="192.0.2.1"} 1`,
 		`linkos_rotation_members{rotation="192.0.2.1"} 1`,
-		`linkos_location_in_rotation{location="cdn-pre-us1",rotation="192.0.2.1"} 1`,
-		`linkos_location_in_rotation{location="cdn-pre-us3",rotation="192.0.2.1"} 0`,
+		`linkos_location_in_rotation{location="cdn-pre-us1",rotation="192.0.2.1",role="primary"} 1`,
+		`linkos_location_in_rotation{location="cdn-pre-us3",rotation="192.0.2.1",role="standby"} 0`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
@@ -76,17 +76,23 @@ func TestUnknownAddress(t *testing.T) {
 	rec := httptest.NewRecorder()
 	m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	if !strings.Contains(rec.Body.String(), `linkos_rotation_unknown_address{rotation="192.0.2.5",address="192.0.2.5"} 1`) ||
-		!strings.Contains(rec.Body.String(), `linkos_location_in_rotation{location="n1",rotation="192.0.2.5"} 0`) {
+		!strings.Contains(rec.Body.String(), `linkos_location_in_rotation{location="n1",rotation="192.0.2.5",role="primary"} 0`) {
 		t.Fatalf("%s", rec.Body)
 	}
 }
 
 func TestRotationNeedsAddress(t *testing.T) {
-	d := t.TempDir()
-	if err := os.WriteFile(filepath.Join(d, "c.yaml"), []byte("locations:\n  - {id: n1, name: a, region: overseas, rotation: cdn.example}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := catalog.Load(d); err == nil {
-		t.Fatal("a rotation without an address must be refused")
+	for name, loc := range map[string]string{
+		"a rotation without an address":     "{id: n1, name: a, region: overseas, rotation: cdn.example}",
+		"standby without a rotation":        "{id: n1, name: a, region: overseas, standby: true}",
+		"a probe timeout over the interval": "{id: n1, name: a, region: overseas, probe: {timeout: 2m}}",
+	} {
+		d := t.TempDir()
+		if err := os.WriteFile(filepath.Join(d, "c.yaml"), []byte("locations:\n  - "+loc+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := catalog.Load(d); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
 	}
 }

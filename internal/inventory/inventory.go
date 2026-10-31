@@ -108,7 +108,11 @@ func (c *Checker) Check(ctx context.Context) {
 				in = 1
 			}
 		}
-		add("linkos_location_in_rotation", metrics.Labels("location", l.ID, "rotation", l.Rotation), in)
+		role := "primary"
+		if l.Standby {
+			role = "standby"
+		}
+		add("linkos_location_in_rotation", metrics.Labels("location", l.ID, "rotation", l.Rotation, "role", role), in)
 	}
 	for rot, members := range rotations {
 		for _, a := range members {
@@ -142,7 +146,7 @@ func (c *Checker) Register(m *metrics.Metrics) {
 	for name, help := range map[string]string{
 		"linkos_rotation_resolve_success": "Whether a CDN cluster's DNS name resolved",
 		"linkos_rotation_members":         "How many addresses a CDN cluster's DNS name resolved to",
-		"linkos_location_in_rotation":     "Whether a probe location's CDN node is among its cluster's DNS answers",
+		"linkos_location_in_rotation":     "Whether a probe location's CDN node is among its cluster's DNS answers (role: primary, or standby that joins only when another fails)",
 		"linkos_rotation_unknown_address": "An address in a CDN cluster's DNS answers that belongs to no probe location",
 	} {
 		m.Register(name, help, "gauge", func() []metrics.Sample {

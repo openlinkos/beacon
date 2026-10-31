@@ -12,13 +12,13 @@ Beacon 回答一个问题：你的服务对用户来说正常吗？它从用户�
 
 - **从用户所在的地方检测。**`linkos-probe` 跑在任何一台小机器上（CDN 边缘节点、大陆的 VPS），检测 HTTP、TCP、TLS、镜像仓库、Git（HTTP）和域名到期，用法和指标名都和 Blackbox Exporter 一样，并说清每次失败的原因：解析、连接、超时、TLS、状态码、内容不符。它还上报少量主机指标和心跳，推送时带磁盘队列，断网也不丢数据。一个静态程序，内存不到 20 MB。
 - **几个地点都说坏了才算坏。**至少两个检测点、并且至少一半有数据的检测点失败，才算服务故障；一个点的抖动永远不会叫醒人。检测点跟着机器走：机器不续费，这个检测点就不再计入。
-- **机器只有一个入口。**网关给每个检测点和主机发各自的令牌（`linkos-beacon enroll`），并给它写入的数据打标签，谁也冒充不了别人。检测目标和检测模块也由网关下发，改检测内容不用重新部署；心跳、规则引擎和 Flux 的告警、Agent 的指标查询也都走网关。
+- **机器只有一个入口。**网关给每个检测点和主机发各自的令牌（`linkos-beacon enroll`），并给它写入的数据打标签，谁也冒充不了别人。检测目标、检测模块和各检测点的设置（比如给线路不稳的机器更长的超时）也由网关下发，改检测内容不用重新部署；心跳、规则引擎和 Flux 的告警、Agent 的指标查询也都走网关。
 - **自带告警路由。**分组、抑制、静默，和 Alertmanager 一样，但在服务里完成；规则引擎像发给 Alertmanager 一样把告警发过来即可。
 - **飞书告警卡片。**新告警会变成告警群里的一张交互卡片：出了什么问题、从什么时候开始、哪些检测点在失败，附处理手册和面板的链接。卡片上的按钮可以认领（可写备注），或者静默 1、4、24 小时。卡片原地更新，告警恢复后变绿。
 - **升级到手机。**严重告警没人认领时，10 分钟后在飞书里加急，15 分钟后发 Pushover 紧急通知：手机会一直响，直到有人在 Pushover 里确认，这也算在这里认领。告警还在触发时，认领 4 小时后失效，重新开始升级。
 - **不会悄悄丢掉。**低级别告警、以及超出飞书应用每月 API 额度的告警，改由群自定义机器人发送（不占额度）。卡片发不出去时，严重告警直接发 Pushover。规则、路由、送达都正常时，服务每分钟 ping 一次 healthchecks.io，所以监控主机挂了、飞书连接断了，手机照样会收到。
 - **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
-- **CDN 节点是否在轮转里。**检测点在 CDN 节点上时，Beacon 会发现节点被踢出所在集群的解析（机器在线、还在检测，但已经不服务用户），也会发现集群里有没人看管的节点。
+- **CDN 节点是否在轮转里。**检测点在 CDN 节点上时，Beacon 会发现节点被踢出所在集群的解析（机器在线、还在检测，但已经不服务用户）、备用节点顶上，也会发现集群里有没人看管的节点。
 - **很轻。**一整套只有四个容器（Beacon、VictoriaMetrics、vmalert、Caddy），每个检测点一个程序。
 
 ## 结构
@@ -44,7 +44,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关。
+从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关。
 
 让 vmalert 把告警发给网关：`-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<rules.token_file 里那个文件>`。
 
@@ -89,7 +89,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | --- | --- | --- |
 | `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | 文本格式的样本（`linkos-probe` 推送的）、心跳 |
 | `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write |
-| `GET /api/v1/targets`、`GET /api/v1/modules` | `probe:write` | 检测什么、怎么检测 |
+| `GET /api/v1/targets`、`GET /api/v1/modules`、`GET /api/v1/agent` | `probe:write` | 检测什么、怎么检测、所在检测点的设置 |
 | `POST /api/v2/alerts` | 规则引擎的令牌、`alerts:send` | 告警，Alertmanager API v2 格式 |
 | `GET /api/v1/query`、`query_range`、`series` 等 | `metrics:read` | 给 Agent 的指标查询 |
 

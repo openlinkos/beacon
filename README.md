@@ -12,13 +12,13 @@ Early days: Beacon runs the monitoring of LinkOS's own services. Public status p
 
 - **Probes from where your users are.** `linkos-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
 - **An outage is what several locations agree on.** A service is down only when at least two locations, and at least half of those reporting, fail; one location's hiccup never pages anyone. Locations follow their machines: when a machine is let go, its location stops counting.
-- **One door for machines.** The gateway gives each probe and host its own token (`linkos-beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets and probe modules, so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
+- **One door for machines.** The gateway gives each probe and host its own token (`linkos-beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets, probe modules and settings (a longer timeout for a machine on a lossy path, say), so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
 - **Alert routing built in.** Grouping, inhibition and silences, as Alertmanager does them, inside the service. Rule engines post alerts to it as they would to Alertmanager.
 - **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
 - **Escalation to phones.** A critical alert that nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15: the phone keeps ringing until someone acknowledges it there, which also acknowledges it here. An acknowledgement lapses after 4 hours if the alert is still firing.
 - **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The service pings healthchecks.io every minute while rules, routing and delivery all work, so a dead monitoring host or a broken Feishu connection still reaches a phone.
 - **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
-- **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), and when the rotation holds a node nobody watches.
+- **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), when a standby node steps in, and when the rotation holds a node nobody watches.
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
 ## How it fits
@@ -44,7 +44,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file. Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines.
+Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines.
 
 Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
 
@@ -89,7 +89,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | --- | --- | --- |
 | `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `linkos-probe` pushes), heartbeats |
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
-| `GET /api/v1/targets`, `GET /api/v1/modules` | `probe:write` | What the probe checks, and how |
+| `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
 | `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
 | `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
 

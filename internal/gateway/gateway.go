@@ -78,6 +78,7 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/write", g.with("write", []string{"probe:write", "host:write"}, g.write))
 	mux.Handle("GET /api/v1/targets", g.with("targets", []string{"probe:write"}, g.targets))
 	mux.Handle("GET /api/v1/modules", g.with("modules", []string{"probe:write"}, g.modules))
+	mux.Handle("GET /api/v1/agent", g.with("agent", []string{"probe:write"}, g.agent))
 	mux.Handle("POST /api/v1/import/prometheus", g.with("import", []string{"probe:write", "host:write", "heartbeat:write"}, g.importText))
 	for _, p := range readPaths {
 		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
@@ -182,11 +183,32 @@ func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 	g.vm.ServeHTTP(w, r)
 }
 
-func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token) {
+// active is the token's location when it is in the catalogue and its machine has not expired; otherwise
+// it answers 403 and reports false.
+func (g *gateway) active(w http.ResponseWriter, t store.Token) (*catalog.Catalog, catalog.Location, bool) {
 	cat := g.Catalog()
 	l, ok := cat.Location(t.Subject)
 	if !ok || !cat.Expected(l, g.Now()) {
 		fail(w, http.StatusForbidden, "location.inactive", "location "+t.Subject+" is not active")
+		return nil, catalog.Location{}, false
+	}
+	return cat, l, true
+}
+
+// agent tells a probe agent its settings from the catalogue.
+func (g *gateway) agent(w http.ResponseWriter, _ *http.Request, t store.Token) {
+	_, l, ok := g.active(w, t)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(targets.Settings{Location: l.ID, ProbeTimeoutSeconds: l.Probe.Timeout.D().Seconds()})
+}
+
+func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token) {
+	cat, l, ok := g.active(w, t)
+	if !ok {
 		return
 	}
 	ids := make([]string, 0, len(cat.Locations))

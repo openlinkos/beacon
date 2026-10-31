@@ -77,7 +77,7 @@ func newEnv(t *testing.T, withAM bool) *env {
 	files := map[string]string{
 		filepath.Join(cat, "c.yaml"): `
 locations:
-  - {id: cdn-pre-us1, name: United States - Los Angeles CN2 GIA, region: overseas, network: CN2 GIA}
+  - {id: cdn-pre-us1, name: United States - Los Angeles CN2 GIA, region: overseas, network: CN2 GIA, probe: {timeout: 45s}}
   - {id: cdn-pre-cn1, name: Mainland China - Zhejiang Telecom, region: mainland, network: Telecom}
 resources:
   - {name: cdn-pre-us1, kind: vps, expires: 2027-04-02}
@@ -200,6 +200,18 @@ func TestHostWrite(t *testing.T) {
 		t.Fatalf("extra_label = %v", got)
 	}
 	code(t, e.do("GET", "/api/v1/targets", e.host, ""), http.StatusForbidden, "auth.scope")
+}
+
+func TestAgentSettings(t *testing.T) {
+	e := newEnv(t, false)
+	rec := e.do("GET", "/api/v1/agent", e.probe, "")
+	code(t, rec, http.StatusOK, "")
+	var s targets.Settings
+	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil || s.Location != "cdn-pre-us1" || s.ProbeTimeoutSeconds != 45 {
+		t.Fatalf("settings %+v %v", s, err)
+	}
+	code(t, e.do("GET", "/api/v1/agent", e.expired, ""), http.StatusForbidden, "location.inactive")
+	code(t, e.do("GET", "/api/v1/agent", e.host, ""), http.StatusForbidden, "auth.scope")
 }
 
 func TestTargetsForTheLocation(t *testing.T) {

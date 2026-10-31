@@ -18,10 +18,11 @@ import (
 )
 
 type gateway struct {
-	mu      sync.Mutex
-	pushes  []string
-	status  int // for pushes; 0 = 204
-	targets string
+	mu       sync.Mutex
+	pushes   []string
+	status   int // for pushes; 0 = 204
+	targets  string
+	settings string // GET /api/v1/agent; empty: 404, as from an older gateway
 }
 
 func (g *gateway) server(t *testing.T, target string) *httptest.Server {
@@ -39,6 +40,15 @@ func (g *gateway) server(t *testing.T, target string) *httptest.Server {
 			g.mu.Unlock()
 			if body == "" {
 				body = `[{"targets":["` + target + `/ok","` + target + `/broken"],"labels":{"module":"http_2xx","service":"web","severity":"critical"}}]`
+			}
+			_, _ = io.WriteString(w, body)
+		case "/api/v1/agent":
+			g.mu.Lock()
+			body := g.settings
+			g.mu.Unlock()
+			if body == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
 			}
 			_, _ = io.WriteString(w, body)
 		case "/api/v1/import/prometheus":
@@ -129,6 +139,41 @@ func TestCyclePushesProbesHostAndHeartbeats(t *testing.T) {
 	}
 	if last != 1793491200 {
 		t.Errorf("status after a push: %+v", a.Status())
+	}
+}
+
+func TestLocationTimeout(t *testing.T) {
+	a, gw, _ := newAgent(t)
+	// an older gateway without settings: the module's own 5s
+	if err := a.Cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if m := a.module("http_2xx"); m == nil || time.Duration(m.Timeout) != 5*time.Second {
+		t.Fatalf("without settings: %+v", m)
+	}
+	// a location on a lossy path gets at least 45s, without changing the shared module
+	gw.mu.Lock()
+	gw.settings = `{"location":"cdn-pre-cn1","probe_timeout_seconds":45}`
+	gw.mu.Unlock()
+	if err := a.Cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if m := a.module("http_2xx"); time.Duration(m.Timeout) != 45*time.Second || time.Duration(a.mods.Modules["http_2xx"].Timeout) != 5*time.Second {
+		t.Fatalf("with 45s: %v, shared %v", m.Timeout, a.mods.Modules["http_2xx"].Timeout)
+	}
+	if _, err := os.Stat(filepath.Join(a.cfg.StateDir, "agent.json")); err != nil {
+		t.Error("settings are cached")
+	}
+	// a shorter least timeout leaves a longer module alone
+	gw.mu.Lock()
+	gw.settings = `{"location":"cdn-pre-cn1","probe_timeout_seconds":2}`
+	gw.mu.Unlock()
+	_ = a.Cycle(context.Background())
+	if m := a.module("http_2xx"); time.Duration(m.Timeout) != 5*time.Second {
+		t.Fatalf("with 2s: %v", m.Timeout)
+	}
+	if a.module("nope") != nil {
+		t.Error("an unknown module")
 	}
 }
 
