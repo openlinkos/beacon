@@ -63,22 +63,20 @@ func TestLoadMissingDir(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	cases := map[string]string{
-		"bad id":          "locations: [{id: US_LA, name: x, region: overseas}]",
-		"no name":         "locations: [{id: us-la, region: overseas}]",
-		"bad region":      "locations: [{id: us-la, name: x, region: earth}]",
-		"duplicate":       "locations: [{id: a, name: x, region: overseas}, {id: a, name: y, region: overseas}]",
-		"short max age":   "heartbeats: [{name: a, max_age: 10s, severity: warning}]",
-		"bad severity":    "heartbeats: [{name: a, max_age: 1h, severity: page}]",
-		"bad date":        "resources: [{name: a, kind: vps, expires: 27/11/2026}]",
-		"bad kind":        "resources: [{name: a, kind: car, expires: 2026-11-27}]",
-		"unknown field":   "locations: [{id: a, name: x, region: overseas, vendor: acme}]",
-		"duplicate hb":    "heartbeats: [{name: a, max_age: 1h, severity: warning}, {name: a, max_age: 2h, severity: warning}]",
-		"unnamed res":     "resources: [{kind: vps, expires: 2026-11-27}]",
-		"duplicate res":   "resources: [{name: a, kind: vps, expires: 2026-11-27}, {name: a, kind: vps, expires: 2026-11-28}]",
-		"hb bad name":     "heartbeats: [{name: LO1, max_age: 1h, severity: warning}]",
-		"region missing":  "locations: [{id: a, name: x}]",
-		"unknown machine": "locations: [{id: a, name: x, region: overseas, machine: b}]",
-		"machine not vps": "locations: [{id: a, name: x, region: overseas, machine: b}]\nresources: [{name: b, kind: domain, expires: 2027-01-01}]",
+		"bad id":         "locations: [{id: US_LA, name: x, region: overseas}]",
+		"no name":        "locations: [{id: us-la, region: overseas}]",
+		"bad region":     "locations: [{id: us-la, name: x, region: earth}]",
+		"duplicate":      "locations: [{id: a, name: x, region: overseas}, {id: a, name: y, region: overseas}]",
+		"short max age":  "heartbeats: [{name: a, max_age: 10s, severity: warning}]",
+		"bad severity":   "heartbeats: [{name: a, max_age: 1h, severity: page}]",
+		"bad date":       "resources: [{name: a, kind: vps, expires: 27/11/2026}]",
+		"bad kind":       "resources: [{name: a, kind: car, expires: 2026-11-27}]",
+		"unknown field":  "locations: [{id: a, name: x, region: overseas, vendor: acme}]",
+		"duplicate hb":   "heartbeats: [{name: a, max_age: 1h, severity: warning}, {name: a, max_age: 2h, severity: warning}]",
+		"unnamed res":    "resources: [{kind: vps, expires: 2026-11-27}]",
+		"duplicate res":  "resources: [{name: a, kind: vps, expires: 2026-11-27}, {name: a, kind: vps, expires: 2026-11-28}]",
+		"hb bad name":    "heartbeats: [{name: LO1, max_age: 1h, severity: warning}]",
+		"region missing": "locations: [{id: a, name: x}]",
 	}
 	for name, body := range cases {
 		d := t.TempDir()
@@ -93,10 +91,12 @@ func TestExpectedFollowsTheMachine(t *testing.T) {
 	d := t.TempDir()
 	write(t, d, "c.yaml", `
 locations:
-  - {id: us-seattle-9929, name: United States - Seattle 9929, region: overseas, network: "9929", machine: cdn-pre-us3}
-  - {id: us-silicon-valley, name: United States - Silicon Valley, region: overseas, network: BGP}
+  - {id: cdn-pre-us3, name: United States - Seattle 9929, region: overseas, network: "9929"}
+  - {id: cdn-pro-us1, name: United States - Los Angeles Optimized 1, region: overseas, network: Optimized}
+  - {id: monitor-us1, name: United States - Silicon Valley, region: overseas, network: BGP}
 resources:
   - {name: cdn-pre-us3, kind: vps, expires: 2026-11-27}
+  - {name: monitor-us1, kind: domain, expires: 2026-11-01}
 `)
 	c, err := Load(d)
 	if err != nil {
@@ -115,13 +115,21 @@ resources:
 		m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 		return rec.Body.String()
 	}
-	seattle := `linkos_expected_location{location="us-seattle-9929"`
-	valley := `linkos_expected_location{location="us-silicon-valley"`
+	seattle := `linkos_expected_location{location="cdn-pre-us3"`
+	// no resource of that name: always expected; a resource of that name that is not a vps does not count
+	others := []string{`linkos_expected_location{location="cdn-pro-us1"`, `linkos_expected_location{location="monitor-us1"`}
 	// the whole expiry day still counts; the next day the probe is no longer expected
-	if b := scrape("2026-11-27T23:59:00Z"); !strings.Contains(b, seattle) || !strings.Contains(b, valley) {
-		t.Errorf("on the expiry day both locations are expected:\n%s", b)
+	b := scrape("2026-11-27T23:59:00Z")
+	if !strings.Contains(b, seattle) {
+		t.Errorf("on the expiry day the location is expected:\n%s", b)
 	}
-	if b := scrape("2026-11-28T00:00:00Z"); strings.Contains(b, seattle) || !strings.Contains(b, valley) {
-		t.Errorf("after the machine expires only the other location is expected:\n%s", b)
+	b = scrape("2026-11-28T00:00:00Z")
+	if strings.Contains(b, seattle) {
+		t.Errorf("after its machine expires the location is no longer expected:\n%s", b)
+	}
+	for _, o := range others {
+		if !strings.Contains(b, o) {
+			t.Errorf("%s should still be expected:\n%s", o, b)
+		}
 	}
 }
