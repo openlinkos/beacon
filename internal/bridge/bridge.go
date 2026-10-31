@@ -1,8 +1,8 @@
-// Package bridge closes the loop between Alertmanager and the people on call.
+// Package bridge closes the loop between the alerts and the people on call.
 //
-// Alertmanager posts each alert group to the bridge. A new group becomes a Feishu card in the alert
+// The router hands each alert group to the bridge. A new group becomes a Feishu card in the alert
 // chat (or a plain message from the group's custom bot, for low severities or when the app's API
-// quota runs low). Buttons on the card acknowledge the alert or silence it in Alertmanager; the card
+// quota runs low). Buttons on the card acknowledge the alert or silence it; the card
 // changes in place, and turns green when the alert resolves. A critical alert nobody acknowledges is
 // escalated: a buzz in the Feishu app, then a Pushover emergency alert that repeats on the phone until
 // someone acknowledges it there (which also counts as an acknowledgement here).
@@ -36,7 +36,7 @@ import (
 	"github.com/openlinkos/beacon/internal/vm"
 )
 
-// Silencer is the part of the Alertmanager API the bridge uses.
+// Silencer is what the bridge needs from the router: creating, ending and listing silences.
 type Silencer interface {
 	CreateSilence(ctx context.Context, labels map[string]string, start, end time.Time, createdBy, comment string) (string, error)
 	ExpireSilence(ctx context.Context, id string) error
@@ -143,7 +143,7 @@ func New(d Deps) *Bridge {
 	return b
 }
 
-// GroupID is the short, stable id of an Alertmanager group key.
+// GroupID is the short, stable id of a group key.
 func GroupID(groupKey string) string {
 	sum := sha256.Sum256([]byte(groupKey))
 	return hex.EncodeToString(sum[:])[:12]
@@ -739,7 +739,7 @@ func noteSuffix(b *Bridge, note string) string {
 	return "\n" + b.t("Note: %s", note)
 }
 
-// Silence silences a firing group in Alertmanager for d (at most 24 hours) with a comment.
+// Silence silences a firing group for d (at most 24 hours) with a comment.
 func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Actor, comment string) (GroupView, error) {
 	comment = strings.TrimSpace(comment)
 	if d <= 0 || d > maxSilence {
@@ -771,7 +771,7 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 	return b.view(&g), nil
 }
 
-// ExpireSilence ends an Alertmanager silence.
+// ExpireSilence ends a silence.
 func (b *Bridge) ExpireSilence(ctx context.Context, silenceID string, who Actor) error {
 	if silenceID == "" {
 		return fmt.Errorf("%w: no silence id", ErrBadInput)
@@ -795,7 +795,7 @@ func (b *Bridge) ExpireSilence(ctx context.Context, silenceID string, who Actor)
 	return nil
 }
 
-// Silences lists Alertmanager's active and pending silences.
+// Silences lists the active and pending silences.
 func (b *Bridge) Silences(ctx context.Context) ([]alertmanager.Silence, error) {
 	ss, err := b.d.AM.Silences(ctx)
 	if err != nil {

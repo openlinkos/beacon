@@ -28,5 +28,5 @@ func String() string {
 	return fmt.Sprintf("%s %s %s/%s", s, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
-// UserAgent is the User-Agent of the requests the service makes (Alertmanager, Feishu, Pushover, probes).
+// UserAgent is the User-Agent of the requests the service makes (Feishu, Pushover, probes).
 func UserAgent() string { return "linkos-beacon/" + Version + " (+" + Repo + ")" }

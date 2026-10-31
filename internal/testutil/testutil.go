@@ -15,7 +15,7 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// AM is a fake Alertmanager.
+// AM is a fake silencer, standing in for the router.
 type AM struct {
 	mu      sync.Mutex
 	Created []map[string]string

@@ -80,7 +80,7 @@ type (
 		Silences []alertmanager.Silence `json:"silences"`
 	}
 	expireIn struct {
-		SilenceID string `json:"silence_id" jsonschema:"the Alertmanager silence id"`
+		SilenceID string `json:"silence_id" jsonschema:"the silence id"`
 	}
 	okOut struct {
 		OK bool `json:"ok"`
@@ -135,7 +135,7 @@ func New(b *bridge.Bridge) *mcp.Server {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_silences", Title: "List silences", Annotations: read,
-		Description: "Alertmanager silences that are active or pending, ending soonest first."},
+		Description: "Silences that are active or pending, ending soonest first."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, silencesOut, error) {
 			if _, err := need(ctx, "status:read"); err != nil {
 				return nil, silencesOut{}, err
@@ -179,7 +179,7 @@ func New(b *bridge.Bridge) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "silence_alert", Title: "Silence an alert",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Silence a firing alert group in Alertmanager for a while (at most 24h) with a required comment. Notifications for every alert in the group stop until it ends; it also acknowledges the group."},
+		Description: "Silence a firing alert group for a while (at most 24h) with a required comment. Notifications for every alert in the group stop until it ends; it also acknowledges the group."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in silenceIn) (*mcp.CallToolResult, bridge.GroupView, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {
@@ -195,7 +195,7 @@ func New(b *bridge.Bridge) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "expire_silence", Title: "End a silence",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "End an Alertmanager silence now, so the alerts it covered notify again."},
+		Description: "End a silence now, so the alerts it covered notify again."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in expireIn) (*mcp.CallToolResult, okOut, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {

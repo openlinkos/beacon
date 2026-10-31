@@ -41,7 +41,7 @@ components:
     Alert:
       type: object
       properties:
-        id: {type: string, description: Stable id of the Alertmanager alert group}
+        id: {type: string, description: Stable id of the alert group}
         status: {type: string, enum: [firing, resolved]}
         severity: {type: string, enum: [critical, warning, info]}
         title: {type: string}
@@ -147,7 +147,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /silences:
     get:
-      summary: Active and pending Alertmanager silences
+      summary: Active and pending silences
       description: "Scope: status:read"
       responses:
         "200":
@@ -160,7 +160,7 @@ paths:
                   silences: {type: array, items: {type: object}}
         default: {$ref: "#/components/responses/Error"}
     post:
-      summary: Silence a firing alert group in Alertmanager
+      summary: Silence a firing alert group
       description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group."
       requestBody:
         required: true

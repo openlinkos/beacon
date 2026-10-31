@@ -39,7 +39,7 @@ var ErrLocked = errors.New("another process has the database open")
 // ErrNotFound is returned for an unknown token or group.
 var ErrNotFound = errors.New("not found")
 
-// Group is one Alertmanager alert group and what was done about it.
+// Group is one alert group and what was done about it.
 type Group struct {
 	ID          string            `json:"id"`
 	Key         string            `json:"key"`
@@ -84,7 +84,7 @@ type Ack struct {
 	At   time.Time `json:"at"`
 }
 
-// Silence is the Alertmanager silence created for a group.
+// Silence is the silence created for a group.
 type Silence struct {
 	ID    string    `json:"id"`
 	By    string    `json:"by"`
