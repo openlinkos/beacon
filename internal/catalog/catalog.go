@@ -25,11 +25,15 @@ import (
 )
 
 // Location is a probe location. Name is public: it says where and on which network, never which vendor.
+// Machine optionally names the server the probe runs on, as listed in the resources: the location is
+// expected to report only until that server expires, so a server that is let go stops counting as a
+// probe on its own, and renewing it (a new date) brings the probe back.
 type Location struct {
 	ID      string `yaml:"id"`
 	Name    string `yaml:"name"`
 	Region  string `yaml:"region"` // overseas or mainland
 	Network string `yaml:"network"`
+	Machine string `yaml:"machine"`
 }
 
 // Heartbeat is a job that must report success at least every MaxAge.
@@ -62,6 +66,7 @@ type Catalog struct {
 var (
 	idRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	resourceRes = []string{"vps", "domain", "cert", "token", "service"}
+	now         = time.Now // replaced in tests
 )
 
 // Load reads every *.yaml file in dir and merges them. A missing directory is an empty catalogue.
@@ -147,7 +152,34 @@ func (c *Catalog) validate() error {
 		}
 		r.expires = t
 	}
+	for _, l := range c.Locations {
+		if l.Machine == "" {
+			continue
+		}
+		if r, ok := c.resource(l.Machine); !ok || r.Kind != "vps" {
+			bad("location %q: machine %q is not a vps in the resources", l.ID, l.Machine)
+		}
+	}
 	return errors.Join(errs...)
+}
+
+func (c *Catalog) resource(name string) (Resource, bool) {
+	for _, r := range c.Resources {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return Resource{}, false
+}
+
+// Expected reports whether the location should be reporting at t: always, unless it runs on a machine
+// that has expired (the whole expiry day still counts).
+func (c *Catalog) Expected(l Location, t time.Time) bool {
+	if l.Machine == "" {
+		return true
+	}
+	r, ok := c.resource(l.Machine)
+	return !ok || t.Before(r.expires.AddDate(0, 0, 1))
 }
 
 // Location returns the location with id.
@@ -162,10 +194,13 @@ func (c *Catalog) Location(id string) (Location, bool) {
 
 // Register exports the catalogue as metrics. cat is read on every scrape, so a reload takes effect.
 func Register(m *metrics.Metrics, cat func() *Catalog) {
-	m.Register("linkos_expected_location", "Probe locations that should report (1 each)", "gauge", func() []metrics.Sample {
+	m.Register("linkos_expected_location", "Probe locations that should report (1 each; not once their machine has expired)", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
-		for _, l := range cat().Locations {
-			out = append(out, metrics.Sample{Labels: metrics.Labels("location", l.ID, "region", l.Region, "network", l.Network), Value: 1})
+		c, t := cat(), now()
+		for _, l := range c.Locations {
+			if c.Expected(l, t) {
+				out = append(out, metrics.Sample{Labels: metrics.Labels("location", l.ID, "region", l.Region, "network", l.Network), Value: 1})
+			}
 		}
 		return out
 	})
