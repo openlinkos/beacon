@@ -14,15 +14,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/bridge"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 // Instructions tell an agent what the server is for and how to use the write tools responsibly.
-const Instructions = `LinkOS Status watches the LinkOS services and sends alerts to the people on call through Feishu,
+const Instructions = `Beacon watches services and sends alerts to the people on call through Feishu,
 escalating to their phones when nobody acknowledges them. Use these tools to see what is alerting and why
 (status_summary, list_alerts, get_alert, list_silences, list_audit) and, with a write token, to act on it.
 Acknowledge an alert only when someone is working on it, and say what in the note. Silence only with a
@@ -95,7 +95,7 @@ type (
 
 // New builds the MCP server with its tools.
 func New(b *bridge.Bridge) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "linkos-status", Title: "LinkOS Status", Version: version.Version},
+	s := mcp.NewServer(&mcp.Implementation{Name: "linkos-beacon", Title: "Beacon", Version: version.Version},
 		&mcp.ServerOptions{Instructions: Instructions})
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/probe"
+	"github.com/openlinkos/beacon/internal/probe"
 )
 
 func fake(t *testing.T, files map[string]string) string {

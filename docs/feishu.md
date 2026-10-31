@@ -2,9 +2,9 @@
 
 English | [简体中文](zh/feishu.md)
 
-LinkOS Status sends alert cards through a Feishu (or Lark) **self-built app** and receives button clicks from it. A group's custom bot cannot do this: its messages have no callbacks and cannot be updated. The custom bot is still useful alongside the app, for plain messages that cost no API quota.
+Beacon sends alert cards through a Feishu (or Lark) **self-built app** and receives button clicks from it. A group's custom bot cannot do this: its messages have no callbacks and cannot be updated. The custom bot is still useful alongside the app, for plain messages that cost no API quota.
 
-Create two apps, one for production and one for testing (for example "LinkOS Status" and "LinkOS Status Dev"): Feishu hands each callback to one connection only, so a test instance using the production app would take clicks away from production.
+Create two apps, one for production and one for testing (for example "Beacon" and "Beacon Dev"): Feishu hands each callback to one connection only, so a test instance using the production app would take clicks away from production.
 
 ## 1. Create the app
 
@@ -47,10 +47,10 @@ Create a version and publish it; an administrator approves it in the admin conso
 
 ## 6. Check it
 
-Start the service and look for `feishu long connection ready` in the log, then run a drill: `linkos-status drill fail 15m` makes `/drill/healthz` fail; once your probes see it and the alert fires, a card arrives. Acknowledge it, silence it, then `linkos-status drill off` and watch it turn green.
+Start the service and look for `feishu long connection ready` in the log, then run a drill: `linkos-beacon drill fail 15m` makes `/drill/healthz` fail; once your probes see it and the alert fires, a card arrives. Acknowledge it, silence it, then `linkos-beacon drill off` and watch it turn green.
 
 ## Quota
 
 On the free plan, all of an organisation's custom apps share a monthly API call limit (10,000 calls when this was written; check your console). Sending a card, updating it through the API and buzzing each cost one call; a card updated by a click costs nothing. Set `feishu.monthly_budget` to your limit: above 70% of it only critical alerts use the app, and the rest go to the custom bot.
 
-Phone and SMS buzzes need a verified organisation; LinkOS Status uses only the in-app buzz and escalates to Pushover instead.
+Phone and SMS buzzes need a verified organisation; Beacon uses only the in-app buzz and escalates to Pushover instead.

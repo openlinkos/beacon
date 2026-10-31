@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/metrics"
-	"github.com/openlinkos/status/internal/router"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/targets"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/router"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 )
 
 type seen struct {
@@ -255,7 +255,7 @@ func TestAlertsToTheRouter(t *testing.T) {
 func TestAuth(t *testing.T) {
 	e := newEnv(t, false)
 	code(t, e.do("POST", "/api/v1/write", "", "x"), http.StatusUnauthorized, "auth.required")
-	code(t, e.do("POST", "/api/v1/write", "lst_nope", "x"), http.StatusUnauthorized, "auth.invalid")
+	code(t, e.do("POST", "/api/v1/write", "lbt_nope", "x"), http.StatusUnauthorized, "auth.invalid")
 	code(t, e.do("POST", "/api/v1/write", e.human, "x"), http.StatusForbidden, "auth.scope")
 	code(t, e.do("GET", "/api/v1/nothing", e.probe, ""), http.StatusNotFound, "not_found")
 	code(t, e.do("DELETE", "/api/v1/admin/tsdb/delete_series", e.reader, ""), http.StatusNotFound, "not_found")

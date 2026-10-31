@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 type sink struct {

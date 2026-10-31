@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/beacon/internal/metrics"
 )
 
 func write(t *testing.T, dir, name, body string) {

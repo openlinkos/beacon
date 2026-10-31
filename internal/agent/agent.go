@@ -27,10 +27,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/openlinkos/status/internal/hostmetrics"
-	"github.com/openlinkos/status/internal/probe"
-	"github.com/openlinkos/status/internal/targets"
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/hostmetrics"
+	"github.com/openlinkos/beacon/internal/probe"
+	"github.com/openlinkos/beacon/internal/targets"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 // Config is the agent's setup.

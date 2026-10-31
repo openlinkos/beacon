@@ -206,9 +206,9 @@ func (c *Config) defaults() {
 		}
 	}
 	set(&c.Listen, ":17001")
-	set(&c.DataDir, "/var/lib/linkos-status")
-	set(&c.CatalogDir, "/etc/linkos-status/catalog")
-	set(&c.Gateway.TargetsDir, "/etc/linkos-status/targets")
+	set(&c.DataDir, "/var/lib/linkos-beacon")
+	set(&c.CatalogDir, "/etc/linkos-beacon/catalog")
+	set(&c.Gateway.TargetsDir, "/etc/linkos-beacon/targets")
 	set(&c.Gateway.Listen, ":17006")
 	set(&c.Gateway.ModulesFile, strings.TrimSuffix(c.Gateway.TargetsDir, "/")+"/modules.yml")
 	if c.Routing.GroupBy == nil {

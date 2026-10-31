@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/feishu"
-	"github.com/openlinkos/status/internal/i18n"
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/feishu"
+	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // t renders a message in the bridge's language.

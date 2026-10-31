@@ -13,11 +13,11 @@ var (
 )
 
 // Repo is the project URL, which appears in the User-Agent and on the status pages.
-const Repo = "https://github.com/openlinkos/status"
+const Repo = "https://github.com/openlinkos/beacon"
 
 // String is the output of the version subcommand.
 func String() string {
-	s := "linkos-status " + Version
+	s := "linkos-beacon " + Version
 	if Commit != "" {
 		s += " (" + Commit
 		if Date != "" {
@@ -29,4 +29,4 @@ func String() string {
 }
 
 // UserAgent is the User-Agent of the requests the service makes (Alertmanager, Feishu, Pushover, probes).
-func UserAgent() string { return "linkos-status/" + Version + " (+" + Repo + ")" }
+func UserAgent() string { return "linkos-beacon/" + Version + " (+" + Repo + ")" }

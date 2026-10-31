@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/config"
-	"github.com/openlinkos/status/internal/feishu"
-	"github.com/openlinkos/status/internal/notify"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/vm"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/feishu"
+	"github.com/openlinkos/beacon/internal/notify"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/vm"
 )
 
 type fakeFeishu struct {

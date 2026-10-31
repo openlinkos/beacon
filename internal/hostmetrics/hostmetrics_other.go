@@ -2,7 +2,7 @@
 
 package hostmetrics
 
-import "github.com/openlinkos/status/internal/probe"
+import "github.com/openlinkos/beacon/internal/probe"
 
 // Filesystem sizes and time sync come from Linux system calls; elsewhere (development machines) they are
 // left out.

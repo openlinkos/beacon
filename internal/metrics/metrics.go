@@ -66,7 +66,7 @@ type Metrics struct {
 	counters sync.Map // name → *counter
 }
 
-// New creates a registry. version appears in linkos_status_build_info.
+// New creates a registry. version appears in linkos_beacon_build_info.
 func New(version string) *Metrics { return &Metrics{version: version, start: time.Now()} }
 
 // Register adds a metric computed at scrape time. typ is gauge or counter.
@@ -125,8 +125,8 @@ func (m *Metrics) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	fmt.Fprintf(bw, "# HELP linkos_status_build_info Version\n# TYPE linkos_status_build_info gauge\nlinkos_status_build_info%s 1\n", Labels("version", m.version, "go", runtime.Version()))
-	fmt.Fprintf(bw, "# TYPE linkos_status_start_time_seconds gauge\nlinkos_status_start_time_seconds %d\n", m.start.Unix())
+	fmt.Fprintf(bw, "# HELP linkos_beacon_build_info Version\n# TYPE linkos_beacon_build_info gauge\nlinkos_beacon_build_info%s 1\n", Labels("version", m.version, "go", runtime.Version()))
+	fmt.Fprintf(bw, "# TYPE linkos_beacon_start_time_seconds gauge\nlinkos_beacon_start_time_seconds %d\n", m.start.Unix())
 	fmt.Fprintf(bw, "# TYPE go_goroutines gauge\ngo_goroutines %d\n", runtime.NumGoroutine())
 	fmt.Fprintf(bw, "# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", ms.HeapInuse)
 	fmt.Fprintf(bw, "# TYPE go_memstats_sys_bytes gauge\ngo_memstats_sys_bytes %d\n", ms.Sys)

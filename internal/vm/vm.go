@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 // Sample is one series of an instant vector.

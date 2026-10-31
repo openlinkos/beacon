@@ -25,10 +25,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/openlinkos/status/internal/agent"
-	"github.com/openlinkos/status/internal/hostmetrics"
-	"github.com/openlinkos/status/internal/probe"
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/agent"
+	"github.com/openlinkos/beacon/internal/hostmetrics"
+	"github.com/openlinkos/beacon/internal/probe"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 const defaultModules = "/etc/linkos-agent/modules.yml"
@@ -157,7 +157,7 @@ func runAgent(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	gateway := fs.String("gateway", "", "the status service's gateway, such as https://metrics.example.com")
-	tokenFile := fs.String("token-file", "/etc/linkos-agent/token", "file with the token from 'linkos-status enroll probe NAME'")
+	tokenFile := fs.String("token-file", "/etc/linkos-agent/token", "file with the token from 'linkos-beacon enroll probe NAME'")
 	state := fs.String("state", "/var/lib/linkos-agent", "cache of targets and modules, and the queue")
 	interval := fs.Duration("interval", time.Minute, "how often to probe and push")
 	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")

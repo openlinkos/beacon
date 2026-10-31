@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/hostmetrics"
+	"github.com/openlinkos/beacon/internal/hostmetrics"
 )
 
 type gateway struct {
@@ -26,7 +26,7 @@ type gateway struct {
 
 func (g *gateway) server(t *testing.T, target string) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer lst_test" {
+		if r.Header.Get("Authorization") != "Bearer lbt_test" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -90,7 +90,7 @@ func newAgent(t *testing.T) (*Agent, *gateway, string) {
 	text := t.TempDir()
 	_ = os.WriteFile(filepath.Join(text, "heartbeat_backup.prom"), []byte(`linkos_heartbeat_last_success_timestamp_seconds{heartbeat="backup"} 1793436000`+"\n"), 0o600)
 	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	a := New(Config{Gateway: srv.URL + "/", Token: "lst_test", StateDir: state, Host: &hostmetrics.Collector{ProcRoot: proc, TextfileDir: text},
+	a := New(Config{Gateway: srv.URL + "/", Token: "lbt_test", StateDir: state, Host: &hostmetrics.Collector{ProcRoot: proc, TextfileDir: text},
 		Now: func() time.Time { now = now.Add(time.Millisecond); return now }})
 	return a, gw, target.URL
 }

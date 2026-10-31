@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/testutil"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/testutil"
 )
 
 type bearer struct {

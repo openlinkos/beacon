@@ -255,7 +255,7 @@ var (
 )
 
 // TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
-const TokenPrefix = "lst_"
+const TokenPrefix = "lbt_"
 
 func hashToken(secret string) string {
 	sum := sha256.Sum256([]byte(secret))

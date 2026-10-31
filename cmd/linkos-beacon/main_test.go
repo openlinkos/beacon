@@ -44,7 +44,7 @@ func TestUsage(t *testing.T) {
 	if run(nil, &out, &errb) != 2 || run([]string{"bogus"}, &out, &errb) != 2 {
 		t.Error("usage errors exit 2")
 	}
-	if run([]string{"version"}, &out, &errb) != 0 || !strings.Contains(out.String(), "linkos-status") {
+	if run([]string{"version"}, &out, &errb) != 0 || !strings.Contains(out.String(), "linkos-beacon") {
 		t.Error("version")
 	}
 	if run([]string{"drill", "sideways"}, &out, &errb) != 2 || run([]string{"token", "create"}, &out, &errb) != 2 {

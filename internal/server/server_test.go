@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/metrics"
-	"github.com/openlinkos/status/internal/testutil"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/testutil"
 )
 
 func TestRoutes(t *testing.T) {
@@ -42,7 +42,7 @@ func TestRoutes(t *testing.T) {
 	if code, body, _ := do("GET", "/readyz", "", ""); code != 200 || !strings.Contains(body, `"ready":true`) {
 		t.Errorf("readyz: %d %s", code, body)
 	}
-	if code, body, _ := do("GET", "/metrics", "", ""); code != 200 || !strings.Contains(body, "linkos_status_build_info") {
+	if code, body, _ := do("GET", "/metrics", "", ""); code != 200 || !strings.Contains(body, "linkos_beacon_build_info") {
 		t.Errorf("metrics direct: %d", code)
 	}
 	if code, _, _ := do("GET", "/metrics", "", "", "X-Forwarded-For", "198.51.100.7"); code != 404 {

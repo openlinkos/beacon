@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/metrics"
 )
 
 func TestRotation(t *testing.T) {

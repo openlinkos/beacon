@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 func client(hc *http.Client) *http.Client {
@@ -144,7 +144,7 @@ type Bark struct {
 
 // Send sends a critical, ringing push.
 func (b *Bark) Send(ctx context.Context, title, body, link string) error {
-	in := map[string]string{"title": trunc(title, 200), "body": trunc(body, 1000), "level": "critical", "call": "1", "group": "linkos-status", "volume": "8"}
+	in := map[string]string{"title": trunc(title, 200), "body": trunc(body, 1000), "level": "critical", "call": "1", "group": "linkos-beacon", "volume": "8"}
 	if link != "" {
 		in["url"] = link
 	}

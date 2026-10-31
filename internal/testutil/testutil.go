@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/bridge"
-	"github.com/openlinkos/status/internal/config"
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // AM is a fake Alertmanager.

@@ -1,4 +1,4 @@
-module github.com/openlinkos/status
+module github.com/openlinkos/beacon
 
 go 1.27.3
 

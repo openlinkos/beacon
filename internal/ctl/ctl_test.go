@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 func TestHandler(t *testing.T) {

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/bridge"
-	"github.com/openlinkos/status/internal/ctl"
-	"github.com/openlinkos/status/internal/i18n"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/i18n"
 )
 
 // Deps are what the routes need. Feishu is nil unless callbacks come over HTTP.
@@ -94,8 +94,8 @@ func headers(h http.Handler) http.Handler {
 
 var page = template.Must(template.New("p").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LinkOS Status</title><meta name="robots" content="noindex"></head>
-<body><main><h1>LinkOS Status</h1><p>{{.EN}}</p><p lang="zh-CN">{{.ZH}}</p></main></body></html>
+<title>Beacon</title><meta name="robots" content="noindex"></head>
+<body><main><h1>Beacon</h1><p>{{.EN}}</p><p lang="zh-CN">{{.ZH}}</p></main></body></html>
 `))
 
 func placeholder(w http.ResponseWriter, _ *http.Request) {

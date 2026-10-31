@@ -2,9 +2,9 @@
 
 [English](../feishu.md) | 简体中文
 
-LinkOS Status 通过飞书（或 Lark）的**企业自建应用**发告警卡片，并接收卡片上的按钮点击。群自定义机器人做不到这些：它发的消息没有回调，也不能更新。不过自定义机器人仍然有用，可以和应用一起发不占 API 额度的普通消息。
+Beacon 通过飞书（或 Lark）的**企业自建应用**发告警卡片，并接收卡片上的按钮点击。群自定义机器人做不到这些：它发的消息没有回调，也不能更新。不过自定义机器人仍然有用，可以和应用一起发不占 API 额度的普通消息。
 
-建两个应用，一个正式用、一个测试用（例如「LinkOS Status」和「LinkOS Status Dev」）：飞书把每次回调只交给一个连接，测试实例如果用正式应用，会抢走正式环境的点击。
+建两个应用，一个正式用、一个测试用（例如「Beacon」和「Beacon Dev」）：飞书把每次回调只交给一个连接，测试实例如果用正式应用，会抢走正式环境的点击。
 
 ## 1. 创建应用
 
@@ -47,10 +47,10 @@ LinkOS Status 通过飞书（或 Lark）的**企业自建应用**发告警卡片
 
 ## 6. 检查
 
-启动服务，日志里应出现 `feishu long connection ready`。然后演练：`linkos-status drill fail 15m` 让 `/drill/healthz` 失败；检测点发现、告警触发后，群里会收到卡片。认领、静默，再 `linkos-status drill off`，看卡片变绿。
+启动服务，日志里应出现 `feishu long connection ready`。然后演练：`linkos-beacon drill fail 15m` 让 `/drill/healthz` 失败；检测点发现、告警触发后，群里会收到卡片。认领、静默，再 `linkos-beacon drill off`，看卡片变绿。
 
 ## 额度
 
 免费版下，一个企业的所有自建应用共用每月的 API 调用额度（写这篇时是 1 万次，以控制台为准）。发卡片、通过 API 更新卡片、加急各算一次；点击按钮后的卡片更新不算。把 `feishu.monthly_budget` 设成你的额度：用到 70% 以后，只有严重告警用应用发，其余改由自定义机器人发。
 
-电话、短信加急需要企业认证；LinkOS Status 只用应用内加急，再往上升级到 Pushover。
+电话、短信加急需要企业认证；Beacon 只用应用内加急，再往上升级到 Pushover。

@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openlinkos/status/internal/bridge"
-	"github.com/openlinkos/status/internal/clientip"
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/clientip"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 //go:embed openapi.yaml
@@ -151,13 +151,13 @@ func (s *Server) with(scope string, h handler) http.Handler {
 		}
 		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || secret == "" {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-status"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-beacon"`)
 			writeError(w, http.StatusUnauthorized, "auth.required", "a bearer token is required")
 			return
 		}
 		t, ok := s.Auth.Verify(r, strings.TrimSpace(secret))
 		if !ok {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-status", error="invalid_token"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-beacon", error="invalid_token"`)
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return
 		}

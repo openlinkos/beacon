@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: LinkOS Status API
+  title: Beacon API
   version: "1"
   description: |
-    Alerts, acknowledgements and silences of LinkOS Status. Every route except this description needs
-    a bearer token (`Authorization: Bearer lst_…`) with the scope listed on the operation. Writes are
+    Alerts, acknowledgements and silences of Beacon. Every route except this description needs
+    a bearer token (`Authorization: Bearer lbt_…`) with the scope listed on the operation. Writes are
     recorded in the audit log and echoed to the alert chat. The same operations are available as MCP
     tools at /mcp.
   license:

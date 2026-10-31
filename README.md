@@ -1,54 +1,58 @@
-<p>
-  <img alt="LinkOS Status" src="https://openlinkos.com/brand/linkos-status/github/readme.svg" height="56">
-</p>
-
-# LinkOS Status
+# Beacon · 烽火
 
 English | [简体中文](README.zh-CN.md)
 
-The status and alerting service of LinkOS. It takes Alertmanager's notifications and closes the loop with the people on call, and it lets people and AI agents see and act on alerts through a REST API and a built-in MCP server. Public status pages are next.
+Beacon tells you whether your services work for your users, checked from where your users are, and closes the loop with the people on call and with their AI agents. A Go service and a small probe agent, on top of VictoriaMetrics and vmalert.
 
-- **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which probe locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it in Alertmanager for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
+> Named after the beacon towers of the Great Wall: watch posts along the border lit a fire when they saw trouble, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.
+
+Early days: Beacon runs the monitoring of LinkOS's own services. Public status pages are next.
+
+## What it does
+
+- **Probes from where your users are.** `linkos-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
+- **An outage is what several locations agree on.** A service is down only when at least two locations, and at least half of those reporting, fail; one location's hiccup never pages anyone. Locations follow their machines: when a machine is let go, its location stops counting.
+- **One door for machines.** The gateway gives each probe and host its own token (`linkos-beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets and probe modules, so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
+- **Alert routing built in.** Grouping, inhibition and silences, as Alertmanager does them, inside the service. Rule engines post alerts to it as they would to Alertmanager.
+- **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
 - **Escalation to phones.** A critical alert that nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15: the phone keeps ringing until someone acknowledges it there, which also acknowledges it here. An acknowledgement lapses after 4 hours if the alert is still firing.
-- **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The bridge pings healthchecks.io every minute while it can deliver alerts, and Alertmanager's own Watchdog pings it too, so a dead monitoring host or a broken Feishu connection still reaches a phone.
-- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens (`status:read`, `alerts:write`) that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
-- **One small binary.** Go, one bbolt file for state, a distroless image that runs as non-root. Probes, metrics and rules stay in VictoriaMetrics, vmalert and Alertmanager.
+- **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The service pings healthchecks.io every minute while rules, routing and delivery all work, so a dead monitoring host or a broken Feishu connection still reaches a phone.
+- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
+- **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), and when the rotation holds a node nobody watches.
+- **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
 ## How it fits
 
 ```
-probes (blackbox, per location) ─▶ VictoriaMetrics ─▶ vmalert ─▶ Alertmanager ─webhook─▶ linkos-status
-                                                                       │                     │  cards, buttons (long connection)
-                                         Watchdog ─▶ healthchecks.io ◀─┘                     ├─▶ Feishu app ◀─▶ people on call
-                                                                                             ├─▶ Feishu group bot (no quota)
-                                                                                             └─▶ Pushover / Bark (escalation)
-agents ─▶ /api/v1, /mcp (bearer tokens) ─▶ linkos-status ─▶ Alertmanager silences
+linkos-probe (each location) ─push─▶ gateway ─▶ VictoriaMetrics ─▶ vmalert ─alerts─▶ router ─▶ bridge ─▶ Feishu app ◀─▶ people on call
+hosts, CI, Flux ─────────────────▶ gateway                                                          ├─▶ Feishu group bot
+agents ─▶ /api/v1, /mcp ─▶ linkos-beacon                                                            ├─▶ Pushover / Bark
+                                   healthchecks.io ◀─ every minute, while rules, routing and delivery work
 ```
 
-The service expects alerts labelled with `severity` (`critical`, `warning` or `info`) and `service`, and annotated with `summary` (and optionally `description`, `runbook`, `dashboard`). An alert named `Watchdog` proves the pipeline works and is never shown.
+The gateway, the router and the bridge are all `linkos-beacon`. Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary` (optionally `description`, `runbook`, `dashboard`). An alert named `Watchdog` proves the pipeline works and is never shown.
 
 ## Running it
 
 ```bash
-docker run -d --name linkos-status -p 127.0.0.1:17001:17001 \
-  -v ./config.yaml:/etc/linkos-status/config.yaml:ro \
-  -v ./catalog:/etc/linkos-status/catalog:ro \
-  -v ./secrets:/etc/linkos-status/secrets:ro \
-  -v linkos-status:/var/lib/linkos-status \
-  ghcr.io/openlinkos/status:latest
+docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 \
+  -v ./config.yaml:/etc/linkos-beacon/config.yaml:ro \
+  -v ./catalog:/etc/linkos-beacon/catalog:ro \
+  -v ./targets:/etc/linkos-beacon/targets:ro \
+  -v ./secrets:/etc/linkos-beacon/secrets:ro \
+  -v linkos-beacon:/var/lib/linkos-beacon \
+  ghcr.io/openlinkos/beacon:latest
 ```
 
-Start from [config.example.yaml](config.example.yaml); `linkos-status check-config` validates it. Point Alertmanager's default receiver at the service:
+Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file. Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines.
 
-```yaml
-receivers:
-  - name: bridge
-    webhook_configs:
-      - url: http://linkos-status:17001/hooks/alertmanager
-        send_resolved: true
-        http_config:
-          authorization:
-            credentials_file: /etc/alertmanager/secrets/linkos-status-webhook-token
+Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
+
+Give each probe location its token and start the agent there:
+
+```bash
+docker exec linkos-beacon linkos-beacon enroll probe edge-1 > token     # edge-1 is a location in the catalogue
+linkos-probe agent -gateway https://metrics.example.com -token-file /etc/linkos-agent/token
 ```
 
 Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its iOS app with Critical Alerts allowed, an application token and your user key.
@@ -58,10 +62,11 @@ Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its
 Commands that change the running service talk to it over a socket in its data directory:
 
 ```bash
-docker exec linkos-status linkos-status token create claude-code -scopes status:read,alerts:write -expires 90d
-docker exec linkos-status linkos-status token list
-docker exec linkos-status linkos-status drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
-docker exec linkos-status linkos-status drill off
+docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write -expires 90d
+docker exec linkos-beacon linkos-beacon token list
+docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
+docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
+docker exec linkos-beacon linkos-beacon drill off
 ```
 
 ## API and MCP
@@ -70,20 +75,27 @@ docker exec linkos-status linkos-status drill off
 - MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`.
 
 ```bash
-claude mcp add --transport http linkos-status https://status.example.com/mcp --header "Authorization: Bearer lst_…"
+claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
-| Route | Purpose |
+| Route (port 17001) | Purpose |
 | --- | --- |
 | `GET /healthz`, `GET /readyz` | Liveness; readiness (Watchdog seen, Feishu connection up, budget left) |
 | `GET /metrics` | Prometheus metrics, direct connections only |
-| `POST /hooks/alertmanager` | Alertmanager's webhook (bearer token) |
 | `POST /hooks/feishu` | Feishu card callbacks when `feishu.callback: http` |
 | `GET /drill/healthz` | 200, or 503 during a drill |
 
+| Gateway route (port 17006) | Scope | Purpose |
+| --- | --- | --- |
+| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `linkos-probe` pushes), heartbeats |
+| `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
+| `GET /api/v1/targets`, `GET /api/v1/modules` | `probe:write` | What the probe checks, and how |
+| `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
+| `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
+
 ## Security
 
-Tokens are stored only as SHA-256 hashes and expire; failed attempts are limited per client address. Only the people listed in `feishu.on_call` can act on cards. Secrets are read from files and never logged. Report vulnerabilities to security@linkos.io.
+Tokens are stored only as SHA-256 hashes and expire; failed attempts are limited per client address. A probe or host token can only write as its own location or host, and a location whose machine has expired cannot write at all. Only the people listed in `feishu.on_call` can act on cards. Secrets are read from files and never logged. Report vulnerabilities to security@linkos.io.
 
 ## Licence
 

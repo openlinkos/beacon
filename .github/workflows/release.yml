@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write       # GitHub Release
-      packages: write       # ghcr.io/openlinkos/status
+      packages: write       # ghcr.io/openlinkos/beacon
       id-token: write       # cosign keyless, build provenance attestations
       attestations: write
     steps:
@@ -55,14 +55,14 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          digest="$(docker buildx imagetools inspect "ghcr.io/openlinkos/status:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          digest="$(docker buildx imagetools inspect "ghcr.io/openlinkos/beacon:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ghcr.io/openlinkos/status
+          subject-name: ghcr.io/openlinkos/beacon
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
@@ -80,7 +80,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          cosign verify "ghcr.io/openlinkos/status:$TAG" \
-            --certificate-identity "https://github.com/openlinkos/status/.github/workflows/release.yml@refs/tags/$TAG" \
+          cosign verify "ghcr.io/openlinkos/beacon:$TAG" \
+            --certificate-identity "https://github.com/openlinkos/beacon/.github/workflows/release.yml@refs/tags/$TAG" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
-          docker run --rm "ghcr.io/openlinkos/status:$TAG" version
+          docker run --rm "ghcr.io/openlinkos/beacon:$TAG" version

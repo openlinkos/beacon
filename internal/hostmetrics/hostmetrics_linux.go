@@ -5,7 +5,7 @@ package hostmetrics
 import (
 	"golang.org/x/sys/unix"
 
-	"github.com/openlinkos/status/internal/probe"
+	"github.com/openlinkos/beacon/internal/probe"
 )
 
 func (c *Collector) filesystems() []probe.Sample {

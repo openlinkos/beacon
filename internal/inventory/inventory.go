@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/metrics"
 )
 
 // Checker resolves the rotations and the nodes' addresses. Resolver nil is the system's resolver.

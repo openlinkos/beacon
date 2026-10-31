@@ -30,8 +30,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // Config is how alerts are grouped and inhibited.
@@ -414,7 +414,7 @@ func (r *Router) forget(g *group, ms []*alert) {
 // webhook builds the payload Alertmanager would have sent: the firing alerts that are not muted, or,
 // for a resolved group, its alerts as resolved.
 func (r *Router) webhook(g *group, ms []*alert, muted map[string]bool, now time.Time, status string) alertmanager.Webhook {
-	w := alertmanager.Webhook{Version: "4", GroupKey: g.key, Status: status, Receiver: "linkos-status", GroupLabels: maps.Clone(g.labels)}
+	w := alertmanager.Webhook{Version: "4", GroupKey: g.key, Status: status, Receiver: "linkos-beacon", GroupLabels: maps.Clone(g.labels)}
 	for _, a := range ms {
 		st := "resolved"
 		if now.Before(a.endsAt) {

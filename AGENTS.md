@@ -4,14 +4,14 @@ Instructions for AI coding agents working in this repository. `CLAUDE.md` is a s
 
 ## Project
 
-LinkOS Status (`linkos-status`) is the status and alerting service of LinkOS: it takes Alertmanager's notifications and closes the loop with the people on call (Feishu app cards they can acknowledge or silence from, escalation to their phones through Pushover, a dead man's switch on healthchecks.io), and offers the same operations through a REST API and a built-in MCP server. Public status pages follow. Go, one binary; metrics, probes and rules live in VictoriaMetrics, vmalert and Alertmanager, configured in the ops repository.
+Beacon · 烽火 (`linkos-beacon`, and the probe agent `linkos-probe`) tells whether services work for their users, probed from where the users are, and closes the loop with the people on call and their AI agents: a gateway for machines (enrolled tokens, labels set by the server, targets handed out), alert routing in place of Alertmanager (grouping, inhibition, silences), Feishu app cards they can acknowledge or silence from, escalation to their phones through Pushover, a dead man's switch on healthchecks.io, and the same operations through a REST API and a built-in MCP server. Public status pages follow. Go; one service and one probe binary; metrics and rules live in VictoriaMetrics and vmalert. LinkOS runs its own status service (LinkOS Status) on Beacon, configured in the ops repository.
 
 ## Commands
 
 ```bash
 go test ./...                  # unit tests; CI also runs -race and Windows
 golangci-lint run ./...        # also with GOOS=linux: some files are Unix-only
-go run ./cmd/linkos-status check-config -config config.example.yaml   # needs the secret files it names
+go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs the secret files it names
 ```
 
 ## Rules

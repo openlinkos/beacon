@@ -20,8 +20,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/openlinkos/status/internal/config"
-	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/metrics"
 )
 
 // Location is a probe location. ID is internal (metrics, alert cards, configuration) and is the name of the

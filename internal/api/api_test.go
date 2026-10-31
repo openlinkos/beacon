@@ -11,7 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/openlinkos/status/internal/testutil"
+	"github.com/openlinkos/beacon/internal/testutil"
 )
 
 type client struct {
@@ -57,14 +57,14 @@ func TestAuth(t *testing.T) {
 	if code, out := c.do("GET", "/api/v1/alerts", "", ""); code != 401 || out["code"] != "auth.required" {
 		t.Errorf("no token: %d %v", code, out)
 	}
-	if code, out := c.do("GET", "/api/v1/alerts", "lst_wrong", ""); code != 401 || out["code"] != "auth.invalid" {
+	if code, out := c.do("GET", "/api/v1/alerts", "lbt_wrong", ""); code != 401 || out["code"] != "auth.invalid" {
 		t.Errorf("bad token: %d %v", code, out)
 	}
 	if code, out := c.do("POST", "/api/v1/alerts/"+testutil.GroupID()+"/ack", read, ""); code != 403 || out["code"] != "auth.scope" {
 		t.Errorf("read token writing: %d %v", code, out)
 	}
 	for range 20 {
-		c.do("GET", "/api/v1/alerts", "lst_wrong", "")
+		c.do("GET", "/api/v1/alerts", "lbt_wrong", "")
 	}
 	if code, out := c.do("GET", "/api/v1/alerts", read, ""); code != 429 || out["code"] != "auth.too_many_failures" {
 		t.Errorf("after many failures even a good token waits: %d %v", code, out)

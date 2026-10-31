@@ -23,12 +23,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/metrics"
-	"github.com/openlinkos/status/internal/router"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/targets"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/router"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 )
 
 // Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the

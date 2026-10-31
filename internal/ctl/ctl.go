@@ -1,5 +1,5 @@
 // Package ctl is the local admin socket: a small HTTP API on a Unix socket in the data directory, so
-// that `linkos-status token …` and `linkos-status drill …` work against the running service, which
+// that `linkos-beacon token …` and `linkos-beacon drill …` work against the running service, which
 // holds the database lock.
 //
 // Only processes of the service's own user (or root) can connect: the socket is mode 0600 in the
@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/version"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/version"
 )
 
 // Path is where the socket lives in the data directory.

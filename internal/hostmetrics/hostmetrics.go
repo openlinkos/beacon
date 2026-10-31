@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/probe"
+	"github.com/openlinkos/beacon/internal/probe"
 )
 
 // Collector reads the metrics. ProcRoot is /proc and TextfileDir the heartbeat directory ("" for none).

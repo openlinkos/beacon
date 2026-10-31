@@ -1,14 +1,14 @@
-// Command linkos-status is the LinkOS Status service: status pages, alert delivery with a closed loop
+// Command linkos-beacon is Beacon's service: status pages, alert delivery with a closed loop
 // on Feishu and phones, a REST API and an MCP server.
 //
-//	linkos-status serve [-config path]          run the service
-//	linkos-status check-config [-config path]   validate the configuration and the catalogue
-//	linkos-status token create NAME -scopes a,b [-expires 365d]
-//	linkos-status token list | token revoke NAME
-//	linkos-status enroll probe|host|heartbeat NAME [-rotate]
-//	linkos-status drill fail 15m | drill off | drill status
-//	linkos-status probe [-url http://127.0.0.1:17001/healthz]   health check for the container
-//	linkos-status version
+//	linkos-beacon serve [-config path]          run the service
+//	linkos-beacon check-config [-config path]   validate the configuration and the catalogue
+//	linkos-beacon token create NAME -scopes a,b [-expires 365d]
+//	linkos-beacon token list | token revoke NAME
+//	linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
+//	linkos-beacon drill fail 15m | drill off | drill status
+//	linkos-beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
+//	linkos-beacon version
 package main
 
 import (
@@ -30,44 +30,44 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/api"
-	"github.com/openlinkos/status/internal/bridge"
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/clientip"
-	"github.com/openlinkos/status/internal/config"
-	"github.com/openlinkos/status/internal/ctl"
-	"github.com/openlinkos/status/internal/feishu"
-	"github.com/openlinkos/status/internal/gateway"
-	"github.com/openlinkos/status/internal/inventory"
-	"github.com/openlinkos/status/internal/mcpserver"
-	"github.com/openlinkos/status/internal/metrics"
-	"github.com/openlinkos/status/internal/notify"
-	probemod "github.com/openlinkos/status/internal/probe"
-	"github.com/openlinkos/status/internal/router"
-	"github.com/openlinkos/status/internal/server"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/targets"
-	"github.com/openlinkos/status/internal/version"
-	"github.com/openlinkos/status/internal/vm"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/clientip"
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/feishu"
+	"github.com/openlinkos/beacon/internal/gateway"
+	"github.com/openlinkos/beacon/internal/inventory"
+	"github.com/openlinkos/beacon/internal/mcpserver"
+	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/notify"
+	probemod "github.com/openlinkos/beacon/internal/probe"
+	"github.com/openlinkos/beacon/internal/router"
+	"github.com/openlinkos/beacon/internal/server"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
+	"github.com/openlinkos/beacon/internal/version"
+	"github.com/openlinkos/beacon/internal/vm"
 )
 
-const defaultConfig = "/etc/linkos-status/config.yaml"
+const defaultConfig = "/etc/linkos-beacon/config.yaml"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
-  linkos-status serve [-config path]          run the service
-  linkos-status check-config [-config path]   validate the configuration and the catalogue
-  linkos-status token create NAME -scopes status:read,alerts:write [-expires 365d]
-  linkos-status token list
-  linkos-status token revoke NAME
-  linkos-status enroll probe|host|heartbeat NAME [-rotate]
+  linkos-beacon serve [-config path]          run the service
+  linkos-beacon check-config [-config path]   validate the configuration and the catalogue
+  linkos-beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
+  linkos-beacon token list
+  linkos-beacon token revoke NAME
+  linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
-  linkos-status drill fail 15m | drill off | drill status
-  linkos-status probe [-url URL]              exit 0 when the service answers (the image's health check)
-  linkos-status version
+  linkos-beacon drill fail 15m | drill off | drill status
+  linkos-beacon healthcheck [-url URL]        exit 0 when the service answers (the image's health check)
+  linkos-beacon version
 Scopes: `+strings.Join(store.Scopes, ", ")+`
 `)
 }
@@ -88,8 +88,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return drill(args[1:], stdout, stderr)
 	case "enroll":
 		return enroll(args[1:], stdout, stderr)
-	case "probe":
-		return probe(args[1:], stderr)
+	case "healthcheck":
+		return healthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
 		fmt.Fprintln(stdout, version.String())
 		return 0
@@ -201,7 +201,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	rt := router.New(rcfg, st, sinkFunc{hook: func(ctx context.Context, w alertmanager.Webhook) error { return br.HandleWebhook(ctx, w) },
 		watchdog: func() { br.Watchdog() }}, nil, log)
-	m.Register("linkos_status_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
+	m.Register("linkos_beacon_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
 		return []metrics.Sample{{Value: float64(rt.Firing())}}
 	})
 	deps := bridge.Deps{
@@ -297,7 +297,7 @@ func serve(args []string, stderr io.Writer) int {
 				Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
-	log.Info("linkos-status started", "version", version.Version, "listen", cfg.Listen,
+	log.Info("linkos-beacon started", "version", version.Version, "listen", cfg.Listen,
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations),
 		"gateway", cfg.Gateway.Listen, "targets", tset.Count())
 	select {
@@ -314,7 +314,7 @@ func serve(args []string, stderr io.Writer) int {
 	if gs != nil {
 		_ = gs.Shutdown(sctx)
 	}
-	log.Info("linkos-status stopped")
+	log.Info("linkos-beacon stopped")
 	return 0
 }
 
@@ -448,9 +448,9 @@ func enroll(args []string, stdout, stderr io.Writer) int {
 }
 
 func dial(stderr io.Writer) (*ctl.Client, bool) {
-	dataDir := os.Getenv("LINKOS_STATUS_DATA_DIR")
+	dataDir := os.Getenv("LINKOS_BEACON_DATA_DIR")
 	if dataDir == "" {
-		dataDir = "/var/lib/linkos-status"
+		dataDir = "/var/lib/linkos-beacon"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -458,7 +458,7 @@ func dial(stderr io.Writer) (*ctl.Client, bool) {
 	if err != nil {
 		var opErr *net.OpError
 		if errors.As(err, &opErr) {
-			fmt.Fprintf(stderr, "cannot reach the running service at %s: %v\n(run this inside the container: docker exec linkos-status linkos-status …)\n", ctl.Path(dataDir), err)
+			fmt.Fprintf(stderr, "cannot reach the running service at %s: %v\n(run this inside the container: docker exec linkos-beacon linkos-beacon …)\n", ctl.Path(dataDir), err)
 		} else {
 			fmt.Fprintln(stderr, err)
 		}
@@ -581,8 +581,8 @@ func drill(args []string, stdout, stderr io.Writer) int {
 }
 
 // probe asks the local service for /healthz; the image has no shell or curl for its health check.
-func probe(args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+func healthcheck(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	url := fs.String("url", "http://127.0.0.1:17001/healthz", "address to check")
 	if err := fs.Parse(args); err != nil {

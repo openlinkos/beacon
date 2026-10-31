@@ -25,15 +25,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
-	"github.com/openlinkos/status/internal/catalog"
-	"github.com/openlinkos/status/internal/config"
-	"github.com/openlinkos/status/internal/feishu"
-	"github.com/openlinkos/status/internal/i18n"
-	"github.com/openlinkos/status/internal/metrics"
-	"github.com/openlinkos/status/internal/notify"
-	"github.com/openlinkos/status/internal/store"
-	"github.com/openlinkos/status/internal/vm"
+	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/feishu"
+	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/notify"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/vm"
 )
 
 // Silencer is the part of the Alertmanager API the bridge uses.
@@ -119,14 +119,14 @@ func New(d Deps) *Bridge {
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
 	if d.Metrics != nil {
-		d.Metrics.Register("linkos_status_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("linkos_beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
 			ok, _ := b.Ready()
 			return []metrics.Sample{{Value: map[bool]float64{true: 1, false: 0}[ok]}}
 		})
-		d.Metrics.Register("linkos_status_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("linkos_beacon_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(b.d.Store.Counter(b.quotaKey()))}}
 		})
-		d.Metrics.Register("linkos_status_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("linkos_beacon_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
 			n := map[string]int{}
 			for _, g := range b.d.Store.Groups() {
 				if g.Firing() {
@@ -153,7 +153,7 @@ func (b *Bridge) now() time.Time { return b.d.Now() }
 
 func (b *Bridge) count(channel, result string) {
 	if b.d.Metrics != nil {
-		b.d.Metrics.Inc("linkos_status_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
+		b.d.Metrics.Inc("linkos_beacon_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
 	}
 }
 
