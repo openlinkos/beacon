@@ -4,11 +4,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.2.0
+
+### rc.3 (2026-10-31)
+
 - Standby CDN nodes: a location may be `standby: true` in its rotation; the rotation check labels nodes `role="primary"` or `"standby"`.
 - Probe settings per location: `probe: {timeout: …}` lengthens the probes' timeout on one machine. The gateway serves an agent's settings on `GET /api/v1/agent`; agents ask for them and keep working with a gateway that does not have the route. Agents probe up to 16 targets at once (was 8).
 - `docs/catalog.md`: the catalogue, targets and module file.
-
-## 0.2.0
 
 ### rc.2 (2026-10-31)
 
