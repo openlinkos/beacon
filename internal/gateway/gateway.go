@@ -108,16 +108,22 @@ func proxy(base *url.URL) *httputil.ReverseProxy {
 
 type handler func(w http.ResponseWriter, r *http.Request, t store.Token)
 
+// counted wraps w to record the status; done counts the request by route and status.
+func (g *gateway) counted(route string, w http.ResponseWriter) (rec *status, done func()) {
+	rec = &status{ResponseWriter: w, code: http.StatusOK}
+	return rec, func() {
+		if g.Metrics != nil {
+			g.Metrics.Inc("linkos_gateway_requests_total", "Requests to the metrics gateway by route and status",
+				metrics.Labels("route", route, "code", strconv.Itoa(rec.code)))
+		}
+	}
+}
+
 // with checks the token for one of scopes, then counts the request by route and status.
 func (g *gateway) with(route string, scopes []string, h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec := &status{ResponseWriter: w, code: http.StatusOK}
-		defer func() {
-			if g.Metrics != nil {
-				g.Metrics.Inc("linkos_gateway_requests_total", "Requests to the metrics gateway by route and status",
-					metrics.Labels("route", route, "code", strconv.Itoa(rec.code)))
-			}
-		}()
+		rec, done := g.counted(route, w)
+		defer done()
 		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || secret == "" {
 			fail(rec, http.StatusUnauthorized, "auth.required", "send a bearer token")
@@ -234,7 +240,9 @@ func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { 
 func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
 	secret, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if g.RulesToken != "" && secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(g.RulesToken)) == 1 {
-		g.alerts(w, r, store.Token{Name: "rules"})
+		rec, done := g.counted("alerts", w)
+		defer done()
+		g.alerts(rec, r, store.Token{Name: "rules"})
 		return
 	}
 	g.with("alerts", []string{"alerts:send"}, g.alerts).ServeHTTP(w, r)

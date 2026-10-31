@@ -247,6 +247,10 @@ func TestAlertsToTheRouter(t *testing.T) {
 	if len(e.posted) != 2 || e.posted[0].Labels["service"] != "git" {
 		t.Fatalf("posted %+v", e.posted)
 	}
+	// the rule engine's posts are counted too: a deployment checks there that its alerts arrive
+	if !strings.Contains(scrape(e), `linkos_gateway_requests_total{route="alerts",code="200"} 2`) {
+		t.Errorf("alert posts not counted:\n%s", scrape(e))
+	}
 	code(t, e.do("POST", "/api/v2/alerts", "rules-wrong", body), http.StatusUnauthorized, "auth.invalid")
 	code(t, e.do("POST", "/api/v2/alerts", e.probe, body), http.StatusForbidden, "auth.scope")
 	code(t, e.do("POST", "/api/v2/alerts", e.flux, "{not json"), http.StatusBadRequest, "bad_input")
