@@ -293,6 +293,10 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 	}
 	if g.Channel == "" {
 		g.Channel = "none"
+		if b.d.Feishu == nil && b.d.Bot == nil && b.d.Pushover == nil {
+			b.d.Log.Info("alert recorded; no notification channel is configured", "group", g.ID, "summary", b.title(g))
+			return
+		}
 		b.d.Log.Error("alert could not be delivered by any channel", "group", g.ID, "summary", b.title(g))
 	}
 }

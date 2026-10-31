@@ -131,3 +131,24 @@ func TestAuditAndMeta(t *testing.T) {
 		t.Error("zero time should delete")
 	}
 }
+
+func TestSubjectTokens(t *testing.T) {
+	s, _ := open(t)
+	if _, _, err := s.CreateToken("probe-x", []string{"probe:write"}, time.Hour, ""); err == nil || !strings.Contains(err.Error(), "needs a subject") {
+		t.Fatalf("a probe token without a subject: %v", err)
+	}
+	if _, _, err := s.CreateSubjectToken("probe-x", "Bad Name", []string{"probe:write"}, time.Hour, ""); err == nil {
+		t.Fatal("a subject must be lower case letters, digits and dashes")
+	}
+	secret, tok, err := s.CreateSubjectToken("probe-cdn-pre-us1", "cdn-pre-us1", []string{"probe:write"}, time.Hour, "cli:root")
+	if err != nil || tok.Subject != "cdn-pre-us1" {
+		t.Fatalf("CreateSubjectToken: %+v %v", tok, err)
+	}
+	if got, ok := s.VerifyToken(secret); !ok || got.Subject != "cdn-pre-us1" || !got.Has("probe:write") || got.Has("status:read") {
+		t.Fatalf("VerifyToken: %+v %v", got, ok)
+	}
+	// a heartbeat token may name its sender, or not
+	if _, _, err := s.CreateToken("nas-backup", []string{"heartbeat:write"}, time.Hour, ""); err != nil {
+		t.Fatal(err)
+	}
+}

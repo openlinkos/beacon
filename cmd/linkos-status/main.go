@@ -5,6 +5,7 @@
 //	linkos-status check-config [-config path]   validate the configuration and the catalogue
 //	linkos-status token create NAME -scopes a,b [-expires 365d]
 //	linkos-status token list | token revoke NAME
+//	linkos-status enroll probe|host|heartbeat NAME [-rotate]
 //	linkos-status drill fail 15m | drill off | drill status
 //	linkos-status probe [-url http://127.0.0.1:17001/healthz]   health check for the container
 //	linkos-status version
@@ -19,6 +20,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -36,11 +38,13 @@ import (
 	"github.com/openlinkos/status/internal/config"
 	"github.com/openlinkos/status/internal/ctl"
 	"github.com/openlinkos/status/internal/feishu"
+	"github.com/openlinkos/status/internal/gateway"
 	"github.com/openlinkos/status/internal/mcpserver"
 	"github.com/openlinkos/status/internal/metrics"
 	"github.com/openlinkos/status/internal/notify"
 	"github.com/openlinkos/status/internal/server"
 	"github.com/openlinkos/status/internal/store"
+	"github.com/openlinkos/status/internal/targets"
 	"github.com/openlinkos/status/internal/version"
 	"github.com/openlinkos/status/internal/vm"
 )
@@ -56,6 +60,8 @@ func usage(w io.Writer) {
   linkos-status token create NAME -scopes status:read,alerts:write [-expires 365d]
   linkos-status token list
   linkos-status token revoke NAME
+  linkos-status enroll probe|host|heartbeat NAME [-rotate]
+                                              a machine's gateway token (printed once, alone, on stdout)
   linkos-status drill fail 15m | drill off | drill status
   linkos-status probe [-url URL]              exit 0 when the service answers (the image's health check)
   linkos-status version
@@ -77,6 +83,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return token(args[1:], stdout, stderr)
 	case "drill":
 		return drill(args[1:], stdout, stderr)
+	case "enroll":
+		return enroll(args[1:], stdout, stderr)
 	case "probe":
 		return probe(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -123,9 +131,14 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources; Feishu app %v, Pushover %v, Bark %v\n",
-		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources),
-		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "")
+	ts, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(cat))
+	if err != nil {
+		fmt.Fprintf(stderr, "targets %s: %v\n", cfg.Gateway.TargetsDir, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q\n",
+		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources), ts.Count(), len(ts.Files()),
+		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen)
 	return 0
 }
 
@@ -146,11 +159,25 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+	tset, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(cat))
+	if err != nil {
+		log.Error("cannot start", "err", fmt.Errorf("targets %s: %w", cfg.Gateway.TargetsDir, err))
+		return 1
+	}
 
 	var catalogue atomic.Pointer[catalog.Catalog]
+	var probeTargets atomic.Pointer[targets.Set]
 	catalogue.Store(cat)
+	probeTargets.Store(tset)
 	m := metrics.New(version.Version)
 	catalog.Register(m, catalogue.Load)
+	m.Register("linkos_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
+		var out []metrics.Sample
+		for _, t := range st.Tokens() {
+			out = append(out, metrics.Sample{Labels: metrics.Labels("token", t.Name, "subject", t.Subject), Value: float64(t.Expires.Unix())})
+		}
+		return out
+	})
 
 	var br *bridge.Bridge
 	deps := bridge.Deps{
@@ -194,7 +221,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go reloadOnHUP(ctx, cfg.CatalogDir, &catalogue, log)
+	go reloadOnHUP(ctx, cfg, &catalogue, &probeTargets, log)
 	if listener != nil {
 		go func() {
 			if err := listener.Run(ctx); err != nil {
@@ -208,8 +235,19 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	go br.Run(ctx, ping)
 
+	active := func(id string) error {
+		c := catalogue.Load()
+		l, ok := c.Location(id)
+		switch {
+		case !ok:
+			return fmt.Errorf("location %s is not in the catalogue", id)
+		case !c.Expected(l, time.Now()):
+			return fmt.Errorf("the machine of location %s has expired", id)
+		}
+		return nil
+	}
 	if ln, err := ctl.Listen(ctl.Path(cfg.DataDir)); err == nil {
-		cs := &http.Server{Handler: ctl.Handler(st), ReadHeaderTimeout: 5 * time.Second}
+		cs := &http.Server{Handler: ctl.Handler(st, active), ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()
 		defer func() { _ = cs.Close() }()
 	} else if !errors.Is(err, errors.ErrUnsupported) {
@@ -218,10 +256,21 @@ func serve(args []string, stderr io.Writer) int {
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: server.Handler(sd), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute}
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
 	go func() { errc <- hs.ListenAndServe() }()
+	var gs *http.Server
+	if cfg.Gateway.Listen != "" {
+		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
+		amURL, _ := url.Parse(cfg.Alertmanager.URL)
+		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
+			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
+			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: catalogue.Load, Targets: probeTargets.Load,
+				VM: vmURL, AM: amURL, Metrics: m, Log: log})}
+		go func() { errc <- gs.ListenAndServe() }()
+	}
 	log.Info("linkos-status started", "version", version.Version, "listen", cfg.Listen,
-		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations))
+		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations),
+		"gateway", cfg.Gateway.Listen, "targets", tset.Count())
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
@@ -233,13 +282,24 @@ func serve(args []string, stderr io.Writer) int {
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = hs.Shutdown(sctx)
+	if gs != nil {
+		_ = gs.Shutdown(sctx)
+	}
 	log.Info("linkos-status stopped")
 	return 0
 }
 
-// reloadOnHUP reloads the catalogue when the process gets SIGHUP; a broken catalogue is logged and
-// the previous one kept.
-func reloadOnHUP(ctx context.Context, dir string, cat *atomic.Pointer[catalog.Catalog], log *slog.Logger) {
+func locationIDs(c *catalog.Catalog) []string {
+	ids := make([]string, 0, len(c.Locations))
+	for _, l := range c.Locations {
+		ids = append(ids, l.ID)
+	}
+	return ids
+}
+
+// reloadOnHUP reloads the catalogue and the probe targets when the process gets SIGHUP; when either is
+// broken, the error is logged and both previous ones are kept.
+func reloadOnHUP(ctx context.Context, cfg *config.Config, cat *atomic.Pointer[catalog.Catalog], tset *atomic.Pointer[targets.Set], log *slog.Logger) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP)
 	defer signal.Stop(ch)
@@ -248,15 +308,57 @@ func reloadOnHUP(ctx context.Context, dir string, cat *atomic.Pointer[catalog.Ca
 		case <-ctx.Done():
 			return
 		case <-ch:
-			c, err := catalog.Load(dir)
+			c, err := catalog.Load(cfg.CatalogDir)
 			if err != nil {
 				log.Error("catalogue reload failed; keeping the previous one", "err", err)
 				continue
 			}
+			t, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(c))
+			if err != nil {
+				log.Error("targets reload failed; keeping the previous catalogue and targets", "err", err)
+				continue
+			}
 			cat.Store(c)
-			log.Info("catalogue reloaded", "locations", len(c.Locations), "heartbeats", len(c.Heartbeats), "resources", len(c.Resources))
+			tset.Store(t)
+			log.Info("catalogue reloaded", "locations", len(c.Locations), "heartbeats", len(c.Heartbeats), "resources", len(c.Resources), "targets", t.Count())
 		}
 	}
+}
+
+// enroll gives a machine its gateway token. The secret alone goes to stdout, so that a deploy script can
+// pass it straight to the machine; everything else goes to stderr.
+func enroll(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	rotate := fs.Bool("rotate", false, "replace the token of a machine that is enrolled already")
+	var pos []string
+	rest := args
+	for len(rest) > 0 { // flags may come before or after the two arguments
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		rest = fs.Args()
+		if len(rest) > 0 {
+			pos, rest = append(pos, rest[0]), rest[1:]
+		}
+	}
+	if len(pos) != 2 || ctl.EnrollKinds[pos[0]] == "" {
+		fmt.Fprintln(stderr, "enroll probe|host|heartbeat NAME [-rotate]")
+		return 2
+	}
+	c, ok := dial(stderr)
+	if !ok {
+		return 1
+	}
+	out, err := c.Enroll(context.Background(), ctl.EnrollRequest{Kind: pos[0], Subject: pos[1], Rotate: *rotate})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, out.Secret)
+	fmt.Fprintf(stderr, "enrolled %s (%s, expires %s); the token above is not shown again\n",
+		out.Token.Name, strings.Join(out.Token.Scopes, ","), out.Token.Expires.Local().Format(time.DateOnly))
+	return 0
 }
 
 func dial(stderr io.Writer) (*ctl.Client, bool) {

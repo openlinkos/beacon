@@ -93,11 +93,14 @@ type Silence struct {
 // Firing reports whether the group is firing.
 func (g *Group) Firing() bool { return g.Status == "firing" }
 
-// Token is an API token. Only the SHA-256 of the secret is kept.
+// Token is an API token. Only the SHA-256 of the secret is kept. Subject is who a machine token speaks
+// for: the probe location of a probe:write token, the host of a host:write token, the sender of a
+// heartbeat:write token.
 type Token struct {
 	Name      string    `json:"name"`
 	Hash      string    `json:"hash"`
 	Scopes    []string  `json:"scopes"`
+	Subject   string    `json:"subject,omitempty"`
 	Created   time.Time `json:"created"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	Expires   time.Time `json:"expires"`
@@ -237,10 +240,18 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 
 // ---- Tokens
 
-// Scopes are the token scopes. Public reads need no token.
-var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write"}
+// Scopes are the token scopes. Public reads need no token. The first four are for people and agents
+// (the REST API and MCP); the rest are for machines, on the metrics gateway.
+var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
+	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send"}
 
-var tokenNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+// SubjectScopes need a subject: the gateway labels everything written with it.
+var SubjectScopes = []string{"probe:write", "host:write"}
+
+var (
+	tokenNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+	subjectRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+)
 
 // TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
 const TokenPrefix = "lst_"
@@ -252,6 +263,11 @@ func hashToken(secret string) string {
 
 // CreateToken makes a token and returns its secret, which is not stored and cannot be shown again.
 func (s *Store) CreateToken(name string, scopes []string, ttl time.Duration, by string) (string, Token, error) {
+	return s.CreateSubjectToken(name, "", scopes, ttl, by)
+}
+
+// CreateSubjectToken is CreateToken for a token that speaks for subject (see Token).
+func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, Token, error) {
 	if !tokenNameRe.MatchString(name) {
 		return "", Token{}, fmt.Errorf("token name %q: use lower case letters, digits, dots, dashes and underscores", name)
 	}
@@ -262,6 +278,12 @@ func (s *Store) CreateToken(name string, scopes []string, ttl time.Duration, by 
 		if !slices.Contains(Scopes, sc) {
 			return "", Token{}, fmt.Errorf("unknown scope %q; scopes are %s", sc, strings.Join(Scopes, ", "))
 		}
+		if slices.Contains(SubjectScopes, sc) && subject == "" {
+			return "", Token{}, fmt.Errorf("scope %s needs a subject (the location or host the token writes as)", sc)
+		}
+	}
+	if subject != "" && !subjectRe.MatchString(subject) {
+		return "", Token{}, fmt.Errorf("subject %q: use lower case letters, digits and dashes", subject)
 	}
 	if ttl < time.Hour || ttl > 2*366*24*time.Hour {
 		return "", Token{}, errors.New("a token must expire between 1 hour and 2 years from now")
@@ -272,7 +294,7 @@ func (s *Store) CreateToken(name string, scopes []string, ttl time.Duration, by 
 	}
 	secret := TokenPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw))
 	now := s.now().UTC()
-	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Created: now, CreatedBy: by, Expires: now.Add(ttl)}
+	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl)}
 	b, _ := json.Marshal(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()

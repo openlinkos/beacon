@@ -56,6 +56,13 @@ func (c *Client) CreateToken(ctx context.Context, in TokenRequest) (TokenRespons
 	return out, err
 }
 
+// Enroll gives a machine its gateway token.
+func (c *Client) Enroll(ctx context.Context, in EnrollRequest) (TokenResponse, error) {
+	var out TokenResponse
+	err := c.do(ctx, http.MethodPost, "/v1/enroll", in, &out)
+	return out, err
+}
+
 // Tokens lists the tokens.
 func (c *Client) Tokens(ctx context.Context) ([]TokenInfo, error) {
 	var out []TokenInfo
@@ -67,6 +74,7 @@ func (c *Client) Tokens(ctx context.Context) ([]TokenInfo, error) {
 type TokenInfo struct {
 	Name      string    `json:"name"`
 	Scopes    []string  `json:"scopes"`
+	Subject   string    `json:"subject"`
 	Created   time.Time `json:"created"`
 	CreatedBy string    `json:"created_by"`
 	Expires   time.Time `json:"expires"`

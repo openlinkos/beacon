@@ -100,3 +100,47 @@ func TestParseErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordOnlyAndDefaults(t *testing.T) {
+	d := t.TempDir()
+	am := "alertmanager:\n  url: http://am:17003\n  webhook_token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
+	// no channel at all: alerts are only recorded
+	c, err := Parse([]byte(am))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sev := range Severities {
+		if p := c.Escalation[sev]; p.Channel != "none" || p.Buzz != 0 || p.Pushover != 0 {
+			t.Errorf("%s: %+v", sev, p)
+		}
+	}
+	// the app without the group bot: info goes to the app too (it needs no bot)
+	app := am + "feishu:\n  app_id_file: " + secret(t, d, "id", "cli_x") + "\n  app_secret_file: " + secret(t, d, "s", "y") +
+		"\n  chat_id: oc_1\n  on_call: [{open_id: ou_a, name: A}]\n"
+	if c, err = Parse([]byte(app)); err != nil {
+		t.Fatal(err)
+	}
+	if c.Escalation["info"].Channel != "app" || c.Escalation["critical"].Buzz.D() != 10*time.Minute || c.Escalation["critical"].Pushover != 0 {
+		t.Errorf("app only: %+v", c.Escalation)
+	}
+	// the group bot alone
+	bot := am + "feishu:\n  webhook_url_file: " + secret(t, d, "hook", "https://x") + "\n"
+	if c, err = Parse([]byte(bot)); err != nil {
+		t.Fatal(err)
+	}
+	if c.Escalation["critical"].Channel != "webhook" {
+		t.Errorf("bot only: %+v", c.Escalation)
+	}
+}
+
+func TestGateway(t *testing.T) {
+	d := t.TempDir()
+	am := "alertmanager:\n  url: http://am:17003\n  webhook_token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
+	if _, err := Parse([]byte(am + "gateway:\n  listen: \":17006\"\n")); err == nil || !strings.Contains(err.Error(), "victoriametrics.url") {
+		t.Errorf("a gateway without VictoriaMetrics: %v", err)
+	}
+	c, err := Parse([]byte(am + "victoriametrics:\n  url: http://vm:17005\ngateway:\n  listen: \":17006\"\n"))
+	if err != nil || c.Gateway.TargetsDir != "/etc/linkos-status/targets" {
+		t.Fatalf("gateway: %+v %v", c.Gateway, err)
+	}
+}

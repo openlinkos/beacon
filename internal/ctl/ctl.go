@@ -9,6 +9,7 @@ package ctl
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -44,6 +45,21 @@ type TokenResponse struct {
 	Token  store.Token `json:"token"`
 }
 
+// EnrollRequest gives a machine its gateway token: a probe location, a host, or a heartbeat sender.
+// An enrolled machine is enrolled again only with Rotate, which revokes its old token.
+type EnrollRequest struct {
+	Kind    string `json:"kind"`    // probe, host or heartbeat
+	Subject string `json:"subject"` // the location id, host name or sender name
+	Rotate  bool   `json:"rotate,omitempty"`
+}
+
+// EnrollKinds map what is enrolled to the scope of its token.
+var EnrollKinds = map[string]string{"probe": "probe:write", "host": "host:write", "heartbeat": "heartbeat:write"}
+
+// EnrollTTL is how long a machine token lasts. A probe stops being able to write when its machine
+// expires (the gateway checks the catalogue), so the token itself may outlive that.
+const EnrollTTL = 2 * 365 * 24 * time.Hour
+
 // DrillRequest starts a drill for a while, or ends it ("off").
 type DrillRequest struct {
 	Duration string `json:"duration"`
@@ -57,6 +73,7 @@ type DrillState struct {
 // Service is what the socket serves.
 type Service interface {
 	CreateToken(name string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
+	CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
 	Tokens() []store.Token
 	RevokeToken(name string) error
 	Audit(e store.AuditEntry) error
@@ -94,8 +111,9 @@ func fail(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
 
-// Handler serves the socket's API.
-func Handler(s Service) http.Handler {
+// Handler serves the socket's API. active reports whether a probe location exists and its machine has
+// not expired; nil accepts any location.
+func Handler(s Service, active func(location string) error) http.Handler {
 	mux := http.NewServeMux()
 	actor := func(r *http.Request) string {
 		name := r.Header.Get(UserHeader)
@@ -135,6 +153,49 @@ func Handler(s Service) http.Handler {
 			return
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name, Detail: strings.Join(tok.Scopes, ",")})
+		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})
+	})
+	mux.HandleFunc("POST /v1/enroll", func(w http.ResponseWriter, r *http.Request) {
+		var in EnrollRequest
+		if !decode(w, r, &in) {
+			return
+		}
+		scope, ok := EnrollKinds[in.Kind]
+		if !ok {
+			fail(w, http.StatusBadRequest, errors.New("enroll a probe, a host or a heartbeat"))
+			return
+		}
+		if in.Kind == "probe" && active != nil {
+			if err := active(in.Subject); err != nil {
+				fail(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+		name := in.Kind + "-" + in.Subject
+		exists := false
+		for _, t := range s.Tokens() {
+			exists = exists || t.Name == name
+		}
+		if exists && !in.Rotate {
+			fail(w, http.StatusConflict, fmt.Errorf("%s is enrolled already; enroll it with -rotate to replace its token", name))
+			return
+		}
+		if exists {
+			if err := s.RevokeToken(name); err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		secret, tok, err := s.CreateSubjectToken(name, in.Subject, []string{scope}, EnrollTTL, actor(r))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		action := "enroll"
+		if exists {
+			action = "enroll_rotate"
+		}
+		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: action, Target: tok.Name, Detail: scope})
 		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})
 	})
 	mux.HandleFunc("DELETE /v1/tokens/{name}", func(w http.ResponseWriter, r *http.Request) {

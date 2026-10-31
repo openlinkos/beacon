@@ -39,6 +39,12 @@ type Config struct {
 	VictoriaMetrics struct {
 		URL string `yaml:"url"`
 	} `yaml:"victoriametrics"`
+	// Gateway is the metrics gateway for machines (remote write, probe targets, heartbeats, reads,
+	// Flux's alerts); see the gateway package. An empty Listen turns it off.
+	Gateway struct {
+		Listen     string `yaml:"listen"`
+		TargetsDir string `yaml:"targets_dir"`
+	} `yaml:"gateway"`
 	Links struct {
 		// GrafanaService and Runbook are URL templates: {service} and {alertname} are replaced.
 		GrafanaService string `yaml:"grafana_service"`
@@ -100,7 +106,7 @@ type Healthchecks struct {
 
 // Policy says how alerts of one severity are delivered and escalated. Zero durations turn a step off.
 type Policy struct {
-	Channel  string   `yaml:"channel"` // app (Feishu app card) or webhook (group custom bot)
+	Channel  string   `yaml:"channel"` // app (Feishu app card), webhook (group custom bot) or none (only recorded)
 	Buzz     Duration `yaml:"buzz"`
 	Pushover Duration `yaml:"pushover"`
 	Bark     Duration `yaml:"bark"`
@@ -174,6 +180,7 @@ func (c *Config) defaults() {
 	set(&c.Listen, ":17001")
 	set(&c.DataDir, "/var/lib/linkos-status")
 	set(&c.CatalogDir, "/etc/linkos-status/catalog")
+	set(&c.Gateway.TargetsDir, "/etc/linkos-status/targets")
 	set(&c.Language, "zh")
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
@@ -193,11 +200,25 @@ func (c *Config) defaults() {
 		c.AckTTL = Duration(4 * time.Hour)
 	}
 	if c.Escalation == nil {
-		c.Escalation = map[string]Policy{
-			"critical": {Channel: "app", Buzz: Duration(10 * time.Minute), Pushover: Duration(15 * time.Minute)},
-			"warning":  {Channel: "app"},
-			"info":     {Channel: "webhook"},
+		// The best channel configured; with none, alerts are only recorded (the API and MCP still show them).
+		ch := "none"
+		switch {
+		case c.Feishu.AppIDFile != "":
+			ch = "app"
+		case c.Feishu.WebhookURLFile != "":
+			ch = "webhook"
 		}
+		crit, info := Policy{Channel: ch}, Policy{Channel: ch}
+		if ch == "app" {
+			crit.Buzz = Duration(10 * time.Minute)
+			if c.Feishu.WebhookURLFile != "" {
+				info.Channel = "webhook" // low-severity alerts need no app quota
+			}
+		}
+		if c.Pushover.TokenFile != "" {
+			crit.Pushover = Duration(15 * time.Minute)
+		}
+		c.Escalation = map[string]Policy{"critical": crit, "warning": {Channel: ch}, "info": info}
 	}
 }
 
@@ -234,6 +255,14 @@ func (c *Config) validate() error {
 	}
 	c.Location = loc
 
+	if c.Gateway.Listen != "" {
+		if _, _, err := net.SplitHostPort(c.Gateway.Listen); err != nil {
+			bad("gateway.listen %q is not an address such as :17006", c.Gateway.Listen)
+		}
+		if c.VictoriaMetrics.URL == "" {
+			bad("the gateway needs victoriametrics.url: it writes there")
+		}
+	}
 	if c.Alertmanager.URL == "" {
 		bad("alertmanager.url is required")
 	} else if u, err := url.Parse(c.Alertmanager.URL); err != nil || u.Host == "" {
@@ -296,8 +325,8 @@ func (c *Config) validate() error {
 		if !slices.Contains(Severities, sev) {
 			bad("escalation: %q is not a severity (%s)", sev, strings.Join(Severities, ", "))
 		}
-		if p.Channel != "app" && p.Channel != "webhook" {
-			bad("escalation.%s.channel must be app or webhook, not %q", sev, p.Channel)
+		if p.Channel != "app" && p.Channel != "webhook" && p.Channel != "none" {
+			bad("escalation.%s.channel must be app, webhook or none, not %q", sev, p.Channel)
 		}
 		if p.Channel == "app" && f.AppIDFile == "" {
 			bad("escalation.%s uses the Feishu app, but feishu.app_id_file is not set", sev)

@@ -19,6 +19,13 @@ alertmanager:
 victoriametrics:
   url: http://victoriametrics:8428
 
+# The metrics gateway for machines (off when listen is empty): probes and hosts write here with tokens
+# from 'linkos-status enroll', fetch what to check (Prometheus HTTP service discovery), and job hosts push
+# heartbeats. The gateway labels everything a probe writes with its location; see README.
+gateway:
+  listen: ":17006"
+  targets_dir: /etc/linkos-status/targets   # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml
+
 links:
   # {service} and {alertname} are filled in; an alert's own runbook/dashboard annotation wins.
   grafana_service: "https://grafana.example.com/d/linkos-service/service?var-service={service}"
