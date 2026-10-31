@@ -15,7 +15,7 @@ before:
     - go mod tidy -diff
 
 builds:
-  - id: status
+  - id: beacon
     main: ./cmd/linkos-beacon
     binary: linkos-beacon
     env:
@@ -47,8 +47,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - id: status
-    ids: [status]
+  - id: beacon
+    ids: [beacon]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
     files:
@@ -79,8 +79,8 @@ signs:
     output: true
 
 dockers_v2:
-  - id: status
-    ids: [status, probe]
+  - id: beacon
+    ids: [beacon, probe]
     images:
       - ghcr.io/openlinkos/beacon
     # pre-releases only get their own tag and do not update v0.1 or latest

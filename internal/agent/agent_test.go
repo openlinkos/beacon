@@ -121,6 +121,15 @@ func TestCyclePushesProbesHostAndHeartbeats(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(a.cfg.StateDir, "targets.json")); err != nil {
 		t.Error("targets are cached")
 	}
+	var last float64
+	for _, s := range a.Status() {
+		if s.Name == "linkos_probe_last_push_timestamp_seconds" {
+			last = s.Value
+		}
+	}
+	if last != 1793491200 {
+		t.Errorf("status after a push: %+v", a.Status())
+	}
 }
 
 func TestQueueWhenTheGatewayFails(t *testing.T) {

@@ -182,7 +182,7 @@ func runAgent(args []string, stderr io.Writer) int {
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-			_ = probe.WriteSamples(w, host.Collect())
+			_ = probe.WriteSamples(w, append(host.Collect(), a.Status()...))
 		})
 		srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = srv.ListenAndServe() }()

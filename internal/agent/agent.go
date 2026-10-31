@@ -278,6 +278,21 @@ func (a *Agent) self(w *bytes.Buffer, at time.Time) {
 	}
 }
 
+// Status is the agent's own state for its local /metrics, a look by hand or an install check: when it
+// last pushed, how many pushes failed since it started, and what waits in the queue.
+func (a *Agent) Status() []probe.Sample {
+	files, size := a.queued()
+	out := []probe.Sample{
+		{Name: "linkos_probe_push_errors_total", Help: "Pushes to the gateway that failed since the agent started", Type: "counter", Value: float64(a.pushErrors.Load())},
+		{Name: "linkos_probe_queue_batches", Help: "Batches waiting on disk for the gateway", Type: "gauge", Value: float64(len(files))},
+		{Name: "linkos_probe_queue_bytes", Help: "Bytes waiting on disk for the gateway", Type: "gauge", Value: float64(size)},
+	}
+	if lp := a.lastPush.Load(); lp > 0 {
+		out = append(out, probe.Sample{Name: "linkos_probe_last_push_timestamp_seconds", Help: "When the gateway last accepted a push", Type: "gauge", Value: float64(lp)})
+	}
+	return out
+}
+
 func countTargets(gs []targets.Group) int {
 	n := 0
 	for _, g := range gs {
