@@ -39,6 +39,7 @@ import (
 	"github.com/openlinkos/status/internal/ctl"
 	"github.com/openlinkos/status/internal/feishu"
 	"github.com/openlinkos/status/internal/gateway"
+	"github.com/openlinkos/status/internal/inventory"
 	"github.com/openlinkos/status/internal/mcpserver"
 	"github.com/openlinkos/status/internal/metrics"
 	"github.com/openlinkos/status/internal/notify"
@@ -234,6 +235,9 @@ func serve(args []string, stderr io.Writer) int {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
 	go br.Run(ctx, ping)
+	inv := &inventory.Checker{Catalog: catalogue.Load}
+	inv.Register(m)
+	go inv.Run(ctx)
 
 	active := func(id string) error {
 		c := catalogue.Load()

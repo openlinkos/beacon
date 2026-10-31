@@ -29,11 +29,16 @@ import (
 // it expires, so a server that is let go stops counting as a probe on its own, and renewing it (a new date)
 // brings the probe back. Name is public, for the status page: it says where and on which network, never
 // which vendor or machine.
+//
+// A location on a CDN node may also name the node's Address and its cluster's DNS name (Rotation): the
+// inventory check then reports when the node drops out of the cluster's answers.
 type Location struct {
-	ID      string `yaml:"id"`
-	Name    string `yaml:"name"`
-	Region  string `yaml:"region"` // overseas or mainland
-	Network string `yaml:"network"`
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name"`
+	Region   string `yaml:"region"` // overseas or mainland
+	Network  string `yaml:"network"`
+	Address  string `yaml:"address"`
+	Rotation string `yaml:"rotation"`
 }
 
 // Heartbeat is a job that must report success at least every MaxAge.
@@ -117,6 +122,9 @@ func (c *Catalog) validate() error {
 		}
 		if l.Region != "overseas" && l.Region != "mainland" {
 			bad("location %q: region must be overseas or mainland, not %q", l.ID, l.Region)
+		}
+		if l.Rotation != "" && l.Address == "" {
+			bad("location %q: a rotation needs the node's address", l.ID)
 		}
 	}
 	for _, h := range c.Heartbeats {
