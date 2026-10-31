@@ -128,7 +128,7 @@ changelog:
 release:
   github:
     owner: openlinkos
-    name: status
+    name: beacon
   prerelease: auto
   footer: |
     ## Verify
