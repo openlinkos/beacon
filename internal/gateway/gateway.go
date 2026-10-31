@@ -37,6 +37,7 @@ type Deps struct {
 	Auth       *api.Auth
 	Catalog    func() *catalog.Catalog
 	Targets    func() *targets.Set
+	Modules    func() []byte // the probe module file, handed to probes as is
 	VM         *url.URL
 	Alerts     func([]router.Postable) error
 	RulesToken string
@@ -76,7 +77,8 @@ func Handler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/v1/write", g.with("write", []string{"probe:write", "host:write"}, g.write))
 	mux.Handle("GET /api/v1/targets", g.with("targets", []string{"probe:write"}, g.targets))
-	mux.Handle("POST /api/v1/import/prometheus", g.with("heartbeat", []string{"heartbeat:write"}, g.heartbeat))
+	mux.Handle("GET /api/v1/modules", g.with("modules", []string{"probe:write"}, g.modules))
+	mux.Handle("POST /api/v1/import/prometheus", g.with("import", []string{"probe:write", "host:write", "heartbeat:write"}, g.importText))
 	for _, p := range readPaths {
 		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
 	}
@@ -190,14 +192,40 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 	_ = json.NewEncoder(w).Encode(g.Targets().For(l.ID, l.Region, ids))
 }
 
-func (g *gateway) heartbeat(w http.ResponseWriter, r *http.Request, t store.Token) {
+// importText takes samples in the Prometheus text format (what linkos-probe pushes, and heartbeats),
+// labelled like remote write: a probe's with its location, a host's with its name, a heartbeat's as such.
+func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
 	q := url.Values{}
-	q.Add("extra_label", "source=heartbeat")
-	if t.Subject != "" {
-		q.Add("extra_label", "sender="+t.Subject)
+	if t.Has("probe:write") || t.Has("host:write") {
+		labels, why := g.labels(t)
+		if why != "" {
+			fail(w, http.StatusForbidden, "location.inactive", why)
+			return
+		}
+		for _, l := range labels {
+			q.Add("extra_label", l[0]+"="+l[1])
+		}
+		g.mu.Lock()
+		g.lastWrite[t.Subject] = g.Now()
+		g.mu.Unlock()
+	} else {
+		q.Add("extra_label", "source=heartbeat")
+		if t.Subject != "" {
+			q.Add("extra_label", "sender="+t.Subject)
+		}
 	}
 	r.URL.Path, r.URL.RawQuery = "/api/v1/import/prometheus", q.Encode()
 	g.vm.ServeHTTP(w, r)
+}
+
+func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token) {
+	if g.Modules == nil {
+		fail(w, http.StatusNotFound, "not_found", "no module file here")
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(g.Modules())
 }
 
 func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { g.vm.ServeHTTP(w, r) }

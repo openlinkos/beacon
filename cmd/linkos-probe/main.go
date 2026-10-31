@@ -1,8 +1,10 @@
 // Command linkos-probe is the probe agent: it checks targets for the status service (like the
 // Blackbox Exporter, with the same metric names, plus a failure reason and multi-step checks) and
-// reports a few host metrics (like a small Node Exporter). vmagent scrapes it and writes the results to
-// the status service's gateway.
+// reports a few host metrics (like a small Node Exporter). In agent mode it does everything itself:
+// fetches its targets and modules from the status service's gateway, probes every minute, and pushes
+// the results with a queue on disk for when the gateway cannot be reached.
 //
+//	linkos-probe agent -gateway URL -token-file FILE [-state DIR] [-interval 1m] [-listen 127.0.0.1:17009]
 //	linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc]
 //	linkos-probe check [-modules FILE]                 validate the module file
 //	linkos-probe run [-modules FILE] MODULE TARGET     probe once and print the result
@@ -19,9 +21,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/openlinkos/status/internal/agent"
 	"github.com/openlinkos/status/internal/hostmetrics"
 	"github.com/openlinkos/status/internal/probe"
 	"github.com/openlinkos/status/internal/version"
@@ -33,7 +37,11 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
+  linkos-probe agent -gateway URL -token-file FILE [-state /var/lib/linkos-agent] [-interval 1m]
+                     [-textfile DIR] [-proc /proc] [-listen 127.0.0.1:17009]
+                                                     probe, collect and push to the gateway (the agent)
   linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc]
+                                                     only answer /probe and /metrics (for a scraper)
   linkos-probe check [-modules FILE]                 validate the module file
   linkos-probe run [-modules FILE] MODULE TARGET     probe once and print the result
   linkos-probe version
@@ -46,6 +54,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "agent":
+		return runAgent(args[1:], stderr)
 	case "serve":
 		return serve(args[1:], stderr)
 	case "check":
@@ -140,6 +150,46 @@ func serve(args []string, stderr io.Writer) int {
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(sctx)
+	return 0
+}
+
+func runAgent(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	gateway := fs.String("gateway", "", "the status service's gateway, such as https://metrics.example.com")
+	tokenFile := fs.String("token-file", "/etc/linkos-agent/token", "file with the token from 'linkos-status enroll probe NAME'")
+	state := fs.String("state", "/var/lib/linkos-agent", "cache of targets and modules, and the queue")
+	interval := fs.Duration("interval", time.Minute, "how often to probe and push")
+	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")
+	proc := fs.String("proc", "/proc", "proc filesystem")
+	listen := fs.String("listen", "127.0.0.1:17009", "address for /healthz and /metrics (for a look by hand); empty for none")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	log := slog.New(slog.NewTextHandler(stderr, nil))
+	b, err := os.ReadFile(*tokenFile)
+	if err != nil || *gateway == "" {
+		log.Error("cannot start: need -gateway and a readable -token-file", "err", err)
+		return 1
+	}
+	host := &hostmetrics.Collector{ProcRoot: *proc, TextfileDir: *textfile}
+	a := agent.New(agent.Config{Gateway: *gateway, Token: strings.TrimSpace(string(b)), StateDir: *state, Interval: *interval,
+		Prober: &probe.Prober{UserAgent: userAgent()}, Host: host, Log: log})
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *listen != "" {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
+		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			_ = probe.WriteSamples(w, host.Collect())
+		})
+		srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+		go func() { _ = srv.ListenAndServe() }()
+		defer func() { _ = srv.Close() }()
+	}
+	log.Info("linkos-probe agent started", "version", version.Version, "gateway", *gateway, "interval", *interval)
+	a.Run(ctx)
 	return 0
 }
 

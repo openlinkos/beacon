@@ -45,8 +45,9 @@ type Config struct {
 	// Gateway is the metrics gateway for machines (remote write, probe targets, heartbeats, reads,
 	// Flux's alerts); see the gateway package. An empty Listen turns it off.
 	Gateway struct {
-		Listen     string `yaml:"listen"`
-		TargetsDir string `yaml:"targets_dir"`
+		Listen      string `yaml:"listen"`
+		TargetsDir  string `yaml:"targets_dir"`
+		ModulesFile string `yaml:"modules_file"` // how to probe; default modules.yml in targets_dir
 	} `yaml:"gateway"`
 	Links struct {
 		// GrafanaService and Runbook are URL templates: {service} and {alertname} are replaced.
@@ -209,6 +210,7 @@ func (c *Config) defaults() {
 	set(&c.CatalogDir, "/etc/linkos-status/catalog")
 	set(&c.Gateway.TargetsDir, "/etc/linkos-status/targets")
 	set(&c.Gateway.Listen, ":17006")
+	set(&c.Gateway.ModulesFile, strings.TrimSuffix(c.Gateway.TargetsDir, "/")+"/modules.yml")
 	if c.Routing.GroupBy == nil {
 		c.Routing.GroupBy = []string{"alertname", "service"}
 	}

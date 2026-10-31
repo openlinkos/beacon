@@ -128,7 +128,7 @@ resources:
 	e.human = mk("claude-code", "", "status:read", "alerts:write")
 	now := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // cdn-pre-cn1 expired on 11-02
 	e.h = Handler(Deps{Auth: &api.Auth{Store: st}, Catalog: func() *catalog.Catalog { return c },
-		Targets: func() *targets.Set { return set }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
+		Targets: func() *targets.Set { return set }, Modules: func() []byte { return []byte("modules: {}\n") }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
 		Metrics: e.m, Now: func() time.Time { return now }})
 	return e
 }
@@ -259,4 +259,21 @@ func TestAuth(t *testing.T) {
 	code(t, e.do("POST", "/api/v1/write", e.human, "x"), http.StatusForbidden, "auth.scope")
 	code(t, e.do("GET", "/api/v1/nothing", e.probe, ""), http.StatusNotFound, "not_found")
 	code(t, e.do("DELETE", "/api/v1/admin/tsdb/delete_series", e.reader, ""), http.StatusNotFound, "not_found")
+}
+
+func TestProbeImportAndModules(t *testing.T) {
+	e := newEnv(t, false)
+	code(t, e.do("POST", "/api/v1/import/prometheus?extra_label=location=evil", e.probe, "probe_success 1 1793436000000"), http.StatusNoContent, "")
+	r, body := e.vm.last()
+	if r.URL.Path != "/prefix/api/v1/import/prometheus" || body != "probe_success 1 1793436000000" ||
+		strings.Join(r.URL.Query()["extra_label"], "|") != "location=cdn-pre-us1|region=overseas|network=CN2 GIA|host=cdn-pre-us1" {
+		t.Fatalf("imported as %s?%s %q", r.URL.Path, r.URL.RawQuery, body)
+	}
+	code(t, e.do("POST", "/api/v1/import/prometheus", e.expired, "x 1"), http.StatusForbidden, "location.inactive")
+	rec := e.do("GET", "/api/v1/modules", e.probe, "")
+	code(t, rec, http.StatusOK, "")
+	if rec.Body.String() != "modules: {}\n" {
+		t.Fatalf("modules %q", rec.Body)
+	}
+	code(t, e.do("GET", "/api/v1/modules", e.beat, ""), http.StatusForbidden, "auth.scope")
 }

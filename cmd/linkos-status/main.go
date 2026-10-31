@@ -43,6 +43,7 @@ import (
 	"github.com/openlinkos/status/internal/mcpserver"
 	"github.com/openlinkos/status/internal/metrics"
 	"github.com/openlinkos/status/internal/notify"
+	probemod "github.com/openlinkos/status/internal/probe"
 	"github.com/openlinkos/status/internal/router"
 	"github.com/openlinkos/status/internal/server"
 	"github.com/openlinkos/status/internal/store"
@@ -138,6 +139,10 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "targets %s: %v\n", cfg.Gateway.TargetsDir, err)
 		return 1
 	}
+	if _, err := loadModules(cfg.Gateway.ModulesFile); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q\n",
 		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources), ts.Count(), len(ts.Files()),
 		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen)
@@ -166,6 +171,13 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", fmt.Errorf("targets %s: %w", cfg.Gateway.TargetsDir, err))
 		return 1
 	}
+	mods, err := loadModules(cfg.Gateway.ModulesFile)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	var moduleFile atomic.Pointer[[]byte]
+	moduleFile.Store(&mods)
 
 	var catalogue atomic.Pointer[catalog.Catalog]
 	var probeTargets atomic.Pointer[targets.Set]
@@ -233,7 +245,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go reloadOnHUP(ctx, cfg, &catalogue, &probeTargets, log)
+	go reloadOnHUP(ctx, cfg, &catalogue, &probeTargets, &moduleFile, log)
 	if listener != nil {
 		go func() {
 			if err := listener.Run(ctx); err != nil {
@@ -281,7 +293,8 @@ func serve(args []string, stderr io.Writer) int {
 		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
 			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: catalogue.Load, Targets: probeTargets.Load,
-				VM: vmURL, Alerts: rt.Ingest, RulesToken: sec.RulesToken, Metrics: m, Log: log})}
+				Modules: func() []byte { return *moduleFile.Load() }, VM: vmURL, Alerts: rt.Ingest, RulesToken: sec.RulesToken,
+				Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	log.Info("linkos-status started", "version", version.Version, "listen", cfg.Listen,
@@ -340,6 +353,21 @@ func routerConfig(c config.Routing) (router.Config, error) {
 	return out, nil
 }
 
+// loadModules reads and checks the probe module file; a missing file is none (probes keep their own).
+func loadModules(path string) ([]byte, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // the operator names the file
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := probemod.ParseModules(b); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return b, nil
+}
+
 func locationIDs(c *catalog.Catalog) []string {
 	ids := make([]string, 0, len(c.Locations))
 	for _, l := range c.Locations {
@@ -350,7 +378,8 @@ func locationIDs(c *catalog.Catalog) []string {
 
 // reloadOnHUP reloads the catalogue and the probe targets when the process gets SIGHUP; when either is
 // broken, the error is logged and both previous ones are kept.
-func reloadOnHUP(ctx context.Context, cfg *config.Config, cat *atomic.Pointer[catalog.Catalog], tset *atomic.Pointer[targets.Set], log *slog.Logger) {
+func reloadOnHUP(ctx context.Context, cfg *config.Config, cat *atomic.Pointer[catalog.Catalog], tset *atomic.Pointer[targets.Set],
+	mods *atomic.Pointer[[]byte], log *slog.Logger) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP)
 	defer signal.Stop(ch)
@@ -369,8 +398,14 @@ func reloadOnHUP(ctx context.Context, cfg *config.Config, cat *atomic.Pointer[ca
 				log.Error("targets reload failed; keeping the previous catalogue and targets", "err", err)
 				continue
 			}
+			m, err := loadModules(cfg.Gateway.ModulesFile)
+			if err != nil {
+				log.Error("module reload failed; keeping the previous catalogue, targets and modules", "err", err)
+				continue
+			}
 			cat.Store(c)
 			tset.Store(t)
+			mods.Store(&m)
 			log.Info("catalogue reloaded", "locations", len(c.Locations), "heartbeats", len(c.Heartbeats), "resources", len(c.Resources), "targets", t.Count())
 		}
 	}
