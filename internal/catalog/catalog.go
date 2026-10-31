@@ -24,7 +24,9 @@ import (
 	"github.com/openlinkos/status/internal/metrics"
 )
 
-// Location is a probe location. Name is public: it says where and on which network, never which vendor.
+// Location is a probe location. ID is internal (metrics, alert cards, configuration) and is best the name of
+// the probe's machine. Name is public, for the status page: it says where and on which network, never which
+// vendor or machine.
 // Machine optionally names the server the probe runs on, as listed in the resources: the location is
 // expected to report only until that server expires, so a server that is let go stops counting as a
 // probe on its own, and renewing it (a new date) brings the probe back.

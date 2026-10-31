@@ -129,7 +129,9 @@ func cardHash(g *store.Group) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// locations returns "✅ name  ❌ name" for the service's probes over the last three minutes, or "".
+// locations returns "✅ id  ❌ id" for the service's probes over the last three minutes, or "". Cards are
+// internal, so they show the location ids, which name the probe's machine; the public names (where and on
+// which network) are for the status page.
 func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 	svc := b.service(g)
 	if b.d.VM == nil || svc == "" || strings.ContainsAny(svc, `"\`) {
@@ -141,20 +143,14 @@ func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 	if err != nil || len(rows) == 0 {
 		return ""
 	}
-	cat := b.d.Catalog()
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Labels["location"] < rows[j].Labels["location"] })
 	var parts []string
 	for _, r := range rows {
-		id := r.Labels["location"]
-		name := id
-		if l, ok := cat.Location(id); ok {
-			name = l.Name
-		}
 		mark := "✅"
 		if r.Value < 1 {
 			mark = "❌"
 		}
-		parts = append(parts, mark+" "+name)
+		parts = append(parts, mark+" "+r.Labels["location"])
 	}
 	return strings.Join(parts, "  ")
 }

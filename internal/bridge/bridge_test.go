@@ -165,7 +165,7 @@ func TestFiringAckResolve(t *testing.T) {
 		t.Fatalf("one card expected, got %d", len(e.fs.sends))
 	}
 	c := cardText(e.fs.sends[0])
-	for _, want := range []string{"git.linkos.io is down", `"template":"red"`, "Acknowledge", "Silence 4h", "❌ United States - Los Angeles", "✅ cn-shanghai-bgp", "runbooks/ServiceDown.md", "var-service=git-linkos-io", "10-30 09:58"} {
+	for _, want := range []string{"git.linkos.io is down", `"template":"red"`, "Acknowledge", "Silence 4h", "❌ us-los-angeles", "✅ cn-shanghai-bgp", "runbooks/ServiceDown.md", "var-service=git-linkos-io", "10-30 09:58"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("card lacks %q: %s", want, c)
 		}
