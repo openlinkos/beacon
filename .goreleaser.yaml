@@ -1,5 +1,6 @@
 # Release process (.github/workflows/release.yml runs it when a v* tag is pushed):
-#   - binaries and archives for linux/amd64 and arm64 (the Feishu SDK does not build for 32-bit platforms),
+#   - binaries and archives for linux/amd64 and arm64 (the Feishu SDK does not build for 32-bit platforms):
+#     linkos-status (the service) and linkos-probe (the probe agent, its own archive, also in the image),
 #     reproducible builds (-trimpath, timestamps taken from the commit time);
 #   - SHA256SUMS, signed with cosign keyless (Sigstore, bundle SHA256SUMS.sigstore.json);
 #   - one SPDX SBOM per archive (syft);
@@ -29,9 +30,25 @@ builds:
       - -X github.com/openlinkos/status/internal/version.Commit={{ .FullCommit }}
       - -X github.com/openlinkos/status/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: probe
+    main: ./cmd/linkos-probe
+    binary: linkos-probe
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/openlinkos/status/internal/version.Version={{ .Version }}
+      - -X github.com/openlinkos/status/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/openlinkos/status/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: status
+    ids: [status]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
     files:
@@ -39,6 +56,12 @@ archives:
       - README.md
       - README.zh-CN.md
       - config.example.yaml
+  - id: probe
+    ids: [probe]
+    formats: [tar.gz]
+    name_template: "linkos-probe_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    files:
+      - LICENSE
 
 checksum:
   name_template: SHA256SUMS
@@ -57,7 +80,7 @@ signs:
 
 dockers_v2:
   - id: status
-    ids: [status]
+    ids: [status, probe]
     images:
       - ghcr.io/openlinkos/status
     # pre-releases only get their own tag and do not update v0.1 or latest
