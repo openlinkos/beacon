@@ -10,18 +10,33 @@ trusted_proxies: [172.16.0.0/12]
 language: zh                                # language of cards and chat messages: zh or en
 timezone: Asia/Shanghai                     # times on cards
 
-alertmanager:
-  url: http://alertmanager:9093
-  # Alertmanager sends this token as "Authorization: Bearer …" (http_config.authorization.credentials_file).
-  webhook_token_file: /etc/linkos-status/secrets/alertmanager-webhook-token
+# The rule engine (vmalert or Prometheus) posts its alerts to the gateway's /api/v2/alerts, as it would
+# to Alertmanager (vmalert: -notifier.url=http://linkos-status:17006 -notifier.bearerTokenFile=<file>).
+rules:
+  token_file: /etc/linkos-status/secrets/rules-token   # at least 24 random characters
 
-# Optional: per-location probe results on cards (probe_success{service=…} by location).
+# What Alertmanager's route and inhibit_rules did. Values in match, source and target are regular
+# expressions over the whole label value.
+routing:
+  group_by: [alertname, service]
+  group_wait: 30s          # after a group's first alert, wait for more before the card
+  group_interval: 2m       # then update it at most this often
+  resolve_timeout: 5m      # an alert the rule engine stops sending resolves after this
+  routes:                  # the first match changes the grouping
+    - match: {alertname: MainlandPathDegraded|ServiceDegraded}
+      group_by: [alertname, severity]   # one card for many services
+  inhibit:                 # mute targets while a source fires with the same equal labels
+    - source: {alertname: HostDown}
+      target: {alertname: ServiceDown|ServiceDegraded}
+      equal: [failure_domain]
+
+# Where the probes' results are: the gateway writes there, cards show each location's result.
 victoriametrics:
   url: http://victoriametrics:8428
 
-# The metrics gateway for machines (off when listen is empty): probes and hosts write here with tokens
-# from 'linkos-status enroll', fetch what to check (Prometheus HTTP service discovery), and job hosts push
-# heartbeats. The gateway labels everything a probe writes with its location; see README.
+# The gateway for machines: probes and hosts write here with tokens from 'linkos-status enroll' and fetch
+# what to check, job hosts push heartbeats, the rule engine and Flux post alerts. The gateway labels
+# everything a probe writes with its location; see README.
 gateway:
   listen: ":17006"
   targets_dir: /etc/linkos-status/targets   # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml

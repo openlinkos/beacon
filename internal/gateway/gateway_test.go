@@ -16,6 +16,7 @@ import (
 	"github.com/openlinkos/status/internal/api"
 	"github.com/openlinkos/status/internal/catalog"
 	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/status/internal/router"
 	"github.com/openlinkos/status/internal/store"
 	"github.com/openlinkos/status/internal/targets"
 )
@@ -51,7 +52,8 @@ func (s *seen) last() (*http.Request, string) {
 type env struct {
 	h       http.Handler
 	st      *store.Store
-	vm, am  *seen
+	vm      *seen
+	posted  []router.Postable
 	m       *metrics.Metrics
 	probe   string // cdn-pre-us1
 	expired string // cdn-pre-cn1, whose machine expired
@@ -104,11 +106,11 @@ resources:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	e := &env{st: st, vm: &seen{}, am: &seen{}, m: metrics.New("test")}
+	e := &env{st: st, vm: &seen{}, m: metrics.New("test")}
 	vmURL, _ := url.Parse(e.vm.server(t).URL + "/prefix")
-	var amURL *url.URL
+	var alerts func([]router.Postable) error
 	if withAM {
-		amURL, _ = url.Parse(e.am.server(t).URL)
+		alerts = func(ps []router.Postable) error { e.posted = append(e.posted, ps...); return nil }
 	}
 	mk := func(name, subject string, scopes ...string) string {
 		s, _, err := st.CreateSubjectToken(name, subject, scopes, time.Hour, "test")
@@ -126,7 +128,8 @@ resources:
 	e.human = mk("claude-code", "", "status:read", "alerts:write")
 	now := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // cdn-pre-cn1 expired on 11-02
 	e.h = Handler(Deps{Auth: &api.Auth{Store: st}, Catalog: func() *catalog.Catalog { return c },
-		Targets: func() *targets.Set { return set }, VM: vmURL, AM: amURL, Metrics: e.m, Now: func() time.Time { return now }})
+		Targets: func() *targets.Set { return set }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
+		Metrics: e.m, Now: func() time.Time { return now }})
 	return e
 }
 
@@ -232,16 +235,21 @@ func TestHeartbeatReadAndAlerts(t *testing.T) {
 	// a reader cannot write, a writer cannot read
 	code(t, e.do("POST", "/api/v1/write", e.reader, "x"), http.StatusForbidden, "auth.scope")
 	code(t, e.do("GET", "/api/v1/query?query=up", e.probe, ""), http.StatusForbidden, "auth.scope")
-	// Alertmanager is not running
+	// nothing takes alerts here
 	code(t, e.do("POST", "/api/v2/alerts", e.flux, "[]"), http.StatusServiceUnavailable, "upstream")
 }
 
-func TestAlertsToAlertmanager(t *testing.T) {
+func TestAlertsToTheRouter(t *testing.T) {
 	e := newEnv(t, true)
-	code(t, e.do("POST", "/api/v2/alerts", e.flux, "[]"), http.StatusNoContent, "")
-	if r, body := e.am.last(); r == nil || r.URL.Path != "/api/v2/alerts" || body != "[]" {
-		t.Fatalf("alerts forwarded as %v %q", r, body)
+	body := `[{"labels":{"alertname":"ServiceDown","service":"git"},"startsAt":"2026-11-03T00:00:00Z"}]`
+	code(t, e.do("POST", "/api/v2/alerts", e.flux, body), http.StatusOK, "")
+	code(t, e.do("POST", "/api/v2/alerts", "rules-0123456789abcdef0123456789", body), http.StatusOK, "")
+	if len(e.posted) != 2 || e.posted[0].Labels["service"] != "git" {
+		t.Fatalf("posted %+v", e.posted)
 	}
+	code(t, e.do("POST", "/api/v2/alerts", "rules-wrong", body), http.StatusUnauthorized, "auth.invalid")
+	code(t, e.do("POST", "/api/v2/alerts", e.probe, body), http.StatusForbidden, "auth.scope")
+	code(t, e.do("POST", "/api/v2/alerts", e.flux, "{not json"), http.StatusBadRequest, "bad_input")
 }
 
 func TestAuth(t *testing.T) {

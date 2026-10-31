@@ -207,7 +207,10 @@ func (b *Bridge) feishuResult(err error) {
 
 // ---- Webhook
 
-// HandleWebhook takes one Alertmanager notification.
+// Watchdog records that the rules pipeline delivered its Watchdog alert.
+func (b *Bridge) Watchdog() { b.watchdogAt.Store(b.now().UnixNano()) }
+
+// HandleWebhook takes one alert group (from the router, in Alertmanager's webhook form).
 func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) error {
 	if w.GroupLabels["alertname"] == "Watchdog" || w.CommonLabels["alertname"] == "Watchdog" {
 		b.watchdogAt.Store(b.now().UnixNano())
@@ -533,9 +536,9 @@ func (b *Bridge) Ready() (bool, []string) {
 	wd := b.watchdogAt.Load()
 	switch {
 	case wd == 0 && now.Sub(b.started) > watchdogMax:
-		why = append(why, "no Watchdog from Alertmanager since start")
+		why = append(why, "no Watchdog from the rule engine since start")
 	case wd != 0 && now.Sub(time.Unix(0, wd)) > watchdogMax:
-		why = append(why, "the Watchdog from Alertmanager stopped")
+		why = append(why, "the Watchdog from the rule engine stopped")
 	}
 	if b.d.Feishu != nil {
 		if b.d.WSReady != nil && !b.d.WSReady() {

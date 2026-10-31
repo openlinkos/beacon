@@ -20,7 +20,7 @@ func TestCheckConfig(t *testing.T) {
 	hook := filepath.Join(d, "hook")
 	_ = os.WriteFile(hook, []byte("https://open.feishu.cn/open-apis/bot/v2/hook/x"), 0o600)
 	cfg := filepath.Join(d, "config.yaml")
-	body := "catalog_dir: " + filepath.ToSlash(cat) + "\nalertmanager: {url: http://am:17003, webhook_token_file: " + filepath.ToSlash(tok) + "}\n" +
+	body := "catalog_dir: " + filepath.ToSlash(cat) + "\nrules: {token_file: " + filepath.ToSlash(tok) + "}\nvictoriametrics: {url: http://vm:8428}\n" +
 		"feishu: {webhook_url_file: " + filepath.ToSlash(hook) + "}\n" +
 		"escalation: {critical: {channel: webhook}, warning: {channel: webhook}, info: {channel: webhook}}\n"
 	_ = os.WriteFile(cfg, []byte(body), 0o600)

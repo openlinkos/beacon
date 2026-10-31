@@ -1,6 +1,6 @@
 // Package gateway is the one door for machines (metrics.<domain>): probes and hosts write their samples
 // (Prometheus remote write) and fetch the targets they check, job hosts push heartbeats, agents query
-// metrics, and Flux posts alerts. It replaces a separate auth proxy: every request carries a token from
+// metrics, and the rule engine and Flux post alerts (Alertmanager's API v2, taken by the router). It replaces a separate auth proxy: every request carries a token from
 // this service's store with the scope for what it does, so the tokens are created, listed, revoked and
 // audited in one place.
 //
@@ -11,7 +11,9 @@
 package gateway
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -24,20 +26,23 @@ import (
 	"github.com/openlinkos/status/internal/api"
 	"github.com/openlinkos/status/internal/catalog"
 	"github.com/openlinkos/status/internal/metrics"
+	"github.com/openlinkos/status/internal/router"
 	"github.com/openlinkos/status/internal/store"
 	"github.com/openlinkos/status/internal/targets"
 )
 
-// Deps are what the gateway needs. AM is nil when Alertmanager does not run; alerts:send then fails.
+// Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the
+// rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope.
 type Deps struct {
-	Auth    *api.Auth
-	Catalog func() *catalog.Catalog
-	Targets func() *targets.Set
-	VM      *url.URL
-	AM      *url.URL
-	Metrics *metrics.Metrics
-	Log     *slog.Logger
-	Now     func() time.Time
+	Auth       *api.Auth
+	Catalog    func() *catalog.Catalog
+	Targets    func() *targets.Set
+	VM         *url.URL
+	Alerts     func([]router.Postable) error
+	RulesToken string
+	Metrics    *metrics.Metrics
+	Log        *slog.Logger
+	Now        func() time.Time
 }
 
 // MaxBody is the largest request body accepted (a remote-write batch is compressed and far smaller).
@@ -52,7 +57,7 @@ var readPaths = []string{
 
 type gateway struct {
 	Deps
-	vm, am *httputil.ReverseProxy
+	vm *httputil.ReverseProxy
 
 	mu        sync.Mutex
 	lastWrite map[string]time.Time // by location or host
@@ -65,9 +70,6 @@ func Handler(d Deps) http.Handler {
 	}
 	g := &gateway{Deps: d, lastWrite: map[string]time.Time{}}
 	g.vm = proxy(d.VM)
-	if d.AM != nil {
-		g.am = proxy(d.AM)
-	}
 	if d.Metrics != nil {
 		d.Metrics.Register("linkos_gateway_last_write_timestamp_seconds", "When a probe location or host last wrote through the gateway", "gauge", g.lastWrites)
 	}
@@ -78,7 +80,7 @@ func Handler(d Deps) http.Handler {
 	for _, p := range readPaths {
 		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
 	}
-	mux.Handle("POST /api/v2/alerts", g.with("alerts", []string{"alerts:send"}, g.alerts))
+	mux.HandleFunc("POST /api/v2/alerts", g.rulesAlerts)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, "not_found", "no such endpoint on the metrics gateway")
 	})
@@ -200,12 +202,31 @@ func (g *gateway) heartbeat(w http.ResponseWriter, r *http.Request, t store.Toke
 
 func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { g.vm.ServeHTTP(w, r) }
 
-func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
-	if g.am == nil {
-		fail(w, http.StatusServiceUnavailable, "upstream", "Alertmanager is not running")
+// rulesAlerts takes alerts from the rule engine (its own bearer token) or from anyone with alerts:send.
+func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
+	secret, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if g.RulesToken != "" && secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(g.RulesToken)) == 1 {
+		g.alerts(w, r, store.Token{Name: "rules"})
 		return
 	}
-	g.am.ServeHTTP(w, r)
+	g.with("alerts", []string{"alerts:send"}, g.alerts).ServeHTTP(w, r)
+}
+
+func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
+	if g.Alerts == nil {
+		fail(w, http.StatusServiceUnavailable, "upstream", "alerts are not taken here")
+		return
+	}
+	var in []router.Postable
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
+		fail(w, http.StatusBadRequest, "bad_input", "the body must be a JSON array of alerts")
+		return
+	}
+	if err := g.Alerts(in); err != nil {
+		fail(w, http.StatusBadRequest, "bad_input", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (g *gateway) lastWrites() []metrics.Sample {

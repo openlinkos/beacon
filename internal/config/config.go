@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -32,10 +33,12 @@ type Config struct {
 	Language       string   `yaml:"language"`
 	Timezone       string   `yaml:"timezone"`
 
-	Alertmanager struct {
-		URL              string `yaml:"url"`
-		WebhookTokenFile string `yaml:"webhook_token_file"`
-	} `yaml:"alertmanager"`
+	// Rules is the rule engine (vmalert or Prometheus) that posts alerts to the gateway's
+	// /api/v2/alerts; TokenFile holds the bearer token it sends.
+	Rules struct {
+		TokenFile string `yaml:"token_file"`
+	} `yaml:"rules"`
+	Routing         Routing `yaml:"routing"`
 	VictoriaMetrics struct {
 		URL string `yaml:"url"`
 	} `yaml:"victoriametrics"`
@@ -61,6 +64,30 @@ type Config struct {
 	Location     *time.Location      `yaml:"-"`
 	Proxies      []netip.Prefix      `yaml:"-"`
 	OnCallByID   map[string]OnCaller `yaml:"-"`
+}
+
+// Routing groups and inhibits alerts (what Alertmanager's route and inhibit_rules did). Label values in
+// match, source and target are regular expressions over the whole value.
+type Routing struct {
+	GroupBy        []string    `yaml:"group_by"`
+	GroupWait      Duration    `yaml:"group_wait"`
+	GroupInterval  Duration    `yaml:"group_interval"`
+	ResolveTimeout Duration    `yaml:"resolve_timeout"`
+	Routes         []RouteRule `yaml:"routes"`
+	Inhibit        []Inhibit   `yaml:"inhibit"`
+}
+
+// RouteRule gives the alerts it matches their own grouping; the first match wins.
+type RouteRule struct {
+	Match   map[string]string `yaml:"match"`
+	GroupBy []string          `yaml:"group_by"`
+}
+
+// Inhibit mutes target alerts while a source alert fires with the same values of the equal labels.
+type Inhibit struct {
+	Source map[string]string `yaml:"source"`
+	Target map[string]string `yaml:"target"`
+	Equal  []string          `yaml:"equal"`
 }
 
 // Feishu is the self-built app (cards, callbacks, buzz) and the group's custom bot (plain messages).
@@ -114,17 +141,17 @@ type Policy struct {
 
 // Secrets are the credentials read from the *_file paths.
 type Secrets struct {
-	AlertmanagerWebhookToken string
-	FeishuAppID              string
-	FeishuAppSecret          string
-	FeishuVerificationToken  string
-	FeishuEncryptKey         string
-	FeishuWebhookURL         string
-	FeishuWebhookSecret      string
-	PushoverUserKey          string
-	PushoverToken            string
-	BarkURL                  string
-	HealthchecksBridgeURL    string
+	RulesToken              string
+	FeishuAppID             string
+	FeishuAppSecret         string
+	FeishuVerificationToken string
+	FeishuEncryptKey        string
+	FeishuWebhookURL        string
+	FeishuWebhookSecret     string
+	PushoverUserKey         string
+	PushoverToken           string
+	BarkURL                 string
+	HealthchecksBridgeURL   string
 }
 
 // Duration is a time.Duration written as "10m" in YAML.
@@ -181,6 +208,19 @@ func (c *Config) defaults() {
 	set(&c.DataDir, "/var/lib/linkos-status")
 	set(&c.CatalogDir, "/etc/linkos-status/catalog")
 	set(&c.Gateway.TargetsDir, "/etc/linkos-status/targets")
+	set(&c.Gateway.Listen, ":17006")
+	if c.Routing.GroupBy == nil {
+		c.Routing.GroupBy = []string{"alertname", "service"}
+	}
+	if c.Routing.GroupWait == 0 {
+		c.Routing.GroupWait = Duration(30 * time.Second)
+	}
+	if c.Routing.GroupInterval == 0 {
+		c.Routing.GroupInterval = Duration(2 * time.Minute)
+	}
+	if c.Routing.ResolveTimeout == 0 {
+		c.Routing.ResolveTimeout = Duration(5 * time.Minute)
+	}
 	set(&c.Language, "zh")
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
@@ -260,16 +300,31 @@ func (c *Config) validate() error {
 			bad("gateway.listen %q is not an address such as :17006", c.Gateway.Listen)
 		}
 		if c.VictoriaMetrics.URL == "" {
-			bad("the gateway needs victoriametrics.url: it writes there")
+			bad("victoriametrics.url is required: the gateway writes there and the bridge reads from it")
 		}
 	}
-	if c.Alertmanager.URL == "" {
-		bad("alertmanager.url is required")
-	} else if u, err := url.Parse(c.Alertmanager.URL); err != nil || u.Host == "" {
-		bad("alertmanager.url %q is not a URL", c.Alertmanager.URL)
+	if c.Rules.TokenFile == "" {
+		bad("rules.token_file is required: the rule engine authenticates its alerts with it")
 	}
-	if c.Alertmanager.WebhookTokenFile == "" {
-		bad("alertmanager.webhook_token_file is required: Alertmanager must authenticate its webhook calls")
+	checkLabels := func(what string, m map[string]string) {
+		for k, v := range m {
+			if _, err := regexp.Compile("^(?:" + v + ")$"); err != nil {
+				bad("%s: %s: %v", what, k, err)
+			}
+		}
+	}
+	for i, r := range c.Routing.Routes {
+		if len(r.Match) == 0 {
+			bad("routing.routes[%d] needs match", i)
+		}
+		checkLabels(fmt.Sprintf("routing.routes[%d].match", i), r.Match)
+	}
+	for i, in := range c.Routing.Inhibit {
+		if len(in.Source) == 0 || len(in.Target) == 0 {
+			bad("routing.inhibit[%d] needs source and target", i)
+		}
+		checkLabels(fmt.Sprintf("routing.inhibit[%d].source", i), in.Source)
+		checkLabels(fmt.Sprintf("routing.inhibit[%d].target", i), in.Target)
 	}
 
 	f := c.Feishu
@@ -370,7 +425,7 @@ func (c *Config) readSecrets() error {
 		}
 	}
 	s := &c.Secrets
-	read(&s.AlertmanagerWebhookToken, c.Alertmanager.WebhookTokenFile, "alertmanager.webhook_token_file")
+	read(&s.RulesToken, c.Rules.TokenFile, "rules.token_file")
 	read(&s.FeishuAppID, c.Feishu.AppIDFile, "feishu.app_id_file")
 	read(&s.FeishuAppSecret, c.Feishu.AppSecretFile, "feishu.app_secret_file")
 	read(&s.FeishuVerificationToken, c.Feishu.VerificationTokenFile, "feishu.verification_token_file")
@@ -381,8 +436,8 @@ func (c *Config) readSecrets() error {
 	read(&s.PushoverToken, c.Pushover.TokenFile, "pushover.token_file")
 	read(&s.BarkURL, c.Bark.URLFile, "bark.url_file")
 	read(&s.HealthchecksBridgeURL, c.Healthchecks.BridgeURLFile, "healthchecks.bridge_url_file")
-	if len(s.AlertmanagerWebhookToken) > 0 && len(s.AlertmanagerWebhookToken) < 24 {
-		errs = append(errs, errors.New("alertmanager.webhook_token_file: the token is too short; use at least 24 random characters"))
+	if len(s.RulesToken) > 0 && len(s.RulesToken) < 24 {
+		errs = append(errs, errors.New("rules.token_file: the token is too short; use at least 24 random characters"))
 	}
 	return errors.Join(errs...)
 }

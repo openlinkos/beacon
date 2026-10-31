@@ -1,11 +1,9 @@
 // Package server routes the service's HTTP requests: health and readiness, metrics (direct
-// connections only), the Alertmanager webhook, Feishu's HTTP callbacks, the drill check, the REST API,
-// the MCP endpoint and the status page.
+// connections only), Feishu's HTTP callbacks, the drill check, the REST API, the MCP endpoint and the
+// status page. Machines (probes, the rule engine) use the gateway's own listener.
 package server
 
 import (
-	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"html/template"
 	"log/slog"
@@ -13,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openlinkos/status/internal/alertmanager"
 	"github.com/openlinkos/status/internal/api"
 	"github.com/openlinkos/status/internal/bridge"
 	"github.com/openlinkos/status/internal/ctl"
@@ -22,14 +19,13 @@ import (
 
 // Deps are what the routes need. Feishu is nil unless callbacks come over HTTP.
 type Deps struct {
-	Bridge       *bridge.Bridge
-	API          *api.Server
-	MCP          http.Handler
-	Metrics      http.Handler
-	Feishu       http.Handler
-	WebhookToken string
-	Drill        func() time.Time
-	Log          *slog.Logger
+	Bridge  *bridge.Bridge
+	API     *api.Server
+	MCP     http.Handler
+	Metrics http.Handler
+	Feishu  http.Handler
+	Drill   func() time.Time
+	Log     *slog.Logger
 }
 
 // CSP for everything the service serves itself; the status page will bring its own.
@@ -53,7 +49,6 @@ func Handler(d Deps) http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ready": ok, "not_ready": why})
 	})
 	mux.Handle("GET /metrics", directOnly(d.Metrics))
-	mux.HandleFunc("POST /hooks/alertmanager", d.alertmanager)
 	if d.Feishu != nil {
 		mux.Handle("POST /hooks/feishu", d.Feishu)
 	}
@@ -95,27 +90,6 @@ func headers(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-func (d Deps) alertmanager(w http.ResponseWriter, r *http.Request) {
-	got, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if d.WebhookToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(d.WebhookToken)) != 1 {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	hook, err := alertmanager.Decode(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	if err := d.Bridge.HandleWebhook(ctx, hook); err != nil {
-		d.Log.Error("webhook failed", "group", bridge.GroupID(hook.GroupKey), "err", err)
-		http.Error(w, "failed", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
 }
 
 var page = template.Must(template.New("p").Parse(`<!doctype html>

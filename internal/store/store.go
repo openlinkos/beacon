@@ -26,10 +26,11 @@ import (
 )
 
 var (
-	bucketGroups = []byte("groups")
-	bucketTokens = []byte("tokens")
-	bucketAudit  = []byte("audit")
-	bucketMeta   = []byte("meta")
+	bucketGroups   = []byte("groups")
+	bucketTokens   = []byte("tokens")
+	bucketAudit    = []byte("audit")
+	bucketMeta     = []byte("meta")
+	bucketSilences = []byte("silences")
 )
 
 // ErrLocked means another process holds the database (the service is running).
@@ -144,7 +145,7 @@ func Open(path string) (*Store, error) {
 	}
 	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketTokens, bucketAudit, bucketMeta} {
+		for _, b := range [][]byte{bucketGroups, bucketTokens, bucketAudit, bucketMeta, bucketSilences} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -356,6 +357,67 @@ func (s *Store) VerifyToken(secret string) (Token, bool) {
 		return Token{}, false
 	}
 	return t, true
+}
+
+// ---- Silences
+
+// Matcher matches a label: equal (or, with IsEqual false, not equal) to Value, or matching it as a regular
+// expression (anchored) when IsRegex.
+type Matcher struct {
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	IsRegex bool   `json:"isRegex"`
+	IsEqual bool   `json:"isEqual"`
+}
+
+// SilenceRecord is a silence: alerts matching every matcher are not delivered between StartsAt and EndsAt.
+type SilenceRecord struct {
+	ID        string    `json:"id"`
+	Matchers  []Matcher `json:"matchers"`
+	StartsAt  time.Time `json:"startsAt"`
+	EndsAt    time.Time `json:"endsAt"`
+	CreatedBy string    `json:"createdBy"`
+	Comment   string    `json:"comment"`
+}
+
+// keepSilences is how long an ended silence stays listed.
+const keepSilences = 7 * 24 * time.Hour
+
+// PutSilence stores a silence (new or changed) and forgets silences that ended long ago.
+func (s *Store) PutSilence(r SilenceRecord) error {
+	b, _ := json.Marshal(r)
+	cutoff := s.now().Add(-keepSilences)
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bk := tx.Bucket(bucketSilences)
+		var old [][]byte
+		_ = bk.ForEach(func(k, v []byte) error {
+			var x SilenceRecord
+			if json.Unmarshal(v, &x) == nil && x.EndsAt.Before(cutoff) {
+				old = append(old, k)
+			}
+			return nil
+		})
+		for _, k := range old {
+			_ = bk.Delete(k)
+		}
+		return bk.Put([]byte(r.ID), b)
+	})
+}
+
+// SilenceRecords lists the stored silences, the newest first.
+func (s *Store) SilenceRecords() []SilenceRecord {
+	var out []SilenceRecord
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketSilences).ForEach(func(_, v []byte) error {
+			var r SilenceRecord
+			if json.Unmarshal(v, &r) == nil {
+				out = append(out, r)
+			}
+			return nil
+		})
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
+	return out
 }
 
 // ---- Audit

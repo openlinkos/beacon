@@ -43,6 +43,7 @@ import (
 	"github.com/openlinkos/status/internal/mcpserver"
 	"github.com/openlinkos/status/internal/metrics"
 	"github.com/openlinkos/status/internal/notify"
+	"github.com/openlinkos/status/internal/router"
 	"github.com/openlinkos/status/internal/server"
 	"github.com/openlinkos/status/internal/store"
 	"github.com/openlinkos/status/internal/targets"
@@ -181,8 +182,18 @@ func serve(args []string, stderr io.Writer) int {
 	})
 
 	var br *bridge.Bridge
+	rcfg, err := routerConfig(cfg.Routing)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	rt := router.New(rcfg, st, sinkFunc{hook: func(ctx context.Context, w alertmanager.Webhook) error { return br.HandleWebhook(ctx, w) },
+		watchdog: func() { br.Watchdog() }}, nil, log)
+	m.Register("linkos_status_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
+		return []metrics.Sample{{Value: float64(rt.Firing())}}
+	})
 	deps := bridge.Deps{
-		Config: cfg, Store: st, AM: alertmanager.New(cfg.Alertmanager.URL, nil),
+		Config: cfg, Store: st, AM: rt,
 		Catalog: catalogue.Load, Metrics: m, Log: log,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
@@ -214,7 +225,7 @@ func serve(args []string, stderr io.Writer) int {
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
 	sd := server.Deps{
 		Bridge: br, API: &api.Server{Bridge: br, Auth: auth, Log: log}, MCP: mcpserver.Handler(br, auth, log),
-		Metrics: m, WebhookToken: sec.AlertmanagerWebhookToken, Drill: server.DrillFrom(st.Time), Log: log,
+		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
 	}
 	if deps.Feishu != nil && cfg.Feishu.Callback == "http" {
 		sd.Feishu = feishu.HTTPHandler(sec.FeishuVerificationToken, sec.FeishuEncryptKey, br.HandleAction)
@@ -235,6 +246,8 @@ func serve(args []string, stderr io.Writer) int {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
 	go br.Run(ctx, ping)
+	rt.Restore(st.Groups())
+	go rt.Run(ctx)
 	inv := &inventory.Checker{Catalog: catalogue.Load}
 	inv.Register(m)
 	go inv.Run(ctx)
@@ -265,11 +278,10 @@ func serve(args []string, stderr io.Writer) int {
 	var gs *http.Server
 	if cfg.Gateway.Listen != "" {
 		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
-		amURL, _ := url.Parse(cfg.Alertmanager.URL)
 		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
 			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: catalogue.Load, Targets: probeTargets.Load,
-				VM: vmURL, AM: amURL, Metrics: m, Log: log})}
+				VM: vmURL, Alerts: rt.Ingest, RulesToken: sec.RulesToken, Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	log.Info("linkos-status started", "version", version.Version, "listen", cfg.Listen,
@@ -291,6 +303,41 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	log.Info("linkos-status stopped")
 	return 0
+}
+
+// sinkFunc hands the router's groups to the bridge, which is created after the router.
+type sinkFunc struct {
+	hook     func(context.Context, alertmanager.Webhook) error
+	watchdog func()
+}
+
+func (s sinkFunc) HandleWebhook(ctx context.Context, w alertmanager.Webhook) error {
+	return s.hook(ctx, w)
+}
+func (s sinkFunc) Watchdog() { s.watchdog() }
+
+// routerConfig compiles the routing section.
+func routerConfig(c config.Routing) (router.Config, error) {
+	out := router.Config{GroupBy: c.GroupBy, GroupWait: c.GroupWait.D(), GroupInterval: c.GroupInterval.D(), ResolveTimeout: c.ResolveTimeout.D()}
+	for _, r := range c.Routes {
+		m, err := router.CompileLabels(r.Match)
+		if err != nil {
+			return out, err
+		}
+		out.Routes = append(out.Routes, router.Route{Match: m, GroupBy: r.GroupBy})
+	}
+	for _, in := range c.Inhibit {
+		src, err := router.CompileLabels(in.Source)
+		if err != nil {
+			return out, err
+		}
+		dst, err := router.CompileLabels(in.Target)
+		if err != nil {
+			return out, err
+		}
+		out.Inhibit = append(out.Inhibit, router.Inhibit{Source: src, Target: dst, Equal: in.Equal})
+	}
+	return out, nil
 }
 
 func locationIDs(c *catalog.Catalog) []string {

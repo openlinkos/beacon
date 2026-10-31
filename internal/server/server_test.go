@@ -19,7 +19,7 @@ func TestRoutes(t *testing.T) {
 	drill := time.Time{}
 	h := Handler(Deps{
 		Bridge: e.Bridge, API: &api.Server{Bridge: e.Bridge, Auth: &api.Auth{Store: e.Store}, Log: slog.Default()},
-		MCP: http.NotFoundHandler(), Metrics: metrics.New("test"), WebhookToken: "0123456789abcdef0123456789",
+		MCP: http.NotFoundHandler(), Metrics: metrics.New("test"),
 		Drill: func() time.Time { return drill }, Log: slog.Default(),
 	})
 	do := func(method, path, auth, body string, hdr ...string) (int, string, http.Header) {
@@ -49,19 +49,6 @@ func TestRoutes(t *testing.T) {
 		t.Errorf("metrics through the edge: %d", code)
 	}
 
-	hook := `{"version":"4","groupKey":"k","status":"firing","commonLabels":{"severity":"warning"},"alerts":[]}`
-	if code, _, _ := do("POST", "/hooks/alertmanager", "", hook); code != 401 {
-		t.Errorf("webhook without the token: %d", code)
-	}
-	if code, _, _ := do("POST", "/hooks/alertmanager", "Bearer wrong", hook); code != 401 {
-		t.Errorf("webhook with a wrong token: %d", code)
-	}
-	if code, _, _ := do("POST", "/hooks/alertmanager", "Bearer 0123456789abcdef0123456789", "{}"); code != 400 {
-		t.Errorf("bad payload: %d", code)
-	}
-	if code, _, _ := do("POST", "/hooks/alertmanager", "Bearer 0123456789abcdef0123456789", hook); code != 200 {
-		t.Errorf("webhook: %d", code)
-	}
 	if code, _, _ := do("POST", "/hooks/feishu", "", "{}"); code != 404 && code != 405 {
 		t.Errorf("feishu callbacks are off in websocket mode: %d", code)
 	}

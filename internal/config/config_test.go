@@ -24,9 +24,16 @@ func full(t *testing.T) string {
 	return `
 public_url: https://status.example.com
 trusted_proxies: [172.16.0.0/12, 10.0.0.1]
-alertmanager:
-  url: http://alertmanager:17003
-  webhook_token_file: ` + secret(t, d, "am", "0123456789abcdef0123456789") + `
+rules:
+  token_file: ` + secret(t, d, "am", "0123456789abcdef0123456789") + `
+victoriametrics:
+  url: http://vm:8428
+routing:
+  group_by: [alertname, service, failure_domain]
+  routes:
+    - {match: {alertname: MainlandPathDegraded|ServiceDegraded}, group_by: [alertname, severity]}
+  inhibit:
+    - {source: {alertname: HostDown}, target: {alertname: ServiceDown}, equal: [failure_domain]}
 feishu:
   app_id_file: ` + secret(t, d, "id", "cli_x") + `
   app_secret_file: ` + secret(t, d, "secret", "s3cret") + `
@@ -67,30 +74,47 @@ func TestParseFull(t *testing.T) {
 	if c.OnCallByID["ou_aaa"].Name != "Alice" {
 		t.Errorf("on-call index: %v", c.OnCallByID)
 	}
+	if len(c.Routing.Routes) != 1 || c.Routing.GroupWait.D() != 30*time.Second || c.Gateway.Listen != ":17006" || c.Secrets.RulesToken == "" {
+		t.Errorf("routing: %+v gateway %+v", c.Routing, c.Gateway)
+	}
+}
+
+func TestRoutingErrors(t *testing.T) {
+	d := t.TempDir()
+	rules := "rules: {token_file: " + secret(t, d, "tok", "0123456789abcdef0123456789") + "}\n"
+	for name, y := range map[string]string{
+		"bad regexp":     "routing: {routes: [{match: {alertname: '('}}]}\n",
+		"route no match": "routing: {routes: [{group_by: [a]}]}\n",
+		"inhibit target": "routing: {inhibit: [{source: {alertname: A}}]}\n",
+	} {
+		if _, err := Parse([]byte(rules + y)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
 }
 
 func TestParseErrors(t *testing.T) {
 	d := t.TempDir()
 	tok := secret(t, d, "am", "0123456789abcdef0123456789")
 	cases := map[string]string{
-		"unknown field":   "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\nbogus: 1\n",
-		"no alertmanager": "listen: :1\n",
-		"short token":     "alertmanager: {url: http://a, webhook_token_file: " + secret(t, d, "short", "abc") + "}\n",
-		"missing secret":  "alertmanager: {url: http://a, webhook_token_file: " + filepath.ToSlash(filepath.Join(d, "nope")) + "}\n",
-		"app without chat": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\n" +
+		"unknown field":  "rules: {token_file: " + tok + "}\nbogus: 1\n",
+		"no rules token": "listen: :1\n",
+		"short token":    "rules: {token_file: " + secret(t, d, "short", "abc") + "}\n",
+		"missing secret": "rules: {token_file: " + filepath.ToSlash(filepath.Join(d, "nope")) + "}\n",
+		"app without chat": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {app_id_file: " + tok + ", app_secret_file: " + tok + ", on_call: [{open_id: ou_a, name: A}]}\n",
-		"bad open id": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\n" +
+		"bad open id": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {app_id_file: " + tok + ", app_secret_file: " + tok + ", chat_id: oc_1, on_call: [{open_id: x, name: A}]}\n",
-		"pushover not configured": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\n" +
+		"pushover not configured": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {webhook_url_file: " + tok + "}\n" +
 			"escalation: {critical: {channel: webhook, pushover: 15m}}\n",
-		"buzz without app": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\n" +
+		"buzz without app": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {webhook_url_file: " + tok + "}\n" +
 			"escalation: {critical: {channel: webhook, buzz: 10m}}\n",
-		"bad duration": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\nack_ttl: soon\n",
-		"bad severity": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\n" +
+		"bad duration": "rules: {token_file: " + tok + "}\nack_ttl: soon\n",
+		"bad severity": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {webhook_url_file: " + tok + "}\nescalation: {page: {channel: webhook}}\n",
-		"http callback without token": "alertmanager: {url: http://a, webhook_token_file: " + tok + "}\nfeishu: {callback: http}\n",
+		"http callback without token": "rules: {token_file: " + tok + "}\nfeishu: {callback: http}\n",
 	}
 	for name, y := range cases {
 		if _, err := Parse([]byte(y)); err == nil {
@@ -103,7 +127,7 @@ func TestParseErrors(t *testing.T) {
 
 func TestRecordOnlyAndDefaults(t *testing.T) {
 	d := t.TempDir()
-	am := "alertmanager:\n  url: http://am:17003\n  webhook_token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
+	am := "rules:\n  token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\nvictoriametrics: {url: http://vm:8428}\n"
 	// no channel at all: alerts are only recorded
 	c, err := Parse([]byte(am))
 	if err != nil {
@@ -135,7 +159,7 @@ func TestRecordOnlyAndDefaults(t *testing.T) {
 
 func TestGateway(t *testing.T) {
 	d := t.TempDir()
-	am := "alertmanager:\n  url: http://am:17003\n  webhook_token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
+	am := "rules:\n  token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
 	if _, err := Parse([]byte(am + "gateway:\n  listen: \":17006\"\n")); err == nil || !strings.Contains(err.Error(), "victoriametrics.url") {
 		t.Errorf("a gateway without VictoriaMetrics: %v", err)
 	}
