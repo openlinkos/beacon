@@ -36,6 +36,8 @@ type Settings struct {
 	Location string `json:"location"`
 	// ProbeTimeoutSeconds is the least time any probe gets (0: the modules' own timeouts).
 	ProbeTimeoutSeconds float64 `json:"probe_timeout_seconds,omitempty"`
+	// ProbeRetries is how many more times a probe that failed without an answer is tried at once.
+	ProbeRetries int `json:"probe_retries,omitempty"`
 }
 
 // Set is the loaded target files, by file name.

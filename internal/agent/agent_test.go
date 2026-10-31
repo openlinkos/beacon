@@ -23,6 +23,7 @@ type gateway struct {
 	status   int // for pushes; 0 = 204
 	targets  string
 	settings string // GET /api/v1/agent; empty: 404, as from an older gateway
+	modules  string // GET /api/v1/modules; empty: one http_2xx module
 }
 
 func (g *gateway) server(t *testing.T, target string) *httptest.Server {
@@ -33,7 +34,11 @@ func (g *gateway) server(t *testing.T, target string) *httptest.Server {
 		}
 		switch r.URL.Path {
 		case "/api/v1/modules":
-			_, _ = io.WriteString(w, "modules:\n  http_2xx:\n    prober: http\n    timeout: 5s\n    http: {preferred_ip_protocol: ip4}\n")
+			body := g.modules
+			if body == "" {
+				body = "modules:\n  http_2xx:\n    prober: http\n    timeout: 5s\n    http: {preferred_ip_protocol: ip4}\n"
+			}
+			_, _ = io.WriteString(w, body)
 		case "/api/v1/targets":
 			g.mu.Lock()
 			body := g.targets
@@ -174,6 +179,48 @@ func TestLocationTimeout(t *testing.T) {
 	}
 	if a.module("nope") != nil {
 		t.Error("an unknown module")
+	}
+}
+
+func TestRetriesOnlyWithoutAnAnswer(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]int{}
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.URL.Path]++
+		n := seen[r.URL.Path]
+		mu.Unlock()
+		switch {
+		case r.URL.Path == "/flaky" && n == 1:
+			time.Sleep(1500 * time.Millisecond) // past the module's 1s: a timeout, retried
+		case r.URL.Path == "/wrong":
+			w.WriteHeader(http.StatusBadGateway) // an answer: never retried
+		}
+	}))
+	t.Cleanup(target.Close)
+	gw := &gateway{modules: "modules:\n  quick:\n    prober: http\n    timeout: 1s\n    http: {preferred_ip_protocol: ip4}\n",
+		targets:  `[{"targets":["` + target.URL + `/flaky","` + target.URL + `/wrong"],"labels":{"module":"quick","service":"web"}}]`,
+		settings: `{"location":"cdn-pre-cn1","probe_retries":1}`}
+	srv := gw.server(t, target.URL)
+	a := New(Config{Gateway: srv.URL, Token: "lbt_test", StateDir: t.TempDir()})
+	if err := a.Cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	body := gw.take()[0]
+	for _, want := range []string{
+		`probe_success{instance="` + target.URL + `/flaky",job="probe",module="quick",service="web"} 1 `,
+		`linkos_probe_attempts{instance="` + target.URL + `/flaky",job="probe",module="quick",service="web"} 2 `,
+		`probe_success{instance="` + target.URL + `/wrong",job="probe",module="quick",service="web"} 0 `,
+		`linkos_probe_attempts{instance="` + target.URL + `/wrong",job="probe",module="quick",service="web"} 1 `,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in\n%s", want, body)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if seen["/wrong"] != 1 || seen["/flaky"] != 2 {
+		t.Errorf("requests %v", seen)
 	}
 }
 

@@ -226,6 +226,7 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 		}
 	}
 	results := make([]probe.Result, len(jobs))
+	attempts := make([]int, len(jobs))
 	sem := make(chan struct{}, a.cfg.Parallel)
 	var wg sync.WaitGroup
 	for i, j := range jobs {
@@ -238,7 +239,7 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem; wg.Done() }()
-			results[i] = a.cfg.Prober.Run(ctx, m, j.target)
+			results[i], attempts[i] = a.run(ctx, m, j.target)
 		}()
 	}
 	wg.Wait()
@@ -255,6 +256,9 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 		}
 		writeSample(w, "probe_success", base, "", ok, at)
 		writeSample(w, "probe_duration_seconds", base, "", r.Duration.Seconds(), at)
+		if attempts[i] > 0 {
+			writeSample(w, "linkos_probe_attempts", base, "", float64(attempts[i]), at)
+		}
 		for _, s := range r.Samples {
 			writeSample(w, s.Name, base, s.Labels, s.Value, at)
 		}
@@ -278,6 +282,19 @@ func (a *Agent) module(name string) *probe.Module {
 		m = &c
 	}
 	return m
+}
+
+// run probes target with m, trying again at once, up to the location's retries, while it fails without
+// an answer: a dropped connection on a lossy path, not a service that answered wrongly.
+func (a *Agent) run(ctx context.Context, m *probe.Module, target string) (probe.Result, int) {
+	r := a.cfg.Prober.Run(ctx, m, target)
+	n := 1
+	for n <= a.settings.ProbeRetries && !r.Success && ctx.Err() == nil &&
+		(r.Reason == probe.ReasonDNS || r.Reason == probe.ReasonConnect || r.Reason == probe.ReasonTimeout) {
+		r = a.cfg.Prober.Run(ctx, m, target)
+		n++
+	}
+	return r, n
 }
 
 // ---- Host, self

@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.2.0
 
+### rc.4 (2026-10-31)
+
+- Probe retries per location: `probe: {retries: 1}` tries a probe again at once when it fails without an answer (DNS, connect, timeout), for a machine whose connections drop now and then. Every result now comes with `linkos_probe_attempts`.
+
 ### rc.3 (2026-10-31)
 
 - Standby CDN nodes: a location may be `standby: true` in its rotation; the rotation check labels nodes `role="primary"` or `"standby"`.

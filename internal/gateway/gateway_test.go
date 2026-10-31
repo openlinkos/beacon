@@ -77,7 +77,7 @@ func newEnv(t *testing.T, withAM bool) *env {
 	files := map[string]string{
 		filepath.Join(cat, "c.yaml"): `
 locations:
-  - {id: cdn-pre-us1, name: United States - Los Angeles CN2 GIA, region: overseas, network: CN2 GIA, probe: {timeout: 45s}}
+  - {id: cdn-pre-us1, name: United States - Los Angeles CN2 GIA, region: overseas, network: CN2 GIA, probe: {timeout: 45s, retries: 1}}
   - {id: cdn-pre-cn1, name: Mainland China - Zhejiang Telecom, region: mainland, network: Telecom}
 resources:
   - {name: cdn-pre-us1, kind: vps, expires: 2027-04-02}
@@ -207,7 +207,7 @@ func TestAgentSettings(t *testing.T) {
 	rec := e.do("GET", "/api/v1/agent", e.probe, "")
 	code(t, rec, http.StatusOK, "")
 	var s targets.Settings
-	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil || s.Location != "cdn-pre-us1" || s.ProbeTimeoutSeconds != 45 {
+	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil || s.Location != "cdn-pre-us1" || s.ProbeTimeoutSeconds != 45 || s.ProbeRetries != 1 {
 		t.Fatalf("settings %+v %v", s, err)
 	}
 	code(t, e.do("GET", "/api/v1/agent", e.expired, ""), http.StatusForbidden, "location.inactive")

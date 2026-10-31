@@ -26,7 +26,8 @@ locations:
     rotation: cdn.example.com          # ……和所在集群对外的轮转域名
     standby: false                     # true：备用节点，只在别的节点故障时才进轮转
     probe:
-      timeout: 45s                     # 这里的每个检测至少给这么长时间（最多 1m）
+      timeout: 30s                     # 这里的每个检测至少给这么长时间（最多 1m）
+      retries: 1                       # 没有得到应答就失败的检测，立刻再试（最多 2 次）
 ```
 
 | 字段 | 含义 |
@@ -37,7 +38,8 @@ locations:
 | `network` | 自由文本，和公开名一起显示。 |
 | `address`、`rotation` | 可选，CDN 节点用。Beacon 每分钟解析两者，导出 `linkos_location_in_rotation{location, rotation, role}`（节点地址在轮转应答里为 1）、`linkos_rotation_resolve_success`、`linkos_rotation_members`，以及应答里没有检测点认领的地址 `linkos_rotation_unknown_address{rotation, address}`。写了轮转就必须写地址。 |
 | `standby` | 备用节点只在别的节点故障时才在轮转里：`role="standby"`（否则是 `primary`），规则可以在主节点不在时告警、备用节点顶上时通知。必须写轮转。 |
-| `probe.timeout` | 给线路更慢、丢包更多的机器：网关把它告诉这台的 agent（`GET /api/v1/agent`），这里超时更短的模块都改用它。为 0 时用模块自己的超时。 |
+| `probe.timeout` | 给线路更慢的机器：网关把它告诉这台的 agent（`GET /api/v1/agent`），这里超时更短的模块都改用它。为 0 时用模块自己的超时。 |
+| `probe.retries` | 给连接时不时会断的机器：没有得到应答就失败的检测（`dns`、`connect`、`timeout`）立刻再试，最多这么多次（0 到 2）。得到了应答的失败（比如状态码不对）从不重试。`linkos_probe_attempts` 记下每个结果试了几次，线路不稳仍然看得见。连接已经卡住时，超时再长也没用，换一个新连接重试才有用。 |
 
 Beacon 为每个现在应在线的检测点导出 `linkos_expected_location{location, region, network}`，规则据此发现不再上报的检测点。
 

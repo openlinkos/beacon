@@ -52,6 +52,10 @@ type ProbeSettings struct {
 	// Timeout is the least time any probe gets at this location: a module with a shorter timeout gets
 	// this one. At most a minute, the agent's interval.
 	Timeout config.Duration `yaml:"timeout"`
+	// Retries is how many more times (at most 2) a probe is tried at once when it fails without an
+	// answer (DNS, connect, timeout), for a machine whose connections drop now and then. A failure with
+	// an answer, such as a wrong status code, is never retried.
+	Retries int `yaml:"retries"`
 }
 
 // Heartbeat is a job that must report success at least every MaxAge.
@@ -144,6 +148,9 @@ func (c *Catalog) validate() error {
 		}
 		if d := l.Probe.Timeout.D(); d < 0 || d > time.Minute {
 			bad("location %q: probe.timeout must be between 0 and 1m (the agent probes every minute)", l.ID)
+		}
+		if l.Probe.Retries < 0 || l.Probe.Retries > 2 {
+			bad("location %q: probe.retries must be 0, 1 or 2", l.ID)
 		}
 	}
 	for _, h := range c.Heartbeats {

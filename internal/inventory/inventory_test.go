@@ -86,6 +86,7 @@ func TestRotationNeedsAddress(t *testing.T) {
 		"a rotation without an address":     "{id: n1, name: a, region: overseas, rotation: cdn.example}",
 		"standby without a rotation":        "{id: n1, name: a, region: overseas, standby: true}",
 		"a probe timeout over the interval": "{id: n1, name: a, region: overseas, probe: {timeout: 2m}}",
+		"too many retries":                  "{id: n1, name: a, region: overseas, probe: {retries: 3}}",
 	} {
 		d := t.TempDir()
 		if err := os.WriteFile(filepath.Join(d, "c.yaml"), []byte("locations:\n  - "+loc+"\n"), 0o600); err != nil {

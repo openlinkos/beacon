@@ -26,7 +26,8 @@ locations:
     rotation: cdn.example.com          # ... and its cluster's DNS name
     standby: false                     # true: the node joins the rotation only when another fails
     probe:
-      timeout: 45s                     # every probe here gets at least this long (at most 1m)
+      timeout: 30s                     # every probe here gets at least this long (at most 1m)
+      retries: 1                       # a probe that fails without an answer is tried again at once (at most 2)
 ```
 
 | Field | Meaning |
@@ -37,7 +38,8 @@ locations:
 | `network` | Free text, shown with the name. |
 | `address`, `rotation` | Optional, for CDN nodes. Every minute Beacon resolves both and exports `linkos_location_in_rotation{location, rotation, role}` (1 when the node's address is among the rotation's answers), `linkos_rotation_resolve_success`, `linkos_rotation_members`, and `linkos_rotation_unknown_address{rotation, address}` for an answer no location claims. A rotation needs the address. |
 | `standby` | A standby node is in the rotation only when another node fails: `role="standby"` instead of `primary`, so a rule can alert when a primary is out and inform when a standby is in. Needs a rotation. |
-| `probe.timeout` | For a machine on a slower or lossier path: the gateway tells that agent (`GET /api/v1/agent`) and every module with a shorter timeout gets this one there. Zero keeps the modules' timeouts. |
+| `probe.timeout` | For a machine on a slower path: the gateway tells that agent (`GET /api/v1/agent`) and every module with a shorter timeout gets this one there. Zero keeps the modules' timeouts. |
+| `probe.retries` | For a machine whose connections drop now and then: a probe that fails without an answer (`dns`, `connect`, `timeout`) is tried again at once, up to this many times (0 to 2). A failure with an answer, such as a wrong status code, is never retried. `linkos_probe_attempts` says how many tries each result took, so a flaky path stays visible. A longer timeout does not help a connection that has stalled; a retry on a new one does. |
 
 Beacon exports `linkos_expected_location{location, region, network}` for every location expected to report now, so a rule can find one that has gone silent.
 

@@ -203,7 +203,8 @@ func (g *gateway) agent(w http.ResponseWriter, _ *http.Request, t store.Token) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(targets.Settings{Location: l.ID, ProbeTimeoutSeconds: l.Probe.Timeout.D().Seconds()})
+	_ = json.NewEncoder(w).Encode(targets.Settings{Location: l.ID, ProbeTimeoutSeconds: l.Probe.Timeout.D().Seconds(),
+		ProbeRetries: l.Probe.Retries})
 }
 
 func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token) {
