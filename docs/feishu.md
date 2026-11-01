@@ -51,6 +51,6 @@ Start the service and look for `feishu long connection ready` in the log, then r
 
 ## Quota
 
-On the free plan, all of an organisation's custom apps share a monthly API call limit (10,000 calls when this was written; check your console). Sending a card, updating it through the API and buzzing each cost one call; a card updated by a click costs nothing. Set `feishu.monthly_budget` to your limit: above 70% of it only critical alerts use the app, and the rest go to the custom bot.
+On the free plan, all of an organisation's custom apps share a monthly API call limit (10,000 calls when this was written; check your console). Sending a card, updating it through the API and buzzing each cost one call; a card updated by a click costs nothing. A note left through the API or MCP, and an agent woken for the alert, each update the card through the API, until 90% of the budget is used. Set `feishu.monthly_budget` to your limit: above 70% of it only critical alerts use the app, and the rest go to the custom bot.
 
 Phone and SMS buzzes need a verified organisation; Beacon uses only the in-app buzz and escalates to Pushover instead.

@@ -92,3 +92,24 @@ escalation:
   info: {channel: webhook}
 
 ack_ttl: 4h                                 # an acknowledgement lapses after this; escalation starts again
+
+# Hooks that wake agents when a new alert group is first notified, telling them where the evidence is
+# (public_url above). Beacon calls no model: what to do is the agent's call. See docs/agents.md.
+agents:
+  - name: claude-oncall
+    kind: webhook                           # a JSON POST, signed: X-Beacon-Signature: sha256=<HMAC of the body>
+    url: https://agents.example.com/hooks/beacon
+    secret_file: /etc/linkos-beacon/secrets/agent-hook-secret   # at least 24 random characters
+    severities: [critical]                  # the default
+    # service: "hub-.*|git-.*"              # a regular expression over the whole service label
+    resolved: true                          # also call when the group resolves
+  # - name: ops-workflow
+  #   kind: github                          # a workflow_dispatch with the inputs alert and event
+  #   repository: example/ops
+  #   workflow: oncall.yml
+  #   ref: main
+  #   token_file: /etc/linkos-beacon/secrets/github-dispatch-token   # Actions: read and write on the repository
+
+# Change events (deployments, Flux) that senders post to the gateway with a changes:write token.
+changes:
+  keep: 720h                                # 30 days

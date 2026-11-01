@@ -166,9 +166,9 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		}
 		sshListen = cfg.SSH.Listen
 	}
-	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s\n",
+	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s; %d agent hooks\n",
 		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources), ts.Count(), len(ts.Files()),
-		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen, sshListen)
+		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen, sshListen, len(cfg.Agents))
 	return 0
 }
 
@@ -326,8 +326,8 @@ func serve(args []string, stderr io.Writer) int {
 		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
 			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: catalogue.Load, Targets: probeTargets.Load,
-				Modules: func() []byte { return *moduleFile.Load() }, VM: vmURL, Alerts: rt.Ingest, RulesToken: sec.RulesToken,
-				Metrics: m, Log: log})}
+				Modules: func() []byte { return *moduleFile.Load() }, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange,
+				RulesToken: sec.RulesToken, Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	if gate != nil {
@@ -346,7 +346,8 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	log.Info("linkos-beacon started", "version", version.Version, "listen", cfg.Listen,
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations),
-		"gateway", cfg.Gateway.Listen, "targets", tset.Count(), "ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil])
+		"gateway", cfg.Gateway.Listen, "targets", tset.Count(), "ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil],
+		"agent_hooks", len(cfg.Agents))
 	select {
 	case <-ctx.Done():
 	case err := <-errc:

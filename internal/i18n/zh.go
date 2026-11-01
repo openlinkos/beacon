@@ -67,4 +67,15 @@ var zh = map[string]string{
 	"%s removed machine %s":                 "%s 移除了机器 %s",
 	"%s paused agents' access to machines":  "%s 暂停了 Agent 对机器的访问",
 	"%s resumed agents' access to machines": "%s 恢复了 Agent 对机器的访问",
+	// agents woken for alerts, and notes on alerts: cards and the alert chat
+	"Woke agent %s for \"%s\"":                  "已为「%[2]s」唤醒 Agent %[1]s",
+	"Told agent %s that \"%s\" resolved":        "已告诉 Agent %[1]s「%[2]s」已恢复",
+	"Could not reach agent %s about \"%s\": %s": "没能就「%[2]s」联系上 Agent %[1]s：%[3]s",
+	"Agent %s woken at %s":                      "%[2]s 已唤醒 Agent %[1]s",
+	"Waking agent %s":                           "正在唤醒 Agent %s",
+	"Could not wake agent %s":                   "没能唤醒 Agent %s",
+	"%s left a note on \"%s\" via %s: %s":       "%[1]s 经%[3]s在「%[2]s」上留了备注：%[4]s",
+	"**Notes**":                                 "**备注**",
+	"%d earlier notes":                          "更早的备注 %d 条",
+	"%s (%s, %s): %s":                           "%s（%s，%s）：%s",
 }

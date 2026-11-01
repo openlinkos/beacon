@@ -29,7 +29,8 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 
 ### 连得上：平台
 
-- **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
+- **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默、写备注，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
+- **唤醒 Agent，证据随手可取。**新告警可以唤醒 Agent：一个带签名的 webhook，或一次 GitHub workflow 触发，告诉它证据在哪里。一次调用就能拿到证据：每个检测点的结果和失败原因、同一故障域里的告警、之前刚做的变更（部署、Flux），以及已经做了什么。Agent 留的备注显示在卡片上，一条时间线串起告警、备注、唤醒的 Agent、变更和会话。Beacon 不调用任何模型，由 Agent 自己判断。见 [docs/zh/agents.md](docs/zh/agents.md)。
 - **很轻。**一整套只有四个容器（Beacon、VictoriaMetrics、vmalert、Caddy），每个检测点一个程序。
 
 ## 结构
@@ -38,6 +39,7 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 linkos-probe（各检测点）─推送─▶ 网关 ─▶ VictoriaMetrics ─▶ vmalert ─告警─▶ 路由 ─▶ 告警桥 ─▶ 飞书应用 ◀─▶ 值班的人
 主机、CI、Flux ───────────────▶ 网关                                                   ├─▶ 飞书群机器人
 Agent ─▶ /api/v1、/mcp ─▶ linkos-beacon                                                ├─▶ Pushover / Bark
+                                                                                       ├─▶ Agent 的钩子（webhook、GitHub workflow）
                            healthchecks.io ◀─ 规则、路由、送达都正常时每分钟一次
 ```
 
@@ -86,7 +88,7 @@ docker exec linkos-beacon linkos-beacon drill off
 ## API 与 MCP
 
 - REST：`/api/v1`，说明见 [internal/api/openapi.yaml](internal/api/openapi.yaml)（也在 `/api/v1/openapi.yaml` 提供）。
-- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。
+- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。处理告警用的工具：`get_evidence`、`get_timeline`、`add_note`、`list_changes`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -105,6 +107,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write |
 | `GET /api/v1/targets`、`GET /api/v1/modules`、`GET /api/v1/agent` | `probe:write` | 检测什么、怎么检测、所在检测点的设置 |
 | `POST /api/v2/alerts` | 规则引擎的令牌、`alerts:send` | 告警，Alertmanager API v2 格式 |
+| `POST /api/v1/changes`、`POST /api/v1/changes/flux` | `changes:write` | 变更事件：部署之类，以及 Flux 的事件（它的 `generic` provider）；见 [docs/zh/agents.md](docs/zh/agents.md) |
 | `GET /api/v1/query`、`query_range`、`series` 等 | `metrics:read` | 给 Agent 的指标查询 |
 
 SSH 通道（17002 端口）接受登记在带 `machines:ssh` 作用域的令牌上的公钥；用户名就是机器名。见 [docs/zh/ssh.md](docs/zh/ssh.md)。

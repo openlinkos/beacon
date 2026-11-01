@@ -92,6 +92,7 @@ type Bridge struct {
 	mu         sync.Mutex // serialises every change to the groups
 	watchdogAt atomic.Int64
 	feishuFail atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
+	hooks      hooks        // calls that wake agents, in flight (agents.go)
 }
 
 const (
@@ -242,7 +243,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	case "firing":
 		g.Status = "firing"
 		if !wasFiring {
-			g.Ack, g.Silence = nil, nil
+			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
 			g.StartsAt = starts
@@ -250,6 +251,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 				g.StartsAt = b.now()
 			}
 			b.notifyNew(ctx, &g)
+			b.wake(&g, "firing")
 		} else {
 			b.refresh(ctx, &g)
 		}
@@ -260,6 +262,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "resolved"
 		g.ResolvedAt = b.now()
 		b.resolve(ctx, &g)
+		b.wake(&g, "resolved")
 	}
 	return b.d.Store.PutGroup(g)
 }
@@ -556,6 +559,7 @@ func (b *Bridge) Ready() (bool, []string) {
 
 // Run ticks until ctx is done and pings the healthchecks.io check every minute when ready.
 func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool) error) {
+	b.resumeWakes(ctx)
 	tick := time.NewTicker(15 * time.Second)
 	defer tick.Stop()
 	beat := time.NewTicker(time.Minute)
@@ -615,6 +619,8 @@ type GroupView struct {
 	Pushed      *time.Time        `json:"pushover_at,omitempty"`
 	Runbook     string            `json:"runbook,omitempty"`
 	Dashboard   string            `json:"dashboard,omitempty"`
+	Notes       []store.Note      `json:"notes,omitempty"`
+	Agents      []store.AgentCall `json:"agents,omitempty"` // the hooks called to wake agents, and how that went
 }
 
 func tp(t time.Time) *time.Time {
@@ -636,6 +642,7 @@ func (b *Bridge) view(g *store.Group) GroupView {
 		Service: b.service(g), Labels: g.Labels, Alerts: firing, StartsAt: g.StartsAt, ResolvedAt: tp(g.ResolvedAt),
 		Channel: g.Channel, Ack: g.Ack, Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: tp(g.Pushed),
 		Runbook: b.link(b.d.Config.Links.Runbook, g), Dashboard: b.link(b.d.Config.Links.GrafanaService, g),
+		Notes: g.Notes, Agents: g.Agents,
 	}
 }
 

@@ -73,6 +73,8 @@ type Config struct {
 	Healthchecks Healthchecks        `yaml:"healthchecks"`
 	Escalation   map[string]Policy   `yaml:"escalation"`
 	AckTTL       Duration            `yaml:"ack_ttl"`
+	Agents       []Agent             `yaml:"agents"`  // hooks that wake agents; see agents.go
+	Changes      Changes             `yaml:"changes"` // change events from the gateway
 	Secrets      Secrets             `yaml:"-"`
 	Location     *time.Location      `yaml:"-"`
 	Proxies      []netip.Prefix      `yaml:"-"`
@@ -259,6 +261,7 @@ func (c *Config) defaults() {
 	if c.AckTTL == 0 {
 		c.AckTTL = Duration(4 * time.Hour)
 	}
+	c.agentDefaults()
 	if c.Escalation == nil {
 		// The best channel configured; with none, alerts are only recorded (the API and MCP still show them).
 		ch := "none"
@@ -447,6 +450,7 @@ func (c *Config) validate() error {
 	if c.AckTTL.D() < 10*time.Minute {
 		bad("ack_ttl must be at least 10m")
 	}
+	errs = append(errs, c.validateAgents()...)
 	return errors.Join(errs...)
 }
 
@@ -482,6 +486,7 @@ func (c *Config) readSecrets() error {
 		read(&s.SSHHostKey, c.SSH.HostKeyFile, "ssh.host_key_file")
 		read(&s.SSHCAKey, c.SSH.CAKeyFile, "ssh.ca_key_file")
 	}
+	errs = append(errs, c.readAgentSecrets()...)
 	if len(s.RulesToken) > 0 && len(s.RulesToken) < 24 {
 		errs = append(errs, errors.New("rules.token_file: the token is too short; use at least 24 random characters"))
 	}

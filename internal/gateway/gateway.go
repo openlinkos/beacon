@@ -1,6 +1,7 @@
 // Package gateway is the one door for machines (metrics.<domain>): probes and hosts write their samples
 // (Prometheus remote write) and fetch the targets they check, job hosts push heartbeats, agents query
-// metrics, and the rule engine and Flux post alerts (Alertmanager's API v2, taken by the router). It replaces a separate auth proxy: every request carries a token from
+// metrics, the rule engine and Flux post alerts (Alertmanager's API v2, taken by the router), and CI and
+// Flux post change events (deployments, reconciliations). It replaces a separate auth proxy: every request carries a token from
 // this service's store with the scope for what it does, so the tokens are created, listed, revoked and
 // audited in one place.
 //
@@ -40,6 +41,7 @@ type Deps struct {
 	Modules    func() []byte // the probe module file, handed to probes as is
 	VM         *url.URL
 	Alerts     func([]router.Postable) error
+	Changes    ChangeSink // takes change events (changes.go); nil refuses them
 	RulesToken string
 	Metrics    *metrics.Metrics
 	Log        *slog.Logger
@@ -84,6 +86,8 @@ func Handler(d Deps) http.Handler {
 		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
 	}
 	mux.HandleFunc("POST /api/v2/alerts", g.rulesAlerts)
+	mux.Handle("POST /api/v1/changes", g.with("changes", []string{"changes:write"}, g.change))
+	mux.Handle("POST /api/v1/changes/flux", g.with("changes", []string{"changes:write"}, g.fluxChange))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, "not_found", "no such endpoint on the metrics gateway")
 	})

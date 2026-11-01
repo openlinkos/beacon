@@ -120,6 +120,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
 	mux.Handle("POST /api/v1/alerts/{id}/ack", s.with("alerts:write", s.ackAlert))
+	mux.Handle("GET /api/v1/alerts/{id}/evidence", s.with("status:read", s.evidence))
+	mux.Handle("GET /api/v1/alerts/{id}/timeline", s.with("status:read", s.timeline))
+	mux.Handle("POST /api/v1/alerts/{id}/notes", s.with("alerts:write", s.addNote))
+	mux.Handle("GET /api/v1/changes", s.with("status:read", s.listChanges))
 	mux.Handle("GET /api/v1/silences", s.with("status:read", s.listSilences))
 	mux.Handle("POST /api/v1/silences", s.with("alerts:write", s.createSilence))
 	mux.Handle("DELETE /api/v1/silences/{id}", s.with("alerts:write", s.expireSilence))
@@ -148,6 +152,7 @@ var Routes = []string{
 	"GET /api/v1/machines", "POST /api/v1/machines", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
 	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
 	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
+	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, who bridge.Actor)

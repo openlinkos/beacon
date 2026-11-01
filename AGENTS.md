@@ -14,8 +14,9 @@ Beacon · 烽火 (`linkos-beacon`, and the probe agent `linkos-probe`) is infras
 linkos-probe agent ──push (text format, gzip)──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
   ▲ targets, modules, settings ◀── gateway                                          │ alerts (Alertmanager API v2)
                                                                                     ▼
-people ◀── Feishu cards, Pushover ◀── bridge ◀── router (group, inhibit, silence) ◀── gateway
-agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge, store, SSH channel
+people ◀── Feishu cards, Pushover ◀── bridge ◀── router (group, inhibit, silence) ◀── gateway ◀── CI, Flux (change events)
+agents ◀── webhook, workflow dispatch ◀── bridge (a new alert wakes them)
+agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge (evidence, timeline, notes), store, SSH channel
 agents ──▶ ssh, scp, sftp, rsync (port 17002) ──▶ SSH channel ──▶ machines (5-minute certificates; every session recorded)
 ```
 
@@ -25,13 +26,13 @@ One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, 
 | --- | --- |
 | `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; reloads catalogue, targets and modules on SIGHUP |
 | `cmd/linkos-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
-| `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, read proxy for `metrics:read` |
+| `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, change events from CI and Flux, read proxy for `metrics:read` |
 | `internal/router` | Alertmanager's job: grouping, `group_wait`/`group_interval`, `resolve_timeout`, inhibition, silences, Watchdog; groups survive restarts |
-| `internal/bridge` | Alert groups to people: cards, acknowledgements, silences, escalation, budget, readiness and the healthchecks.io ping |
+| `internal/bridge` | Alert groups to people: cards, acknowledgements, silences, escalation, budget, readiness and the healthchecks.io ping; and to agents: hooks that wake them (`agents.go`), evidence, timeline, notes and change events, untrusted text cleaned (`untrusted.go`) |
 | `internal/feishu`, `internal/notify` | The Feishu app (cards, long connection, buzz); Pushover, Bark and the group bot |
 | `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods |
 | `internal/sshgate` | The SSH channel: agents' SSH sign-in by the keys on their tokens, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts (shell-integration marks), the tools (run, read, write, edit), pausing, echoes to the chat |
-| `internal/store` | bbolt: groups, silences, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), machines, the index of SSH sessions, audit log, drill |
+| `internal/store` | bbolt: groups (with notes and agent calls), silences, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), machines, the index of SSH sessions, change events, audit log, drill |
 | `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll`, `machine`, `ssh` and `drill` |
 | `internal/catalog`, `internal/targets` | Locations, heartbeats, resources; probe target files and the probe protocol types (`Group`, `Settings`) |
 | `internal/inventory` | CDN nodes against their clusters' DNS rotations |
@@ -70,7 +71,7 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 
 1. **Alerts delivered** (goal 1): once the accounts exist, check that card buttons arrive over Feishu's long connection, run the drills, turn sending on, release `v0.2.0`.
 2. **The SSH channel** (goals 2, 4, 5, 6): built (`internal/sshgate`, `docs/ssh.md`); next, put LinkOS's machines on it, then a small outbound connector for machines behind NAT. Hosts' sshd must trust Beacon's CA and exempt its address from `PerSourcePenalties`.
-3. **Waking agents, and evidence** (goals 1, 3): a new alert group calls an agent (webhook, workflow dispatch); evidence for an alert in one call (probe results and reasons, changes such as deployments and Flux, related alerts, what was done); notes an agent leaves on a card; one timeline of alerts, sessions and notes. Treat everything fetched from probed targets and machines as untrusted text.
+3. **Waking agents, and evidence** (goals 1, 3): built (`internal/bridge/agents.go`, `evidence.go`, `timeline.go`, `notes.go`, `changes.go`; `docs/agents.md`): `agents:` hooks (signed webhook, GitHub workflow dispatch) for new alert groups, evidence in one call, notes on the card, one timeline, change events from CI and Flux (`changes:write`). Everything fetched from probed targets, labels, senders and machines is cleaned and marked `untrusted`. Next: point LinkOS's Flux and CI at the gateway, and a first agent harness at a hook.
 4. **Configured through Beacon** (goal 7): the catalogue, targets, modules and machines in the database, changed through the API, MCP and the CLI with history; the files become import and export.
 5. **Status pages and more channels** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, Atom feed, badges, public JSON; Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook.
 6. **Release for others** (goals 8, 9): a reference deployment (compose) in `docs/`, `CONTRIBUTING.md` and `SECURITY.md`, a `silence` CLI; a small outbound connector for machines behind NAT; then, to be decided, rule evaluation inside Beacon and optional built-in TLS.

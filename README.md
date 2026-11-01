@@ -29,7 +29,8 @@ Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel
 
 ### Connects: the platform
 
-- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
+- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, leave notes, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
+- **Agents woken, with the evidence at hand.** A new alert can wake an agent: a signed webhook or a GitHub workflow, told where the evidence is. One call returns it: each probe location's result and why it fails, the alerts in the same failure domain, the changes just before (deployments, Flux), and what was done. Notes an agent leaves show on the card, and one timeline joins alerts, notes, agents woken, changes and sessions. Beacon calls no model: the agent decides. See [docs/agents.md](docs/agents.md).
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
 ## How it fits
@@ -38,6 +39,7 @@ Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel
 linkos-probe (each location) ─push─▶ gateway ─▶ VictoriaMetrics ─▶ vmalert ─alerts─▶ router ─▶ bridge ─▶ Feishu app ◀─▶ people on call
 hosts, CI, Flux ─────────────────▶ gateway                                                          ├─▶ Feishu group bot
 agents ─▶ /api/v1, /mcp ─▶ linkos-beacon                                                            ├─▶ Pushover / Bark
+                                                                                                    ├─▶ agents' hooks (webhook, GitHub workflow)
                                    healthchecks.io ◀─ every minute, while rules, routing and delivery work
 ```
 
@@ -86,7 +88,7 @@ docker exec linkos-beacon linkos-beacon drill off
 ## API and MCP
 
 - REST: `/api/v1`, described in [internal/api/openapi.yaml](internal/api/openapi.yaml) (also served at `/api/v1/openapi.yaml`).
-- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`.
+- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`.
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -105,6 +107,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
 | `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
 | `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
+| `POST /api/v1/changes`, `POST /api/v1/changes/flux` | `changes:write` | Change events: deployments and the like, and Flux's events (its `generic` provider); see [docs/agents.md](docs/agents.md) |
 | `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
 
 The SSH channel (port 17002) takes keys given to tokens with the `machines:ssh` scope; the user name is the machine. See [docs/ssh.md](docs/ssh.md).

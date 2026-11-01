@@ -124,7 +124,7 @@ func cardHash(g *store.Group) string {
 	if g.Silence != nil {
 		sil = g.Silence.ID
 	}
-	parts = append(parts, g.Status, ack, sil, g.Buzzed.String(), g.Pushed.String())
+	parts = append(parts, g.Status, ack, sil, g.Buzzed.String(), g.Pushed.String(), noteDigest(g))
 	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(sum[:8])
 }
@@ -224,11 +224,13 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 	if !g.Pushed.IsZero() {
 		state = append(state, b.t("Pushover alert sent at %s", b.clock(g.Pushed)))
 	}
+	state = append(state, b.agentLines(g)...)
 
 	els := []map[string]any{feishu.Markdown(strings.Join(md, "\n"))}
 	if len(state) > 0 {
 		els = append(els, feishu.Markdown("<font color='grey'>"+strings.Join(state, "\n")+"</font>"))
 	}
+	els = append(els, b.notesBlock(g)) // nil without notes, and then left out of the card
 	var links []map[string]any
 	if u := b.link(b.d.Config.Links.Runbook, g); u != "" {
 		links = append(links, feishu.LinkButton(b.t("Runbook"), u))

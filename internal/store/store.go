@@ -66,6 +66,8 @@ type Group struct {
 	Receipt     string            `json:"receipt,omitempty"`
 	ReceiptAt   time.Time         `json:"receipt_at,omitzero"`
 	Barked      time.Time         `json:"barked,omitzero"`
+	Notes       []Note            `json:"notes,omitempty"`  // see agents.go
+	Agents      []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
 	Updated     time.Time         `json:"updated"`
 }
 
@@ -264,7 +266,7 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 // (the REST API, MCP and the SSH channel); the rest are for machines, on the metrics gateway.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
 	"machines:ssh", "machines:write", "sessions:read",
-	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send"}
+	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send", "changes:write"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.
 var SubjectScopes = []string{"probe:write", "host:write"}
