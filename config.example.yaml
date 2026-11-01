@@ -2,7 +2,10 @@
 # and keep the file out of git. `linkos-beacon check-config -config <this file>` validates it.
 
 listen: ":17001"
-data_dir: /var/lib/linkos-beacon            # bbolt state: alert groups, tokens, audit log
+data_dir: /var/lib/linkos-beacon            # bbolt state: alert groups, tokens, audit log, the configuration below
+# The catalogue, probe targets and modules live in the database (docs/catalog.md). These files are
+# imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
+# through Beacon since the last import) or with `linkos-beacon config import DIR`.
 catalog_dir: /etc/linkos-beacon/catalog     # probe locations, heartbeats, expiring resources (*.yaml)
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
@@ -39,7 +42,8 @@ victoriametrics:
 # everything a probe writes with its location; see README.
 gateway:
   listen: ":17006"
-  targets_dir: /etc/linkos-beacon/targets   # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml
+  targets_dir: /etc/linkos-beacon/targets   # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml; imported as above
+  # modules_file: /etc/linkos-beacon/targets/modules.yml   # the probe modules (this is the default); imported as above
 
 # The SSH channel: agents reach machines with their own ssh, scp, sftp or rsync, or with the MCP tools,
 # and never hold a key. On when ca_key_file is set; see docs/ssh.md. Both keys: ssh-keygen -t ed25519.

@@ -31,6 +31,7 @@ Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel
 
 - **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, leave notes, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
 - **Agents woken, with the evidence at hand.** A new alert can wake an agent: a signed webhook or a GitHub workflow, told where the evidence is. One call returns it: each probe location's result and why it fails, the alerts in the same failure domain, the changes just before (deployments, Flux), and what was done. Notes an agent leaves show on the card, and one timeline joins alerts, notes, agents woken, changes and sessions. Beacon calls no model: the agent decides. See [docs/agents.md](docs/agents.md).
+- **Configured through Beacon.** Probe locations, heartbeats, expiring resources, probe targets and modules live in Beacon's database and are changed through the API, MCP and the command line, checked and in force at once. Every change is a version with who made it and the values before and after, and can be reverted; files are for import and export, so they can still live in git.
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
 ## How it fits
@@ -57,7 +58,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
+Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). The first start imports those files into the database, where they are changed from then on; the two mounts are needed only for that, for `SIGHUP` and for `config import`. Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
 
 Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
 
@@ -83,12 +84,15 @@ docker exec linkos-beacon linkos-beacon ssh pause         # closes agents' sessi
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
 docker exec linkos-beacon linkos-beacon drill off
+docker exec linkos-beacon linkos-beacon config import /etc/linkos-beacon -dry-run   # catalog/, targets/: what would change
+docker exec linkos-beacon linkos-beacon config export /tmp/beacon   # the configuration as files, in the same layout
+docker exec linkos-beacon linkos-beacon config history    # who changed what; config revert VERSION undoes one change
 ```
 
 ## API and MCP
 
 - REST: `/api/v1`, described in [internal/api/openapi.yaml](internal/api/openapi.yaml) (also served at `/api/v1/openapi.yaml`).
-- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`.
+- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`. For the configuration (scope `config:write` to change it): `get_config`, `put_config`, `delete_config`, `list_config_changes`, `get_config_change`, `revert_config_change`.
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"

@@ -124,7 +124,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, MaxImport)) // an export is as large as an import may be
 	if resp.StatusCode/100 != 2 {
 		var e struct {
 			Error string `json:"error"`

@@ -1,12 +1,13 @@
-// Package targets loads what the probes check: target groups in Prometheus file_sd form ({targets,
-// labels}), in the YAML files of a directory. A file's name says which probe locations check it:
+// Package targets is what the probes check: target groups in Prometheus file_sd form ({targets,
+// labels}), in named files (sets, once they are in Beacon's database; see package configdb). A file's
+// name says which probe locations check it:
 //
 //	all-*.yaml                every location
 //	overseas-*.yaml           the overseas locations (mainland-*.yaml: the mainland ones)
 //	<location id>-*.yaml      that location only
 //
 // The gateway hands each probe its list (Prometheus HTTP service discovery), so changing what is
-// checked is a change here and a reload, not a redeployment of every probe.
+// checked is a change in Beacon, not a redeployment of every probe.
 package targets
 
 import (
@@ -52,47 +53,92 @@ var Regions = []string{"overseas", "mainland"}
 // location ids: a file whose name starts with none of all-, a region or a location id is an error,
 // so that a typo does not silently stop a check.
 func Load(dir string, locations []string) (*Set, error) {
-	s := &Set{files: map[string][]Group{}}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
+		return &Set{files: map[string][]Group{}}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var errs []error
+	files := map[string][]byte{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
-		}
-		if scope(e.Name(), locations) == "" {
-			errs = append(errs, fmt.Errorf("%s: the name must start with all-, %s- or a location id and a dash",
-				e.Name(), strings.Join(Regions, "-, ")))
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // inside the targets directory
 		if err != nil {
 			return nil, err
 		}
-		var groups []Group
-		dec := yaml.NewDecoder(strings.NewReader(string(b)))
-		dec.KnownFields(true)
-		if err := dec.Decode(&groups); err != nil && !errors.Is(err, io.EOF) {
-			errs = append(errs, fmt.Errorf("%s: %w", e.Name(), err))
+		files[e.Name()] = b
+	}
+	return Parse(files, locations)
+}
+
+// Parse is Load for the files' contents, by file name.
+func Parse(files map[string][]byte, locations []string) (*Set, error) {
+	groups := map[string][]Group{}
+	var errs []error
+	for _, name := range sortedKeys(files) {
+		if !nameOK(name, locations) {
+			groups[name] = nil // Build says why
 			continue
 		}
+		var gs []Group
+		dec := yaml.NewDecoder(strings.NewReader(string(files[name])))
+		dec.KnownFields(true)
+		if err := dec.Decode(&gs); err != nil && !errors.Is(err, io.EOF) {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			continue
+		}
+		groups[name] = gs
+	}
+	s, err := Build(groups, locations)
+	return s, errors.Join(append(errs, err)...)
+}
+
+// Build makes a set from groups by file name, checked as Load checks them: a file whose name starts
+// with none of all-, a region or a location id is left out and is an error, so that a typo does not
+// silently stop a check; groups without targets or without the labels module and service are errors.
+func Build(files map[string][]Group, locations []string) (*Set, error) {
+	s := &Set{files: map[string][]Group{}}
+	var errs []error
+	for _, name := range sortedKeys(files) {
+		if !nameOK(name, locations) {
+			errs = append(errs, fmt.Errorf("%s: the name must start with all-, %s- or a location id and a dash",
+				name, strings.Join(Regions, "-, ")))
+			continue
+		}
+		groups := files[name]
 		for i, g := range groups {
 			switch {
 			case len(g.Targets) == 0:
-				errs = append(errs, fmt.Errorf("%s: group %d has no targets", e.Name(), i+1))
+				errs = append(errs, fmt.Errorf("%s: group %d has no targets", name, i+1))
 			case g.Labels["module"] == "" || g.Labels["service"] == "":
-				errs = append(errs, fmt.Errorf("%s: group %d (%s) needs the labels module and service", e.Name(), i+1, g.Targets[0]))
+				errs = append(errs, fmt.Errorf("%s: group %d (%s) needs the labels module and service", name, i+1, g.Targets[0]))
 			}
 		}
-		s.files[e.Name()] = groups
+		s.files[name] = groups
 	}
 	return s, errors.Join(errs...)
 }
+
+func nameOK(name string, locations []string) bool { return scope(name, locations) != "" }
+
+// Scope is who probes a file: all, a region or a location id, by the file's name; "" when its name
+// starts with none of them.
+func Scope(name string, locations []string) string { return scope(name, locations) }
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Groups returns the groups of one file.
+func (s *Set) Groups(file string) []Group { return s.files[file] }
 
 // scope is the file name's prefix (all, a region or a location id), or "" when it has none. The
 // longest matching location id wins, so cdn-pre-us1-x.yaml is not taken for a location cdn-pre.

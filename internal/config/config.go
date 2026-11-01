@@ -5,6 +5,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -186,7 +187,36 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
+func (d Duration) MarshalYAML() (any, error) { return d.String(), nil }
+
+// String writes the duration the way the configuration does: 26h rather than 26h0m0s.
+func (d Duration) String() string {
+	s := time.Duration(d).String()
+	if strings.HasSuffix(s, "m0s") {
+		s = s[:len(s)-2]
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = s[:len(s)-2]
+	}
+	return s
+}
+
+// MarshalJSON writes "26h", as in YAML.
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
+
+// UnmarshalJSON reads "26h", as in YAML.
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("%s is not a duration such as \"10m\" or \"4h\" (a string)", b)
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("%q is not a duration such as 10m or 4h", s)
+	}
+	*d = Duration(v)
+	return nil
+}
 
 // Load reads, defaults and validates the configuration at path and reads its secrets.
 func Load(path string) (*Config, error) {

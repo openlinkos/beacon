@@ -57,8 +57,8 @@ type SSH struct {
 }
 
 // Handler returns the MCP endpoint, guarded by bearer tokens.
-func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger) http.Handler {
-	srv := New(b, g)
+func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger, opts ...Option) http.Handler {
+	srv := New(b, g, opts...)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log})
 	verify := func(_ context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
@@ -171,9 +171,17 @@ type (
 )
 
 // New builds the MCP server with its tools.
-func New(b *bridge.Bridge, g SSH) *mcp.Server {
+func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
+	var o options
+	for _, f := range opts {
+		f(&o)
+	}
+	instructions := Instructions
+	if o.config != nil {
+		instructions += "\n\n" + ConfigInstructions
+	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "linkos-beacon", Title: "Beacon", Version: version.Version},
-		&mcp.ServerOptions{Instructions: Instructions})
+		&mcp.ServerOptions{Instructions: instructions})
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "status_summary", Title: "Alerting summary", Annotations: read,
@@ -285,6 +293,9 @@ func New(b *bridge.Bridge, g SSH) *mcp.Server {
 		})
 	addEvidenceTools(s, b)
 	addMachineTools(s, g)
+	if o.config != nil {
+		addConfigTools(s, o.config)
+	}
 	return s
 }
 

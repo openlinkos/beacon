@@ -1,6 +1,6 @@
 // Package ctl is the local admin socket: a small HTTP API on a Unix socket in the data directory, so
-// that `linkos-beacon token …`, `machine …`, `ssh …` and `drill …` work against the running service,
-// which holds the database lock.
+// that `linkos-beacon token …`, `machine …`, `ssh …`, `config …` and `drill …` work against the
+// running service, which holds the database lock.
 //
 // Only processes of the service's own user (or root) can connect: the socket is mode 0600 in the
 // data directory, and on Linux and macOS the peer's user id is checked on every connection.
@@ -115,17 +115,20 @@ func fail(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
 
+// cliActor is who runs a command, for the audit log: cli:<user>, as the client names the user.
+func cliActor(r *http.Request) string {
+	name := r.Header.Get(UserHeader)
+	if !userRe.MatchString(name) {
+		name = "unknown"
+	}
+	return "cli:" + name
+}
+
 // Handler serves the socket's API. active reports whether a probe location exists and its machine has
 // not expired; nil accepts any location. m is the SSH channel, nil when it is off.
 func Handler(s Service, active func(location string) error, m Machines) http.Handler {
 	mux := http.NewServeMux()
-	actor := func(r *http.Request) string {
-		name := r.Header.Get(UserHeader)
-		if !userRe.MatchString(name) {
-			name = "unknown"
-		}
-		return "cli:" + name
-	}
+	actor := cliActor
 	decode := func(w http.ResponseWriter, r *http.Request, v any) bool {
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 		dec.DisallowUnknownFields()

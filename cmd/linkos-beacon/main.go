@@ -2,7 +2,8 @@
 // SSH channel through which agents reach machines, a REST API and an MCP server.
 //
 //	linkos-beacon serve [-config path]          run the service
-//	linkos-beacon check-config [-config path]   validate the configuration and the catalogue
+//	linkos-beacon check-config [-config path]   validate the configuration, its files and the database
+//	linkos-beacon config import DIR [-dry-run] | config export DIR | config history | config revert VERSION
 //	linkos-beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
 //	linkos-beacon token list | token revoke NAME
 //	linkos-beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
@@ -28,7 +29,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -39,6 +39,7 @@ import (
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/gateway"
@@ -46,11 +47,9 @@ import (
 	"github.com/openlinkos/beacon/internal/mcpserver"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/notify"
-	probemod "github.com/openlinkos/beacon/internal/probe"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/server"
 	"github.com/openlinkos/beacon/internal/store"
-	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/version"
 	"github.com/openlinkos/beacon/internal/vm"
 )
@@ -62,7 +61,12 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   linkos-beacon serve [-config path]          run the service
-  linkos-beacon check-config [-config path]   validate the configuration and the catalogue
+  linkos-beacon check-config [-config path]   validate the configuration, its files and the database
+  linkos-beacon config import DIR [-dry-run] [-note TEXT]
+                                              make DIR/catalog, DIR/targets and DIR/targets/modules.yml
+                                              the catalogue, probe targets and modules, as one change
+  linkos-beacon config export DIR             write them there in the same layout
+  linkos-beacon config history [-limit 20] | config revert VERSION [-note TEXT]
   linkos-beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
                 [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
   linkos-beacon token list
@@ -93,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return serve(args[1:], stderr)
 	case "check-config":
 		return checkConfig(args[1:], stdout, stderr)
+	case "config":
+		return configCmd(args[1:], stdout, stderr)
 	case "token":
 		return token(args[1:], stdout, stderr)
 	case "drill":
@@ -127,34 +133,15 @@ func configFlag(name string, args []string, stderr io.Writer) (string, []string,
 	return *path, fs.Args(), true
 }
 
-func load(path string) (*config.Config, *catalog.Catalog, error) {
-	cfg, err := config.Load(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	cat, err := catalog.Load(cfg.CatalogDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("catalogue %s: %w", cfg.CatalogDir, err)
-	}
-	return cfg, cat, nil
-}
-
+// checkConfig validates the configuration file, the catalogue, targets and module files it names
+// (which are imported into the database) and the configuration in the database.
 func checkConfig(args []string, stdout, stderr io.Writer) int {
 	path, _, ok := configFlag("check-config", args, stderr)
 	if !ok {
 		return 2
 	}
-	cfg, cat, err := load(path)
+	cfg, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	ts, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(cat))
-	if err != nil {
-		fmt.Fprintf(stderr, "targets %s: %v\n", cfg.Gateway.TargetsDir, err)
-		return 1
-	}
-	if _, err := loadModules(cfg.Gateway.ModulesFile); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -166,9 +153,30 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		}
 		sshListen = cfg.SSH.Listen
 	}
-	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s; %d agent hooks\n",
-		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources), ts.Count(), len(ts.Files()),
+	files, err := configFiles(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	inFiles := "none"
+	if len(files) > 0 {
+		st, err := configdb.ParseFiles(files)
+		if err != nil {
+			fmt.Fprintf(stderr, "configuration files (catalog_dir %s, gateway.targets_dir %s, gateway.modules_file %s): %v\n",
+				cfg.CatalogDir, cfg.Gateway.TargetsDir, cfg.Gateway.ModulesFile, err)
+			return 1
+		}
+		inFiles = st.Summary()
+	}
+	inDB, err := checkDatabase(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "configuration OK: Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s; %d agent hooks\n",
 		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen, sshListen, len(cfg.Agents))
+	fmt.Fprintf(stdout, "files: %s\n", inFiles)
+	fmt.Fprintf(stdout, "database: %s\n", inDB)
 	return 0
 }
 
@@ -178,7 +186,7 @@ func serve(args []string, stderr io.Writer) int {
 	if !ok {
 		return 2
 	}
-	cfg, cat, err := load(path)
+	cfg, err := config.Load(path)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
@@ -189,25 +197,19 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
-	tset, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(cat))
-	if err != nil {
-		log.Error("cannot start", "err", fmt.Errorf("targets %s: %w", cfg.Gateway.TargetsDir, err))
-		return 1
+	sec := cfg.Secrets
+	var bot *notify.GroupBot // the chat's custom bot: plain messages and echoes
+	if sec.FeishuWebhookURL != "" {
+		bot = &notify.GroupBot{URL: sec.FeishuWebhookURL, Secret: sec.FeishuWebhookSecret, Keyword: cfg.Feishu.WebhookKeyword}
 	}
-	mods, err := loadModules(cfg.Gateway.ModulesFile)
+	// the catalogue, probe targets and modules, which every change through Beacon updates at once
+	cdb, err := openConfig(context.Background(), cfg, st, bot, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	var moduleFile atomic.Pointer[[]byte]
-	moduleFile.Store(&mods)
-
-	var catalogue atomic.Pointer[catalog.Catalog]
-	var probeTargets atomic.Pointer[targets.Set]
-	catalogue.Store(cat)
-	probeTargets.Store(tset)
 	m := metrics.New(version.Version)
-	catalog.Register(m, catalogue.Load)
+	catalog.Register(m, cdb.Catalog)
 	m.Register("linkos_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, t := range st.Tokens() {
@@ -229,17 +231,16 @@ func serve(args []string, stderr io.Writer) int {
 	})
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
-		Catalog: catalogue.Load, Metrics: m, Log: log,
+		Catalog: cdb.Catalog, Metrics: m, Log: log,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
 		deps.VM = vm.New(cfg.VictoriaMetrics.URL, nil)
 	}
-	sec := cfg.Secrets
 	if sec.FeishuAppID != "" {
 		deps.Feishu = feishu.New(sec.FeishuAppID, sec.FeishuAppSecret, cfg.Feishu.Domain, log, func() { br.CountFeishuCall() })
 	}
-	if sec.FeishuWebhookURL != "" {
-		deps.Bot = &notify.GroupBot{URL: sec.FeishuWebhookURL, Secret: sec.FeishuWebhookSecret, Keyword: cfg.Feishu.WebhookKeyword}
+	if bot != nil {
+		deps.Bot = bot
 	}
 	if sec.PushoverToken != "" {
 		deps.Pushover = &notify.Pushover{API: cfg.Pushover.API, Token: sec.PushoverToken, User: sec.PushoverUserKey,
@@ -264,8 +265,8 @@ func serve(args []string, stderr io.Writer) int {
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log},
-		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log),
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb},
+		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
 	}
 	if deps.Feishu != nil && cfg.Feishu.Callback == "http" {
@@ -274,7 +275,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go reloadOnHUP(ctx, cfg, &catalogue, &probeTargets, &moduleFile, log)
+	go reloadOnHUP(ctx, cfg, cdb, log)
 	if listener != nil {
 		go func() {
 			if err := listener.Run(ctx); err != nil {
@@ -289,12 +290,12 @@ func serve(args []string, stderr io.Writer) int {
 	go br.Run(ctx, ping)
 	rt.Restore(st.Groups())
 	go rt.Run(ctx)
-	inv := &inventory.Checker{Catalog: catalogue.Load}
+	inv := &inventory.Checker{Catalog: cdb.Catalog}
 	inv.Register(m)
 	go inv.Run(ctx)
 
 	active := func(id string) error {
-		c := catalogue.Load()
+		c := cdb.Catalog()
 		l, ok := c.Location(id)
 		switch {
 		case !ok:
@@ -309,7 +310,10 @@ func serve(args []string, stderr io.Writer) int {
 		if gate != nil {
 			machines = gate
 		}
-		cs := &http.Server{Handler: ctl.Handler(st, active, machines), ReadHeaderTimeout: 5 * time.Second}
+		socket := http.NewServeMux()
+		socket.Handle("/v1/config/", ctl.ConfigHandler(cdb))
+		socket.Handle("/", ctl.Handler(st, active, machines))
+		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()
 		defer func() { _ = cs.Close() }()
 	} else if !errors.Is(err, errors.ErrUnsupported) {
@@ -325,9 +329,9 @@ func serve(args []string, stderr io.Writer) int {
 		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
 		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
-			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: catalogue.Load, Targets: probeTargets.Load,
-				Modules: func() []byte { return *moduleFile.Load() }, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange,
-				RulesToken: sec.RulesToken, Metrics: m, Log: log})}
+			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
+				Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
+				Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	if gate != nil {
@@ -345,9 +349,9 @@ func serve(args []string, stderr io.Writer) int {
 		go gate.Tidy(ctx)
 	}
 	log.Info("linkos-beacon started", "version", version.Version, "listen", cfg.Listen,
-		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations),
-		"gateway", cfg.Gateway.Listen, "targets", tset.Count(), "ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil],
-		"agent_hooks", len(cfg.Agents))
+		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cdb.Catalog().Locations),
+		"gateway", cfg.Gateway.Listen, "targets", cdb.Targets().Count(), "config_version", cdb.Version(),
+		"ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil], "agent_hooks", len(cfg.Agents))
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
@@ -399,64 +403,6 @@ func routerConfig(c config.Routing) (router.Config, error) {
 		out.Inhibit = append(out.Inhibit, router.Inhibit{Source: src, Target: dst, Equal: in.Equal})
 	}
 	return out, nil
-}
-
-// loadModules reads and checks the probe module file; a missing file is none (probes keep their own).
-func loadModules(path string) ([]byte, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // the operator names the file
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := probemod.ParseModules(b); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return b, nil
-}
-
-func locationIDs(c *catalog.Catalog) []string {
-	ids := make([]string, 0, len(c.Locations))
-	for _, l := range c.Locations {
-		ids = append(ids, l.ID)
-	}
-	return ids
-}
-
-// reloadOnHUP reloads the catalogue and the probe targets when the process gets SIGHUP; when either is
-// broken, the error is logged and both previous ones are kept.
-func reloadOnHUP(ctx context.Context, cfg *config.Config, cat *atomic.Pointer[catalog.Catalog], tset *atomic.Pointer[targets.Set],
-	mods *atomic.Pointer[[]byte], log *slog.Logger) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGHUP)
-	defer signal.Stop(ch)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ch:
-			c, err := catalog.Load(cfg.CatalogDir)
-			if err != nil {
-				log.Error("catalogue reload failed; keeping the previous one", "err", err)
-				continue
-			}
-			t, err := targets.Load(cfg.Gateway.TargetsDir, locationIDs(c))
-			if err != nil {
-				log.Error("targets reload failed; keeping the previous catalogue and targets", "err", err)
-				continue
-			}
-			m, err := loadModules(cfg.Gateway.ModulesFile)
-			if err != nil {
-				log.Error("module reload failed; keeping the previous catalogue, targets and modules", "err", err)
-				continue
-			}
-			cat.Store(c)
-			tset.Store(t)
-			mods.Store(&m)
-			log.Info("catalogue reloaded", "locations", len(c.Locations), "heartbeats", len(c.Heartbeats), "resources", len(c.Resources), "targets", t.Count())
-		}
-	}
 }
 
 // enroll gives a machine its gateway token. The secret alone goes to stdout, so that a deploy script can
