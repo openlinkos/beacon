@@ -49,6 +49,18 @@ type Config struct {
 		TargetsDir  string `yaml:"targets_dir"`
 		ModulesFile string `yaml:"modules_file"` // how to probe; default modules.yml in targets_dir
 	} `yaml:"gateway"`
+	// SSH is the channel through which agents reach machines with their own ssh, or with the MCP and
+	// REST tools; it is on when CAKeyFile is set. PublicAddress (host:port) is where agents reach it,
+	// for the ssh configuration Beacon hands them. SourceAddresses (CIDRs), when set, go into every
+	// certificate, so certificates work only from Beacon's own addresses. Sessions are kept for Keep.
+	SSH struct {
+		Listen          string   `yaml:"listen"`
+		PublicAddress   string   `yaml:"public_address"`
+		HostKeyFile     string   `yaml:"host_key_file"`
+		CAKeyFile       string   `yaml:"ca_key_file"`
+		SourceAddresses []string `yaml:"source_addresses"`
+		Keep            Duration `yaml:"keep"`
+	} `yaml:"ssh"`
 	Links struct {
 		// GrafanaService and Runbook are URL templates: {service} and {alertname} are replaced.
 		GrafanaService string `yaml:"grafana_service"`
@@ -153,6 +165,8 @@ type Secrets struct {
 	PushoverToken           string
 	BarkURL                 string
 	HealthchecksBridgeURL   string
+	SSHHostKey              string // OpenSSH private keys
+	SSHCAKey                string
 }
 
 // Duration is a time.Duration written as "10m" in YAML.
@@ -211,6 +225,10 @@ func (c *Config) defaults() {
 	set(&c.Gateway.TargetsDir, "/etc/linkos-beacon/targets")
 	set(&c.Gateway.Listen, ":17006")
 	set(&c.Gateway.ModulesFile, strings.TrimSuffix(c.Gateway.TargetsDir, "/")+"/modules.yml")
+	set(&c.SSH.Listen, ":17002")
+	if c.SSH.Keep == 0 {
+		c.SSH.Keep = Duration(180 * 24 * time.Hour)
+	}
 	if c.Routing.GroupBy == nil {
 		c.Routing.GroupBy = []string{"alertname", "service"}
 	}
@@ -296,6 +314,28 @@ func (c *Config) validate() error {
 		bad("timezone %q is not a time zone such as Asia/Shanghai", c.Timezone)
 	}
 	c.Location = loc
+
+	if c.SSH.CAKeyFile != "" {
+		if _, _, err := net.SplitHostPort(c.SSH.Listen); err != nil {
+			bad("ssh.listen %q is not an address such as :17002", c.SSH.Listen)
+		}
+		if c.SSH.HostKeyFile == "" {
+			bad("ssh.host_key_file is needed with ssh.ca_key_file: it is the channel's own host key")
+		}
+		if c.SSH.PublicAddress != "" {
+			if _, _, err := net.SplitHostPort(c.SSH.PublicAddress); err != nil {
+				bad("ssh.public_address %q is not host:port", c.SSH.PublicAddress)
+			}
+		}
+		for _, a := range c.SSH.SourceAddresses {
+			if _, err := netip.ParsePrefix(a); err != nil {
+				bad("ssh.source_addresses: %q is not a CIDR range such as 203.0.113.7/32", a)
+			}
+		}
+		if c.SSH.Keep.D() < 24*time.Hour {
+			bad("ssh.keep is at least 24h")
+		}
+	}
 
 	if c.Gateway.Listen != "" {
 		if _, _, err := net.SplitHostPort(c.Gateway.Listen); err != nil {
@@ -438,6 +478,10 @@ func (c *Config) readSecrets() error {
 	read(&s.PushoverToken, c.Pushover.TokenFile, "pushover.token_file")
 	read(&s.BarkURL, c.Bark.URLFile, "bark.url_file")
 	read(&s.HealthchecksBridgeURL, c.Healthchecks.BridgeURLFile, "healthchecks.bridge_url_file")
+	if c.SSH.CAKeyFile != "" {
+		read(&s.SSHHostKey, c.SSH.HostKeyFile, "ssh.host_key_file")
+		read(&s.SSHCAKey, c.SSH.CAKeyFile, "ssh.ca_key_file")
+	}
 	if len(s.RulesToken) > 0 && len(s.RulesToken) < 24 {
 		errs = append(errs, errors.New("rules.token_file: the token is too short; use at least 24 random characters"))
 	}

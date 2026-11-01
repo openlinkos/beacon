@@ -41,6 +41,16 @@ gateway:
   listen: ":17006"
   targets_dir: /etc/linkos-beacon/targets   # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml
 
+# The SSH channel: agents reach machines with their own ssh, scp, sftp or rsync, or with the MCP tools,
+# and never hold a key. On when ca_key_file is set; see docs/ssh.md. Both keys: ssh-keygen -t ed25519.
+ssh:
+  listen: ":17002"
+  public_address: ssh.example.com:17002     # where agents connect, for the ssh_config Beacon hands out
+  host_key_file: /etc/linkos-beacon/secrets/ssh-host-key   # the channel's own host key
+  ca_key_file: /etc/linkos-beacon/secrets/ssh-ca-key       # signs a certificate for every connection to a machine
+  # source_addresses: [203.0.113.7/32]      # certificates then work only from Beacon's own addresses
+  keep: 4320h                               # sessions and their recordings are kept 180 days
+
 links:
   # {service} and {alertname} are filled in; an alert's own runbook/dashboard annotation wins.
   grafana_service: "https://grafana.example.com/d/linkos-service/service?var-service={service}"

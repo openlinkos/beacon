@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/clientip"
+	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -99,11 +101,13 @@ func (a *Auth) Verify(r *http.Request, secret string) (store.Token, bool) {
 	return t, ok
 }
 
-// Server serves the API.
+// Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
 type Server struct {
-	Bridge *bridge.Bridge
-	Auth   *Auth
-	Log    *slog.Logger
+	Bridge     *bridge.Bridge
+	SSH        *sshgate.Gate
+	SSHAddress string
+	Auth       *Auth
+	Log        *slog.Logger
 }
 
 // Register adds the API's routes to mux.
@@ -120,12 +124,30 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/silences", s.with("alerts:write", s.createSilence))
 	mux.Handle("DELETE /api/v1/silences/{id}", s.with("alerts:write", s.expireSilence))
 	mux.Handle("GET /api/v1/audit", s.with("status:read", s.audit))
+
+	mux.Handle("GET /api/v1/ssh", s.with("status:read", s.sshState))
+	mux.Handle("POST /api/v1/ssh/pause", s.with("machines:write", s.sshPause(true)))
+	mux.Handle("POST /api/v1/ssh/resume", s.with("machines:write", s.sshPause(false)))
+	mux.Handle("GET /api/v1/machines", s.with("status:read|machines:ssh", s.listMachines))
+	mux.Handle("POST /api/v1/machines", s.with("machines:write", s.addMachine))
+	mux.Handle("DELETE /api/v1/machines/{name}", s.with("machines:write", s.removeMachine))
+	mux.Handle("POST /api/v1/machines/{name}/run", s.with("machines:ssh", s.runCommand))
+	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
+	mux.Handle("PUT /api/v1/machines/{name}/file", s.with("machines:ssh", s.writeFile))
+	mux.Handle("PATCH /api/v1/machines/{name}/file", s.with("machines:ssh", s.editFile))
+	mux.Handle("GET /api/v1/sessions", s.with("status:read|machines:ssh", s.listSessions))
+	mux.Handle("GET /api/v1/sessions/{id}", s.with("sessions:read|machines:ssh", s.getSession))
+	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
 }
 
 // Routes lists the authenticated routes, for the test that keeps the OpenAPI description in step.
 var Routes = []string{
 	"GET /api/v1/bridge", "GET /api/v1/alerts", "GET /api/v1/alerts/{id}", "POST /api/v1/alerts/{id}/ack",
 	"GET /api/v1/silences", "POST /api/v1/silences", "DELETE /api/v1/silences/{id}", "GET /api/v1/audit",
+	"GET /api/v1/ssh", "POST /api/v1/ssh/pause", "POST /api/v1/ssh/resume",
+	"GET /api/v1/machines", "POST /api/v1/machines", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
+	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
+	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, who bridge.Actor)
@@ -143,6 +165,7 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }
 
+// with guards h with a token carrying scope, or one of the scopes in "a|b".
 func (s *Server) with(scope string, h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.Auth.Blocked(r) {
@@ -161,8 +184,8 @@ func (s *Server) with(scope string, h handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return
 		}
-		if !t.Has(scope) {
-			writeError(w, http.StatusForbidden, "auth.scope", "the token lacks the "+scope+" scope")
+		if !slices.ContainsFunc(strings.Split(scope, "|"), t.Has) {
+			writeError(w, http.StatusForbidden, "auth.scope", "the token lacks the "+strings.ReplaceAll(scope, "|", " or ")+" scope")
 			return
 		}
 		h(w, r, bridge.Actor{Name: t.Name, Via: "api"})

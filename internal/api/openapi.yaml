@@ -3,10 +3,11 @@ info:
   title: Beacon API
   version: "1"
   description: |
-    Alerts, acknowledgements and silences of Beacon. Every route except this description needs
-    a bearer token (`Authorization: Bearer lbt_…`) with the scope listed on the operation. Writes are
-    recorded in the audit log and echoed to the alert chat. The same operations are available as MCP
-    tools at /mcp.
+    Alerts, acknowledgements and silences of Beacon, and the SSH channel: the machines agents reach,
+    tools that run commands and read and edit files on them, and the recorded sessions. Every route
+    except this description needs a bearer token (`Authorization: Bearer lbt_…`) with the scope listed
+    on the operation. Writes and sessions are recorded in the audit log and echoed to the alert chat.
+    The same operations are available as MCP tools at /mcp.
   license:
     name: Apache-2.0
 servers:
@@ -24,7 +25,10 @@ components:
         error: {type: string}
         code:
           type: string
-          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream]
+          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream,
+            ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
+            session.not_found]
     Ack:
       type: object
       properties:
@@ -58,6 +62,98 @@ components:
         pushover_at: {type: string, format: date-time}
         runbook: {type: string, format: uri}
         dashboard: {type: string, format: uri}
+    Machine:
+      type: object
+      properties:
+        name: {type: string, description: The machine's host name; also the user name agents give the SSH channel}
+        address: {type: string, description: host:port Beacon connects to}
+        user: {type: string, description: The account on the machine}
+        host_key_fingerprint: {type: string, description: SHA256 fingerprint of the host key pinned when the machine was added}
+        critical: {type: boolean}
+        note: {type: string}
+        added: {type: string, format: date-time}
+        added_by: {type: string}
+        reachable: {type: boolean, description: Whether the caller's token reaches it}
+    Machines:
+      type: object
+      properties:
+        machines: {type: array, items: {$ref: "#/components/schemas/Machine"}}
+        ssh_config: {type: string, description: "An ssh_config block for the machines the caller reaches (when the channel's address is configured)"}
+        known_hosts: {type: string, description: The channel's host key as a known_hosts line for the host key alias beacon}
+    SSHState:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        paused: {type: boolean}
+        paused_since: {type: string, format: date-time}
+        address: {type: string}
+        host_key: {type: string}
+        trusted_user_ca_key: {type: string, description: The line machines put in their TrustedUserCAKeys file}
+    RunResult:
+      type: object
+      properties:
+        machine: {type: string}
+        exit_code: {type: integer, description: -1 when the command timed out}
+        stdout: {type: string, description: Plain text, terminal codes removed; long output keeps its start and end}
+        stderr: {type: string}
+        timed_out: {type: boolean}
+        truncated: {type: boolean, description: Output was cut; the session's transcript has more}
+        duration_ms: {type: integer}
+        session: {type: string}
+    FileView:
+      type: object
+      properties:
+        machine: {type: string}
+        path: {type: string}
+        content: {type: string, description: "Each line as its number, a tab and the line, like cat -n"}
+        offset: {type: integer}
+        lines: {type: integer}
+        total_lines: {type: integer}
+        more: {type: boolean, description: Lines follow the last one shown}
+        session: {type: string}
+    Written:
+      type: object
+      properties:
+        machine: {type: string}
+        path: {type: string}
+        bytes: {type: integer}
+        replacements: {type: integer}
+        session: {type: string}
+    Session:
+      type: object
+      properties:
+        id: {type: string}
+        agent: {type: string, description: The token's name}
+        via: {type: string, enum: [ssh, mcp, api]}
+        machine: {type: string}
+        kind: {type: string, enum: [exec, shell, sftp, forward, file]}
+        command: {type: string}
+        started: {type: string, format: date-time}
+        ended: {type: string, format: date-time}
+        exit: {type: integer}
+        commands: {type: integer, description: Commands run in an interactive shell}
+        bytes_in: {type: integer}
+        bytes_out: {type: integer}
+        recording: {type: string}
+    Transcript:
+      allOf:
+        - {$ref: "#/components/schemas/Session"}
+        - type: object
+          properties:
+            stdout: {type: string}
+            stderr: {type: string}
+            truncated: {type: boolean}
+            commands:
+              type: array
+              items:
+                type: object
+                properties:
+                  command: {type: string}
+                  inputs: {type: array, items: {type: string}, description: Lines typed into the program while it ran}
+                  output: {type: string}
+                  exit: {type: integer}
+                  started: {type: string, format: date-time}
+                  ms: {type: integer}
   responses:
     Error:
       description: An error
@@ -207,4 +303,219 @@ paths:
                 type: object
                 properties:
                   entries: {type: array, items: {type: object}}
+        default: {$ref: "#/components/responses/Error"}
+  /ssh:
+    get:
+      summary: The SSH channel's state, its host key and the key machines trust
+      description: "Scope: status:read"
+      responses:
+        "200":
+          description: State
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SSHState"}
+        default: {$ref: "#/components/responses/Error"}
+  /ssh/pause:
+    post:
+      summary: Pause agents' access to machines, closing what is open
+      description: "Scope: machines:write"
+      responses:
+        "200":
+          description: State
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SSHState"}
+        default: {$ref: "#/components/responses/Error"}
+  /ssh/resume:
+    post:
+      summary: Resume agents' access to machines
+      description: "Scope: machines:write"
+      responses:
+        "200":
+          description: State
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SSHState"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines:
+    get:
+      summary: Machines, and an ssh configuration for the ones the caller reaches
+      description: "Scope: status:read or machines:ssh"
+      responses:
+        "200":
+          description: Machines by name
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Machines"}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Add a machine, pinning its host key
+      description: "Scope: machines:write. The machine then needs the returned key in its TrustedUserCAKeys file."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, address]
+              properties:
+                name: {type: string}
+                address: {type: string, description: "host or host:port (22 by default)"}
+                user: {type: string, default: beacon}
+                critical: {type: boolean}
+                note: {type: string}
+                replace: {type: boolean, description: Pin the host key again}
+      responses:
+        "201":
+          description: The machine and the line for its TrustedUserCAKeys file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  machine: {$ref: "#/components/schemas/Machine"}
+                  trusted_user_ca_key: {type: string}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}:
+    delete:
+      summary: Forget a machine; its sessions stay on record
+      description: "Scope: machines:write"
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Forgotten}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/run:
+    post:
+      summary: Run a command on a machine
+      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal; recorded as a session."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [command]
+              properties:
+                command: {type: string}
+                cwd: {type: string}
+                stdin: {type: string}
+                timeout: {type: integer, description: Seconds, default 120, at most 600}
+      responses:
+        "200":
+          description: What the command did
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RunResult"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/file:
+    get:
+      summary: Read lines of a text file
+      description: "Scope: machines:ssh"
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+        - {name: path, in: query, required: true, schema: {type: string}}
+        - {name: offset, in: query, schema: {type: integer, default: 1, description: The first line}}
+        - {name: limit, in: query, schema: {type: integer, default: 2000, maximum: 10000}}
+      responses:
+        "200":
+          description: The lines
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FileView"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      summary: Write a file, making its directory if needed
+      description: "Scope: machines:ssh. At most 1 MiB."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [path, content]
+              properties:
+                path: {type: string}
+                content: {type: string}
+      responses:
+        "200":
+          description: Written
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Written"}
+        default: {$ref: "#/components/responses/Error"}
+    patch:
+      summary: Replace an exact string in a text file
+      description: "Scope: machines:ssh. old_string must occur once, or set replace_all. Fails if the file changed after it was read."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [path, old_string, new_string]
+              properties:
+                path: {type: string}
+                old_string: {type: string}
+                new_string: {type: string}
+                replace_all: {type: boolean}
+      responses:
+        "200":
+          description: Edited
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Written"}
+        default: {$ref: "#/components/responses/Error"}
+  /sessions:
+    get:
+      summary: Sessions on machines, newest first
+      description: "Scope: status:read or machines:ssh"
+      parameters:
+        - {name: machine, in: query, schema: {type: string}}
+        - {name: agent, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 1000, default: 50}}
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions: {type: array, items: {$ref: "#/components/schemas/Session"}}
+        default: {$ref: "#/components/responses/Error"}
+  /sessions/{id}:
+    get:
+      summary: A session's transcript
+      description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The transcript
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Transcript"}
+        default: {$ref: "#/components/responses/Error"}
+  /sessions/{id}/recording:
+    get:
+      summary: A session's recording, to replay with asciinema
+      description: "Scope: sessions:read or machines:ssh"
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: asciicast v3
+          content:
+            application/x-asciicast: {}
         default: {$ref: "#/components/responses/Error"}

@@ -1,6 +1,6 @@
 // Package ctl is the local admin socket: a small HTTP API on a Unix socket in the data directory, so
-// that `linkos-beacon token …` and `linkos-beacon drill …` work against the running service, which
-// holds the database lock.
+// that `linkos-beacon token …`, `machine …`, `ssh …` and `drill …` work against the running service,
+// which holds the database lock.
 //
 // Only processes of the service's own user (or root) can connect: the socket is mode 0600 in the
 // data directory, and on Linux and macOS the peer's user id is checked on every connection.
@@ -32,11 +32,14 @@ type Info struct {
 	Version string `json:"version"`
 }
 
-// TokenRequest creates a token.
+// TokenRequest creates a token. SSHKeys (authorized_keys lines) sign in to the SSH channel; Machines
+// limits the machines it reaches there (none: all).
 type TokenRequest struct {
-	Name   string   `json:"name"`
-	Scopes []string `json:"scopes"`
-	TTL    string   `json:"ttl"` // such as 365d or 720h
+	Name     string   `json:"name"`
+	Scopes   []string `json:"scopes"`
+	TTL      string   `json:"ttl"` // such as 365d or 720h
+	SSHKeys  []string `json:"ssh_keys,omitempty"`
+	Machines []string `json:"machines,omitempty"`
 }
 
 // TokenResponse carries the new token's secret, shown once.
@@ -75,6 +78,7 @@ type Service interface {
 	CreateToken(name string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
 	CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
 	Tokens() []store.Token
+	UpdateToken(name string, change func(*store.Token) error) (store.Token, error)
 	RevokeToken(name string) error
 	Audit(e store.AuditEntry) error
 	SetTime(key string, t time.Time) error
@@ -112,8 +116,8 @@ func fail(w http.ResponseWriter, code int, err error) {
 }
 
 // Handler serves the socket's API. active reports whether a probe location exists and its machine has
-// not expired; nil accepts any location.
-func Handler(s Service, active func(location string) error) http.Handler {
+// not expired; nil accepts any location. m is the SSH channel, nil when it is off.
+func Handler(s Service, active func(location string) error, m Machines) http.Handler {
 	mux := http.NewServeMux()
 	actor := func(r *http.Request) string {
 		name := r.Header.Get(UserHeader)
@@ -135,7 +139,11 @@ func Handler(s Service, active func(location string) error) http.Handler {
 		writeJSON(w, http.StatusOK, Info{Version: version.Version})
 	})
 	mux.HandleFunc("GET /v1/tokens", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, s.Tokens())
+		var out []TokenInfo
+		for _, t := range s.Tokens() {
+			out = append(out, info(t))
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("POST /v1/tokens", func(w http.ResponseWriter, r *http.Request) {
 		var in TokenRequest
@@ -147,10 +155,37 @@ func Handler(s Service, active func(location string) error) http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
+		var keys []store.SSHKey
+		for _, line := range in.SSHKeys {
+			k, err := ParseSSHKey(line)
+			if err != nil {
+				fail(w, http.StatusBadRequest, err)
+				return
+			}
+			keys = append(keys, k)
+		}
+		machines, err := machineNames(in.Machines)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
 		secret, tok, err := s.CreateToken(in.Name, in.Scopes, ttl, actor(r))
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
+		}
+		if len(keys) > 0 || len(machines) > 0 {
+			tok, err = s.UpdateToken(tok.Name, func(t *store.Token) error {
+				for _, k := range keys {
+					addSSHKey(t, k)
+				}
+				t.Machines = machines
+				return nil
+			})
+			if err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name, Detail: strings.Join(tok.Scopes, ",")})
 		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})
@@ -211,6 +246,7 @@ func Handler(s Service, active func(location string) error) http.Handler {
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "revoke_token", Target: name})
 		w.WriteHeader(http.StatusNoContent)
 	})
+	machineRoutes(mux, s, m, actor, decode)
 	mux.HandleFunc("GET /v1/drill", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, DrillState{Until: s.Time(DrillKey)})
 	})

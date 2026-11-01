@@ -15,22 +15,24 @@ linkos-probe agent ──push (text format, gzip)──▶ gateway ──▶ Vic
   ▲ targets, modules, settings ◀── gateway                                          │ alerts (Alertmanager API v2)
                                                                                     ▼
 people ◀── Feishu cards, Pushover ◀── bridge ◀── router (group, inhibit, silence) ◀── gateway
-agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge, store
+agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge, store, SSH channel
+agents ──▶ ssh, scp, sftp, rsync (port 17002) ──▶ SSH channel ──▶ machines (5-minute certificates; every session recorded)
 ```
 
-One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001). State is one bbolt file. Port 17001 is for people and agents, 17006 for machines.
+One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001) and the SSH channel (port 17002). State is one bbolt file; recordings of SSH sessions are files beside it. Ports 17001 and 17002 are for people and agents, 17006 for machines.
 
 | Package | What it is |
 | --- | --- |
-| `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `token`, `enroll`, `drill`, `healthcheck`. Wires everything; reloads catalogue, targets and modules on SIGHUP |
+| `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; reloads catalogue, targets and modules on SIGHUP |
 | `cmd/linkos-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
 | `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, read proxy for `metrics:read` |
 | `internal/router` | Alertmanager's job: grouping, `group_wait`/`group_interval`, `resolve_timeout`, inhibition, silences, Watchdog; groups survive restarts |
 | `internal/bridge` | Alert groups to people: cards, acknowledgements, silences, escalation, budget, readiness and the healthchecks.io ping |
 | `internal/feishu`, `internal/notify` | The Feishu app (cards, long connection, buzz); Pushover, Bark and the group bot |
-| `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge methods |
-| `internal/store` | bbolt: groups, silences, tokens (SHA-256, scopes, subjects, expiry), audit log, drill |
-| `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll` and `drill` |
+| `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods |
+| `internal/sshgate` | The SSH channel: agents' SSH sign-in by the keys on their tokens, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts (shell-integration marks), the tools (run, read, write, edit), pausing, echoes to the chat |
+| `internal/store` | bbolt: groups, silences, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), machines, the index of SSH sessions, audit log, drill |
+| `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll`, `machine`, `ssh` and `drill` |
 | `internal/catalog`, `internal/targets` | Locations, heartbeats, resources; probe target files and the probe protocol types (`Group`, `Settings`) |
 | `internal/inventory` | CDN nodes against their clusters' DNS rotations |
 | `internal/probe`, `internal/hostmetrics`, `internal/agent` | Probers (Blackbox-compatible plus registry, git, rdap) with failure reasons; host metrics from /proc; the agent's cycle and disk queue |
@@ -67,7 +69,7 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 `v0.2.0-rc` runs LinkOS's monitoring: one centre, nine probe locations, alerting recorded but not yet sent until the Feishu app, Pushover and healthchecks.io are set up. Next, in this order:
 
 1. **Alerts delivered** (goal 1): once the accounts exist, check that card buttons arrive over Feishu's long connection, run the drills, turn sending on, release `v0.2.0`.
-2. **The SSH channel** (goals 2, 4, 5, 6): machines enrolled with Beacon's certificate authority, a standard SSH entry point, every session recorded (asciicast v3) with interactive shells broken into commands and exit statuses, MCP and REST tools that run commands and read and edit files, a pause switch, docs for setting up a machine. A prototype showed real OpenSSH clients working through such a gateway unchanged.
+2. **The SSH channel** (goals 2, 4, 5, 6): built (`internal/sshgate`, `docs/ssh.md`); next, put LinkOS's machines on it, then a small outbound connector for machines behind NAT. Hosts' sshd must trust Beacon's CA and exempt its address from `PerSourcePenalties`.
 3. **Waking agents, and evidence** (goals 1, 3): a new alert group calls an agent (webhook, workflow dispatch); evidence for an alert in one call (probe results and reasons, changes such as deployments and Flux, related alerts, what was done); notes an agent leaves on a card; one timeline of alerts, sessions and notes. Treat everything fetched from probed targets and machines as untrusted text.
 4. **Configured through Beacon** (goal 7): the catalogue, targets, modules and machines in the database, changed through the API, MCP and the CLI with history; the files become import and export.
 5. **Status pages and more channels** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, Atom feed, badges, public JSON; Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook.

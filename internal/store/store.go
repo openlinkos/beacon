@@ -1,5 +1,6 @@
 // Package store keeps the service's state in one bbolt file: alert groups (card, acknowledgement,
-// silence, escalation progress), API tokens (only their SHA-256), the audit log and small counters.
+// silence, escalation progress), API tokens (only their SHA-256), the machines the SSH channel reaches,
+// the index of SSH sessions, the audit log and small counters.
 // A single process holds the file lock, which also guarantees a single Feishu connection.
 package store
 
@@ -31,6 +32,8 @@ var (
 	bucketAudit    = []byte("audit")
 	bucketMeta     = []byte("meta")
 	bucketSilences = []byte("silences")
+	bucketMachines = []byte("machines")
+	bucketSessions = []byte("sessions")
 )
 
 // ErrLocked means another process holds the database (the service is running).
@@ -97,6 +100,9 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 // Token is an API token. Only the SHA-256 of the secret is kept. Subject is who a machine token speaks
 // for: the probe location of a probe:write token, the host of a host:write token, the sender of a
 // heartbeat:write token.
+//
+// SSHKeys are the public keys its holder signs in to the SSH channel with, and Machines the machines it
+// may reach there (none: all of them).
 type Token struct {
 	Name      string    `json:"name"`
 	Hash      string    `json:"hash"`
@@ -105,6 +111,19 @@ type Token struct {
 	Created   time.Time `json:"created"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	Expires   time.Time `json:"expires"`
+	SSHKeys   []SSHKey  `json:"ssh_keys,omitempty"`
+	Machines  []string  `json:"machines,omitempty"`
+}
+
+// SSHKey is a public key in the authorized_keys form (without its comment) and its SHA256 fingerprint.
+type SSHKey struct {
+	Key         string `json:"key"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// Reaches reports whether the token may reach machine through the SSH channel.
+func (t Token) Reaches(machine string) bool {
+	return t.Has("machines:ssh") && (len(t.Machines) == 0 || slices.Contains(t.Machines, machine))
 }
 
 // Has reports whether the token carries scope.
@@ -145,7 +164,7 @@ func Open(path string) (*Store, error) {
 	}
 	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketTokens, bucketAudit, bucketMeta, bucketSilences} {
+		for _, b := range [][]byte{bucketGroups, bucketTokens, bucketAudit, bucketMeta, bucketSilences, bucketMachines, bucketSessions} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -241,9 +260,10 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 
 // ---- Tokens
 
-// Scopes are the token scopes. Public reads need no token. The first four are for people and agents
-// (the REST API and MCP); the rest are for machines, on the metrics gateway.
+// Scopes are the token scopes. Public reads need no token. The first seven are for people and agents
+// (the REST API, MCP and the SSH channel); the rest are for machines, on the metrics gateway.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
+	"machines:ssh", "machines:write", "sessions:read",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.
@@ -345,6 +365,47 @@ func (s *Store) RevokeToken(name string) error {
 	return nil
 }
 
+// UpdateToken changes the token called name with change, which cannot alter its name, hash or expiry.
+func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var t Token
+	found := false
+	for _, x := range s.tokens {
+		if x.Name == name {
+			t, found = x, true
+		}
+	}
+	if !found {
+		return Token{}, ErrNotFound
+	}
+	hash, expires := t.Hash, t.Expires
+	if err := change(&t); err != nil {
+		return Token{}, err
+	}
+	t.Name, t.Hash, t.Expires = name, hash, expires
+	b, _ := json.Marshal(t)
+	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketTokens).Put([]byte(name), b) }); err != nil {
+		return Token{}, err
+	}
+	s.tokens[hash] = t
+	return t, nil
+}
+
+// TokenBySSHKey returns the unexpired token holding the key with this SHA256 fingerprint.
+func (s *Store) TokenBySSHKey(fingerprint string) (Token, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.tokens {
+		for _, k := range t.SSHKeys {
+			if k.Fingerprint == fingerprint && s.now().Before(t.Expires) {
+				return t, true
+			}
+		}
+	}
+	return Token{}, false
+}
+
 // VerifyToken returns the token whose secret this is, if it exists and has not expired.
 func (s *Store) VerifyToken(secret string) (Token, bool) {
 	if !strings.HasPrefix(secret, TokenPrefix) {
@@ -418,6 +479,157 @@ func (s *Store) SilenceRecords() []SilenceRecord {
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
 	return out
+}
+
+// ---- Machines
+
+// Machine is a machine the SSH channel reaches. Address is host:port; User is the account there, which
+// is also the principal of the certificates Beacon signs; HostKey is the key pinned when the machine
+// was added, in the authorized_keys form.
+type Machine struct {
+	Name     string    `json:"name"`
+	Address  string    `json:"address"`
+	User     string    `json:"user"`
+	HostKey  string    `json:"host_key"`
+	Critical bool      `json:"critical,omitempty"`
+	Note     string    `json:"note,omitempty"`
+	Added    time.Time `json:"added"`
+	AddedBy  string    `json:"added_by,omitempty"`
+}
+
+// MachineName is what a machine may be called: its host name, as probe locations are.
+var MachineName = subjectRe
+
+// PutMachine adds or replaces a machine.
+func (s *Store) PutMachine(m Machine) error {
+	if !MachineName.MatchString(m.Name) {
+		return fmt.Errorf("machine name %q: use lower case letters, digits and dashes", m.Name)
+	}
+	b, _ := json.Marshal(m)
+	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketMachines).Put([]byte(m.Name), b) })
+}
+
+// Machine returns the machine called name.
+func (s *Store) Machine(name string) (Machine, bool) {
+	var m Machine
+	var ok bool
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		if v := tx.Bucket(bucketMachines).Get([]byte(name)); v != nil {
+			ok = json.Unmarshal(v, &m) == nil
+		}
+		return nil
+	})
+	return m, ok
+}
+
+// Machines lists the machines by name.
+func (s *Store) Machines() []Machine {
+	var out []Machine
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketMachines).ForEach(func(_, v []byte) error {
+			var m Machine
+			if json.Unmarshal(v, &m) == nil {
+				out = append(out, m)
+			}
+			return nil
+		})
+	})
+	return out
+}
+
+// DeleteMachine removes the machine called name.
+func (s *Store) DeleteMachine(name string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketMachines)
+		if b.Get([]byte(name)) == nil {
+			return ErrNotFound
+		}
+		return b.Delete([]byte(name))
+	})
+}
+
+// ---- SSH sessions
+
+// SessionRecord indexes one session on a machine: a command, a shell, a file transfer or a forwarded
+// port, through the SSH channel or a tool. Its recording and transcript are files; Recording names them
+// relative to the recordings directory, without the extension.
+type SessionRecord struct {
+	ID        string    `json:"id"`
+	Agent     string    `json:"agent"`
+	Via       string    `json:"via"` // ssh, mcp or api
+	Machine   string    `json:"machine"`
+	Kind      string    `json:"kind"` // exec, shell, sftp, forward or file
+	Command   string    `json:"command,omitempty"`
+	Started   time.Time `json:"started"`
+	Ended     time.Time `json:"ended,omitzero"`
+	Exit      *int      `json:"exit,omitempty"`
+	Commands  int       `json:"commands,omitempty"`
+	BytesIn   int64     `json:"bytes_in"`
+	BytesOut  int64     `json:"bytes_out"`
+	Recording string    `json:"recording,omitempty"`
+}
+
+// PutSession stores a session record. IDs begin with the start time, so they sort by it.
+func (s *Store) PutSession(r SessionRecord) error {
+	b, _ := json.Marshal(r)
+	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketSessions).Put([]byte(r.ID), b) })
+}
+
+// Session returns the session with id.
+func (s *Store) Session(id string) (SessionRecord, bool) {
+	var r SessionRecord
+	var ok bool
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		if v := tx.Bucket(bucketSessions).Get([]byte(id)); v != nil {
+			ok = json.Unmarshal(v, &r) == nil
+		}
+		return nil
+	})
+	return r, ok
+}
+
+// Sessions returns up to limit sessions for which keep returns true (nil keeps all), the newest first.
+func (s *Store) Sessions(limit int, keep func(SessionRecord) bool) []SessionRecord {
+	var out []SessionRecord
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(bucketSessions).Cursor()
+		for k, v := c.Last(); k != nil && len(out) < limit; k, v = c.Prev() {
+			var r SessionRecord
+			if json.Unmarshal(v, &r) == nil && (keep == nil || keep(r)) {
+				out = append(out, r)
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+// DeleteSessionsBefore removes the records of sessions that started before t and returns them.
+func (s *Store) DeleteSessionsBefore(t time.Time) []SessionRecord {
+	var gone []SessionRecord
+	_ = s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketSessions)
+		var keys [][]byte
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var r SessionRecord
+			if err := json.Unmarshal(v, &r); err != nil {
+				continue // not ours to judge; keep it
+			}
+			if !r.Started.Before(t) {
+				break // keys sort by start time
+			}
+			gone = append(gone, r)
+			keys = append(keys, append([]byte(nil), k...))
+		}
+		for _, k := range keys {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return gone
 }
 
 // ---- Audit

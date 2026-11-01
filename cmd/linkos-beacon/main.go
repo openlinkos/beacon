@@ -1,10 +1,13 @@
-// Command linkos-beacon is Beacon's service: status pages, alert delivery with a closed loop
-// on Feishu and phones, a REST API and an MCP server.
+// Command linkos-beacon is Beacon's service: monitoring with alert delivery on Feishu and phones, the
+// SSH channel through which agents reach machines, a REST API and an MCP server.
 //
 //	linkos-beacon serve [-config path]          run the service
 //	linkos-beacon check-config [-config path]   validate the configuration and the catalogue
-//	linkos-beacon token create NAME -scopes a,b [-expires 365d]
+//	linkos-beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
 //	linkos-beacon token list | token revoke NAME
+//	linkos-beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
+//	linkos-beacon machine add NAME HOST[:PORT] | machine list | machine remove NAME | machine ca
+//	linkos-beacon ssh pause | ssh resume | ssh status
 //	linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
 //	linkos-beacon drill fail 15m | drill off | drill status
 //	linkos-beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
@@ -61,8 +64,16 @@ func usage(w io.Writer) {
   linkos-beacon serve [-config path]          run the service
   linkos-beacon check-config [-config path]   validate the configuration and the catalogue
   linkos-beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
+                [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
   linkos-beacon token list
   linkos-beacon token revoke NAME
+  linkos-beacon token ssh-key NAME add KEY|@FILE | token ssh-key NAME remove FINGERPRINT
+  linkos-beacon token machines NAME a,b|all
+  linkos-beacon machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]
+                                              pin a machine's host key; prints what the machine needs
+  linkos-beacon machine list | machine remove NAME | machine ca
+  linkos-beacon ssh pause | ssh resume | ssh status
+                                              stop or allow agents' access to machines
   linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
   linkos-beacon drill fail 15m | drill off | drill status
@@ -88,6 +99,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return drill(args[1:], stdout, stderr)
 	case "enroll":
 		return enroll(args[1:], stdout, stderr)
+	case "machine":
+		return machine(args[1:], stdout, stderr)
+	case "ssh":
+		return sshCmd(args[1:], stdout, stderr)
 	case "healthcheck":
 		return healthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -143,9 +158,17 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q\n",
+	sshListen := "off"
+	if cfg.SSH.CAKeyFile != "" {
+		if _, _, err := sshKeys(cfg); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		sshListen = cfg.SSH.Listen
+	}
+	fmt.Fprintf(stdout, "configuration OK: %d probe locations, %d heartbeats, %d resources, %d probe targets in %d files; Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s\n",
 		len(cat.Locations), len(cat.Heartbeats), len(cat.Resources), ts.Count(), len(ts.Files()),
-		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen)
+		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen, sshListen)
 	return 0
 }
 
@@ -233,10 +256,16 @@ func serve(args []string, stderr io.Writer) int {
 		deps.WSReady = listener.Ready
 	}
 	br = bridge.New(deps)
+	gate, err := newGate(cfg, st, deps.Bot, m, log)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, Auth: auth, Log: log}, MCP: mcpserver.Handler(br, auth, log),
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log},
+		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
 	}
 	if deps.Feishu != nil && cfg.Feishu.Callback == "http" {
@@ -276,7 +305,11 @@ func serve(args []string, stderr io.Writer) int {
 		return nil
 	}
 	if ln, err := ctl.Listen(ctl.Path(cfg.DataDir)); err == nil {
-		cs := &http.Server{Handler: ctl.Handler(st, active), ReadHeaderTimeout: 5 * time.Second}
+		var machines ctl.Machines // an interface holding a nil *Gate would not be nil
+		if gate != nil {
+			machines = gate
+		}
+		cs := &http.Server{Handler: ctl.Handler(st, active, machines), ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()
 		defer func() { _ = cs.Close() }()
 	} else if !errors.Is(err, errors.ErrUnsupported) {
@@ -285,7 +318,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: server.Handler(sd), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute}
-	errc := make(chan error, 2)
+	errc := make(chan error, 3)
 	go func() { errc <- hs.ListenAndServe() }()
 	var gs *http.Server
 	if cfg.Gateway.Listen != "" {
@@ -297,9 +330,23 @@ func serve(args []string, stderr io.Writer) int {
 				Metrics: m, Log: log})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
+	if gate != nil {
+		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.SSH.Listen)
+		if err != nil {
+			log.Error("cannot start", "err", fmt.Errorf("ssh.listen: %w", err))
+			return 1
+		}
+		defer func() { _ = ln.Close() }()
+		go func() {
+			if err := gate.Serve(ln); err != nil {
+				errc <- err
+			}
+		}()
+		go gate.Tidy(ctx)
+	}
 	log.Info("linkos-beacon started", "version", version.Version, "listen", cfg.Listen,
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cat.Locations),
-		"gateway", cfg.Gateway.Listen, "targets", tset.Count())
+		"gateway", cfg.Gateway.Listen, "targets", tset.Count(), "ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil])
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
@@ -483,14 +530,28 @@ func token(args []string, stdout, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 		scopes := fs.String("scopes", "status:read", "comma-separated scopes: "+strings.Join(store.Scopes, ", "))
 		expires := fs.String("expires", "365d", "lifetime, such as 90d or 720h")
+		sshKey := fs.String("ssh-key", "", "a public key for the SSH channel (an authorized_keys line), or @FILE")
+		machines := fs.String("machines", "", "comma-separated machines the token reaches through the SSH channel; all when empty")
 		if err := fs.Parse(args[2:]); err != nil {
 			return 2
+		}
+		req := ctl.TokenRequest{Name: args[1], Scopes: strings.Split(*scopes, ","), TTL: *expires}
+		if *sshKey != "" {
+			k, err := keyArg(*sshKey)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			req.SSHKeys = []string{k}
+		}
+		if *machines != "" {
+			req.Machines = strings.Split(*machines, ",")
 		}
 		c, ok := dial(stderr)
 		if !ok {
 			return 1
 		}
-		out, err := c.CreateToken(ctx, ctl.TokenRequest{Name: args[1], Scopes: strings.Split(*scopes, ","), TTL: *expires})
+		out, err := c.CreateToken(ctx, req)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -515,6 +576,8 @@ func token(args []string, stdout, stderr io.Writer) int {
 		}
 		_ = tw.Flush()
 		return 0
+	case "ssh-key", "machines":
+		return tokenSSH(args, stdout, stderr)
 	case "revoke":
 		if len(args) != 2 {
 			fmt.Fprintln(stderr, "token revoke NAME")

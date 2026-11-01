@@ -21,7 +21,7 @@ Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel
 - **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The service pings healthchecks.io every minute while rules, routing and delivery all work, so a dead monitoring host or a broken Feishu connection still reaches a phone.
 - **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), when a standby node steps in, and when the rotation holds a node nobody watches.
 
-### Reaches: the SSH channel (in development)
+### Reaches: the SSH channel
 
 - **Agents use the tools they know.** ssh, scp, sftp, rsync and port forwarding go through Beacon unchanged, and MCP tools run commands and read and edit files with clean, structured results.
 - **No keys for agents.** Beacon holds the credentials and signs a certificate valid for a few minutes for each connection; machines trust only Beacon's certificate authority.
@@ -46,7 +46,7 @@ The gateway, the router and the bridge are all `linkos-beacon`. Alerts need the 
 ## Running it
 
 ```bash
-docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 \
+docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 -p 17002:17002 \
   -v ./config.yaml:/etc/linkos-beacon/config.yaml:ro \
   -v ./catalog:/etc/linkos-beacon/catalog:ro \
   -v ./targets:/etc/linkos-beacon/targets:ro \
@@ -55,7 +55,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines.
+Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). Port 17001 serves the API and MCP, and the status pages once they land; port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
 
 Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
 
@@ -68,13 +68,16 @@ linkos-probe agent -gateway https://metrics.example.com -token-file /etc/linkos-
 
 Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its iOS app with Critical Alerts allowed, an application token and your user key.
 
-### Tokens and drills
+### Tokens, machines and drills
 
 Commands that change the running service talk to it over a socket in its data directory:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write -expires 90d
+docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d \
+  -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # the key it signs in to the SSH channel with
 docker exec linkos-beacon linkos-beacon token list
+docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # pins its host key, prints what the machine needs
+docker exec linkos-beacon linkos-beacon ssh pause         # closes agents' sessions on machines until "ssh resume"
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
 docker exec linkos-beacon linkos-beacon drill off
@@ -83,7 +86,7 @@ docker exec linkos-beacon linkos-beacon drill off
 ## API and MCP
 
 - REST: `/api/v1`, described in [internal/api/openapi.yaml](internal/api/openapi.yaml) (also served at `/api/v1/openapi.yaml`).
-- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`.
+- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`.
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -103,6 +106,8 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
 | `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
 | `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
+
+The SSH channel (port 17002) takes keys given to tokens with the `machines:ssh` scope; the user name is the machine. See [docs/ssh.md](docs/ssh.md).
 
 ## Security
 

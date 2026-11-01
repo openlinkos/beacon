@@ -21,7 +21,7 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 - **不会悄悄丢掉。**低级别告警、以及超出飞书应用每月 API 额度的告警，改由群自定义机器人发送（不占额度）。卡片发不出去时，严重告警直接发 Pushover。规则、路由、送达都正常时，服务每分钟 ping 一次 healthchecks.io，所以监控主机挂了、飞书连接断了，手机照样会收到。
 - **CDN 节点是否在轮转里。**检测点在 CDN 节点上时，Beacon 会发现节点被踢出所在集群的解析（机器在线、还在检测，但已经不服务用户）、备用节点顶上，也会发现集群里有没人看管的节点。
 
-### 够得着：SSH 通道（开发中）
+### 够得着：SSH 通道
 
 - **Agent 用它熟悉的工具。**ssh、scp、sftp、rsync 和端口转发经 Beacon 照常使用；MCP 工具可以执行命令、读文件、改文件，返回干净的结构化结果。
 - **Agent 不拿密钥。**凭据由 Beacon 保管，每次连接签一张几分钟有效的证书；机器只信任 Beacon 的 CA。
@@ -46,7 +46,7 @@ Agent ─▶ /api/v1、/mcp ─▶ linkos-beacon                                
 ## 运行
 
 ```bash
-docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 \
+docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 -p 17002:17002 \
   -v ./config.yaml:/etc/linkos-beacon/config.yaml:ro \
   -v ./catalog:/etc/linkos-beacon/catalog:ro \
   -v ./targets:/etc/linkos-beacon/targets:ro \
@@ -55,7 +55,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关。
+从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关；17002 端口是 SSH 通道，配置见 [docs/zh/ssh.md](docs/zh/ssh.md)。
 
 让 vmalert 把告警发给网关：`-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<rules.token_file 里那个文件>`。
 
@@ -68,13 +68,16 @@ linkos-probe agent -gateway https://metrics.example.com -token-file /etc/linkos-
 
 飞书应用按 [docs/zh/feishu.md](docs/zh/feishu.md) 配置。Pushover 需要装 iOS 应用并允许紧急通知（Critical Alerts），再准备应用令牌和用户密钥。
 
-### 令牌与演练
+### 令牌、机器与演练
 
 改动运行中服务的命令，经数据目录里的一个 socket 和它通信：
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write -expires 90d
+docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d \
+  -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # 它登录 SSH 通道用的公钥
 docker exec linkos-beacon linkos-beacon token list
+docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # 固定主机密钥，并打印机器要做的配置
+docker exec linkos-beacon linkos-beacon ssh pause         # 关闭 Agent 在机器上的会话，直到 ssh resume
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # 换一个新令牌，旧的立即失效
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz 返回 503：检测它，就能演练整条链路
 docker exec linkos-beacon linkos-beacon drill off
@@ -83,7 +86,7 @@ docker exec linkos-beacon linkos-beacon drill off
 ## API 与 MCP
 
 - REST：`/api/v1`，说明见 [internal/api/openapi.yaml](internal/api/openapi.yaml)（也在 `/api/v1/openapi.yaml` 提供）。
-- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。
+- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -103,6 +106,8 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `GET /api/v1/targets`、`GET /api/v1/modules`、`GET /api/v1/agent` | `probe:write` | 检测什么、怎么检测、所在检测点的设置 |
 | `POST /api/v2/alerts` | 规则引擎的令牌、`alerts:send` | 告警，Alertmanager API v2 格式 |
 | `GET /api/v1/query`、`query_range`、`series` 等 | `metrics:read` | 给 Agent 的指标查询 |
+
+SSH 通道（17002 端口）接受登记在带 `machines:ssh` 作用域的令牌上的公钥；用户名就是机器名。见 [docs/zh/ssh.md](docs/zh/ssh.md)。
 
 ## 安全
 

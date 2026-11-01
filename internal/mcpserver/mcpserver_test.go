@@ -55,7 +55,7 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 
 func TestMCP(t *testing.T) {
 	e := testutil.New(t)
-	srv := httptest.NewServer(Handler(e.Bridge, &api.Auth{Store: e.Store}, slog.Default()))
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
 	defer srv.Close()
 
 	// no token: refused before MCP starts
@@ -70,7 +70,7 @@ func TestMCP(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 8 {
+	if err != nil || len(tools.Tools) != 19 {
 		t.Fatalf("tools: %v %v", tools, err)
 	}
 	for _, tool := range tools.Tools {

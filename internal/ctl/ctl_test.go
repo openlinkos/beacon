@@ -19,7 +19,7 @@ func TestHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	srv := httptest.NewServer(Handler(st, nil))
+	srv := httptest.NewServer(Handler(st, nil, nil))
 	defer srv.Close()
 	c := newClient(func(ctx context.Context) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", strings.TrimPrefix(srv.URL, "http://"))
@@ -94,7 +94,7 @@ func TestEnroll(t *testing.T) {
 		}
 		return nil
 	}
-	srv := httptest.NewServer(Handler(st, active))
+	srv := httptest.NewServer(Handler(st, active, nil))
 	defer srv.Close()
 	c := newClient(func(ctx context.Context) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", strings.TrimPrefix(srv.URL, "http://"))

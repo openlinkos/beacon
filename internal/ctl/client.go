@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"time"
@@ -31,7 +32,7 @@ func Dial(ctx context.Context, path string) (*Client, Info, error) {
 
 func newClient(dial func(context.Context) (net.Conn, error)) *Client {
 	return &Client{hc: &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 30 * time.Second, // adding a machine waits for its host key
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
 		},
@@ -70,7 +71,8 @@ func (c *Client) Tokens(ctx context.Context) ([]TokenInfo, error) {
 	return out, err
 }
 
-// TokenInfo is a token as the socket lists it (the hash is not interesting to people).
+// TokenInfo is a token as the socket lists it (the hash is not interesting to people): SSHKeys are the
+// fingerprints of its keys for the SSH channel, Machines the machines it reaches there (none: all).
 type TokenInfo struct {
 	Name      string    `json:"name"`
 	Scopes    []string  `json:"scopes"`
@@ -78,7 +80,11 @@ type TokenInfo struct {
 	Created   time.Time `json:"created"`
 	CreatedBy string    `json:"created_by"`
 	Expires   time.Time `json:"expires"`
+	SSHKeys   []string  `json:"ssh_keys,omitempty"`
+	Machines  []string  `json:"machines,omitempty"`
 }
+
+func urlQuery(s string) string { return url.QueryEscape(s) }
 
 // RevokeToken deletes a token.
 func (c *Client) RevokeToken(ctx context.Context, name string) error {
