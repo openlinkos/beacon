@@ -18,7 +18,7 @@ COPY --from=files /out/ /
 COPY --chmod=0755 $TARGETPLATFORM/linkos-beacon /usr/local/bin/linkos-beacon
 COPY --chmod=0755 $TARGETPLATFORM/linkos-probe /usr/local/bin/linkos-probe
 USER 65532:65532
-EXPOSE 17001 17006
+EXPOSE 17001 17002 17006
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/linkos-beacon", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/linkos-beacon"]
 CMD ["serve"]
