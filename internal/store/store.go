@@ -260,10 +260,10 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 
 // ---- Tokens
 
-// Scopes are the token scopes. Public reads need no token. The first seven are for people and agents
+// Scopes are the token scopes. Public reads need no token. The first eight are for people and agents
 // (the REST API, MCP and the SSH channel); the rest are for machines, on the metrics gateway.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
-	"machines:ssh", "machines:write", "sessions:read",
+	"machines:ssh", "machines:write", "sessions:read", "config:write",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.

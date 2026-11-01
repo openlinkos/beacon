@@ -1,6 +1,6 @@
-// Package catalog loads what is monitored and where from: the probe locations, the heartbeats that
-// jobs must send, and the resources (servers, domains, certificates, tokens) whose expiry dates are
-// watched. The files live in git (the ops repository) and are mounted read-only.
+// Package catalog is what is monitored and where from: the probe locations, the heartbeats that jobs
+// must send, and the resources (servers, domains, certificates, tokens) whose expiry dates are watched.
+// It lives in Beacon's database (package configdb); its files, read here, are for import and export.
 //
 // The catalogue is also exported as metrics, so that alert rules can join against it: a location
 // that should report but does not, a heartbeat older than its limit, a resource close to expiry.
@@ -37,52 +37,52 @@ import (
 // Probe changes how the location's agent probes, for a machine whose path is slower or lossier than the
 // others'; the gateway hands it to that agent.
 type Location struct {
-	ID       string        `yaml:"id"`
-	Name     string        `yaml:"name"`
-	Region   string        `yaml:"region"` // overseas or mainland
-	Network  string        `yaml:"network"`
-	Address  string        `yaml:"address"`
-	Rotation string        `yaml:"rotation"`
-	Standby  bool          `yaml:"standby"`
-	Probe    ProbeSettings `yaml:"probe"`
+	ID       string        `yaml:"id" json:"id"`
+	Name     string        `yaml:"name" json:"name"`
+	Region   string        `yaml:"region" json:"region"` // overseas or mainland
+	Network  string        `yaml:"network,omitempty" json:"network,omitempty"`
+	Address  string        `yaml:"address,omitempty" json:"address,omitempty"`
+	Rotation string        `yaml:"rotation,omitempty" json:"rotation,omitempty"`
+	Standby  bool          `yaml:"standby,omitempty" json:"standby,omitempty"`
+	Probe    ProbeSettings `yaml:"probe,omitempty" json:"probe,omitzero"`
 }
 
 // ProbeSettings change how one location's agent probes. Zero values keep the modules' own settings.
 type ProbeSettings struct {
 	// Timeout is the least time any probe gets at this location: a module with a shorter timeout gets
 	// this one. At most a minute, the agent's interval.
-	Timeout config.Duration `yaml:"timeout"`
+	Timeout config.Duration `yaml:"timeout,omitempty" json:"timeout,omitzero"`
 	// Retries is how many more times (at most 2) a probe is tried at once when it fails without an
 	// answer (DNS, connect, timeout), for a machine whose connections drop now and then. A failure with
 	// an answer, such as a wrong status code, is never retried.
-	Retries int `yaml:"retries"`
+	Retries int `yaml:"retries,omitempty" json:"retries,omitempty"`
 }
 
 // Heartbeat is a job that must report success at least every MaxAge.
 type Heartbeat struct {
-	Name        string          `yaml:"name"`
-	MaxAge      config.Duration `yaml:"max_age"`
-	Severity    string          `yaml:"severity"`
-	Description string          `yaml:"description"`
+	Name        string          `yaml:"name" json:"name"`
+	MaxAge      config.Duration `yaml:"max_age" json:"max_age"`
+	Severity    string          `yaml:"severity" json:"severity"`
+	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // Resource is something that expires: a server, a domain, a certificate, a token.
 type Resource struct {
-	Name    string `yaml:"name"`
-	Kind    string `yaml:"kind"`
-	Expires string `yaml:"expires"` // YYYY-MM-DD
-	Note    string `yaml:"note"`
+	Name    string `yaml:"name" json:"name"`
+	Kind    string `yaml:"kind" json:"kind"`
+	Expires string `yaml:"expires" json:"expires"` // YYYY-MM-DD
+	Note    string `yaml:"note,omitempty" json:"note,omitempty"`
 	expires time.Time
 }
 
-// ExpiresAt is the expiry date (midnight UTC).
+// ExpiresAt is the expiry date (midnight UTC), once the catalogue is validated.
 func (r Resource) ExpiresAt() time.Time { return r.expires }
 
 // Catalog is the loaded catalogue.
 type Catalog struct {
-	Locations  []Location  `yaml:"locations"`
-	Heartbeats []Heartbeat `yaml:"heartbeats"`
-	Resources  []Resource  `yaml:"resources"`
+	Locations  []Location  `yaml:"locations,omitempty" json:"locations"`
+	Heartbeats []Heartbeat `yaml:"heartbeats,omitempty" json:"heartbeats"`
+	Resources  []Resource  `yaml:"resources,omitempty" json:"resources"`
 }
 
 var (
@@ -93,14 +93,14 @@ var (
 
 // Load reads every *.yaml file in dir and merges them. A missing directory is an empty catalogue.
 func Load(dir string) (*Catalog, error) {
-	c := &Catalog{}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return c, nil
+		return &Catalog{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	files := map[string][]byte{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
@@ -109,20 +109,35 @@ func Load(dir string) (*Catalog, error) {
 		if err != nil {
 			return nil, err
 		}
+		files[e.Name()] = b
+	}
+	return Parse(files)
+}
+
+// Parse is Load for the files' contents, by file name: they are merged in name order and validated.
+func Parse(files map[string][]byte) (*Catalog, error) {
+	c := &Catalog{}
+	names := make([]string, 0, len(files))
+	for n := range files {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, n := range names {
 		var part Catalog
-		dec := yaml.NewDecoder(strings.NewReader(string(b)))
+		dec := yaml.NewDecoder(strings.NewReader(string(files[n])))
 		dec.KnownFields(true)
 		if err := dec.Decode(&part); err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s: %w", e.Name(), err)
+			return nil, fmt.Errorf("%s: %w", n, err)
 		}
 		c.Locations = append(c.Locations, part.Locations...)
 		c.Heartbeats = append(c.Heartbeats, part.Heartbeats...)
 		c.Resources = append(c.Resources, part.Resources...)
 	}
-	return c, c.validate()
+	return c, c.Validate()
 }
 
-func (c *Catalog) validate() error {
+// Validate checks the catalogue as Load does, and reads the resources' dates.
+func (c *Catalog) Validate() error {
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	seen := map[string]bool{}

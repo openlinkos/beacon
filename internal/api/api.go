@@ -18,6 +18,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/clientip"
+	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -102,12 +103,14 @@ func (a *Auth) Verify(r *http.Request, secret string) (store.Token, bool) {
 }
 
 // Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
+// Config is the configuration Beacon holds (its routes are in config.go); nil leaves them out.
 type Server struct {
 	Bridge     *bridge.Bridge
 	SSH        *sshgate.Gate
 	SSHAddress string
 	Auth       *Auth
 	Log        *slog.Logger
+	Config     *configdb.Service
 }
 
 // Register adds the API's routes to mux.
@@ -116,6 +119,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 		_, _ = w.Write(openAPI)
 	})
+	s.registerConfig(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))

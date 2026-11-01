@@ -30,6 +30,7 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 ### 连得上：平台
 
 - **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
+- **配置在 Beacon 里。**检测点、心跳、会到期的资源、检测目标和检测模块存在 Beacon 的数据库里，通过 API、MCP 和命令行修改，校验后立即生效。每次修改都是一个版本，记下谁改的、改前改后的值，可以撤销；文件只用来导入和导出，所以仍然可以放在 git 里。
 - **很轻。**一整套只有四个容器（Beacon、VictoriaMetrics、vmalert、Caddy），每个检测点一个程序。
 
 ## 结构
@@ -55,7 +56,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关；17002 端口是 SSH 通道，配置见 [docs/zh/ssh.md](docs/zh/ssh.md)。
+从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。第一次启动时这些文件会导入数据库，此后在数据库里修改；上面两个目录只在这时、收到 `SIGHUP` 时和 `config import` 时才用到。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关；17002 端口是 SSH 通道，配置见 [docs/zh/ssh.md](docs/zh/ssh.md)。
 
 让 vmalert 把告警发给网关：`-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<rules.token_file 里那个文件>`。
 
@@ -81,12 +82,15 @@ docker exec linkos-beacon linkos-beacon ssh pause         # 关闭 Agent 在机�
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # 换一个新令牌，旧的立即失效
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz 返回 503：检测它，就能演练整条链路
 docker exec linkos-beacon linkos-beacon drill off
+docker exec linkos-beacon linkos-beacon config import /etc/linkos-beacon -dry-run   # catalog/、targets/：看看会改什么
+docker exec linkos-beacon linkos-beacon config export /tmp/beacon   # 把配置按同样的目录结构写成文件
+docker exec linkos-beacon linkos-beacon config history    # 谁改了什么；config revert 版本号 撤销一次修改
 ```
 
 ## API 与 MCP
 
 - REST：`/api/v1`，说明见 [internal/api/openapi.yaml](internal/api/openapi.yaml)（也在 `/api/v1/openapi.yaml` 提供）。
-- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。
+- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。配置相关的工具（修改需要 `config:write` 作用域）：`get_config`、`put_config`、`delete_config`、`list_config_changes`、`get_config_change`、`revert_config_change`。
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"

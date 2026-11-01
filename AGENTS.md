@@ -23,7 +23,7 @@ One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, 
 
 | Package | What it is |
 | --- | --- |
-| `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; reloads catalogue, targets and modules on SIGHUP |
+| `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; imports the configuration files at the first start and on SIGHUP |
 | `cmd/linkos-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
 | `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, read proxy for `metrics:read` |
 | `internal/router` | Alertmanager's job: grouping, `group_wait`/`group_interval`, `resolve_timeout`, inhibition, silences, Watchdog; groups survive restarts |
@@ -32,8 +32,9 @@ One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, 
 | `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods |
 | `internal/sshgate` | The SSH channel: agents' SSH sign-in by the keys on their tokens, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts (shell-integration marks), the tools (run, read, write, edit), pausing, echoes to the chat |
 | `internal/store` | bbolt: groups, silences, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), machines, the index of SSH sessions, audit log, drill |
-| `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll`, `machine`, `ssh` and `drill` |
-| `internal/catalog`, `internal/targets` | Locations, heartbeats, resources; probe target files and the probe protocol types (`Group`, `Settings`) |
+| `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll`, `machine`, `ssh`, `config` and `drill` |
+| `internal/catalog`, `internal/targets` | Locations, heartbeats, resources; probe target files and the probe protocol types (`Group`, `Settings`); the checks every change passes |
+| `internal/configdb` | The catalogue, target sets and module file in the database: changes with versions, history and revert, import and export, the state the gateway reads |
 | `internal/inventory` | CDN nodes against their clusters' DNS rotations |
 | `internal/probe`, `internal/hostmetrics`, `internal/agent` | Probers (Blackbox-compatible plus registry, git, rdap) with failure reasons; host metrics from /proc; the agent's cycle and disk queue |
 | `internal/config`, `internal/i18n`, `internal/metrics`, `internal/vm`, `internal/clientip`, `internal/version` | Configuration and secrets; translations; the `/metrics` writer; VictoriaMetrics queries; client addresses; build info |
@@ -71,7 +72,7 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 1. **Alerts delivered** (goal 1): once the accounts exist, check that card buttons arrive over Feishu's long connection, run the drills, turn sending on, release `v0.2.0`.
 2. **The SSH channel** (goals 2, 4, 5, 6): built (`internal/sshgate`, `docs/ssh.md`); next, put LinkOS's machines on it, then a small outbound connector for machines behind NAT. Hosts' sshd must trust Beacon's CA and exempt its address from `PerSourcePenalties`.
 3. **Waking agents, and evidence** (goals 1, 3): a new alert group calls an agent (webhook, workflow dispatch); evidence for an alert in one call (probe results and reasons, changes such as deployments and Flux, related alerts, what was done); notes an agent leaves on a card; one timeline of alerts, sessions and notes. Treat everything fetched from probed targets and machines as untrusted text.
-4. **Configured through Beacon** (goal 7): the catalogue, targets, modules and machines in the database, changed through the API, MCP and the CLI with history; the files become import and export.
+4. **Configured through Beacon** (goal 7): done for the catalogue, targets and modules (`internal/configdb`, `docs/catalog.md`): in the database, changed through the API, MCP and the CLI, every change a version that can be reverted; the files are import and export. Machines are in the database already; their changes are audited but not yet versioned.
 5. **Status pages and more channels** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, Atom feed, badges, public JSON; Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook.
 6. **Release for others** (goals 8, 9): a reference deployment (compose) in `docs/`, `CONTRIBUTING.md` and `SECURITY.md`, a `silence` CLI; a small outbound connector for machines behind NAT; then, to be decided, rule evaluation inside Beacon and optional built-in TLS.
 
