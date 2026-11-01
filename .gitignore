@@ -6,3 +6,4 @@
 /.env
 /config.yaml
 /*.db
+/.claude/

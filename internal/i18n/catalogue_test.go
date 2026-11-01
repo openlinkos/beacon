@@ -38,7 +38,7 @@ func formats(t *testing.T) map[string][]string {
 			return err
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == ".git" || name == "node_modules" || name == "testdata" {
+			if name := d.Name(); name == ".git" || name == ".claude" || name == "node_modules" || name == "testdata" { // .claude: agents' worktrees
 				return filepath.SkipDir
 			}
 			return nil
@@ -208,6 +208,7 @@ func TestCatalogue(t *testing.T) {
 // catalogues and the Chinese documentation.
 var hanExempt = []string{
 	".git/",
+	".claude/", // agents' worktrees and settings
 	"node_modules/",
 	"docs/",
 	"internal/i18n/zh.go",
