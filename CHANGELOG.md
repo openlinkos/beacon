@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Goals: Beacon is infrastructure for AI agents that run operations: it sees (monitoring), reaches (an SSH channel, being built) and connects (one platform for people and agents). See `docs/goals.md`.
+
 ## 0.2.0
 
 ### rc.4 (2026-10-31)

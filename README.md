@@ -2,13 +2,15 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Beacon tells you whether your services work for your users, checked from where your users are, and closes the loop with the people on call and with their AI agents. A Go service and a small probe agent, on top of VictoriaMetrics and vmalert.
+Beacon is infrastructure for AI agents that run operations. It tells whether your services work for your users, checked from where they are; it lets agents reach your machines over SSH without ever holding a key, and records every session; and it puts the people on call and their agents on one platform. A Go service and a small probe agent, on top of VictoriaMetrics and vmalert. What it aims at, and what it leaves out, is in [docs/goals.md](docs/goals.md).
 
 > Named after the beacon towers of the Great Wall: watch posts along the border lit a fire when they saw trouble, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.
 
-Early days: Beacon runs the monitoring of LinkOS's own services. Public status pages are next.
+Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel is being built; public status pages come after it.
 
 ## What it does
+
+### Sees: monitoring
 
 - **Probes from where your users are.** `linkos-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
 - **An outage is what several locations agree on.** A service is down only when at least two locations, and at least half of those reporting, fail; one location's hiccup never pages anyone. Locations follow their machines: when a machine is let go, its location stops counting.
@@ -17,8 +19,17 @@ Early days: Beacon runs the monitoring of LinkOS's own services. Public status p
 - **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
 - **Escalation to phones.** A critical alert that nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15: the phone keeps ringing until someone acknowledges it there, which also acknowledges it here. An acknowledgement lapses after 4 hours if the alert is still firing.
 - **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The service pings healthchecks.io every minute while rules, routing and delivery all work, so a dead monitoring host or a broken Feishu connection still reaches a phone.
-- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
 - **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), when a standby node steps in, and when the rotation holds a node nobody watches.
+
+### Reaches: the SSH channel (in development)
+
+- **Agents use the tools they know.** ssh, scp, sftp, rsync and port forwarding go through Beacon unchanged, and MCP tools run commands and read and edit files with clean, structured results.
+- **No keys for agents.** Beacon holds the credentials and signs a certificate valid for a few minutes for each connection; machines trust only Beacon's certificate authority.
+- **Every session on record.** Sessions are recorded for replay, and interactive shells are broken down into commands with their exit status. Deciding what to run is the agent's own business; people see everything it does and can pause agents at once.
+
+### Connects: the platform
+
+- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
 ## How it fits

@@ -4,7 +4,9 @@ Instructions for AI coding agents working in this repository. `CLAUDE.md` is a s
 
 ## Project
 
-Beacon · 烽火 (`linkos-beacon`, and the probe agent `linkos-probe`) tells whether services work for their users, probed from where the users are, and closes the loop with the people on call and their AI agents: a gateway for machines (enrolled tokens, labels set by the server, targets handed out), alert routing in place of Alertmanager (grouping, inhibition, silences), Feishu app cards they can acknowledge or silence from, escalation to their phones through Pushover, a dead man's switch on healthchecks.io, and the same operations through a REST API and a built-in MCP server. Public status pages follow. Go; one service and one probe binary; metrics and rules live in VictoriaMetrics and vmalert. LinkOS runs its own status service (LinkOS Status) on Beacon, configured in a private ops repository.
+Beacon · 烽火 (`linkos-beacon`, and the probe agent `linkos-probe`) is infrastructure for AI agents that run operations, in three parts. **Sees**: monitoring that tells whether services work for their users, probed from where the users are, with a gateway for machines (enrolled tokens, labels set by the server, targets handed out), alert routing in place of Alertmanager, Feishu app cards, escalation to phones through Pushover and a dead man's switch on healthchecks.io. **Reaches**: an SSH channel through which agents get to machines with the tools they know (ssh, scp, sftp, rsync, port forwarding, MCP tools) without holding a key, every session recorded (being built). **Connects**: one platform for people and agents, with scoped tokens, a REST API and a built-in MCP server, an audit log echoed to the alert chat, and later status pages. Go; one service and one probe binary; metrics and rules live in VictoriaMetrics and vmalert. LinkOS runs its own status service (LinkOS Status) on Beacon, configured in a private ops repository.
+
+**Read [docs/goals.md](docs/goals.md) before you plan a change**, and say which goal it serves. The goals rank what matters when they pull apart, and list what Beacon will not do.
 
 ## Architecture
 
@@ -54,19 +56,22 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 - **Security first**: tokens are stored as SHA-256 only, with scopes and an expiry; a probe or host token writes only as its own subject, and an expired machine cannot write; the rule engine's alerts need the rules token or `alerts:send`; `/metrics` answers direct connections only; only the on-call people may act on cards. Do not weaken a check to make a test pass.
 - **The probe protocol** (`/api/v1/targets`, `/modules`, `/agent`, `/import/prometheus`) is shared by agents and gateways of different versions: add fields and routes, do not change or remove them, and keep agents working against an older gateway.
 - **Probe agents stay small**: they run on CDN edge nodes with little memory to spare (about 15 MB resident today, 64 MB hard limit in deployments). No new dependencies in `cmd/linkos-probe` without measuring.
+- **Close to how agents work**: offer what agents already know (SSH, the shell, HTTP with JSON, Prometheus queries, MCP) rather than a protocol or configuration language of our own. MCP tools take the names and behaviour of agents' own tools (run a command, read a file, edit a file); results are clean and structured, without terminal control codes, and long ones are cut with a way to fetch the rest.
+- **No approval workflows**: Beacon records and shows what agents do; deciding what to run is the agent's job, done by its own harness. Do not add approval gates; the pause switch and each machine's access are the only brakes. Beacon calls no model.
 - **Public repository**: name machines by location and network, never by internal host names, vendors or real addresses. No business plans, prices or customer names.
 - **Ask before adding dependencies**; keep `go.mod` tidy.
 - **Docs**: English in `README.md` and `docs/`, Chinese in `README.zh-CN.md` and `docs/zh/`, section for section. Change both together. Record user-facing changes in `CHANGELOG.md`.
 
 ## Where it stands
 
-`v0.2.0-rc` runs LinkOS's monitoring: one centre, nine probe locations, alerting recorded but not yet sent until the Feishu app, Pushover and healthchecks.io are set up. Next, roughly in this order:
+`v0.2.0-rc` runs LinkOS's monitoring: one centre, nine probe locations, alerting recorded but not yet sent until the Feishu app, Pushover and healthchecks.io are set up. Next, in this order:
 
-1. **Evidence for agents**: an MCP tool and API to query metrics (through the gateway's read path), the probe results and failure reasons behind an alert, change events (deployments, Flux), runbooks over MCP, and notes an agent leaves on a card. Treat everything fetched from probed targets as untrusted text.
-2. **Status pages**: components from the catalogue and targets, 90-day history, incidents and maintenance (with silences), Atom feed, badges, public JSON; the design system and i18n as elsewhere.
-3. **More channels**: Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook.
-4. **Operations**: a `silence` CLI on the admin socket; `CONTRIBUTING.md` and `SECURITY.md`; a reference deployment (compose) in `docs/`.
-5. **Fewer moving parts** (to be decided): rule evaluation inside Beacon instead of vmalert, optional embedded storage instead of a separate VictoriaMetrics, optional built-in TLS (ACME) instead of a reverse proxy.
+1. **Alerts delivered** (goal 1): once the accounts exist, check that card buttons arrive over Feishu's long connection, run the drills, turn sending on, release `v0.2.0`.
+2. **The SSH channel** (goals 2, 4, 5, 6): machines enrolled with Beacon's certificate authority, a standard SSH entry point, every session recorded (asciicast v3) with interactive shells broken into commands and exit statuses, MCP and REST tools that run commands and read and edit files, a pause switch, docs for setting up a machine. A prototype showed real OpenSSH clients working through such a gateway unchanged.
+3. **Waking agents, and evidence** (goals 1, 3): a new alert group calls an agent (webhook, workflow dispatch); evidence for an alert in one call (probe results and reasons, changes such as deployments and Flux, related alerts, what was done); notes an agent leaves on a card; one timeline of alerts, sessions and notes. Treat everything fetched from probed targets and machines as untrusted text.
+4. **Configured through Beacon** (goal 7): the catalogue, targets, modules and machines in the database, changed through the API, MCP and the CLI with history; the files become import and export.
+5. **Status pages and more channels** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, Atom feed, badges, public JSON; Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook.
+6. **Release for others** (goals 8, 9): a reference deployment (compose) in `docs/`, `CONTRIBUTING.md` and `SECURITY.md`, a `silence` CLI; a small outbound connector for machines behind NAT; then, to be decided, rule evaluation inside Beacon and optional built-in TLS.
 
 ## Git
 
