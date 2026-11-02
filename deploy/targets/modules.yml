@@ -1,0 +1,60 @@
+# Probe modules, in the Blackbox Exporter's format (docs/catalog.md lists the fields Beacon implements) plus the
+# registry, git and rdap probers. The gateway hands this file to every probe; a change here needs no redeployment
+# of the probes. IPv4 only: not every location has IPv6, and mixing the two gives one service different results
+# from different locations.
+modules:
+  # HEAD, 200, no redirects: the cheapest check of a page or a health endpoint behind TLS
+  http_head:
+    prober: http
+    timeout: 20s
+    http:
+      method: HEAD
+      valid_status_codes: [200]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        Connection: close
+        User-Agent: Beacon-Probe/1.0 (+https://github.com/openlinkos/beacon)
+  # GET, 200: for health endpoints that refuse HEAD
+  http_get_200:
+    prober: http
+    timeout: 20s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        Connection: close
+        User-Agent: Beacon-Probe/1.0 (+https://github.com/openlinkos/beacon)
+  # GET, 200, and the body must say the service is healthy
+  http_get_healthy:
+    prober: http
+    timeout: 20s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      fail_if_body_not_matches_regexp: ['"status":\s*"(ok|pass|healthy)"']
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        Connection: close
+        User-Agent: Beacon-Probe/1.0 (+https://github.com/openlinkos/beacon)
+  # a TLS port answers (the handshake also yields the certificate's expiry)
+  tcp_tls:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      tls: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+  # a domain's expiry date from RDAP; the target is the domain name
+  rdap_domain:
+    prober: rdap
+    timeout: 20s

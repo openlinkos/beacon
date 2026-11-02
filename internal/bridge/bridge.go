@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -719,6 +720,8 @@ func (b *Bridge) viaName(via string) string {
 		return "Pushover"
 	case "mcp":
 		return "MCP"
+	case "cli":
+		return b.t("the command line")
 	}
 	return "API"
 }
@@ -783,6 +786,87 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "silence", Target: g.ID, Detail: d.String() + ": " + comment})
 	b.echo(ctx, b.t("%s silenced \"%s\" for %s via %s: %s", who.Name, b.title(&g), b.dur(d), b.viaName(who.Via), comment))
 	return b.view(&g), nil
+}
+
+// SilenceLabels silences every alert whose labels equal all of labels for d (at most 24 hours) with a
+// comment, as `linkos-beacon silence create -matchers` does; the router stops delivering what matches.
+// A firing group every alert of which matches is marked silenced (and acknowledged, as Silence does),
+// so that its card shows it.
+func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d time.Duration, who Actor, comment string) (alertmanager.Silence, error) {
+	comment = strings.TrimSpace(comment)
+	if d <= 0 || d > maxSilence {
+		return alertmanager.Silence{}, fmt.Errorf("%w: a silence lasts between 1 second and 24 hours", ErrBadInput)
+	}
+	if comment == "" {
+		return alertmanager.Silence{}, fmt.Errorf("%w: say why in the comment", ErrBadInput)
+	}
+	if len(labels) == 0 {
+		return alertmanager.Silence{}, fmt.Errorf("%w: a silence needs at least one matcher, such as alertname=ServiceDown", ErrBadInput)
+	}
+	for k, v := range labels {
+		if k == "" || v == "" {
+			return alertmanager.Silence{}, fmt.Errorf("%w: a matcher is label=value, such as service=example.com", ErrBadInput)
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	id, err := b.d.AM.CreateSilence(ctx, labels, now, now.Add(d), who.Name, comment)
+	if err != nil {
+		return alertmanager.Silence{}, err
+	}
+	for _, g := range b.d.Store.Groups() {
+		if !g.Firing() || !everyAlertHas(&g, labels) {
+			continue
+		}
+		g.Silence = &store.Silence{ID: id, By: who.Name, Until: now.Add(d)}
+		if g.Ack == nil {
+			b.ack(ctx, &g, who.Name, who.Via, "")
+		}
+		if b.patchAllowed(&g, false) {
+			b.patch(ctx, &g)
+		}
+		_ = b.d.Store.PutGroup(g)
+	}
+	s := alertmanager.Silence{ID: id, StartsAt: now, EndsAt: now.Add(d), CreatedBy: who.Name, Comment: comment}
+	keys := slices.Sorted(maps.Keys(labels))
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		s.Matchers = append(s.Matchers, alertmanager.Matcher{Name: k, Value: labels[k], IsEqual: true})
+		parts = append(parts, k+"="+labels[k])
+	}
+	s.Status.State = "active"
+	matchers := strings.Join(parts, ",")
+	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "silence", Target: matchers, Detail: d.String() + ": " + comment})
+	b.echo(ctx, b.t("%s silenced \"%s\" for %s via %s: %s", who.Name, matchers, b.dur(d), b.viaName(who.Via), comment))
+	return s, nil
+}
+
+// everyAlertHas reports whether each firing alert of the group carries all of labels; a group without
+// alerts of its own is judged by its common labels.
+func everyAlertHas(g *store.Group, labels map[string]string) bool {
+	has := func(l map[string]string) bool {
+		for k, v := range labels {
+			if l[k] != v {
+				return false
+			}
+		}
+		return true
+	}
+	seen := false
+	for _, a := range g.Alerts {
+		if a.Status != "firing" {
+			continue
+		}
+		seen = true
+		if !has(a.Labels) {
+			return false
+		}
+	}
+	if !seen {
+		return has(g.Common)
+	}
+	return true
 }
 
 // ExpireSilence ends a silence.

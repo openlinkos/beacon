@@ -1,0 +1,7 @@
+# Things that expire: machines, domains, certificates renewed by hand, tokens. ResourceExpiring warns 30 days
+# ahead and is critical 7 days ahead. A vps named like a probe location bounds that location: past the date,
+# the location is no longer expected to report and its token can no longer write. Names, kinds and dates only.
+resources: []
+# resources:
+#   - {name: edge-1, kind: vps, expires: 2027-04-02}
+#   - {name: example.com, kind: domain, expires: 2027-01-15, note: renews automatically}

@@ -1,0 +1,95 @@
+name: deploy
+
+# Validates the reference deployment under deploy/: the compose project with a generated .env, the Caddyfile,
+# the rules (a dry run and the unit tests), what VictoriaMetrics scrapes, Beacon's configuration with the
+# catalogue, targets and modules (check-config against generated secret files), the shell scripts, and that
+# nothing in deploy/ or the docs names the makers' own machines. Each file is checked with the image
+# compose.yaml pins, so the versions live in one place.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: No internal names in public files
+        run: |
+          set -euo pipefail
+          if hits=$(grep -rn -i -E "linkos\.io|cdn-|pve-|develop-|monitor-us|worker-us|homelab|goedge|openclaw|hczhang" \
+              deploy/ docs/ CONTRIBUTING.md SECURITY.md | grep -v 'security@linkos\.io'); then
+            echo "$hits"
+            echo "::error::names of the makers' own machines or accounts in public files"
+            exit 1
+          fi
+
+      - name: Compose project
+        run: |
+          set -euo pipefail
+          cp deploy/.env.example deploy/.env
+          sed -i 's/^ACME_EMAIL=.*/ACME_EMAIL=ops@ci.invalid/' deploy/.env
+          docker compose -f deploy/compose.yaml config -q
+
+      - name: Caddyfile
+        run: |
+          set -euo pipefail
+          image=$(docker compose -f deploy/compose.yaml config --format json | jq -r '.services.caddy.image')
+          docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e STATUS_HOST=status.example.com -e METRICS_HOST=metrics.example.com -e ACME_EMAIL=ops@ci.invalid \
+            "$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Rules dry run
+        run: |
+          set -euo pipefail
+          image=$(docker compose -f deploy/compose.yaml config --format json | jq -r '.services.vmalert.image')
+          docker run --rm -v "$PWD/deploy/rules:/rules:ro" "$image" -dryRun -rule='/rules/*.yml'
+
+      - name: Rule unit tests
+        run: |
+          set -euo pipefail
+          # vmalert-tool at the same version as vmalert (the tool's image has its own digest)
+          image=$(docker compose -f deploy/compose.yaml config --format json | jq -r '.services.vmalert.image' |
+            sed -e 's#/vmalert:#/vmalert-tool:#' -e 's/@.*//')
+          docker run --rm -v "$PWD/deploy/rules:/rules:ro" "$image" unittest --disableAlertgroupLabel --files '/rules/tests/*.yml'
+
+      - name: Scrape configuration
+        run: |
+          set -euo pipefail
+          image=$(docker compose -f deploy/compose.yaml config --format json | jq -r '.services.victoriametrics.image')
+          docker run --rm -v "$PWD/deploy/metrics/scrape.yml:/scrape.yml:ro" "$image" \
+            -promscrape.config=/scrape.yml -promscrape.config.dryRun
+
+      - name: Beacon's configuration, catalogue, targets and modules
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/linkos-beacon" ./cmd/linkos-beacon
+          go build -o "$RUNNER_TEMP/linkos-probe" ./cmd/linkos-probe
+          s="$RUNNER_TEMP/secrets"
+          mkdir -p "$s" "$RUNNER_TEMP/data"
+          head -c 32 /dev/urandom | base64 | tr -d '\n=+/' > "$s/rules-token"
+          ssh-keygen -q -t ed25519 -N '' -f "$s/ssh-host-key"
+          ssh-keygen -q -t ed25519 -N '' -f "$s/ssh-ca-key"
+          # the paths the container sees become the repository's and the generated secrets'
+          sed -e "s#/etc/linkos-beacon/secrets/#$s/#" -e "s#/etc/linkos-beacon/#$GITHUB_WORKSPACE/deploy/#" \
+            -e "s#^data_dir: .*#data_dir: $RUNNER_TEMP/data#" deploy/config.yaml > "$RUNNER_TEMP/config.yaml"
+          "$RUNNER_TEMP/linkos-beacon" check-config -config "$RUNNER_TEMP/config.yaml"
+          "$RUNNER_TEMP/linkos-probe" check -modules deploy/targets/modules.yml
+
+      - name: Shell scripts
+        run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/linkos-heartbeat

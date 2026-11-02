@@ -1,0 +1,70 @@
+# The monitoring itself: the Watchdog, the rule engine, the metrics store, the gateway, the probes' queues.
+# "The monitoring is down" is not a rule here: the Watchdog always fires, and while Beacon receives it and can
+# deliver alerts it pings healthchecks.io every minute (healthchecks.bridge_url_file in config.yaml). When the
+# whole machine, vmalert, VictoriaMetrics or Beacon stops, the pings stop, and healthchecks.io raises the alarm
+# from outside. The rules here are for a centre that is up but has one part failing. Their input comes from
+# metrics/scrape.yml.
+groups:
+  - name: meta
+    interval: 30s
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Watchdog - always firing while the alerting pipeline works
+          description: "Beacon counts this towards its readiness and pings healthchecks.io every minute while it arrives and alerts can be delivered (a dead man's switch). If it stops arriving, the rule engine or the metrics store is down."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/Watchdog.md
+
+      - alert: VMAlertRuleErrors
+        expr: sum by (group) (increase(vmalert_execution_errors_total[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: vmalert
+          failure_domain: monitoring
+        annotations:
+          summary: "vmalert fails to evaluate rule group {{ $labels.group }}"
+          description: "Rule evaluation errors in group {{ $labels.group }}: alerts in it may not fire. See the log of linkos-beacon-vmalert."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/VMAlertRuleErrors.md
+
+      - alert: VictoriaMetricsDiskLow
+        expr: vm_free_disk_space_bytes{job="victoriametrics"} < 5e9
+        for: 10m
+        labels:
+          severity: warning
+          service: victoriametrics
+          failure_domain: monitoring
+        annotations:
+          summary: "VictoriaMetrics has {{ $value | humanize1024 }}B of disk left"
+          description: "Free space on the VictoriaMetrics data volume is below 5 GB. Below its minimum it stops accepting data, and the gateway starts failing writes."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/VictoriaMetricsDiskLow.md
+
+      # the gateway's own errors (5xx), mostly VictoriaMetrics refusing writes; a wrong token or an expired
+      # machine (4xx) is the sender's problem and does not count
+      - alert: GatewayErrors
+        expr: sum by (route) (increase(linkos_gateway_requests_total{code=~"5.."}[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: beacon
+          failure_domain: monitoring
+        annotations:
+          summary: "The gateway fails {{ $labels.route }} requests"
+          description: "The gateway answered {{ $value | humanize }} {{ $labels.route }} request(s) with a server error in the last 10 minutes, usually because VictoriaMetrics refuses writes. Probes keep their results queued on disk meanwhile."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/GatewayErrors.md
+
+      # a probe whose pushes get through only now and then: its queue never empties (a probe that cannot push
+      # at all is ProbeLocationDown; its queue is not visible from here)
+      - alert: ProbeQueueBacklog
+        expr: max by (host) (linkos_probe_queue_bytes) > 8e6
+        for: 15m
+        labels:
+          severity: warning
+          service: "probe-{{ $labels.host }}"
+          failure_domain: "probe-{{ $labels.host }}"
+        annotations:
+          summary: "linkos-probe on {{ $labels.host }} has {{ $value | humanize1024 }}B waiting to be pushed"
+          description: "The agent keeps queueing instead of pushing to the gateway; at 64 MB it drops the oldest batches. Some pushes get through, or this could not be reported at all."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeQueueBacklog.md

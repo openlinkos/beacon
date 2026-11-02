@@ -1,0 +1,17 @@
+# VictoriaMetrics scrapes the centre's own components, for the rules in rules/meta.yml: the gateway's errors and
+# the catalogue's metrics from Beacon, vmalert's evaluation errors, its own free disk space. Probe results and
+# host metrics do not come this way: linkos-probe pushes them to the gateway, which labels them by token.
+global:
+  scrape_interval: 1m
+  scrape_timeout: 30s
+
+scrape_configs:
+  - job_name: linkos-beacon
+    static_configs:
+      - targets: [linkos-beacon:17001]
+  - job_name: vmalert
+    static_configs:
+      - targets: [vmalert:8880]
+  - job_name: victoriametrics
+    static_configs:
+      - targets: [127.0.0.1:8428]

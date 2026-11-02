@@ -1,0 +1,110 @@
+# Service availability, decided by agreement between probe locations. Input: probe_success{job="probe"}, pushed
+# by every location's linkos-probe and labelled by the gateway with location and region (overseas or mainland)
+# and by the target with service, severity and failure_domain.
+#   - a location counts as failing a service once it has failed for 3 minutes (three results in a row);
+#   - a service is down (ServiceDown, at the target's severity) when at least two locations fail it and they are
+#     at least half of the locations reporting it. Locations whose data is late are not in the denominator, and
+#     one location's hiccup is never an outage;
+#   - at least two locations failing but fewer than half is a partial outage (ServiceDegraded, a warning):
+#     usually one CDN node or one network path;
+#   - every mainland location failing while the overseas ones succeed is a path problem (MainlandPathDegraded);
+#   - a location that has sent nothing for 10 minutes is down (ProbeLocationDown).
+groups:
+  - name: probes
+    interval: 30s
+    rules:
+      - record: linkos:probe_failing
+        expr: |
+          max by (service, severity, failure_domain, location, region) (
+            max_over_time(probe_success{job="probe"}[3m])
+          ) == bool 0
+
+      - record: linkos:service_reporting
+        expr: count by (service, severity, failure_domain) (linkos:probe_failing)
+      - record: linkos:service_failing_locations
+        expr: sum by (service, severity, failure_domain) (linkos:probe_failing)
+      - record: linkos:service_failing_overseas
+        expr: sum by (service, severity, failure_domain) (linkos:probe_failing{region="overseas"})
+      - record: linkos:service_reporting_mainland
+        expr: count by (service, severity, failure_domain) (linkos:probe_failing{region="mainland"})
+      - record: linkos:service_failing_mainland
+        expr: sum by (service, severity, failure_domain) (linkos:probe_failing{region="mainland"})
+
+      # 1 = down: at least two locations fail, and they are at least half of those reporting
+      - record: linkos:service_down
+        expr: |
+          (linkos:service_failing_locations >= bool 2)
+          * (linkos:service_failing_locations * 2 >= bool linkos:service_reporting)
+
+      # 1 = up. Availability over a day is avg_over_time(linkos:service_up[1d])
+      - record: linkos:service_up
+        expr: 1 - linkos:service_down
+
+      # At the target's severity (its severity label); the second rule gives critical to targets without one.
+      - alert: ServiceDown
+        expr: linkos:service_down{severity!=""} == 1
+        for: 1m
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+      - alert: ServiceDown
+        expr: linkos:service_down{severity=""} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
+      - alert: ServiceDegraded
+        # always a warning, so the target's severity is aggregated away first (vmalert would otherwise keep it
+        # as exported_severity)
+        expr: |
+          max by (service, failure_domain) (
+            linkos:service_failing_locations >= 2
+            and linkos:service_down == 0
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} fails from some probe locations"
+          description: "{{ $labels.service }} has failed for 3 minutes from at least two probe locations, but fewer than half of them: a partial outage, usually one CDN node or one network path. The card shows which locations."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDegraded.md
+
+      - alert: MainlandPathDegraded
+        expr: |
+          max by (service, failure_domain) (
+            (
+              linkos:service_failing_mainland == linkos:service_reporting_mainland
+              and linkos:service_failing_mainland > 0
+            )
+            and on (service) (linkos:service_failing_overseas == 0)
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} is unreachable from mainland China"
+          description: "Every mainland probe location has failed {{ $labels.service }} for 3 minutes while the overseas ones succeed: most likely the path from mainland China (a blocked address or routing), not the service itself."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/MainlandPathDegraded.md
+
+      # Beacon exports linkos_expected_location for every location in the catalogue whose machine has not
+      # expired; one that sends no probe_success for 10 minutes is down. The window leaves room for pushes
+      # that travel slowly.
+      - alert: ProbeLocationDown
+        expr: |
+          max by (location, region, network) (linkos_expected_location == 1)
+          unless on (location)
+          count by (location) (count_over_time(probe_success{job="probe"}[10m]))
+        for: 5m
+        labels:
+          severity: warning
+          service: "probe-{{ $labels.location }}"
+          failure_domain: "probe-{{ $labels.location }}"
+        annotations:
+          summary: "Probe location {{ $labels.location }} has sent no results for 10 minutes"
+          description: "No probe results from {{ $labels.location }} ({{ $labels.network }}). The machine, its linkos-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md

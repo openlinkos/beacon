@@ -9,6 +9,8 @@
 //	linkos-beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
 //	linkos-beacon machine add NAME HOST[:PORT]|connector | machine connector NAME -key KEY | machine list | machine remove NAME | machine ca
 //	linkos-beacon ssh pause | ssh resume | ssh status
+//	linkos-beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
+//	linkos-beacon silence list | silence expire ID
 //	linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
 //	linkos-beacon drill fail 15m | drill off | drill status
 //	linkos-beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
@@ -86,6 +88,9 @@ func usage(w io.Writer) {
   linkos-beacon machine list | machine remove NAME | machine ca
   linkos-beacon ssh pause | ssh resume | ssh status
                                               stop or allow agents' access to machines
+  linkos-beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
+                                              stop notifying alerts with these labels (or -alert GROUP_ID)
+  linkos-beacon silence list | silence expire ID
   linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
   linkos-beacon drill fail 15m | drill off | drill status
@@ -117,6 +122,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return machine(args[1:], stdout, stderr)
 	case "ssh":
 		return sshCmd(args[1:], stdout, stderr)
+	case "silence":
+		return silenceCmd(args[1:], stdout, stderr)
 	case "healthcheck":
 		return healthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -339,12 +346,15 @@ func serve(args []string, stderr io.Writer) int {
 		}
 		socket := http.NewServeMux()
 		socket.Handle("/v1/config/", ctl.ConfigHandler(cdb))
+		silences := ctl.SilenceHandler(br)
+		socket.Handle("/v1/silences", silences)
+		socket.Handle("/v1/silences/", silences)
 		socket.Handle("/", ctl.Handler(st, active, machines))
 		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()
 		defer func() { _ = cs.Close() }()
 	} else if !errors.Is(err, errors.ErrUnsupported) {
-		log.Warn("admin socket unavailable; token and drill commands will not work", "err", err)
+		log.Warn("admin socket unavailable; token, machine, silence and drill commands will not work", "err", err)
 	}
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: server.Handler(sd), ReadHeaderTimeout: 10 * time.Second,

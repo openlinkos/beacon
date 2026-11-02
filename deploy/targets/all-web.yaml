@@ -1,0 +1,14 @@
+# What every probe location checks (the all- prefix; overseas-, mainland- and <location id>- narrow a set to
+# some locations). Each group needs module (a name in modules.yml) and service (what the result belongs to).
+# severity (critical, warning or info) becomes the alert's level; failure_domain names what fails together (one
+# origin, one cluster), so that Beacon can show related alerts side by side. Other labels reach the rules and
+# the cards. Add your own services here, or through the API, MCP or `config import`.
+# install.sh replaces status.example.com with the name in .env.
+
+# Beacon's own status host, through Caddy: the first target that has something to report
+- targets: [https://status.example.com/healthz]
+  labels: {module: http_get_200, service: beacon, severity: warning, failure_domain: monitoring}
+
+# A service of yours: replace it
+- targets: [https://example.com/]
+  labels: {module: http_head, service: example.com, severity: critical, failure_domain: origin-1}
