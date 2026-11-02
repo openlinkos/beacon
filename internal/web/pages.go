@@ -448,6 +448,16 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels) []eventRow {
 			if e.ID != "" {
 				row.Href, row.HrefText = s.signed(link.SessionPath(e.ID), a.Until), l.Replay
 			}
+		case "command": // one run at a shell's prompt, within its session
+			row.Text, row.Detail = s.t("%s ran a command on %s", e.By, e.Machine), e.Text
+			if x := s.exit(e.Exit); x != "" {
+				row.Detail += " (" + x + ")"
+			}
+			if e.ID != "" {
+				row.Href, row.HrefText = s.signed(link.SessionPath(e.ID), a.Until), l.Replay
+			}
+		case "heartbeat": // its last success, when the story began
+			row.Text, row.Detail = s.t("Heartbeat %s last succeeded", e.ID), e.Text
 		case "resolved":
 			row.Text = s.t("Alert resolved")
 		default:

@@ -187,6 +187,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Change by %s (%s)":                     "来自 %s 的变更（%s）",
 	"%s on %s":                              "%s 在 %s 上",
 	"Alert resolved":                        "告警恢复",
+	"%s ran a command on %s":                "%s 在 %s 上执行了一条命令",
+	"Heartbeat %s last succeeded":           "心跳 %s 最近一次成功",
 	// the console (internal/web): sign-in, the shell, its pages and forms
 	"the console":                   "控制台",
 	"%s revoked token %s via %s":    "%[1]s 经%[3]s吊销了令牌 %[2]s",

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
@@ -655,6 +656,24 @@ func TestFilter(t *testing.T) {
 	}
 	if kept, _ = filter(e.srv, "/x", url.Values{"page": {"99"}}, items[:3], facets, nil); len(kept) != 3 {
 		t.Errorf("a page past the end: %d", len(kept))
+	}
+}
+
+// TestTimelineKinds renders the timeline's kinds people read in words, the commands of a shell and a
+// heartbeat's last success among them.
+func TestTimelineKinds(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	one := 1
+	tl := bridge.Timeline{Events: []bridge.Event{
+		{At: e.now, Kind: "command", By: "claude-code", Machine: "edge-1", Text: "systemctl restart relay", ID: sessionID, Exit: &one},
+		{At: e.now, Kind: "heartbeat", ID: "backup", Text: "the nightly backup"},
+	}}
+	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels())
+	if rows[0].Text != "claude-code ran a command on edge-1" || rows[0].Detail != "systemctl restart relay (exit 1)" || !strings.HasPrefix(rows[0].Href, link.SessionPath(sessionID)+"?s=") {
+		t.Errorf("a command: %+v", rows[0])
+	}
+	if rows[1].Text != "Heartbeat backup last succeeded" || rows[1].Detail != "the nightly backup" {
+		t.Errorf("a heartbeat: %+v", rows[1])
 	}
 }
 
