@@ -1,0 +1,101 @@
+name: site
+
+# Builds the site under docs/ (beacon.openlinkos.com) into the image ghcr.io/openlinkos/beacon-site when it changes
+# on main. The build is VitePress on @openlinkos/vitepress-theme, and fails when a Chinese page falls behind its
+# English page or when the reference misses a route, an error code, a scope or an MCP tool (the ci workflow runs
+# the same build on every pull request). The image is nginx-unprivileged on port 8080, for linux/amd64 and
+# linux/arm64, with an SBOM and build provenance, tagged <UTC timestamp>-<short commit> (what a deployment's image
+# automation follows), sha-<short commit> and latest. A smoke test runs the image before it is pushed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      # The changelog page includes it, and the navigation shows its newest version.
+      - CHANGELOG.md
+      - .github/workflows/site.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: build and publish the site image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write       # ghcr.io/openlinkos/beacon-site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/openlinkos/beacon-site
+          tags: |
+            type=raw,value={{date 'YYYYMMDDHHmmss' tz='UTC'}}-{{sha}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=beacon-site
+            org.opencontainers.image.description=The site of Beacon, infrastructure for AI agents that run operations.
+            org.opencontainers.image.url=https://beacon.openlinkos.com
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: build for the smoke test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docs/Dockerfile
+          load: true
+          tags: beacon-site:test
+      - name: smoke test
+        run: |
+          set -euo pipefail
+          docker run -d --name site -p 8080:8080 beacon-site:test
+          s=http://localhost:8080
+          for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
+          curl -fsS "$s/" | grep -q 'Infrastructure for AI agents that run operations'
+          curl -fsS "$s/zh/" | grep -q 'lang="zh-CN"'
+          curl -fsS "$s/install" | grep -q 'Up in 30 minutes'
+          curl -fsS "$s/reference/api" | grep -q 'auth.scope'
+          curl -fsS "$s/reference/mcp" | grep -q 'probe_now'
+          curl -fsS "$s/changelog" | grep -q 'Changelog'
+          curl -fsS "$s/zh/changelog" | grep -q 'lang="zh-CN"'
+          curl -fsS "$s/zh/architecture" | grep -q 'lang="zh-CN"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$s/no-such-page")" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$s/zh/no-such-page")" = 404
+          curl -fsSI "$s/" | grep -qi '^cache-control: no-cache'
+          # brand assets, metadata and language detection from @openlinkos/vitepress-theme
+          curl -fsS -o /dev/null "$s/favicon.ico"
+          curl -fsS "$s/site.webmanifest" | grep -q '"icons"'
+          curl -fsS "$s/robots.txt" | grep -q 'Sitemap: https://beacon.openlinkos.com/sitemap.xml'
+          curl -fsS "$s/sitemap.xml" | grep -q 'hreflang="x-default"'
+          curl -fsS "$s/.well-known/security.txt" | grep -q '^Contact:'
+          curl -fsS "$s/" | grep -q 'hreflang="zh-CN"'
+          curl -fsS "$s/" | grep -q 'id="openlinkos-lang"'
+          docker rm -f site
+
+      - name: build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docs/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true

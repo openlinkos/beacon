@@ -1,5 +1,5 @@
-# Dependency updates: Go modules, GitHub Actions (pinned by commit SHA), the image's base image (pinned by
-# digest).
+# Dependency updates: Go modules, GitHub Actions (pinned by commit SHA), the images' base images (pinned by
+# digest), and the site's npm packages.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -20,3 +20,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # the site image (docs/Dockerfile)
+  - package-ecosystem: docker
+    directory: /docs
+    schedule:
+      interval: weekly
+  # the site (docs/package.json); the shared theme is released on its own schedule, so it is reviewed on its own
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      openlinkos:
+        patterns: ["@openlinkos/*"]
+      site:
+        patterns: ["*"]
+        exclude-patterns: ["@openlinkos/*"]

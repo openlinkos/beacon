@@ -1,6 +1,8 @@
-# 目录、检测目标和检测模块
+---
+sourceHash: sha256-b367db0b
+---
 
-[English](../catalog.md) | 简体中文
+# 目录、检测目标和检测模块
 
 Beacon 监控什么，存在它自己的数据库里：目录（检测点、心跳、会到期的资源）、检测目标和检测模块。人和 Agent 通过 API、MCP 和命令行修改。每次修改都按文件一贯的规则校验，立即生效（不需要重载），并作为一个版本记进历史：谁、什么时候、经什么、为什么改的，都可以查，也可以撤销。文件只用来导入和导出，目录结构和部署一直以来的一样，所以部署仍然可以把它们放在 git 里。
 
@@ -12,9 +14,9 @@ Beacon 监控什么，存在它自己的数据库里：目录（检测点、心�
 
 本节之后各节用 YAML 给出每一项的写法，和文件里一样；API 和 MCP 收发的是同样结构的 JSON。目录可以拆成多个文件，各列表会合并。
 
-## 修改
+## 修改 {#changing-it}
 
-### 通过 API 和 MCP
+### 通过 API 和 MCP {#through-the-api-and-mcp}
 
 读取需要 `status:read`（或 `config:write`），修改需要 `config:write` 作用域。每一项都按它在文件里的结构读写：
 
@@ -30,7 +32,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），说明见 [internal/api/openapi.yaml](../../internal/api/openapi.yaml)。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/linkos-agent/secrets`，`linkos-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
+路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），列在 [API 参考](reference/api.md)里，完整说明见 `internal/api/openapi.yaml`。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/linkos-agent/secrets`，`linkos-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
 
 修改可以说明它基于哪个版本：`PUT` 和 `DELETE` 加 `?if_version=12`，`put_config` 和 `delete_config` 加 `if_version`，值是 `GET /api/v1/config`（`get_config`）返回的版本号。已有更新的版本生效时，修改被拒绝，返回 `config.conflict` 并指出生效的版本，什么都不变：重新读一遍再做决定。Agent 先读配置、再思考、然后写入时带上它，就不会覆盖别人在这期间改的东西。
 
@@ -40,13 +42,13 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
   -d '{"max_age": "30h", "severity": "warning", "description": "Nightly backup of the NAS"}'
 ```
 
-### 历史与撤销
+### 历史与撤销 {#history-and-revert}
 
 `GET /api/v1/config/history`（MCP `list_config_changes`，命令行 `linkos-beacon config history`）按从新到旧列出修改：版本号、时间、谁、经什么（`api`、`mcp`、`cli`；服务自己导入文件时是 `start` 和 `signal`）、做了什么（`put`、`delete`、`import`、`revert`）、新增、修改或删除了哪些项，以及备注。用 `kind` 和 `key` 只看某一项。`GET /api/v1/config/history/{version}`（`get_config_change`）给出每一项改前和改后的值。
 
 `POST /api/v1/config/history/{version}/revert`（`revert_config_change`，`linkos-beacon config revert VERSION`）把一次修改撤销成一次新的修改：它动过的每一项都恢复成改前的值。如果之后又有修改动过其中某项，撤销会被拒绝，返回 `config.conflict` 并指出那次修改；先撤销那次，或者直接写入想要的值。最近的 10,000 次修改会保留。
 
-### 导入与导出
+### 导入与导出 {#import-and-export}
 
 ```bash
 docker exec linkos-beacon linkos-beacon config import /srv/ops/beacon -dry-run   # 看看会改什么
@@ -56,7 +58,7 @@ docker exec linkos-beacon linkos-beacon config export /srv/ops/beacon
 
 目录结构同上：`catalog/*.yaml`、`targets/*.yaml` 和 `targets/modules.yml`。导入把这些文件作为完整的配置，算一次修改：文件里没有的项会被删除；文件通不过校验时什么都不变。导出把目录写成 `catalog/locations.yaml`、`heartbeats.yaml` 和 `resources.yaml`，每个检测目标组写成 `targets/<组名>.yaml`，模块文件原样写出，并删掉这两个目录里其余的 `*.yaml` 文件（配置里没有模块文件时也删掉 `modules.yml`），这样再导入这个目录什么都不会变。来回导入导出内容不丢；目录和检测目标文件里的注释和排版不保留，列表按 id 和名字排序。模块文件按导入时的样子保存，注释也在，检测点拿到的逐字节相同。
 
-### 启动时和收到 SIGHUP 时的文件
+### 启动时和收到 SIGHUP 时的文件 {#the-files-at-start-and-on-sighup}
 
 数据库里还没有配置时，第一次启动会导入配置里指定的文件（`catalog_dir`、`gateway.targets_dir`、`gateway.modules_file`）并记日志；文件通不过校验就不启动，和以前一样。此后以数据库为准，只在要求时才读文件：
 
@@ -65,7 +67,7 @@ docker exec linkos-beacon linkos-beacon config export /srv/ops/beacon
 
 `linkos-beacon check-config` 会校验存在的文件和数据库里的配置：服务在运行并在 socket 上应答时问服务，否则直接读数据库文件。
 
-## 检测点
+## 检测点 {#locations}
 
 检测点是一台跑 `linkos-probe agent` 的机器。它的令牌来自 `linkos-beacon enroll probe <id>`，网关给它写入的所有数据加上 `location`、`region`、`network`、`host` 标签，检测点冒充不了别的检测点。
 
@@ -96,7 +98,7 @@ locations:
 
 Beacon 为每个现在应在线的检测点导出 `linkos_expected_location{location, region, network}`，规则据此发现不再上报的检测点。
 
-## 心跳
+## 心跳 {#heartbeats}
 
 必须至少每隔 `max_age` 成功上报一次的任务：备份、定时任务。装了 agent 的机器，任务往它的 textfile 目录写一行（`/var/lib/linkos-agent/textfile/heartbeat_<名字>.prom`，部署里的 `linkos-heartbeat` 脚本就是这么做的）；其他机器用 `linkos-beacon enroll heartbeat <名字>` 发的令牌推送：
 
@@ -119,7 +121,7 @@ heartbeats:
 
 导出为 `linkos_heartbeat_max_age_seconds{heartbeat, severity}`，心跳写了机器时还带 `machine`。规则按 `heartbeat` 和 `severity` 聚合，所以这个标签不会改变任何告警。
 
-## 资源
+## 资源 {#resources}
 
 会到期的东西。只写名字、类别和日期，不写价格。
 
@@ -131,7 +133,7 @@ resources:
 
 `kind` 是 `vps`、`domain`、`cert`、`token` 或 `service`。导出为 `linkos_resource_expiry_timestamp_seconds{resource, kind}`。和检测点同名的 `vps` 同时决定这个检测点的期限（见上）。
 
-## 检测目标
+## 检测目标 {#targets}
 
 检测目标分成有名字的组，每组是一个列表，格式和 Prometheus 的文件服务发现一样；写成文件时，每组是检测目标目录里的一个文件，文件名就是组名加 `.yaml`。每一项都要有标签 `module`（模块文件里的名字）和 `service`（结果属于哪个服务）；其他标签原样保留，规则和卡片都能用。
 
@@ -150,7 +152,7 @@ resources:
 
 其他名字会被拒绝。检测点下次拉取（一分钟内）就会拿到修改，不用重载，也不用重新部署检测点。
 
-## 检测模块
+## 检测模块 {#modules}
 
 下表这些部分的写法和 [Blackbox Exporter 的模块文件](https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md) 一样，现有的模块照样能用；另有三种 Beacon 自己的检测方式。结果用 Blackbox Exporter 的指标名（`probe_success`、`probe_duration_seconds`、`probe_http_status_code`、`probe_ssl_earliest_cert_expiry` 等），失败时还会说明原因：`probe_failure_info{reason}`，值是 `dns`、`connect`、`timeout`、`tls`、`not_ssl`、`http_status`、`body`、`banner`、`protocol`、`auth`、`manifest` 或 `config`。
 

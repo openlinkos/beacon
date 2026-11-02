@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement or a change to the design.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Beacon's [goals](https://beacon.openlinkos.com/goals) say what it is for, what it will not do (an approval workflow, a log platform, calling a model, among others), and how to choose when goals pull apart. Every change serves one of them.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you or your agents trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you would like Beacon to do. For agents, say which tool or protocol they would use (ssh, the shell, HTTP with JSON, Prometheus queries, MCP).
+    validations:
+      required: true
+  - type: dropdown
+    id: goal
+    attributes:
+      label: The goal it serves
+      options:
+        - 1. Sees (monitoring)
+        - 2. Reaches (the SSH channel)
+        - 3. Connects (the platform)
+        - 4. Close to how agents work
+        - 5. Visibility instead of approval
+        - 6. Credentials stay in Beacon
+        - 7. Configured through Beacon
+        - 8. Small
+        - 9. Open
+        - 10. Hostable without a fork
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Design notes
+      description: Optional. Does it touch a guardrail (no alert lost, no credential leaked, nothing done without a record), the probe protocol shared across versions, or the list of what Beacon will not do?

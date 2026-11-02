@@ -1,7 +1,5 @@
 # Agents and alerts
 
-English | [简体中文](zh/agents.md)
-
 When an alert fires, Beacon can wake an agent, hand it the evidence in one call, put the notes it leaves on the alert's card, and keep one timeline of everything that happened. Beacon calls no model and decides nothing for the agent: it wakes it, answers its questions and records what it does. Whatever runs the agent (a small server of your own, a GitHub workflow with Claude Code or Codex in it) is the agent's harness, not part of Beacon.
 
 ## Wake an agent

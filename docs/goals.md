@@ -1,7 +1,5 @@
 # Goals
 
-English | [简体中文](zh/goals.md)
-
 What Beacon is for, what it will not do, and how to choose when goals pull apart. Every change should serve one of these goals; say which when you plan one.
 
 ## North star

@@ -1,0 +1,28 @@
+{
+  "name": "@openlinkos/beacon-site",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The site of Beacon, infrastructure for AI agents that run operations: beacon.openlinkos.com.",
+  "license": "Apache-2.0",
+  "author": "OpenLinkOS",
+  "homepage": "https://beacon.openlinkos.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openlinkos/beacon.git",
+    "directory": "docs"
+  },
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=22.16"
+  },
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "@openlinkos/vitepress-theme": "0.6.1",
+    "vitepress": "1.6.4"
+  }
+}

@@ -55,6 +55,32 @@ jobs:
       - name: zizmor
         run: pipx run zizmor==1.31.1 --min-severity medium .github/workflows
 
+  # The site under docs/ (beacon.openlinkos.com): the build fails when a Chinese page falls behind its English page
+  # (the theme's bilingual coverage check), when the reference misses a route, an error code, a scope or an MCP
+  # tool the code has, or on a dead link. It runs on every change, since a change to the API alone can fail it.
+  docs:
+    name: docs site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: docs/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: build the site
+        run: pnpm build
+
   build:
     runs-on: ubuntu-latest
     strategy:

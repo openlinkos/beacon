@@ -1,7 +1,5 @@
 # The SSH channel
 
-English | [简体中文](zh/ssh.md)
-
 Agents reach machines through Beacon: with their own `ssh`, `scp`, `sftp`, `rsync` and `ssh -L`, or with the MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`). An agent never holds a password or a key for a machine. Beacon signs a certificate valid for five minutes for each connection, and the machine trusts only Beacon's certificate authority. Every session is recorded for replay, with an interactive shell broken down into its commands and their exit statuses, and echoed to the alert chat.
 
 Beacon does not review commands: deciding what to run is the agent's job, done by its own harness. People see everything and can pause the channel.

@@ -1,7 +1,5 @@
 # Setting up the Feishu app
 
-English | [简体中文](zh/feishu.md)
-
 Beacon sends alert cards through a Feishu (or Lark) **self-built app** and receives button clicks from it. A group's custom bot cannot do this: its messages have no callbacks and cannot be updated. The custom bot is still useful alongside the app, for plain messages that cost no API quota.
 
 Create two apps, one for production and one for testing (for example "Beacon" and "Beacon Dev"): Feishu hands each callback to one connection only, so a test instance using the production app would take clicks away from production.
