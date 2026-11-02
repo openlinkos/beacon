@@ -290,10 +290,9 @@ var (
 // TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
 const TokenPrefix = "lbt_"
 
-// secretBytes is the random part of a secret: 17 bytes (136 bits), 28 base32 characters after the
-// prefix, 32 in all. Short enough for the secret fields of bot platforms, which cut long values;
-// long enough for anyone (a UUID has 122 bits).
-const secretBytes = 17
+// secretBytes is the random part of a secret: 32 bytes (256 bits), 52 base32 characters after the
+// prefix, 56 in all.
+const secretBytes = 32
 
 // newSecret makes a secret: the prefix, then the random bytes in lower-case base32 without padding.
 func newSecret() (string, error) {

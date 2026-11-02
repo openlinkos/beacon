@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.6 (2026-11-02)
+
+- Tokens are 56 characters again, as before rc.5: the secret field that seemed to cut them did not.
+
 ### rc.5 (2026-11-02)
 
 - Tokens are 32 characters (`lbt_` and 17 random bytes in base32, 136 bits), down from 56: bot platforms' secret fields cut long values. Tokens issued before keep working.

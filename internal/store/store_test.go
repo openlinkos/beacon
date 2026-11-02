@@ -49,7 +49,7 @@ func TestTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(secret, TokenPrefix) || len(secret) != 32 || tok.Hash == secret {
+	if !strings.HasPrefix(secret, TokenPrefix) || len(secret) != 56 || tok.Hash == secret {
 		t.Fatalf("secret %q, token %+v", secret, tok)
 	}
 	if _, _, err := s.CreateToken("claude-code", []string{"status:read"}, time.Hour, ""); err == nil {
