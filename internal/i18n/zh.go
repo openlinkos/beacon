@@ -94,4 +94,7 @@ var zh = map[string]string{
 	"target set":                                                         "检测目标组",
 	"module":                                                             "检测模块",
 	"the command line":                                                   "命令行",
+	// machines behind NAT, connected out to the SSH channel
+	"%s set the connector key of machine %s":                             "%s 设置了机器 %s 的连接器密钥",
+	"Beacon pinned the host key of machine %s through its connector: %s": "Beacon 经机器 %s 的连接器固定了它的主机密钥：%s",
 }

@@ -7,7 +7,7 @@
 //	linkos-beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
 //	linkos-beacon token list | token revoke NAME
 //	linkos-beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
-//	linkos-beacon machine add NAME HOST[:PORT] | machine list | machine remove NAME | machine ca
+//	linkos-beacon machine add NAME HOST[:PORT]|connector | machine connector NAME -key KEY | machine list | machine remove NAME | machine ca
 //	linkos-beacon ssh pause | ssh resume | ssh status
 //	linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
 //	linkos-beacon drill fail 15m | drill off | drill status
@@ -75,6 +75,10 @@ func usage(w io.Writer) {
   linkos-beacon token machines NAME a,b|all
   linkos-beacon machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]
                                               pin a machine's host key; prints what the machine needs
+  linkos-beacon machine add NAME connector -key KEY|@FILE [-host-key KEY|@FILE] [...]
+                                              a machine behind NAT, which connects out with ssh -R
+  linkos-beacon machine connector NAME -key KEY|@FILE
+                                              set or change the key it connects out with
   linkos-beacon machine list | machine remove NAME | machine ca
   linkos-beacon ssh pause | ssh resume | ssh status
                                               stop or allow agents' access to machines

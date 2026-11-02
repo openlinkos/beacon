@@ -51,7 +51,8 @@ func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, m *metrics
 		lang = i18n.EN
 	}
 	return sshgate.New(sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
-		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log})
+		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log,
+		PublicAddress: cfg.SSH.PublicAddress})
 }
 
 // keyArg is a public key given on the command line, or @FILE to read it from a file.
@@ -93,22 +94,37 @@ func machine(args []string, stdout, stderr io.Writer) int {
 		critical := fs.Bool("critical", false, "mark the machine critical, for whoever works on it")
 		note := fs.String("note", "", "what the machine is")
 		replace := fs.Bool("replace", false, "pin the host key of a machine that is added already again")
+		key := fs.String("key", "", "connector machines: the public key the machine connects out with (an authorized_keys line), or @FILE")
+		hostKey := fs.String("host-key", "", "connector machines: the machine's host key (its /etc/ssh/ssh_host_ed25519_key.pub), or @FILE; learned at its first connection otherwise")
 		pos, ok := positional(fs, args[1:])
 		if !ok {
 			return 2
 		}
 		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]")
+			fmt.Fprintln(stderr, "machine add NAME HOST[:PORT]|connector [-user beacon] [-critical] [-note TEXT] [-replace] [-key KEY|@FILE] [-host-key KEY|@FILE]")
 			return 2
+		}
+		ck, err := keyArg(*key)
+		if err == nil {
+			*hostKey, err = keyArg(*hostKey)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
 		}
 		c, ok := dial(stderr)
 		if !ok {
 			return 1
 		}
-		a, err := c.AddMachine(ctx, sshgate.MachineInput{Name: pos[0], Address: pos[1], User: *user, Critical: *critical, Note: *note, Replace: *replace})
+		a, err := c.AddMachine(ctx, sshgate.MachineInput{Name: pos[0], Address: pos[1], User: *user, Critical: *critical, Note: *note, Replace: *replace,
+			ConnectorKey: ck, HostKey: *hostKey})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
+		}
+		if a.Connector != nil {
+			printConnector(stdout, a)
+			return 0
 		}
 		fmt.Fprintf(stdout, "added %s at %s as %s; its host key is %s\n", a.Machine.Name, a.Machine.Address, a.Machine.User, a.Machine.HostKey)
 		fmt.Fprintf(stdout, "On the machine, as root, if not done yet:\n"+
@@ -116,6 +132,34 @@ func machine(args []string, stdout, stderr io.Writer) int {
 			"  echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf\n"+
 			"  id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n"+
 			"  systemctl reload ssh\n(see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)\n", a.TrustedUserCAKey, a.Machine.User, a.Machine.User)
+		return 0
+	case "connector":
+		fs := flag.NewFlagSet("machine connector", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		key := fs.String("key", "", "the public key the machine connects out with (an authorized_keys line), or @FILE")
+		pos, ok := positional(fs, args[1:])
+		if !ok {
+			return 2
+		}
+		if len(pos) != 1 || *key == "" {
+			fmt.Fprintln(stderr, "machine connector NAME -key KEY|@FILE")
+			return 2
+		}
+		k, err := keyArg(*key)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		c, ok := dial(stderr)
+		if !ok {
+			return 1
+		}
+		v, err := c.SetMachineConnector(ctx, pos[0], k)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "machine %s connects out with the key %s; %s\n", v.Name, fingerprintOf(k), connectedText(v))
 		return 0
 	case "list":
 		c, ok := dial(stderr)
@@ -130,11 +174,17 @@ func machine(args []string, stdout, stderr io.Writer) int {
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "NAME\tADDRESS\tUSER\tHOST KEY\tADDED\tNOTE")
 		for _, m := range l.Machines {
-			name := m.Name
+			name, addr, hk := m.Name, m.Address, m.HostKey
 			if m.Critical {
 				name += " (critical)"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", name, m.Address, m.User, m.HostKey, m.Added.Local().Format(time.DateOnly), m.Note)
+			if m.Connector {
+				addr += " (" + connectedText(m) + ")"
+				if hk == "" {
+					hk = "(learned at its first connection)"
+				}
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", name, addr, m.User, hk, m.Added.Local().Format(time.DateOnly), m.Note)
 		}
 		_ = tw.Flush()
 		return 0
@@ -172,6 +222,36 @@ func machine(args []string, stdout, stderr io.Writer) int {
 	}
 	usage(stderr)
 	return 2
+}
+
+// connectedText says whether a connector machine is connected, and since when.
+func connectedText(m sshgate.MachineView) string {
+	if m.Connected == nil || !*m.Connected {
+		return "disconnected"
+	}
+	return "connected since " + m.ConnectedSince.Local().Format(time.DateTime)
+}
+
+// fingerprintOf is the SHA256 fingerprint of a public key line, or the line itself when it does not parse.
+func fingerprintOf(line string) string {
+	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+	if err != nil {
+		return line
+	}
+	return ssh.FingerprintSHA256(k)
+}
+
+// printConnector prints what a machine behind NAT needs on its side.
+func printConnector(stdout io.Writer, a sshgate.Added) {
+	hk := "its host key is " + a.Machine.HostKey
+	if a.Connector.HostKeyPending {
+		hk = "its host key will be pinned when it first connects (the audit log and the chat will say so; -host-key pins it now)"
+	}
+	fmt.Fprintf(stdout, "added %s as a connector machine (user %s): it connects out to Beacon with ssh -R; %s\n", a.Machine.Name, a.Machine.User, hk)
+	fmt.Fprintf(stdout, "On the machine, as root (idempotent; see docs/ssh.md, Machines behind NAT):\n")
+	for _, line := range strings.Split(strings.TrimRight(a.Connector.Script, "\n"), "\n") {
+		fmt.Fprintf(stdout, "  %s\n", line)
+	}
 }
 
 func sshCmd(args []string, stdout, stderr io.Writer) int {

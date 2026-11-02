@@ -55,7 +55,39 @@ systemctl reload ssh
 - **机器本身也留一份执行记录**（可选）：sshd 日志里的证书 ID（「ID beacon 20261101-091724-aa8bba for claude-code via ssh」）写明了是哪次会话；再加一条 auditd 规则，比如 `-a always,exit -F arch=b64 -S execve -F auid>=1000 -k beacon`，它启动的每个程序都会记下来，脚本里的也一样。
 - 重装后用 `machine add … -replace` 重新固定主机密钥；`machine remove NAME` 移除机器（它的会话记录保留）；`machine list` 列出所有机器。
 
-Beacon 连不进去的 NAT 后面的机器暂不支持；计划做一个主动连出的小程序。
+Beacon 连不进去的机器反过来添加：见[NAT 后面的机器](#nat-后面的机器)。
+
+## NAT 后面的机器
+
+Beacon 够不到的机器（在 NAT 后面、只许出不许进的防火墙后面、家里的一台盒子）自己连出来到通道上，用它已经有的 OpenSSH 客户端，Beacon 再经这条连接到达它的 sshd。机器上不用装任何东西。
+
+**原理。**机器运行 `ssh -N -R 0:localhost:22 edge-9@ssh.example.com -p 17002`，用一把专用密钥，以自己的身份登录：用户名就是机器名，和 Agent 指定目标的方式一样。Beacon 靠匹配到的密钥分辨机器的连接和 Agent 的连接：机器的连接器密钥登记在机器的记录上，Agent 的密钥登记在它的令牌上。连接器连接只能做一件事：申请这一个远程转发并保持心跳；不能开会话，不能开其他通道，不能发其他请求；每台机器一条连接，最新的那条生效。Beacon 不为这个转发监听任何端口（它回报的端口号只是一个标签）。Agent 指向这台机器时，Beacon 经这条连接反向打开一个通道，到机器自己转发的那个地址，并在上面照常握手：固定的主机密钥、5 分钟有效的证书。其他一切和普通机器一样：`ssh`、`scp`、`sftp`、`rsync`、`ssh -L`、MCP 工具、录制、暂停开关。
+
+**添加。**在机器上以 root 生成它连出用的密钥，然后在 Beacon 上登记：
+
+```bash
+ssh-keygen -t ed25519 -N '' -C 'beacon connector edge-9' -f /etc/ssh/beacon_connect_key   # 在机器上
+docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat /etc/ssh/beacon_connect_key.pub)" -note "办公室 NAS"
+```
+
+`machine add` 会打印一段给机器用的脚本：和普通机器一样的 CA 与 `beacon` 账号，再加上 Beacon 通道的 `known_hosts` 行（它在 `ssh.public_address` 上的主机密钥）、一个拥有这把密钥的系统用户 `beacon-connector`，以及 systemd 单元 `beacon-connector.service`，带 `Restart=always`、`ServerAliveInterval=30` 和 `ExitOnForwardFailure=yes`。`add_machine`（`address: connector`、`connector_key`）和 `POST /api/v1/machines` 返回同样的内容：`connector.script`、`connector.command`、`connector.unit`。打印的命令转发到 22 端口；机器的 sshd 监听别的端口时改一下即可。
+
+- `machine connector NAME -key …`（`set_machine_connector`、`PUT /api/v1/machines/{name}/connector`）设置或更换密钥；用旧密钥建立的连接会被关闭，机器用新密钥重连。机器可以先不带 `-key` 添加，之后再给。`machine add … -replace` 不带 `-key` 时保留原密钥。
+- **机器的主机密钥**和其他机器一样要固定。用 `-host-key "$(cat /etc/ssh/ssh_host_ed25519_key.pub)"` 给出，或者让 Beacon 在机器第一次连上来时学习：Beacon 向转发后面的 sshd 要它的密钥，固定下来，在审计日志里写一条带指纹的 `machine_host_key`，并告诉告警群。学习意味着信任这第一次连接，而它是用你装在机器上的密钥登录的；什么都不想信任，就传 `-host-key`。重装之后，`machine add NAME connector -replace` 会重新学习（或者接受 `-host-key`）。
+- 机器的 sshd 看到每个会话都来自它自己（`127.0.0.1` 或 `::1`）：打印的配置里加了 `PerSourcePenaltyExemptList 127.0.0.1,::1`，Beacon 给这类机器签的证书在 `ssh.source_addresses` 之外也允许这两个来源。sshd 的日志照样用证书的 key ID 标出每次会话。
+
+**Beacon 保证什么。**
+
+- Beacon 只连到机器自己转发的那个地址，从不连它自己选的地址。
+- 连接器密钥只能以它自己那台机器的身份登录，不能开会话，不能转发自己的端口，也不能持有令牌；令牌的密钥登记不了转发。令牌持有的密钥不能成为连接器密钥。
+- 暂停开关关闭经连接器中转的会话，和其他会话一样；机器自己的连接保留，所以通道一恢复机器就能用。
+- `machine list`、`list_machines` 和 `GET /api/v1/machines` 显示 `connector: true`、`connected` 和 `connected_since`。连接器没连上的机器会立刻失败：API 和 MCP 返回 `machine.disconnected`，Agent 的 ssh 看到 `beacon: the machine's connector is not connected`。连上、断开和替换都写日志，不回显到群里；gauge `linkos_beacon_ssh_connectors` 是当前连着的连接器数，`linkos_beacon_ssh_connector_machines` 是添加为连接器的机器数，两者不等时可以触发规则。
+
+**限制。**
+
+- 每台机器一条连接。最新的生效；Beacon 重启会断掉全部连接，`Restart=always` 几秒内把它们带回来，期间机器是 `disconnected`。
+- 两跳：Agent 到 Beacon，Beacon 经机器自己建立的那条连接到机器，这台机器的所有会话都走这一条。延迟是两跳之和；吞吐量就是这一条连接的吞吐量。
+- Beacon 自己的心跳会关闭 90 秒不应答的连接；掉线的机器在此之后显示为断开，恢复后自动重连。
 
 ## 给 Agent 权限
 
@@ -78,7 +110,7 @@ docker exec linkos-beacon linkos-beacon token create claude-code \
 | `write_file` | 写整个文件，最大 1 MiB，目录不存在时自动创建 |
 | `edit_file` | 精确替换一段文字，一处或全部；文件在这期间被改过就拒绝 |
 | `list_sessions`、`get_session` | 谁在哪里做了什么；某次会话的记录 |
-| `add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh` | 需要 `machines:write` |
+| `add_machine`、`set_machine_connector`、`remove_machine`、`pause_ssh`、`resume_ssh` | 需要 `machines:write` |
 
 REST API 在 `/api/v1/machines`、`/api/v1/sessions` 和 `/api/v1/ssh` 下提供同样的操作。
 
@@ -111,4 +143,4 @@ Host edge-1
 ## 不做什么
 
 - 不审核命令，也不会自己执行任何东西：每次会话都是 Agent 发起的。
-- 不传递客户端的环境变量（用机器自己的语言环境和设置），不支持远程端口转发（`ssh -R`）、Agent 转发和 X11。
+- 不传递客户端的环境变量（用机器自己的语言环境和设置），不给 Agent 做远程端口转发（`ssh -R` 是 NAT 后面的机器连出来的方式，不是 Agent 的）、不支持 Agent 转发和 X11。

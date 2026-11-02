@@ -146,6 +146,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/sessions", s.with("status:read|machines:ssh", s.listSessions))
 	mux.Handle("GET /api/v1/sessions/{id}", s.with("sessions:read|machines:ssh", s.getSession))
 	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
+	mux.Handle("PUT /api/v1/machines/{name}/connector", s.with("machines:write", s.setConnector))
 }
 
 // Routes lists the authenticated routes, for the test that keeps the OpenAPI description in step.
@@ -157,6 +158,7 @@ var Routes = []string{
 	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
 	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
 	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",
+	"PUT /api/v1/machines/{name}/connector",
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, who bridge.Actor)

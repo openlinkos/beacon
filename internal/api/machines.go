@@ -36,6 +36,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrAmbiguous, http.StatusUnprocessableEntity, "edit.ambiguous"},
 		{sshgate.ErrNoSession, http.StatusNotFound, "session.not_found"},
 		{sshgate.ErrBadInput, http.StatusBadRequest, "bad_input"},
+		{sshgate.ErrDisconnected, http.StatusBadGateway, "machine.disconnected"},
 	} {
 		if errors.Is(err, e.err) {
 			writeError(w, e.status, e.code, err.Error())
@@ -104,6 +105,22 @@ func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request, who bridg
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setConnector sets or changes the key a machine behind NAT connects out to the channel with.
+func (s *Server) setConnector(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	var in struct {
+		Key string `json:"key"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	v, err := s.SSH.SetConnector(r.Context(), gateActor(who), r.PathValue("name"), in.Key)
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) runCommand(w http.ResponseWriter, r *http.Request, who bridge.Actor) {

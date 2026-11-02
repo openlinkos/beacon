@@ -158,15 +158,21 @@ type (
 		ID string `json:"id" jsonschema:"the session id, as a tool result or list_sessions gives it"`
 	}
 	addIn struct {
-		Name     string `json:"name" jsonschema:"the machine's host name: lower case letters, digits and dashes"`
-		Address  string `json:"address" jsonschema:"host or host:port that Beacon connects to; port 22 by default"`
-		User     string `json:"user,omitempty" jsonschema:"the account on the machine; default beacon"`
-		Critical bool   `json:"critical,omitempty" jsonschema:"whether the machine is critical, for whoever works on it"`
-		Note     string `json:"note,omitempty" jsonschema:"what the machine is"`
-		Replace  bool   `json:"replace,omitempty" jsonschema:"pin the host key again, after a reinstall"`
+		Name         string `json:"name" jsonschema:"the machine's host name: lower case letters, digits and dashes"`
+		Address      string `json:"address" jsonschema:"host or host:port that Beacon connects to (port 22 by default), or connector for a machine behind NAT that connects out to the channel itself"`
+		User         string `json:"user,omitempty" jsonschema:"the account on the machine; default beacon"`
+		Critical     bool   `json:"critical,omitempty" jsonschema:"whether the machine is critical, for whoever works on it"`
+		Note         string `json:"note,omitempty" jsonschema:"what the machine is"`
+		Replace      bool   `json:"replace,omitempty" jsonschema:"pin the host key again, after a reinstall"`
+		ConnectorKey string `json:"connector_key,omitempty" jsonschema:"connector machines: the public key the machine signs in with (an authorized_keys line); can be set later with set_machine_connector"`
+		HostKey      string `json:"host_key,omitempty" jsonschema:"connector machines: the machine's sshd host key (its /etc/ssh/ssh_host_ed25519_key.pub); left out, Beacon learns it when the connector first connects"`
 	}
 	nameIn struct {
 		Name string `json:"name" jsonschema:"the machine's name"`
+	}
+	connectorIn struct {
+		Name string `json:"name" jsonschema:"the machine's name; it must have been added with the address connector"`
+		Key  string `json:"key" jsonschema:"the public key the machine connects out with, an authorized_keys line (ssh-ed25519 AAAA...)"`
 	}
 )
 
@@ -381,14 +387,27 @@ func addMachineTools(s *mcp.Server, g SSH) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "add_machine", Title: "Add a machine",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(true)},
-		Description: "Add a machine to the SSH channel, pinning its host key. The machine must then trust Beacon's certificate authority: put the returned trusted_user_ca_key line in its TrustedUserCAKeys file."},
+		Description: "Add a machine to the SSH channel, pinning its host key. The machine must then trust Beacon's certificate authority: put the returned trusted_user_ca_key line in its TrustedUserCAKeys file. A machine behind NAT is added with the address connector and the key it connects out with; the result's connector.script is its whole setup."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in addIn) (*mcp.CallToolResult, sshgate.Added, error) {
 			who, err := gate(ctx, "machines:write")
 			if err != nil {
 				return nil, sshgate.Added{}, err
 			}
-			a, err := g.Gate.Add(ctx, who, sshgate.MachineInput{Name: in.Name, Address: in.Address, User: in.User, Critical: in.Critical, Note: in.Note, Replace: in.Replace})
+			a, err := g.Gate.Add(ctx, who, sshgate.MachineInput{Name: in.Name, Address: in.Address, User: in.User, Critical: in.Critical, Note: in.Note, Replace: in.Replace,
+				ConnectorKey: in.ConnectorKey, HostKey: in.HostKey})
 			return nil, a, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "set_machine_connector", Title: "Set a machine's connector key",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Set or change the key a machine behind NAT connects out to the channel with (one added with the address connector). A connection made with the old key is closed; the machine reconnects with the new one."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in connectorIn) (*mcp.CallToolResult, sshgate.MachineView, error) {
+			who, err := gate(ctx, "machines:write")
+			if err != nil {
+				return nil, sshgate.MachineView{}, err
+			}
+			v, err := g.Gate.SetConnector(ctx, who, in.Name, in.Key)
+			return nil, v, err
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "remove_machine", Title: "Remove a machine",

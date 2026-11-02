@@ -4,6 +4,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Machines behind NAT** (`docs/ssh.md`, Machines behind NAT): a machine Beacon cannot connect to connects out to the channel itself with plain OpenSSH (`ssh -N -R 0:localhost:22 NAME@beacon:17002`, a dedicated key, a systemd unit), and Beacon reaches its sshd through that connection; nothing is installed on the machine. Beacon tells a machine's connection from an agent's by the key: the connector key is registered on the machine, an agent's on its token. Such a connection may only ask for its one forward and keep alive; one per machine, the newest wins; Beacon binds no port and connects only to the address the machine itself forwarded, with the pinned host key and a certificate as always (its `source-address` also allows `127.0.0.1/32` and `::1/128` for such a machine, since its sshd sees the connection come from itself).
+  - CLI: `machine add NAME connector -key KEY|@FILE [-host-key KEY|@FILE]` prints the whole machine-side setup (CA, account, `known_hosts` line for the channel, the connector's user and key, the unit); `machine connector NAME -key …` sets or changes the key; `machine list` shows whether it is connected and since when. The host key is given with `-host-key` or learned the first time the machine connects, audited (`machine_host_key`) and echoed to the chat.
+  - `add_machine` and `POST /api/v1/machines` take `address: connector`, `connector_key` and `host_key` and return the setup as `connector`; new `set_machine_connector` and `PUT /api/v1/machines/{name}/connector`; machines carry `connector`, `connected`, `connected_since`. A machine whose connector is not connected fails fast with the new error code `machine.disconnected`.
+  - Gauges `linkos_beacon_ssh_connectors` (connected) and `linkos_beacon_ssh_connector_machines` (added); connects, disconnects and replacements are logged; key changes are audited (`machine_connector`).
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)
