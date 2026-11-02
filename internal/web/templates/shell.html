@@ -20,7 +20,8 @@
 </html>
 {{end}}
 
-{{define "mark"}}<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="4"/><circle cx="24" cy="24" r="9" fill="none" stroke="currentColor" stroke-width="3" class="ol-brand-accent-line"/><circle cx="24" cy="24" r="4" class="ol-brand-accent"/></svg>{{end}}
+{{/* Beacon's mark as the design system's brand source draws it now (a fire and its signal both ways), provisional with the accent: see static/beacon-brand.css. */}}
+{{define "mark"}}<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14.358 35.491A15 15 0 0 1 14.358 12.509" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><path d="M33.642 12.509A15 15 0 0 1 33.642 35.491" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><circle cx="24" cy="24" r="6" class="ol-brand-accent"/></svg>{{end}}
 
 {{define "app"}}<a class="ol-skip-link" href="#main">{{.S.Skip}}</a>
 <div class="ol-app ol-app-workbench">

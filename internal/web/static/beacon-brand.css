@@ -1,33 +1,32 @@
 /* PROVISIONAL: Beacon's accent for the design system's data-brand="beacon", until @openlinkos/ui
-   ships the brand itself. Delete this file then (and its link in templates/shell.html and its entry in
-   staticFiles), and run scripts/update-ui.sh.
+   ships the brand itself (0.6.1, vendored under ol/, does not have it yet). Delete this file then,
+   with its link in templates/shell.html and its entry in staticFiles, and run scripts/update-ui.sh.
 
-   The values are the design system's own scale generator (packages/ui/src/color.ts in
-   github.com/openlinkos/design, 0.6.1) run on one provisional solid, a warm beacon-fire orange,
-   #c2410c, in the shape of the brand blocks ui.css declares. White on the solid reaches 5.18:1. Known
-   gap, for the design system to settle when it adds the brand: as chart series 1, this accent stands
-   too close to series 8 (red) and series 2 (orange) for the palette's separation tests, so the
-   console draws no chart in series 1. */
+   The values are the brand block the design system generates for Beacon in its source
+   (github.com/openlinkos/design, brand/brands.json: a warm beacon-fire orange, solid #b84400, mark
+   #e55900 and #ff7728), in the shape of the brand blocks ui.css declares: the accent scale from its
+   OKLCH generator, and chart series 2 and 8 swapped to blue and teal, since the orange and red ones
+   stand too close to this accent. White on the solid reaches 5.4:1. */
 @layer ol.tokens {
   [data-brand="beacon"] {
-    --ol-palette-accent-1: light-dark(#fefdfd, #1d100d);
-    --ol-palette-accent-2: light-dark(#fef8f6, #23140f);
-    --ol-palette-accent-3: light-dark(#fcefeb, #401a0d);
-    --ol-palette-accent-4: light-dark(#fbe3dc, #551f0d);
-    --ol-palette-accent-5: light-dark(#f9d6ca, #662813);
-    --ol-palette-accent-6: light-dark(#f6c5b5, #75311b);
-    --ol-palette-accent-7: light-dark(#eeae9a, #863b23);
-    --ol-palette-accent-8: light-dark(#e09178, #9d4629);
-    --ol-palette-accent-9: #c2410c;
-    --ol-palette-accent-10: light-dark(#b53800, #cc562e);
-    --ol-palette-accent-11: light-dark(#ac3b0e, #f09f85);
-    --ol-palette-accent-12: light-dark(#512010, #fad9cf);
-    --ol-palette-accent-text-subtle: light-dark(#b53800, #df6840);
-    --ol-palette-accent-border-input: light-dark(#c4775f, #ae5538);
-    --ol-palette-accent-border-input-hover: light-dark(#b56a52, #bd6345);
+    --ol-palette-accent-1: light-dark(#fefdfd, #1c110d);
+    --ol-palette-accent-2: light-dark(#fef8f6, #22140f);
+    --ol-palette-accent-3: light-dark(#fbefeb, #3f1b0d);
+    --ol-palette-accent-4: light-dark(#fae4dc, #53220c);
+    --ol-palette-accent-5: light-dark(#f7d7ca, #632b13);
+    --ol-palette-accent-6: light-dark(#f4c6b5, #72341b);
+    --ol-palette-accent-7: light-dark(#eab09a, #833f23);
+    --ol-palette-accent-8: light-dark(#db9478, #994a29);
+    --ol-palette-accent-9: #b84400;
+    --ol-palette-accent-10: light-dark(#a93e00, #c25729);
+    --ol-palette-accent-11: light-dark(#a7410c, #eba285);
+    --ol-palette-accent-12: light-dark(#4f2210, #f8dacf);
+    --ol-palette-accent-text-subtle: light-dark(#a93e00, #db6d41);
+    --ol-palette-accent-border-input: light-dark(#bf7a5f, #a95837);
+    --ol-palette-accent-border-input-hover: light-dark(#b16d52, #b76544);
     --ol-palette-accent-on-solid: #ffffff;
-    --ol-palette-accent-mark: light-dark(#c2410c, #f09f85);
-    --ol-palette-accent-mark-inverse: #f09f85;
+    --ol-palette-accent-mark: light-dark(#e55900, #ff7728);
+    --ol-palette-accent-mark-inverse: #ff7728;
     --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
     --ol-color-selection: var(--ol-palette-accent-5);
     --ol-color-mark: var(--ol-palette-accent-mark);
@@ -43,5 +42,7 @@
     --ol-color-accent-text-strong: var(--ol-palette-accent-12);
     --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
     --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
+    --ol-color-series-2: light-dark(#2563eb, #3a74f1);
+    --ol-color-series-8: light-dark(#008e82, #31c3b5);
   }
 }
