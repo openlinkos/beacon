@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-20611daf
+sourceHash: sha256-f2dfcd09
 ---
 
 # SSH 通道
 
-Agent 要修服务器，就得登录服务器。通常的做法是把私钥或密码交给它，从此它能从任何地方登录这把密钥能进的每一台机器，执行了什么也没有任何记录。Beacon 的 SSH 通道反过来做：Agent 用登记在自己令牌上的密钥登录 Beacon；Beacon 检查这个令牌能不能连这台机器，再用它为这一次连接签发的证书（五分钟有效）连到机器上，并把整个会话录下来。机器只信任 Beacon 的 CA（签发证书的那把密钥），所以 Agent 手里从来没有机器的密钥或密码；要收回它的权限，吊销它的令牌或者暂停通道就行。
+Agent 要修服务器，就得登录服务器。通常的做法是把私钥或密码交给它，从此它能从任何地方登录这把密钥能进的每一台机器，执行了什么也没有任何记录。Beacon 的 SSH 通道反过来做：Agent 用自己的密钥登录 Beacon，这把密钥登记在 Beacon 上；Beacon 检查这个 Agent 能不能连这台机器，再用它为这一次连接签发的证书（五分钟有效）连到机器上，并把整个会话录下来。机器只信任 Beacon 的 CA（签发证书的那把密钥），所以 Agent 手里从来没有机器的密钥或密码；要收回它的权限，吊销它的凭据或者暂停通道就行，它打开着的连接会立即关闭。
 
 这一页写给负责运行 Beacon、往里面添加机器的人。内容包括：打开通道、添加机器、给 Agent 权限、Agent 怎样用自己的 `ssh`、`scp`、`rsync` 或 Beacon 的 MCP 工具连上机器、记录了什么以及怎样回放、暂停、NAT 后面的机器，以及通道保证什么。
 
@@ -60,26 +60,28 @@ systemctl reload ssh
 
   要不要放得更宽，由团队决定；无论怎样，Beacon 都会记下做了什么。
 - **别让 OpenSSH 惩罚 Beacon 的地址。** OpenSSH 9.8 起，同一来源地址连接失败多了会被限制（`PerSourcePenalties`）。所有 Agent 都从 Beacon 的地址连过来，所以要在 `beacon.conf` 里加上 `PerSourcePenaltyExemptList 203.0.113.7`。
-- **在机器上也留一份执行记录**（可选）：sshd 日志里记着证书的 key ID（「ID beacon 20261101-091724-aa8bba for claude-code via ssh」），能对上是哪次会话；再加一条 auditd 规则，比如 `-a always,exit -F arch=b64 -S execve -F auid>=1000 -k beacon`，会话启动的每个程序都会被记下来，脚本里调用的也一样。
+- **在机器上也留一份执行记录**（可选）：sshd 日志里记着证书的 key ID（「ID beacon 20261101-091724-aa8bba for alice / claude-code via ssh」），能对上是哪次会话；再加一条 auditd 规则，比如 `-a always,exit -F arch=b64 -S execve -F auid>=1000 -k beacon`，会话启动的每个程序都会被记下来，脚本里调用的也一样。
 
 `machine list` 列出所有机器；重装系统后，用 `machine add … -replace` 重新固定主机密钥；`machine remove NAME` 移除一台机器，它的会话记录仍然保留。Beacon 连不进去的机器要反过来添加：见 [NAT 后面的机器](#machines-behind-nat)。
 
 ## 给 Agent 权限 {#give-an-agent-access}
 
-Agent 要连机器，令牌得有 `machines:ssh` 作用域。如果它要用自己的 ssh，令牌上还要带上它的公钥，也就是运行 Agent 的那台机器上的公钥：
+Agent 的预设是**值班**或**运维**（它们给 `machines:ssh`），并且它所有者的角色允许，Agent 才能连机器（[成员和 Agent](accounts.md)）。如果它要用自己的 ssh，Beacon 还需要它的公钥，也就是运行 Agent 的那台机器上的公钥。
+
+Claude Code 这样用 OAuth 登录的交互式 Agent 会自己登记公钥：对它说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`。它能连的机器，就是你在它登录时允许的那些。无界面的 Agent 在创建时带上公钥，可以在控制台的 **Agent** 页面创建，也可以在中心上：
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "ssh-ed25519 AAAA… agent@workstation"
+docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
+  -machines edge-1,edge-2 -ssh-key "ssh-ed25519 AAAA… agent@workstation"
 ```
 
-- `-machines edge-1,edge-2` 限定令牌能连的机器；`token machines NAME all` 取消限定。
-- 以后用 `token ssh-key NAME add KEY` 和 `token ssh-key NAME remove FINGERPRINT` 增删公钥。
-- 同一个令牌同时用于 MCP 工具、REST API 和 SSH 通道。
+- `-machines edge-1,edge-2` 限定 Agent 能连的机器；不给就是全部机器。以后在 Agent 的页面上修改它的机器和公钥，Agent 自己也可以用 `add_ssh_key` 和 `remove_ssh_key` 增删。
+- Agent 的凭据同时用于 MCP 工具、REST API 和 SSH 通道。
+- 不属于任何 Agent 的独立令牌（给熟手用的，由 `beacon token create NAME -scopes … -ssh-key KEY -machines a,b` 创建），公钥和机器都记在令牌上：用 `token ssh-key NAME add KEY`、`token ssh-key NAME remove FINGERPRINT` 和 `token machines NAME all` 修改。
 
 ## 用自己的 ssh、scp 和 rsync 连接 {#connect-with-your-own-ssh-scp-and-rsync}
 
-`list_machines`（MCP）或 `GET /api/v1/machines` 返回机器列表、令牌能否连每台机器，以及一段 `ssh_config` 和一行 `known_hosts`。把这段配置放进 `~/.ssh/config`，把那一行放进 `~/.ssh/known_hosts`：
+`list_machines`（MCP）或 `GET /api/v1/machines` 返回机器列表、Agent 能否连每台机器，以及一段 `ssh_config` 和一行 `known_hosts`。把这段配置放进 `~/.ssh/config`，把那一行放进 `~/.ssh/known_hosts`：
 
 ```
 Host edge-1
@@ -95,11 +97,11 @@ Host edge-1
 
 ## MCP 工具 {#the-mcp-tools}
 
-没有 shell 的 Agent，或者更想要结构化结果的 Agent，可以用同一个令牌调用 Beacon 的工具。这些工具的名字和用法都照着 Agent 自己的工具来：
+没有 shell 的 Agent，或者更想要结构化结果的 Agent，可以用同样的凭据调用 Beacon 的工具。这些工具的名字和用法都照着 Agent 自己的工具来：
 
 | 工具 | 做什么 |
 | --- | --- |
-| `list_machines` | 机器列表、令牌能否连每台机器，以及给 Agent 自己的 ssh 用的 `ssh_config` 配置段和 `known_hosts` 行 |
+| `list_machines` | 机器列表、Agent 能否连每台机器，以及给 Agent 自己的 ssh 用的 `ssh_config` 配置段和 `known_hosts` 行 |
 | `run_command` | 执行一条命令（在 `sh` 里，以机器上的账户，不带终端）：返回退出码，以及纯文本的 stdout 和 stderr |
 | `read_file` | 读文本文件的若干行，像 `cat -n` 一样带行号，可用 `offset` 和 `limit` |
 | `write_file` | 写整个文件，最大 1 MiB，目录不存在时自动创建 |
@@ -124,13 +126,13 @@ Host edge-1
 
 `beacon ssh pause`（或者 `pause_ssh`、`POST /api/v1/ssh/pause`，或者控制台「机器」页面上的开关）立刻关闭所有正在进行的会话，并拒绝新的会话，直到 `ssh resume`。`ssh status` 显示当前状态：`agents' access to machines is paused since …`。暂停期间，Agent 的 ssh 会收到 `beacon: agents' access to machines is paused since …; a person resumes it with beacon ssh resume`。
 
-只想停下某一个 Agent 而不是全部，就吊销它的令牌：`beacon token revoke NAME`，或者在控制台的「令牌」页面操作（需要 `machines:write`）。从这一刻起，它的新连接和工具调用都会被拒绝；但它已经打开的连接会保持到自己结束，所以要立刻断开的话，同时暂停通道。
+只想停下某一个 Agent 而不是全部，就在控制台上它的页面里吊销它的凭据或者删除它，或者用 `beacon token revoke NAME` 吊销一个令牌（在控制台的**令牌**页面上，有 `machines:write` 就能吊销任何能连机器的令牌）。它在机器上打开着的一切立即关闭，新连接和工具调用都会被拒绝。还有哪些操作有同样的效果，见[停下一个 Agent](accounts.md#stop-an-agent)：停用它的所有者或降低其角色、收窄它的机器或预设、移除一把公钥。
 
 ## NAT 后面的机器 {#machines-behind-nat}
 
 有些机器 Beacon 连不进去：在 NAT 后面、在只许出不许进的防火墙后面、放在家里。这样的机器用它自带的 OpenSSH 客户端主动连到通道上，Beacon 再通过这条连接访问它的 sshd。机器上不用装任何东西。
 
-**原理。** 机器用一把专用密钥运行 `ssh -N -R 0:localhost:22 edge-9@ssh.example.com -p 17002`，以自己的身份登录：用户名就是机器名，和 Agent 指定目标机器的方式一样。Beacon 根据匹配上的是哪把密钥，区分机器的连接和 Agent 的连接：机器的连接器密钥登记在机器的记录上，Agent 的密钥登记在它的令牌上。连接器的连接只能做一件事：申请这一个远程转发并保持心跳；不能开会话，不能开别的通道，不能发别的请求；每台机器只有一条连接，以最新的为准。Beacon 不为这个转发监听任何端口（它回报的端口号只是个标签）。Agent 要连这台机器时，Beacon 通过这条连接反向打开一个通道，连到机器自己转发的地址，在上面照常握手：校验固定的主机密钥，出示五分钟有效的证书。其余和普通机器完全一样：`ssh`、`scp`、`sftp`、`rsync`、`ssh -L`、MCP 工具、录像、暂停开关。
+**原理。** 机器用一把专用密钥运行 `ssh -N -R 0:localhost:22 edge-9@ssh.example.com -p 17002`，以自己的身份登录：用户名就是机器名，和 Agent 指定目标机器的方式一样。Beacon 根据匹配上的是哪把密钥，区分机器的连接和 Agent 的连接：机器的连接器密钥登记在机器的记录上，Agent 的密钥登记在 Agent 上（或者独立令牌自己身上）。连接器的连接只能做一件事：申请这一个远程转发并保持心跳；不能开会话，不能开别的通道，不能发别的请求；每台机器只有一条连接，以最新的为准。Beacon 不为这个转发监听任何端口（它回报的端口号只是个标签）。Agent 要连这台机器时，Beacon 通过这条连接反向打开一个通道，连到机器自己转发的地址，在上面照常握手：校验固定的主机密钥，出示五分钟有效的证书。其余和普通机器完全一样：`ssh`、`scp`、`sftp`、`rsync`、`ssh -L`、MCP 工具、录像、暂停开关。
 
 **添加。** 先在机器上以 root 生成它连出去用的密钥，再在 Beacon 上登记：
 
@@ -148,7 +150,7 @@ docker exec beacon beacon machine add edge-9 connector -key "ssh-ed25519 AAAA…
 **Beacon 保证什么。**
 
 - Beacon 只连机器自己转发的那个地址，从不连它自己挑的地址。
-- 连接器密钥只能以它那台机器的身份登录，不能开会话，不能转发它自己的端口，也不持有令牌；令牌上的密钥申请不了转发。令牌持有的密钥不能用作连接器密钥。
+- 连接器密钥只能以它那台机器的身份登录，不能开会话，不能转发它自己的端口，也不持有令牌；Agent 的密钥申请不了转发。Agent 或令牌持有的密钥不能用作连接器密钥。
 - 暂停开关会关闭通过连接器中转的会话，和其他会话一样；机器自己的连接保持不断，所以通道一恢复，机器马上就能连。
 - `machine list`、`list_machines` 和 `GET /api/v1/machines` 会显示 `connector: true`、`connected` 和 `connected_since`。连接器没有连上的机器会立刻失败：API 和 MCP 返回 `machine.disconnected`，Agent 的 ssh 收到 `beacon: the machine's connector is not connected`。连上、断开和替换都写日志，不回显到告警群；指标 `beacon_ssh_connectors` 是当前连着的连接器数，`beacon_ssh_connector_machines` 是以连接器方式添加的机器数，两者不相等时可以让规则告警。
 
@@ -162,13 +164,14 @@ docker exec beacon beacon machine add edge-9 connector -key "ssh-ed25519 AAAA…
 
 它保证：
 
-- **Agent 手里没有密钥。** Agent 用登记在令牌上的自己的密钥登录 Beacon；机器只信任 Beacon 的 CA；每张证书只用于一次连接，写明机器上的账户，五分钟有效。设置了 `source_addresses` 的话，证书只能从 Beacon 的地址使用。
-- **只能连令牌允许的机器**，而且只在通道没有暂停的时候。没有 `machines:ssh` 的令牌，或者只限其他机器的令牌，在 Beacon 连接任何机器之前就被拒绝。
+- **Agent 手里没有密钥。** Agent 用登记在 Beacon 上的自己的密钥登录 Beacon；机器只信任 Beacon 的 CA；每张证书只用于一次连接，写明机器上的账户，五分钟有效。设置了 `source_addresses` 的话，证书只能从 Beacon 的地址使用。
+- **Agent 只能连允许它连的机器**，而且只在通道没有暂停的时候。没有 `machines:ssh` 的 Agent，或者只限其他机器的 Agent，在 Beacon 连接任何机器之前就被拒绝。
+- **权限一收回，打开着的就关闭。** Agent 不再能连某台机器时（凭据被吊销或过期、Agent 被删除或收窄、所有者被停用或降低角色、公钥被移除），它在那台机器上打开着的一切立即关闭；Beacon 每分钟还会再检查一次。
 - **连上的就是你添加的那台机器。** 每次连接，Beacon 都校验机器固定下来的主机密钥，不一致就拒绝。
 - **一切都有记录**：每次会话和工具调用都录下来，列在这台机器相关的告警下面，并回显到告警群。
 
 它不做：
 
 - **不审核命令，也不会自己执行任何东西。** 每次会话都由 Agent 发起；执行什么由 Agent 自己决定，能做到什么程度，取决于它在机器上那个账户的权限。
-- **证书到期时不会断开正在进行的会话。** 证书只在 Beacon 连接机器的那一刻校验；已经打开的会话会持续到它自己结束、通道被暂停，或者 Beacon 重启。
+- **证书到期时不会断开正在进行的会话。** 证书只在 Beacon 连接机器的那一刻校验；已经打开的会话会持续到它自己结束、Agent 的权限被收回、通道被暂停，或者 Beacon 重启。
 - **不传递客户端的环境变量**（使用机器自己的语言环境和设置），不给 Agent 做远程端口转发（`ssh -R` 是 NAT 后面的机器连出来的方式，Agent 不能用），不支持 Agent 转发和 X11。

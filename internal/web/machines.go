@@ -69,7 +69,7 @@ func (s *Server) machineList(v *viewer) []sshgate.MachineView {
 	if s.SSH == nil {
 		return nil
 	}
-	l, err := s.SSH.List(sshgate.Actor{Name: v.Token.Name, Via: "console"}, "")
+	l, err := s.SSH.List(v.gate(), "")
 	if err != nil {
 		return nil
 	}

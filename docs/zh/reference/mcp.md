@@ -1,22 +1,24 @@
 ---
-sourceHash: sha256-093de8cd
+sourceHash: sha256-2495509f
 ---
 
 # MCP 工具
 
-有了 Beacon 的 MCP server，Agent（Claude Code、Codex，或者任何支持 HTTP 上 MCP 的客户端）不用学 Beacon 的 API，用工具就能处理告警和告警背后的机器：读告警和证据，留备注，让检测点重测，在机器上执行命令、改文件，安排维护，还能给自己的令牌续期。它在 17001 端口的 `/mcp`（参考部署里是 `https://status.example.com/mcp`）：streamable HTTP，无状态，令牌和作用域与 [REST API](api.md) 相同，每个工具调用的都是对应 REST 接口的同一个方法。
+有了 Beacon 的 MCP server，Agent（Claude Code、Codex，或者任何支持 HTTP 上 MCP 的客户端）不用学 Beacon 的 API，用工具就能处理告警和告警背后的机器：读告警和证据，留备注，让检测点重测，在机器上执行命令、改文件，安排维护，登记自己的 SSH 密钥，还能给自己的令牌续期。它在 17001 端口的 `/mcp`（参考部署里是 `https://status.example.com/mcp`）：streamable HTTP，无状态，凭据和作用域与 [REST API](api.md) 相同，每个工具调用的都是对应 REST 接口的同一个方法。
 
-机器工具沿用 Agent 自带工具的名字和行为（执行命令、读文件、写文件、改文件）。结果是结构化的，不夹终端控制字符；长输出会截断，并说明怎么取全文。每次写操作和每次会话都连同令牌的名字记录下来，并回显到告警群。
+机器工具沿用 Agent 自带工具的名字和行为（执行命令、读文件、写文件、改文件）。结果是结构化的，不夹终端控制字符；长输出会截断，并说明怎么取全文。每次写操作和每次会话都连同调用者的名字记录下来（Agent 记为 `alice / claude-code`，其他令牌记为令牌自己的名字），并回显到告警群。
 
 ## 接入 {#connecting}
 
-Agent 用一个 Beacon 令牌接入。令牌在中心上创建，按它要做的事给作用域（[获取令牌](api.md#getting-a-token)）；在机器上处理告警，给 `status:read,alerts:write,machines:ssh` 就够了。然后在 Claude Code 里：
+Claude Code 和 Codex 通过浏览器、用 MCP 的 OAuth 登录：添加 Beacon 时不带令牌，从客户端登录，再在 Beacon 的授权页面上把它允许为你的一个 Agent（[接入 Claude Code](../accounts.md#connect-claude-code)）。在 Claude Code 里：
 
 ```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-Codex 写在 `~/.codex/config.toml` 里，令牌放在环境变量中：
+然后在 Claude Code 里执行 `/mcp`，选择 `beacon` 并完成认证（也可以在 shell 里执行 `claude mcp login beacon`）。Codex：`codex mcp add beacon --url https://status.example.com/mcp`，然后 `codex mcp login beacon`。
+
+没有浏览器的 Agent 改为发送 Agent 的令牌，令牌在控制台的 **Agent** 页面或用 `beacon agent add` 创建（[获取凭据](api.md#getting-a-credential)）；在机器上处理告警，用值班预设就够了。Claude Code 添加时带上 `--header "Authorization: Bearer lbt_…"`；Codex 写在 `~/.codex/config.toml` 里，令牌放在环境变量中：
 
 ```toml
 [mcp_servers.beacon]
@@ -24,7 +26,7 @@ url = "https://status.example.com/mcp"
 bearer_token_env_var = "BEACON_TOKEN"
 ```
 
-其他支持 HTTP 上 MCP 的客户端也一样接入，把令牌放在 `Authorization: Bearer` 请求头里。server 自带的说明会告诉 Agent 每组工具是做什么的，以及写工具要怎样谨慎地用。每个令牌都能看到全部工具；调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个（`this token lacks the alerts:write scope`）。
+其他支持 HTTP 上 MCP 的客户端，也用这两种方式之一接入。没有凭据，或者凭据通不过校验的请求，会得到 `401`，它的 `WWW-Authenticate` 指向受保护资源的元数据（`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`），MCP 客户端从那里找到怎样登录。server 自带的说明会告诉 Agent 每组工具是做什么的，以及写工具要怎样谨慎地用。每个凭据都能看到全部工具；调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个，对 Agent 还会说明它的预设在所有者角色范围内允许什么（`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`）。
 
 ## 告警 {#alerts}
 
@@ -53,7 +55,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、令牌能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
+| `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
 | `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
@@ -92,13 +94,25 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内这些服务的告警会被静默。最长 7 天，必须在 90 天内开始，不能从过去开始 |
 | `end_maintenance` | `maintenance:write` | 立即结束一个维护窗口，或在开始前取消（`id`）：它的静默随之结束，状态页上也会显示 |
 
+## 成员与 SSH 密钥 {#people-and-ssh-keys}
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
+| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
+| `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |
+| `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
+| `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
+
+没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。修改角色、停用成员和重设密码都不是 MCP 工具；那是人的事，在控制台或中心上做。
+
 ## 你的令牌 {#your-token}
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `whoami` | 不限 | 令牌本身：名字、作用域、能到达的机器、到期时间、有效期长度，以及能否续期、何时可以续期 |
-| `renew_token` | 不限 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和 SSH 密钥都不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期 |
-| `revoke_token` | `machines:write` | 吊销一个能上机器的令牌：它的会话结束，之后的请求一律拒绝。只针对一个 Agent 的暂停开关；机器和服务的令牌只能在主机上吊销 |
+| `whoami` | 不限 | 你在 Beacon 眼里是谁：审计日志给你的名字（`alice / claude-code`）、你代表的人、你的预设以及它在那个人的角色范围内现在给你的作用域、你能到达的机器、你的 SSH 密钥，还有你的凭据：令牌（到期时间、有效期长度、能否续期以及何时可以续期），或者由客户端自己刷新的 OAuth 登录 |
+| `renew_token` | 不限 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和 SSH 密钥都不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期，OAuth 登录也不能，它由客户端刷新 |
+| `revoke_token` | `machines:write` | 吊销一个能上机器的令牌，或任何 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝。只针对一个 Agent 的暂停开关；机器和服务的令牌只能在中心上吊销 |
 
 ## 结果 {#results}
 

@@ -30,14 +30,16 @@ var openAPI []byte
 // OpenAPI is the API description served at /api/v1/openapi.yaml.
 func OpenAPI() []byte { return openAPI }
 
-// Auth checks bearer tokens and limits failed attempts per client address.
+// Auth checks bearer tokens and people's passwords, and limits failed attempts per client address and,
+// for passwords, per username.
 type Auth struct {
 	Store *store.Store
 	IP    *clientip.Resolver
 	Now   func() time.Time
 
-	mu    sync.Mutex
-	fails map[netip.Addr]*window
+	mu        sync.Mutex
+	fails     map[netip.Addr]*window
+	userFails map[string]*window
 }
 
 type window struct {
@@ -48,7 +50,13 @@ type window struct {
 const (
 	maxFails   = 20
 	failWindow = 10 * time.Minute
+	// maxUserFails is how many wrong passwords one username takes in failWindow, from anywhere, before
+	// its sign-ins are refused for the rest of the window.
+	maxUserFails = 10
 )
+
+// ErrBlocked means too many sign-ins failed recently, from this address or for this username.
+var ErrBlocked = errors.New("too many failed sign-ins; try again in a few minutes")
 
 func (a *Auth) now() time.Time {
 	if a.Now != nil {
@@ -91,7 +99,15 @@ func (a *Auth) fail(r *http.Request) {
 	}
 }
 
-// Verify checks a token secret for the request, counting failures.
+// Fail counts a failed attempt from the request's client: a wrong code or refresh token on the OAuth
+// token endpoint, say.
+func (a *Auth) Fail(r *http.Request) { a.fail(r) }
+
+// Client is the request's client address, as the configured proxies give it.
+func (a *Auth) Client(r *http.Request) netip.Addr { return a.client(r) }
+
+// Verify checks a token secret for the request, counting failures. It is the machines' check, on the
+// gateway: an agent's token carries no scopes of its own there.
 func (a *Auth) Verify(r *http.Request, secret string) (store.Token, bool) {
 	if a.Blocked(r) {
 		return store.Token{}, false
@@ -101,6 +117,62 @@ func (a *Auth) Verify(r *http.Request, secret string) (store.Token, bool) {
 		a.fail(r)
 	}
 	return t, ok
+}
+
+// Authenticate checks a bearer secret for the API, MCP and the pages, counting failures: a token or an
+// OAuth access token, resolved to who it is and what it may do now.
+func (a *Auth) Authenticate(r *http.Request, secret string) (store.Principal, bool) {
+	if a.Blocked(r) {
+		return store.Principal{}, false
+	}
+	p, ok := a.Store.Authenticate(secret)
+	if !ok {
+		a.fail(r)
+	}
+	return p, ok
+}
+
+// userBlocked reports whether the username has had too many wrong passwords recently.
+func (a *Auth) userBlocked(username string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	w := a.userFails[username]
+	return w != nil && a.now().Sub(w.start) < failWindow && w.n >= maxUserFails
+}
+
+func (a *Auth) failUser(username string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.userFails == nil {
+		a.userFails = map[string]*window{}
+	}
+	w := a.userFails[username]
+	if w == nil || a.now().Sub(w.start) >= failWindow {
+		w = &window{start: a.now()}
+		a.userFails[username] = w
+	}
+	w.n++
+	if len(a.userFails) > 10000 {
+		a.userFails = map[string]*window{username: w}
+	}
+}
+
+// SignIn checks a person's username and password, limited per address and per username like the API's
+// tokens: ErrBlocked after too many failures, store.ErrBadCredentials for a wrong username or password.
+func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if len(username) > 64 {
+		username = username[:64]
+	}
+	if a.Blocked(r) || a.userBlocked(username) {
+		return store.Account{}, ErrBlocked
+	}
+	acc, err := a.Store.SignIn(username, password)
+	if errors.Is(err, store.ErrBadCredentials) {
+		a.fail(r)
+		a.failUser(username)
+	}
+	return acc, err
 }
 
 // Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
@@ -149,6 +221,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/sessions/{id}", s.with("sessions:read|machines:ssh", s.getSession))
 	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
 	s.registerToken(mux)
+	s.registerPeople(mux)
 	mux.Handle("PUT /api/v1/machines/{name}/connector", s.with("machines:write", s.setConnector))
 	mux.Handle("POST /api/v1/probe-now", s.with("alerts:write", s.probeNow))
 	s.registerStatus(mux)
@@ -191,15 +264,17 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, body)
 }
 
-// with guards h with a token carrying scope, or one of the scopes in "a|b".
+// with guards h with a credential (a token or an OAuth access token) that may use scope now, or one of
+// the scopes in "a|b"; h is given who it is, as the audit log names it.
 func (s *Server) with(scope string, h handler) http.Handler {
-	return s.withToken(scope, func(w http.ResponseWriter, r *http.Request, t store.Token) {
-		h(w, r, bridge.Actor{Name: t.Name, Via: "api"})
+	return s.withPrincipal(scope, func(w http.ResponseWriter, r *http.Request, p store.Principal) {
+		h(w, r, bridge.ActorOf(p, "api"))
 	})
 }
 
-// withToken is with for a handler that needs the token itself (token.go); an empty scope admits any token.
-func (s *Server) withToken(scope string, h func(w http.ResponseWriter, r *http.Request, t store.Token)) http.Handler {
+// withPrincipal is with for a handler that needs the principal itself (token.go); an empty scope admits
+// any credential.
+func (s *Server) withPrincipal(scope string, h func(w http.ResponseWriter, r *http.Request, p store.Principal)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.Auth.Blocked(r) {
 			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts; try again later")
@@ -211,14 +286,14 @@ func (s *Server) withToken(scope string, h func(w http.ResponseWriter, r *http.R
 			writeError(w, http.StatusUnauthorized, "auth.required", "a bearer token is required")
 			return
 		}
-		t, ok := s.Auth.Verify(r, strings.TrimSpace(secret))
+		t, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret))
 		if !ok {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="beacon", error="invalid_token"`)
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return
 		}
 		if scope != "" && !slices.ContainsFunc(strings.Split(scope, "|"), t.Has) {
-			writeError(w, http.StatusForbidden, "auth.scope", "the token lacks the "+strings.ReplaceAll(scope, "|", " or ")+" scope")
+			writeError(w, http.StatusForbidden, "auth.scope", ScopeProblem(t, scope))
 			return
 		}
 		h(w, r, t)

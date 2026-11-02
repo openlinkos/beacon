@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b888ad89
+sourceHash: sha256-24db1f6e
 ---
 
 # 让 Agent 值班
@@ -13,7 +13,7 @@ Beacon 不调用任何模型，也不替 Agent 做决定。它只负责叫醒 Ag
 1. **检测失败，规则触发。** 属于同一件事的告警（默认是名称和服务都相同的告警）合成一个**告警组**：一张卡片、一次钩子调用、一个 id。
 2. **Beacon 调用你配置的钩子。** 钩子是配置里列出的一个带签名的 webhook，或一次 GitHub workflow 触发。调用里写明是哪个告警组、证据在哪里，不带任何凭据。
 3. **harness 启动 Agent**，把调用的内容交给它。
-4. **Agent 用自己的令牌查询证据**（`get_evidence`）：每个检测点看到了什么、为什么失败，同一故障域里还有哪些告警，故障前刚改了什么，已经有人做了什么。
+4. **Agent 用自己的凭据查询证据**（`get_evidence`）：每个检测点看到了什么、为什么失败，同一故障域里还有哪些告警，故障前刚改了什么，已经有人做了什么。
 5. **它到证据指向的机器上排查**：通过 [SSH 通道](ssh.md)，用它自己的 `ssh`，或者用 Beacon 的工具（`run_command`、`read_file`、`edit_file`）。每条命令都有记录。
 6. **修完让检测点验证**（`probe_now`）：每个检测点立刻重新检测这个目标。告警是否恢复，看检测结果，不看 Agent 怎么说。
 7. **它留下一条备注**（`add_note`），写明出了什么问题、做了什么、还剩什么。人在卡片、告警群和控制台里都能看到。
@@ -66,7 +66,7 @@ agents:
 
 **送达告警从不等 Agent。** 这些调用和告警送达各走各的：卡片、加急、Pushover 都不等它们。调用没有应答、超时、返回 429 或 5xx 时，分别在 5 秒、20 秒、1 分钟、3 分钟后重试。其他拒绝（401、404、422）重试也没用，立即算失败。不跟随重定向，所以载荷和签名只会发到配置的地址。服务重启打断的调用，不到 10 分钟的会接着完成。
 
-**结果记在哪里。** 每次调用的结果记在告警组上（`GET /api/v1/alerts/{id}` 和 `get_alert` 里的 `agents`）、审计日志里（`wake_agent`）、卡片上（「10:02 已唤醒 Agent claude-oncall」，或者没能唤醒）、告警群里（失败时附上原因），以及控制台的 Agent 页面。
+**结果记在哪里。** 每次调用的结果记在告警组上（`GET /api/v1/alerts/{id}` 和 `get_alert` 里的 `agents`）、审计日志里（`wake_agent`）、卡片上（「10:02 已唤醒 Agent claude-oncall」，或者没能唤醒）、告警群里（失败时附上原因），以及控制台的 **Hook** 页面（`/console/hooks`）。
 
 ### Webhook {#the-webhook}
 
@@ -122,7 +122,7 @@ def genuine(secret: bytes, body: bytes, signature: str) -> bool:
     return hmac.compare_digest("sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(), signature)
 ```
 
-载荷里没有任何凭据：Agent 用自己的令牌查询证据（`status:read`；认领告警和写备注还要 `alerts:write`）。
+载荷里没有任何凭据：Agent 用自己的令牌查询证据。这个令牌属于一个预设为**值班**的 Agent，能读证据、认领告警、写备注（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。
 
 ### GitHub workflow {#a-github-workflow}
 
@@ -186,15 +186,15 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 
 ### 作为系统服务运行 {#as-a-service}
 
-`contrib/oncall/beacon-oncall.service` 让接收程序以单独的用户运行，系统其余部分只读（`ProtectSystem=strict`），只能写这个用户的主目录（Agent 的登录状态存在这里）和日志目录，并且设置了 `Restart=always`。文件开头列出了安装命令：创建用户；把钩子密钥和 Agent 的令牌放在 `/etc/beacon-oncall` 下，只有这个用户能读；把包装脚本和提示词放在 `/usr/local/lib/beacon-oncall` 下；以这个用户身份安装并登录 Agent 程序。停止服务时，会等正在进行的运行结束。
+`contrib/oncall/beacon-oncall.service` 让接收程序以单独的用户运行，系统其余部分只读（`ProtectSystem=strict`），只能写这个用户的主目录（Agent 的登录状态存在这里）和日志目录，并且设置了 `Restart=always`。文件开头列出了安装命令：创建用户；把钩子密钥和 Agent 的令牌放在 `/etc/beacon-oncall` 下，只有这个用户能读（令牌在中心上用 `docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall > beacon-token` 创建）；把包装脚本和提示词放在 `/usr/local/lib/beacon-oncall` 下；以这个用户身份安装并登录 Agent 程序。停止服务时，会等正在进行的运行结束。
 
 ### 在 GitHub Actions 里运行 {#in-github-actions}
 
-对 `kind: github` 的钩子，`contrib/github/oncall.yml` 是现成的 workflow：它接收 `alert` 和 `event` 两个输入，用同一份 `prompt.md`（复制到 `.github/oncall/prompt.md`）拼出提示词，通过 Claude Code 的 GitHub Action 运行 Claude Code，并接上 Beacon 的 MCP server：令牌取自仓库 secret `BEACON_TOKEN`，地址取自变量 `BEACON_MCP_URL`，同样只允许使用 Beacon 的工具。其余信息都由 Agent 用自己的令牌向 Beacon 查询；输入值通过环境变量传递，从不写进脚本。
+对 `kind: github` 的钩子，`contrib/github/oncall.yml` 是现成的 workflow：它接收 `alert` 和 `event` 两个输入，用同一份 `prompt.md`（复制到 `.github/oncall/prompt.md`）拼出提示词，通过 Claude Code 的 GitHub Action 运行 Claude Code，并接上 Beacon 的 MCP server：令牌取自仓库 secret `BEACON_TOKEN`，地址取自变量 `BEACON_MCP_URL`，同样只允许使用 Beacon 的工具。这个 secret 是专为这个 workflow 创建的 Agent 的令牌：`beacon agent add ops-workflow -owner alice -preset oncall`。其余信息都由 Agent 用自己的令牌向 Beacon 查询；输入值通过环境变量传递，从不写进脚本。
 
 ### 信任边界 {#trust}
 
-接收程序只校验签名、启动程序，它决定的就这么多。Agent 之后能做什么，取决于它的令牌有哪些作用域、能连哪些机器。每次调用、每条命令、每次会话都经过 Beacon，Beacon 把它们记下来，在卡片和告警群里给人看；暂停开关能让它停下。载荷里没有凭据；接收程序和包装脚本只从文件读取密钥，既不记录密钥，也不记录载荷。提示词要求 Agent 把来自 Beacon 之外的内容当作数据，Beacon 也把这些字段标为 `untrusted`。
+接收程序只校验签名、启动程序，它决定的就这么多。Agent 之后能做什么，取决于它的预设、它所有者的角色，以及它能连哪些机器。每次调用、每条命令、每次会话都经过 Beacon，Beacon 把它们记下来，在卡片和告警群里给人看；暂停开关能让它停下。载荷里没有凭据；接收程序和包装脚本只从文件读取密钥，既不记录密钥，也不记录载荷。提示词要求 Agent 把来自 Beacon 之外的内容当作数据，Beacon 也把这些字段标为 `untrusted`。
 
 ## 证据 {#the-evidence}
 
@@ -347,17 +347,17 @@ spec:
 
 ## 自动续期的令牌 {#tokens-that-renew-themselves}
 
-Agent 的令牌就是它在 REST API、MCP server 和 SSH 通道上的身份。与其让人给它一个长期令牌、过期了再发一个新的，不如让令牌自己续期：快到期前，持有者申请一个新的密钥，拿到的令牌名称、作用域、主体、机器和 SSH 密钥都不变，有效期从现在起重新计算（用 `-expires 90d` 创建的令牌，每次都再得到 90 天）。除了令牌本身，什么都不需要：两个接口接受任何作用域。
+无界面的 Agent，比如被 Hook 唤醒的 Agent 或 CI 任务，用令牌登录 REST API 和 MCP server：令牌是它所属 Agent 的一个凭据，在控制台的 **Agent** 页面或用 `beacon agent add` 创建（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。与其让人给它一个长期令牌、过期了再发一个新的，不如让令牌自己续期：快到期前，持有者申请一个新的密钥，拿到的令牌名称、所属 Agent、作用域、主体、机器和 SSH 密钥都不变，有效期从现在起重新计算（用 `-expires 90d` 创建的令牌，每次都再得到 90 天）。除了令牌本身，什么都不需要：两个接口接受任何作用域。Claude Code 这样的交互式客户端改用 OAuth 登录，由它自己刷新令牌。
 
 | 接口、工具 | 内容 |
 | --- | --- |
-| `GET /api/v1/token`、`whoami` | 持有者看到的令牌信息：`name`、`scopes`、`machines`、`ssh_keys`（指纹）、`created`、`expires`、`lifetime`、`renewed`（上次续期时间）、`renewable` 和 `renewable_at`；从不包含密钥本身 |
+| `GET /api/v1/token`、`whoami` | 调用者是谁，以及持有者看到的凭据信息：`name`、`actor`（审计日志里的称呼，如 `alice / claude-oncall`）、`user`、`agent`、`preset`、`credential`（`token` 或 `oauth`，后者带 `client`）、`scopes`（现在能做的，不超出所有者的角色）、`machines`、`ssh_keys`（指纹）、`created`、`expires`、`lifetime`、`renewed`（上次续期时间）、`renewable` 和 `renewable_at`；从不包含密钥本身 |
 | `POST /api/v1/token/renew`、`renew_token` | 新的密钥（`secret`，只显示这一次）和令牌信息；`old_secret_valid_until` 说明被替换的旧密钥还能用到什么时候 |
 
 - **没有竞争问题。** 续期后旧密钥还能用十分钟，客户端可以从容替换令牌文件，刚读过旧文件的进程也不受影响。
 - **每天最多一次。** 一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。
-- **机器的令牌不续期。** 登记过的机器（检测点、主机、心跳）的令牌从不自动续期，要用 `beacon enroll … -rotate` 替换（`token.not_renewable`，`403`）。
-- **都有记录。** 每次续期都记入审计日志（`token_renew`），并回显到告警群（「令牌 claude-code 自行续期了，到期日 2027-01-31」）；`beacon token list` 显示每个令牌的有效期和上次续期时间。
+- **机器的令牌和 OAuth 不续期。** 登记过的机器（检测点、主机、心跳）的令牌从不自动续期，要用 `beacon enroll … -rotate` 替换（`token.not_renewable`，`403`）。OAuth 访问令牌也不续期，由它的客户端刷新。
+- **都有记录。** 每次续期都记入审计日志（`token_renew`），并回显到告警群（「令牌 claude-oncall 自行续期了，到期日 2027-01-31」）；`beacon token list` 显示每个令牌的有效期和上次续期时间。
 - **SSH 登录靠密钥**，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
 
 harness 每天运行一次类似下面的脚本（cron 或 systemd 定时器），Agent 每次调用都重新读取令牌文件：
@@ -380,7 +380,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # 读取方看到的要么是旧文件，要么是新文件，不会是半个
 ```
 
-令牌的有效期要比续期间隔长好几倍（每天续期的话，用 `-expires 30d`），这样 harness 停机一段时间也不会丢掉令牌。真丢了，就像以前一样用 `beacon token create` 新建一个。泄露的令牌会一直自己续期，直到被吊销（`beacon token revoke NAME`）：告警群能看到每次续期，`token list` 能看到最近一次。
+令牌的有效期要比续期间隔长好几倍（每天续期的话，用 `-expires 30d`），这样 harness 停机一段时间也不会丢掉令牌。真丢了，由 Agent 的所有者在 Agent 页面上点**新令牌**再发一个。泄露的令牌会一直自己续期，直到被吊销（Agent 页面上的**吊销**，或 `beacon token revoke NAME`），吊销同时会立即关闭它在机器上打开着的一切。告警群能看到每次续期，`token list` 能看到最近一次。
 
 ## Beacon 在这里不做什么 {#what-beacon-does-not-do-here}
 

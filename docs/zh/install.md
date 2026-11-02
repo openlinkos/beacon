@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-e2c30921
+sourceHash: sha256-255c4e76
 ---
 
 # 30 分钟装好
 
-这篇指南带你从一台空的 Linux 机器开始，搭起一套能值班的系统。做完之后：Beacon 跑在一台机器上，两个检测点在检测你的服务，你正在用的 AI Agent（这里以 Claude Code 为例，Codex 等其他 Agent 做法相同）不拿任何密钥就能在你的一台服务器上执行命令，你还亲眼看着一次演练的故障从告警走到恢复。适合这样的读者：自己管着几台服务器，有一台装了 Docker 的机器的 root 权限，在工作站上用 Agent。
+这篇指南带你从一台空的 Linux 机器开始，搭起一套能值班的系统。做完之后：Beacon 跑在一台机器上，你是它的所有者；两个检测点在检测你的服务；你正在用的 AI Agent（这里以 Claude Code 为例，Codex 等其他 Agent 做法相同）作为你的一个 Agent 登录，不拿任何密钥就能在你的一台服务器上执行命令；你还亲眼看着一次演练的故障从告警走到恢复。适合这样的读者：自己管着几台服务器，有一台装了 Docker 的机器的 root 权限，在工作站上用 Agent。
 
 每一步都写了要花多久、执行什么、应该看到什么，以及看到别的结果时怎么办。
 
@@ -14,7 +14,7 @@ sourceHash: sha256-e2c30921
 | [1. 安装中心](#1-install-the-centre) | 3 分钟，其中脚本运行 1 到 2 分钟 |
 | [2. 第一个检测点](#2-the-first-probe) | 两个检测点共 5 分钟 |
 | [3. 第一台机器](#3-the-first-machine) | 4 分钟 |
-| [4. 第一个 Agent](#4-the-first-agent) | 5 分钟 |
+| [4. 第一个 Agent](#4-the-first-agent) | 5 分钟，包括建你自己的账号 |
 | [5. 第一次演练](#5-the-first-drill) | 10 分钟，大部分时间在等规则触发 |
 | [6. 告警群](#6-the-chat) | 不计时：创建飞书应用要等管理员审批 |
 
@@ -29,7 +29,7 @@ sourceHash: sha256-e2c30921
 - **一个邮箱地址**，Let's Encrypt 会往这里发证书相关的通知。必须是真实地址：安装脚本不接受 `example.com` 的邮箱。
 - **一台小机器做第一个检测点**：任何带 systemd 的 Linux，x86_64 或 arm64，有 64 MB 空闲内存即可。最好是放在用户所在地区的 VPS。第二个检测点可以直接用中心。
 - **一台给 Agent 干活的机器**，中心能连到它的 SSH 端口。用检测点那台也可以。
-- **你的 Agent**：工作站上的 Claude Code，或任何支持 HTTP MCP 的程序；如果想让 Agent 也用它自己的 `ssh`，还要准备它的 SSH 公钥（工作站上的 `~/.ssh/id_ed25519.pub`）。
+- **你的 Agent**：工作站上的 Claude Code，或任何支持 HTTP MCP 的程序，工作站上要有浏览器，用来给它登录；如果想让 Agent 也用它自己的 `ssh`，还要准备它的 SSH 公钥（工作站上的 `~/.ssh/id_ed25519.pub`）。
 
 ## 1. 安装中心 {#1-install-the-centre}
 
@@ -162,23 +162,30 @@ On the machine, as root, if not done yet:
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
-5 分钟。一个令牌同时用于 API、MCP 和 SSH 通道。在中心上为 Agent 创建令牌，同时带上 Agent 的 SSH 公钥，这样它自己的 `ssh` 也能用。公钥在工作站上，把工作站 `~/.ssh/id_ed25519.pub` 里的那一行粘贴进来：
+5 分钟。先在 Beacon 上建你自己的账号，再把 Claude Code 接成你的一个 Agent：它通过浏览器登录，不用复制任何令牌，能做的事也不会超出你的角色。
+
+**你的账号。** Beacon 现在还没有账号。它启动时已经往日志里写了一个一次性的初始化链接；在中心上重新打印一个：
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
-  -ssh-key "ssh-ed25519 AAAA… you@workstation"
+docker exec beacon beacon setup
 ```
 
-它先打印 `token claude-code created with status:read,alerts:write,machines:ssh,sessions:read, expires …. The secret is shown only now:`，再打印令牌本身 `lbt_…`。在运行 Claude Code 的工作站上：
+```
+Open this link within 30 minutes (until …) to make the first account, an owner. It works once:
+https://status.example.com/console/setup?code=…
+```
+
+在浏览器里打开链接，设置用户名（下文用 `alice`）、显示名和至少 10 个字符的密码。你就是第一位所有者，已经登录了 `https://status.example.com/console` 上的控制台。这个链接只能用一次；其他人都通过邀请加入（[成员和 Agent](accounts.md#invite-people)）。
+
+**Claude Code。** 在工作站上添加 Beacon 的 MCP 服务器，不带令牌：
 
 ```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp \
-  --header "Authorization: Bearer lbt_…"
-claude mcp list    # beacon: … Connected
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-新开一个 Claude Code 会话，对它说：*「列出 Beacon 能连的机器，在 edge-1 上执行 `uptime`。」* 它会先调用 `list_machines`，再调用 `run_command`，拿回退出码、stdout 和 stderr，都是纯文本，不带终端控制码。这次连接 Beacon 签了一张五分钟有效的证书；Agent 手里没有这台机器的任何密钥。
+启动 Claude Code，执行 `/mcp`，选中 `beacon` 并完成认证。浏览器会打开 Beacon 的授权页面「Claude Code 想以你的身份使用 Beacon」。Agent 名称保留 `claude-code`，**可以做什么**选**值班**（能处理告警、能上机器），机器选全部，有效期选 30 天，然后点**允许**。回到 Claude Code，`/mcp` 显示 `beacon` 已连接；`claude mcp list` 显示 `beacon: … Connected`。现在 Claude Code 手里有一个一小时有效的访问令牌，并在你允许的 30 天里自己刷新。在审计日志和告警群里，它是 `alice / claude-code`。
+
+**它自己的密钥。** 对 Claude Code 说：*「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon，列出 Beacon 能连的机器，在 edge-1 上执行 `uptime`。」* 它会依次调用 `add_ssh_key`、`list_machines` 和 `run_command`，拿回退出码、stdout 和 stderr，都是纯文本，不带终端控制码。这次连接 Beacon 签了一张五分钟有效的证书；Agent 手里没有这台机器的任何密钥。
 
 同一个 `list_machines` 的结果里还有一段 `ssh_config` 和一行 `known_hosts`，给 Agent 自己的 ssh 用：
 
@@ -190,9 +197,11 @@ Host edge-1
   HostKeyAlias beacon
 ```
 
-把这段配置放进工作站的 `~/.ssh/config`，把那一行放进 `~/.ssh/known_hosts`，`ssh edge-1 uptime`、`scp`、`rsync -e ssh` 和 `ssh -L` 就和平常一样能用：用户名就是机器名，会话在机器上以 `beacon` 账户运行。如果 ssh 提示 `Permission denied (publickey)`，说明它出示的密钥不是令牌上的那把：用 `docker exec beacon beacon token ssh-key claude-code add "ssh-ed25519 AAAA…"` 加上去。
+把这段配置放进工作站的 `~/.ssh/config`，把那一行放进 `~/.ssh/known_hosts`，`ssh edge-1 uptime`、`scp`、`rsync -e ssh` 和 `ssh -L` 就和平常一样能用：用户名就是机器名，会话在机器上以 `beacon` 账户运行。如果 ssh 提示 `Permission denied (publickey)`，说明它出示的密钥 Beacon 不认识：让 Claude Code 用 `add_ssh_key` 登记它，或者在控制台上依次打开 **Agent**、`claude-code`、**添加 SSH 密钥**加上去。
 
-每次会话都有记录。`list_sessions`（或 `GET /api/v1/sessions`）列出所有会话，每条命令和它的退出码都在里面；`docker exec beacon beacon ssh pause` 会关闭全部会话并拒绝新的会话，直到执行 `ssh resume`。
+每次会话都有记录。控制台的 **Agent** 页面上能看到 `claude-code`、它的登录和它的密钥；`list_sessions`（或 `GET /api/v1/sessions`）列出所有会话，每条命令和它的退出码都在里面；`docker exec beacon beacon ssh pause` 会关闭全部会话并拒绝新的会话，直到执行 `ssh resume`。
+
+**没有浏览器的 Agent**，比如 CI 任务或被 Hook 唤醒的 Agent，改用令牌：在控制台的 **Agent** 页面上创建，或在中心上执行 `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`，令牌只打印这一次，同时给出使用它的命令（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
@@ -211,7 +220,7 @@ docker exec beacon beacon drill fail 15m    # drill until …: /drill/healthz an
 
 只有一个检测点时什么都不会触发，这是有意设计的：单个检测点说坏了，永远不算故障。
 
-**等待的时候，在控制台里看着它。** 目前登录控制台要用令牌：在中心上给自己创建一个，`docker exec beacon beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d`，打开 `https://status.example.com/console`，把令牌粘贴进去。告警页面上能看到每个检测点看到了什么、时间线、备注，以及告警涉及的机器上的每次会话和回放。详见[控制台](pages.md)。
+**等待的时候，在控制台里看着它**：打开 `https://status.example.com/console`，你在第 4 步已经登录过（一次登录有效 12 小时）。告警页面上能看到每个检测点看到了什么、时间线、备注，以及告警涉及的机器上的每次会话和回放。详见[控制台](pages.md)。
 
 在中心上，`beacon silence list` 能看到 Agent 设的静默；`beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` 则从命令行创建一条静默，审计日志里会记下它来自命令行。
 
@@ -231,6 +240,7 @@ docker exec beacon beacon drill fail 15m    # drill until …: /drill/healthz an
 
 ## 接下来读什么 {#what-to-read-next}
 
+- [成员和 Agent](accounts.md)：邀请团队成员、角色、Codex、无界面的 Agent 和它们的令牌，以及从令牌迁移过来。
 - [让 Agent 值班](agents.md)：叫醒 Agent、证据、备注、时间线，以及修完之后立刻重测。
 - [SSH 通道](ssh.md)：机器上的账户、录像、暂停、NAT 后面的机器，以及通道不做什么。
 - [检测什么，从哪里检测](catalog.md)：检测点、检测目标和检测模块，以及怎样通过 Beacon 修改它们。

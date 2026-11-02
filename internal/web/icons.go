@@ -17,6 +17,7 @@ var iconNames = []string{
 	"circle-check", "clock", "download", "file-cog", "history", "key-round", "layout-dashboard", "list-filter",
 	"log-in", "log-out", "menu", "message-square", "pencil", "power", "rotate-ccw", "scroll-text", "search",
 	"server", "settings", "shield-alert", "terminal", "timer", "triangle-alert", "x", "zap", "route",
+	"users", "user", "user-plus", "user-x", "user-check", "plus", "trash-2", "link", "plug", "shield-check",
 }
 
 // iconShape is what a symbol may hold: the plain shapes Lucide draws with, and their geometry.

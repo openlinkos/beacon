@@ -1,6 +1,6 @@
 # The SSH channel
 
-An agent that fixes servers has to log in to them. The usual way is to give it a private key or a password, and from then on it can reach every machine that key opens, from anywhere, with nothing recording what it runs. Beacon's SSH channel does it the other way round. The agent signs in to Beacon with a key registered on its token; Beacon checks that the token may reach the machine, connects to the machine with a certificate it signs for that one connection, valid for five minutes, and records the session. Machines trust only Beacon's certificate authority (CA), so the agent never holds a key or a password for them, and taking its access away is a matter of revoking its token or pausing the channel.
+An agent that fixes servers has to log in to them. The usual way is to give it a private key or a password, and from then on it can reach every machine that key opens, from anywhere, with nothing recording what it runs. Beacon's SSH channel does it the other way round. The agent signs in to Beacon with its own key, registered with Beacon; Beacon checks that the agent may reach the machine, connects to the machine with a certificate it signs for that one connection, valid for five minutes, and records the session. Machines trust only Beacon's certificate authority (CA), so the agent never holds a key or a password for them, and taking its access away is a matter of revoking its credentials or pausing the channel: what it has open closes at once.
 
 This page is for whoever runs Beacon and adds machines to it. It covers turning the channel on, adding a machine, giving an agent access, how the agent connects with its own `ssh`, `scp` and `rsync` or with Beacon's MCP tools, what is recorded and how to replay it, pausing, machines behind NAT, and what the channel guarantees.
 
@@ -56,26 +56,28 @@ systemctl reload ssh
 
   A broader rule is the team's choice to make; Beacon records what was done either way.
 - **Exempt Beacon from OpenSSH's penalties.** OpenSSH 9.8 and later penalise an address after failed connections (`PerSourcePenalties`). Every agent comes from Beacon's address, so add it: `PerSourcePenaltyExemptList 203.0.113.7` in `beacon.conf`.
-- **A record of what ran on the machine itself**, optional: the certificate's key ID, which sshd logs ("ID beacon 20261101-091724-aa8bba for claude-code via ssh"), names the session, and an auditd rule such as `-a always,exit -F arch=b64 -S execve -F auid>=1000 -k beacon` records every program it started, scripts included.
+- **A record of what ran on the machine itself**, optional: the certificate's key ID, which sshd logs ("ID beacon 20261101-091724-aa8bba for alice / claude-code via ssh"), names the session, and an auditd rule such as `-a always,exit -F arch=b64 -S execve -F auid>=1000 -k beacon` records every program it started, scripts included.
 
 `machine list` shows every machine; `machine add … -replace` pins a new host key after a reinstall; `machine remove NAME` forgets a machine, and its sessions stay on record. A machine Beacon cannot connect to is added the other way round: see [Machines behind NAT](#machines-behind-nat).
 
 ## Give an agent access
 
-An agent reaches machines with a token that has the `machines:ssh` scope. For its own ssh, the token also carries the agent's public key, from the machine where the agent runs:
+An agent reaches machines when its preset is On call or Operator, which give `machines:ssh`, and its owner's role allows it ([People and their agents](accounts.md)). For its own ssh, Beacon also needs the agent's public key, from the machine where the agent runs.
+
+An interactive agent such as Claude Code, signed in with OAuth, registers its own key: ask it to *"register my SSH key ~/.ssh/id_ed25519.pub with Beacon"*, and it calls `add_ssh_key`. It reaches the machines you allowed when it signed in. A headless agent is made with its key, on the console's **Agents** page or on the centre:
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "ssh-ed25519 AAAA… agent@workstation"
+docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
+  -machines edge-1,edge-2 -ssh-key "ssh-ed25519 AAAA… agent@workstation"
 ```
 
-- `-machines edge-1,edge-2` limits the machines the token reaches; `token machines NAME all` lifts the limit.
-- `token ssh-key NAME add KEY` and `token ssh-key NAME remove FINGERPRINT` change the keys later.
-- The same token works for the MCP tools, the REST API and the SSH channel.
+- `-machines edge-1,edge-2` limits the machines the agent reaches; without it, it reaches all. The agent's page changes its machines and keys later, as the agent's own `add_ssh_key` and `remove_ssh_key` do.
+- The agent's credentials work for the MCP tools and the REST API as well as the SSH channel.
+- A token of its own rather than an agent's (an expert's, from `beacon token create NAME -scopes … -ssh-key KEY -machines a,b`) keeps its keys and machines on the token: `token ssh-key NAME add KEY`, `token ssh-key NAME remove FINGERPRINT`, `token machines NAME all`.
 
 ## Connect with your own ssh, scp and rsync
 
-`list_machines` (MCP) or `GET /api/v1/machines` returns the machines, whether the token reaches each, an `ssh_config` block and a `known_hosts` line. Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts`:
+`list_machines` (MCP) or `GET /api/v1/machines` returns the machines, whether the agent reaches each, an `ssh_config` block and a `known_hosts` line. Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts`:
 
 ```
 Host edge-1
@@ -91,11 +93,11 @@ When the channel refuses, the agent's ssh prints why and exits with 1, such as `
 
 ## The MCP tools
 
-An agent without a shell, or one that prefers structured results, uses Beacon's tools with the same token. They take the names and the behaviour of an agent's own tools:
+An agent without a shell, or one that prefers structured results, uses Beacon's tools with the same credentials. They take the names and the behaviour of an agent's own tools:
 
 | Tool | What it does |
 | --- | --- |
-| `list_machines` | The machines, whether the token reaches each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
+| `list_machines` | The machines, whether the agent reaches each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
 | `run_command` | Runs a command (in `sh`, as the machine's user, no terminal): exit code, stdout and stderr as plain text |
 | `read_file` | Lines of a text file, numbered like `cat -n`, with `offset` and `limit` |
 | `write_file` | A whole file, at most 1 MiB, making its directory if needed |
@@ -120,13 +122,13 @@ Every session: a command, an interactive shell, a file transfer, a forwarded por
 
 `beacon ssh pause` (or `pause_ssh`, `POST /api/v1/ssh/pause`, or the switch on the console's Machines page) closes every open session at once and refuses new ones until `ssh resume`. `ssh status` says which: `agents' access to machines is paused since …`. While paused, an agent's ssh gets `beacon: agents' access to machines is paused since …; a person resumes it with beacon ssh resume`.
 
-To stop one agent rather than all, revoke its token: `beacon token revoke NAME`, or from the console's Tokens page with `machines:write`. Its new connections and tool calls are refused from then on; a connection it already has open stays until it ends, so pause the channel as well to close that at once.
+To stop one agent rather than all, revoke its credentials or delete it on its page in the console, or revoke a token with `beacon token revoke NAME` (on the console's **Tokens** page, `machines:write` revokes any token that reaches machines). What the agent has open on machines closes at once, and its new connections and tool calls are refused. [Stop an agent](accounts.md#stop-an-agent) lists what else does the same: disabling or demoting its owner, narrowing its machines or its preset, removing a key.
 
 ## Machines behind NAT
 
 A machine Beacon cannot reach (behind NAT, behind a firewall that lets connections out only, a box at home) connects out to the channel itself, with the OpenSSH client it already has, and Beacon reaches its sshd through that connection. Nothing is installed on the machine.
 
-**How it works.** The machine runs `ssh -N -R 0:localhost:22 edge-9@ssh.example.com -p 17002` with a dedicated key, signing in as itself: the user name is the machine's name, as agents name their targets. Beacon tells a machine's connection from an agent's by the key that matched: a machine's connector key is registered on its record, an agent's on its token. A connector connection may do nothing but ask for that one remote forward and keep alive: no sessions, no other channels or requests; one connection per machine, and the newest wins. Beacon binds no port for the forward (the port it reports back is a label). When an agent targets the machine, Beacon opens a channel back through the connection to the address the machine itself forwarded and runs its usual handshake over it: the pinned host key, a certificate valid for five minutes. Everything else is as for any other machine: `ssh`, `scp`, `sftp`, `rsync`, `ssh -L`, the MCP tools, the recording, the pause switch.
+**How it works.** The machine runs `ssh -N -R 0:localhost:22 edge-9@ssh.example.com -p 17002` with a dedicated key, signing in as itself: the user name is the machine's name, as agents name their targets. Beacon tells a machine's connection from an agent's by the key that matched: a machine's connector key is registered on its record, an agent's on the agent (or on a token of its own). A connector connection may do nothing but ask for that one remote forward and keep alive: no sessions, no other channels or requests; one connection per machine, and the newest wins. Beacon binds no port for the forward (the port it reports back is a label). When an agent targets the machine, Beacon opens a channel back through the connection to the address the machine itself forwarded and runs its usual handshake over it: the pinned host key, a certificate valid for five minutes. Everything else is as for any other machine: `ssh`, `scp`, `sftp`, `rsync`, `ssh -L`, the MCP tools, the recording, the pause switch.
 
 **Add it.** On the machine, as root, make the key it connects out with; then register it on Beacon:
 
@@ -144,7 +146,7 @@ Paste the content of the machine's `/etc/ssh/beacon_connect_key.pub` as `-key`. 
 **What Beacon guarantees.**
 
 - Beacon connects only to the address the machine itself forwarded, never to one of its own choosing.
-- A connector key signs in only as its own machine, opens no session, forwards no port of its own and holds no token; a token's key registers no forward. A key a token holds cannot become a connector key.
+- A connector key signs in only as its own machine, opens no session, forwards no port of its own and holds no token; an agent's key registers no forward. A key an agent or a token holds cannot become a connector key.
 - The pause switch closes sessions relayed through a connector like any other; the machine's own connection stays, so the machine is reachable again the moment the channel resumes.
 - `machine list`, `list_machines` and `GET /api/v1/machines` show `connector: true`, `connected` and `connected_since`. A machine whose connector is not connected fails fast: `machine.disconnected` on the API and MCP, `beacon: the machine's connector is not connected` on an agent's ssh. Connects, disconnects and replacements are logged, not echoed to the chat; the gauge `beacon_ssh_connectors` counts the connected connectors and `beacon_ssh_connector_machines` the machines added as connectors, so a rule can fire when they differ.
 
@@ -158,13 +160,14 @@ Paste the content of the machine's `/etc/ssh/beacon_connect_key.pub` as `-key`. 
 
 It guarantees:
 
-- **No key in an agent's hands.** Agents sign in to Beacon with their own key, registered on their token; machines trust only Beacon's CA, and every certificate is for one connection, names the account on the machine, and is valid for five minutes. With `source_addresses`, a certificate works only from Beacon's addresses.
-- **Only the machines a token may reach**, and only while the channel is not paused. A token without `machines:ssh`, or limited to other machines, is refused before Beacon connects anywhere.
+- **No key in an agent's hands.** Agents sign in to Beacon with their own key, registered with Beacon; machines trust only Beacon's CA, and every certificate is for one connection, names the account on the machine, and is valid for five minutes. With `source_addresses`, a certificate works only from Beacon's addresses.
+- **Only the machines an agent may reach**, and only while the channel is not paused. An agent without `machines:ssh`, or limited to other machines, is refused before Beacon connects anywhere.
+- **Access that ends closes what is open.** When an agent may no longer reach a machine (a credential revoked or expired, the agent deleted or narrowed, its owner disabled or demoted, a key removed), what it has open there closes at once; Beacon also checks every minute.
 - **The machine is the machine you added.** Beacon checks each machine's pinned host key on every connection and refuses another.
 - **Everything on record**: every session and tool call is recorded, listed under the alerts on its machine, and echoed to the chat.
 
 It does not:
 
 - **Review commands, or run on its own.** An agent asks for each session; what it runs is its own decision, bounded by what the account on the machine may do.
-- **End an open session when its certificate expires.** The certificate is checked when Beacon opens the connection to the machine; a session open then lasts until it ends, the channel is paused, or Beacon restarts.
+- **End an open session when its certificate expires.** The certificate is checked when Beacon opens the connection to the machine; a session open then lasts until it ends, the agent's access ends, the channel is paused, or Beacon restarts.
 - **Pass on the client's environment** (the machine's locale and settings apply), remote port forwarding for agents (`ssh -R` is how a machine behind NAT connects out, never an agent's), agent forwarding or X11.

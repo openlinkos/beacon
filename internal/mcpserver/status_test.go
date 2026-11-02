@@ -29,7 +29,7 @@ func TestStatusTools(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 38 {
+	if err != nil || len(tools.Tools) != 43 {
 		t.Fatalf("tools: %d %v", len(tools.Tools), err)
 	}
 	if !strings.Contains(read.InitializeResult().Instructions, "schedule_maintenance") {

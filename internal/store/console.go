@@ -12,20 +12,23 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// The console's sign-ins: a person pastes a Beacon token into the console (package web), and gets a
-// session bound to that token, kept here. Only the SHA-256 of a session's id is stored, as for tokens,
-// so that the database alone opens no session. The bucket is made with the first sign-in.
+// The console's sign-ins: a person signs in to the console (package web) with their username and
+// password, or pastes a Beacon token, and gets a session bound to that account or that token, kept
+// here. Only the SHA-256 of a session's id is stored, as for tokens, so that the database alone opens no
+// session. The bucket is made with the first sign-in.
 
 var bucketConsole = []byte("console_sessions")
 
-// ConsoleSession is one sign-in to the console. Token and TokenCreated name the token it is bound to:
-// the session lasts while that very token does (a token revoked, or replaced by another of the same
-// name, ends it); what the session may do is what the token's scopes allow, read afresh each time. CSRF
-// is the secret every form of the session carries.
+// ConsoleSession is one sign-in to the console. User names the account it is bound to: what it may do
+// is what the account's role allows, read afresh each time, and disabling the account ends it. Or Token
+// and TokenCreated name the token it is bound to (signing in with a token): the session lasts while that
+// very token does (a token revoked, or replaced by another of the same name, ends it), and may do what
+// the token may. CSRF is the secret every form of the session carries.
 type ConsoleSession struct {
 	Hash         string    `json:"hash"`
-	Token        string    `json:"token"`
-	TokenCreated time.Time `json:"token_created"`
+	User         string    `json:"user,omitempty"`
+	Token        string    `json:"token,omitempty"`
+	TokenCreated time.Time `json:"token_created,omitzero"`
 	Created      time.Time `json:"created"`
 	Expires      time.Time `json:"expires"`
 	CSRF         string    `json:"csrf"`
@@ -52,6 +55,15 @@ func hashSession(id string) string {
 // returns the session's id, which is not stored and goes into the person's cookie. Sessions that ended
 // are forgotten on the way.
 func (s *Store) CreateConsoleSession(t Token, ttl time.Duration) (string, ConsoleSession, error) {
+	return s.createConsoleSession(ConsoleSession{Token: t.Name, TokenCreated: t.Created}, ttl, t.Expires)
+}
+
+// CreateAccountSession signs the account in to the console for ttl.
+func (s *Store) CreateAccountSession(a Account, ttl time.Duration) (string, ConsoleSession, error) {
+	return s.createConsoleSession(ConsoleSession{User: a.Username}, ttl, time.Time{})
+}
+
+func (s *Store) createConsoleSession(cs ConsoleSession, ttl time.Duration, until time.Time) (string, ConsoleSession, error) {
 	id, err := randomID(32)
 	if err != nil {
 		return "", ConsoleSession{}, err
@@ -61,9 +73,9 @@ func (s *Store) CreateConsoleSession(t Token, ttl time.Duration) (string, Consol
 		return "", ConsoleSession{}, err
 	}
 	now := s.now().UTC()
-	cs := ConsoleSession{Hash: hashSession(id), Token: t.Name, TokenCreated: t.Created, Created: now, Expires: now.Add(ttl), CSRF: csrf}
-	if t.Expires.Before(cs.Expires) {
-		cs.Expires = t.Expires.UTC()
+	cs.Hash, cs.Created, cs.Expires, cs.CSRF = hashSession(id), now, now.Add(ttl), csrf
+	if !until.IsZero() && until.Before(cs.Expires) {
+		cs.Expires = until.UTC()
 	}
 	b, err := json.Marshal(cs)
 	if err != nil {
@@ -120,6 +132,20 @@ func (s *Store) DeleteConsoleSession(id string) error {
 
 // DeleteConsoleSessions ends every session of the token called name and reports how many there were.
 func (s *Store) DeleteConsoleSessions(name string) int {
+	return s.deleteSessions(func(x ConsoleSession) bool { return x.Token == name })
+}
+
+// DeleteAccountSessions ends every session of the account but the one whose id is keep ("" ends them
+// all), and reports how many there were.
+func (s *Store) DeleteAccountSessions(username, keep string) int {
+	kept := ""
+	if keep != "" {
+		kept = hashSession(keep)
+	}
+	return s.deleteSessions(func(x ConsoleSession) bool { return x.User == username && x.Hash != kept })
+}
+
+func (s *Store) deleteSessions(match func(ConsoleSession) bool) int {
 	n := 0
 	_ = s.db.Update(func(tx *bolt.Tx) error {
 		bk := tx.Bucket(bucketConsole)
@@ -127,7 +153,7 @@ func (s *Store) DeleteConsoleSessions(name string) int {
 			return nil
 		}
 		return deleteConsole(bk, func(x ConsoleSession) bool {
-			if x.Token == name {
+			if match(x) {
 				n++
 				return true
 			}

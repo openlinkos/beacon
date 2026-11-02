@@ -92,7 +92,7 @@ func TestConnectorLearnsHostKey(t *testing.T) {
 		t.Errorf("setup %+v", s)
 	}
 	ctx := context.Background()
-	who := Actor{Name: "claude-code", Via: "mcp"}
+	who := Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}
 	if _, err := e.g.Run(ctx, who, "nat-box", RunInput{Command: "true"}); !errors.Is(err, ErrDisconnected) {
 		t.Errorf("disconnected: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestConnectorLearnsHostKey(t *testing.T) {
 	if a := e.st.AuditLog(5); len(a) == 0 || a[0].Action != "machine_host_key" || a[0].Target != "nat-box" || a[0].Detail != ssh.FingerprintSHA256(e.tg.hostKey.PublicKey()) {
 		t.Errorf("audit %+v", a)
 	}
-	l, _ := e.g.List(Actor{Name: "claude-code"}, "")
+	l, _ := e.g.List(Actor{Name: "claude-code", Key: "token:claude-code"}, "")
 	var v MachineView
 	for _, x := range l.Machines {
 		if x.Name == "nat-box" {
@@ -208,7 +208,7 @@ func TestConnectorRefusals(t *testing.T) {
 	}
 	cl2 := e.connectOut(t, "nat-box", nk)
 	defer cl2.Close()
-	l, _ := e.g.List(Actor{Name: "claude-code"}, "")
+	l, _ := e.g.List(Actor{Name: "claude-code", Key: "token:claude-code"}, "")
 	for _, m := range l.Machines {
 		if m.Name == "nat-box" && (m.Connected == nil || !*m.Connected) {
 			t.Errorf("not connected with the new key: %+v", m)
@@ -240,7 +240,7 @@ func TestConnectorSessions(t *testing.T) {
 		t.Errorf("record %+v", recs)
 	}
 	// the tools
-	r, err := e.g.Run(ctx, Actor{Name: "claude-code", Via: "mcp"}, "nat-box", RunInput{Command: "cat", Stdin: "tooled\n"})
+	r, err := e.g.Run(ctx, Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}, "nat-box", RunInput{Command: "cat", Stdin: "tooled\n"})
 	if err != nil || r.ExitCode != 0 || r.Stdout != "tooled\n" {
 		t.Errorf("run tool: %+v %v", r, err)
 	}

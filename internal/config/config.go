@@ -75,6 +75,8 @@ type Config struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
 	Branding Branding `yaml:"branding"`
+	// OAuth is how MCP clients sign in to Beacon (docs/accounts.md).
+	OAuth OAuth `yaml:"oauth"`
 
 	Feishu       Feishu              `yaml:"feishu"`
 	Pushover     Pushover            `yaml:"pushover"`
@@ -98,6 +100,17 @@ type Branding struct {
 	Title     string `yaml:"title"`
 	PoweredBy *bool  `yaml:"powered_by"`
 }
+
+// OAuth is how MCP clients sign in. ClientIDDocuments, on unless set to false, takes a client whose
+// client_id is the https URL of its metadata document (Claude Code's and Codex's are), which Beacon
+// fetches from the internet; a deployment that cannot reach the internet sets it to false, and clients
+// then register themselves instead.
+type OAuth struct {
+	ClientIDDocuments *bool `yaml:"client_id_documents"`
+}
+
+// Documents reports whether Beacon takes clients by their metadata documents.
+func (o OAuth) Documents() bool { return o.ClientIDDocuments == nil || *o.ClientIDDocuments }
 
 // Powered reports whether the public pages say they are powered by Beacon.
 func (b Branding) Powered() bool { return b.PoweredBy == nil || *b.PoweredBy }

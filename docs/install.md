@@ -1,6 +1,6 @@
 # Up in 30 minutes
 
-This guide takes you from a bare Linux machine to a working on-call loop. At the end, Beacon runs on one machine, two probe locations check your services, an AI agent you already use (Claude Code here; Codex and others work the same way) runs commands on one of your servers without holding a key for it, and you have watched a rehearsed outage go from alert to recovery. It is written for someone who runs a few servers, has root on a machine with Docker, and uses an agent on a workstation.
+This guide takes you from a bare Linux machine to a working on-call loop. At the end, Beacon runs on one machine with you as its owner, two probe locations check your services, an AI agent you already use (Claude Code here; Codex and others work the same way) signs in as one of your agents and runs commands on one of your servers without holding a key for it, and you have watched a rehearsed outage go from alert to recovery. It is written for someone who runs a few servers, has root on a machine with Docker, and uses an agent on a workstation.
 
 Each step says how long it takes, what to run, what you should see, and what to do when you see something else.
 
@@ -10,7 +10,7 @@ Each step says how long it takes, what to run, what you should see, and what to 
 | [1. Install the centre](#1-install-the-centre) | 3 minutes, of which the script runs for 1 to 2 |
 | [2. The first probe](#2-the-first-probe) | 5 minutes for two locations |
 | [3. The first machine](#3-the-first-machine) | 4 minutes |
-| [4. The first agent](#4-the-first-agent) | 5 minutes |
+| [4. The first agent](#4-the-first-agent) | 5 minutes, your own account included |
 | [5. The first drill](#5-the-first-drill) | 10 minutes, most of it waiting for the rules |
 | [6. The chat](#6-the-chat) | not counted: creating a Feishu app takes an administrator's approval |
 
@@ -25,7 +25,7 @@ Three words first. The **centre** is the machine Beacon runs on. A **probe locat
 - **An e-mail address** Let's Encrypt can write to about the certificates. It must be a real one: the installer refuses `example.com` addresses.
 - **A small machine for the first probe location**: any Linux with systemd, on x86_64 or arm64, with 64 MB of memory to spare. A VPS where your users are is best. The centre itself will do for the second location.
 - **A machine agents may work on**, which the centre can reach on its SSH port. The probe machine will do.
-- **Your agent**: Claude Code, or anything that speaks MCP over HTTP, on a workstation; and its SSH public key (`~/.ssh/id_ed25519.pub` on that workstation) if you want the agent to use its own `ssh` too.
+- **Your agent**: Claude Code, or anything that speaks MCP over HTTP, on a workstation with a browser, to sign it in; and its SSH public key (`~/.ssh/id_ed25519.pub` on that workstation) if you want the agent to use its own `ssh` too.
 
 ## 1. Install the centre
 
@@ -158,23 +158,30 @@ Two more settings are worth making now rather than later:
 
 ## 4. The first agent
 
-5 minutes. One token works for the API, MCP and the SSH channel. On the centre, create one for the agent, with the agent's SSH public key so that its own `ssh` works too. The key is on the workstation: paste the line from its `~/.ssh/id_ed25519.pub`.
+5 minutes. First your own account on Beacon, then Claude Code as one of your agents: it signs in through the browser, so no token is copied anywhere, and it never does more than your role allows.
+
+**Your account.** Beacon has no account yet. When it started, it wrote a one-time setup link to its log; on the centre, print a fresh one:
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
-  -ssh-key "ssh-ed25519 AAAA… you@workstation"
+docker exec beacon beacon setup
 ```
 
-It prints `token claude-code created with status:read,alerts:write,machines:ssh,sessions:read, expires …. The secret is shown only now:` and then the secret, `lbt_…`. On the workstation where Claude Code runs:
+```
+Open this link within 30 minutes (until …) to make the first account, an owner. It works once:
+https://status.example.com/console/setup?code=…
+```
+
+Open the link in a browser and choose a username (`alice` below), a display name and a password of at least 10 characters. You are the first owner, signed in to the console at `https://status.example.com/console`. The link works once; everyone else joins with an invitation ([People and their agents](accounts.md#invite-people)).
+
+**Claude Code.** On the workstation, add Beacon's MCP server, without a token:
 
 ```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp \
-  --header "Authorization: Bearer lbt_…"
-claude mcp list    # beacon: … Connected
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-Start a new Claude Code session and ask it: *"List the machines Beacon reaches and run `uptime` on edge-1."* It calls `list_machines`, then `run_command`, and gets back the exit code, stdout and stderr as plain text, without terminal codes. Beacon signed a certificate valid for five minutes for that one connection; the agent holds no key for the machine.
+Start Claude Code, run `/mcp`, choose `beacon` and authenticate. The browser opens Beacon's consent page, **Claude Code wants to use Beacon as you**. Keep the agent name `claude-code`, choose **On call** under **What it may do** (it may work alerts and reach machines), all machines, and 30 days, then **Allow**. Back in Claude Code, `/mcp` shows `beacon` connected; `claude mcp list` says `beacon: … Connected`. Claude Code now holds an access token valid for an hour and refreshes it by itself for the 30 days you allowed. In the audit log and the chat it is `alice / claude-code`.
+
+**Its own key.** Ask Claude Code: *"Register my SSH public key ~/.ssh/id_ed25519.pub with Beacon, list the machines Beacon reaches and run `uptime` on edge-1."* It calls `add_ssh_key`, `list_machines`, then `run_command`, and gets back the exit code, stdout and stderr as plain text, without terminal codes. Beacon signed a certificate valid for five minutes for that one connection; the agent holds no key for the machine.
 
 The same `list_machines` answer has an `ssh_config` block and a `known_hosts` line for the agent's own ssh:
 
@@ -186,9 +193,11 @@ Host edge-1
   HostKeyAlias beacon
 ```
 
-Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts` on the workstation, and `ssh edge-1 uptime`, `scp`, `rsync -e ssh` and `ssh -L` work as usual: the user name names the machine, and on the machine the session runs as `beacon`. If ssh answers `Permission denied (publickey)`, the key it offers is not the one on the token: add it with `docker exec beacon beacon token ssh-key claude-code add "ssh-ed25519 AAAA…"`.
+Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts` on the workstation, and `ssh edge-1 uptime`, `scp`, `rsync -e ssh` and `ssh -L` work as usual: the user name names the machine, and on the machine the session runs as `beacon`. If ssh answers `Permission denied (publickey)`, the key it offers is not one Beacon knows: have Claude Code register it with `add_ssh_key`, or add it on the console, under **Agents**, `claude-code`, **Add an SSH key**.
 
-Every session is on record. `list_sessions` (or `GET /api/v1/sessions`) lists them with each command and its exit status, and `docker exec beacon beacon ssh pause` closes them all and refuses new ones until `ssh resume`.
+Every session is on record. The console's **Agents** page shows `claude-code` with its sign-in and its key; `list_sessions` (or `GET /api/v1/sessions`) lists the sessions with each command and its exit status; and `docker exec beacon beacon ssh pause` closes them all and refuses new ones until `ssh resume`.
+
+**An agent without a browser**, such as a CI job or the agent a hook wakes, gets a token instead: on the console under **Agents**, or on the centre with `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`, which prints the token once with the commands that use it ([Headless agents and CI](accounts.md#headless-agents-and-ci)).
 
 ## 5. The first drill
 
@@ -207,7 +216,7 @@ What happens, with two locations:
 
 With one location nothing fires, by design: one location's word is never an outage.
 
-**Watch it in the console** while you wait. Signing in takes a token today: make one for yourself on the centre, `docker exec beacon beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d`, open `https://status.example.com/console` and paste it. The alert's page shows what each location sees, the timeline, the notes and every session on the alert's machines with a replay. [The console](pages.md) has the details.
+**Watch it in the console** while you wait: open `https://status.example.com/console`, where you signed in at step 4 (a sign-in lasts 12 hours). The alert's page shows what each location sees, the timeline, the notes and every session on the alert's machines with a replay. [The console](pages.md) has the details.
 
 On the centre, `beacon silence list` shows the agent's silence, and `beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` makes one from the command line, recorded in the audit log as such.
 
@@ -227,6 +236,7 @@ Run the drill once more and watch the card. To have a new alert wake an agent by
 
 ## What to read next
 
+- [People and their agents](accounts.md): inviting your team, roles, Codex, headless agents and their tokens, moving from tokens.
 - [Put an agent on call](agents.md): waking an agent, the evidence, notes, the timeline, probing again after a fix.
 - [The SSH channel](ssh.md): accounts on machines, recordings, pausing, machines behind NAT, what the channel does not do.
 - [What is checked, and from where](catalog.md): locations, targets and modules, and how to change them through Beacon.

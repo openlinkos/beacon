@@ -444,7 +444,8 @@ func (e *env) consolePages() map[string][]string {
 		"/console/tokens":                  {"root", "status:read", "All machines"},
 		"/console/config":                  {"edge-1", "Europe - Frankfurt", "Asia - Shanghai", "alice", "new location &lt;script&gt;"},
 		"/console/config/history/1":        {"location edge-1", "Europe - Frankfurt", `data-op="add"`},
-		"/console/agents":                  {"oncall", "hooks.example.com", "202", "Done"},
+		"/console/hooks":                   {"oncall", "hooks.example.com", "202", "Done"},
+		"/console/agents":                  {"Connect Claude Code or Codex", "claude mcp add --transport http beacon https://beacon.example.com/mcp"},
 		"/console/audit":                   {"add_note", "claude-code", "console_sign_in"},
 		"/console/changes":                 {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
 	}
@@ -476,8 +477,8 @@ func TestConsolePages(t *testing.T) {
 			}
 		}
 		// the hook's secret never shows
-		if a := b.get("/console/agents"); strings.Contains(a.body, "hook-secret") {
-			t.Error("the agents' page shows a hook's URL with its query")
+		if a := b.get("/console/hooks"); strings.Contains(a.body, "hook-secret") {
+			t.Error("the hooks' page shows a hook's URL with its query")
 		}
 		// a page that is not there, signed in: said so in the shell
 		if a := b.get("/console/machines/nowhere"); a.code != http.StatusNotFound || !strings.Contains(a.body, "ol-app-workbench") {
@@ -549,7 +550,9 @@ func TestShellsDifferOnlyByCSS(t *testing.T) {
 func TestOverviewFigures(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	b := e.signedIn("root", "status:read")
-	v := &viewer{Token: tokenNamed(e.st, "root")}
+	tok := tokenNamed(e.st, "root")
+	p, _ := e.st.TokenPrincipal(tok)
+	v := &viewer{Token: &tok, Principal: p}
 	f := e.srv.figures(v)
 	firing := map[string]int{}
 	for _, g := range e.st.Groups() {
@@ -574,7 +577,7 @@ func TestOverviewFigures(t *testing.T) {
 	for _, want := range []string{
 		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
 		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
-		`href="/console/agents"`, "1 woken, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		`href="/console/hooks"`, "1 woken, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
 		if !strings.Contains(page, want) {

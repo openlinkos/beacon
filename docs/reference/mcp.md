@@ -1,18 +1,20 @@
 # MCP tools
 
-Beacon's MCP server lets an agent (Claude Code, Codex, or any client that speaks MCP over HTTP) work an alert and the machines behind it with tools, without learning Beacon's API: read the alerts and their evidence, leave notes, have the probes check again, run commands and edit files on machines, plan maintenance, and keep its own token alive. It is at `/mcp` on port 17001 (`https://status.example.com/mcp` in the reference deployment): streamable HTTP, stateless, with the same bearer tokens and scopes as the [REST API](api.md), and each tool calls the same method as its REST route.
+Beacon's MCP server lets an agent (Claude Code, Codex, or any client that speaks MCP over HTTP) work an alert and the machines behind it with tools, without learning Beacon's API: read the alerts and their evidence, leave notes, have the probes check again, run commands and edit files on machines, plan maintenance, register its own SSH key, and keep its own token alive. It is at `/mcp` on port 17001 (`https://status.example.com/mcp` in the reference deployment): streamable HTTP, stateless, with the same credentials and scopes as the [REST API](api.md), and each tool calls the same method as its REST route.
 
-The machine tools take the names and the behaviour of an agent's own tools (run a command, read a file, write a file, edit a file). Results are structured and free of terminal control codes, and long output is cut with a way to get the rest. Every write and every session is recorded with the token's name and echoed to the alert chat.
+The machine tools take the names and the behaviour of an agent's own tools (run a command, read a file, write a file, edit a file). Results are structured and free of terminal control codes, and long output is cut with a way to get the rest. Every write and every session is recorded with the caller's name (`alice / claude-code` for an agent, a token's own name otherwise) and echoed to the alert chat.
 
 ## Connecting
 
-An agent connects with a Beacon token, made on the centre with the scopes its work needs ([Getting a token](api.md#getting-a-token)); `status:read,alerts:write,machines:ssh` covers working alerts on machines. Then, in Claude Code:
+Claude Code and Codex sign in through the browser, with MCP's OAuth: you add Beacon without a token, sign in from the client, and allow it on Beacon's consent page as one of your agents ([Connect Claude Code](../accounts.md#connect-claude-code)). In Claude Code:
 
 ```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-Codex, in `~/.codex/config.toml`, with the token in an environment variable:
+then `/mcp` inside Claude Code, choose `beacon` and authenticate (or `claude mcp login beacon` from the shell). Codex: `codex mcp add beacon --url https://status.example.com/mcp`, then `codex mcp login beacon`.
+
+An agent without a browser sends an agent's token instead, made on the console's **Agents** page or with `beacon agent add` ([Getting a credential](api.md#getting-a-credential)); the On call preset covers working alerts on machines. With Claude Code, add it with `--header "Authorization: Bearer lbt_…"`; with Codex, in `~/.codex/config.toml`, with the token in an environment variable:
 
 ```toml
 [mcp_servers.beacon]
@@ -20,7 +22,7 @@ url = "https://status.example.com/mcp"
 bearer_token_env_var = "BEACON_TOKEN"
 ```
 
-Any other client that speaks MCP over HTTP connects the same way, with the token in an `Authorization: Bearer` header. The server's instructions tell the agent what each group of tools is for and how to use the write tools with care. A token sees every tool; a call without the scope it needs is refused with a message naming the scope (`this token lacks the alerts:write scope`).
+Any other client that speaks MCP over HTTP connects in one of these two ways. A request without a credential, or with one that does not verify, gets a `401` whose `WWW-Authenticate` names the protected resource metadata (`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`), where an MCP client finds how to sign in. The server's instructions tell the agent what each group of tools is for and how to use the write tools with care. A credential sees every tool; a call without the scope it needs is refused with a message naming the scope, and, for an agent, what its preset within its owner's role allows (`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`).
 
 ## Alerts
 
@@ -49,7 +51,7 @@ Any other client that speaks MCP over HTTP connects the same way, with the token
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `list_machines` | `status:read` or `machines:ssh` | The machines, whether the token reaches each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
+| `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
 | `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it |
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
@@ -88,13 +90,25 @@ The public status pages are made from the alert groups and the maintenance windo
 | `schedule_maintenance` | `maintenance:write` | Plan a window (`services`, `starts_at`, `ends_at`, `title`, `description`): the pages announce it, and the services' alerts are silenced for it. At most 7 days, starting within 90, never in the past |
 | `end_maintenance` | `maintenance:write` | End a window now, or call it off before it begins (`id`): its silences end and the pages say so |
 
+## People and SSH keys
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used |
+| `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only |
+| `add_ssh_key` | `machines:ssh` | Register your own public key for the SSH channel (`key`, an `authorized_keys` line; `comment`), so that your own ssh, scp, sftp and rsync reach the machines you may reach; `list_machines` then gives the `ssh_config` block. The key belongs to the credential you call with (`via`): it works while that token or OAuth sign-in does and is removed with it. Shown to the person you act for, and echoed to the alert chat |
+| `list_ssh_keys` | `machines:ssh` | Your SSH keys |
+| `remove_ssh_key` | `machines:ssh` | Remove one of your keys (`fingerprint`); connections signed in with it are closed |
+
+No agent preset gives `accounts:write`: an agent manages people only if an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not MCP tools; they are for people, on the console or the centre.
+
 ## Your token
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `whoami` | any | The token itself: name, scopes, the machines it reaches, expiry, lifetime, and whether and when it may renew |
-| `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token |
-| `revoke_token` | `machines:write` | Revoke a token that reaches machines: its sessions end and its requests are refused from now on. The pause switch for one agent; machines' and services' tokens are revoked on the host only |
+| `whoami` | any | Who you are to Beacon: the name the audit log gives you (`alice / claude-code`), the person you act for, your preset and the scopes it gives you now within that person's role, the machines you reach, your SSH keys, and your credential: a token (expiry, lifetime, whether and when it may renew) or an OAuth sign-in, which your client refreshes |
+| `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token, nor for an OAuth sign-in, which its client refreshes |
+| `revoke_token` | `machines:write` | Revoke a token that reaches machines, or any agent's: what it has open on machines is closed at once and its requests are refused from now on. The pause switch for one agent; machines' and services' tokens are revoked on the centre only |
 
 ## Results
 

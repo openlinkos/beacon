@@ -9,7 +9,6 @@ import (
 
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/metrics"
-	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -127,7 +126,7 @@ func (s *Server) figures(v *viewer) overviewFigures {
 	}
 	if s.SSH != nil {
 		f.ChannelOn, f.Paused = true, s.SSH.PausedSince()
-		if l, err := s.SSH.List(sshgate.Actor{Name: v.Token.Name, Via: "console"}, ""); err == nil {
+		if l, err := s.SSH.List(v.gate(), ""); err == nil {
 			for _, m := range l.Machines {
 				f.Machines++
 				if m.Critical {
@@ -188,7 +187,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		mach.Tone = "warning"
 	}
 	p.Stats = append(p.Stats, mach)
-	woken := stat{Label: s.t("Agents woken today"), Value: num(f.Woken), Icon: "bot", Href: consolePath("/agents"),
+	woken := stat{Label: s.t("Agents woken today"), Value: num(f.Woken), Icon: "bot", Href: consolePath("/hooks"),
 		Meta: s.t("%d woken, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
 	if f.WokenFailed > 0 {
 		woken.Tone = "danger"
@@ -227,7 +226,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if f.ConfigBy != "" {
 		cv.V = s.t("%d, by %s via %s, %s", f.ConfigVersion, f.ConfigBy, f.ConfigVia, f.ConfigAt)
 	}
-	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}, {K: s.t("Signed in as"), V: v.Token.Name, Href: consolePath("/tokens")}}
+	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}, {K: s.t("Signed in as"), V: v.name(), Href: consolePath("/account")}}
 	s.render(w, overviewTmpl, p)
 }
 

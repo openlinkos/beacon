@@ -18,6 +18,8 @@ catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expir
 #         - {name: mirrors, title: Mirrors, page: mirrors}            # every service with a target labelled page: mirrors
 #       links: {home: "https://example.com/", privacy: "https://example.com/privacy"}
 # The days of their 90-day history begin at midnight in the timezone below.
+# Beacon's own address, behind the TLS proxy: the links it hands out (the console, its one-time setup,
+# invitation and reset links, the alerts' pages) and the issuer MCP clients sign in with (docs/accounts.md).
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
 trusted_proxies: [172.16.0.0/12]
@@ -82,6 +84,10 @@ pages:
 branding:
   title: Example Operations                 # that page's title (Beacon when left out)
   powered_by: true                          # false leaves "Powered by Beacon, open source" out of the public pages' footer
+
+# How MCP clients (Claude Code, Codex) sign in to Beacon. See docs/accounts.md.
+oauth:
+  client_id_documents: true                 # false when Beacon cannot reach the internet: clients then register themselves
 
 feishu:
   # The self-built app (cards, button callbacks, buzz). See docs/feishu.md.

@@ -80,6 +80,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
             text: 'Guide',
             items: [
               { text: 'Up in 30 minutes', link: '/install' },
+              { text: 'People and their agents', link: '/accounts' },
               { text: 'Put an agent on call', link: '/agents' },
               { text: 'The SSH channel', link: '/ssh' },
               { text: 'What is checked', link: '/catalog' },
@@ -137,6 +138,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
             text: '指南',
             items: [
               { text: '30 分钟装好', link: '/zh/install' },
+              { text: '成员和 Agent', link: '/zh/accounts' },
               { text: '让 Agent 值班', link: '/zh/agents' },
               { text: 'SSH 通道', link: '/zh/ssh' },
               { text: '检测什么', link: '/zh/catalog' },

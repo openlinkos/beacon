@@ -49,7 +49,7 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 	conn := newID(g.now())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	untrack := g.track(cancel)
+	untrack := g.track(cancel, who, m.Name)
 	defer untrack()
 	cl, err := g.dial(ctx, m, who, conn)
 	if err != nil {

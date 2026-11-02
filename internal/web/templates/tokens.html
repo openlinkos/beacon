@@ -4,14 +4,22 @@
   <thead><tr><th>{{.L.Name}}</th><th>{{.L.Scopes}}</th><th>{{.L.Machines}}</th><th>{{.L.Keys}}</th><th>{{.L.Created}}</th><th>{{.L.Expires}}</th><th>{{.L.Renewed}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Revoke}}</span></th></tr></thead>
   <tbody>
   {{range .Rows}}<tr>
-    <td><span class="ol-cell-title ol-mono">{{.Name}}</span>{{if .Subject}}<span class="ol-cell-sub">{{$.L.Subject}} {{.Subject}}</span>{{end}}</td>
+    <td><span class="ol-cell-title ol-mono">{{.Name}}</span>{{if .Subject}}<span class="ol-cell-sub">{{$.L.Subject}} {{.Subject}}</span>{{end}}{{if .Agent}}<span class="ol-cell-sub">{{$.L.Agent}} <a href="{{.AgentHref}}">{{.Agent}}</a></span>{{end}}{{if .Legacy}}<span class="ol-cell-sub"><span class="ol-badge ol-badge-warning">{{$.L.Legacy}}</span></span>{{end}}</td>
     <td data-label="{{$.L.Scopes}}"><span class="ol-cluster">{{range .Scopes}}<span class="ol-badge ol-badge-mono">{{.}}</span>{{end}}</span></td>
     <td data-label="{{$.L.Machines}}">{{.Machines}}</td>
     <td data-label="{{$.L.Keys}}">{{range .Keys}}<span class="ol-mono ol-break">{{.}}</span><br>{{end}}</td>
     <td data-label="{{$.L.Created}}">{{.Created}}{{if .CreatedBy}}<span class="ol-cell-sub">{{.CreatedBy}}</span>{{end}}</td>
     <td data-label="{{$.L.Expires}}">{{if .Expired}}<span class="ol-badge ol-badge-danger">{{.Expires}}</span>{{else}}{{.Expires}}{{end}}</td>
     <td data-label="{{$.L.Renewed}}">{{.Renewed}}</td>
-    <td class="ol-actions">{{if .Revoke}}<form method="post" action="{{.Revoke}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm" title="{{$.L.RevokeHint}}">{{iconSm "ban"}}{{$.L.Revoke}}<span class="ol-sr-only"> {{.Name}}</span></button></form>{{end}}</td>
+    <td class="ol-actions"><span class="ol-cluster">{{if .Revoke}}<form method="post" action="{{.Revoke}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm" title="{{$.L.RevokeHint}}">{{iconSm "ban"}}{{$.L.Revoke}}<span class="ol-sr-only"> {{.Name}}</span></button></form>{{end}}
+      {{if and .Claim $.Owners}}<details class="ol-details"><summary>{{$.L.Claim}}<span class="ol-sr-only"> {{.Name}}</span></summary>
+        <form class="ol-stack" method="post" action="{{.Claim}}"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <p class="ol-hint">{{$.L.ClaimHint}}</p>
+          <div class="ol-field"><label class="ol-label" for="owner-{{.Name}}">{{$.L.Owner}}</label><select class="ol-select ol-input-sm" id="owner-{{.Name}}" name="owner">{{range $.Owners}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></div>
+          <div class="ol-field"><label class="ol-label" for="agent-{{.Name}}">{{$.L.AgentName}}</label><input class="ol-input ol-input-sm ol-input-mono" id="agent-{{.Name}}" name="agent" value="{{.Name}}" maxlength="40"></div>
+          <div class="ol-field"><label class="ol-label" for="preset-{{.Name}}">{{$.L.Preset}}</label><select class="ol-select ol-input-sm" id="preset-{{.Name}}" name="preset">{{range .Options $}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+          <button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "user-check"}}{{$.L.Claim}}</button>
+        </form></details>{{end}}</span></td>
   </tr>{{end}}
   </tbody>
 </table></div>

@@ -6,12 +6,13 @@
 // served by beacon beside the API on the same port, in the configured language, readable on a phone.
 // Every page says it runs on Beacon and links to the project (brand.go).
 //
-// There is no login system of Beacon's own. The console signs a person in with a Beacon token they
-// paste (console.go): the token is the identity, and its scopes are what the console may do. An
-// alert's or a session's page also opens without signing in, view-only, with a signed link (package
-// link), which the card, the chat echoes and the API hand out, or with a bearer token carrying the
-// scope the matching API route needs; anything else is 404, so that a wrong or expired link reveals
-// nothing, not even that the page exists. Text from outside Beacon reaches the pages cleaned by the
+// People sign in to the console with their Beacon account, a username and a password (console.go,
+// accounts.go), and what the console may do is what their role allows; signing in with a pasted token
+// is kept for one release. People manage their agents there (agentpages.go), owners manage people, and
+// MCP clients are allowed at /oauth/authorize (oauth.go). An alert's or a session's page also opens
+// without signing in, view-only, with a signed link (package link), which the card, the chat echoes and
+// the API hand out, or with a bearer credential carrying the scope the matching API route needs;
+// anything else is 404, so that a wrong or expired link reveals nothing, not even that the page exists. Text from outside Beacon reaches the pages cleaned by the
 // bridge and is escaped by html/template on the way out; the pages carry no inline script or style,
 // and their Content-Security-Policy allows nothing from elsewhere.
 package web
@@ -34,6 +35,7 @@ import (
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -95,6 +97,9 @@ type Server struct {
 	// Status computes the public status pages (status.go); nil leaves them out.
 	Status   *status.Service
 	Branding config.Branding
+
+	// OAuth is Beacon's authorization server for MCP clients (package oauth); nil leaves /oauth/authorize out.
+	OAuth *oauth.Server
 }
 
 // Register adds the pages' routes to mux: GET / is public (home.go), the console is under /console, and
@@ -179,8 +184,8 @@ func (s *Server) access(r *http.Request, scopes string) access {
 		}
 	}
 	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
-		if t, ok := s.Auth.Verify(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), t.Has) {
-			return access{OK: true, Token: t.Name, Until: s.now().Add(tokenTTL)}
+		if p, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), p.Has) {
+			return access{OK: true, Token: p.Name(), Until: s.now().Add(tokenTTL)}
 		}
 	}
 	return access{Viewer: v}

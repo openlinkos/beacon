@@ -71,6 +71,9 @@ func (s *Server) moved(w http.ResponseWriter, r *http.Request) {
 	headers(w)
 	w.Header().Set("Cache-Control", "no-store")
 	to, query := consolePath(r.URL.EscapedPath()), r.URL.RawQuery
+	if r.URL.Path == "/agents" { // the hooks' page, which was called Agents before agents had pages of their own
+		to = consolePath("/hooks")
+	}
 	if q := r.URL.Query(); q.Has(link.Param) {
 		sig := q.Get(link.Param)
 		q.Del(link.Param)

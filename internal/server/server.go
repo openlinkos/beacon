@@ -14,6 +14,7 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/web"
 )
 
@@ -28,6 +29,9 @@ type Deps struct {
 	Drill   func() time.Time
 	Log     *slog.Logger
 	Web     *web.Server
+	// OAuth is Beacon's authorization server for MCP clients: its metadata, registration, token and
+	// revocation endpoints (the console serves /oauth/authorize); nil leaves them out.
+	OAuth *oauth.Server
 }
 
 // CSP for everything the service serves itself; the pages bring their own.
@@ -66,6 +70,9 @@ func Handler(d Deps) http.Handler {
 	})
 	d.API.Register(mux)
 	mux.Handle("/mcp", d.MCP)
+	if d.OAuth != nil {
+		d.OAuth.Register(mux)
+	}
 	if d.Web == nil {
 		d.Web = &web.Server{Log: d.Log}
 	}

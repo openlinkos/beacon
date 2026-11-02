@@ -9,7 +9,7 @@ Beacon calls no model and decides nothing for the agent. It wakes the agent, ans
 1. **Probes fail and the rules fire.** Alerts that belong together (by default, those with the same name and service) form an **alert group**: one card, one hook call, one id.
 2. **Beacon calls your hooks.** A hook is a signed webhook or a GitHub workflow dispatch, listed in the configuration. The call says which alert group and where its evidence is; it carries no credentials.
 3. **The harness starts the agent** with the call's payload.
-4. **The agent asks for the evidence** (`get_evidence`) with its own token: what each location sees and why it fails, the other alerts in the same failure domain, what changed just before, what has been done.
+4. **The agent asks for the evidence** (`get_evidence`) with its own credentials: what each location sees and why it fails, the other alerts in the same failure domain, what changed just before, what has been done.
 5. **It works on the machines** the evidence names, through the [SSH channel](ssh.md) with its own `ssh` or with Beacon's tools (`run_command`, `read_file`, `edit_file`). Every command is recorded.
 6. **It has the fix checked** (`probe_now`): every location probes the target again at once. The alert resolves on what the probes see, not on what the agent says.
 7. **It leaves a note** (`add_note`) saying what was wrong, what it did and what remains. People see it on the card, in the chat and in the console.
@@ -62,7 +62,7 @@ agents:
 
 **Delivery never waits for agents.** The calls run beside alert delivery: the card, the buzz and Pushover never wait for them. A call that gets no answer, a timeout, a 429 or a 5xx is tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes. Any other refusal (401, 404, 422) fails at once, since trying again would not help. Redirects are not followed, so the payload and its signature go only to the address configured. Calls a restart interrupted are taken up again when they are less than ten minutes old.
 
-**Where the outcome shows.** Each call's outcome is kept on the alert group (`agents` in `GET /api/v1/alerts/{id}` and `get_alert`), in the audit log (`wake_agent`), on the card ("Agent claude-oncall woken at 10:02", or that it could not be woken), in the alert chat with the reason when it failed, and on the console's Agents page.
+**Where the outcome shows.** Each call's outcome is kept on the alert group (`agents` in `GET /api/v1/alerts/{id}` and `get_alert`), in the audit log (`wake_agent`), on the card ("Agent claude-oncall woken at 10:02", or that it could not be woken), in the alert chat with the reason when it failed, and on the console's **Hooks** page (`/console/hooks`).
 
 ### The webhook
 
@@ -118,7 +118,7 @@ def genuine(secret: bytes, body: bytes, signature: str) -> bool:
     return hmac.compare_digest("sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(), signature)
 ```
 
-The payload carries no credentials: the agent fetches the evidence with its own token (`status:read`, and `alerts:write` to acknowledge and leave notes).
+The payload carries no credentials: the agent fetches the evidence with its own token, an agent's with the On call preset, which reads the evidence, acknowledges and leaves notes ([Headless agents and CI](accounts.md#headless-agents-and-ci)).
 
 ### A GitHub workflow
 
@@ -182,15 +182,15 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 
 ### As a service
 
-`contrib/oncall/beacon-oncall.service` runs the harness as a user of its own on a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, with `Restart=always`. Its header lists the install commands: the user; the hook's secret and the agent's token under `/etc/beacon-oncall`, readable by that user only; the wrapper and the prompt under `/usr/local/lib/beacon-oncall`; and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
+`contrib/oncall/beacon-oncall.service` runs the harness as a user of its own on a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, with `Restart=always`. Its header lists the install commands: the user; the hook's secret and the agent's token under `/etc/beacon-oncall`, readable by that user only (the token from `docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall > beacon-token` on the centre); the wrapper and the prompt under `/usr/local/lib/beacon-oncall`; and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
 
 ### In GitHub Actions
 
-For a hook of `kind: github`, `contrib/github/oncall.yml` is a workflow that takes the inputs `alert` and `event`, builds the prompt from the same `prompt.md` (copied to `.github/oncall/prompt.md`), and runs Claude Code through its GitHub Action with Beacon's MCP server: the token from the repository secret `BEACON_TOKEN`, the endpoint from the variable `BEACON_MCP_URL`, the same restriction to Beacon's tools. The agent fetches everything else from Beacon with its token; the inputs pass through the environment, never into a script.
+For a hook of `kind: github`, `contrib/github/oncall.yml` is a workflow that takes the inputs `alert` and `event`, builds the prompt from the same `prompt.md` (copied to `.github/oncall/prompt.md`), and runs Claude Code through its GitHub Action with Beacon's MCP server: the token from the repository secret `BEACON_TOKEN`, the endpoint from the variable `BEACON_MCP_URL`, the same restriction to Beacon's tools. The secret is an agent's token, made for the workflow with `beacon agent add ops-workflow -owner alice -preset oncall`. The agent fetches everything else from Beacon with its token; the inputs pass through the environment, never into a script.
 
 ### Trust
 
-The harness checks the signature and starts the program; that is all it decides. What the agent then does is bounded by its token's scopes and the machines that token may reach. Every call, command and session goes through Beacon, which records it and shows it to people on the card and in the chat, and the pause switch stops it. The payload carries no credentials; the harness and the wrappers read secrets only from files, and log neither them nor the payload. The prompt tells the agent to read what comes from outside Beacon as data, and Beacon marks those fields `untrusted`.
+The harness checks the signature and starts the program; that is all it decides. What the agent then does is bounded by its preset, its owner's role and the machines it may reach. Every call, command and session goes through Beacon, which records it and shows it to people on the card and in the chat, and the pause switch stops it. The payload carries no credentials; the harness and the wrappers read secrets only from files, and log neither them nor the payload. The prompt tells the agent to read what comes from outside Beacon as data, and Beacon marks those fields `untrusted`.
 
 ## The evidence
 
@@ -343,17 +343,17 @@ spec:
 
 ## Tokens that renew themselves
 
-An agent's token is its identity on the REST API, the MCP server and the SSH channel. Rather than have someone hand it a long-lived token, and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope.
+A headless agent, such as the one a hook wakes or a CI job, signs in to the REST API and the MCP server with a token: one of its agent's credentials, made on the console's **Agents** page or with `beacon agent add` ([Headless agents and CI](accounts.md#headless-agents-and-ci)). Rather than have someone hand it a long-lived token, and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, agent, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope. An interactive client such as Claude Code signs in with OAuth instead, and refreshes its own tokens.
 
 | Route, tool | What |
 | --- | --- |
-| `GET /api/v1/token`, `whoami` | The token as its holder sees it: `name`, `scopes`, `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
+| `GET /api/v1/token`, `whoami` | Who the caller is and its credential as its holder sees it: `name`, `actor` (as the audit log names it, `alice / claude-oncall`), `user`, `agent`, `preset`, `credential` (`token` or `oauth`, with `client`), `scopes` (what it may do now, within its owner's role), `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
 | `POST /api/v1/token/renew`, `renew_token` | A new secret (`secret`, shown once) and the token; `old_secret_valid_until` says how long the one it replaced keeps working |
 
 - **No race.** The old secret stays valid for ten minutes after a renewal, so a client can swap its token file and a process that read the file a moment before keeps working.
 - **At most once a day.** A token renews itself at most once every 24 hours (`token.too_soon`, `429`).
-- **Not for machines.** The tokens of enrolled machines (probe, host, heartbeat) never renew themselves: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`).
-- **On record.** Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal.
+- **Not for machines, nor for OAuth.** The tokens of enrolled machines (probe, host, heartbeat) never renew themselves: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Nor does an OAuth access token, which its client refreshes.
+- **On record.** Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-oncall renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal.
 - **SSH sign-in is by key** and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
 
 A harness runs something like this once a day (cron, a systemd timer), with the token file read by the agent on every call:
@@ -376,7 +376,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
 ```
 
-Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token. When it does, someone creates a new one with `beacon token create`, as before. A token that is leaked keeps renewing itself until it is revoked (`beacon token revoke NAME`): the chat sees every renewal, and `token list` shows the last one.
+Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token. When it does, the agent's owner makes a new one with **New token** on the agent's page. A token that is leaked keeps renewing itself until it is revoked (**Revoke** on the agent's page, or `beacon token revoke NAME`), which also closes at once what it has open on machines. The chat sees every renewal, and `token list` shows the last one.
 
 ## What Beacon does not do here
 
