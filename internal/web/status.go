@@ -20,12 +20,13 @@ import (
 )
 
 // The public status pages (package status computes them): served beside the console without signing
-// in, at /status (the default page) and /status/<name>, with each incident's page, the page's JSON, an
-// Atom feed and badges; and at / on a page's own host name, where nothing else of Beacon is reachable.
-// They are on the family's site design (the site header with the family menu, a hero with the overall
-// state, sections, the shared footer), need no script, and are public and cacheable: a short
-// Cache-Control and an ETag, indexed by search engines (no X-Robots-Tag; robots.txt allows /status),
-// the console's Content-Security-Policy without its script.
+// in, at / and /status (the default page) and /status/<name>, with each incident's page, the page's
+// JSON, an Atom feed and badges; and at / on a page's own host name, where nothing else of Beacon is
+// reachable. They are on the family's site design (the site header with the family menu and the way
+// into the console, a hero with the overall state, sections, the shared footer with the line about
+// Beacon), need no script, and are public and cacheable: a short Cache-Control and an ETag, indexed by
+// search engines (no X-Robots-Tag; robots.txt allows them), the console's Content-Security-Policy
+// without its script.
 
 //go:embed templates/status/*.html
 var statusTemplates embed.FS
@@ -45,7 +46,13 @@ const statusCSP = "default-src 'none'; style-src 'self'; font-src 'self'; img-sr
 	"form-action 'none'; frame-ancestors 'none'"
 
 // statusMaxAge is how long browsers and caches may keep a status page, its JSON, feed and badges.
-const statusMaxAge = "public, max-age=30"
+// A page for someone signed in to the console, whose header says Console rather than Sign in, is
+// privateMaxAge: no shared cache keeps it. (A shared cache may still hand a signed-in reader the page
+// that says Sign in: both lead to /console, which knows who is signed in.)
+const (
+	statusMaxAge  = "public, max-age=30"
+	privateMaxAge = "private, max-age=30"
+)
 
 func (s *Server) registerStatus(mux *http.ServeMux) {
 	mux.HandleFunc("GET /robots.txt", s.robots)
@@ -131,17 +138,15 @@ func hostOnly(h string) string {
 	return strings.ToLower(strings.TrimSuffix(h, "."))
 }
 
-// robots lets search engines read the status pages and nothing else of Beacon.
+// robotsTxt lets search engines read the public pages (/, the status pages and what they load) and
+// keeps them out of the console, the API, MCP and the old paths of the pages that signed links open.
+const robotsTxt = "User-agent: *\nAllow: /\nAllow: /status\nAllow: /static/\n" +
+	"Disallow: /console\nDisallow: /api/\nDisallow: /mcp\nDisallow: /alerts/\nDisallow: /sessions/\n"
+
 func (s *Server) robots(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	body := "User-agent: *\nDisallow: /\n"
-	if s.Status != nil {
-		if _, ok := s.Status.Def(""); ok {
-			body = "User-agent: *\nAllow: /status\nAllow: /static/\nDisallow: /\n"
-		}
-	}
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(robotsTxt))
 }
 
 // statusHeaders are set on every answer of the status pages: no X-Robots-Tag, unlike the console's.
@@ -163,12 +168,17 @@ func statusNotFound(w http.ResponseWriter) {
 // public writes a public answer with its entity tag, or 304 when the client has it already. Open is
 // for what other sites may embed or fetch (the JSON, the feed, the badges).
 func public(w http.ResponseWriter, r *http.Request, contentType string, body []byte, open bool) {
+	cached(w, r, contentType, body, open, statusMaxAge)
+}
+
+// cached is public with the Cache-Control given.
+func cached(w http.ResponseWriter, r *http.Request, contentType string, body []byte, open bool, cacheControl string) {
 	statusHeaders(w)
 	h := w.Header()
 	sum := sha256.Sum256(body)
 	etag := `"` + hex.EncodeToString(sum[:12]) + `"`
 	h.Set("ETag", etag)
-	h.Set("Cache-Control", statusMaxAge)
+	h.Set("Cache-Control", cacheControl)
 	if open {
 		h.Set("Access-Control-Allow-Origin", "*")
 		h.Set("Cross-Origin-Resource-Policy", "cross-origin")
@@ -210,8 +220,7 @@ func (s *Server) statusPage(w http.ResponseWriter, r *http.Request, name string,
 		statusNotFound(w)
 		return
 	}
-	v := s.statusView(r, p, def, onHost)
-	s.renderPublic(w, r, statusPageTmpl, v)
+	s.renderPublic(w, r, statusPageTmpl, s.statusView(r, p, def, onHost))
 }
 
 func (s *Server) statusIncident(w http.ResponseWriter, r *http.Request, name, id string, onHost bool) {
@@ -232,15 +241,20 @@ func (s *Server) statusIncident(w http.ResponseWriter, r *http.Request, name, id
 	s.renderPublic(w, r, statusIncidentTmpl, v)
 }
 
-func (s *Server) renderPublic(w http.ResponseWriter, r *http.Request, t *template.Template, data any) {
+// renderPublic writes a public page: cacheable by anyone, unless it names the reader's sign-in.
+func (s *Server) renderPublic(w http.ResponseWriter, r *http.Request, t *template.Template, v *statusView) {
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
+	if err := t.ExecuteTemplate(&buf, "layout", v); err != nil {
 		s.log().Error("status page template failed", "err", err)
 		statusHeaders(w)
 		http.Error(w, "500 internal server error", http.StatusInternalServerError)
 		return
 	}
-	public(w, r, "text/html; charset=utf-8", buf.Bytes(), false)
+	cacheControl := statusMaxAge
+	if v.private {
+		cacheControl = privateMaxAge
+	}
+	cached(w, r, "text/html; charset=utf-8", buf.Bytes(), false, cacheControl)
 }
 
 func (s *Server) statusJSON(w http.ResponseWriter, r *http.Request, name string) {
@@ -259,29 +273,35 @@ func (s *Server) statusJSON(w http.ResponseWriter, r *http.Request, name string)
 
 // ---- the view
 
-// statusView is what the templates of the status pages read.
+// statusView is what the templates of the public pages read: a status page, one of its incidents, or
+// the page at / without a status page (P nil). Name is the site's, in the header and the footer;
+// SignIn the header's way into the console (nil where there is none); Powered the footer's line about
+// Beacon (nil when the configuration leaves it out).
 type statusView struct {
-	Lang, Title, Brand, Version string
-	Mark, MarkHero, Icons       template.HTML
-	P                           *status.Page
-	L                           statusLabels
-	Root, Canonical, Feed, JSON string
-	Description                 string
-	Tone, StateText             string
-	Langs                       []langLink
-	LangName                    string
-	Alternates                  []langLink
-	Menu                        *menuView
-	FooterLinks                 []linkView
-	Updated                     string
-	Active                      []incidentView
-	Ongoing, Upcoming           []windowView
-	Groups                      []componentGroup
-	Past                        []pastItem
-	Incident                    *incidentView
-	Locations                   int
+	Lang, Title, Name, Brand, Version string
+	Mark, MarkHero, Icons             template.HTML
+	SignIn                            *linkView
+	Powered                           *powered
+	P                                 *status.Page
+	L                                 statusLabels
+	Root, Canonical, Feed, JSON       string
+	Description                       string
+	Tone, StateText                   string
+	Langs                             []langLink
+	LangName                          string
+	Alternates                        []langLink
+	Menu                              *menuView
+	FooterLinks                       []linkView
+	Updated                           string
+	Active                            []incidentView
+	Ongoing, Upcoming                 []windowView
+	Groups                            []componentGroup
+	Past                              []pastItem
+	Incident                          *incidentView
+	Locations                         int
 
 	viewState
+	private bool // the page names the reader's sign-in
 }
 
 type langLink struct {
@@ -354,9 +374,11 @@ func (s *Server) statusView(r *http.Request, p *status.Page, def catalog.StatusP
 	if brand == "" {
 		brand = "beacon"
 	}
-	v := &statusView{Lang: l.HTML(), Title: p.Title, Brand: brand, Version: s.version(), Icons: statusSprite, P: p, L: statusLabelsIn(l),
+	v := &statusView{Lang: l.HTML(), Title: p.Title, Name: p.Title, Brand: brand, Version: s.version(), Icons: statusSprite, P: p, L: statusLabelsIn(l),
 		Root: root + q, Canonical: p.URL, Feed: base + "/feed.atom", JSON: jsonPath, Description: p.Description, Locations: len(p.Locations)}
 	v.Mark, v.MarkHero = marks(brand)
+	v.SignIn, v.private = s.consoleLink(r, l, onHost)
+	v.Powered = s.poweredBy(l)
 	v.base, v.q, v.l, v.loc = base, q, l, s.loc()
 	v.Tone, v.StateText = stateTone(p.Status), v.stateText(p.Status)
 	v.Updated = v.L.updatedAt(v.clock(p.Updated))

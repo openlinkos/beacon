@@ -77,13 +77,13 @@ func TestPages(t *testing.T) {
 	p := &Pages{Signer: s, PublicURL: "https://beacon.example.com/"}
 	u := p.Alert("0cdfbada62dd")
 	parsed, err := url.Parse(u)
-	if err != nil || parsed.Host != "beacon.example.com" || parsed.Path != "/alerts/0cdfbada62dd" {
+	if err != nil || parsed.Host != "beacon.example.com" || parsed.Path != "/console/alerts/0cdfbada62dd" {
 		t.Fatalf("alert link %q: %v", u, err)
 	}
 	if _, ok := s.Verify(http.MethodGet, parsed.Path, parsed.Query().Get(Param)); !ok {
 		t.Errorf("the link's signature does not verify: %q", u)
 	}
-	if u := p.Session("20261102-100000-abcdef-1"); !strings.HasPrefix(u, "https://beacon.example.com/sessions/20261102-100000-abcdef-1?s=") {
+	if u := p.Session("20261102-100000-abcdef-1"); !strings.HasPrefix(u, "https://beacon.example.com/console/sessions/20261102-100000-abcdef-1?s=") {
 		t.Errorf("session link %q", u)
 	}
 	for _, id := range []string{"", "../x", "a/b", "a?b", "a b", strings.Repeat("a", 129)} {
@@ -97,5 +97,24 @@ func TestPages(t *testing.T) {
 	}
 	if p.URL("alerts/x") != "" {
 		t.Error("a path without a leading slash gets a link")
+	}
+}
+
+func TestMoved(t *testing.T) {
+	for old, want := range map[string]string{
+		"/alerts/0cdfbada62dd":                         "/console/alerts/0cdfbada62dd",
+		"/sessions/20261102-100000-abcdef-1":           "/console/sessions/20261102-100000-abcdef-1",
+		"/sessions/20261102-100000-abcdef-1/recording": "/console/sessions/20261102-100000-abcdef-1/recording",
+		"/alerts":           "",
+		"/alerts/x/ack":     "",
+		"/alerts/..":        "",
+		"/machines/edge-1":  "",
+		"/sessions/x/other": "",
+		"/console/alerts/x": "",
+	} {
+		got, ok := Moved(old)
+		if got != want || ok != (want != "") {
+			t.Errorf("Moved(%q) = %q, %v; want %q", old, got, ok, want)
+		}
 	}
 }

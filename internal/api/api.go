@@ -178,8 +178,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = enc.Encode(v)
 }
 
+// DocsURL is the API's reference, where an answer to a request without a valid token points: whoever
+// sends one may not know Beacon yet, and that page says how to get a token and what it may do.
+const DocsURL = "https://beacon.openlinkos.com/reference/api"
+
+// writeError answers with an error and its stable code; a 401 also carries docs, the reference's address.
 func writeError(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg, "code": code})
+	body := map[string]string{"error": msg, "code": code}
+	if status == http.StatusUnauthorized {
+		body["docs"] = DocsURL
+	}
+	writeJSON(w, status, body)
 }
 
 // with guards h with a token carrying scope, or one of the scopes in "a|b".

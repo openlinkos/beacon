@@ -7,10 +7,10 @@
 <meta name="referrer" content="no-referrer">
 <title>{{.Title}}</title>
 {{if .Description}}<meta name="description" content="{{.Description}}">{{end}}
-<link rel="canonical" href="{{.Canonical}}">
-<link rel="alternate" type="application/atom+xml" title="{{.P.Title}}" href="{{.Feed}}">
+{{if .Canonical}}<link rel="canonical" href="{{.Canonical}}">
+{{end}}{{if .Feed}}<link rel="alternate" type="application/atom+xml" title="{{.Name}}" href="{{.Feed}}">
 <link rel="alternate" type="application/json" href="{{.JSON}}">
-{{range .Langs}}<link rel="alternate" hreflang="{{.HrefLang}}" href="{{.Href}}">
+{{end}}{{range .Langs}}<link rel="alternate" hreflang="{{.HrefLang}}" href="{{.Href}}">
 {{end}}<link rel="stylesheet" href="/static/ol/ui.css?v={{.Version}}">
 <link rel="stylesheet" href="/static/status.css?v={{.Version}}">
 </head>
@@ -18,7 +18,7 @@
 {{.Icons}}
 <a class="ol-skip-link" href="#main">{{.L.Skip}}</a>
 <header class="ol-site-header">
-  <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.P.Title}}</span></a>
+  <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.Name}}</span></a>
   <nav class="ol-site-nav" aria-label="{{.L.OnThisPage}}">{{block "nav" .}}{{end}}</nav>
   <div class="ol-site-tools">
     {{if .Langs}}<button class="ol-btn ol-btn-ghost ol-btn-sm" type="button" popovertarget="language" aria-label="{{.L.Language}}: {{.LangName}}">{{iconSm "languages"}}{{.LangName}}{{iconSm "chevron-down"}}</button>
@@ -32,6 +32,7 @@
       {{range $g.Links}}<a class="ol-menu-item" href="{{.URL}}">{{.Title}}</a>
       {{end}}{{end}}
     </div>{{end}}
+    {{with .SignIn}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.URL}}">{{.Title}}</a>{{end}}
   </div>
 </header>
 <main id="main" tabindex="-1">
@@ -39,9 +40,10 @@
 </main>
 <footer class="ol-site-footer">
   <div>
-    <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.P.Title}}</span></a>
-    {{if .P.Description}}<p class="ol-site-footer-note">{{.P.Description}}</p>{{end}}
-    <p class="ol-site-footer-note"><a href="https://github.com/openlinkos/beacon">{{.L.PoweredBy}}</a> · <a href="{{.Feed}}">{{.L.Subscribe}}</a> · <a href="{{.JSON}}">{{.L.JSONLink}}</a></p>
+    <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.Name}}</span></a>
+    {{if .Description}}<p class="ol-site-footer-note">{{.Description}}</p>{{end}}
+    {{if .Feed}}<p class="ol-site-footer-note"><a href="{{.Feed}}">{{.L.Subscribe}}</a> · <a href="{{.JSON}}">{{.L.JSONLink}}</a></p>{{end}}
+    {{with .Powered}}<p class="ol-site-footer-note bc-powered"><a href="{{.Docs}}" data-brand="beacon">{{.Mark}}<span>{{.Label}}</span></a> · <a href="{{.Repo}}">{{.RepoLabel}}</a></p>{{end}}
   </div>
   {{with .Menu}}{{range .Groups}}{{if .Title}}<div class="bc-footer-col" role="group" aria-label="{{.Title}}"><span class="bc-footer-title">{{.Title}}</span>{{range .Links}}<a href="{{.URL}}">{{.Title}}</a>{{end}}</div>{{end}}{{end}}{{end}}
   {{if .FooterLinks}}<div class="ol-site-footer-links">{{range .FooterLinks}}<a href="{{.URL}}">{{.Title}}</a>{{end}}</div>{{end}}

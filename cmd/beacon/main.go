@@ -318,7 +318,7 @@ func serve(args []string, stderr io.Writer) int {
 			mcpserver.WithStatus(pagesOut)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut}, // the console, served at /
+			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway

@@ -36,7 +36,7 @@ func TestReplayLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.g.d.Pages = &link.Pages{Signer: s, PublicURL: "https://beacon.example.com"}
-	want := "https://beacon.example.com/sessions/" + rec.ID + "?s="
+	want := "https://beacon.example.com/console/sessions/" + rec.ID + "?s="
 	e.g.echo.add(rec)
 	e.g.echo.flush(context.Background(), true)
 	if got := e.bot.all(); !strings.Contains(got, "Replay: "+want) {

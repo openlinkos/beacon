@@ -134,11 +134,34 @@ func (p *Pages) Session(id string) string {
 	return p.URL(SessionPath(id))
 }
 
+// Root is where the console is, with the pages a link opens. Until 0.3.0 they were at the site's root,
+// and the links handed out until then name those paths: Moved says which of them a link may still open.
+const Root = "/console"
+
 // AlertPath is the path of an alert group's page.
-func AlertPath(id string) string { return "/alerts/" + id }
+func AlertPath(id string) string { return Root + "/alerts/" + id }
 
 // SessionPath is the path of a session's page.
-func SessionPath(id string) string { return "/sessions/" + id }
+func SessionPath(id string) string { return Root + "/sessions/" + id }
 
 // RecordingPath is the path of a session's recording, which its page plays.
-func RecordingPath(id string) string { return "/sessions/" + id + "/recording" }
+func RecordingPath(id string) string { return Root + "/sessions/" + id + "/recording" }
+
+// Moved maps the path of a page as the links made before the console moved under Root named it
+// (/alerts/{id}, /sessions/{id} and its recording) to the path the page has now; ok is false for any
+// other path, which no link ever named.
+func Moved(old string) (string, bool) {
+	parts := strings.Split(strings.TrimPrefix(old, "/"), "/")
+	if len(parts) < 2 || !idRe.MatchString(parts[1]) {
+		return "", false
+	}
+	switch {
+	case len(parts) == 2 && parts[0] == "alerts":
+		return AlertPath(parts[1]), true
+	case len(parts) == 2 && parts[0] == "sessions":
+		return SessionPath(parts[1]), true
+	case len(parts) == 3 && parts[0] == "sessions" && parts[2] == "recording":
+		return RecordingPath(parts[1]), true
+	}
+	return "", false
+}

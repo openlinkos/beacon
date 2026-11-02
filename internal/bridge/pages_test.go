@@ -73,10 +73,10 @@ func TestPageLinksAndCardBlock(t *testing.T) {
 	if !strings.Contains(c, "2 sessions on 1 machines, 3 commands") {
 		t.Errorf("sessions line: %s", c)
 	}
-	if !strings.Contains(c, `**Agents**`) || !strings.Contains(c, `[Timeline](https://beacon.example.com/alerts/`+id+`?s=`) {
+	if !strings.Contains(c, `**Agents**`) || !strings.Contains(c, `[Timeline](https://beacon.example.com/console/alerts/`+id+`?s=`) {
 		t.Errorf("the agent block lacks its title or the page link: %s", c)
 	}
-	if !strings.Contains(c, `"default_url":"https://beacon.example.com/alerts/`+id+`?s=`) || !strings.Contains(c, `"content":"Timeline"`) {
+	if !strings.Contains(c, `"default_url":"https://beacon.example.com/console/alerts/`+id+`?s=`) || !strings.Contains(c, `"content":"Timeline"`) {
 		t.Errorf("the card lacks the Timeline button: %s", c)
 	}
 

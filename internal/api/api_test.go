@@ -54,13 +54,14 @@ func TestAuth(t *testing.T) {
 	if code, _ := c.do("GET", "/api/v1/openapi.yaml", "", ""); code != 200 {
 		t.Errorf("the description is public: %d", code)
 	}
-	if code, out := c.do("GET", "/api/v1/alerts", "", ""); code != 401 || out["code"] != "auth.required" {
+	// a request without a valid token is pointed at the reference, which says how to get one
+	if code, out := c.do("GET", "/api/v1/alerts", "", ""); code != 401 || out["code"] != "auth.required" || out["docs"] != DocsURL || out["error"] == nil {
 		t.Errorf("no token: %d %v", code, out)
 	}
-	if code, out := c.do("GET", "/api/v1/alerts", "lbt_wrong", ""); code != 401 || out["code"] != "auth.invalid" {
+	if code, out := c.do("GET", "/api/v1/alerts", "lbt_wrong", ""); code != 401 || out["code"] != "auth.invalid" || out["docs"] != "https://beacon.openlinkos.com/reference/api" {
 		t.Errorf("bad token: %d %v", code, out)
 	}
-	if code, out := c.do("POST", "/api/v1/alerts/"+testutil.GroupID()+"/ack", read, ""); code != 403 || out["code"] != "auth.scope" {
+	if code, out := c.do("POST", "/api/v1/alerts/"+testutil.GroupID()+"/ack", read, ""); code != 403 || out["code"] != "auth.scope" || out["docs"] != nil {
 		t.Errorf("read token writing: %d %v", code, out)
 	}
 	for range 20 {

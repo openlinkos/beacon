@@ -1,8 +1,12 @@
-/* The status pages' own styles: only what the design system (@openlinkos/ui, static/ol/ui.css) has no
+/* The public pages' own styles: only what the design system (@openlinkos/ui, static/ol/ui.css) has no
    part for, written with its tokens. Outside any layer, so they need no specificity to apply. */
 
-/* The hero states the overall state; it need not be as tall as a service site's. */
-.bc-status-hero { min-height: 18rem; }
+/* The hero states the overall state, or what the site is; it need not be as tall as a service site's. */
+.bc-status-hero, .bc-landing-hero { min-height: 18rem; }
+
+/* The footer's line about Beacon: its mark at the size of the text, in Beacon's own colours. */
+.bc-powered a[data-brand] { display: inline-flex; align-items: center; gap: var(--ol-space-1); }
+.bc-powered svg { width: 1em; height: 1em; flex: none; }
 
 /* A day of maintenance in an uptime strip, and its swatch in the legend. */
 .ol-uptime > .bc-uptime-maintenance { background: var(--ol-color-info-solid); }

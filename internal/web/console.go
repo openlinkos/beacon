@@ -77,28 +77,42 @@ func (s *Server) viewer(r *http.Request) *viewer {
 }
 
 func (s *Server) registerConsole(mux *http.ServeMux) {
-	mux.HandleFunc("GET /sign-in", s.signInPage)
-	mux.HandleFunc("POST /sign-in", s.signIn)
-	mux.HandleFunc("POST /sign-out", s.action("", s.signOut))
+	// Every route of the console is under /console; the alert's and the session's pages, which signed
+	// links open too, are registered in Register. The cookies stay on / (__Host- asks for it).
+	at := func(method, path string, h http.HandlerFunc) { mux.HandleFunc(method+" "+consolePath(path), h) }
+	at("GET", "/sign-in", s.signInPage)
+	at("POST", "/sign-in", s.signIn)
+	at("POST", "/sign-out", s.action("", s.signOut))
 
-	mux.HandleFunc("GET /{$}", s.console("", s.overview))
-	mux.HandleFunc("GET /alerts", s.console("", s.alerts))
-	mux.HandleFunc("POST /alerts/{id}/ack", s.action("alerts:write", s.ack))
-	mux.HandleFunc("POST /alerts/{id}/silence", s.action("alerts:write", s.silence))
-	mux.HandleFunc("POST /alerts/{id}/notes", s.action("alerts:write", s.note))
-	mux.HandleFunc("GET /machines", s.console("status:read|machines:ssh", s.machines))
-	mux.HandleFunc("GET /machines/{name}", s.console("status:read|machines:ssh", s.machine))
-	mux.HandleFunc("POST /machines/pause", s.action("machines:write", s.pause(true)))
-	mux.HandleFunc("POST /machines/resume", s.action("machines:write", s.pause(false)))
-	mux.HandleFunc("GET /sessions", s.console("status:read|machines:ssh", s.sessionsList))
-	mux.HandleFunc("GET /tokens", s.console("", s.tokens))
-	mux.HandleFunc("POST /tokens/{name}/revoke", s.action("machines:write", s.revoke))
-	mux.HandleFunc("GET /config", s.console("status:read|config:write", s.configPage))
-	mux.HandleFunc("GET /config/history/{version}", s.console("status:read|config:write", s.versionPage))
-	mux.HandleFunc("POST /config/history/{version}/revert", s.action("config:write", s.revert))
-	mux.HandleFunc("GET /agents", s.console("", s.agents))
-	mux.HandleFunc("GET /audit", s.console("", s.audit))
-	mux.HandleFunc("GET /changes", s.console("", s.changes))
+	at("GET", "", s.console("", s.overview))
+	at("GET", "/{$}", s.toOverview)
+	at("GET", "/alerts", s.console("", s.alerts))
+	at("POST", "/alerts/{id}/ack", s.action("alerts:write", s.ack))
+	at("POST", "/alerts/{id}/silence", s.action("alerts:write", s.silence))
+	at("POST", "/alerts/{id}/notes", s.action("alerts:write", s.note))
+	at("GET", "/machines", s.console("status:read|machines:ssh", s.machines))
+	at("GET", "/machines/{name}", s.console("status:read|machines:ssh", s.machine))
+	at("POST", "/machines/pause", s.action("machines:write", s.pause(true)))
+	at("POST", "/machines/resume", s.action("machines:write", s.pause(false)))
+	at("GET", "/sessions", s.console("status:read|machines:ssh", s.sessionsList))
+	at("GET", "/tokens", s.console("", s.tokens))
+	at("POST", "/tokens/{name}/revoke", s.action("machines:write", s.revoke))
+	at("GET", "/config", s.console("status:read|config:write", s.configPage))
+	at("GET", "/config/history/{version}", s.console("status:read|config:write", s.versionPage))
+	at("POST", "/config/history/{version}/revert", s.action("config:write", s.revert))
+	at("GET", "/agents", s.console("", s.agents))
+	at("GET", "/audit", s.console("", s.audit))
+	at("GET", "/changes", s.console("", s.changes))
+}
+
+// toOverview sends /console/ to /console, where the overview is.
+func (s *Server) toOverview(w http.ResponseWriter, r *http.Request) {
+	headers(w)
+	to := consolePath("")
+	if r.URL.RawQuery != "" {
+		to += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, to, http.StatusPermanentRedirect) //nolint:gosec // G710: a fixed path on this site
 }
 
 // console guards a page of the console: signed out, it sends the person to sign in and back; without
@@ -108,7 +122,7 @@ func (s *Server) console(scope string, h func(http.ResponseWriter, *http.Request
 		headers(w)
 		v := s.viewer(r)
 		if v == nil {
-			http.Redirect(w, r, "/sign-in?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+			http.Redirect(w, r, consolePath("/sign-in")+"?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 			return
 		}
 		if scope != "" && !v.hasAny(scope) {
@@ -128,7 +142,7 @@ func (s *Server) action(scope string, h func(http.ResponseWriter, *http.Request,
 		headers(w)
 		v := s.viewer(r)
 		if v == nil {
-			http.Redirect(w, r, "/sign-in", http.StatusSeeOther)
+			http.Redirect(w, r, consolePath("/sign-in"), http.StatusSeeOther)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxForm)
@@ -155,16 +169,16 @@ func equal(a, b string) bool {
 	return a != "" && b != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-// local keeps a next parameter that is a path on this site, and turns anything else into "/". Spaces,
-// control characters and backslashes are refused outright: browsers drop or turn some of them into
-// slashes, which could make "/\t/example.com" another site.
+// local keeps a next parameter that is a path on this site, and turns anything else into the console's
+// overview. Spaces, control characters and backslashes are refused outright: browsers drop or turn
+// some of them into slashes, which could make "/\t/example.com" another site.
 func local(next string) string {
 	odd := func(r rune) bool { return r <= ' ' || r == 0x7f || r == '\\' }
 	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsFunc(next, odd) {
-		return "/"
+		return consolePath("")
 	}
 	if u, err := url.Parse(next); err != nil || u.Host != "" || u.Scheme != "" {
-		return "/"
+		return consolePath("")
 	}
 	return next
 }
@@ -225,7 +239,7 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 	headers(w)
 	r.Body = http.MaxBytesReader(w, r.Body, maxForm)
 	if err := r.ParseForm(); err != nil {
-		s.signInForm(w, r, http.StatusBadRequest, "/", s.t("The form has expired"))
+		s.signInForm(w, r, http.StatusBadRequest, consolePath(""), s.t("The form has expired"))
 		return
 	}
 	next := local(r.PostForm.Get("next"))
@@ -262,5 +276,5 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 func (s *Server) signOut(w http.ResponseWriter, r *http.Request, v *viewer) {
 	_ = s.Store.DeleteConsoleSession(v.ID)
 	http.SetCookie(w, s.cookie(sessionCookie, "", time.Time{}))
-	http.Redirect(w, r, "/sign-in", http.StatusSeeOther)
+	http.Redirect(w, r, consolePath("/sign-in"), http.StatusSeeOther)
 }

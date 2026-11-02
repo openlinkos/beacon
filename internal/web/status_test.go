@@ -97,6 +97,7 @@ type statusEnv struct {
 	h        http.Handler
 	b        *bridge.Bridge
 	incident string
+	st       *store.Store
 }
 
 func newStatusEnv(t *testing.T) *statusEnv {
@@ -108,6 +109,7 @@ func newStatusEnv(t *testing.T) *statusEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	e.st = st
 	cdb := configdb.Open(configdb.Deps{Store: st, Lang: i18n.EN, Now: now})
 	if _, err := cdb.Import(context.Background(), configdb.Actor{Name: "test", Via: "cli"},
 		configdb.Files{"catalog/catalog.yaml": statusCatalogue, "targets/all-web.yaml": statusTargets}, "", false); err != nil {
@@ -358,20 +360,29 @@ func TestStatusOwnHost(t *testing.T) {
 func TestStatusRobots(t *testing.T) {
 	e := newStatusEnv(t)
 	r := e.get("/robots.txt")
-	if r.code != http.StatusOK || r.body != "User-agent: *\nAllow: /status\nAllow: /static/\nDisallow: /\n" {
+	// the public pages are read, the console, the API, MCP and the old paths of signed links are not
+	want := "User-agent: *\nAllow: /\nAllow: /status\nAllow: /static/\n" +
+		"Disallow: /console\nDisallow: /api/\nDisallow: /mcp\nDisallow: /alerts/\nDisallow: /sessions/\n"
+	if r.code != http.StatusOK || r.body != want {
 		t.Errorf("robots: %q", r.body)
 	}
-	// the pages people open from the chat stay out of search engines
-	if a := e.get("/alerts/" + e.incident); a.header.Get("X-Robots-Tag") == "" {
+	// the pages people open from the chat stay out of search engines, at their old paths too
+	if a := e.get("/console/alerts/" + e.incident); a.header.Get("X-Robots-Tag") == "" {
 		t.Error("the alert's page lost its X-Robots-Tag")
 	}
-	if a := e.get("/status/public"); a.header.Get("X-Robots-Tag") != "" {
-		t.Error("a status page is marked noindex")
+	if a := e.get("/alerts/" + e.incident); a.header.Get("X-Robots-Tag") == "" {
+		t.Error("the alert's old path lost its X-Robots-Tag")
 	}
+	for _, path := range []string{"/status/public", "/"} {
+		if a := e.get(path); a.header.Get("X-Robots-Tag") != "" {
+			t.Errorf("%s is marked noindex", path)
+		}
+	}
+	// without status pages, / is public all the same
 	empty := &Server{}
 	w := httptest.NewRecorder()
 	empty.robots(w, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
-	if w.Body.String() != "User-agent: *\nDisallow: /\n" {
+	if w.Body.String() != want {
 		t.Errorf("without status pages: %q", w.Body.String())
 	}
 }

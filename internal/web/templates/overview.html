@@ -12,7 +12,7 @@
 <div class="ol-layout-dashboard">
   <div class="ol-stack">
     <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Firing}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="/alerts">{{.L.AllAlerts}}</a></div>
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Firing}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}</a></div>
       <div class="ol-panel-body">
         <ul class="ol-list">
           {{range .Severities}}<li><span class="ol-list-row"><a class="ol-list-title" href="{{.Href}}">{{.Label}}</a><span class="ol-badge ol-badge-{{.Tone}}">{{.Count}}</span></span></li>{{end}}
@@ -32,7 +32,7 @@
     </section>
 
     <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="/agents">{{.L.AllCalls}}</a></div>
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/agents"}}">{{.L.AllCalls}}</a></div>
       {{if .Calls}}
       <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
         <tbody>

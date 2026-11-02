@@ -28,7 +28,7 @@ type statusLabels struct {
 	Operational, Degraded, Down, InMaintenance, NoData, Resolved  string
 	Detected, Acknowledged, Update, ByAgent, ByPerson, Affected   string
 	Started, Ended, Lasted, Back, Subscribe, JSONLink, Home, Docs string
-	Abuse, Privacy, PoweredBy, Legend, AllUpdates, Today          string
+	Abuse, Privacy, Legend, AllUpdates, Today                     string
 	From, Until, Locations                                        string
 }
 
@@ -44,7 +44,7 @@ func statusLabelsIn(l i18n.Lang) statusLabels {
 		ByAgent: i18n.T(l, "Agent"), ByPerson: i18n.T(l, "Person"), Affected: i18n.T(l, "Affected"),
 		Started: i18n.T(l, "Started"), Ended: i18n.T(l, "Ended"), Lasted: i18n.T(l, "Lasted"), Back: i18n.T(l, "All components"),
 		Subscribe: i18n.T(l, "Atom feed"), JSONLink: "JSON", Home: i18n.T(l, "Home"), Docs: i18n.T(l, "Documentation"),
-		Abuse: i18n.T(l, "Report abuse"), Privacy: i18n.T(l, "Privacy"), PoweredBy: i18n.T(l, "Status by Beacon"),
+		Abuse: i18n.T(l, "Report abuse"), Privacy: i18n.T(l, "Privacy"),
 		Legend:     i18n.T(l, "Legend"),
 		AllUpdates: i18n.T(l, "All updates"), Today: i18n.T(l, "Today"),
 		From: i18n.T(l, "From"), Until: i18n.T(l, "Until"), Locations: i18n.T(l, "Probe locations"),
@@ -109,7 +109,7 @@ func marks(brand string) (template.HTML, template.HTML) {
 
 // statusIcons are the icons the status pages draw.
 var statusIcons = []string{"languages", "chevron-down", "circle-check", "triangle-alert", "circle-x", "wrench", "circle-help",
-	"bot", "user", "arrow-left", "menu", "activity", "calendar", "clock", "external-link"}
+	"bot", "user", "arrow-left", "menu", "activity", "calendar", "clock", "external-link", "log-in"}
 
 // statusSprite is the hidden <svg> of the status pages' icons, from the vendored set.
 var statusSprite = func() template.HTML {

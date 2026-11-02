@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5d2a51bf
+sourceHash: sha256-a374c49e
 ---
 
 # REST API
@@ -17,7 +17,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 - **令牌**以 `lbt_` 开头，这是 Beacon 令牌的标记；用 `beacon token create NAME -scopes … -expires …` 创建。Beacon 只保存它们的 SHA-256 哈希；每个令牌都有作用域和有效期，并能按请求自行续期（`POST /api/v1/token/renew`）。
 - **请求体**是 JSON（`Content-Type: application/json`）；不认识的字段会被拒绝，这样拼错的字段不会被悄悄忽略。
 - **写操作**连同令牌的名字记入审计日志，并回显到告警群。机器上的会话也都有记录。
-- **错误**是 `{"error": "…", "code": "…"}`：消息说明出了什么错、怎么改正，错误码保持稳定，客户端可以据此处理。错误码[列在下面](#error-codes)。
+- **错误**是 `{"error": "…", "code": "…"}`：消息说明出了什么错、怎么改正，错误码保持稳定，客户端可以据此处理。错误码[列在下面](#error-codes)。`401`（`auth.required`、`auth.invalid`）在这里和网关上还带着 `"docs": "https://beacon.openlinkos.com/reference/api"`，指向本页的英文版，给第一次接触 Beacon 的人。
 - **不可信的文本**：应答的 `untrusted` 对象列出的字段来自 Beacon 之外（标签、被检测的服务、变更的发送方、机器），已去掉控制字符和不可见字符，太长的会截断：它们是数据，不是指令。
 
 ## 作用域 {#scopes}
@@ -163,10 +163,13 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | 路径 | 做什么 |
 | --- | --- |
 | `/mcp` | MCP server，streamable HTTP，用同样的 bearer 令牌（[MCP 工具](mcp.md)） |
-| `GET /alerts/{id}`、`GET /sessions/{id}` | 人从卡片点开的页面，凭签名链接或令牌打开（[页面](../pages.md)） |
+| `GET /` | 公开：默认状态页，与 `/status` 提供的相同；没有状态页时，是一个写明这套部署、带**登录**的页面（[状态页](../status.md#branding)） |
+| `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，供用令牌登录的人使用（[控制台](../pages.md)） |
+| `GET /console/alerts/{id}`、`GET /console/sessions/{id}` | 人从卡片点开的页面，凭签名链接或令牌打开（[控制台](../pages.md#signed-links)） |
+| `GET /alerts/{id}`、`GET /sessions/{id}`、`GET /sign-in` 以及控制台的其他旧路径 | `308` 转到 `/console` 下的同一路径，带着查询参数；为旧路径签名的链接换上新路径的签名，到期时间不变 |
 | `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开的状态页和其中的事件，不需要令牌（[状态页](../status.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
 | `GET /status.json`、`GET /status/{name}.json`、`GET /status/{name}/feed.atom`、`GET /status/{name}/badge.svg`、`GET /status/{name}/components/{component}/badge.svg` | 状态页的 JSON、Atom 订阅和徽章，公开、可缓存 |
-| `GET /robots.txt` | 只让搜索引擎读取 `/status` |
+| `GET /robots.txt` | 让搜索引擎读取 `/`、`/status` 和 `/static/`，不进 `/console`、`/api/`、`/mcp`、`/alerts/` 和 `/sessions/` |
 | `GET /healthz` | 存活检查：`ok` |
 | `GET /readyz` | 就绪检查：收到过 Watchdog、飞书连接正常、额度未用完 |
 | `GET /metrics` | Beacon 自己的 Prometheus 指标，只回答直连 |

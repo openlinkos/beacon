@@ -255,7 +255,7 @@ type alertPage struct {
 func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
 	now := s.now()
 	al := ev.Alert
-	p := alertPage{shell: s.pageShell(r, a, "alerts", s.t("Alert"), al.Title, crumb{Label: s.t("Alerts"), Href: "/alerts"}),
+	p := alertPage{shell: s.pageShell(r, a, "alerts", s.t("Alert"), al.Title, crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
 		L: s.labels(), ID: al.ID, Heading: al.Title, Description: al.Description,
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
@@ -531,7 +531,7 @@ type sessionPage struct {
 func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
 	rec := tr.SessionRecord
 	heading := s.t("%s on %s", rec.Agent, rec.Machine)
-	p := sessionPage{shell: s.pageShell(r, a, "sessions", s.t("Session"), heading, crumb{Label: s.t("Sessions"), Href: "/sessions"}),
+	p := sessionPage{shell: s.pageShell(r, a, "sessions", s.t("Session"), heading, crumb{Label: s.t("Sessions"), Href: consolePath("/sessions")}),
 		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
 		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
 		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
@@ -545,7 +545,7 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 		p.Badges = append(p.Badges, badge{Text: p.Exit, Tone: "success"})
 	}
 	if a.Viewer != nil {
-		p.MachineHref = "/machines/" + url.PathEscape(rec.Machine)
+		p.MachineHref = consolePath("/machines/") + url.PathEscape(rec.Machine)
 	}
 	if !rec.Ended.IsZero() {
 		p.Ended, p.Duration = s.clock(rec.Ended), s.dur(rec.Ended.Sub(rec.Started))

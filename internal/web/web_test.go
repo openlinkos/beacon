@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/version"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -285,10 +287,16 @@ func noInlineScript(t *testing.T, body string) {
 		t.Error("hostile text reached the page unescaped")
 	}
 	for _, u := range hrefs(body, "http") {
-		if !strings.HasPrefix(u, publicURL) {
+		if !strings.HasPrefix(u, publicURL) && !projectLink(u) {
 			t.Errorf("a link leaves Beacon: %s", u)
 		}
 	}
+}
+
+// projectLink reports whether u is one of the project's own addresses, the only places outside
+// Beacon a page of the console links to by itself.
+func projectLink(u string) bool {
+	return slices.Contains([]string{docsURL(i18n.EN), docsURL(i18n.ZH), version.Repo, issuesURL}, u)
 }
 
 func TestAlertPage(t *testing.T) {
@@ -347,7 +355,7 @@ func TestSessionPage(t *testing.T) {
 		"claude-code", "edge-1", sessionID, "interactive shell", "SSH", "2 min", "exit 0",
 		"systemctl restart relay", "false &lt;script&gt;", "exit 1", "1.2 s", "5 ms",
 		`<script src="/static/asciinema-player.min.js?v=`, `<script src="/static/beacon-player.js?v=`,
-		`<link rel="stylesheet" href="/static/asciinema-player.css?v=`, `id="player"`, `data-src="/sessions/` + sessionID + `/recording?s=`,
+		`<link rel="stylesheet" href="/static/asciinema-player.css?v=`, `id="player"`, `data-src="/console/sessions/` + sessionID + `/recording?s=`,
 		`data-error="The recording could not be loaded"`, "Download the recording",
 	} {
 		if !strings.Contains(body, want) {

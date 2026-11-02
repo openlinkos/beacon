@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-76d4d2dd
+sourceHash: sha256-f93d1a8d
 ---
 
 # 架构
@@ -32,7 +32,7 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 
 | 端口 | 给谁 | 谁来回答 |
 | --- | --- | --- |
-| 17001 | 人和 Agent | REST API（`/api/v1`）、MCP（`/mcp`）、页面（`/alerts/{id}`、`/sessions/{id}`）、`/healthz`、`/readyz`、`/metrics`（只回答直连）和演练用的目标 |
+| 17001 | 人和 Agent | REST API（`/api/v1`）、MCP（`/mcp`）、公开页面（`/`、`/status`）、控制台（`/console`，以及卡片链到的页面：`/console/alerts/{id}`、`/console/sessions/{id}`）、`/healthz`、`/readyz`、`/metrics`（只回答直连）和演练用的目标 |
 | 17002 | Agent，以及 NAT 后面的机器 | SSH 通道：普通的 SSH，直接对外开放，不经 HTTP 代理 |
 | 17006 | 机器 | 网关：检测点、主机、心跳、规则引擎的告警、变更事件、指标查询 |
 
