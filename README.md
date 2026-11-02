@@ -6,7 +6,7 @@ Beacon is infrastructure for AI agents that run operations. It tells whether you
 
 > Named after the beacon towers of the Great Wall: watch posts along the border lit a fire when they saw trouble, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.
 
-Early days: Beacon runs the monitoring of LinkOS's own services. The SSH channel is being built; public status pages come after it.
+Early days: Beacon runs the monitoring of LinkOS's own services and the SSH channel to its machines. Being built now: the first agent on call (a reference harness and probing on demand), the pages people open from a card, machines behind NAT, and a reference deployment for other teams.
 
 ## What it does
 

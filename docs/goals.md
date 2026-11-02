@@ -4,6 +4,17 @@ English | [简体中文](zh/goals.md)
 
 What Beacon is for, what it will not do, and how to choose when goals pull apart. Every change should serve one of these goals; say which when you plan one.
 
+## North star
+
+**Operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
+
+It is read two ways, measured on LinkOS first:
+
+- **Coverage**: of everything agents do on machines and alerts, how much goes through Beacon. Target: all of it, with no key in any agent's hands.
+- **Closure**: of the critical alerts, how many an agent takes from being woken to a verified recovery with nobody stepping in. Target: most of them.
+
+Three guardrails are never traded for either: no alert lost, no credential leaked, nothing done without a record. A change that moves neither coverage nor closure, and holds no guardrail, waits.
+
 ## In one sentence
 
 Beacon is the infrastructure an AI agent finds handiest when it runs operations: it sees whether services work, it reaches every machine, and it puts people and agents on one platform, all in the ways agents already work.
@@ -44,12 +55,20 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 
 ## Not doing
 
-- **Beacon is not an agent and calls no model.** Reasoning and reviewing are the agents' work; Beacon is where they work.
+- **Beacon is not an agent and calls no model.** It wakes agents, and `linkos-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
 - **No approval workflow.** The pause switch and each machine's access are the only brakes.
 - **No log platform, tracing, APM or custom dashboards.** An agent reads logs over the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.
 - **No code that only LinkOS needs.** What is particular to LinkOS is configuration.
+
+## What landed means
+
+The project has landed (1.0) when all three hold:
+
+1. **On LinkOS**, every critical alert wakes an agent; most are closed by it, people are paged for the rest, and every operation agents do goes through Beacon.
+2. **A team elsewhere** installs Beacon in 30 minutes from the README with the reference deployment, enrols a probe, a machine and the agent program it already uses (Claude Code, Codex or another), and has the same loop running with its own chat.
+3. **People have one place to look**: from the card in the chat, one link opens the alert's timeline, each session's replay and the pause switch; Beacon has no login system of its own.
 
 ## When goals pull apart
 
