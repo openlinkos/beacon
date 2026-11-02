@@ -53,7 +53,7 @@ Beacon is built for the agent to do the work and for people to see all of it:
 | Any MCP client | MCP over HTTP | ✅ with a webhook |
 | Bots and scripts | REST and `ssh` | ✅ with a webhook |
 
-Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Agents and alerts](https://beacon.openlinkos.com/agents).
+Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Put an agent on call](https://beacon.openlinkos.com/agents).
 
 ## Getting started
 
@@ -82,7 +82,7 @@ Then ask, in any session: *"Is anything failing right now? Look at the evidence,
 The documentation lives in [`docs/`](docs/) and is published at [beacon.openlinkos.com](https://beacon.openlinkos.com):
 
 - [Up in 30 minutes](docs/install.md): from a bare machine to the first probe, machine, agent and drill
-- [Agents and alerts](docs/agents.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
+- [Put an agent on call](docs/agents.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
 - [The SSH channel](docs/ssh.md): how agents reach machines without keys, recordings, machines behind NAT
 - [Catalogue, targets and modules](docs/catalog.md): what is probed, from where, and how it is configured
 - [Status pages](docs/status.md): the public page, incidents, maintenance, badges

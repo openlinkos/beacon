@@ -1,13 +1,13 @@
 #!/bin/sh
 # Installs or updates beacon-probe, the probe agent, on this machine as the systemd service beacon-probe.
-#   sudo sh install.sh -gateway https://metrics.example.com -token-file edge-1.token [-version v0.3.0-rc.2]
+#   sudo sh install.sh -gateway https://metrics.example.com -token-file edge-1.token [-version v0.3.0-rc.14]
 # The token comes from `beacon enroll probe <location id>` on the centre (printed once); the file is
 # moved into /etc/beacon-probe/token. The binary is downloaded from the GitHub release and checked against its
 # SHA256SUMS; -binary FILE installs one you fetched yourself (a machine without access to GitHub). Idempotent:
 # run it again to update the binary (a new -version) or the token; only what changed is replaced.
 set -eu
 
-version=v0.3.0-rc.2 # BEACON_VERSION in deploy/.env; the probe and the service are released together
+version=v0.3.0-rc.14 # BEACON_VERSION in deploy/.env; the probe and the service are released together
 gateway=""
 token=""
 binary=""

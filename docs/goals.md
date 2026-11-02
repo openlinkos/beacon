@@ -68,7 +68,7 @@ The project has landed (1.0) when all three hold:
 
 1. **Where it runs**, every critical alert wakes an agent; most are closed by it, people are paged for the rest, and every operation agents do goes through Beacon.
 2. **A team elsewhere** installs Beacon in 30 minutes from the README with the reference deployment, enrols a probe, a machine and the agent program it already uses (Claude Code, Codex or another), and has the same loop running with its own chat.
-3. **People have one place to look**: from the card in the chat, one link opens the alert's timeline, each session's replay and the pause switch; Beacon has no login system of its own.
+3. **People have one place to look**: from the card in the chat, one link opens the alert's timeline, each session's replay and the pause switch; people sign in with Beacon's own accounts, and there is no external sign-in.
 
 ## When goals pull apart
 

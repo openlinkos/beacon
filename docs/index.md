@@ -28,7 +28,7 @@ features:
   - title: Woken with the evidence
     details: A signed webhook or a GitHub workflow wakes the agent you choose. One call returns every location's result, the other alerts in the same failure domain, the deployments just before, and what has already been done.
     link: /agents
-    linkText: Agents and alerts
+    linkText: Put an agent on call
   - title: No keys for agents
     details: Agents use their own ssh, scp and rsync through Beacon, or its MCP tools. Each connection gets a certificate valid for five minutes, and your servers trust only Beacon. Revoke one agent, or stop them all with one switch.
     link: /ssh

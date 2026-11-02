@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-210b0170
+sourceHash: sha256-e2c30921
 ---
 
 # 30 分钟装好
@@ -92,10 +92,10 @@ docker exec beacon beacon enroll probe edge-1 > edge-1.token
 应该看到 `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`，`edge-1.token` 里是一行以 `lbt_` 开头的令牌。把 `/opt/beacon/probe/` 目录和 `edge-1.token` 复制到检测点机器上，以 root 执行：
 
 ```bash
-sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token -version v0.3.0-rc.13
+sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
 ```
 
-`-version` 是要安装的版本，填和 `BEACON_VERSION` 相同的版本，因为检测程序和服务是一起发布的。脚本会创建 `beacon-probe` 用户，按机器架构下载这个版本的 `beacon-probe`，用发布页的 `SHA256SUMS` 核对（访问不了 GitHub 的机器，可以用 `-binary FILE` 安装你自己下载的文件），把令牌装成只有这个用户能读，装好 systemd 单元 `beacon-probe` 和 `beacon-heartbeat` 小工具，启动检测程序，然后等网关收下第一次推送。大约 10 秒，最后输出：
+脚本安装与这份参考部署相配的 `beacon-probe` 版本（检测程序和服务一起发布；用 `-version` 可以指定别的版本）。它会创建 `beacon-probe` 用户，按机器架构下载这个版本的 `beacon-probe`，用发布页的 `SHA256SUMS` 核对（访问不了 GitHub 的机器，可以用 `-binary FILE` 安装你自己下载的文件），把令牌装成只有这个用户能读，装好 systemd 单元 `beacon-probe` 和 `beacon-heartbeat` 小工具，启动检测程序，然后等网关收下第一次推送。大约 10 秒，最后输出：
 
 ```
 edge-1: beacon-probe beacon 0.3.0-rc.13 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
@@ -124,7 +124,7 @@ docker exec beacon beacon enroll probe edge-2 > edge-2.token
 预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ locations edge-2`，正式导入则在 `version 2: import of 1 items` 下面列出同样一行。然后照上面的步骤在第二台机器上安装检测程序。如果装在中心上，就让它直接连网关自己的端口，参考部署把这个端口开放在 `127.0.0.1` 上：
 
 ```bash
-sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token -version v0.3.0-rc.13
+sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
 导入会让这些文件成为全部配置：通过 API 或 MCP 改过、而文件里没有的内容会被删掉，所以要先预演。两种修改配置的方式以及怎样让它们保持一致，见[检测什么，从哪里检测](catalog.md)。

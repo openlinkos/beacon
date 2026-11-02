@@ -88,10 +88,10 @@ docker exec beacon beacon enroll probe edge-1 > edge-1.token
 You should see `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`, and `edge-1.token` holds a line starting with `lbt_`. Copy `/opt/beacon/probe/` and `edge-1.token` to the probe machine and run there, as root:
 
 ```bash
-sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token -version v0.3.0-rc.13
+sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
 ```
 
-`-version` is the release to install; give the same one as `BEACON_VERSION`, since the probe and the service are released together. The script creates the `beacon-probe` user, downloads that release of `beacon-probe` for the machine's architecture and checks it against the release's `SHA256SUMS` (or installs the file you give with `-binary FILE`, for a machine that cannot reach GitHub), installs the token readable by that user only, the systemd unit `beacon-probe` and the `beacon-heartbeat` helper, starts the agent, and waits until the gateway has accepted its first push. That takes about 10 seconds; it ends with:
+The script installs the release of `beacon-probe` that matches this copy of the reference deployment (the probe and the service are released together; `-version` picks another). It creates the `beacon-probe` user, downloads that release of `beacon-probe` for the machine's architecture and checks it against the release's `SHA256SUMS` (or installs the file you give with `-binary FILE`, for a machine that cannot reach GitHub), installs the token readable by that user only, the systemd unit `beacon-probe` and the `beacon-heartbeat` helper, starts the agent, and waits until the gateway has accepted its first push. That takes about 10 seconds; it ends with:
 
 ```
 edge-1: beacon-probe beacon 0.3.0-rc.13 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
@@ -120,7 +120,7 @@ docker exec beacon beacon enroll probe edge-2 > edge-2.token
 The dry run should list one line, `+ locations edge-2`, under `would change 1 items (nothing changed):`, and the import the same under `version 2: import of 1 items`. Then install the probe as above on the second machine. On the centre itself, point it at the gateway's own port, which the reference deployment publishes on `127.0.0.1`:
 
 ```bash
-sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token -version v0.3.0-rc.13
+sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
 An import makes the files the whole configuration: anything changed through the API or MCP that the files do not hold is removed, which is why `-dry-run` comes first. [What is checked, and from where](catalog.md) explains the two ways of changing the configuration and how to keep them in step.

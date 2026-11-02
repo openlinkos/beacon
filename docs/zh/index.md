@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-fdcf5b94
+sourceHash: sha256-58bd65f2
 layout: home
 
 hero:
@@ -29,7 +29,7 @@ features:
   - title: 叫醒时证据一并给齐
     details: 签名的 webhook 或 GitHub workflow 叫醒你指定的 Agent。一次调用返回每个检测点的结果、同一故障域里的其他告警、故障前刚做的部署，以及已经做过的事。
     link: /zh/agents
-    linkText: Agent 与告警
+    linkText: 让 Agent 值班
   - title: Agent 不拿密钥
     details: Agent 经 Beacon 用自己的 ssh、scp、rsync，或者用它的 MCP 工具。每次连接签一张五分钟有效的证书，服务器只信任 Beacon。可以单独吊销一个 Agent，也可以一个开关停下所有 Agent。
     link: /zh/ssh

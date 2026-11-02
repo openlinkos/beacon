@@ -53,7 +53,7 @@ Beacon 的设计是让 Agent 干活，让人看得见全部：
 | 任何 MCP 客户端 | HTTP 上的 MCP | ✅ 用 webhook |
 | Bot 和脚本 | REST 和 `ssh` | ✅ 用 webhook |
 
-Beacon 不调用模型：告警该怎么处理由 Agent 决定，哪个 Agent 都可以用。见 [Agent 与告警](https://beacon.openlinkos.com/zh/agents)。
+Beacon 不调用模型：告警该怎么处理由 Agent 决定，哪个 Agent 都可以用。见[让 Agent 值班](https://beacon.openlinkos.com/zh/agents)。
 
 ## 快速开始
 
@@ -82,7 +82,7 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 文档在 [`docs/`](docs/)，发布在 [beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)：
 
 - [30 分钟装好](docs/zh/install.md)：从一台空机器到第一个检测点、第一台机器、第一个 Agent 和第一次演练
-- [Agent 与告警](docs/zh/agents.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
+- [让 Agent 值班](docs/zh/agents.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
 - [SSH 通道](docs/zh/ssh.md)：Agent 不拿密钥怎么上机器、录像、NAT 后面的机器
 - [目录、检测目标和模块](docs/zh/catalog.md)：检测什么、从哪里检测、怎么配置
 - [状态页](docs/zh/status.md)：公开页、事件、维护、徽章

@@ -100,8 +100,16 @@ docker compose run --rm --no-deps -T beacon check-config -config /etc/beacon/con
   die "config.yaml, the catalogue, the targets or the modules do not validate"
 
 # 5. Start, and wait until all four are healthy (Beacon waits for VictoriaMetrics; Caddy's first certificates
-# take a moment longer and do not count here)
+# take a moment longer and do not count here). Compose does not notice a changed bind-mounted file, so when
+# config.yaml or a secret changed since the last run, Beacon is restarted to read it.
+sum=$(cat config.yaml secrets/* 2>/dev/null | cksum)
+last=$(cat .install-state 2>/dev/null || true)
 docker compose up -d --remove-orphans --quiet-pull
+if [ -n "$last" ] && [ "$sum" != "$last" ]; then
+  say "config.yaml or a secret changed: restarting Beacon"
+  docker compose restart beacon >/dev/null
+fi
+printf '%s\n' "$sum" > .install-state
 say "Waiting for the containers to be healthy …"
 healthy=0
 i=0
