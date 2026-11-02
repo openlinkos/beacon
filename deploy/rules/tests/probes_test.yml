@@ -1,0 +1,218 @@
+# vmalert-tool unittest --disableAlertgroupLabel --files 'deploy/rules/tests/*.yml'
+# Four probe locations: edge-1, edge-2, edge-3 (overseas) and cn-1 (mainland). Every scenario is fine for the
+# first 6 minutes and then fails as described. A location counts as failing after three results in a row (from
+# minute 8); ServiceDown waits 1 more minute, the warnings 5.
+rule_files:
+  - ../probes.yml
+evaluation_interval: 30s
+
+tests:
+  - name: one location failing is not an outage
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-3",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ServiceDegraded
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: MainlandPathDegraded
+        exp_alerts: []
+    metricsql_expr_test:
+      - expr: linkos:service_up
+        eval_time: 16m
+        exp_samples:
+          - labels: '{__name__="linkos:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+            value: 1
+
+  - name: half of the locations failing is an outage, at the target's severity
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-3",region="overseas"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: example.com
+              severity: critical
+              failure_domain: origin-1
+            exp_annotations:
+              summary: example.com is down
+              description: example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+      - eval_time: 16m
+        alertname: ServiceDegraded
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: MainlandPathDegraded
+        exp_alerts: []
+    metricsql_expr_test:
+      - expr: linkos:service_up
+        eval_time: 12m
+        exp_samples:
+          - labels: '{__name__="linkos:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+            value: 0
+
+  - name: a target without a severity label is critical when down
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="plain.example.com",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="plain.example.com",location="edge-2",region="overseas"}'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: plain.example.com
+              severity: critical
+            exp_annotations:
+              summary: plain.example.com is down
+              description: plain.example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
+  - name: fewer than half failing is a partial outage, a warning
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="edge-3",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="edge-4",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ServiceDegraded
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ServiceDegraded
+        exp_alerts:
+          - exp_labels:
+              service: app.example.com
+              severity: warning
+              failure_domain: origin-1
+            exp_annotations:
+              summary: app.example.com fails from some probe locations
+              description: "app.example.com has failed for 3 minutes from at least two probe locations, but fewer than half of them: a partial outage, usually one CDN node or one network path. The card shows which locations."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDegraded.md
+
+  - name: with one location's data late, two of the three reporting is still an outage
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-3",region="overseas"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: example.com
+              severity: critical
+              failure_domain: origin-1
+            exp_annotations:
+              summary: example.com is down
+              description: example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
+  - name: when only one location reports, its failure is never an outage
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ServiceDegraded
+        exp_alerts: []
+
+  - name: the mainland location failing while the overseas ones succeed is a path problem
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="cdn.example.com",severity="critical",failure_domain="cdn",location="cn-1",region="mainland"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="cdn.example.com",severity="critical",failure_domain="cdn",location="edge-1",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="cdn.example.com",severity="critical",failure_domain="cdn",location="edge-2",region="overseas"}'
+        values: '1x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: MainlandPathDegraded
+        exp_alerts:
+          - exp_labels:
+              service: cdn.example.com
+              severity: warning
+              failure_domain: cdn
+            exp_annotations:
+              summary: cdn.example.com is unreachable from mainland China
+              description: "Every mainland probe location has failed cdn.example.com for 3 minutes while the overseas ones succeed: most likely the path from mainland China (a blocked address or routing), not the service itself."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/MainlandPathDegraded.md
+
+  - name: a probe location without results is reported
+    interval: 1m
+    input_series:
+      - series: 'linkos_expected_location{job="linkos-beacon",location="edge-1",region="overseas",network="BGP"}'
+        values: '1x15'
+      - series: 'linkos_expected_location{job="linkos-beacon",location="cn-1",region="mainland",network="BGP"}'
+        values: '1x15'
+      - series: 'linkos_expected_location{job="linkos-beacon",location="edge-3",region="overseas",network="CN2 GIA"}'
+        values: '1x15'
+      - series: 'probe_success{job="probe",service="example.com",location="edge-1",region="overseas"}'
+        values: '1x15'
+      - series: 'probe_success{job="probe",service="example.com",location="cn-1",region="mainland"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ProbeLocationDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ProbeLocationDown
+        exp_alerts:
+          - exp_labels:
+              location: edge-3
+              region: overseas
+              network: CN2 GIA
+              severity: warning
+              service: probe-edge-3
+              failure_domain: probe-edge-3
+            exp_annotations:
+              summary: Probe location edge-3 has sent no results for 10 minutes
+              description: "No probe results from edge-3 (CN2 GIA). The machine, its linkos-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md

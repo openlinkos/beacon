@@ -1,0 +1,69 @@
+# The edge: two host names with automatic HTTPS (Let's Encrypt over HTTP-01 and TLS-ALPN-01, so 80 and 443 must
+# both be reachable). The names and the account address come from .env through compose.yaml.
+#   $STATUS_HOST   linkos-beacon: the API, MCP and pages; /metrics, /readyz and /hooks/* are not exposed, except
+#                  /hooks/feishu, the HTTPS fallback for Feishu's card callbacks
+#   $METRICS_HOST  the gateway: probes and hosts push, probes fetch their targets, heartbeats, the rule engine's
+#                  and Flux's alerts, agents' metric queries
+# Beacon limits failed sign-ins per client address, so X-Forwarded-For carries the real client address; Beacon
+# trusts it from the compose network only (trusted_proxies in config.yaml).
+{
+	email {$ACME_EMAIL}
+	admin localhost:2019
+	log default {
+		output stderr
+		format json
+	}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+}
+
+{$STATUS_HOST} {
+	import common
+	header Referrer-Policy strict-origin-when-cross-origin
+	# API bodies are small; write_file takes 1 MiB, a configuration import a few more
+	request_body {
+		max_size 8MB
+	}
+
+	handle /hooks/feishu {
+		reverse_proxy linkos-beacon:17001 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle /hooks/* {
+		respond 404
+	}
+	handle /metrics {
+		respond 404
+	}
+	handle /readyz {
+		respond 404
+	}
+	# the rest: the pages, /api/v1/*, /mcp, /healthz, /drill/healthz
+	handle {
+		reverse_proxy linkos-beacon:17001 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle_errors 502 503 504 {
+		respond "Beacon is not available right now." 503
+	}
+}
+
+{$METRICS_HOST} {
+	import common
+	# pushes are gzip batches; 32 MB matches the gateway's own limit
+	request_body {
+		max_size 32MB
+	}
+	reverse_proxy linkos-beacon:17006 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}

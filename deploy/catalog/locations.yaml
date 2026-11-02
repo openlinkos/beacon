@@ -1,0 +1,28 @@
+# Probe locations: the machines that run `linkos-probe agent`. The id is the machine's name and what
+# `linkos-beacon enroll probe <id>` takes; the gateway labels everything the machine pushes with location,
+# region and network, so no probe can speak for another. Name locations by place and network, never by vendor.
+# Beacon exports linkos_expected_location for each, which the ProbeLocationDown rule uses. Fields: docs/catalog.md.
+locations:
+  - id: edge-1
+    name: United States - Los Angeles
+    region: overseas          # overseas or mainland (mainland China); the rules compare the two
+    network: BGP
+  # A second location makes outages a matter of agreement: a service is down only when at least two
+  # locations, and at least half of those reporting, fail.
+  # - id: edge-2
+  #   name: Germany - Frankfurt
+  #   region: overseas
+  #   network: BGP
+  # A machine on a lossy path: a longer timeout and one retry for probes that fail without an answer.
+  # - id: cn-1
+  #   name: Mainland China - Shanghai
+  #   region: mainland
+  #   network: BGP
+  #   probe: {timeout: 30s, retries: 1}
+  # A CDN node: Beacon checks every minute that its address is in its cluster's DNS answers (rules/cdn.yml).
+  # - id: la-node-1
+  #   name: United States - Los Angeles
+  #   region: overseas
+  #   network: CN2 GIA
+  #   address: node-1.cdn.example.net
+  #   rotation: cdn.example.com

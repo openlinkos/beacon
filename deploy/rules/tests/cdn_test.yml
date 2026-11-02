@@ -1,0 +1,101 @@
+# CDN rotations: a node out of the answers, a standby that steps in, an address nobody claims, a rotation that
+# does not resolve.
+rule_files:
+  - ../cdn.yml
+evaluation_interval: 1m
+
+tests:
+  - name: a primary node that drops out of its rotation, and the standby that steps in
+    interval: 1m
+    input_series:
+      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-1",rotation="cdn.example.com",role="primary"}'
+        values: '1x4 0x25'
+      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-2",rotation="cdn.example.com",role="primary"}'
+        values: '1x30'
+      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
+        values: '0x4 1x25'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: CDNNodeOutOfRotation
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: CDNNodeOutOfRotation
+        exp_alerts:
+          - exp_labels:
+              location: node-1
+              rotation: cdn.example.com
+              severity: warning
+              service: cdn.example.com
+              failure_domain: cdn.example.com
+            exp_annotations:
+              summary: "node-1 is not in the DNS rotation cdn.example.com"
+              description: "cdn.example.com does not answer with the address of node-1: the node is up but serves no users through it. Taken out on purpose, or dropped by the CDN's health check?"
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
+      - eval_time: 12m
+        alertname: CDNStandbyInRotation
+        exp_alerts:
+          - exp_labels:
+              location: node-3
+              rotation: cdn.example.com
+              severity: info
+              service: cdn.example.com
+              failure_domain: cdn.example.com
+            exp_annotations:
+              summary: "Standby node node-3 is serving in cdn.example.com"
+              description: "The standby node node-3 is in the DNS answers of cdn.example.com: a primary node failed or was taken out. See which one with CDNNodeOutOfRotation, and take the standby out again once the primary is back."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
+
+  - name: a standby node out of its rotation is normal
+    interval: 1m
+    input_series:
+      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: CDNNodeOutOfRotation
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: CDNStandbyInRotation
+        exp_alerts: []
+
+  - name: an address in the rotation that no location claims
+    interval: 1m
+    input_series:
+      - series: 'linkos_rotation_unknown_address{job="linkos-beacon",rotation="eu.cdn.example.com",address="192.0.2.7"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: CDNRotationUnknownAddress
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: CDNRotationUnknownAddress
+        exp_alerts:
+          - exp_labels:
+              rotation: eu.cdn.example.com
+              address: 192.0.2.7
+              severity: warning
+              service: eu.cdn.example.com
+              failure_domain: eu.cdn.example.com
+            exp_annotations:
+              summary: "eu.cdn.example.com answers with 192.0.2.7, which no probe location claims"
+              description: "A node in the rotation is not in the catalogue, so nobody watches it. Add it as a probe location with its address, or take it out of the rotation."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
+
+  - name: a rotation that does not resolve
+    interval: 1m
+    input_series:
+      - series: 'linkos_rotation_resolve_success{job="linkos-beacon",rotation="eu.cdn.example.com"}'
+        values: '1x2 0x15'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: CDNRotationResolveFailing
+        exp_alerts:
+          - exp_labels:
+              rotation: eu.cdn.example.com
+              severity: warning
+              service: eu.cdn.example.com
+              failure_domain: eu.cdn.example.com
+            exp_annotations:
+              summary: "eu.cdn.example.com does not resolve from the monitoring host"
+              description: "Beacon cannot resolve eu.cdn.example.com. Either the rotation's DNS is broken, and the sites on that CDN cluster fail for everyone, or the monitoring host's resolver is."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md

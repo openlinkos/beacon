@@ -1,0 +1,67 @@
+# The monitoring itself: the Watchdog always fires; the gateway's server errors and a probe's growing queue are reported.
+rule_files:
+  - ../meta.yml
+evaluation_interval: 30s
+
+tests:
+  - name: the watchdog always fires
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: Watchdog - always firing while the alerting pipeline works
+              description: "Beacon counts this towards its readiness and pings healthchecks.io every minute while it arrives and alerts can be delivered (a dead man's switch). If it stops arriving, the rule engine or the metrics store is down."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/Watchdog.md
+
+  - name: server errors of the gateway, but not refused tokens
+    interval: 1m
+    input_series:
+      - series: 'linkos_gateway_requests_total{job="linkos-beacon",route="import",code="500"}'
+        values: '0x5 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20'
+      - series: 'linkos_gateway_requests_total{job="linkos-beacon",route="import",code="401"}'
+        values: '0+5x25'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GatewayErrors
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: GatewayErrors
+        exp_alerts:
+          - exp_labels:
+              route: import
+              severity: warning
+              service: beacon
+              failure_domain: monitoring
+            exp_annotations:
+              summary: "The gateway fails import requests"
+              description: "The gateway answered 10 import request(s) with a server error in the last 10 minutes, usually because VictoriaMetrics refuses writes. Probes keep their results queued on disk meanwhile."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/GatewayErrors.md
+
+  - name: a probe whose queue keeps growing
+    interval: 1m
+    input_series:
+      - series: 'linkos_probe_queue_bytes{job="probe-agent",location="cn-1",region="mainland",network="BGP",host="cn-1"}'
+        values: '0x5 9e6x20'
+      - series: 'linkos_probe_queue_bytes{job="probe-agent",location="edge-1",region="overseas",network="BGP",host="edge-1"}'
+        values: '0x25'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ProbeQueueBacklog
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: ProbeQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              host: cn-1
+              severity: warning
+              service: probe-cn-1
+              failure_domain: probe-cn-1
+            exp_annotations:
+              summary: "linkos-probe on cn-1 has 8.583MiB waiting to be pushed"
+              description: "The agent keeps queueing instead of pushing to the gateway; at 64 MB it drops the oldest batches. Some pushes get through, or this could not be reported at all."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeQueueBacklog.md

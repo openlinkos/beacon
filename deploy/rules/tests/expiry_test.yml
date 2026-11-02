@@ -1,0 +1,85 @@
+# Expiry and heartbeats. vmalert-tool's clock starts at 2000-01-01T00:00:00Z (946684800); expiry timestamps are
+# offsets from it.
+rule_files:
+  - ../expiry.yml
+evaluation_interval: 1m
+
+tests:
+  - name: resources expiring within 30 days warn, within 7 days are critical
+    interval: 5m
+    input_series:
+      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="edge-2",kind="vps"}'
+        values: '947548800x5'   # in 10 days
+      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="edge-3",kind="vps"}'
+        values: '946944000x5'   # in 3 days
+      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="example.com",kind="domain"}'
+        values: '978220800x5'   # in 365 days
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ResourceExpiring
+        exp_alerts:
+          - exp_labels:
+              resource: edge-2
+              kind: vps
+              severity: warning
+              service: edge-2
+              failure_domain: edge-2
+            exp_annotations:
+              summary: vps edge-2 expires in 9d 23h 50m 0s
+              description: Renew edge-2, or let it lapse on purpose; then put the new date in the catalogue (catalog/resources.yaml, or through the API) so that this alert ends.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
+          - exp_labels:
+              resource: edge-3
+              kind: vps
+              severity: critical
+              service: edge-3
+              failure_domain: edge-3
+            exp_annotations:
+              summary: vps edge-3 expires in 2d 23h 50m 0s
+              description: Renew edge-3, or let it lapse on purpose; then put the new date in the catalogue (catalog/resources.yaml, or through the API) so that this alert ends.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
+
+  - name: a certificate expiring within 7 days is critical, reported once for all locations
+    interval: 5m
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '947116800x5'   # in 5 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+        values: '947116800x5'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CertificateExpiring
+        exp_alerts:
+          - exp_labels:
+              service: app.example.com
+              failure_domain: origin-1
+              severity: critical
+            exp_annotations:
+              summary: The certificate of app.example.com expires in 4d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
+
+  - name: a heartbeat older than its max age is stale
+    interval: 10m
+    input_series:
+      # reported once, at the start (one pushed sample)
+      - series: 'linkos_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}'
+        values: '946684800'
+      - series: 'linkos_heartbeat_max_age_seconds{job="linkos-beacon",heartbeat="nas-backup",severity="warning"}'
+        values: '3600x20'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: HeartbeatStale
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: HeartbeatStale
+        exp_alerts:
+          - exp_labels:
+              heartbeat: nas-backup
+              severity: warning
+              service: nas-backup
+              failure_domain: nas-backup
+            exp_annotations:
+              summary: nas-backup has not succeeded for 2h 0m 0s
+              description: The job behind heartbeat nas-backup did not report success within its max_age. Check whether it ran, and whether it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md

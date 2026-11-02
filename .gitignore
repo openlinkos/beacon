@@ -7,3 +7,5 @@
 /config.yaml
 /*.db
 /.claude/
+/deploy/.env
+/deploy/secrets/
