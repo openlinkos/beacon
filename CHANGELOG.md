@@ -4,6 +4,105 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+**Renamed: the commands are `beacon`, `beacon-probe` and `beacon-oncall`.** The product is called Beacon, so its commands are too, as the family's other products name theirs (Origin's is `origin`). The prefix `linkos` goes from the commands, their paths, units, metrics and rules; nothing else changes in what they do.
+
+| Before | Now |
+| --- | --- |
+| `linkos-beacon`, the service and its command line (`cmd/linkos-beacon`) | `beacon` (`cmd/beacon`) |
+| `linkos-probe`, the probe agent (`cmd/linkos-probe`) | `beacon-probe` (`cmd/beacon-probe`) |
+| `linkos-oncall`, the harness that runs an agent (`cmd/linkos-oncall`) | `beacon-oncall` (`cmd/beacon-oncall`) |
+| Release archives `linkos-beacon_<version>_linux_<arch>.tar.gz`, `linkos-probe_…`, `linkos-oncall_…` | `beacon_<version>_linux_<arch>.tar.gz`, `beacon-probe_…`, `beacon-oncall_…` |
+| In the image: `/usr/local/bin/linkos-beacon` (the entry point; the health command `linkos-beacon healthcheck`) and `/usr/local/bin/linkos-probe` | `/usr/local/bin/beacon` (`beacon healthcheck`) and `/usr/local/bin/beacon-probe` |
+| `/etc/linkos-beacon/` (`config.yaml`, `secrets/`, `catalog/`, `targets/`): the defaults of `-config`, `catalog_dir`, `gateway.targets_dir` and `gateway.modules_file` | `/etc/beacon/` |
+| `/var/lib/linkos-beacon` (`data_dir`: the database, the recordings, the admin socket) | `/var/lib/beacon` |
+| `LINKOS_BEACON_DATA_DIR`, where the command line looks for the admin socket | `BEACON_DATA_DIR` |
+| The probe's `/etc/linkos-agent/` (`token`, `agent.env`, `secrets/`, `modules.yml`) | `/etc/beacon-probe/` |
+| The probe's `/var/lib/linkos-agent/` (`state/`, `textfile/`) | `/var/lib/beacon-probe/` |
+| `/opt/linkos-agent/bin/linkos-probe` and the user `linkos-agent` | `/opt/beacon-probe/bin/beacon-probe` and the user `beacon-probe` |
+| The units `linkos-probe.service` and `linkos-oncall.service`; the script `linkos-heartbeat` | `beacon-probe.service` and `beacon-oncall.service`; `beacon-heartbeat` |
+| The harness's user `linkos-oncall`, `/etc/linkos-oncall/`, `/var/lib/linkos-oncall/` (its home and `logs/`) and `/usr/local/lib/linkos-oncall/` | `beacon-oncall`, `/etc/beacon-oncall/`, `/var/lib/beacon-oncall/` and `/usr/local/lib/beacon-oncall/` |
+| `deploy/`: the compose project, service, container and network `linkos-beacon`; the containers `linkos-beacon-victoriametrics`, `linkos-beacon-vmalert`, `linkos-beacon-caddy`; so the volumes `linkos-beacon_beacon-data`, `linkos-beacon_victoriametrics-data`, `linkos-beacon_caddy-data`, `linkos-beacon_caddy-config` | `beacon`; `beacon-victoriametrics`, `beacon-vmalert`, `beacon-caddy`; `beacon_beacon-data`, `beacon_victoriametrics-data`, `beacon_caddy-data`, `beacon_caddy-config` |
+| The scrape job `linkos-beacon` (`job="linkos-beacon"`, `instance="linkos-beacon:17001"`) | `beacon` (`job="beacon"`, `instance="beacon:17001"`) |
+| The MCP server's name, in its own information and in the examples (`claude mcp add --transport http linkos-beacon …`) | `beacon` |
+| `User-Agent: linkos-beacon/<version>` and `linkos-probe/<version>`; the API's `WWW-Authenticate` realm; the Bark group; the name the service records for the configuration it imports itself (`config history`) | `beacon/<version>` and `beacon-probe/<version>`; `beacon`; `beacon`; `beacon` (older entries keep theirs) |
+
+Every metric and recording rule of Beacon's own: `linkos_beacon_X` is now `beacon_X`, any other `linkos_X` is `beacon_X`, and `linkos:X` is `beacon:X`. The Blackbox-compatible metrics (`probe_success`, `probe_failure_info`, `probe_duration_seconds` and the rest) keep their names. `deploy/rules/` and its tests use the new names.
+
+| Before | Now |
+| --- | --- |
+| `linkos_beacon_build_info` | `beacon_build_info` |
+| `linkos_beacon_start_time_seconds` | `beacon_start_time_seconds` |
+| `linkos_beacon_alerts_firing` | `beacon_alerts_firing` |
+| `linkos_beacon_alert_groups_firing` | `beacon_alert_groups_firing` |
+| `linkos_beacon_bridge_ready` | `beacon_bridge_ready` |
+| `linkos_beacon_notifications_total` | `beacon_notifications_total` |
+| `linkos_beacon_feishu_api_calls` | `beacon_feishu_api_calls` |
+| `linkos_beacon_ssh_open` | `beacon_ssh_open` |
+| `linkos_beacon_ssh_paused` | `beacon_ssh_paused` |
+| `linkos_beacon_ssh_machines` | `beacon_ssh_machines` |
+| `linkos_beacon_ssh_sessions_total` | `beacon_ssh_sessions_total` |
+| `linkos_beacon_ssh_connectors` | `beacon_ssh_connectors` |
+| `linkos_beacon_ssh_connector_machines` | `beacon_ssh_connector_machines` |
+| `linkos_token_expiry_timestamp_seconds` | `beacon_token_expiry_timestamp_seconds` |
+| `linkos_expected_location` | `beacon_expected_location` |
+| `linkos_heartbeat_max_age_seconds` | `beacon_heartbeat_max_age_seconds` |
+| `linkos_heartbeat_last_success_timestamp_seconds` (written by heartbeat jobs) | `beacon_heartbeat_last_success_timestamp_seconds` |
+| `linkos_resource_expiry_timestamp_seconds` | `beacon_resource_expiry_timestamp_seconds` |
+| `linkos_location_in_rotation` | `beacon_location_in_rotation` |
+| `linkos_rotation_members` | `beacon_rotation_members` |
+| `linkos_rotation_resolve_success` | `beacon_rotation_resolve_success` |
+| `linkos_rotation_unknown_address` | `beacon_rotation_unknown_address` |
+| `linkos_gateway_requests_total` | `beacon_gateway_requests_total` |
+| `linkos_gateway_last_write_timestamp_seconds` | `beacon_gateway_last_write_timestamp_seconds` |
+| `linkos_gateway_changes_limited_total` | `beacon_gateway_changes_limited_total` |
+| `linkos_probe_now_requests_total` | `beacon_probe_now_requests_total` |
+| `linkos_probe_now_requests_open` | `beacon_probe_now_requests_open` |
+| `linkos_probe_now_answers_total` | `beacon_probe_now_answers_total` |
+| `linkos_probe_now_missing_total` | `beacon_probe_now_missing_total` |
+| `linkos_probe_attempts` (from the probe) | `beacon_probe_attempts` |
+| `linkos_probe_build_info` (from the probe) | `beacon_probe_build_info` |
+| `linkos_probe_modules` (from the probe) | `beacon_probe_modules` |
+| `linkos_probe_targets` (from the probe) | `beacon_probe_targets` |
+| `linkos_probe_queue_batches` (from the probe) | `beacon_probe_queue_batches` |
+| `linkos_probe_queue_bytes` (from the probe) | `beacon_probe_queue_bytes` |
+| `linkos_probe_push_errors_total` (from the probe) | `beacon_probe_push_errors_total` |
+| `linkos_probe_last_push_timestamp_seconds` (from the probe) | `beacon_probe_last_push_timestamp_seconds` |
+| `linkos:probe_failing` | `beacon:probe_failing` |
+| `linkos:service_reporting` | `beacon:service_reporting` |
+| `linkos:service_failing_locations` | `beacon:service_failing_locations` |
+| `linkos:service_failing_overseas` | `beacon:service_failing_overseas` |
+| `linkos:service_reporting_mainland` | `beacon:service_reporting_mainland` |
+| `linkos:service_failing_mainland` | `beacon:service_failing_mainland` |
+| `linkos:service_down` | `beacon:service_down` |
+| `linkos:service_up` | `beacon:service_up` |
+| `linkos:heartbeat_last_success` | `beacon:heartbeat_last_success` |
+
+What stays: the Go module `github.com/openlinkos/beacon`, the image `ghcr.io/openlinkos/beacon`, the token prefix `lbt_` (the mark of a Beacon token: tokens already issued keep working), the probe protocol's routes and formats (a probe of either name works with a gateway of either), the `BEACON_*` variables the harness passes to an agent, the ports, the audit log's actions and the data in the database.
+
+Moving a running deployment, in this order (each step works with the next one not done yet; what is missing meanwhile is said):
+
+1. **The centre.** With the reference deployment, in `deploy/`: `docker compose down` while the old `compose.yaml` is still there (the volumes stay), then take the new release's `compose.yaml`, `Caddyfile`, `metrics/scrape.yml` and `rules/` (keep your `.env`, with the new `BEACON_VERSION`, and `config.yaml`, `catalog/`, `targets/`, `secrets/`). Point `config.yaml` at the new paths, copy the four volumes to the new project's names, and start:
+   ```sh
+   sed -i -e 's#/etc/linkos-beacon/#/etc/beacon/#g' -e 's#/var/lib/linkos-beacon#/var/lib/beacon#g' config.yaml
+   for v in beacon-data victoriametrics-data caddy-data caddy-config; do
+     docker volume create "beacon_$v" >/dev/null
+     docker run --rm -v "linkos-beacon_$v:/from:ro" -v "beacon_$v:/to" busybox cp -a /from/. /to/
+   done
+   sh install.sh    # validates, starts and waits as on the first install; or docker compose up -d
+   ```
+   Remove the old volumes (`docker volume rm linkos-beacon_beacon-data …`) once the new ones hold; to keep the data where it is instead of copying it, put `COMPOSE_PROJECT_NAME=linkos-beacon` in `.env`. Without compose: move `/etc/linkos-beacon` to `/etc/beacon` and `/var/lib/linkos-beacon` to `/var/lib/beacon` (or bind-mount them there), change the paths in `config.yaml`, and run `beacon serve` from your unit in place of `linkos-beacon serve`. Rules and dashboards of your own: rename the metrics as in the table, and `job="linkos-beacon"` to `job="beacon"`; samples stored before the switch keep their old names, so a look back across it takes both, as in `{__name__=~"(linkos|beacon)_gateway_requests_total"}`. Until the probes follow, `ProbeQueueBacklog` does not see their queues and the evidence has no `attempts`; alerts on `probe_success` are not affected.
+2. **Each probe machine**, as root, with the new release's `deploy/probe/` (the old and the new agent both listen on 127.0.0.1:17009, so the old one stops first; renaming the user keeps its uid, so the token, the secrets and the queue stay readable):
+   ```sh
+   systemctl disable --now linkos-probe
+   usermod -l beacon-probe linkos-agent && groupmod -n beacon-probe linkos-agent
+   mv /etc/linkos-agent /etc/beacon-probe && mv /var/lib/linkos-agent /var/lib/beacon-probe
+   rm -rf /etc/systemd/system/linkos-probe.service /opt/linkos-agent /usr/local/bin/linkos-heartbeat
+   sh install.sh -version vX.Y.Z    # the token and the gateway are already where it looks
+   ```
+3. **Heartbeats**, within a day of step 1: jobs that end with `linkos-heartbeat <name>` call `beacon-heartbeat <name>`, and jobs that push a sample with their token write `beacon_heartbeat_last_success_timestamp_seconds`. `HeartbeatStale` reads the new name only, and `HeartbeatMissing` waits a day for a heartbeat that has never reported under it. For a job that runs less often than daily, let the recording rule read both names until it has run, then put it back: `max by (heartbeat) (last_over_time({__name__=~"(linkos|beacon)_heartbeat_last_success_timestamp_seconds"}[31d]))`.
+4. **The harness**, on the agent's machine, as root: `systemctl disable --now linkos-oncall`, then `usermod -l beacon-oncall -d /var/lib/beacon-oncall -m linkos-oncall && groupmod -n beacon-oncall linkos-oncall` (the agent's sign-in moves with its home), `mv /etc/linkos-oncall /etc/beacon-oncall && mv /usr/local/lib/linkos-oncall /usr/local/lib/beacon-oncall` (your prompt stays), `rm /usr/local/bin/linkos-oncall /etc/systemd/system/linkos-oncall.service`, then install `beacon-oncall`, the new release's wrappers (their defaults name the new paths) and `beacon-oncall.service` as the unit's header says, and `systemctl enable --now beacon-oncall`.
+5. **Agents' MCP clients** may keep the server's old name, since it is the client's own label; to follow it, `claude mcp remove linkos-beacon` and add it again as `beacon`.
+
 ## 0.3.0
 
 ### rc.10 (2026-11-02)

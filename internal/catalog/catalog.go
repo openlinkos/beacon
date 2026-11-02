@@ -187,7 +187,7 @@ func (c *Catalog) Validate() error {
 			bad("heartbeat %q: severity must be one of %s", h.Name, strings.Join(config.Severities, ", "))
 		}
 		if h.Machine != "" && !idRe.MatchString(h.Machine) {
-			bad("heartbeat %q: machine %q is not a machine's name: lower case letters, digits and dashes, as linkos-beacon machine list shows it",
+			bad("heartbeat %q: machine %q is not a machine's name: lower case letters, digits and dashes, as beacon machine list shows it",
 				h.Name, h.Machine)
 		}
 	}
@@ -254,7 +254,7 @@ func (c *Catalog) Location(id string) (Location, bool) {
 
 // Register exports the catalogue as metrics. cat is read on every scrape, so a reload takes effect.
 func Register(m *metrics.Metrics, cat func() *Catalog) {
-	m.Register("linkos_expected_location", "Probe locations that should report (1 each; not once their machine has expired)", "gauge", func() []metrics.Sample {
+	m.Register("beacon_expected_location", "Probe locations that should report (1 each; not once their machine has expired)", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		c, t := cat(), now()
 		for _, l := range c.Locations {
@@ -266,7 +266,7 @@ func Register(m *metrics.Metrics, cat func() *Catalog) {
 	})
 	// A heartbeat that names its machine has it as a label too. The rules aggregate by (heartbeat,
 	// severity), so the label changes no alert; it is there for a rule or a dashboard that wants it.
-	m.Register("linkos_heartbeat_max_age_seconds", "How old a heartbeat may get before it alerts", "gauge", func() []metrics.Sample {
+	m.Register("beacon_heartbeat_max_age_seconds", "How old a heartbeat may get before it alerts", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, h := range cat().Heartbeats {
 			kv := []string{"heartbeat", h.Name, "severity", h.Severity}
@@ -277,7 +277,7 @@ func Register(m *metrics.Metrics, cat func() *Catalog) {
 		}
 		return out
 	})
-	m.Register("linkos_resource_expiry_timestamp_seconds", "When a server, domain, certificate or token expires", "gauge", func() []metrics.Sample {
+	m.Register("beacon_resource_expiry_timestamp_seconds", "When a server, domain, certificate or token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, r := range cat().Resources {
 			out = append(out, metrics.Sample{Labels: metrics.Labels("resource", r.Name, "kind", r.Kind), Value: float64(r.expires.Unix())})

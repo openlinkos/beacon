@@ -55,7 +55,7 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 
 ## Not doing
 
-- **Beacon is not an agent and calls no model.** It wakes agents, and `linkos-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
+- **Beacon is not an agent and calls no model.** It wakes agents, and `beacon-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
 - **No approval workflow.** The pause switch and each machine's access are the only brakes.
 - **No log platform, tracing, APM or custom dashboards.** An agent reads logs over the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.

@@ -20,11 +20,11 @@ import (
 const reportingWindow = 5 * time.Minute
 
 // ReportingFrom reads when each probe location or host last wrote through the gateway from the metric
-// the gateway keeps (linkos_gateway_last_write_timestamp_seconds), for Server.Reporting.
+// the gateway keeps (beacon_gateway_last_write_timestamp_seconds), for Server.Reporting.
 func ReportingFrom(m *metrics.Metrics) func() map[string]time.Time {
 	return func() map[string]time.Time {
 		out := map[string]time.Time{}
-		for _, s := range m.Samples("linkos_gateway_last_write_timestamp_seconds") {
+		for _, s := range m.Samples("beacon_gateway_last_write_timestamp_seconds") {
 			if who := metrics.LabelValue(s.Labels, "subject"); who != "" {
 				out[who] = time.Unix(int64(s.Value), 0)
 			}

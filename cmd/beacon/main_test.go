@@ -124,7 +124,7 @@ func TestOpenConfigImportsOnce(t *testing.T) {
 	if err != nil || cdb.Version() != 1 || len(cdb.Catalog().Locations) != 1 || cdb.Modules() == nil {
 		t.Fatalf("the first start imports the files: %v %v", cdb.Version(), err)
 	}
-	if h, _ := cdb.History(configdb.HistoryFilter{}); h[0].Via != "start" || h[0].Actor != "linkos-beacon" {
+	if h, _ := cdb.History(configdb.HistoryFilter{}); h[0].Via != "start" || h[0].Actor != "beacon" {
 		t.Errorf("history: %+v", h[0])
 	}
 	// from then on the database is the source: changed files are not read at start
@@ -158,7 +158,7 @@ func TestUsage(t *testing.T) {
 	if run(nil, &out, &errb) != 2 || run([]string{"bogus"}, &out, &errb) != 2 {
 		t.Error("usage errors exit 2")
 	}
-	if run([]string{"version"}, &out, &errb) != 0 || !strings.Contains(out.String(), "linkos-beacon") {
+	if run([]string{"version"}, &out, &errb) != 0 || !strings.Contains(out.String(), "beacon") {
 		t.Error("version")
 	}
 	if run([]string{"drill", "sideways"}, &out, &errb) != 2 || run([]string{"token", "create"}, &out, &errb) != 2 {

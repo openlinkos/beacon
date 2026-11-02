@@ -1,5 +1,5 @@
 // Package ctl is the local admin socket: a small HTTP API on a Unix socket in the data directory, so
-// that `linkos-beacon token …`, `machine …`, `ssh …`, `config …` and `drill …` work against the
+// that `beacon token …`, `machine …`, `ssh …`, `config …` and `drill …` work against the
 // running service, which holds the database lock.
 //
 // Only processes of the service's own user (or root) can connect: the socket is mode 0600 in the

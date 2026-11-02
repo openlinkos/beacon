@@ -1,14 +1,14 @@
-// Command linkos-probe is the probe agent: it checks targets for the status service (like the
+// Command beacon-probe is the probe agent: it checks targets for the status service (like the
 // Blackbox Exporter, with the same metric names, plus a failure reason and multi-step checks) and
 // reports a few host metrics (like a small Node Exporter). In agent mode it does everything itself:
 // fetches its targets and modules from the status service's gateway, probes every minute, and pushes
 // the results with a queue on disk for when the gateway cannot be reached.
 //
-//	linkos-probe agent -gateway URL -token-file FILE [-state DIR] [-interval 1m] [-listen 127.0.0.1:17009] [-secrets-dir DIR]
-//	linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
-//	linkos-probe check [-modules FILE]                 validate the module file
-//	linkos-probe run [-modules FILE] MODULE TARGET     probe once and print the result
-//	linkos-probe version
+//	beacon-probe agent -gateway URL -token-file FILE [-state DIR] [-interval 1m] [-listen 127.0.0.1:17009] [-secrets-dir DIR]
+//	beacon-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
+//	beacon-probe check [-modules FILE]                 validate the module file
+//	beacon-probe run [-modules FILE] MODULE TARGET     probe once and print the result
+//	beacon-probe version
 //
 // The files modules name (password_file) are read from the secrets directory only, by name; a module
 // that names a path is refused (reason config) and nothing outside the directory is ever read.
@@ -34,21 +34,21 @@ import (
 	"github.com/openlinkos/beacon/internal/version"
 )
 
-const defaultModules = "/etc/linkos-agent/modules.yml"
+const defaultModules = "/etc/beacon-probe/modules.yml"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
-  linkos-probe agent -gateway URL -token-file FILE [-state /var/lib/linkos-agent] [-interval 1m]
+  beacon-probe agent -gateway URL -token-file FILE [-state /var/lib/beacon-probe] [-interval 1m]
                      [-textfile DIR] [-proc /proc] [-listen 127.0.0.1:17009] [-secrets-dir `+probe.DefaultSecretsDir+`]
                                                      probe, collect and push to the gateway (the agent)
-  linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
+  beacon-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
                                                      only answer /probe and /metrics (for a scraper)
-  linkos-probe check [-modules FILE]                 validate the module file
-  linkos-probe run [-modules FILE] [-secrets-dir DIR] MODULE TARGET
+  beacon-probe check [-modules FILE]                 validate the module file
+  beacon-probe run [-modules FILE] [-secrets-dir DIR] MODULE TARGET
                                                      probe once and print the result
-  linkos-probe version
+  beacon-probe version
 The files modules name (password_file) are read from the secrets directory only, by file name.
 `)
 }
@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-func userAgent() string { return "linkos-probe/" + version.Version }
+func userAgent() string { return "beacon-probe/" + version.Version }
 
 // secretsDirFlag is the one directory the files modules name are read from.
 func secretsDirFlag(fs *flag.FlagSet) *string {
@@ -91,7 +91,7 @@ func serve(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	listen := fs.String("listen", "127.0.0.1:17009", "address to serve /probe and /metrics on")
 	modules := fs.String("modules", defaultModules, "module file")
-	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")
+	textfile := fs.String("textfile", "/var/lib/beacon-probe/textfile", "directory of *.prom files (heartbeats); empty for none")
 	proc := fs.String("proc", "/proc", "proc filesystem")
 	secrets := secretsDirFlag(fs)
 	if err := fs.Parse(args); err != nil {
@@ -114,8 +114,8 @@ func serve(args []string, stderr io.Writer) int {
 	}))
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		samples := host.Collect()
-		samples = append(samples, probe.Sample{Name: "linkos_probe_build_info", Help: "The probe agent's version", Labels: `version="` + version.Version + `"`, Value: 1},
-			probe.Sample{Name: "linkos_probe_modules", Help: "Modules loaded from the module file", Value: float64(len(mods.Load().Modules))})
+		samples = append(samples, probe.Sample{Name: "beacon_probe_build_info", Help: "The probe agent's version", Labels: `version="` + version.Version + `"`, Value: 1},
+			probe.Sample{Name: "beacon_probe_modules", Help: "Modules loaded from the module file", Value: float64(len(mods.Load().Modules))})
 		if rss, ok := host.SelfRSS(); ok {
 			samples = append(samples, probe.Sample{Name: "process_resident_memory_bytes", Help: "Resident memory size in bytes", Value: rss})
 		}
@@ -149,7 +149,7 @@ func serve(args []string, stderr io.Writer) int {
 	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 2 * time.Minute}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("linkos-probe started", "version", version.Version, "listen", *listen, "modules", len(ms.Modules))
+	log.Info("beacon-probe started", "version", version.Version, "listen", *listen, "modules", len(ms.Modules))
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
@@ -168,10 +168,10 @@ func runAgent(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	gateway := fs.String("gateway", "", "the status service's gateway, such as https://metrics.example.com")
-	tokenFile := fs.String("token-file", "/etc/linkos-agent/token", "file with the token from 'linkos-beacon enroll probe NAME'")
-	state := fs.String("state", "/var/lib/linkos-agent", "cache of targets and modules, and the queue")
+	tokenFile := fs.String("token-file", "/etc/beacon-probe/token", "file with the token from 'beacon enroll probe NAME'")
+	state := fs.String("state", "/var/lib/beacon-probe", "cache of targets and modules, and the queue")
 	interval := fs.Duration("interval", time.Minute, "how often to probe and push")
-	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")
+	textfile := fs.String("textfile", "/var/lib/beacon-probe/textfile", "directory of *.prom files (heartbeats); empty for none")
 	proc := fs.String("proc", "/proc", "proc filesystem")
 	listen := fs.String("listen", "127.0.0.1:17009", "address for /healthz and /metrics (for a look by hand); empty for none")
 	secrets := secretsDirFlag(fs)
@@ -200,7 +200,7 @@ func runAgent(args []string, stderr io.Writer) int {
 		go func() { _ = srv.ListenAndServe() }()
 		defer func() { _ = srv.Close() }()
 	}
-	log.Info("linkos-probe agent started", "version", version.Version, "gateway", *gateway, "interval", *interval, "secrets_dir", *secrets)
+	log.Info("beacon-probe agent started", "version", version.Version, "gateway", *gateway, "interval", *interval, "secrets_dir", *secrets)
 	a.Run(ctx)
 	return 0
 }

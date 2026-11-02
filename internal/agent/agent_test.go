@@ -136,7 +136,7 @@ func newAgent(t *testing.T) (*Agent, *gateway, string) {
 	proc := t.TempDir()
 	_ = os.WriteFile(filepath.Join(proc, "loadavg"), []byte("0.5 0.4 0.3 1/2 3\n"), 0o600)
 	text := t.TempDir()
-	_ = os.WriteFile(filepath.Join(text, "heartbeat_backup.prom"), []byte(`linkos_heartbeat_last_success_timestamp_seconds{heartbeat="backup"} 1793436000`+"\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(text, "heartbeat_backup.prom"), []byte(`beacon_heartbeat_last_success_timestamp_seconds{heartbeat="backup"} 1793436000`+"\n"), 0o600)
 	var mu sync.Mutex // the cycle and the request poller both ask the time
 	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	a := New(Config{Gateway: srv.URL + "/", Token: "lbt_test", StateDir: state, Host: &hostmetrics.Collector{ProcRoot: proc, TextfileDir: text},
@@ -160,8 +160,8 @@ func TestCyclePushesProbesHostAndHeartbeats(t *testing.T) {
 		`probe_failure_info{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical",reason="http_status"} 1 `,
 		`probe_http_status_code{instance="` + target + `/broken",`,
 		`node_load1{job="node"} 0.5 `,
-		`linkos_heartbeat_last_success_timestamp_seconds{heartbeat="backup",job="node"} 1793436000 `,
-		`linkos_probe_targets{job="probe-agent"} 2 `,
+		`beacon_heartbeat_last_success_timestamp_seconds{heartbeat="backup",job="node"} 1793436000 `,
+		`beacon_probe_targets{job="probe-agent"} 2 `,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in\n%s", want, body)
@@ -172,7 +172,7 @@ func TestCyclePushesProbesHostAndHeartbeats(t *testing.T) {
 	}
 	var last float64
 	for _, s := range a.Status() {
-		if s.Name == "linkos_probe_last_push_timestamp_seconds" {
+		if s.Name == "beacon_probe_last_push_timestamp_seconds" {
 			last = s.Value
 		}
 	}
@@ -243,9 +243,9 @@ func TestRetriesOnlyWithoutAnAnswer(t *testing.T) {
 	body := gw.take()[0]
 	for _, want := range []string{
 		`probe_success{instance="` + target.URL + `/flaky",job="probe",module="quick",service="web"} 1 `,
-		`linkos_probe_attempts{instance="` + target.URL + `/flaky",job="probe",module="quick",service="web"} 2 `,
+		`beacon_probe_attempts{instance="` + target.URL + `/flaky",job="probe",module="quick",service="web"} 2 `,
 		`probe_success{instance="` + target.URL + `/wrong",job="probe",module="quick",service="web"} 0 `,
-		`linkos_probe_attempts{instance="` + target.URL + `/wrong",job="probe",module="quick",service="web"} 1 `,
+		`beacon_probe_attempts{instance="` + target.URL + `/wrong",job="probe",module="quick",service="web"} 1 `,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in\n%s", want, body)

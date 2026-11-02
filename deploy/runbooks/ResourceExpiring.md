@@ -11,10 +11,10 @@ A resource in the catalogue (`catalog/resources.yaml`: a machine, a domain, a to
 
 ## How to fix
 
-Renew, then put the new date in the catalogue, so the alert ends: edit `resources.yaml` and `linkos-beacon config import`, or `PUT /api/v1/config/resources/<name>` with the new `expires`. Letting it lapse: remove the resource (and, for a machine, its location) from the catalogue once it is gone.
+Renew, then put the new date in the catalogue, so the alert ends: edit `resources.yaml` and `beacon config import`, or `PUT /api/v1/config/resources/<name>` with the new `expires`. Letting it lapse: remove the resource (and, for a machine, its location) from the catalogue once it is gone.
 
 ## How to verify
 
-`linkos_resource_expiry_timestamp_seconds{resource="<name>"}` shows the new date; the alert resolves within minutes.
+`beacon_resource_expiry_timestamp_seconds{resource="<name>"}` shows the new date; the alert resolves within minutes.
 
-To silence: `linkos-beacon silence create -matchers 'alertname=ResourceExpiring,resource=<name>' -duration 24h -comment '…'`.
+To silence: `beacon silence create -matchers 'alertname=ResourceExpiring,resource=<name>' -duration 24h -comment '…'`.

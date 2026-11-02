@@ -1,4 +1,4 @@
-# The drill. `linkos-beacon drill fail 15m` makes /drill/healthz answer 503, which every location then sees
+# The drill. `beacon drill fail 15m` makes /drill/healthz answer 503, which every location then sees
 # as a critical outage of the service "drill": the whole chain is rehearsed (rules, routing, the card, the agent
 # woken, acknowledgement, silence, recovery) without touching a real service. `drill off` ends it; 200 otherwise.
 # install.sh replaces status.example.com with the name in .env.

@@ -43,7 +43,7 @@ Beacon is the piece of infrastructure built for that: the agent as the operator,
 
 ## How it works
 
-One service, `linkos-beacon`, stands between the machines that report, the people on call and the agents that do the work. Metrics and rules stay in VictoriaMetrics and vmalert; Beacon calls no model.
+One service, `beacon`, stands between the machines that report, the people on call and the agents that do the work. Metrics and rules stay in VictoriaMetrics and vmalert; Beacon calls no model.
 
 <div class="bd-wrap">
 <svg class="bd" viewBox="0 0 960 400" role="img" aria-labelledby="bd-title">
@@ -55,7 +55,7 @@ One service, `linkos-beacon`, stands between the machines that report, the peopl
   </defs>
   <rect class="bd-box" x="1" y="28" width="228" height="84" rx="12" />
   <text class="bd-title" x="115" y="64" text-anchor="middle">Probes</text>
-  <text class="bd-text" x="115" y="84" text-anchor="middle">linkos-probe at each location</text>
+  <text class="bd-text" x="115" y="84" text-anchor="middle">beacon-probe at each location</text>
   <rect class="bd-box" x="1" y="158" width="228" height="84" rx="12" />
   <text class="bd-title" x="115" y="194" text-anchor="middle">CI and Flux</text>
   <text class="bd-text" x="115" y="214" text-anchor="middle">deployments, reconciliations</text>
@@ -64,7 +64,7 @@ One service, `linkos-beacon`, stands between the machines that report, the peopl
   <text class="bd-text" x="115" y="344" text-anchor="middle">metrics and rules</text>
   <rect class="bd-core" x="350" y="4" width="260" height="392" rx="16" />
   <text class="bd-name" x="480" y="40" text-anchor="middle">Beacon</text>
-  <text class="bd-mono" x="480" y="60" text-anchor="middle">linkos-beacon serve</text>
+  <text class="bd-mono" x="480" y="60" text-anchor="middle">beacon serve</text>
   <rect class="bd-part" x="370" y="80" width="220" height="50" rx="10" />
   <text class="bd-title" x="480" y="101" text-anchor="middle">Gateway</text>
   <text class="bd-text" x="480" y="118" text-anchor="middle">for machines · port 17006</text>
@@ -131,7 +131,7 @@ Then enrol a probe, a machine and your agent. [Up in 30 minutes](/install) walks
 One token works for the API, MCP and the SSH channel, and the agent needs nothing written for Beacon: MCP over HTTP, its own ssh, the shell.
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 `list_machines` hands it an `ssh_config` block, after which its own `ssh edge-1`, `scp` and `rsync` go through the channel. Woken by an alert, it starts with `get_evidence`, works on the machines, verifies with `probe_now` and leaves a note for the people on call. See [Agents and alerts](/agents) and the [MCP tools](/reference/mcp).

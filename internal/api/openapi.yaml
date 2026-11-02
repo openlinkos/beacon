@@ -107,7 +107,7 @@ components:
         severity: {type: string, enum: [critical, warning, info]}
         machine: {type: string, description: The machine the job runs on, as the catalogue names it}
         enrolled: {type: boolean, description: "Whether the SSH channel has that machine; present when the catalogue names one"}
-        last_success: {type: string, format: date-time, description: "linkos_heartbeat_last_success_timestamp_seconds within 31 days, at the end of the window"}
+        last_success: {type: string, format: date-time, description: "beacon_heartbeat_last_success_timestamp_seconds within 31 days, at the end of the window"}
         hint: {type: string, description: How to reach the machine}
         error: {type: string, description: "What could not be found out: not in the catalogue, VictoriaMetrics unreachable"}
     ShellCommand:
@@ -189,7 +189,7 @@ components:
                   reasons: {type: object, additionalProperties: {type: integer}, description: Failed checks in the window by reason}
                   duration_seconds: {type: number}
                   http_status: {type: integer}
-                  attempts: {type: integer, description: linkos_probe_attempts}
+                  attempts: {type: integer, description: beacon_probe_attempts}
                   cert_expires: {type: string, format: date-time}
                   last_seen: {type: string, format: date-time}
             truncated: {type: boolean}
@@ -1339,7 +1339,7 @@ paths:
         Any scope. The token keeps its name, scopes, subject, machines and SSH keys and expires its lifetime from
         now; the secret it had keeps working for ten minutes, so a client can swap its token file without a race.
         At most once every 24 hours (token.too_soon, 429); never for an enrolled machine's token, which
-        `linkos-beacon enroll -rotate` replaces (token.not_renewable, 403). Audited (token_renew) and echoed to the
+        `beacon enroll -rotate` replaces (token.not_renewable, 403). Audited (token_renew) and echoed to the
         alert chat.
       responses:
         "200":
@@ -1354,7 +1354,7 @@ paths:
         Scope: machines:write. The pause switch for one agent: its sessions on machines end and its
         requests are refused from now on. Only a token with machines:ssh may be revoked here
         (token.not_revocable, 403): the tokens of probes, hosts, heartbeats, the rule engine, change
-        senders and metrics readers stay with `linkos-beacon token revoke` on the host, so that no alert
+        senders and metrics readers stay with `beacon token revoke` on the host, so that no alert
         is lost by a click. Audited (revoke_token) and echoed to the alert chat.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9d97f4cb
+sourceHash: sha256-cf0969b3
 ---
 
 # REST API
@@ -14,7 +14,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes -d '{"text": "Restarted the relay; probing again."}'
 ```
 
-- **令牌**以 `lbt_` 开头，用 `linkos-beacon token create NAME -scopes … -expires …` 创建。Beacon 只保存它们的 SHA-256 哈希；每个令牌都有作用域和有效期，并能按请求自行续期（`POST /api/v1/token/renew`）。
+- **令牌**以 `lbt_` 开头，这是 Beacon 令牌的标记；用 `beacon token create NAME -scopes … -expires …` 创建。Beacon 只保存它们的 SHA-256 哈希；每个令牌都有作用域和有效期，并能按请求自行续期（`POST /api/v1/token/renew`）。
 - **请求体**是 JSON（`Content-Type: application/json`）；不认识的字段会被拒绝，这样拼错的字段不会被悄悄忽略。
 - **写操作**连同令牌的名字记入审计日志，并回显到告警群。机器上的会话也都有记录。
 - **错误**是 `{"error": "…", "code": "…"}`：消息说明出了什么错、怎么改正，错误码保持稳定，客户端可以据此处理。错误码[列在下面](#error-codes)。
@@ -130,7 +130,7 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 
 | 路径 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | Prometheus 文本格式的样本（`linkos-probe` 推送的就是这种），以及心跳 |
+| `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | Prometheus 文本格式的样本（`beacon-probe` 推送的就是这种），以及心跳 |
 | `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write |
 | `GET /api/v1/targets` | `probe:write` | 这个检测点要检测的目标 |
 | `GET /api/v1/modules` | `probe:write` | 检测模块文件，逐字节原样 |
@@ -152,7 +152,7 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `GET /readyz` | 就绪检查：收到过 Watchdog、飞书连接正常、额度未用完 |
 | `GET /metrics` | Beacon 自己的 Prometheus 指标，只回答直连 |
 | `POST /hooks/feishu` | `feishu.callback: http` 时飞书的卡片回调 |
-| `GET /drill/healthz` | 返回 200，演练期间返回 503（`linkos-beacon drill fail 15m`） |
+| `GET /drill/healthz` | 返回 200，演练期间返回 503（`beacon drill fail 15m`） |
 
 ## 错误码 {#error-codes}
 
@@ -185,9 +185,9 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `config.invalid` | 422 | 修改通不过校验；消息说明原因，什么都没有改 |
 | `config.conflict` | 409 | 已有更新的版本生效，或之后的修改动过同一项；重新读取，再做决定 |
 | `token.too_soon` | 429 | 令牌不到 24 小时前刚续过期，仍然有效 |
-| `token.not_renewable` | 403 | 登记的机器的令牌；用 `linkos-beacon enroll … -rotate` 换新 |
+| `token.not_renewable` | 403 | 登记的机器的令牌；用 `beacon enroll … -rotate` 换新 |
 | `token.not_found` | 404 | 没有这个名字的令牌可吊销 |
-| `token.not_revocable` | 403 | 这把令牌不能到达机器；机器和服务的令牌要在主机上用 `linkos-beacon token revoke` 吊销 |
+| `token.not_revocable` | 403 | 这把令牌不能到达机器；机器和服务的令牌要在主机上用 `beacon token revoke` 吊销 |
 | `probe.busy` | 429 | 这个目标不到 15 秒前刚按需检测过，或这个令牌已有三个请求在进行 |
 | `probe.not_found` | 404 | 没有正在工作的检测点检测这个目标 |
 | `probe.unavailable` | 503 | 这个 Beacon 没有可用来检测的网关 |

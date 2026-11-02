@@ -1,5 +1,5 @@
 @openlinkos/ui 0.7.0, the OpenLinkOS design system, vendored for the console (internal/web).
-Nothing here is fetched from the network at run time; the files are embedded in the linkos-beacon
+Nothing here is fetched from the network at run time; the files are embedded in the beacon
 binary. Refresh them with scripts/update-ui.sh; do not edit them by hand.
 
   Licence: MIT (LICENSE); the Lucide icons ISC (LICENSE-lucide.txt); Geist and Geist Mono

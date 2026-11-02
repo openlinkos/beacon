@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5149637b
+sourceHash: sha256-7502a44c
 ---
 
 # 30 分钟上线
@@ -41,7 +41,7 @@ sudo ./install.sh
 
 检查：`curl https://status.example.com/healthz` 返回 `ok`（启动后第一张证书最多要等一分钟），`curl https://metrics.example.com/api/v1/targets` 返回 401，不带令牌本该如此。此时还不会通知任何人：没配置聊天工具时，告警只记录下来、在 API 和 MCP 里能看到，这对下面几步已经够用。
 
-其余操作都经 `docker exec linkos-beacon linkos-beacon …` 完成；[deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) 说明了每个文件在哪里。
+其余操作都经 `docker exec beacon beacon …` 完成；[deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) 说明了每个文件在哪里。
 
 ## 2. 第一个检测点 {#2-the-first-probe}
 
@@ -50,7 +50,7 @@ Beacon 靠多地点的一致判断来区分故障和抖动：至少两个检测�
 目录（`catalog/locations.yaml`，首次启动时导入）里有一个检测点 `edge-1`。在中心上登记它：
 
 ```bash
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 > edge-1.token     # 只显示这一次
+docker exec beacon beacon enroll probe edge-1 > edge-1.token     # 只显示这一次
 ```
 
 把 `/opt/beacon/probe/` 和令牌复制到检测点机器上，在那里以 root 执行：
@@ -59,28 +59,28 @@ docker exec linkos-beacon linkos-beacon enroll probe edge-1 > edge-1.token     #
 sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
 ```
 
-它会创建 `linkos-agent` 用户，按机器架构下载 `linkos-probe` 的发布版本并用发布的 `SHA256SUMS` 核对（也可以 `-binary FILE` 给它一个），把令牌装成只有该用户可读，装好 systemd 单元 `linkos-probe` 和 `linkos-heartbeat` 小工具，启动，然后等网关收下第一次推送：约 10 秒，常驻内存 13 MB。从此这个检测点每分钟检测网关发给它的目标，改检测目标再也不用碰检测点。
+它会创建 `beacon-probe` 用户，按机器架构下载 `beacon-probe` 的发布版本并用发布的 `SHA256SUMS` 核对（也可以 `-binary FILE` 给它一个），把令牌装成只有该用户可读，装好 systemd 单元 `beacon-probe` 和 `beacon-heartbeat` 小工具，启动，然后等网关收下第一次推送：约 10 秒，常驻内存 13 MB。从此这个检测点每分钟检测网关发给它的目标，改检测目标再也不用碰检测点。
 
 第二个检测点可以就是中心自己（几乎不花钱），也可以是另一台小机器。先用一个能改配置的 API 令牌把它加进目录，再像上面一样登记、安装：
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create setup -scopes config:write -expires 1d > setup.token
+docker exec beacon beacon token create setup -scopes config:write -expires 1d > setup.token
 curl -X PUT -H "Authorization: Bearer $(cat setup.token)" -H "Content-Type: application/json" \
   https://status.example.com/api/v1/config/locations/centre \
   -d '{"name": "Germany - Frankfurt", "region": "overseas", "network": "BGP"}'
-docker exec linkos-beacon linkos-beacon enroll probe centre > centre.token
+docker exec beacon beacon enroll probe centre > centre.token
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file centre.token   # 在中心上：直接用网关自己的端口
-docker exec linkos-beacon linkos-beacon token revoke setup
+docker exec beacon beacon token revoke setup
 ```
 
-检测点的名字按地点和网络写，不写厂商：这个名字是公开的。看看数据到了没有：VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（从工作站经 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）；`probe_success` 每个检测点、每个目标各一条序列。随附的两个检测目标是 Beacon 自己的状态域名和 `https://example.com/`；把后者换成你自己的服务：改 `targets/all-web.yaml` 再 `linkos-beacon config import /etc/linkos-beacon`，或者按[目录、检测目标和检测模块](catalog.md)用 `PUT /api/v1/config/targets/all-web`。
+检测点的名字按地点和网络写，不写厂商：这个名字是公开的。看看数据到了没有：VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（从工作站经 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）；`probe_success` 每个检测点、每个目标各一条序列。随附的两个检测目标是 Beacon 自己的状态域名和 `https://example.com/`；把后者换成你自己的服务：改 `targets/all-web.yaml` 再 `beacon config import /etc/beacon`，或者按[目录、检测目标和检测模块](catalog.md)用 `PUT /api/v1/config/targets/all-web`。
 
 ## 3. 第一台机器 {#3-the-first-machine}
 
 一台给 Agent 干活的机器，4 分钟。在中心上：
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net -note "the first probe machine"
+docker exec beacon beacon machine add edge-1 edge-1.example.net -note "the first probe machine"
 ```
 
 Beacon 连接一次，记下这台机器的主机密钥，并打印出机器需要做的事：它的 sshd 要信任 Beacon 的 CA，证书里指定的账户要存在。在机器上以 root 执行它打印的四行：
@@ -92,14 +92,14 @@ useradd -m -s /bin/bash -p '*' beacon
 systemctl reload ssh
 ```
 
-还有两行值得现在就加上：`beacon` 账户能做什么才是真正的边界，只给它工作所需的权限（`/etc/sudoers.d/beacon`：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`）；并把中心的地址排除在 OpenSSH 对连接失败的惩罚之外（`beacon.conf` 里加 `PerSourcePenaltyExemptList 203.0.113.7`），因为所有 Agent 都从那里来。其余见 [SSH 通道](ssh.md)。
+还有两行值得现在就加上：`beacon` 账户能做什么才是真正的边界，只给它工作所需的权限（`/etc/sudoers.d/beacon`：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`）；并把中心的地址排除在 OpenSSH 对连接失败的惩罚之外（`beacon.conf` 里加 `PerSourcePenaltyExemptList 203.0.113.7`），因为所有 Agent 都从那里来。其余见 [SSH 通道](ssh.md)。
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
 5 分钟。一个令牌同时用于 API、MCP 和 SSH 通道；把 Agent 的公钥给它，它自己的 `ssh` 也就能用了：
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code \
+docker exec beacon beacon token create claude-code \
   -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
   -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
@@ -107,27 +107,27 @@ docker exec linkos-beacon linkos-beacon token create claude-code \
 令牌只显示一次。在跑 Claude Code 的工作站上：
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 然后在 Claude Code 里让它列出机器，并在 `edge-1` 上执行 `uptime`。它会调用 `list_machines`，再调用 `run_command`；结果以退出码、stdout 和 stderr 返回，没有终端控制码。同一个 `list_machines` 的结果里有一段 `ssh_config` 和一行 `known_hosts`：放进 `~/.ssh/config` 和 `~/.ssh/known_hosts`，`ssh edge-1 uptime`、`scp`、`rsync -e ssh` 和 `ssh -L` 就照常可用，用户名就是机器名。这次连接 Beacon 签了一张五分钟有效的证书；Agent 手里没有这台机器的任何密钥。
 
-每次会话都有记录：`docker exec linkos-beacon linkos-beacon token list` 看到令牌，`list_sessions`（或 `GET /api/v1/sessions`）看到会话，每条命令和它的退出码都在。`linkos-beacon ssh pause` 关闭全部会话，直到 `ssh resume`。
+每次会话都有记录：`docker exec beacon beacon token list` 看到令牌，`list_sessions`（或 `GET /api/v1/sessions`）看到会话，每条命令和它的退出码都在。`beacon ssh pause` 关闭全部会话，直到 `ssh resume`。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
 10 分钟，大半在等。Beacon 内置了一个用来演练的服务：`/drill/healthz` 平时返回 200，直到你让它失败；每个检测点都检测它（`targets/all-drill.yaml`，服务名 `drill`，级别严重）。
 
 ```bash
-docker exec linkos-beacon linkos-beacon drill fail 15m
+docker exec beacon beacon drill fail 15m
 ```
 
 有两个检测点时会看到：
 
 - 1 分钟内两个检测点都看到 503，各自的 `probe_success{service="drill"}` 变成 0；
 - 连续失败 3 分钟后，规则把每个检测点算作失败；两个都失败既是「至少两个」也是「至少一半」，所以再过 1 分钟 `ServiceDown` 触发：距命令约 4 到 5 分钟；
-- 告警出现在 `GET /api/v1/alerts` 和 MCP 的 `list_alerts` 里。问你的 Agent 出了什么事：`get_evidence` 返回每个检测点的结果和原因（`http_status`）、同一故障域里的告警、最近的变更和已经做了什么；`ack_alert` 带备注，以及 `add_note`，把它的工作记到告警的时间线上；`silence_alert` 让它安静。在中心上，`linkos-beacon silence list` 能看到这条静默，`linkos-beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` 则从命令行创建一条，审计里会记下来源是命令行；
-- `docker exec linkos-beacon linkos-beacon drill off`；检测点下一轮就成功，规则引擎停止发送后，告警在 `resolve_timeout`（5 分钟）内恢复。
+- 告警出现在 `GET /api/v1/alerts` 和 MCP 的 `list_alerts` 里。问你的 Agent 出了什么事：`get_evidence` 返回每个检测点的结果和原因（`http_status`）、同一故障域里的告警、最近的变更和已经做了什么；`ack_alert` 带备注，以及 `add_note`，把它的工作记到告警的时间线上；`silence_alert` 让它安静。在中心上，`beacon silence list` 能看到这条静默，`beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` 则从命令行创建一条，审计里会记下来源是命令行；
+- `docker exec beacon beacon drill off`；检测点下一轮就成功，规则引擎停止发送后，告警在 `resolve_timeout`（5 分钟）内恢复。
 
 只有一个检测点时什么都不会触发，这是故意的：一个检测点的话永远不算故障。配置了告警群（第 6 步）后，卡片会在命令后约 4 分钟出现在群里，按钮可以认领和静默，恢复后变绿；配置了 Pushover，没人认领的严重告警 15 分钟后会打到手机上。
 

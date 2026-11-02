@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2e8cb975
+sourceHash: sha256-76d4d2dd
 ---
 
 # 架构
@@ -9,7 +9,7 @@ Beacon 是怎样搭起来的：有哪些进程，状态存在哪里，一条告�
 ## 全貌 {#the-whole-picture}
 
 ```
-linkos-probe 检测程序 ──推送（文本格式，gzip）──▶ 网关 ──▶ VictoriaMetrics ◀── vmalert（规则）
+beacon-probe 检测程序 ──推送（文本格式，gzip）──▶ 网关 ──▶ VictoriaMetrics ◀── vmalert（规则）
   ▲ 检测目标、检测模块、设置 ◀── 网关                                              │ 告警（Alertmanager API v2）
                                                                                   ▼
 人 ◀── 飞书卡片、Pushover ◀── 告警桥 ◀── 路由（分组、抑制、静默）◀── 网关 ◀── CI、Flux（变更事件）
@@ -22,13 +22,13 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 
 | 程序 | 跑在哪里 | 做什么 |
 | --- | --- | --- |
-| `linkos-beacon` | 中心，和 VictoriaMetrics、vmalert 在一起 | 服务本身（`serve`）和它的命令行：`check-config`、`config`、`token`、`enroll`、`machine`、`ssh`、`silence`、`drill`、`healthcheck` |
-| `linkos-probe` | 每个检测点：边缘节点、用户所在地的小 VPS | `agent` 把结果推给网关；`serve` 像 Blackbox Exporter 一样等人来抓；`check` 校验检测模块文件；`run` 检测一次 |
-| `linkos-oncall` | Agent 所在的机器 | 参考实现：核对钩子的签名，启动你指定的 Agent 程序，把载荷送到它的标准输入 |
+| `beacon` | 中心，和 VictoriaMetrics、vmalert 在一起 | 服务本身（`serve`）和它的命令行：`check-config`、`config`、`token`、`enroll`、`machine`、`ssh`、`silence`、`drill`、`healthcheck` |
+| `beacon-probe` | 每个检测点：边缘节点、用户所在地的小 VPS | `agent` 把结果推给网关；`serve` 像 Blackbox Exporter 一样等人来抓；`check` 校验检测模块文件；`run` 检测一次 |
+| `beacon-oncall` | Agent 所在的机器 | 参考实现：核对钩子的签名，启动你指定的 Agent 程序，把载荷送到它的标准输入 |
 
 ## 一个进程，三个端口 {#one-process-three-ports}
 
-`linkos-beacon serve` 是一个进程，里面有网关、路由、告警桥、REST API、MCP server、人从卡片点开的页面，以及 SSH 通道。
+`beacon serve` 是一个进程，里面有网关、路由、告警桥、REST API、MCP server、人从卡片点开的页面，以及 SSH 通道。
 
 | 端口 | 给谁 | 谁来回答 |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 
 ## 一条告警走过的路 {#an-alerts-path}
 
-1. **检测点推送。**`linkos-probe agent` 每分钟检测一遍网关下发的目标，把样本按 Prometheus 文本格式推上来，断网时先存进磁盘队列。它的令牌写明了它是哪个检测点；网关按目录给它写入的一切打上检测点、地区、网络和主机标签，所以谁也冒充不了别人，机器已经到期的检测点根本写不进来。
+1. **检测点推送。**`beacon-probe agent` 每分钟检测一遍网关下发的目标，把样本按 Prometheus 文本格式推上来，断网时先存进磁盘队列。它的令牌写明了它是哪个检测点；网关按目录给它写入的一切打上检测点、地区、网络和主机标签，所以谁也冒充不了别人，机器已经到期的检测点根本写不进来。
 2. **规则判断。**vmalert 在 VictoriaMetrics 上计算规则，把触发的告警按 Alertmanager 的格式、带着规则令牌发到网关的 `POST /api/v2/alerts`。参考规则只有在至少两个检测点、并且至少一半有数据的检测点都失败时，才认为服务故障。
 3. **路由分组。**Alertmanager 的活在 Beacon 里完成：分组、`group_wait` 和 `group_interval`、`resolve_timeout`、抑制和静默。告警组在重启后依然保留。名为 `Watchdog` 的告警用来证明整条链路正常，不会展示。
 4. **告警桥通知人。**新的告警组变成告警群里的一张卡片；严重告警没人认领时，10 分钟后在飞书应用里加急，15 分钟后发 Pushover 紧急通知。低级别告警、以及超出应用每月额度的告警，改由群自定义机器人发送。规则、路由、送达都正常时，告警桥每分钟 ping 一次 healthchecks.io，所以中心挂了照样有电话打到手机上。
@@ -73,9 +73,9 @@ Agent 用令牌上的密钥登录 SSH 通道，用户名就是机器名。通道
 
 | 包 | 是什么 |
 | --- | --- |
-| `cmd/linkos-beacon` | 服务和它的命令行；把一切接起来，在第一次启动和收到 `SIGHUP` 时导入配置文件 |
-| `cmd/linkos-probe` | 检测程序：推送模式、拉取模式、校验 |
-| `cmd/linkos-oncall`、`internal/oncall` | Agent 机器上的参考实现；`contrib/oncall` 里有 Claude Code 和 Codex 的封装脚本、提示词和一个 systemd 单元 |
+| `cmd/beacon` | 服务和它的命令行；把一切接起来，在第一次启动和收到 `SIGHUP` 时导入配置文件 |
+| `cmd/beacon-probe` | 检测程序：推送模式、拉取模式、校验 |
+| `cmd/beacon-oncall`、`internal/oncall` | Agent 机器上的参考实现；`contrib/oncall` 里有 Claude Code 和 Codex 的封装脚本、提示词和一个 systemd 单元 |
 | `internal/gateway` | 机器的入口：令牌作用域、按目录打标签、到 VictoriaMetrics 的写入和导入代理、给检测点的检测目标、检测模块和设置、规则引擎的告警、变更事件、给 `metrics:read` 的查询代理 |
 | `internal/router` | 分组、计时、抑制、静默和 Watchdog |
 | `internal/bridge` | 告警组到人（卡片、认领、静默、升级、额度、就绪状态、healthchecks.io 的 ping），以及到 Agent（钩子、证据、时间线、备注、变更事件、清理不可信文本） |

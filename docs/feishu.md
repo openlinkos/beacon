@@ -45,7 +45,7 @@ Create a version and publish it; an administrator approves it in the admin conso
 
 ## 6. Check it
 
-Start the service and look for `feishu long connection ready` in the log, then run a drill: `linkos-beacon drill fail 15m` makes `/drill/healthz` fail; once your probes see it and the alert fires, a card arrives. Acknowledge it, silence it, then `linkos-beacon drill off` and watch it turn green.
+Start the service and look for `feishu long connection ready` in the log, then run a drill: `beacon drill fail 15m` makes `/drill/healthz` fail; once your probes see it and the alert fires, a card arrives. Acknowledge it, silence it, then `beacon drill off` and watch it turn green.
 
 ## Quota
 

@@ -7,7 +7,7 @@ Beacon's MCP server is at `/mcp` on port 17001: streamable HTTP, stateless, with
 Claude Code:
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 Codex, in `~/.codex/config.toml`, with the token in an environment variable:

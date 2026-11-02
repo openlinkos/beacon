@@ -78,7 +78,7 @@ func Handler(d Deps) http.Handler {
 	g := &gateway{Deps: d, lastWrite: map[string]time.Time{}}
 	g.vm = proxy(d.VM)
 	if d.Metrics != nil {
-		d.Metrics.Register("linkos_gateway_last_write_timestamp_seconds", "When a probe location or host last wrote through the gateway", "gauge", g.lastWrites)
+		d.Metrics.Register("beacon_gateway_last_write_timestamp_seconds", "When a probe location or host last wrote through the gateway", "gauge", g.lastWrites)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/v1/write", g.with("write", []string{"probe:write", "host:write"}, g.write))
@@ -124,7 +124,7 @@ func (g *gateway) counted(route string, w http.ResponseWriter) (rec *status, don
 	rec = &status{ResponseWriter: w, code: http.StatusOK}
 	return rec, func() {
 		if g.Metrics != nil {
-			g.Metrics.Inc("linkos_gateway_requests_total", "Requests to the metrics gateway by route and status",
+			g.Metrics.Inc("beacon_gateway_requests_total", "Requests to the metrics gateway by route and status",
 				metrics.Labels("route", route, "code", strconv.Itoa(rec.code)))
 		}
 	}
@@ -231,7 +231,7 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 	_ = json.NewEncoder(w).Encode(g.Targets().For(l.ID, l.Region, ids))
 }
 
-// importText takes samples in the Prometheus text format (what linkos-probe pushes, and heartbeats),
+// importText takes samples in the Prometheus text format (what beacon-probe pushes, and heartbeats),
 // labelled like remote write: a probe's with its location, a host's with its name, a heartbeat's as such.
 func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
 	q := url.Values{}

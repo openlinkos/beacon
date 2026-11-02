@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-6f17b763
+sourceHash: sha256-ef33cb9c
 ---
 
 # 控制台
 
-控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `linkos-beacon` 自己提供，在 17001 端口的 `/` 上，与 API 和 MCP 在一起，地址在 `public_url` 下。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
+控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `beacon` 自己提供，在 17001 端口的 `/` 上，与 API 和 MCP 在一起，地址在 `public_url` 下。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
 
 Beacon 没有自己的登录系统：人用一个 Beacon 令牌登录，控制台能做什么，取决于这个令牌的权限范围。
 
@@ -13,7 +13,7 @@ Beacon 没有自己的登录系统：人用一个 Beacon 令牌登录，控制�
 `/sign-in` 要一个 Beacon 令牌，像密码一样粘贴进去。至少有 `status:read` 的令牌才能登录；没有它的、不存在的、已过期的都不行。在主机上为自己创建一个：
 
 ```bash
-linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
+beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
 ```
 
 - 登录就是 Beacon 数据库里的一个会话，有效 12 小时，令牌更早到期的话随令牌到期。浏览器只拿着会话的 ID，放在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 cookie 里（`__Host-beacon-console`）；数据库只保存它的 SHA-256，令牌本身不保存。
@@ -53,7 +53,7 @@ linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -e
 | 静默告警 1、4 或 24 小时，写明原因 | `alerts:write` | `POST /api/v1/silences` |
 | 给告警添加备注 | `alerts:write` | `POST /api/v1/alerts/{id}/notes` |
 | 暂停或恢复 Agent 对机器的访问 | `machines:write` | `POST /api/v1/ssh/pause`、`/resume` |
-| 吊销能访问机器的令牌 | `machines:write` | `linkos-beacon token revoke` |
+| 吊销能访问机器的令牌 | `machines:write` | `beacon token revoke` |
 | 撤销一次配置变更 | `config:write` | `POST /api/v1/config/history/{version}/revert` |
 
 每个表单都带着会话的 CSRF 密钥；浏览器表明来自其他网站的请求会被拒绝。令牌权限范围不允许的表单不会显示，硬发过来也会被拒绝。

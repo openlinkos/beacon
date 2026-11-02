@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-87e4dd4e
+sourceHash: sha256-c7f24b3b
 ---
 
 # 数据来源
@@ -19,23 +19,23 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 ## 检测点 {#probes}
 
-`linkos-probe agent` 跑在每个检测点上，令牌来自 `linkos-beacon enroll probe <检测点>`。它每分钟从网关取一次要做的事（`GET /api/v1/targets`、`GET /api/v1/modules`，以及检测点的设置 `GET /api/v1/agent`），检测，再把结果按 Prometheus 文本格式 gzip 后推上来，断网时先存进磁盘队列。它在周期之外还挂着一个长轮询，用于[按需检测](agents.md#probe-again-now)。
+`beacon-probe agent` 跑在每个检测点上，令牌来自 `beacon enroll probe <检测点>`。它每分钟从网关取一次要做的事（`GET /api/v1/targets`、`GET /api/v1/modules`，以及检测点的设置 `GET /api/v1/agent`），检测，再把结果按 Prometheus 文本格式 gzip 后推上来，断网时先存进磁盘队列。它在周期之外还挂着一个长轮询，用于[按需检测](agents.md#probe-again-now)。
 
-网关按目录给检测点写入的一切打上 `location`、`region`、`network` 和 `host` 标签，取代检测点自己带来的同名标签；不在目录里、或机器已经到期的检测点会被拒绝，返回 `location.inactive`。结果沿用 Blackbox Exporter 的指标名（`probe_success`、`probe_duration_seconds`、`probe_http_status_code`、`probe_ssl_earliest_cert_expiry` 等），另有 `probe_failure_info{reason}` 说明失败原因，`linkos_probe_attempts` 说明试了几次。检测点还会推送少量来自 `/proc` 的主机指标，以及写进它 textfile 目录的心跳。
+网关按目录给检测点写入的一切打上 `location`、`region`、`network` 和 `host` 标签，取代检测点自己带来的同名标签；不在目录里、或机器已经到期的检测点会被拒绝，返回 `location.inactive`。结果沿用 Blackbox Exporter 的指标名（`probe_success`、`probe_duration_seconds`、`probe_http_status_code`、`probe_ssl_earliest_cert_expiry` 等），另有 `probe_failure_info{reason}` 说明失败原因，`beacon_probe_attempts` 说明试了几次。检测点还会推送少量来自 `/proc` 的主机指标，以及写进它 textfile 目录的心跳。
 
-`linkos-probe serve` 则像 Blackbox Exporter 一样提供 `/probe` 和 `/metrics`，给你自己的抓取程序用。
+`beacon-probe serve` 则像 Blackbox Exporter 一样提供 `/probe` 和 `/metrics`，给你自己的抓取程序用。
 
 ## 主机 {#hosts}
 
-不做检测点的机器以主机身份上报，令牌来自 `linkos-beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签。
+不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签。
 
 ## 心跳 {#heartbeats}
 
-必须至少每隔 `max_age` 报告一次成功的任务（备份、定时任务）在成功时推送一个样本，令牌来自 `linkos-beacon enroll heartbeat <名字>`：
+必须至少每隔 `max_age` 报告一次成功的任务（备份、定时任务）在成功时推送一个样本，令牌来自 `beacon enroll heartbeat <名字>`：
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
-  "linkos_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
+  "beacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
   https://metrics.example.com/api/v1/import/prometheus
 ```
 
@@ -46,7 +46,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
 vmalert 在 VictoriaMetrics 上计算规则，像发给 Alertmanager 一样把触发的告警发给网关：
 
 ```bash
-vmalert -notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=/etc/vmalert/rules-token   # rules.token_file 指的那个文件
+vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert/rules-token   # rules.token_file 指的那个文件
 ```
 
 告警需要标签 `severity`（`critical`、`warning` 或 `info`）和 `service`，以及注释 `summary`；有 `description`、`runbook` 和 `dashboard` 时也会用上。名为 `Watchdog`、一直在触发的告警用来证明整条链路正常，不会展示。别的发送方也可以用 `alerts:send` 令牌这样发告警。

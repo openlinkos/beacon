@@ -1,0 +1,64 @@
+# beacon-oncall: runs an agent when Beacon wakes it. See docs/agents.md, "Running an agent when woken".
+#
+# Install, as root:
+#   useradd --system --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
+#   install -d -m 0750 -o beacon-oncall -g beacon-oncall /var/lib/beacon-oncall/logs
+#   install -d -m 0750 -o root -g beacon-oncall /etc/beacon-oncall
+#   install -m 0640 -o root -g beacon-oncall hook-secret  /etc/beacon-oncall/hook-secret    # the same as Beacon's secret_file
+#   install -m 0640 -o root -g beacon-oncall beacon-token /etc/beacon-oncall/beacon-token   # the agent's Beacon token
+#   install -d /usr/local/lib/beacon-oncall
+#   install -m 0755 claude-code.sh /usr/local/lib/beacon-oncall/   # or codex.sh
+#   install -m 0644 prompt.md /usr/local/lib/beacon-oncall/
+#   install -m 0755 beacon-oncall /usr/local/bin/
+#   install -m 0644 beacon-oncall.service /etc/systemd/system/ && systemctl daemon-reload
+#   systemctl enable --now beacon-oncall
+#
+# The agent program (claude, codex) must be installed and signed in for the service user, whose home is
+# /var/lib/beacon-oncall: for example `sudo -u beacon-oncall -H sh -c 'curl -fsSL https://claude.ai/install.sh | sh'`
+# and then `sudo -u beacon-oncall -H claude` once to sign in, or give the wrapper an API key through its
+# environment (see the wrapper's header). Beacon reaches 17007 through your TLS reverse proxy; listen on
+# :17007 instead when Beacon is on the same private network.
+
+[Unit]
+Description=beacon-oncall: runs an agent when Beacon wakes it
+Documentation=https://github.com/openlinkos/beacon/blob/main/docs/agents.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=beacon-oncall
+Group=beacon-oncall
+WorkingDirectory=/var/lib/beacon-oncall
+Environment=HOME=/var/lib/beacon-oncall
+Environment=PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=BEACON_TOKEN_FILE=/etc/beacon-oncall/beacon-token
+ExecStart=/usr/local/bin/beacon-oncall \
+    -listen 127.0.0.1:17007 \
+    -secret-file /etc/beacon-oncall/hook-secret \
+    -run /usr/local/lib/beacon-oncall/claude-code.sh \
+    -log-dir /var/lib/beacon-oncall/logs \
+    -concurrency 2 -timeout 30m -keep 720h
+Restart=always
+RestartSec=5s
+# Stopping lets the agents that run finish, up to -timeout; then everything left is killed.
+TimeoutStopSec=32min
+KillMode=mixed
+
+# Hardening: the file system is read-only, except the agent's home (its sign-in and state) and the logs.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/beacon-oncall
+ReadWritePaths=/var/lib/beacon-oncall/logs
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# No network restriction: the agent reaches Beacon, and through its own ssh the machines Beacon names.
+
+[Install]
+WantedBy=multi-user.target

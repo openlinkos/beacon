@@ -195,13 +195,13 @@ func (s *Server) withToken(scope string, h func(w http.ResponseWriter, r *http.R
 		}
 		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || secret == "" {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-beacon"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="beacon"`)
 			writeError(w, http.StatusUnauthorized, "auth.required", "a bearer token is required")
 			return
 		}
 		t, ok := s.Auth.Verify(r, strings.TrimSpace(secret))
 		if !ok {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="linkos-beacon", error="invalid_token"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="beacon", error="invalid_token"`)
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return
 		}

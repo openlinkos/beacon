@@ -1,4 +1,4 @@
-// Package agent is linkos-probe's push mode, the whole probe agent in one process: every interval it
+// Package agent is beacon-probe's push mode, the whole probe agent in one process: every interval it
 // fetches what to check from the gateway (its targets and the module file, cached on disk for when the
 // gateway cannot be reached), probes every target, reads the host's metrics and heartbeats, and pushes
 // it all to the gateway in the Prometheus text format with timestamps. When a push fails, the batch
@@ -83,7 +83,7 @@ func New(cfg Config) *Agent {
 		cfg.Now = time.Now
 	}
 	if cfg.Prober == nil {
-		cfg.Prober = &probe.Prober{UserAgent: "linkos-probe/" + version.Version}
+		cfg.Prober = &probe.Prober{UserAgent: "beacon-probe/" + version.Version}
 	}
 	cfg.Gateway = strings.TrimSuffix(cfg.Gateway, "/")
 	return &Agent{cfg: cfg}
@@ -134,7 +134,7 @@ func (a *Agent) get(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
-	req.Header.Set("User-Agent", "linkos-probe/"+version.Version)
+	req.Header.Set("User-Agent", "beacon-probe/"+version.Version)
 	resp, err := a.cfg.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -285,7 +285,7 @@ func (a *Agent) writeResults(w *bytes.Buffer, jobs []job, results []probe.Result
 		writeSample(w, "probe_success", base, "", ok, at)
 		writeSample(w, "probe_duration_seconds", base, "", r.Duration.Seconds(), at)
 		if attempts[i] > 0 {
-			writeSample(w, "linkos_probe_attempts", base, "", float64(attempts[i]), at)
+			writeSample(w, "beacon_probe_attempts", base, "", float64(attempts[i]), at)
 		}
 		for _, s := range r.Samples {
 			writeSample(w, s.Name, base, s.Labels, s.Value, at)
@@ -351,14 +351,14 @@ func (a *Agent) host(w *bytes.Buffer, at time.Time) {
 
 func (a *Agent) self(w *bytes.Buffer, at time.Time) {
 	base := map[string]string{"job": "probe-agent"}
-	writeSample(w, "linkos_probe_build_info", base, `version="`+version.Version+`"`, 1, at)
-	writeSample(w, "linkos_probe_targets", base, "", float64(countTargets(a.groups)), at)
+	writeSample(w, "beacon_probe_build_info", base, `version="`+version.Version+`"`, 1, at)
+	writeSample(w, "beacon_probe_targets", base, "", float64(countTargets(a.groups)), at)
 	files, size := a.queued()
-	writeSample(w, "linkos_probe_queue_batches", base, "", float64(len(files)), at)
-	writeSample(w, "linkos_probe_queue_bytes", base, "", float64(size), at)
-	writeSample(w, "linkos_probe_push_errors_total", base, "", float64(a.pushErrors.Load()), at)
+	writeSample(w, "beacon_probe_queue_batches", base, "", float64(len(files)), at)
+	writeSample(w, "beacon_probe_queue_bytes", base, "", float64(size), at)
+	writeSample(w, "beacon_probe_push_errors_total", base, "", float64(a.pushErrors.Load()), at)
 	if lp := a.lastPush.Load(); lp > 0 {
-		writeSample(w, "linkos_probe_last_push_timestamp_seconds", base, "", float64(lp), at)
+		writeSample(w, "beacon_probe_last_push_timestamp_seconds", base, "", float64(lp), at)
 	}
 	if a.cfg.Host != nil {
 		if rss, ok := a.cfg.Host.SelfRSS(); ok {
@@ -372,12 +372,12 @@ func (a *Agent) self(w *bytes.Buffer, at time.Time) {
 func (a *Agent) Status() []probe.Sample {
 	files, size := a.queued()
 	out := []probe.Sample{
-		{Name: "linkos_probe_push_errors_total", Help: "Pushes to the gateway that failed since the agent started", Type: "counter", Value: float64(a.pushErrors.Load())},
-		{Name: "linkos_probe_queue_batches", Help: "Batches waiting on disk for the gateway", Type: "gauge", Value: float64(len(files))},
-		{Name: "linkos_probe_queue_bytes", Help: "Bytes waiting on disk for the gateway", Type: "gauge", Value: float64(size)},
+		{Name: "beacon_probe_push_errors_total", Help: "Pushes to the gateway that failed since the agent started", Type: "counter", Value: float64(a.pushErrors.Load())},
+		{Name: "beacon_probe_queue_batches", Help: "Batches waiting on disk for the gateway", Type: "gauge", Value: float64(len(files))},
+		{Name: "beacon_probe_queue_bytes", Help: "Bytes waiting on disk for the gateway", Type: "gauge", Value: float64(size)},
 	}
 	if lp := a.lastPush.Load(); lp > 0 {
-		out = append(out, probe.Sample{Name: "linkos_probe_last_push_timestamp_seconds", Help: "When the gateway last accepted a push", Type: "gauge", Value: float64(lp)})
+		out = append(out, probe.Sample{Name: "beacon_probe_last_push_timestamp_seconds", Help: "When the gateway last accepted a push", Type: "gauge", Value: float64(lp)})
 	}
 	return out
 }
@@ -441,7 +441,7 @@ func (a *Agent) send(ctx context.Context, gz []byte) error {
 	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	req.Header.Set("User-Agent", "linkos-probe/"+version.Version)
+	req.Header.Set("User-Agent", "beacon-probe/"+version.Version)
 	resp, err := a.cfg.HTTP.Do(req)
 	if err != nil {
 		return err

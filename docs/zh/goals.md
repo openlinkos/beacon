@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-33b83f2e
+sourceHash: sha256-71824e2b
 ---
 
 # 目标
@@ -59,7 +59,7 @@ Beacon 是 AI Agent 做运维时最顺手的一套基础设施：看得见服务
 
 ## 不做什么 {#not-doing}
 
-- **Beacon 不是 Agent，也不调用任何模型。**它唤醒 Agent，`linkos-oncall` 在被唤醒时启动你指定的 Agent 程序；推理和审核是 Agent 的事。Beacon 是它们干活的地方。
+- **Beacon 不是 Agent，也不调用任何模型。**它唤醒 Agent，`beacon-oncall` 在被唤醒时启动你指定的 Agent 程序；推理和审核是 Agent 的事。Beacon 是它们干活的地方。
 - **不做审批流程。**暂停开关和每台机器的访问范围是仅有的刹车。
 - **不做日志平台、链路追踪、APM 和自定义面板。**Agent 要看日志，就经 SSH 通道直接读（journalctl 之类），这是它最熟悉的方式。
 - **不自己写时序数据库。**存储和查询用 VictoriaMetrics。

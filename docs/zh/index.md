@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e52f71b0
+sourceHash: sha256-7e916cd9
 layout: home
 
 hero:
@@ -44,7 +44,7 @@ Beacon 就是为此而做的那一环：把 Agent 当作操作者来设计的基
 
 ## 工作原理 {#how-it-works}
 
-一个服务 `linkos-beacon`，站在上报的机器、值班的人和干活的 Agent 之间。指标和规则交给 VictoriaMetrics 和 vmalert；Beacon 不调用任何模型。
+一个服务 `beacon`，站在上报的机器、值班的人和干活的 Agent 之间。指标和规则交给 VictoriaMetrics 和 vmalert；Beacon 不调用任何模型。
 
 <div class="bd-wrap">
 <svg class="bd" viewBox="0 0 960 400" role="img" aria-labelledby="bd-title">
@@ -56,7 +56,7 @@ Beacon 就是为此而做的那一环：把 Agent 当作操作者来设计的基
   </defs>
   <rect class="bd-box" x="1" y="28" width="228" height="84" rx="12" />
   <text class="bd-title" x="115" y="64" text-anchor="middle">检测点</text>
-  <text class="bd-text" x="115" y="84" text-anchor="middle">各地的 linkos-probe</text>
+  <text class="bd-text" x="115" y="84" text-anchor="middle">各地的 beacon-probe</text>
   <rect class="bd-box" x="1" y="158" width="228" height="84" rx="12" />
   <text class="bd-title" x="115" y="194" text-anchor="middle">CI 与 Flux</text>
   <text class="bd-text" x="115" y="214" text-anchor="middle">部署、同步</text>
@@ -65,7 +65,7 @@ Beacon 就是为此而做的那一环：把 Agent 当作操作者来设计的基
   <text class="bd-text" x="115" y="344" text-anchor="middle">指标与规则</text>
   <rect class="bd-core" x="350" y="4" width="260" height="392" rx="16" />
   <text class="bd-name" x="480" y="40" text-anchor="middle">Beacon</text>
-  <text class="bd-mono" x="480" y="60" text-anchor="middle">linkos-beacon serve</text>
+  <text class="bd-mono" x="480" y="60" text-anchor="middle">beacon serve</text>
   <rect class="bd-part" x="370" y="80" width="220" height="50" rx="10" />
   <text class="bd-title" x="480" y="101" text-anchor="middle">网关</text>
   <text class="bd-text" x="480" y="118" text-anchor="middle">给机器用 · 17006 端口</text>
@@ -132,7 +132,7 @@ sudo ./install.sh
 一个令牌通用 API、MCP 和 SSH 通道，Agent 不需要读任何为 Beacon 写的东西：HTTP 上的 MCP、它自己的 ssh、shell。
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 `list_machines` 给它一段 `ssh_config`，之后它自己的 `ssh edge-1`、`scp`、`rsync` 都走通道。被告警叫醒后，它从 `get_evidence` 开始，在机器上处理，用 `probe_now` 验证，给值班的人留一条备注。见[Agent 与告警](/zh/agents)和 [MCP 工具](/zh/reference/mcp)。

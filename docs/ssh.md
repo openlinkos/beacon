@@ -17,26 +17,26 @@ ssh-keygen -t ed25519 -N '' -C 'beacon ca' -f secrets/ssh-ca-key       # signs t
 ssh:
   listen: ":17002"
   public_address: ssh.example.com:17002   # where agents connect
-  host_key_file: /etc/linkos-beacon/secrets/ssh-host-key
-  ca_key_file: /etc/linkos-beacon/secrets/ssh-ca-key
+  host_key_file: /etc/beacon/secrets/ssh-host-key
+  ca_key_file: /etc/beacon/secrets/ssh-ca-key
   # source_addresses: [203.0.113.7/32]    # certificates then work only from Beacon's addresses
   keep: 4320h                             # sessions are kept 180 days
 ```
 
-The channel is plain SSH on its own port: publish it directly (a firewall rule), not through the HTTP proxy. `linkos-beacon check-config` checks both keys.
+The channel is plain SSH on its own port: publish it directly (a firewall rule), not through the HTTP proxy. `beacon check-config` checks both keys.
 
 The certificate authority's private key lets whoever holds it into every machine that trusts it. Keep it in its own file, readable by the service only, and keep `source_addresses` set when Beacon's addresses are fixed.
 
 ## Add a machine
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net -note "Los Angeles edge node"
+docker exec beacon beacon machine add edge-1 edge-1.example.net -note "Los Angeles edge node"
 ```
 
 Beacon connects once, pins the machine's host key and prints what the machine needs. On the machine, as root:
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine ca > /etc/ssh/beacon_ca.pub   # or paste the line it printed
+docker exec beacon beacon machine ca > /etc/ssh/beacon_ca.pub   # or paste the line it printed
 echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
 useradd -m -s /bin/bash -p '*' beacon   # the account Beacon's certificates name
 systemctl reload ssh
@@ -65,7 +65,7 @@ A machine Beacon cannot reach (behind NAT, behind a firewall that lets connectio
 
 ```bash
 ssh-keygen -t ed25519 -N '' -C 'beacon connector edge-9' -f /etc/ssh/beacon_connect_key   # on the machine
-docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat /etc/ssh/beacon_connect_key.pub)" -note "office NAS"
+docker exec beacon beacon machine add edge-9 connector -key "$(cat /etc/ssh/beacon_connect_key.pub)" -note "office NAS"
 ```
 
 `machine add` prints a script for the machine: the certificate authority and the `beacon` account as for any machine, then the `known_hosts` line for Beacon's channel (its host key at `ssh.public_address`), a `beacon-connector` system user that owns the key, and a systemd unit `beacon-connector.service` with `Restart=always`, `ServerAliveInterval=30` and `ExitOnForwardFailure=yes`. The same comes back from `add_machine` (`address: connector`, `connector_key`) and `POST /api/v1/machines`, as `connector.script`, `connector.command` and `connector.unit`. The printed command forwards to port 22; edit it if the machine's sshd listens elsewhere.
@@ -79,7 +79,7 @@ docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat
 - Beacon connects only to the address the machine itself forwarded, never to one of its own choosing.
 - A connector key signs in only as its own machine, opens no session, forwards no port of its own and holds no token; a token's key registers no forward. A key a token holds cannot become a connector key.
 - The pause switch closes sessions relayed through a connector like any other; the machine's own connection stays, so the machine is reachable again the moment the channel resumes.
-- `machine list`, `list_machines` and `GET /api/v1/machines` show `connector: true`, `connected` and `connected_since`. A machine whose connector is not connected fails fast: `machine.disconnected` on the API and MCP, `beacon: the machine's connector is not connected` on an agent's ssh. Connects, disconnects and replacements are logged, not echoed to the chat; the gauge `linkos_beacon_ssh_connectors` counts the connected connectors and `linkos_beacon_ssh_connector_machines` the machines added as connectors, so a rule can fire when they differ.
+- `machine list`, `list_machines` and `GET /api/v1/machines` show `connector: true`, `connected` and `connected_since`. A machine whose connector is not connected fails fast: `machine.disconnected` on the API and MCP, `beacon: the machine's connector is not connected` on an agent's ssh. Connects, disconnects and replacements are logged, not echoed to the chat; the gauge `beacon_ssh_connectors` counts the connected connectors and `beacon_ssh_connector_machines` the machines added as connectors, so a rule can fire when they differ.
 
 **Limits.**
 
@@ -92,7 +92,7 @@ docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat
 A token with the `machines:ssh` scope and the agent's public key:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code \
+docker exec beacon beacon token create claude-code \
   -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
@@ -136,7 +136,7 @@ Every session: a command, an interactive shell, a file transfer, a forwarded por
 
 ## Pausing
 
-`linkos-beacon ssh pause` (or `pause_ssh`, or `POST /api/v1/ssh/pause`) closes every open session and refuses new ones until `ssh resume`. `ssh status` says which.
+`beacon ssh pause` (or `pause_ssh`, or `POST /api/v1/ssh/pause`) closes every open session and refuses new ones until `ssh resume`. `ssh status` says which.
 
 ## What it does not do
 

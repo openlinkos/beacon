@@ -2,7 +2,7 @@
 // open from the chat (an alert's page, with its timeline and the sessions on its machines, and a
 // session's page, with its replay). They are HTML from embedded templates on the design system
 // @openlinkos/ui (vendored under static/ol), without a build step or a framework, served by
-// linkos-beacon beside the API on the same port, in the configured language, readable on a phone.
+// beacon beside the API on the same port, in the configured language, readable on a phone.
 //
 // There is no login system of Beacon's own. The console signs a person in with a Beacon token they
 // paste (console.go): the token is the identity, and its scopes are what the console may do. An

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-876eb6d7
+sourceHash: sha256-0fb0b3f1
 ---
 
 # 配置飞书应用
@@ -49,7 +49,7 @@ Beacon 通过飞书（或 Lark）的**企业自建应用**发告警卡片，并�
 
 ## 6. 检查 {#6-check-it}
 
-启动服务，日志里应出现 `feishu long connection ready`。然后演练：`linkos-beacon drill fail 15m` 让 `/drill/healthz` 失败；检测点发现、告警触发后，群里会收到卡片。认领、静默，再 `linkos-beacon drill off`，看卡片变绿。
+启动服务，日志里应出现 `feishu long connection ready`。然后演练：`beacon drill fail 15m` 让 `/drill/healthz` 失败；检测点发现、告警触发后，群里会收到卡片。认领、静默，再 `beacon drill off`，看卡片变绿。
 
 ## 额度 {#quota}
 

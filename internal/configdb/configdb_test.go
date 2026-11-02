@@ -98,7 +98,7 @@ var (
 func imported(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t)
-	if _, err := e.s.Import(ctx, Actor{Name: "linkos-beacon", Via: "start"}, testFiles(), "", false); err != nil {
+	if _, err := e.s.Import(ctx, Actor{Name: "beacon", Via: "start"}, testFiles(), "", false); err != nil {
 		t.Fatal(err)
 	}
 	return e
@@ -113,7 +113,7 @@ func TestImportAndExportRoundTrip(t *testing.T) {
 	if err != nil || dry.Version != 0 || len(dry.Items) != 12 || e.s.Version() != 0 {
 		t.Fatalf("a dry run changes nothing: %+v %v", dry, err)
 	}
-	ch, err := e.s.Import(ctx, Actor{Name: "linkos-beacon", Via: "start"}, testFiles(), "", false)
+	ch, err := e.s.Import(ctx, Actor{Name: "beacon", Via: "start"}, testFiles(), "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestOpenKeepsServingWhatNoLongerPasses(t *testing.T) {
 func TestEchoes(t *testing.T) {
 	e := newEnv(t)
 	e.s.d.Lang = i18n.ZH
-	if _, err := e.s.Import(ctx, Actor{Name: "linkos-beacon", Via: "start"}, testFiles(), "", false); err != nil {
+	if _, err := e.s.Import(ctx, Actor{Name: "beacon", Via: "start"}, testFiles(), "", false); err != nil {
 		t.Fatal(err)
 	}
 	zh := func(format string, args ...any) string { return i18n.T(i18n.ZH, format, args...) }

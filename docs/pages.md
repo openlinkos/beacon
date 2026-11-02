@@ -1,6 +1,6 @@
 # The console
 
-The console is Beacon's own workbench: one place for a person to look at everything agents and alerts are doing. `linkos-beacon` serves it itself, at `/` on port 17001 beside the API and MCP, under `public_url`. From the card in the chat, one link opens the alert's page (what the probes see, the timeline, the notes, the agents woken, every session on the alert's machines with its commands and a replay) without signing in; signed in, the same page sits among all the others, with the pause switch a click away.
+The console is Beacon's own workbench: one place for a person to look at everything agents and alerts are doing. `beacon` serves it itself, at `/` on port 17001 beside the API and MCP, under `public_url`. From the card in the chat, one link opens the alert's page (what the probes see, the timeline, the notes, the agents woken, every session on the alert's machines with its commands and a replay) without signing in; signed in, the same page sits among all the others, with the pause switch a click away.
 
 There is no login system of Beacon's own: a person signs in with a Beacon token, and what the console may do is what that token's scopes allow.
 
@@ -9,7 +9,7 @@ There is no login system of Beacon's own: a person signs in with a Beacon token,
 `/sign-in` asks for a Beacon token, pasted like a password. A token with `status:read` at least signs in; one without it, an unknown one and an expired one do not. Make one for yourself on the host:
 
 ```bash
-linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
+beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
 ```
 
 - A sign-in is a session kept in Beacon's database for 12 hours, or until the token expires if that comes sooner. The browser holds only the session's id, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict` (`__Host-beacon-console`); the database keeps only its SHA-256, and the token itself is not stored.
@@ -49,7 +49,7 @@ The console's forms are the same operations as the API's, on the same scopes, do
 | Silence an alert for 1, 4 or 24 hours, saying why | `alerts:write` | `POST /api/v1/silences` |
 | Add a note to an alert | `alerts:write` | `POST /api/v1/alerts/{id}/notes` |
 | Pause or resume agents' access to machines | `machines:write` | `POST /api/v1/ssh/pause`, `/resume` |
-| Revoke a token that reaches machines | `machines:write` | `linkos-beacon token revoke` |
+| Revoke a token that reaches machines | `machines:write` | `beacon token revoke` |
 | Revert a configuration change | `config:write` | `POST /api/v1/config/history/{version}/revert` |
 
 Every form carries the session's CSRF secret, and one the browser says came from another site is refused. A form the token's scopes do not allow is not offered, and is refused if sent anyway.

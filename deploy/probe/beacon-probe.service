@@ -1,23 +1,23 @@
-# linkos-probe, Beacon's probe agent (github.com/openlinkos/beacon). Every minute it fetches its targets and
+# beacon-probe, Beacon's probe agent (github.com/openlinkos/beacon). Every minute it fetches its targets and
 # modules from the gateway, probes them, reads a few host metrics and the heartbeats in
-# /var/lib/linkos-agent/textfile, and pushes everything with a queue on disk for when the gateway is out of
+# /var/lib/beacon-probe/textfile, and pushes everything with a queue on disk for when the gateway is out of
 # reach. 127.0.0.1:17009/metrics shows its own state: the last push, failures, the queue.
-# Installed by deploy/probe/install.sh; the token comes from `linkos-beacon enroll probe <location id>`.
+# Installed by deploy/probe/install.sh; the token comes from `beacon enroll probe <location id>`.
 [Unit]
-Description=Beacon probe agent (linkos-probe)
+Description=Beacon probe agent (beacon-probe)
 Documentation=https://github.com/openlinkos/beacon
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-User=linkos-agent
-Group=linkos-agent
+User=beacon-probe
+Group=beacon-probe
 # GATEWAY=https://metrics.example.com
-EnvironmentFile=/etc/linkos-agent/agent.env
+EnvironmentFile=/etc/beacon-probe/agent.env
 Environment=GOMEMLIMIT=24MiB GOGC=50
-StateDirectory=linkos-agent/state
-ExecStart=/opt/linkos-agent/bin/linkos-probe agent -gateway ${GATEWAY} -token-file /etc/linkos-agent/token \
-  -state /var/lib/linkos-agent/state -textfile /var/lib/linkos-agent/textfile -listen 127.0.0.1:17009
+StateDirectory=beacon-probe/state
+ExecStart=/opt/beacon-probe/bin/beacon-probe agent -gateway ${GATEWAY} -token-file /etc/beacon-probe/token \
+  -state /var/lib/beacon-probe/state -textfile /var/lib/beacon-probe/textfile -listen 127.0.0.1:17009
 Restart=always
 RestartSec=10
 # Probes often live on small machines beside what they serve: when memory runs short, the agent goes first.

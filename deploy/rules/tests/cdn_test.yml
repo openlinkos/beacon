@@ -8,11 +8,11 @@ tests:
   - name: a primary node that drops out of its rotation, and the standby that steps in
     interval: 1m
     input_series:
-      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-1",rotation="cdn.example.com",role="primary"}'
+      - series: 'beacon_location_in_rotation{job="beacon",location="node-1",rotation="cdn.example.com",role="primary"}'
         values: '1x4 0x25'
-      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-2",rotation="cdn.example.com",role="primary"}'
+      - series: 'beacon_location_in_rotation{job="beacon",location="node-2",rotation="cdn.example.com",role="primary"}'
         values: '1x30'
-      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
+      - series: 'beacon_location_in_rotation{job="beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
         values: '0x4 1x25'
     alert_rule_test:
       - eval_time: 15m
@@ -48,7 +48,7 @@ tests:
   - name: a standby node out of its rotation is normal
     interval: 1m
     input_series:
-      - series: 'linkos_location_in_rotation{job="linkos-beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
+      - series: 'beacon_location_in_rotation{job="beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
         values: '0x30'
     alert_rule_test:
       - eval_time: 25m
@@ -61,7 +61,7 @@ tests:
   - name: an address in the rotation that no location claims
     interval: 1m
     input_series:
-      - series: 'linkos_rotation_unknown_address{job="linkos-beacon",rotation="eu.cdn.example.com",address="192.0.2.7"}'
+      - series: 'beacon_rotation_unknown_address{job="beacon",rotation="eu.cdn.example.com",address="192.0.2.7"}'
         values: '1x40'
     alert_rule_test:
       - eval_time: 25m
@@ -84,7 +84,7 @@ tests:
   - name: a rotation that does not resolve
     interval: 1m
     input_series:
-      - series: 'linkos_rotation_resolve_success{job="linkos-beacon",rotation="eu.cdn.example.com"}'
+      - series: 'beacon_rotation_resolve_success{job="beacon",rotation="eu.cdn.example.com"}'
         values: '1x2 0x15'
     alert_rule_test:
       - eval_time: 14m

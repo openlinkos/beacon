@@ -118,7 +118,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://linkos-beacon"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, "http://beacon"+path, body)
 	if err != nil {
 		return err
 	}

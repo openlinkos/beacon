@@ -67,7 +67,7 @@ func phase(g *store.Group, t time.Time) string {
 var machineLabels = []string{"machine", "host", "location", "failure_domain"}
 
 // probeMetrics are read at the end of the window, besides probe_success over it.
-const probeMetrics = "probe_failure_info|probe_duration_seconds|probe_http_status_code|linkos_probe_attempts|probe_ssl_earliest_cert_expiry"
+const probeMetrics = "probe_failure_info|probe_duration_seconds|probe_http_status_code|beacon_probe_attempts|probe_ssl_earliest_cert_expiry"
 
 // Window is the time an answer covers.
 type Window struct {
@@ -147,7 +147,7 @@ type ProbeResult struct {
 	Reasons             map[string]int `json:"reasons,omitempty"`
 	DurationSeconds     *float64       `json:"duration_seconds,omitempty"`
 	HTTPStatus          int            `json:"http_status,omitempty"`
-	Attempts            int            `json:"attempts,omitempty"` // linkos_probe_attempts
+	Attempts            int            `json:"attempts,omitempty"` // beacon_probe_attempts
 	CertExpires         *time.Time     `json:"cert_expires,omitempty"`
 	LastSeen            time.Time      `json:"last_seen"`
 }
@@ -445,7 +445,7 @@ func (b *Bridge) probeEvidence(ctx context.Context, g *store.Group, w Window) Pr
 			if s.Value > 0 {
 				r.HTTPStatus = int(s.Value)
 			}
-		case "linkos_probe_attempts":
+		case "beacon_probe_attempts":
 			r.Attempts = int(s.Value)
 		case "probe_ssl_earliest_cert_expiry":
 			if s.Value > 0 {

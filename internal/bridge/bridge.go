@@ -130,14 +130,14 @@ func New(d Deps) *Bridge {
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
 	if d.Metrics != nil {
-		d.Metrics.Register("linkos_beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
 			ok, _ := b.Ready()
 			return []metrics.Sample{{Value: map[bool]float64{true: 1, false: 0}[ok]}}
 		})
-		d.Metrics.Register("linkos_beacon_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(b.d.Store.Counter(b.quotaKey()))}}
 		})
-		d.Metrics.Register("linkos_beacon_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
 			n := map[string]int{}
 			for _, g := range b.d.Store.Groups() {
 				if g.Firing() {
@@ -164,7 +164,7 @@ func (b *Bridge) now() time.Time { return b.d.Now() }
 
 func (b *Bridge) count(channel, result string) {
 	if b.d.Metrics != nil {
-		b.d.Metrics.Inc("linkos_beacon_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
+		b.d.Metrics.Inc("beacon_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
 	}
 }
 
@@ -794,7 +794,7 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 }
 
 // SilenceLabels silences every alert whose labels equal all of labels for d (at most 24 hours) with a
-// comment, as `linkos-beacon silence create -matchers` does; the router stops delivering what matches.
+// comment, as `beacon silence create -matchers` does; the router stops delivering what matches.
 // A firing group every alert of which matches is marked silenced (and acknowledged, as Silence does),
 // so that its card shows it.
 func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d time.Duration, who Actor, comment string) (alertmanager.Silence, error) {

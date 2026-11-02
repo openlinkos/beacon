@@ -1,6 +1,6 @@
 #!/bin/sh
 # Refreshes the design system the console is drawn with, @openlinkos/ui, vendored under
-# internal/web/static/ol so that the linkos-beacon binary needs nothing from the network:
+# internal/web/static/ol so that the beacon binary needs nothing from the network:
 #
 #   scripts/update-ui.sh [version]      # default: the version named below
 #
@@ -44,7 +44,7 @@ cp "$pkg/LICENSE" "$dest/LICENSE"
 
 {
 	echo "@openlinkos/ui $version, the OpenLinkOS design system, vendored for the console (internal/web)."
-	echo "Nothing here is fetched from the network at run time; the files are embedded in the linkos-beacon"
+	echo "Nothing here is fetched from the network at run time; the files are embedded in the beacon"
 	echo "binary. Refresh them with scripts/update-ui.sh; do not edit them by hand."
 	echo ""
 	echo "  Licence: MIT (LICENSE); the Lucide icons ISC (LICENSE-lucide.txt); Geist and Geist Mono"

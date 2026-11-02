@@ -10,7 +10,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes -d '{"text": "Restarted the relay; probing again."}'
 ```
 
-- **Tokens** start with `lbt_` and are created with `linkos-beacon token create NAME -scopes … -expires …`. Beacon keeps only their SHA-256 hashes; each has scopes and an expiry, and renews itself on request (`POST /api/v1/token/renew`).
+- **Tokens** start with `lbt_`, the mark of a Beacon token, and are created with `beacon token create NAME -scopes … -expires …`. Beacon keeps only their SHA-256 hashes; each has scopes and an expiry, and renews itself on request (`POST /api/v1/token/renew`).
 - **Bodies** are JSON (`Content-Type: application/json`); unknown fields are refused, so a typo does not go unnoticed.
 - **Writes** are recorded in the audit log with the token's name and echoed to the alert chat. Sessions on machines are recorded too.
 - **Errors** are `{"error": "…", "code": "…"}`: the message says what went wrong and how to put it right, and the code is stable, so a client can act on it. The codes are [listed below](#error-codes).
@@ -126,7 +126,7 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `linkos-probe` pushes), and heartbeats |
+| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `beacon-probe` pushes), and heartbeats |
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
 | `GET /api/v1/targets` | `probe:write` | The targets this probe's location checks |
 | `GET /api/v1/modules` | `probe:write` | The probe module file, byte for byte |
@@ -148,7 +148,7 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | `GET /readyz` | Readiness: the Watchdog seen, the Feishu connection up, budget left |
 | `GET /metrics` | Beacon's own metrics in the Prometheus format, for direct connections only |
 | `POST /hooks/feishu` | Feishu's card callbacks, when `feishu.callback: http` |
-| `GET /drill/healthz` | 200, or 503 during a drill (`linkos-beacon drill fail 15m`) |
+| `GET /drill/healthz` | 200, or 503 during a drill (`beacon drill fail 15m`) |
 
 ## Error codes
 
@@ -181,9 +181,9 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | `config.invalid` | 422 | The change would not pass the checks; the message says why, and nothing changed |
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |
 | `token.too_soon` | 429 | The token renewed itself less than 24 hours ago, and is still good |
-| `token.not_renewable` | 403 | An enrolled machine's token; `linkos-beacon enroll … -rotate` replaces it |
+| `token.not_renewable` | 403 | An enrolled machine's token; `beacon enroll … -rotate` replaces it |
 | `token.not_found` | 404 | No token of that name to revoke |
-| `token.not_revocable` | 403 | The token does not reach machines; machines' and services' tokens are revoked with `linkos-beacon token revoke` on the host |
+| `token.not_revocable` | 403 | The token does not reach machines; machines' and services' tokens are revoked with `beacon token revoke` on the host |
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |

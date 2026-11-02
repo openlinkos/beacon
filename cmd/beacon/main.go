@@ -1,20 +1,20 @@
-// Command linkos-beacon is Beacon's service: monitoring with alert delivery on Feishu and phones, the
+// Command beacon is Beacon's service: monitoring with alert delivery on Feishu and phones, the
 // SSH channel through which agents reach machines, a REST API and an MCP server.
 //
-//	linkos-beacon serve [-config path]          run the service
-//	linkos-beacon check-config [-config path]   validate the configuration, its files and the database
-//	linkos-beacon config import DIR [-dry-run] | config export DIR | config history | config revert VERSION
-//	linkos-beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
-//	linkos-beacon token list | token revoke NAME
-//	linkos-beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
-//	linkos-beacon machine add NAME HOST[:PORT]|connector | machine connector NAME -key KEY | machine list | machine remove NAME | machine ca
-//	linkos-beacon ssh pause | ssh resume | ssh status
-//	linkos-beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
-//	linkos-beacon silence list | silence expire ID
-//	linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
-//	linkos-beacon drill fail 15m | drill off | drill status
-//	linkos-beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
-//	linkos-beacon version
+//	beacon serve [-config path]                 run the service
+//	beacon check-config [-config path]          validate the configuration, its files and the database
+//	beacon config import DIR [-dry-run] | config export DIR | config history | config revert VERSION
+//	beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
+//	beacon token list | token revoke NAME
+//	beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
+//	beacon machine add NAME HOST[:PORT]|connector | machine connector NAME -key KEY | machine list | machine remove NAME | machine ca
+//	beacon ssh pause | ssh resume | ssh status
+//	beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
+//	beacon silence list | silence expire ID
+//	beacon enroll probe|host|heartbeat NAME [-rotate]
+//	beacon drill fail 15m | drill off | drill status
+//	beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
+//	beacon version
 package main
 
 import (
@@ -60,42 +60,42 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-const defaultConfig = "/etc/linkos-beacon/config.yaml"
+const defaultConfig = "/etc/beacon/config.yaml"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
-  linkos-beacon serve [-config path]          run the service
-  linkos-beacon check-config [-config path]   validate the configuration, its files and the database
-  linkos-beacon config import DIR [-dry-run] [-note TEXT]
+  beacon serve [-config path]                 run the service
+  beacon check-config [-config path]          validate the configuration, its files and the database
+  beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
                                               the catalogue, probe targets and modules, as one change
-  linkos-beacon config export DIR             write them there in the same layout
-  linkos-beacon config history [-limit 20] | config revert VERSION [-note TEXT]
-  linkos-beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
-                [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
-  linkos-beacon token list
-  linkos-beacon token revoke NAME
-  linkos-beacon token ssh-key NAME add KEY|@FILE | token ssh-key NAME remove FINGERPRINT
-  linkos-beacon token machines NAME a,b|all
-  linkos-beacon machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]
+  beacon config export DIR                    write them there in the same layout
+  beacon config history [-limit 20] | config revert VERSION [-note TEXT]
+  beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
+         [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
+  beacon token list
+  beacon token revoke NAME
+  beacon token ssh-key NAME add KEY|@FILE | token ssh-key NAME remove FINGERPRINT
+  beacon token machines NAME a,b|all
+  beacon machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]
                                               pin a machine's host key; prints what the machine needs
-  linkos-beacon machine add NAME connector -key KEY|@FILE [-host-key KEY|@FILE] [...]
+  beacon machine add NAME connector -key KEY|@FILE [-host-key KEY|@FILE] [...]
                                               a machine behind NAT, which connects out with ssh -R
-  linkos-beacon machine connector NAME -key KEY|@FILE
+  beacon machine connector NAME -key KEY|@FILE
                                               set or change the key it connects out with
-  linkos-beacon machine list | machine remove NAME | machine ca
-  linkos-beacon ssh pause | ssh resume | ssh status
+  beacon machine list | machine remove NAME | machine ca
+  beacon ssh pause | ssh resume | ssh status
                                               stop or allow agents' access to machines
-  linkos-beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
+  beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
                                               stop notifying alerts with these labels (or -alert GROUP_ID)
-  linkos-beacon silence list | silence expire ID
-  linkos-beacon enroll probe|host|heartbeat NAME [-rotate]
+  beacon silence list | silence expire ID
+  beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
-  linkos-beacon drill fail 15m | drill off | drill status
-  linkos-beacon healthcheck [-url URL]        exit 0 when the service answers (the image's health check)
-  linkos-beacon version
+  beacon drill fail 15m | drill off | drill status
+  beacon healthcheck [-url URL]               exit 0 when the service answers (the image's health check)
+  beacon version
 Scopes: `+strings.Join(store.Scopes, ", ")+`
 `)
 }
@@ -230,7 +230,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	m := metrics.New(version.Version)
 	catalog.Register(m, cdb.Catalog)
-	m.Register("linkos_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
+	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, t := range st.Tokens() {
 			out = append(out, metrics.Sample{Labels: metrics.Labels("token", t.Name, "subject", t.Subject), Value: float64(t.Expires.Unix())})
@@ -246,7 +246,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	rt := router.New(rcfg, st, sinkFunc{hook: func(ctx context.Context, w alertmanager.Webhook) error { return br.HandleWebhook(ctx, w) },
 		watchdog: func() { br.Watchdog() }}, nil, log)
-	m.Register("linkos_beacon_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
+	m.Register("beacon_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
 		return []metrics.Sample{{Value: float64(rt.Firing())}}
 	})
 	// the signed links to the pages people open from the chat, under a key made at first start
@@ -397,7 +397,7 @@ func serve(args []string, stderr io.Writer) int {
 		}()
 		go gate.Tidy(ctx)
 	}
-	log.Info("linkos-beacon started", "version", version.Version, "listen", cfg.Listen,
+	log.Info("beacon started", "version", version.Version, "listen", cfg.Listen,
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cdb.Catalog().Locations),
 		"gateway", cfg.Gateway.Listen, "targets", cdb.Targets().Count(), "config_version", cdb.Version(),
 		"ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil], "agent_hooks", len(cfg.Agents))
@@ -415,7 +415,7 @@ func serve(args []string, stderr io.Writer) int {
 	if gs != nil {
 		_ = gs.Shutdown(sctx)
 	}
-	log.Info("linkos-beacon stopped")
+	log.Info("beacon stopped")
 	return 0
 }
 
@@ -491,9 +491,9 @@ func enroll(args []string, stdout, stderr io.Writer) int {
 }
 
 func dial(stderr io.Writer) (*ctl.Client, bool) {
-	dataDir := os.Getenv("LINKOS_BEACON_DATA_DIR")
+	dataDir := os.Getenv("BEACON_DATA_DIR")
 	if dataDir == "" {
-		dataDir = "/var/lib/linkos-beacon"
+		dataDir = "/var/lib/beacon"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -501,7 +501,7 @@ func dial(stderr io.Writer) (*ctl.Client, bool) {
 	if err != nil {
 		var opErr *net.OpError
 		if errors.As(err, &opErr) {
-			fmt.Fprintf(stderr, "cannot reach the running service at %s: %v\n(run this inside the container: docker exec linkos-beacon linkos-beacon …)\n", ctl.Path(dataDir), err)
+			fmt.Fprintf(stderr, "cannot reach the running service at %s: %v\n(run this inside the container: docker exec beacon beacon …)\n", ctl.Path(dataDir), err)
 		} else {
 			fmt.Fprintln(stderr, err)
 		}

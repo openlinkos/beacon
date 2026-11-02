@@ -37,7 +37,7 @@ The script asks for the two host names and the address (or takes them from the e
 
 Check: `curl https://status.example.com/healthz` answers `ok` (the first certificate takes up to a minute after the start), and `curl https://metrics.example.com/api/v1/targets` answers 401, as it should without a token. Nothing notifies anyone yet: without a chat configured, alerts are recorded and shown in the API and MCP, which is enough for the steps below.
 
-Everything else happens through `docker exec linkos-beacon linkos-beacon …`; [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) says where each file is.
+Everything else happens through `docker exec beacon beacon …`; [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) says where each file is.
 
 ## 2. The first probe
 
@@ -46,7 +46,7 @@ Beacon tells an outage from a hiccup by agreement: a service is down only when a
 The catalogue (`catalog/locations.yaml`, imported at the first start) holds one location, `edge-1`. On the centre, enrol it:
 
 ```bash
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 > edge-1.token     # printed once, never again
+docker exec beacon beacon enroll probe edge-1 > edge-1.token     # printed once, never again
 ```
 
 Copy `/opt/beacon/probe/` and the token to the probe machine, and there, as root:
@@ -55,28 +55,28 @@ Copy `/opt/beacon/probe/` and the token to the probe machine, and there, as root
 sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
 ```
 
-It creates the `linkos-agent` user, downloads the `linkos-probe` release for the machine's architecture and checks it against the release's `SHA256SUMS` (or takes `-binary FILE`), installs the token readable by that user only, the systemd unit `linkos-probe` and the `linkos-heartbeat` helper, starts the agent and waits until the gateway has accepted its first push: about 10 seconds, 13 MB resident. From then on the location probes every minute whatever the gateway hands it, so changing targets never means touching the probe again.
+It creates the `beacon-probe` user, downloads the `beacon-probe` release for the machine's architecture and checks it against the release's `SHA256SUMS` (or takes `-binary FILE`), installs the token readable by that user only, the systemd unit `beacon-probe` and the `beacon-heartbeat` helper, starts the agent and waits until the gateway has accepted its first push: about 10 seconds, 13 MB resident. From then on the location probes every minute whatever the gateway hands it, so changing targets never means touching the probe again.
 
 The second location can be the centre itself (nearly free) or another small machine. Add it to the catalogue, with a token for the API that may change the configuration, then enrol and install as above:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create setup -scopes config:write -expires 1d > setup.token
+docker exec beacon beacon token create setup -scopes config:write -expires 1d > setup.token
 curl -X PUT -H "Authorization: Bearer $(cat setup.token)" -H "Content-Type: application/json" \
   https://status.example.com/api/v1/config/locations/centre \
   -d '{"name": "Germany - Frankfurt", "region": "overseas", "network": "BGP"}'
-docker exec linkos-beacon linkos-beacon enroll probe centre > centre.token
+docker exec beacon beacon enroll probe centre > centre.token
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file centre.token   # on the centre: the gateway's own port
-docker exec linkos-beacon linkos-beacon token revoke setup
+docker exec beacon beacon token revoke setup
 ```
 
-Name locations by place and network, never by vendor: the name is public. Check what arrives: VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`); `probe_success` has one series per location and target. The two targets shipped are Beacon's own status host and `https://example.com/`; replace the latter with a service of yours in `targets/all-web.yaml` and `linkos-beacon config import /etc/linkos-beacon`, or `PUT /api/v1/config/targets/all-web` as in [Catalogue, targets and modules](catalog.md).
+Name locations by place and network, never by vendor: the name is public. Check what arrives: VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`); `probe_success` has one series per location and target. The two targets shipped are Beacon's own status host and `https://example.com/`; replace the latter with a service of yours in `targets/all-web.yaml` and `beacon config import /etc/beacon`, or `PUT /api/v1/config/targets/all-web` as in [Catalogue, targets and modules](catalog.md).
 
 ## 3. The first machine
 
 A machine agents will work on, 4 minutes. On the centre:
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net -note "the first probe machine"
+docker exec beacon beacon machine add edge-1 edge-1.example.net -note "the first probe machine"
 ```
 
 Beacon connects once, pins the machine's host key, and prints what the machine needs: its sshd must trust Beacon's certificate authority, and the account the certificates name must exist. On the machine, as root, the four lines it printed:
@@ -88,14 +88,14 @@ useradd -m -s /bin/bash -p '*' beacon
 systemctl reload ssh
 ```
 
-Two more lines are worth it now rather than later: what the `beacon` account may do is the real boundary, so give it only what the work needs (`/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`), and exempt the centre's address from OpenSSH's penalties for failed connections (`PerSourcePenaltyExemptList 203.0.113.7` in `beacon.conf`), since every agent arrives from it. [The SSH channel](ssh.md) has the rest.
+Two more lines are worth it now rather than later: what the `beacon` account may do is the real boundary, so give it only what the work needs (`/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`), and exempt the centre's address from OpenSSH's penalties for failed connections (`PerSourcePenaltyExemptList 203.0.113.7` in `beacon.conf`), since every agent arrives from it. [The SSH channel](ssh.md) has the rest.
 
 ## 4. The first agent
 
 5 minutes. One token works for the API, MCP and the SSH channel; give it the agent's public key so its own `ssh` works too:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code \
+docker exec beacon beacon token create claude-code \
   -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
   -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
@@ -103,27 +103,27 @@ docker exec linkos-beacon linkos-beacon token create claude-code \
 The secret is printed once. On the workstation where Claude Code runs:
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 Then, in Claude Code, ask it to list the machines and run `uptime` on `edge-1`. It calls `list_machines`, then `run_command`; the result comes back as exit code, stdout and stderr, without terminal codes. The same `list_machines` answer carries an `ssh_config` block and a `known_hosts` line: put them in `~/.ssh/config` and `~/.ssh/known_hosts`, and `ssh edge-1 uptime`, `scp`, `rsync -e ssh` and `ssh -L` work as usual, the user name naming the machine. Beacon signed a certificate valid for five minutes for that connection; the agent holds no key for the machine.
 
-Every session is on record: `docker exec linkos-beacon linkos-beacon token list` shows the token, `list_sessions` (or `GET /api/v1/sessions`) the sessions, with each command and its exit status. `linkos-beacon ssh pause` closes them all until `ssh resume`.
+Every session is on record: `docker exec beacon beacon token list` shows the token, `list_sessions` (or `GET /api/v1/sessions`) the sessions, with each command and its exit status. `beacon ssh pause` closes them all until `ssh resume`.
 
 ## 5. The first drill
 
 10 minutes, most of it waiting. Beacon has an internal service to rehearse on: `/drill/healthz` answers 200 until you say otherwise, and every location probes it (`targets/all-drill.yaml`, service `drill`, critical).
 
 ```bash
-docker exec linkos-beacon linkos-beacon drill fail 15m
+docker exec beacon beacon drill fail 15m
 ```
 
 What to expect, with two locations:
 
 - within 1 minute both probes see 503, and `probe_success{service="drill"}` is 0 for each;
 - after 3 minutes of failure the rules count each location as failing; both failing is at least two and at least half, so `ServiceDown` fires 1 minute later: about 4 to 5 minutes after the command;
-- the alert shows up in `GET /api/v1/alerts` and in the MCP's `list_alerts`. Ask your agent what is wrong: `get_evidence` returns each location's result and reason (`http_status`), the alerts in the same failure domain, recent changes and what has been done; `ack_alert` with a note, and `add_note`, put its work on the alert's timeline; `silence_alert` quiets it. On the centre, `linkos-beacon silence list` shows the silence, and `linkos-beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` would make one from the command line, audited as such;
-- `docker exec linkos-beacon linkos-beacon drill off`; the probes succeed on their next round, and the alert resolves within `resolve_timeout` (5 minutes) after the rule engine stops sending it.
+- the alert shows up in `GET /api/v1/alerts` and in the MCP's `list_alerts`. Ask your agent what is wrong: `get_evidence` returns each location's result and reason (`http_status`), the alerts in the same failure domain, recent changes and what has been done; `ack_alert` with a note, and `add_note`, put its work on the alert's timeline; `silence_alert` quiets it. On the centre, `beacon silence list` shows the silence, and `beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` would make one from the command line, audited as such;
+- `docker exec beacon beacon drill off`; the probes succeed on their next round, and the alert resolves within `resolve_timeout` (5 minutes) after the rule engine stops sending it.
 
 With one location nothing fires, by design: one location's word is never an outage. With the chat configured (step 6), the card arrives in the group about 4 minutes after the command, its buttons acknowledge and silence, and it turns green on recovery; with Pushover, an unacknowledged critical alert reaches a phone after 15 minutes.
 

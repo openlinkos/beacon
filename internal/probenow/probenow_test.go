@@ -242,8 +242,8 @@ func TestWaitAndAnswer(t *testing.T) {
 	if _, ok := b.Await(ctx, "0000000000000000"); ok {
 		t.Error("awaiting an unknown request")
 	}
-	for _, want := range []string{"linkos_probe_now_requests_total 1", `linkos_probe_now_answers_total{location="edge-1"} 1`,
-		`linkos_probe_now_answers_total{location="edge-3"} 1`, `linkos_probe_now_missing_total{location="edge-3"} 1`, "linkos_probe_now_requests_open 0"} {
+	for _, want := range []string{"beacon_probe_now_requests_total 1", `beacon_probe_now_answers_total{location="edge-1"} 1`,
+		`beacon_probe_now_answers_total{location="edge-3"} 1`, `beacon_probe_now_missing_total{location="edge-3"} 1`, "beacon_probe_now_requests_open 0"} {
 		if !strings.Contains(scrape(m), want) {
 			t.Errorf("metrics lack %s:\n%s", want, scrape(m))
 		}

@@ -21,9 +21,9 @@ Early days. Agents already work through it in production: they see alerts with t
 
 ### Sees: monitoring
 
-- **Probes from where your users are.** `linkos-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
+- **Probes from where your users are.** `beacon-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
 - **An outage is what several locations agree on.** A service is down only when at least two locations, and at least half of those reporting, fail; one location's hiccup never pages anyone. Locations follow their machines: when a machine is let go, its location stops counting.
-- **One door for machines.** The gateway gives each probe and host its own token (`linkos-beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets, probe modules and settings (a longer timeout for a machine on a lossy path, say), so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
+- **One door for machines.** The gateway gives each probe and host its own token (`beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets, probe modules and settings (a longer timeout for a machine on a lossy path, say), so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
 - **Alert routing built in.** Grouping, inhibition and silences, as Alertmanager does them, inside the service. Rule engines post alerts to it as they would to Alertmanager.
 - **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
 - **Escalation to phones.** A critical alert that nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15: the phone keeps ringing until someone acknowledges it there, which also acknowledges it here. An acknowledgement lapses after 4 hours if the alert is still firing.
@@ -41,7 +41,7 @@ Early days. Agents already work through it in production: they see alerts with t
 
 - **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, leave notes, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
 - **Agents woken, with the evidence at hand.** A new alert can wake an agent: a signed webhook or a GitHub workflow, told where the evidence is. One call returns it: each probe location's result and why it fails, the alerts in the same failure domain, the changes just before (deployments, Flux), and what was done. Notes an agent leaves show on the card, and one timeline joins alerts, notes, agents woken, changes and sessions. Beacon calls no model: the agent decides. See [docs/agents.md](docs/agents.md).
-- **An agent on call, end to end.** `linkos-oncall`, a small third binary, catches the hook, checks its signature and starts the agent program you name, with wrappers for Claude Code and Codex and a GitHub Actions example. When the agent has fixed something, `probe_now` has every location probe the target again and shows each answer within a minute, and the alert resolves sooner. Agents' tokens renew themselves before they expire, so nobody hands out long-lived ones.
+- **An agent on call, end to end.** `beacon-oncall`, a small third binary, catches the hook, checks its signature and starts the agent program you name, with wrappers for Claude Code and Codex and a GitHub Actions example. When the agent has fixed something, `probe_now` has every location probe the target again and shows each answer within a minute, and the alert resolves sooner. Agents' tokens renew themselves before they expire, so nobody hands out long-lived ones.
 - **One place for people: the console.** Sign in at `/` with a token and see everything: alerts with their evidence and timeline, machines and the channel's pause switch, every session with its replay, tokens, the configuration and its history, the agents woken, the audit log. From the card in the chat, a signed link opens the alert's page without signing in. No login system of Beacon's own: the token is the identity, and it is the same design system as the rest of the OpenLinkOS family. See [docs/pages.md](docs/pages.md).
 - **Configured through Beacon.** Probe locations, heartbeats, expiring resources, probe targets and modules live in Beacon's database and are changed through the API, MCP and the command line, checked and in force at once. Every change is a version with who made it and the values before and after, and can be reverted; files are for import and export, so they can still live in git.
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
@@ -49,36 +49,36 @@ Early days. Agents already work through it in production: they see alerts with t
 ## How it fits
 
 ```
-linkos-probe (each location) ─push─▶ gateway ─▶ VictoriaMetrics ─▶ vmalert ─alerts─▶ router ─▶ bridge ─▶ Feishu app ◀─▶ people on call
+beacon-probe (each location) ─push─▶ gateway ─▶ VictoriaMetrics ─▶ vmalert ─alerts─▶ router ─▶ bridge ─▶ Feishu app ◀─▶ people on call
 hosts, CI, Flux ─────────────────▶ gateway                                                          ├─▶ Feishu group bot
-agents ─▶ /api/v1, /mcp ─▶ linkos-beacon                                                            ├─▶ Pushover / Bark
+agents ─▶ /api/v1, /mcp ─▶ beacon                                                                   ├─▶ Pushover / Bark
                                                                                                     ├─▶ agents' hooks (webhook, GitHub workflow)
                                    healthchecks.io ◀─ every minute, while rules, routing and delivery work
 ```
 
-The gateway, the router and the bridge are all `linkos-beacon`. Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary` (optionally `description`, `runbook`, `dashboard`). An alert named `Watchdog` proves the pipeline works and is never shown.
+The gateway, the router and the bridge are all `beacon`. Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary` (optionally `description`, `runbook`, `dashboard`). An alert named `Watchdog` proves the pipeline works and is never shown.
 
 ## Running it
 
 ```bash
-docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 -p 17002:17002 \
-  -v ./config.yaml:/etc/linkos-beacon/config.yaml:ro \
-  -v ./catalog:/etc/linkos-beacon/catalog:ro \
-  -v ./targets:/etc/linkos-beacon/targets:ro \
-  -v ./secrets:/etc/linkos-beacon/secrets:ro \
-  -v linkos-beacon:/var/lib/linkos-beacon \
+docker run -d --name beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 -p 17002:17002 \
+  -v ./config.yaml:/etc/beacon/config.yaml:ro \
+  -v ./catalog:/etc/beacon/catalog:ro \
+  -v ./targets:/etc/beacon/targets:ro \
+  -v ./secrets:/etc/beacon/secrets:ro \
+  -v beacon:/var/lib/beacon \
   ghcr.io/openlinkos/beacon:latest
 ```
 
-Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). The first start imports those files into the database, where they are changed from then on; the two mounts are needed only for that, for `SIGHUP` and for `config import`. Port 17001 serves the API and MCP, and the console people sign in to with a token at `/` (over HTTPS, or on localhost), with the pages a card links to (`/alerts/{id}`, `/sessions/{id}` with the replay; signed links; [docs/pages.md](docs/pages.md)); port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
+Start from [config.example.yaml](config.example.yaml); `beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). The first start imports those files into the database, where they are changed from then on; the two mounts are needed only for that, for `SIGHUP` and for `config import`. Port 17001 serves the API and MCP, and the console people sign in to with a token at `/` (over HTTPS, or on localhost), with the pages a card links to (`/alerts/{id}`, `/sessions/{id}` with the replay; signed links; [docs/pages.md](docs/pages.md)); port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
 
-Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
+Point vmalert at the gateway: `-notifier.url=http://beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
 
 Give each probe location its token and start the agent there:
 
 ```bash
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 > token     # edge-1 is a location in the catalogue
-linkos-probe agent -gateway https://metrics.example.com -token-file /etc/linkos-agent/token
+docker exec beacon beacon enroll probe edge-1 > token     # edge-1 is a location in the catalogue
+beacon-probe agent -gateway https://metrics.example.com -token-file /etc/beacon-probe/token
 ```
 
 Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its iOS app with Critical Alerts allowed, an application token and your user key.
@@ -88,18 +88,18 @@ Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its
 Commands that change the running service talk to it over a socket in its data directory:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d \
+docker exec beacon beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d \
   -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # the key it signs in to the SSH channel with
-docker exec linkos-beacon linkos-beacon token list
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # pins its host key, prints what the machine needs
-docker exec linkos-beacon linkos-beacon machine add nas-1 connector -key "ssh-ed25519 AAAA…"   # behind NAT: it connects out with ssh -R
-docker exec linkos-beacon linkos-beacon ssh pause         # closes agents' sessions on machines until "ssh resume"
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
-docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
-docker exec linkos-beacon linkos-beacon drill off
-docker exec linkos-beacon linkos-beacon config import /etc/linkos-beacon -dry-run   # catalog/, targets/: what would change
-docker exec linkos-beacon linkos-beacon config export /tmp/beacon   # the configuration as files, in the same layout
-docker exec linkos-beacon linkos-beacon config history    # who changed what; config revert VERSION undoes one change
+docker exec beacon beacon token list
+docker exec beacon beacon machine add edge-1 edge-1.example.net   # pins its host key, prints what the machine needs
+docker exec beacon beacon machine add nas-1 connector -key "ssh-ed25519 AAAA…"   # behind NAT: it connects out with ssh -R
+docker exec beacon beacon ssh pause         # closes agents' sessions on machines until "ssh resume"
+docker exec beacon beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
+docker exec beacon beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
+docker exec beacon beacon drill off
+docker exec beacon beacon config import /etc/beacon -dry-run   # catalog/, targets/: what would change
+docker exec beacon beacon config export /tmp/beacon   # the configuration as files, in the same layout
+docker exec beacon beacon config history    # who changed what; config revert VERSION undoes one change
 ```
 
 ## API and MCP
@@ -108,7 +108,7 @@ docker exec linkos-beacon linkos-beacon config history    # who changed what; co
 - MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `set_machine_connector`, `remove_machine`, `pause_ssh`, `resume_ssh`. For the configuration (scope `config:write` to change it): `get_config`, `put_config`, `delete_config`, `list_config_changes`, `get_config_change`, `revert_config_change`. For the agent's own token: `whoami`, `renew_token`.
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 | Route (port 17001) | Purpose |
@@ -120,7 +120,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 
 | Gateway route (port 17006) | Scope | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `linkos-probe` pushes), heartbeats |
+| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `beacon-probe` pushes), heartbeats |
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
 | `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
 | `GET /api/v1/agent/requests`, `POST /api/v1/agent/requests/{id}` | `probe:write` | Probing on demand: the probe long-polls for targets to probe now, and posts what it found; see [docs/agents.md](docs/agents.md) |

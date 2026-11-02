@@ -26,7 +26,7 @@ import (
 // The catalogue, probe targets and modules live in the database (package configdb). The files the
 // configuration names (catalog_dir, gateway.targets_dir, gateway.modules_file) are imported once,
 // into a database that was never configured; after that only on SIGHUP, when nothing was changed
-// through Beacon since the last import, or with `linkos-beacon config import DIR`.
+// through Beacon since the last import, or with `beacon config import DIR`.
 
 func language(cfg *config.Config) i18n.Lang {
 	if cfg.Language == "en" {
@@ -55,10 +55,10 @@ func openConfig(ctx context.Context, cfg *config.Config, st *store.Store, bot *n
 	switch {
 	case len(files) == 0:
 	case cdb.Version() > 0:
-		log.Info("the configuration is in the database; its files are imported only on SIGHUP or with linkos-beacon config import",
+		log.Info("the configuration is in the database; its files are imported only on SIGHUP or with beacon config import",
 			append([]any{"version", cdb.Version()}, where...)...)
 	default:
-		ch, err := cdb.Import(ctx, configdb.Actor{Name: "linkos-beacon", Via: "start"}, files, "", false)
+		ch, err := cdb.Import(ctx, configdb.Actor{Name: "beacon", Via: "start"}, files, "", false)
 		if err != nil {
 			return nil, fmt.Errorf("importing the configuration files (catalog_dir %s, gateway.targets_dir %s, gateway.modules_file %s): %w",
 				cfg.CatalogDir, cfg.Gateway.TargetsDir, cfg.Gateway.ModulesFile, err)
@@ -84,7 +84,7 @@ func reloadOnHUP(ctx context.Context, ch <-chan os.Signal, cfg *config.Config, c
 				continue
 			}
 			if len(files) == 0 {
-				log.Warn("SIGHUP: no configuration files to import; the configuration is in the database (linkos-beacon config import DIR loads files)")
+				log.Warn("SIGHUP: no configuration files to import; the configuration is in the database (beacon config import DIR loads files)")
 				continue
 			}
 			c, err := cdb.ImportOnSignal(ctx, files)

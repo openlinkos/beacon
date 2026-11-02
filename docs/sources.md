@@ -15,23 +15,23 @@ Beacon judges with what is sent to it. This page lists each source: who sends, w
 
 ## Probes
 
-`linkos-probe agent` runs at each probe location with a token from `linkos-beacon enroll probe <location>`. Every minute it fetches what to do from the gateway (`GET /api/v1/targets`, `GET /api/v1/modules` and `GET /api/v1/agent`, the location's settings), probes, and pushes the results in the Prometheus text format, gzipped, keeping a queue on disk for when the network is down. It keeps one long-poll open beside its cycle for [probing on demand](agents.md#probe-again-now).
+`beacon-probe agent` runs at each probe location with a token from `beacon enroll probe <location>`. Every minute it fetches what to do from the gateway (`GET /api/v1/targets`, `GET /api/v1/modules` and `GET /api/v1/agent`, the location's settings), probes, and pushes the results in the Prometheus text format, gzipped, keeping a queue on disk for when the network is down. It keeps one long-poll open beside its cycle for [probing on demand](agents.md#probe-again-now).
 
-The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself; a location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`. The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …), with `probe_failure_info{reason}` for why a check failed and `linkos_probe_attempts` for how many tries it took. A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
+The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself; a location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`. The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …), with `probe_failure_info{reason}` for why a check failed and `beacon_probe_attempts` for how many tries it took. A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
 
-`linkos-probe serve` answers `/probe` and `/metrics` instead, like the Blackbox Exporter, for a scraper of your own.
+`beacon-probe serve` answers `/probe` and `/metrics` instead, like the Blackbox Exporter, for a scraper of your own.
 
 ## Hosts
 
-A machine that is not a probe location reports as a host, with a token from `linkos-beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host`.
+A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host`.
 
 ## Heartbeats
 
-A job that must report success at least every `max_age` (a backup, a scheduled task) pushes one sample when it succeeds, with a token from `linkos-beacon enroll heartbeat <name>`:
+A job that must report success at least every `max_age` (a backup, a scheduled task) pushes one sample when it succeeds, with a token from `beacon enroll heartbeat <name>`:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
-  "linkos_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
+  "beacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
   https://metrics.example.com/api/v1/import/prometheus
 ```
 
@@ -42,7 +42,7 @@ On a machine with the probe agent, the job writes the same line into the agent's
 vmalert evaluates the rules over VictoriaMetrics and posts what fires to the gateway as it would to Alertmanager:
 
 ```bash
-vmalert -notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=/etc/vmalert/rules-token   # the file rules.token_file names
+vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert/rules-token   # the file rules.token_file names
 ```
 
 Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`; `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown. Another sender may post alerts the same way with an `alerts:send` token.

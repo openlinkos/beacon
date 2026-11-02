@@ -1,6 +1,6 @@
 # CDN nodes against their clusters' DNS rotations. For every location in the catalogue with an address and a
-# rotation, Beacon resolves both every minute and exports linkos_location_in_rotation{location, rotation, role},
-# linkos_rotation_unknown_address{rotation, address} and linkos_rotation_resolve_success{rotation}.
+# rotation, Beacon resolves both every minute and exports beacon_location_in_rotation{location, rotation, role},
+# beacon_rotation_unknown_address{rotation, address} and beacon_rotation_resolve_success{rotation}.
 # A primary node that is up and probing but not in the answers serves nobody. A standby node (standby: true in
 # the catalogue, role="standby") is out of the rotation by design, and in it only when a primary has failed.
 # An answer no location claims is a node nobody watches. A rotation that does not resolve yields no verdict.
@@ -9,7 +9,7 @@ groups:
     interval: 1m
     rules:
       - alert: CDNNodeOutOfRotation
-        expr: max by (location, rotation) (linkos_location_in_rotation{role!="standby"}) == 0
+        expr: max by (location, rotation) (beacon_location_in_rotation{role!="standby"}) == 0
         for: 15m
         labels:
           severity: warning
@@ -21,7 +21,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
 
       - alert: CDNStandbyInRotation
-        expr: max by (location, rotation) (linkos_location_in_rotation{role="standby"}) == 1
+        expr: max by (location, rotation) (beacon_location_in_rotation{role="standby"}) == 1
         for: 5m
         labels:
           severity: info
@@ -33,7 +33,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
 
       - alert: CDNRotationUnknownAddress
-        expr: max by (rotation, address) (linkos_rotation_unknown_address) == 1
+        expr: max by (rotation, address) (beacon_rotation_unknown_address) == 1
         for: 30m
         labels:
           severity: warning
@@ -45,7 +45,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CDNNodeOutOfRotation.md
 
       - alert: CDNRotationResolveFailing
-        expr: max by (rotation) (linkos_rotation_resolve_success) == 0
+        expr: max by (rotation) (beacon_rotation_resolve_success) == 0
         for: 10m
         labels:
           severity: warning

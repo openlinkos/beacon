@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a216729f
+sourceHash: sha256-96d07436
 ---
 
 # SSH 通道
@@ -21,26 +21,26 @@ ssh-keygen -t ed25519 -N '' -C 'beacon ca' -f secrets/ssh-ca-key       # 用来�
 ssh:
   listen: ":17002"
   public_address: ssh.example.com:17002   # Agent 连接的地址
-  host_key_file: /etc/linkos-beacon/secrets/ssh-host-key
-  ca_key_file: /etc/linkos-beacon/secrets/ssh-ca-key
+  host_key_file: /etc/beacon/secrets/ssh-host-key
+  ca_key_file: /etc/beacon/secrets/ssh-ca-key
   # source_addresses: [203.0.113.7/32]    # 证书只能从 Beacon 自己的地址使用
   keep: 4320h                             # 会话保留 180 天
 ```
 
-通道是独立端口上的普通 SSH：直接开放这个端口（防火墙规则），不要经过 HTTP 反向代理。`linkos-beacon check-config` 会检查两把密钥。
+通道是独立端口上的普通 SSH：直接开放这个端口（防火墙规则），不要经过 HTTP 反向代理。`beacon check-config` 会检查两把密钥。
 
 CA 私钥能登录每一台信任它的机器。单独放一个文件，只有服务能读；Beacon 的地址固定时，配上 `source_addresses`。
 
 ## 添加机器 {#add-a-machine}
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net -note "洛杉矶边缘节点"
+docker exec beacon beacon machine add edge-1 edge-1.example.net -note "洛杉矶边缘节点"
 ```
 
 Beacon 连接一次，固定机器的主机密钥，并打印机器需要做的配置。在机器上以 root 执行：
 
 ```bash
-docker exec linkos-beacon linkos-beacon machine ca > /etc/ssh/beacon_ca.pub   # 或者粘贴它打印的那一行
+docker exec beacon beacon machine ca > /etc/ssh/beacon_ca.pub   # 或者粘贴它打印的那一行
 echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
 useradd -m -s /bin/bash -p '*' beacon   # Beacon 证书里写的账号
 systemctl reload ssh
@@ -69,7 +69,7 @@ Beacon 够不到的机器（在 NAT 后面、只许出不许进的防火墙后�
 
 ```bash
 ssh-keygen -t ed25519 -N '' -C 'beacon connector edge-9' -f /etc/ssh/beacon_connect_key   # 在机器上
-docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat /etc/ssh/beacon_connect_key.pub)" -note "办公室 NAS"
+docker exec beacon beacon machine add edge-9 connector -key "$(cat /etc/ssh/beacon_connect_key.pub)" -note "办公室 NAS"
 ```
 
 `machine add` 会打印一段给机器用的脚本：和普通机器一样的 CA 与 `beacon` 账号，再加上 Beacon 通道的 `known_hosts` 行（它在 `ssh.public_address` 上的主机密钥）、一个拥有这把密钥的系统用户 `beacon-connector`，以及 systemd 单元 `beacon-connector.service`，带 `Restart=always`、`ServerAliveInterval=30` 和 `ExitOnForwardFailure=yes`。`add_machine`（`address: connector`、`connector_key`）和 `POST /api/v1/machines` 返回同样的内容：`connector.script`、`connector.command`、`connector.unit`。打印的命令转发到 22 端口；机器的 sshd 监听别的端口时改一下即可。
@@ -83,7 +83,7 @@ docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat
 - Beacon 只连到机器自己转发的那个地址，从不连它自己选的地址。
 - 连接器密钥只能以它自己那台机器的身份登录，不能开会话，不能转发自己的端口，也不能持有令牌；令牌的密钥登记不了转发。令牌持有的密钥不能成为连接器密钥。
 - 暂停开关关闭经连接器中转的会话，和其他会话一样；机器自己的连接保留，所以通道一恢复机器就能用。
-- `machine list`、`list_machines` 和 `GET /api/v1/machines` 显示 `connector: true`、`connected` 和 `connected_since`。连接器没连上的机器会立刻失败：API 和 MCP 返回 `machine.disconnected`，Agent 的 ssh 看到 `beacon: the machine's connector is not connected`。连上、断开和替换都写日志，不回显到群里；gauge `linkos_beacon_ssh_connectors` 是当前连着的连接器数，`linkos_beacon_ssh_connector_machines` 是添加为连接器的机器数，两者不等时可以触发规则。
+- `machine list`、`list_machines` 和 `GET /api/v1/machines` 显示 `connector: true`、`connected` 和 `connected_since`。连接器没连上的机器会立刻失败：API 和 MCP 返回 `machine.disconnected`，Agent 的 ssh 看到 `beacon: the machine's connector is not connected`。连上、断开和替换都写日志，不回显到群里；gauge `beacon_ssh_connectors` 是当前连着的连接器数，`beacon_ssh_connector_machines` 是添加为连接器的机器数，两者不等时可以触发规则。
 
 **限制。**
 
@@ -96,7 +96,7 @@ docker exec linkos-beacon linkos-beacon machine add edge-9 connector -key "$(cat
 一个带 `machines:ssh` 作用域和 Agent 公钥的令牌：
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code \
+docker exec beacon beacon token create claude-code \
   -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
@@ -140,7 +140,7 @@ Host edge-1
 
 ## 暂停 {#pausing}
 
-`linkos-beacon ssh pause`（或者 `pause_ssh`，或者 `POST /api/v1/ssh/pause`）关闭所有正在进行的会话，并拒绝新的会话，直到 `ssh resume`。`ssh status` 显示当前状态。
+`beacon ssh pause`（或者 `pause_ssh`，或者 `POST /api/v1/ssh/pause`）关闭所有正在进行的会话，并拒绝新的会话，直到 `ssh resume`。`ssh status` 显示当前状态。
 
 ## 不做什么 {#what-it-does-not-do}
 

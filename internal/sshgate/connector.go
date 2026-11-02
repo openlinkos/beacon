@@ -115,10 +115,10 @@ func (s *connectorSet) count() int {
 }
 
 func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
-	m.Register("linkos_beacon_ssh_connectors", "Connector machines (behind NAT) connected out to the SSH channel right now", "gauge", func() []metrics.Sample {
+	m.Register("beacon_ssh_connectors", "Connector machines (behind NAT) connected out to the SSH channel right now", "gauge", func() []metrics.Sample {
 		return []metrics.Sample{{Value: float64(g.connectors.count())}}
 	})
-	m.Register("linkos_beacon_ssh_connector_machines", "Machines added as connectors, connected or not", "gauge", func() []metrics.Sample {
+	m.Register("beacon_ssh_connector_machines", "Machines added as connectors, connected or not", "gauge", func() []metrics.Sample {
 		n := 0
 		for _, m := range g.d.Store.Machines() {
 			if m.Connector() {
@@ -542,7 +542,7 @@ func (g *Gate) connectorSetup(m store.Machine) *ConnectorSetup {
 	fmt.Fprintf(&sb, "cat > /etc/systemd/system/beacon-connector.service <<'EOF'\n%sEOF\n", unit)
 	sb.WriteString("systemctl daemon-reload && systemctl enable --now beacon-connector\n")
 	if m.ConnectorKey == "" {
-		fmt.Fprintf(&sb, "# then register the key with Beacon: linkos-beacon machine connector %s -key \"$(cat %s.pub)\"\n", m.Name, connectorKeyPath)
+		fmt.Fprintf(&sb, "# then register the key with Beacon: beacon machine connector %s -key \"$(cat %s.pub)\"\n", m.Name, connectorKeyPath)
 	}
 	return &ConnectorSetup{KnownHosts: kh, Command: cmd, Unit: unit, Script: sb.String(), HostKeyPending: m.HostKey == ""}
 }

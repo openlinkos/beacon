@@ -326,7 +326,7 @@ func (s *Server) run(j *job) {
 	setGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		s.log.Error("run not started", "delivery", j.p.Delivery, "alert", j.p.Alert.ID, "err", err)
-		fmt.Fprintf(out, "--- linkos-oncall: not started: %v\n", err)
+		fmt.Fprintf(out, "--- beacon-oncall: not started: %v\n", err)
 		return
 	}
 	s.mu.Lock()
@@ -377,7 +377,7 @@ func (s *Server) run(j *job) {
 	if timedOut {
 		how += fmt.Sprintf(", killed after the %s timeout", s.o.Timeout)
 	}
-	fmt.Fprintf(out, "\n--- linkos-oncall: %s after %s\n", how, took)
+	fmt.Fprintf(out, "\n--- beacon-oncall: %s after %s\n", how, took)
 	s.log.Info("run ended", "delivery", j.p.Delivery, "event", j.p.Event, "alert", j.p.Alert.ID, "exit", code,
 		"timed_out", timedOut, "duration", took, "log", name)
 }

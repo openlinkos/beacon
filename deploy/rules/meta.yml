@@ -26,7 +26,7 @@ groups:
           failure_domain: monitoring
         annotations:
           summary: "vmalert fails to evaluate rule group {{ $labels.group }}"
-          description: "Rule evaluation errors in group {{ $labels.group }}: alerts in it may not fire. See the log of linkos-beacon-vmalert."
+          description: "Rule evaluation errors in group {{ $labels.group }}: alerts in it may not fire. See the log of beacon-vmalert."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/VMAlertRuleErrors.md
 
       - alert: VictoriaMetricsDiskLow
@@ -44,7 +44,7 @@ groups:
       # the gateway's own errors (5xx), mostly VictoriaMetrics refusing writes; a wrong token or an expired
       # machine (4xx) is the sender's problem and does not count
       - alert: GatewayErrors
-        expr: sum by (route) (increase(linkos_gateway_requests_total{code=~"5.."}[10m])) > 0
+        expr: sum by (route) (increase(beacon_gateway_requests_total{code=~"5.."}[10m])) > 0
         for: 10m
         labels:
           severity: warning
@@ -58,13 +58,13 @@ groups:
       # a probe whose pushes get through only now and then: its queue never empties (a probe that cannot push
       # at all is ProbeLocationDown; its queue is not visible from here)
       - alert: ProbeQueueBacklog
-        expr: max by (host) (linkos_probe_queue_bytes) > 8e6
+        expr: max by (host) (beacon_probe_queue_bytes) > 8e6
         for: 15m
         labels:
           severity: warning
           service: "probe-{{ $labels.host }}"
           failure_domain: "probe-{{ $labels.host }}"
         annotations:
-          summary: "linkos-probe on {{ $labels.host }} has {{ $value | humanize1024 }}B waiting to be pushed"
+          summary: "beacon-probe on {{ $labels.host }} has {{ $value | humanize1024 }}B waiting to be pushed"
           description: "The agent keeps queueing instead of pushing to the gateway; at 64 MB it drops the oldest batches. Some pushes get through, or this could not be reported at all."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeQueueBacklog.md

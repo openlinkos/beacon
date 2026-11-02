@@ -82,18 +82,18 @@ jobs:
       - name: Beacon's configuration, catalogue, targets and modules
         run: |
           set -euo pipefail
-          go build -o "$RUNNER_TEMP/linkos-beacon" ./cmd/linkos-beacon
-          go build -o "$RUNNER_TEMP/linkos-probe" ./cmd/linkos-probe
+          go build -o "$RUNNER_TEMP/beacon" ./cmd/beacon
+          go build -o "$RUNNER_TEMP/beacon-probe" ./cmd/beacon-probe
           s="$RUNNER_TEMP/secrets"
           mkdir -p "$s" "$RUNNER_TEMP/data"
           head -c 32 /dev/urandom | base64 | tr -d '\n=+/' > "$s/rules-token"
           ssh-keygen -q -t ed25519 -N '' -f "$s/ssh-host-key"
           ssh-keygen -q -t ed25519 -N '' -f "$s/ssh-ca-key"
           # the paths the container sees become the repository's and the generated secrets'
-          sed -e "s#/etc/linkos-beacon/secrets/#$s/#" -e "s#/etc/linkos-beacon/#$GITHUB_WORKSPACE/deploy/#" \
+          sed -e "s#/etc/beacon/secrets/#$s/#" -e "s#/etc/beacon/#$GITHUB_WORKSPACE/deploy/#" \
             -e "s#^data_dir: .*#data_dir: $RUNNER_TEMP/data#" deploy/config.yaml > "$RUNNER_TEMP/config.yaml"
-          "$RUNNER_TEMP/linkos-beacon" check-config -config "$RUNNER_TEMP/config.yaml"
-          "$RUNNER_TEMP/linkos-probe" check -modules deploy/targets/modules.yml
+          "$RUNNER_TEMP/beacon" check-config -config "$RUNNER_TEMP/config.yaml"
+          "$RUNNER_TEMP/beacon-probe" check -modules deploy/targets/modules.yml
 
       - name: Shell scripts
-        run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/linkos-heartbeat
+        run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/beacon-heartbeat

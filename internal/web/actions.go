@@ -57,7 +57,7 @@ func (s *Server) problem(code string) string {
 	case "ssh_off":
 		return s.t("The SSH channel is off.")
 	case "not_revocable":
-		return s.t("Only tokens that reach machines are revoked here; revoke the others with linkos-beacon token revoke on the host.")
+		return s.t("Only tokens that reach machines are revoked here; revoke the others with beacon token revoke on the host.")
 	}
 	return s.t("That did not work; the log says why.")
 }

@@ -114,7 +114,7 @@ exit 3
 		t.Fatalf("logs: %v", matches)
 	}
 	out, _ := os.ReadFile(matches[0])
-	if !strings.Contains(string(out), "hello from the agent") || !strings.Contains(string(out), "--- linkos-oncall: exit 3 after") {
+	if !strings.Contains(string(out), "hello from the agent") || !strings.Contains(string(out), "--- beacon-oncall: exit 3 after") {
 		t.Errorf("log:\n%s", out)
 	}
 	l := logs.String()

@@ -1,12 +1,12 @@
-// Command linkos-oncall is the reference harness that runs an agent when Beacon wakes it. It takes
+// Command beacon-oncall is the reference harness that runs an agent when Beacon wakes it. It takes
 // Beacon's signed webhook, answers at once, and starts the program named with -run (through /bin/sh -c)
 // with the payload on its standard input and the alert in BEACON_* variables. Each run's output goes to
 // a file under -log-dir. The harness decides nothing: the program does. See docs/agents.md, "Running an
 // agent when woken", and contrib/oncall for wrappers around Claude Code and Codex.
 //
-//	linkos-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
-//	              [-timeout 30m] [-log-dir /var/lib/linkos-oncall/logs] [-keep 720h]
-//	linkos-oncall version
+//	beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
+//	              [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
+//	beacon-oncall version
 package main
 
 import (
@@ -32,15 +32,15 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
-  linkos-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
-                [-timeout 30m] [-log-dir /var/lib/linkos-oncall/logs] [-keep 720h]
+  beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
+                [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
                                                      take Beacon's webhook and run the program for each alert
-  linkos-oncall version
+  beacon-oncall version
 `)
 }
 
 func versionString() string {
-	s := "linkos-oncall " + version.Version
+	s := "beacon-oncall " + version.Version
 	if version.Commit != "" {
 		s += " (" + version.Commit
 		if version.Date != "" {
@@ -62,7 +62,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 	}
-	fs := flag.NewFlagSet("linkos-oncall", flag.ContinueOnError)
+	fs := flag.NewFlagSet("beacon-oncall", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { usage(stderr); fs.PrintDefaults() }
 	listen := fs.String("listen", ":17007", "address to take Beacon's webhook on")
@@ -71,7 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	runResolved := fs.String("run-resolved", "", "program for resolved events; without it they are acknowledged and nothing runs")
 	concurrency := fs.Int("concurrency", 2, "programs running at once; the rest wait, at most 32")
 	timeout := fs.Duration("timeout", 30*time.Minute, "time a program gets before its process group is killed")
-	logDir := fs.String("log-dir", "/var/lib/linkos-oncall/logs", "directory for each run's output, as <time>-<delivery>.log")
+	logDir := fs.String("log-dir", "/var/lib/beacon-oncall/logs", "directory for each run's output, as <time>-<delivery>.log")
 	keep := fs.Duration("keep", 720*time.Hour, "logs older than this are removed; 0 keeps them all")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -113,7 +113,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		WriteTimeout: 10 * time.Second, MaxHeaderBytes: 16 << 10}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("linkos-oncall started", "version", version.Version, "listen", *listen, "concurrency", *concurrency,
+	log.Info("beacon-oncall started", "version", version.Version, "listen", *listen, "concurrency", *concurrency,
 		"timeout", *timeout, "log_dir", *logDir, "resolved", *runResolved != "")
 	select {
 	case <-ctx.Done():

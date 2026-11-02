@@ -17,7 +17,7 @@ const Repo = "https://github.com/openlinkos/beacon"
 
 // String is the output of the version subcommand.
 func String() string {
-	s := "linkos-beacon " + Version
+	s := "beacon " + Version
 	if Commit != "" {
 		s += " (" + Commit
 		if Date != "" {
@@ -29,4 +29,4 @@ func String() string {
 }
 
 // UserAgent is the User-Agent of the requests the service makes (Feishu, Pushover, probes).
-func UserAgent() string { return "linkos-beacon/" + Version + " (+" + Repo + ")" }
+func UserAgent() string { return "beacon/" + Version + " (+" + Repo + ")" }

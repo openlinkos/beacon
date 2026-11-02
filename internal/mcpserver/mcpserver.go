@@ -191,7 +191,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	if o.config != nil {
 		instructions += "\n\n" + ConfigInstructions
 	}
-	s := mcp.NewServer(&mcp.Implementation{Name: "linkos-beacon", Title: "Beacon", Version: version.Version},
+	s := mcp.NewServer(&mcp.Implementation{Name: "beacon", Title: "Beacon", Version: version.Version},
 		&mcp.ServerOptions{Instructions: instructions})
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 

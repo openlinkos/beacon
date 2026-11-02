@@ -180,7 +180,7 @@ func (s *session) finish(exit *int) Transcript {
 	_ = s.g.d.Store.Audit(store.AuditEntry{Actor: rec.Agent, Via: rec.Via, Action: "ssh_" + rec.Kind, Target: rec.Machine,
 		Detail: short(rec.Command, 200)})
 	if s.g.d.Metrics != nil {
-		s.g.d.Metrics.Inc("linkos_beacon_ssh_sessions_total", "Sessions on machines through the SSH channel, by kind and how they came",
+		s.g.d.Metrics.Inc("beacon_ssh_sessions_total", "Sessions on machines through the SSH channel, by kind and how they came",
 			metrics.Labels("kind", rec.Kind, "via", rec.Via))
 	}
 	s.g.echo.add(rec)

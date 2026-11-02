@@ -1,11 +1,11 @@
 # Beacon's configuration for the reference deployment. Every field is explained in config.example.yaml at the
 # repository's root; this file keeps what the deployment needs. Paths are as the container sees them:
-# compose.yaml mounts this directory's catalog/, targets/ and secrets/ under /etc/linkos-beacon.
+# compose.yaml mounts this directory's catalog/, targets/ and secrets/ under /etc/beacon.
 # install.sh replaces status.example.com and metrics.example.com with the names in .env.
 
 listen: ":17001"
-data_dir: /var/lib/linkos-beacon
-catalog_dir: /etc/linkos-beacon/catalog       # imported at the first start; docs/catalog.md
+data_dir: /var/lib/beacon
+catalog_dir: /etc/beacon/catalog              # imported at the first start; docs/catalog.md
 public_url: https://status.example.com
 trusted_proxies: [172.16.0.0/12]               # Caddy, on the compose network; it rewrites X-Forwarded-For
 language: en                                   # cards and chat messages: en or zh
@@ -13,7 +13,7 @@ timezone: UTC
 
 # vmalert posts its alerts to the gateway with this token; install.sh generates it
 rules:
-  token_file: /etc/linkos-beacon/secrets/rules-token
+  token_file: /etc/beacon/secrets/rules-token
 
 routing:
   group_by: [alertname, service]
@@ -39,14 +39,14 @@ victoriametrics:
 
 gateway:
   listen: ":17006"
-  targets_dir: /etc/linkos-beacon/targets      # imported at the first start, with modules.yml
+  targets_dir: /etc/beacon/targets             # imported at the first start, with modules.yml
 
 # The SSH channel (docs/ssh.md). install.sh generates both keys.
 ssh:
   listen: ":17002"
   public_address: status.example.com:17002     # where agents connect
-  host_key_file: /etc/linkos-beacon/secrets/ssh-host-key
-  ca_key_file: /etc/linkos-beacon/secrets/ssh-ca-key
+  host_key_file: /etc/beacon/secrets/ssh-host-key
+  ca_key_file: /etc/beacon/secrets/ssh-ca-key
   # source_addresses: [203.0.113.7/32]         # this machine's public address: certificates then work only from it
   keep: 4320h                                  # sessions and recordings are kept 180 days
 
@@ -55,25 +55,25 @@ links:
 
 # The chat and the phones. Until a section below is filled in, alerts are recorded and shown in the API and MCP,
 # and nobody is notified. Put each secret in the file named, under ./secrets (owner 65532, mode 0400), then
-# uncomment the section and restart linkos-beacon. Feishu: docs/feishu.md.
+# uncomment the section and restart beacon. Feishu: docs/feishu.md.
 # feishu:
-#   app_id_file: /etc/linkos-beacon/secrets/feishu-app-id
-#   app_secret_file: /etc/linkos-beacon/secrets/feishu-app-secret
+#   app_id_file: /etc/beacon/secrets/feishu-app-id
+#   app_secret_file: /etc/beacon/secrets/feishu-app-secret
 #   domain: feishu                             # feishu or lark
 #   callback: websocket                        # the long connection; no public URL needed
 #   chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 #   on_call:
 #     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}
 #   monthly_budget: 10000
-#   webhook_url_file: /etc/linkos-beacon/secrets/feishu-webhook-url   # the group's custom bot: echoes, info alerts
+#   webhook_url_file: /etc/beacon/secrets/feishu-webhook-url   # the group's custom bot: echoes, info alerts
 #   webhook_keyword: Beacon
 #
 # pushover:
-#   user_key_file: /etc/linkos-beacon/secrets/pushover-user-key
-#   token_file: /etc/linkos-beacon/secrets/pushover-app-token
+#   user_key_file: /etc/beacon/secrets/pushover-user-key
+#   token_file: /etc/beacon/secrets/pushover-app-token
 #
 # healthchecks:                                # the dead man's switch: pinged every minute while alerts can be delivered
-#   bridge_url_file: /etc/linkos-beacon/secrets/healthchecks-bridge-url
+#   bridge_url_file: /etc/beacon/secrets/healthchecks-bridge-url
 #
 # escalation:                                  # the defaults, once the sections above exist
 #   critical: {channel: app, buzz: 10m, pushover: 15m}
@@ -85,7 +85,7 @@ links:
 #   - name: claude-oncall
 #     kind: webhook
 #     url: https://agents.example.com/hooks/beacon
-#     secret_file: /etc/linkos-beacon/secrets/agent-hook-secret
+#     secret_file: /etc/beacon/secrets/agent-hook-secret
 #     severities: [critical]
 #     resolved: true
 

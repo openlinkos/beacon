@@ -68,7 +68,7 @@ func TestRequestsLongPoll(t *testing.T) {
 	code(t, e.do("GET", "/api/v1/agent/requests?wait=soon", e.probe, ""), http.StatusBadRequest, "bad_input")
 	code(t, e.do("GET", "/api/v1/agent/requests?wait=0", e.expired, ""), http.StatusForbidden, "location.inactive")
 	code(t, e.do("GET", "/api/v1/agent/requests?wait=0", e.host, ""), http.StatusForbidden, "auth.scope")
-	if !strings.Contains(scrape(e), `linkos_gateway_requests_total{route="requests",code="200"}`) {
+	if !strings.Contains(scrape(e), `beacon_gateway_requests_total{route="requests",code="200"}`) {
 		t.Errorf("polls are counted:\n%s", scrape(e))
 	}
 }
@@ -92,8 +92,8 @@ func TestAnswers(t *testing.T) {
 	code(t, e.do("POST", "/api/v1/agent/requests/"+v.ID, e.probe, "{nope"), http.StatusBadRequest, "bad_input")
 	code(t, e.do("POST", "/api/v1/agent/requests/"+v.ID, e.expired, body), http.StatusForbidden, "location.inactive")
 	code(t, e.do("POST", "/api/v1/agent/requests/"+v.ID, e.host, body), http.StatusForbidden, "auth.scope")
-	for _, want := range []string{"linkos_probe_now_requests_total 1", `linkos_probe_now_answers_total{location="cdn-pre-us1"} 1`,
-		`linkos_gateway_requests_total{route="answers",code="204"} 2`} {
+	for _, want := range []string{"beacon_probe_now_requests_total 1", `beacon_probe_now_answers_total{location="cdn-pre-us1"} 1`,
+		`beacon_gateway_requests_total{route="answers",code="204"} 2`} {
 		if !strings.Contains(scrape(e), want) {
 			t.Errorf("metrics lack %s:\n%s", want, scrape(e))
 		}

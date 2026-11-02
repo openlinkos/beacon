@@ -110,7 +110,7 @@ func New(d Deps) *Board {
 	}
 	b := &Board{d: d, reqs: map[string]*request{}, last: map[string]time.Time{}, waiters: map[string][]chan struct{}{}}
 	if d.Metrics != nil {
-		d.Metrics.Register("linkos_probe_now_requests_open", "Probe-on-demand requests waiting for locations to answer", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_probe_now_requests_open", "Probe-on-demand requests waiting for locations to answer", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(b.Open())}}
 		})
 	}
@@ -291,7 +291,7 @@ func (b *Board) Create(by string, wants []Want) (View, error) {
 		Expected: slices.Sorted(maps.Keys(expected)), Results: []Result{}}, answered: map[string]time.Time{}, done: make(chan struct{})}
 	r.Missing = slices.Clone(r.Expected)
 	b.reqs[r.ID] = r
-	b.count("linkos_probe_now_requests_total", "Probe-on-demand requests made by agents", "")
+	b.count("beacon_probe_now_requests_total", "Probe-on-demand requests made by agents", "")
 	for l := range expected {
 		for _, ch := range b.waiters[l] {
 			close(ch)
@@ -404,7 +404,7 @@ func (b *Board) Answer(id, location string, results []targets.TargetResult) erro
 		}
 	}
 	r.Missing = slices.DeleteFunc(r.Missing, func(l string) bool { return l == location })
-	b.count("linkos_probe_now_answers_total", "Answers from probe locations to probe-on-demand requests", metrics.Labels("location", location))
+	b.count("beacon_probe_now_answers_total", "Answers from probe locations to probe-on-demand requests", metrics.Labels("location", location))
 	if len(r.Missing) == 0 && !r.Done {
 		r.Done = true
 		close(r.done)
@@ -431,7 +431,7 @@ func (b *Board) Await(ctx context.Context, id string) (View, bool) {
 	if !r.settled {
 		r.settled = true
 		for _, l := range r.Missing {
-			b.count("linkos_probe_now_missing_total", "Probe locations that did not answer a probe-on-demand request in time", metrics.Labels("location", l))
+			b.count("beacon_probe_now_missing_total", "Probe locations that did not answer a probe-on-demand request in time", metrics.Labels("location", l))
 		}
 	}
 	return r.snapshot(), true

@@ -13,7 +13,7 @@ agents:
   - name: claude-oncall
     kind: webhook
     url: https://agents.example.com/hooks/beacon
-    secret_file: /etc/linkos-beacon/secrets/agent-hook-secret   # at least 24 random characters
+    secret_file: /etc/beacon/secrets/agent-hook-secret   # at least 24 random characters
     severities: [critical, warning]
     service: "hub-.*|git-.*"                  # optional
     resolved: true                            # also say when the alert resolves
@@ -23,7 +23,7 @@ agents:
     repository: example/ops
     workflow: oncall.yml
     ref: main
-    token_file: /etc/linkos-beacon/secrets/github-dispatch-token
+    token_file: /etc/beacon/secrets/github-dispatch-token
 ```
 
 | Field | Meaning |
@@ -131,11 +131,11 @@ Pass the inputs through `env` as above rather than into the script itself: anyon
 
 ## Running an agent when woken
 
-A hook needs something at the other end that runs the agent. `linkos-oncall` is the reference harness, a third binary in the releases beside `linkos-beacon` and `linkos-probe`: it takes the webhook, checks the signature, and starts the program you name, with the payload on the program's standard input and the alert in its environment. It decides nothing, and it is as thin as that on purpose: Claude Code, Codex or any program that reads its environment runs behind it. `contrib/oncall` has wrappers for the first two, the prompt for the woken agent and a systemd unit.
+A hook needs something at the other end that runs the agent. `beacon-oncall` is the reference harness, a third binary in the releases beside `beacon` and `beacon-probe`: it takes the webhook, checks the signature, and starts the program you name, with the payload on the program's standard input and the alert in its environment. It decides nothing, and it is as thin as that on purpose: Claude Code, Codex or any program that reads its environment runs behind it. `contrib/oncall` has wrappers for the first two, the prompt for the woken agent and a systemd unit.
 
 ```bash
-linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
-  -run /usr/local/lib/linkos-oncall/claude-code.sh -log-dir /var/lib/linkos-oncall/logs
+beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh -log-dir /var/lib/beacon-oncall/logs
 ```
 
 | Flag | Meaning |
@@ -163,7 +163,7 @@ The program gets the payload on its standard input and these variables, each pre
 
 ### As a service
 
-`contrib/oncall/linkos-oncall.service` runs the harness as a user of its own with a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, and with `Restart=always`. Its header lists the install commands: the user, the secret and the token under `/etc/linkos-oncall`, readable by that user only, the wrapper and the prompt under `/usr/local/lib/linkos-oncall`, and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
+`contrib/oncall/beacon-oncall.service` runs the harness as a user of its own with a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, and with `Restart=always`. Its header lists the install commands: the user, the secret and the token under `/etc/beacon-oncall`, readable by that user only, the wrapper and the prompt under `/usr/local/lib/beacon-oncall`, and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
 
 ### In GitHub Actions
 
@@ -177,8 +177,8 @@ The harness checks the signature and starts the program; that is all it decides.
 
 `GET /api/v1/alerts/{id}/evidence` or the MCP tool `get_evidence` (scope `status:read`) gives in one answer what an agent needs to judge the alert:
 
-- **probes**: for the group's service, one result per location, target and module: whether it works at the end of the window, since when it fails (or when it came back), the reason (`probe_failure_info{reason}`: `dns`, `connect`, `timeout`, `tls`, `http_status`, …) and how many checks failed for each reason in the window, the duration, the HTTP status, the attempts (`linkos_probe_attempts`), the certificate's expiry, and whether the location has gone silent. Failing results come first. `queries` are the PromQL used, for a closer look through the gateway with a `metrics:read` token.
-- **heartbeats**: for an alert whose labels name a `heartbeat` (`HeartbeatStale`, `HeartbeatMissing`), the heartbeat's catalogue entry (`name`, `description`, `max_age`, `severity`, `machine`), whether the SSH channel has that machine (`enrolled`), its last success (`last_success`, from `linkos_heartbeat_last_success_timestamp_seconds` within 31 days) and a `hint` on reaching the machine. Absent for other alerts.
+- **probes**: for the group's service, one result per location, target and module: whether it works at the end of the window, since when it fails (or when it came back), the reason (`probe_failure_info{reason}`: `dns`, `connect`, `timeout`, `tls`, `http_status`, …) and how many checks failed for each reason in the window, the duration, the HTTP status, the attempts (`beacon_probe_attempts`), the certificate's expiry, and whether the location has gone silent. Failing results come first. `queries` are the PromQL used, for a closer look through the gateway with a `metrics:read` token.
+- **heartbeats**: for an alert whose labels name a `heartbeat` (`HeartbeatStale`, `HeartbeatMissing`), the heartbeat's catalogue entry (`name`, `description`, `max_age`, `severity`, `machine`), whether the SSH channel has that machine (`enrolled`), its last success (`last_success`, from `beacon_heartbeat_last_success_timestamp_seconds` within 31 days) and a `hint` on reaching the machine. Absent for other alerts.
 - **related**: other alert groups firing in the same `failure_domain`, or for the same service.
 - **changes**: change events in the window (below), those about the group's service or machines first.
 - **done**: the acknowledgement, the silences, the notes, the agents woken, the escalation, the alert's `machines` (those its labels name, `machine`, `host`, `location`, `failure_domain`, and those the catalogue names for its heartbeats), and the sessions in the window on those machines or by the agents that acknowledged it or left notes, the oldest first. Each session has its agent, machine, kind, command and exit status, a shell its last 20 commands with their exit statuses (`shell_commands`, for up to ten shells, those before the alert first; `commands` counts them all, and `get_session` has the rest with their output), and the link to its page.
@@ -200,7 +200,7 @@ After a fix, an agent should not have to wait for the next probe cycle and the r
 
 The probes push the same samples as in their cycle, so VictoriaMetrics has the fresh result and an alert resolves at the rule engine's next evaluation rather than a minute later. The call is audited (`probe_now`) and echoed to the chat in one line. Limits protect the probes: a target is probed on demand at most once every 15 seconds and a token has at most three requests in flight (`probe.busy`, 429); an unknown target, or one no active location probes, is `probe.not_found` (404); a Beacon without a gateway answers `probe.unavailable` (503). Requests live in memory for two minutes and do not survive a restart.
 
-For the probes, the protocol gains two gateway routes and nothing changes for older ones: `GET /api/v1/agent/requests?wait=25s` (`probe:write`) answers at once with the requests pending for the probe's location, in the shape of its targets, or with an empty list when the wait passes (at most 55 seconds); `POST /api/v1/agent/requests/{id}` takes what the probe found (`request.not_found` once the request has expired). `linkos-probe agent` keeps one such poll hanging beside its cycle. Against an older gateway it gets 404, says so once and asks again in an hour; an older probe never asks, and its location appears under `missing`.
+For the probes, the protocol gains two gateway routes and nothing changes for older ones: `GET /api/v1/agent/requests?wait=25s` (`probe:write`) answers at once with the requests pending for the probe's location, in the shape of its targets, or with an empty list when the wait passes (at most 55 seconds); `POST /api/v1/agent/requests/{id}` takes what the probe found (`request.not_found` once the request has expired). `beacon-probe agent` keeps one such poll hanging beside its cycle. Against an older gateway it gets 404, says so once and asks again in an hour; an older probe never asks, and its location appears under `missing`.
 
 ## Notes
 
@@ -215,7 +215,7 @@ For the probes, the protocol gains two gateway routes and nothing changes for ol
 Deployments, configuration changes and Flux's reconciliations reach Beacon as change events, so the evidence for an alert says what changed just before it. Senders post them to the gateway (port 17006) with a token that has the `changes:write` scope:
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create ci-deploy -scopes changes:write -expires 365d
+docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 365d
 ```
 
 ```bash
@@ -282,7 +282,7 @@ spec:
 
 Change events are kept for `changes.keep` (`720h`, 30 days, by default), at most 50,000. `GET /api/v1/changes` and the MCP tool `list_changes` (scope `status:read`) list them, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default).
 
-A token may post 60 change events a minute; the ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `linkos_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.
+A token may post 60 change events a minute; the ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `beacon_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.
 
 ## Tokens that renew themselves
 
@@ -293,7 +293,7 @@ An agent's token is its identity on the REST API, the MCP server and the SSH cha
 | `GET /api/v1/token`, `whoami` | The token as its holder sees it: `name`, `scopes`, `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
 | `POST /api/v1/token/renew`, `renew_token` | A new secret (`secret`, shown once) and the token; `old_secret_valid_until` says how long the one it replaced keeps working |
 
-The old secret stays valid for ten minutes after a renewal, so a client can swap its token file without a race and a process that read the file a moment before keeps working. A token renews itself at most once every 24 hours (`token.too_soon`, `429`). The tokens of enrolled machines (probe, host, heartbeat) never do: `linkos-beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `linkos-beacon token list` shows each token's lifetime and last renewal. SSH sign-in is by key and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
+The old secret stays valid for ten minutes after a renewal, so a client can swap its token file without a race and a process that read the file a moment before keeps working. A token renews itself at most once every 24 hours (`token.too_soon`, `429`). The tokens of enrolled machines (probe, host, heartbeat) never do: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal. SSH sign-in is by key and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
 
 A harness runs something like this once a day (cron, a systemd timer), with the token file read by the agent on every call:
 
@@ -301,7 +301,7 @@ A harness runs something like this once a day (cron, a systemd timer), with the 
 #!/bin/sh
 # Renew the Beacon token in $TOKEN_FILE and swap the file atomically.
 set -eu
-TOKEN_FILE=${TOKEN_FILE:-/etc/linkos-oncall/beacon-token}
+TOKEN_FILE=${TOKEN_FILE:-/etc/beacon-oncall/beacon-token}
 BEACON=${BEACON:-https://status.example.com}
 resp=$(curl -sS -w '\n%{http_code}' -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BEACON/api/v1/token/renew")
 code=$(printf '%s\n' "$resp" | tail -n 1)
@@ -315,7 +315,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
 ```
 
-Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token; when it does, someone creates a new one with `linkos-beacon token create`, as before. A token that is leaked keeps renewing itself until it is revoked (`linkos-beacon token revoke NAME`): the chat sees every renewal, and `token list` shows the last one.
+Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token; when it does, someone creates a new one with `beacon token create`, as before. A token that is leaked keeps renewing itself until it is revoked (`beacon token revoke NAME`): the chat sees every renewal, and `token list` shows the last one.
 
 ## What Beacon does not do here
 

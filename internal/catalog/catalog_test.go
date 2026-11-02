@@ -51,10 +51,10 @@ locations:
 	m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
 	for _, want := range []string{
-		`linkos_expected_location{location="us-los-angeles",region="overseas",network="CN2 GIA"} 1`,
-		`linkos_heartbeat_max_age_seconds{heartbeat="lo1-backup",severity="warning"} 93600`,
-		`linkos_heartbeat_max_age_seconds{heartbeat="nightly-dump",severity="critical",machine="db-1"} 3600`,
-		`linkos_resource_expiry_timestamp_seconds{resource="cdn-pre-us3",kind="vps"} 1.7957376e+09`,
+		`beacon_expected_location{location="us-los-angeles",region="overseas",network="CN2 GIA"} 1`,
+		`beacon_heartbeat_max_age_seconds{heartbeat="lo1-backup",severity="warning"} 93600`,
+		`beacon_heartbeat_max_age_seconds{heartbeat="nightly-dump",severity="critical",machine="db-1"} 3600`,
+		`beacon_resource_expiry_timestamp_seconds{resource="cdn-pre-us3",kind="vps"} 1.7957376e+09`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in\n%s", want, body)
@@ -125,9 +125,9 @@ resources:
 		m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 		return rec.Body.String()
 	}
-	seattle := `linkos_expected_location{location="cdn-pre-us3"`
+	seattle := `beacon_expected_location{location="cdn-pre-us3"`
 	// no resource of that name: always expected; a resource of that name that is not a vps does not count
-	others := []string{`linkos_expected_location{location="cdn-pro-us1"`, `linkos_expected_location{location="monitor-us1"`}
+	others := []string{`beacon_expected_location{location="cdn-pro-us1"`, `beacon_expected_location{location="monitor-us1"`}
 	// the whole expiry day still counts; the next day the probe is no longer expected
 	b := scrape("2026-11-27T23:59:00Z")
 	if !strings.Contains(b, seattle) {

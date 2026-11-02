@@ -4,14 +4,14 @@ Instructions for AI coding agents working in this repository. `CLAUDE.md` is a s
 
 ## Project
 
-Beacon · 烽火 (`linkos-beacon`, and the probe agent `linkos-probe`) is infrastructure for AI agents that run operations, in three parts. **Sees**: monitoring that tells whether services work for their users, probed from where the users are, with a gateway for machines (enrolled tokens, labels set by the server, targets handed out), alert routing in place of Alertmanager, Feishu app cards, escalation to phones through Pushover and a dead man's switch on healthchecks.io. **Reaches**: an SSH channel through which agents get to machines with the tools they know (ssh, scp, sftp, rsync, port forwarding, MCP tools) without holding a key, every session recorded. **Connects**: one platform for people and agents, with scoped tokens, a REST API and a built-in MCP server, an audit log echoed to the alert chat, and later status pages. Go; one service and one probe binary; metrics and rules live in VictoriaMetrics and vmalert. Beacon is one piece of infrastructure for the AI era, the piece where agents run operations; its makers run their own operations on it, configured outside this repository.
+Beacon · 烽火 (`beacon`, and the probe agent `beacon-probe`) is infrastructure for AI agents that run operations, in three parts. **Sees**: monitoring that tells whether services work for their users, probed from where the users are, with a gateway for machines (enrolled tokens, labels set by the server, targets handed out), alert routing in place of Alertmanager, Feishu app cards, escalation to phones through Pushover and a dead man's switch on healthchecks.io. **Reaches**: an SSH channel through which agents get to machines with the tools they know (ssh, scp, sftp, rsync, port forwarding, MCP tools) without holding a key, every session recorded. **Connects**: one platform for people and agents, with scoped tokens, a REST API and a built-in MCP server, an audit log echoed to the alert chat, and later status pages. Go; one service and one probe binary; metrics and rules live in VictoriaMetrics and vmalert. Beacon is one piece of infrastructure for the AI era, the piece where agents run operations; its makers run their own operations on it, configured outside this repository.
 
 **Read [docs/goals.md](docs/goals.md) before you plan a change**, and say which goal it serves. The goals rank what matters when they pull apart, and list what Beacon will not do.
 
 ## Architecture
 
 ```
-linkos-probe agent ──push (text format, gzip)──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
+beacon-probe agent ──push (text format, gzip)──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
   ▲ targets, modules, settings ◀── gateway                                          │ alerts (Alertmanager API v2)
                                                                                     ▼
 people ◀── Feishu cards, Pushover ◀── bridge ◀── router (group, inhibit, silence) ◀── gateway ◀── CI, Flux (change events)
@@ -20,13 +20,13 @@ agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge (evidence, timeline, no
 agents ──▶ ssh, scp, sftp, rsync (port 17002) ──▶ SSH channel ──▶ machines (5-minute certificates; every session recorded)
 ```
 
-One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001) and the SSH channel (port 17002). State is one bbolt file; recordings of SSH sessions are files beside it. Ports 17001 and 17002 are for people and agents, 17006 for machines.
+One process, `beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001) and the SSH channel (port 17002). State is one bbolt file; recordings of SSH sessions are files beside it. Ports 17001 and 17002 are for people and agents, 17006 for machines.
 
 | Package | What it is |
 | --- | --- |
-| `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; imports the configuration files at the first start and on SIGHUP |
-| `cmd/linkos-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
-| `cmd/linkos-oncall`, `internal/oncall` | The reference harness on the agent's machine: checks a hook's signature, starts the agent program named on its command line with the payload on stdin; `contrib/oncall` has the wrappers and the unit |
+| `cmd/beacon` | The service and its CLI: `serve`, `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; imports the configuration files at the first start and on SIGHUP |
+| `cmd/beacon-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
+| `cmd/beacon-oncall`, `internal/oncall` | The reference harness on the agent's machine: checks a hook's signature, starts the agent program named on its command line with the payload on stdin; `contrib/oncall` has the wrappers and the unit |
 | `internal/probenow` | Probing on demand: the board of requests the gateway's long-poll serves and `probe_now` waits on |
 | `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, change events from CI and Flux, read proxy for `metrics:read` |
 | `internal/router` | Alertmanager's job: grouping, `group_wait`/`group_interval`, `resolve_timeout`, inhibition, silences, Watchdog; groups survive restarts |
@@ -51,7 +51,7 @@ The catalogue, targets and module file are described in `docs/catalog.md`.
 ```bash
 go test ./...                  # unit tests; CI also runs -race and Windows
 golangci-lint run ./...        # also with GOOS=linux: some files are Unix-only
-go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs the secret files it names
+go run ./cmd/beacon check-config -config config.example.yaml   # needs the secret files it names
 ```
 
 ## Rules
@@ -62,7 +62,7 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 - **Secrets** are only ever read from `*_file` paths named in the configuration; never log them, never put them in errors. Beacon depends on no secret manager: how a deployment fills those files is its own business.
 - **Security first**: tokens are stored as SHA-256 only, with scopes and an expiry; a probe or host token writes only as its own subject, and an expired machine cannot write; the rule engine's alerts need the rules token or `alerts:send`; `/metrics` answers direct connections only; only the on-call people may act on cards. Do not weaken a check to make a test pass.
 - **The probe protocol** (`/api/v1/targets`, `/modules`, `/agent`, `/import/prometheus`) is shared by agents and gateways of different versions: add fields and routes, do not change or remove them, and keep agents working against an older gateway.
-- **Probe agents stay small**: they run on CDN edge nodes with little memory to spare (about 15 MB resident today, 64 MB hard limit in deployments). No new dependencies in `cmd/linkos-probe` without measuring.
+- **Probe agents stay small**: they run on CDN edge nodes with little memory to spare (about 15 MB resident today, 64 MB hard limit in deployments). No new dependencies in `cmd/beacon-probe` without measuring.
 - **Close to how agents work**: offer what agents already know (SSH, the shell, HTTP with JSON, Prometheus queries, MCP) rather than a protocol or configuration language of our own. MCP tools take the names and behaviour of agents' own tools (run a command, read a file, edit a file); results are clean and structured, without terminal control codes, and long ones are cut with a way to fetch the rest.
 - **No approval workflows**: Beacon records and shows what agents do; deciding what to run is the agent's job, done by its own harness. Do not add approval gates; the pause switch and each machine's access are the only brakes. Beacon calls no model.
 - **Public repository, no internal information**: name machines by location and network, never by internal host names, vendors or real addresses; examples use `example.com`. No deployment state (how many machines or locations, which accounts exist, what is switched on), no business plans, prices or customer names. Such things live in the makers' private repositories.
@@ -71,7 +71,7 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 
 ## Where it stands
 
-`v0.3.0-rc.10` has everything the north star's first loop needs, and the first real drill has passed (an agent woken by a hook fixed a broken heartbeat through the channel and left its notes, nobody stepping in): monitoring from several locations, the SSH channel (machines behind NAT included), agents on the MCP, hooks that wake an agent and `linkos-oncall` to catch them, evidence in one call, probing on demand to verify a fix, the console people sign in to with a token (on `@openlinkos/ui`, the family's design system) and the pages a card opens, tokens that renew themselves, configuration safe to delegate, and a reference deployment for other teams. The north star and what "landed" means are in `docs/goals.md`. What remains, each a loop that can be exercised on its own:
+`v0.3.0-rc.10` has everything the north star's first loop needs, and the first real drill has passed (an agent woken by a hook fixed a broken heartbeat through the channel and left its notes, nobody stepping in): monitoring from several locations, the SSH channel (machines behind NAT included), agents on the MCP, hooks that wake an agent and `beacon-oncall` to catch them, evidence in one call, probing on demand to verify a fix, the console people sign in to with a token (on `@openlinkos/ui`, the family's design system) and the pages a card opens, tokens that renew themselves, configuration safe to delegate, and a reference deployment for other teams. The north star and what "landed" means are in `docs/goals.md`. What remains, each a loop that can be exercised on its own:
 
 1. **More drills, and alerts delivered** (closure; goal 1): a drill target probed over HTTP so `probe_now` is exercised too; what the drills show missing comes first (the heartbeat's machine, the look back before an alert and the resolved call's grace period came from the first one). Alert delivery to people turned on once a deployment's accounts exist, then `v0.3.0`. The docs site at beacon.openlinkos.com and the brand mark are being finished alongside.
 2. **Status pages** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, an Atom feed, badges, public JSON.

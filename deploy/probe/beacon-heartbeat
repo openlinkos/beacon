@@ -1,0 +1,16 @@
+#!/bin/sh
+# A job's heartbeat: `beacon-heartbeat <name>` at the end of a job that succeeded writes one sample of
+# beacon_heartbeat_last_success_timestamp_seconds into the directory beacon-probe reads
+# (/var/lib/beacon-probe/textfile); the HeartbeatStale rule compares it with the max_age in the catalogue.
+# The name is lower-case letters, digits and dashes, as in catalog/heartbeats.yaml.
+# Example: restic backup … && beacon-heartbeat nas-backup
+set -eu
+name="${1:-}"
+case "$name" in
+  '' | *[!a-z0-9-]*) echo "usage: beacon-heartbeat <name>  (lower-case letters, digits and dashes)" >&2; exit 2 ;;
+esac
+dir=/var/lib/beacon-probe/textfile
+tmp=$(mktemp "$dir/.heartbeat_$name.XXXXXX")
+printf 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="%s"} %s\n' "$name" "$(date +%s)" > "$tmp"
+chmod 644 "$tmp"
+mv -f "$tmp" "$dir/heartbeat_$name.prom"

@@ -1,5 +1,5 @@
 Third-party files served by Beacon's pages (internal/web/static). Nothing here is fetched from the
-network at run time; the files are embedded in the linkos-beacon binary.
+network at run time; the files are embedded in the beacon binary.
 
 asciinema-player 3.17.0
   Copyright 2011 Marcin Kulik. Licensed under the Apache License, Version 2.0 (LICENSE.asciinema-player).

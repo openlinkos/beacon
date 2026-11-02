@@ -18,4 +18,4 @@ Free disk (old images, logs), shorten the retention, or grow the volume. Victori
 
 `vm_free_disk_space_bytes` is above 5 GB again; the alert resolves after 10 minutes.
 
-To silence: `linkos-beacon silence create -matchers 'alertname=VictoriaMetricsDiskLow' -duration 24h -comment '…'`.
+To silence: `beacon silence create -matchers 'alertname=VictoriaMetricsDiskLow' -duration 24h -comment '…'`.

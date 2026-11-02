@@ -149,7 +149,7 @@ func TestEvidence(t *testing.T) {
 		now: []vm.Sample{
 			{Labels: probeLabels("us-los-angeles", "__name__", "probe_failure_info", "reason", "timeout"), Value: 1},
 			{Labels: probeLabels("us-los-angeles", "__name__", "probe_duration_seconds"), Value: 10.00049},
-			{Labels: probeLabels("us-los-angeles", "__name__", "linkos_probe_attempts"), Value: 2},
+			{Labels: probeLabels("us-los-angeles", "__name__", "beacon_probe_attempts"), Value: 2},
 			{Labels: probeLabels("cn-shanghai-bgp", "__name__", "probe_failure_info", "reason", "connect"), Value: 1}, // stale: it recovered
 			{Labels: probeLabels("cn-shanghai-bgp", "__name__", "probe_http_status_code"), Value: 200},
 			{Labels: probeLabels("cn-shanghai-bgp", "__name__", "probe_ssl_earliest_cert_expiry"), Value: 1798761600},

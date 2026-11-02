@@ -222,7 +222,7 @@ func (s *Service) unenrolled(c *catalog.Catalog) []string {
 		}
 		if _, ok := s.d.Store.Machine(h.Machine); !ok {
 			out = append(out, fmt.Sprintf("heartbeat %q names machine %q, which is not enrolled on the SSH channel; "+
-				"until it is (linkos-beacon machine add, or add_machine), the evidence for its alerts names a machine no agent can reach", h.Name, h.Machine))
+				"until it is (beacon machine add, or add_machine), the evidence for its alerts names a machine no agent can reach", h.Name, h.Machine))
 		}
 	}
 	return out
@@ -241,6 +241,6 @@ func (s *Service) checkMachine(cur *State, next map[string][]byte, key string) e
 	if _, ok := s.d.Store.Machine(now.Machine); ok {
 		return nil
 	}
-	return fmt.Errorf("%w: heartbeat %q: machine %q is not enrolled on the SSH channel; enrol it first (linkos-beacon machine add, "+
+	return fmt.Errorf("%w: heartbeat %q: machine %q is not enrolled on the SSH channel; enrol it first (beacon machine add, "+
 		"or add_machine), name one that list_machines shows, or leave machine out", ErrInvalid, key, now.Machine)
 }

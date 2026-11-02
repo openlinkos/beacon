@@ -42,7 +42,7 @@ type MachinesRequest struct {
 	Machines []string `json:"machines"`
 }
 
-// SSHState is the channel's state for `linkos-beacon ssh status`.
+// SSHState is the channel's state for `beacon ssh status`.
 type SSHState struct {
 	Enabled          bool      `json:"enabled"`
 	PausedSince      time.Time `json:"paused_since,omitzero"`

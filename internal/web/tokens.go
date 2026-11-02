@@ -43,7 +43,7 @@ func (s *Server) tokens(w http.ResponseWriter, r *http.Request, v *viewer) {
 		RevokeHint: s.t("Revoking ends the token at once: its SSH sessions are refused from then on and its console sign-ins end."),
 		Subject:    s.t("Writes as"),
 	}}
-	p.Note = s.t("Tokens are made with linkos-beacon token create on the host. A token that reaches machines can be revoked here with machines:write, to stop one agent; the others are revoked with linkos-beacon token revoke on the host, since they keep monitoring running.")
+	p.Note = s.t("Tokens are made with beacon token create on the host. A token that reaches machines can be revoked here with machines:write, to stop one agent; the others are revoked with beacon token revoke on the host, since they keep monitoring running.")
 	p.Count = num(len(all))
 	_, from, to := s.page(len(all), r.URL.Query(), "/tokens", &p.List)
 	for _, t := range all[from:to] {

@@ -5,7 +5,7 @@ How Beacon is put together: the processes, where state lives, the path an alert 
 ## The whole picture
 
 ```
-linkos-probe agent ──push (text format, gzip)──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
+beacon-probe agent ──push (text format, gzip)──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
   ▲ targets, modules, settings ◀── gateway                                          │ alerts (Alertmanager API v2)
                                                                                     ▼
 people ◀── Feishu cards, Pushover ◀── bridge ◀── router (group, inhibit, silence) ◀── gateway ◀── CI, Flux (change events)
@@ -18,13 +18,13 @@ Three binaries, all in Go with no cgo:
 
 | Binary | Where it runs | What it does |
 | --- | --- | --- |
-| `linkos-beacon` | The centre, beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck` |
-| `linkos-probe` | Each probe location: an edge node, a small VPS where users are | `agent` pushes results to the gateway; `serve` answers scrapes like the Blackbox Exporter; `check` validates a module file; `run` probes once |
-| `linkos-oncall` | The machine where an agent runs | The reference harness: checks a hook's signature and starts the agent program you name, with the payload on its standard input |
+| `beacon` | The centre, beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck` |
+| `beacon-probe` | Each probe location: an edge node, a small VPS where users are | `agent` pushes results to the gateway; `serve` answers scrapes like the Blackbox Exporter; `check` validates a module file; `run` probes once |
+| `beacon-oncall` | The machine where an agent runs | The reference harness: checks a hook's signature and starts the agent program you name, with the payload on its standard input |
 
 ## One process, three ports
 
-`linkos-beacon serve` is one process holding the gateway, the router, the bridge, the REST API, the MCP server, the pages people open from a card, and the SSH channel.
+`beacon serve` is one process holding the gateway, the router, the bridge, the REST API, the MCP server, the pages people open from a card, and the SSH channel.
 
 | Port | For | What answers |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ A whole installation is four containers (Beacon, VictoriaMetrics, vmalert and Ca
 
 ## An alert's path
 
-1. **Probes push.** Every minute, `linkos-probe agent` probes the targets the gateway handed it and pushes the samples in the Prometheus text format, with a queue on disk for when the network is down. Its token names its location; the gateway labels everything it writes with the location, region, network and host from the catalogue, so a probe cannot speak for another, and a location whose machine has expired cannot write at all.
+1. **Probes push.** Every minute, `beacon-probe agent` probes the targets the gateway handed it and pushes the samples in the Prometheus text format, with a queue on disk for when the network is down. Its token names its location; the gateway labels everything it writes with the location, region, network and host from the catalogue, so a probe cannot speak for another, and a location whose machine has expired cannot write at all.
 2. **Rules decide.** vmalert evaluates the rules over VictoriaMetrics and posts what fires to the gateway's `POST /api/v2/alerts`, in Alertmanager's form, with the rules token. The reference rules call a service down only when at least two locations, and at least half of those reporting, fail it.
 3. **The router groups.** Alertmanager's job, done inside Beacon: grouping, `group_wait` and `group_interval`, `resolve_timeout`, inhibition and silences. Groups survive restarts. An alert named `Watchdog` proves the pipeline works and is never shown.
 4. **The bridge tells people.** A new group becomes a card in the alert chat; nobody acknowledging a critical one means a buzz in the Feishu app after 10 minutes and Pushover's emergency priority after 15. Low-severity alerts, and anything over the app's monthly budget, go to the chat's custom bot. While rules, routing and delivery all work, the bridge pings healthchecks.io every minute, so a dead centre still reaches a phone.
@@ -69,9 +69,9 @@ The configuration file names everything else, and secrets only as `*_file` paths
 
 | Package | What it is |
 | --- | --- |
-| `cmd/linkos-beacon` | The service and its command line; wires everything, and imports the configuration files at the first start and on `SIGHUP` |
-| `cmd/linkos-probe` | The probe agent: push mode, pull mode, checks |
-| `cmd/linkos-oncall`, `internal/oncall` | The reference harness on the agent's machine; `contrib/oncall` has the wrappers for Claude Code and Codex, the prompt and a systemd unit |
+| `cmd/beacon` | The service and its command line; wires everything, and imports the configuration files at the first start and on `SIGHUP` |
+| `cmd/beacon-probe` | The probe agent: push mode, pull mode, checks |
+| `cmd/beacon-oncall`, `internal/oncall` | The reference harness on the agent's machine; `contrib/oncall` has the wrappers for Claude Code and Codex, the prompt and a systemd unit |
 | `internal/gateway` | The machines' door: token scopes, labels from the catalogue, the write and import proxy to VictoriaMetrics, targets, modules and settings for probes, alerts from the rule engine, change events, the read proxy for `metrics:read` |
 | `internal/router` | Grouping, timing, inhibition, silences and the Watchdog |
 | `internal/bridge` | Alert groups to people (cards, acknowledgements, silences, escalation, budget, readiness, the healthchecks.io ping) and to agents (hooks, evidence, timeline, notes, change events, untrusted text cleaned) |

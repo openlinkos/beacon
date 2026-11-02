@@ -132,15 +132,15 @@ func New(d Deps) (*Gate, error) {
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
 		g.registerConnectorMetrics(m)
-		m.Register("linkos_beacon_ssh_open", "Agent connections and tool calls open on the SSH channel", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_open", "Agent connections and tool calls open on the SSH channel", "gauge", func() []metrics.Sample {
 			g.mu.Lock()
 			defer g.mu.Unlock()
 			return []metrics.Sample{{Value: float64(len(g.open))}}
 		})
-		m.Register("linkos_beacon_ssh_paused", "1 while agents' access to machines is paused", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_paused", "1 while agents' access to machines is paused", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: map[bool]float64{true: 1, false: 0}[g.Paused()]}}
 		})
-		m.Register("linkos_beacon_ssh_machines", "Machines the SSH channel reaches", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_machines", "Machines the SSH channel reaches", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(len(d.Store.Machines()))}}
 		})
 	}
@@ -261,7 +261,7 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 		return store.Machine{}, ErrDisabled
 	}
 	if g.Paused() {
-		return store.Machine{}, fmt.Errorf("%w since %s; a person resumes it with linkos-beacon ssh resume", ErrPaused,
+		return store.Machine{}, fmt.Errorf("%w since %s; a person resumes it with beacon ssh resume", ErrPaused,
 			g.PausedSince().Format(time.RFC3339))
 	}
 	t, ok := g.token(who.Name)

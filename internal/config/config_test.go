@@ -164,7 +164,7 @@ func TestGateway(t *testing.T) {
 		t.Errorf("a gateway without VictoriaMetrics: %v", err)
 	}
 	c, err := Parse([]byte(am + "victoriametrics:\n  url: http://vm:17005\ngateway:\n  listen: \":17006\"\n"))
-	if err != nil || c.Gateway.TargetsDir != "/etc/linkos-beacon/targets" {
+	if err != nil || c.Gateway.TargetsDir != "/etc/beacon/targets" {
 		t.Fatalf("gateway: %+v %v", c.Gateway, err)
 	}
 }

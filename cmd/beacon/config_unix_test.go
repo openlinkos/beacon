@@ -128,7 +128,7 @@ func TestServeAndConfigCommands(t *testing.T) {
 	put(cfg, "listen: 127.0.0.1:0\ndata_dir: "+data+"\ncatalog_dir: "+filepath.Join(etc, "catalog")+"\nlanguage: en\n"+
 		"gateway: {listen: 127.0.0.1:0, targets_dir: "+filepath.Join(etc, "targets")+"}\n"+
 		"rules: {token_file: "+filepath.Join(d, "rules-token")+"}\nvictoriametrics: {url: http://127.0.0.1:1}\n")
-	t.Setenv("LINKOS_BEACON_DATA_DIR", data)
+	t.Setenv("BEACON_DATA_DIR", data)
 
 	var logs syncBuffer
 	done := make(chan int, 1)
@@ -149,7 +149,7 @@ func TestServeAndConfigCommands(t *testing.T) {
 	if !strings.Contains(logs.String(), "imported the configuration files into the database") {
 		t.Errorf("the first start imports the files:\n%s", logs.String())
 	}
-	if code, out := cli("config", "history"); code != 0 || !strings.Contains(out, "linkos-beacon  start") || !strings.Contains(out, "import") {
+	if code, out := cli("config", "history"); code != 0 || !strings.Contains(out, "beacon  start") || !strings.Contains(out, "import") {
 		t.Errorf("history: %d %s", code, out)
 	}
 

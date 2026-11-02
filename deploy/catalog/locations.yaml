@@ -1,7 +1,7 @@
-# Probe locations: the machines that run `linkos-probe agent`. The id is the machine's name and what
-# `linkos-beacon enroll probe <id>` takes; the gateway labels everything the machine pushes with location,
+# Probe locations: the machines that run `beacon-probe agent`. The id is the machine's name and what
+# `beacon enroll probe <id>` takes; the gateway labels everything the machine pushes with location,
 # region and network, so no probe can speak for another. Name locations by place and network, never by vendor.
-# Beacon exports linkos_expected_location for each, which the ProbeLocationDown rule uses. Fields: docs/catalog.md.
+# Beacon exports beacon_expected_location for each, which the ProbeLocationDown rule uses. Fields: docs/catalog.md.
 locations:
   - id: edge-1
     name: United States - Los Angeles

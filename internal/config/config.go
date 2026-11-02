@@ -257,9 +257,9 @@ func (c *Config) defaults() {
 		}
 	}
 	set(&c.Listen, ":17001")
-	set(&c.DataDir, "/var/lib/linkos-beacon")
-	set(&c.CatalogDir, "/etc/linkos-beacon/catalog")
-	set(&c.Gateway.TargetsDir, "/etc/linkos-beacon/targets")
+	set(&c.DataDir, "/var/lib/beacon")
+	set(&c.CatalogDir, "/etc/beacon/catalog")
+	set(&c.Gateway.TargetsDir, "/etc/beacon/targets")
 	set(&c.Gateway.Listen, ":17006")
 	set(&c.Gateway.ModulesFile, strings.TrimSuffix(c.Gateway.TargetsDir, "/")+"/modules.yml")
 	set(&c.SSH.Listen, ":17002")

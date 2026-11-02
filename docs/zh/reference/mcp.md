@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-855be17f
+sourceHash: sha256-e0e2d2c0
 ---
 
 # MCP 工具
@@ -11,7 +11,7 @@ Beacon 的 MCP server 在 17001 端口的 `/mcp`：streamable HTTP，无状态�
 Claude Code：
 
 ```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
 Codex，写在 `~/.codex/config.toml` 里，令牌放在环境变量中：

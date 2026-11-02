@@ -65,16 +65,16 @@ func TestGroupBot(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":` + map[bool]string{true: "19024", false: "0"}[code != 0] + `,"msg":"x"}`))
 	}))
 	defer srv.Close()
-	g := &GroupBot{URL: srv.URL, Keyword: "LinkOS", Secret: "s", now: func() time.Time { return time.Unix(1793080000, 0) }}
+	g := &GroupBot{URL: srv.URL, Keyword: "Beacon", Secret: "s", now: func() time.Time { return time.Unix(1793080000, 0) }}
 	if err := g.Send(context.Background(), "watchdog stopped"); err != nil {
 		t.Fatal(err)
 	}
 	text := got["content"].(map[string]any)["text"].(string)
-	if !strings.HasPrefix(text, "[LinkOS] ") || got["timestamp"] != "1793080000" || got["sign"] != Sign("1793080000", "s") {
+	if !strings.HasPrefix(text, "[Beacon] ") || got["timestamp"] != "1793080000" || got["sign"] != Sign("1793080000", "s") {
 		t.Errorf("payload %v", got)
 	}
 	code = 1
-	if err := g.Send(context.Background(), "LinkOS x"); err == nil {
+	if err := g.Send(context.Background(), "Beacon x"); err == nil {
 		t.Error("a non-zero code should be an error")
 	}
 }

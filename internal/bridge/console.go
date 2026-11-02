@@ -26,7 +26,7 @@ func (b *Bridge) RevokeToken(ctx context.Context, who Actor, name string) error 
 		return fmt.Errorf("%w: no token %q", store.ErrNotFound, name)
 	}
 	if !Revocable(t) {
-		return fmt.Errorf("%w: token %s does not reach machines; revoke it with linkos-beacon token revoke on the host", ErrBadInput, name)
+		return fmt.Errorf("%w: token %s does not reach machines; revoke it with beacon token revoke on the host", ErrBadInput, name)
 	}
 	if err := b.d.Store.RevokeToken(name); err != nil {
 		return err

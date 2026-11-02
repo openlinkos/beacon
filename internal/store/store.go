@@ -287,7 +287,8 @@ var (
 	subjectRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
-// TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
+// TokenPrefix starts every token, the mark of a Beacon token, so a leaked one is easy to recognise and to
+// search for. It outlived the old command names on purpose: tokens already issued keep working.
 const TokenPrefix = "lbt_"
 
 // secretBytes is the random part of a secret: 32 bytes (256 bits), 52 base32 characters after the

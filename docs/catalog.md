@@ -28,7 +28,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), listed in the [API reference](reference/api.md) and described in full in `internal/api/openapi.yaml`. The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes: a location cannot go while a target set is named after it alone, and a set must start with a known prefix. Every change is in the audit log and echoed to the alert chat, with the note if one was given. `config:write` decides what every probe checks and how, including which file a module sends as a password (`password_file`); a probe reads such files only from its secrets directory (`/etc/linkos-agent/secrets`, `linkos-probe -secrets-dir`), by name, so that a holder of `config:write` can have a probe send what someone put there and nothing else. Give it to those you would let change these files.
+The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), listed in the [API reference](reference/api.md) and described in full in `internal/api/openapi.yaml`. The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes: a location cannot go while a target set is named after it alone, and a set must start with a known prefix. Every change is in the audit log and echoed to the alert chat, with the note if one was given. `config:write` decides what every probe checks and how, including which file a module sends as a password (`password_file`); a probe reads such files only from its secrets directory (`/etc/beacon-probe/secrets`, `beacon-probe -secrets-dir`), by name, so that a holder of `config:write` can have a probe send what someone put there and nothing else. Give it to those you would let change these files.
 
 A change may say which version it is based on: `?if_version=12` on `PUT` and `DELETE`, `if_version` in `put_config` and `delete_config`, the version `GET /api/v1/config` (`get_config`) returned. When a later version is in force, the change is refused with `config.conflict`, naming it, and nothing changes: read the item again and decide afresh. An agent that reads the configuration, thinks, and then writes passes it, so that it never overwrites what someone changed meanwhile.
 
@@ -40,16 +40,16 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 
 ### History and revert
 
-`GET /api/v1/config/history` (MCP `list_config_changes`, CLI `linkos-beacon config history`) lists the changes, newest first: version, time, who, through what (`api`, `mcp`, `cli`; `start` and `signal` for files the service imported itself), what (`put`, `delete`, `import`, `revert`), the items added, changed or removed, and the note. `kind` and `key` narrow it to one item. `GET /api/v1/config/history/{version}` (`get_config_change`) has every item's value before and after.
+`GET /api/v1/config/history` (MCP `list_config_changes`, CLI `beacon config history`) lists the changes, newest first: version, time, who, through what (`api`, `mcp`, `cli`; `start` and `signal` for files the service imported itself), what (`put`, `delete`, `import`, `revert`), the items added, changed or removed, and the note. `kind` and `key` narrow it to one item. `GET /api/v1/config/history/{version}` (`get_config_change`) has every item's value before and after.
 
-`POST /api/v1/config/history/{version}/revert` (`revert_config_change`, `linkos-beacon config revert VERSION`) undoes one change as a new change: every item it touched gets its value from before. When a later change touched one of them, the revert is refused with `config.conflict`, naming that change; revert it first, or put the value you want. The latest 10,000 changes are kept.
+`POST /api/v1/config/history/{version}/revert` (`revert_config_change`, `beacon config revert VERSION`) undoes one change as a new change: every item it touched gets its value from before. When a later change touched one of them, the revert is refused with `config.conflict`, naming that change; revert it first, or put the value you want. The latest 10,000 changes are kept.
 
 ### Import and export
 
 ```bash
-docker exec linkos-beacon linkos-beacon config import /srv/ops/beacon -dry-run   # what would change
-docker exec linkos-beacon linkos-beacon config import /srv/ops/beacon -note "ops repository at 4f2c1e0"
-docker exec linkos-beacon linkos-beacon config export /srv/ops/beacon
+docker exec beacon beacon config import /srv/ops/beacon -dry-run   # what would change
+docker exec beacon beacon config import /srv/ops/beacon -note "ops repository at 4f2c1e0"
+docker exec beacon beacon config export /srv/ops/beacon
 ```
 
 The directory has the layout above: `catalog/*.yaml`, `targets/*.yaml` and `targets/modules.yml`. An import makes the files the whole configuration, as one change: items the files do not hold are removed, and files that fail their checks change nothing. An export writes the catalogue as `catalog/locations.yaml`, `heartbeats.yaml` and `resources.yaml`, each target set as `targets/<set>.yaml` and the module file as it is held, and removes the other `*.yaml` files (and a `modules.yml` the configuration lacks) from those two directories, so that importing the directory again changes nothing. The round trip keeps all content; comments and layout in the catalogue and target files are not kept, and their lists come out in the order of their ids and names. The module file is kept as it was imported, comments and all, and probes get it byte for byte.
@@ -59,13 +59,13 @@ The directory has the layout above: `catalog/*.yaml`, `targets/*.yaml` and `targ
 When the database holds no configuration yet, the first start imports the files the configuration names (`catalog_dir`, `gateway.targets_dir`, `gateway.modules_file`) and logs it; files that fail their checks stop the start, as they always did. From then on the database is the source, and the files are read only when asked:
 
 - `SIGHUP` imports them, but only when nothing was changed through Beacon since the last import, so that the files cannot silently undo what people and agents changed. Otherwise it logs which change came since, and how to go on: `config export` to bring that change into the files, or `config import` to replace it. Deployments that keep the files in git and send `SIGHUP` after a pull keep working.
-- `linkos-beacon config import DIR` imports a directory at any time.
+- `beacon config import DIR` imports a directory at any time.
 
-`linkos-beacon check-config` validates the files when they exist and the configuration in the database: through the running service when it answers on its socket, else in the database file.
+`beacon check-config` validates the files when they exist and the configuration in the database: through the running service when it answers on its socket, else in the database file.
 
 ## Locations
 
-A probe location is a machine running `linkos-probe agent`. Its token comes from `linkos-beacon enroll probe <id>`, and the gateway labels everything it writes with `location`, `region`, `network` and `host`, so a probe cannot speak for another.
+A probe location is a machine running `beacon-probe agent`. Its token comes from `beacon enroll probe <id>`, and the gateway labels everything it writes with `location`, `region`, `network` and `host`, so a probe cannot speak for another.
 
 ```yaml
 locations:
@@ -87,20 +87,20 @@ locations:
 | `name` | Public name. Required. |
 | `region` | `overseas` or `mainland`. Rules compare the two (a service unreachable only from mainland China is a path problem, not an outage). |
 | `network` | Free text, shown with the name. |
-| `address`, `rotation` | Optional, for CDN nodes. Every minute Beacon resolves both and exports `linkos_location_in_rotation{location, rotation, role}` (1 when the node's address is among the rotation's answers), `linkos_rotation_resolve_success`, `linkos_rotation_members`, and `linkos_rotation_unknown_address{rotation, address}` for an answer no location claims. A rotation needs the address. |
+| `address`, `rotation` | Optional, for CDN nodes. Every minute Beacon resolves both and exports `beacon_location_in_rotation{location, rotation, role}` (1 when the node's address is among the rotation's answers), `beacon_rotation_resolve_success`, `beacon_rotation_members`, and `beacon_rotation_unknown_address{rotation, address}` for an answer no location claims. A rotation needs the address. |
 | `standby` | A standby node is in the rotation only when another node fails: `role="standby"` instead of `primary`, so a rule can alert when a primary is out and inform when a standby is in. Needs a rotation. |
 | `probe.timeout` | For a machine on a slower path: the gateway tells that agent (`GET /api/v1/agent`) and every module with a shorter timeout gets this one there. Zero keeps the modules' timeouts. |
-| `probe.retries` | For a machine whose connections drop now and then: a probe that fails without an answer (`dns`, `connect`, `timeout`) is tried again at once, up to this many times (0 to 2). A failure with an answer, such as a wrong status code, is never retried. `linkos_probe_attempts` says how many tries each result took, so a flaky path stays visible. A longer timeout does not help a connection that has stalled; a retry on a new one does. |
+| `probe.retries` | For a machine whose connections drop now and then: a probe that fails without an answer (`dns`, `connect`, `timeout`) is tried again at once, up to this many times (0 to 2). A failure with an answer, such as a wrong status code, is never retried. `beacon_probe_attempts` says how many tries each result took, so a flaky path stays visible. A longer timeout does not help a connection that has stalled; a retry on a new one does. |
 
-Beacon exports `linkos_expected_location{location, region, network}` for every location expected to report now, so a rule can find one that has gone silent.
+Beacon exports `beacon_expected_location{location, region, network}` for every location expected to report now, so a rule can find one that has gone silent.
 
 ## Heartbeats
 
-A job that must report success at least every `max_age`: backups, scheduled tasks. Jobs on a machine with the agent write a line into its textfile directory (`/var/lib/linkos-agent/textfile/heartbeat_<name>.prom`, as the `linkos-heartbeat` script in a deployment does); others push with a token from `linkos-beacon enroll heartbeat <name>`:
+A job that must report success at least every `max_age`: backups, scheduled tasks. Jobs on a machine with the agent write a line into its textfile directory (`/var/lib/beacon-probe/textfile/heartbeat_<name>.prom`, as the `beacon-heartbeat` script in a deployment does); others push with a token from `beacon enroll heartbeat <name>`:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
-  "linkos_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
+  "beacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
   https://metrics.example.com/api/v1/import/prometheus
 ```
 
@@ -113,9 +113,9 @@ heartbeats:
     machine: nas-1            # optional: the machine the job runs on, as the SSH channel names it
 ```
 
-`machine` names the machine the job runs on, as `linkos-beacon machine list` and `list_machines` show it. The evidence and the timeline for the heartbeat's alerts then name that machine and list the sessions and changes on it, those just before the alert included, so that an agent woken by `HeartbeatStale` knows where to look ([agents.md](agents.md#the-evidence)). A put (API, MCP) refuses a machine the SSH channel does not have, with `config.invalid` and how to put it right, unless the heartbeat named that machine already; an import and a revert take one, since files are often imported before the machines are enrolled, and say so in the change's `warnings`, in the log and in `config import`'s output; `check-config` lists such heartbeats too, without failing.
+`machine` names the machine the job runs on, as `beacon machine list` and `list_machines` show it. The evidence and the timeline for the heartbeat's alerts then name that machine and list the sessions and changes on it, those just before the alert included, so that an agent woken by `HeartbeatStale` knows where to look ([agents.md](agents.md#the-evidence)). A put (API, MCP) refuses a machine the SSH channel does not have, with `config.invalid` and how to put it right, unless the heartbeat named that machine already; an import and a revert take one, since files are often imported before the machines are enrolled, and say so in the change's `warnings`, in the log and in `config import`'s output; `check-config` lists such heartbeats too, without failing.
 
-Exported as `linkos_heartbeat_max_age_seconds{heartbeat, severity}`, with `machine` too when the heartbeat names one. The rules aggregate by `heartbeat` and `severity`, so the label changes no alert.
+Exported as `beacon_heartbeat_max_age_seconds{heartbeat, severity}`, with `machine` too when the heartbeat names one. The rules aggregate by `heartbeat` and `severity`, so the label changes no alert.
 
 ## Resources
 
@@ -127,7 +127,7 @@ resources:
   - {name: example.com, kind: domain, expires: 2027-01-15, note: renews automatically}
 ```
 
-`kind` is `vps`, `domain`, `cert`, `token` or `service`. Exported as `linkos_resource_expiry_timestamp_seconds{resource, kind}`. A `vps` named like a location also bounds that location (see above).
+`kind` is `vps`, `domain`, `cert`, `token` or `service`. Exported as `beacon_resource_expiry_timestamp_seconds{resource, kind}`. A `vps` named like a location also bounds that location (see above).
 
 ## Targets
 
@@ -162,7 +162,7 @@ The format of the [Blackbox Exporter's module file](https://github.com/prometheu
 
 Every module has a `timeout` (default 10s), which a location's `probe.timeout` can lengthen.
 
-`password_file` names a file in the probe's secrets directory, `/etc/linkos-agent/secrets` unless `linkos-probe` is started with `-secrets-dir`: `git-password`, never a path. A value with a path separator or `..`, or an absolute path, is refused with `config.invalid` when the module is put or imported, so that `config:write` cannot have a probe read any file on its machine; a probe handed such a module by an older Beacon refuses each probe that would read it (`probe_failure_info{reason="config"}`, one log line) and reads nothing. The probe never reads outside that directory for a module. Probes from before this release read the name relative to their working directory: upgrade them before adding a module with `password_file`.
+`password_file` names a file in the probe's secrets directory, `/etc/beacon-probe/secrets` unless `beacon-probe` is started with `-secrets-dir`: `git-password`, never a path. A value with a path separator or `..`, or an absolute path, is refused with `config.invalid` when the module is put or imported, so that `config:write` cannot have a probe read any file on its machine; a probe handed such a module by an older Beacon refuses each probe that would read it (`probe_failure_info{reason="config"}`, one log line) and reads nothing. The probe never reads outside that directory for a module. Probes from before this release read the name relative to their working directory: upgrade them before adding a module with `password_file`.
 
 ```yaml
 modules:
@@ -180,4 +180,4 @@ modules:
 
 Each module is an item of its own in the API (`/api/v1/config/modules/http_head`, in JSON). Changing or removing one rewrites the module file in a standard layout, keeping the other modules and their comments.
 
-`linkos-probe check -modules <file>` validates a module file, and `linkos-probe run -modules <file> <module> <target>` runs one probe by hand.
+`beacon-probe check -modules <file>` validates a module file, and `beacon-probe run -modules <file> <module> <target>` runs one probe by hand.

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c402245e
+sourceHash: sha256-df74dae2
 ---
 
 # Agent 与告警
@@ -17,7 +17,7 @@ agents:
   - name: claude-oncall
     kind: webhook
     url: https://agents.example.com/hooks/beacon
-    secret_file: /etc/linkos-beacon/secrets/agent-hook-secret   # 至少 24 个随机字符
+    secret_file: /etc/beacon/secrets/agent-hook-secret   # 至少 24 个随机字符
     severities: [critical, warning]
     service: "hub-.*|git-.*"                  # 可选
     resolved: true                            # 告警恢复时也通知
@@ -27,7 +27,7 @@ agents:
     repository: example/ops
     workflow: oncall.yml
     ref: main
-    token_file: /etc/linkos-beacon/secrets/github-dispatch-token
+    token_file: /etc/beacon/secrets/github-dispatch-token
 ```
 
 | 字段 | 含义 |
@@ -135,11 +135,11 @@ jobs:
 
 ## 被唤醒后运行 Agent {#running-an-agent-when-woken}
 
-钩子的另一端得有个东西来运行 Agent。`linkos-oncall` 是参考实现，发行版里 `linkos-beacon`、`linkos-probe` 之外的第三个二进制：它接收 webhook，核对签名，然后启动你指定的程序，把载荷送到程序的标准输入，把告警放进它的环境变量。它不做任何决定，而且有意做得这么薄：Claude Code、Codex，或者任何会读环境变量的程序都能接在它后面。`contrib/oncall` 里有前两者的封装脚本、给被唤醒的 Agent 的提示词，以及一个 systemd 单元。
+钩子的另一端得有个东西来运行 Agent。`beacon-oncall` 是参考实现，发行版里 `beacon`、`beacon-probe` 之外的第三个二进制：它接收 webhook，核对签名，然后启动你指定的程序，把载荷送到程序的标准输入，把告警放进它的环境变量。它不做任何决定，而且有意做得这么薄：Claude Code、Codex，或者任何会读环境变量的程序都能接在它后面。`contrib/oncall` 里有前两者的封装脚本、给被唤醒的 Agent 的提示词，以及一个 systemd 单元。
 
 ```bash
-linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
-  -run /usr/local/lib/linkos-oncall/claude-code.sh -log-dir /var/lib/linkos-oncall/logs
+beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh -log-dir /var/lib/beacon-oncall/logs
 ```
 
 | 参数 | 含义 |
@@ -167,7 +167,7 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 
 ### 作为服务运行 {#as-a-service}
 
-`contrib/oncall/linkos-oncall.service` 让它以专用用户运行，系统只读（`ProtectSystem=strict`），只能写该用户的家目录（Agent 的登录信息放在那里）和日志目录，并且 `Restart=always`。文件头列出了安装命令：建用户，把密钥和令牌放到 `/etc/linkos-oncall` 下、只让该用户可读，把封装脚本和提示词放到 `/usr/local/lib/linkos-oncall`，以该用户安装并登录 Agent 程序。停止服务时会等正在进行的运行结束。
+`contrib/oncall/beacon-oncall.service` 让它以专用用户运行，系统只读（`ProtectSystem=strict`），只能写该用户的家目录（Agent 的登录信息放在那里）和日志目录，并且 `Restart=always`。文件头列出了安装命令：建用户，把密钥和令牌放到 `/etc/beacon-oncall` 下、只让该用户可读，把封装脚本和提示词放到 `/usr/local/lib/beacon-oncall`，以该用户安装并登录 Agent 程序。停止服务时会等正在进行的运行结束。
 
 ### 在 GitHub Actions 里 {#in-github-actions}
 
@@ -181,8 +181,8 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 
 `GET /api/v1/alerts/{id}/evidence` 或 MCP 工具 `get_evidence`（作用域 `status:read`）一次给出 Agent 判断这条告警需要的东西：
 
-- **probes**：告警组所属服务的检测结果，每个检测点、目标、模块一条：窗口结束时是否正常，从什么时候开始失败（或什么时候恢复），失败原因（`probe_failure_info{reason}`：`dns`、`connect`、`timeout`、`tls`、`http_status` 等）以及窗口内各原因失败了几次，耗时，HTTP 状态码，尝试次数（`linkos_probe_attempts`），证书到期时间，以及这个检测点是否已经没有数据。失败的排在前面。`queries` 是用到的 PromQL，想细看时可以带 `metrics:read` 令牌经网关再查。
-- **heartbeats**：告警标签里有 `heartbeat` 的（`HeartbeatStale`、`HeartbeatMissing`），给出这个心跳在目录里的条目（`name`、`description`、`max_age`、`severity`、`machine`），SSH 通道里有没有这台机器（`enrolled`），最近一次成功的时间（`last_success`，取自 31 天内的 `linkos_heartbeat_last_success_timestamp_seconds`），以及怎么连上这台机器的 `hint`。其他告警没有这一项。
+- **probes**：告警组所属服务的检测结果，每个检测点、目标、模块一条：窗口结束时是否正常，从什么时候开始失败（或什么时候恢复），失败原因（`probe_failure_info{reason}`：`dns`、`connect`、`timeout`、`tls`、`http_status` 等）以及窗口内各原因失败了几次，耗时，HTTP 状态码，尝试次数（`beacon_probe_attempts`），证书到期时间，以及这个检测点是否已经没有数据。失败的排在前面。`queries` 是用到的 PromQL，想细看时可以带 `metrics:read` 令牌经网关再查。
+- **heartbeats**：告警标签里有 `heartbeat` 的（`HeartbeatStale`、`HeartbeatMissing`），给出这个心跳在目录里的条目（`name`、`description`、`max_age`、`severity`、`machine`），SSH 通道里有没有这台机器（`enrolled`），最近一次成功的时间（`last_success`，取自 31 天内的 `beacon_heartbeat_last_success_timestamp_seconds`），以及怎么连上这台机器的 `hint`。其他告警没有这一项。
 - **related**：同一 `failure_domain` 里、或者同一服务正在触发的其他告警组。
 - **changes**：窗口内的变更事件（见下文），和这个告警组的服务或机器有关的排在前面。
 - **done**：认领、静默、备注、唤醒过的 Agent、升级情况，告警涉及的机器 `machines`（告警标签 `machine`、`host`、`location`、`failure_domain` 指到的，以及目录里为它的心跳写的机器），以及窗口内的会话：在这些机器上的，或者由认领过它、给它写过备注的 Agent 发起的，按时间先后。每个会话给出 Agent、机器、类型、命令和退出码；交互式 shell 还给出最后 20 条命令及各自的退出码（`shell_commands`，最多十个 shell，告警之前的优先；`commands` 是总条数，其余的连同输出用 `get_session` 取），以及会话页面的链接。
@@ -204,7 +204,7 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 
 检测点推送的样本和周期检测的一样，所以 VictoriaMetrics 马上有新结果，告警在规则引擎下一次评估就能恢复，不用再等一分钟。调用会记入审计（`probe_now`），并用一行话回显到群里。有几条限制保护检测点：同一目标每 15 秒最多按需检测一次，一个令牌最多同时有三个请求在进行（`probe.busy`，429）；目标不存在，或者没有活跃的检测点检测它，是 `probe.not_found`（404）；没有网关的 Beacon 返回 `probe.unavailable`（503）。请求放在内存里，两分钟后失效，重启后不保留。
 
-对探针来说，协议多了两条网关路由，老探针不受影响：`GET /api/v1/agent/requests?wait=25s`（`probe:write`）有属于这个检测点的待处理请求时立刻返回，以它的检测目标的形式给出，否则等待到期（最多 55 秒）返回空列表；`POST /api/v1/agent/requests/{id}` 接收探针的结果（请求已过期时为 `request.not_found`）。`linkos-probe agent` 在周期检测之外一直挂着一个这样的轮询。面对老网关它会收到 404，说明一次后一小时再问；老探针从不问，它的检测点会出现在 `missing` 里。
+对探针来说，协议多了两条网关路由，老探针不受影响：`GET /api/v1/agent/requests?wait=25s`（`probe:write`）有属于这个检测点的待处理请求时立刻返回，以它的检测目标的形式给出，否则等待到期（最多 55 秒）返回空列表；`POST /api/v1/agent/requests/{id}` 接收探针的结果（请求已过期时为 `request.not_found`）。`beacon-probe agent` 在周期检测之外一直挂着一个这样的轮询。面对老网关它会收到 404，说明一次后一小时再问；老探针从不问，它的检测点会出现在 `missing` 里。
 
 ## 备注 {#notes}
 
@@ -219,7 +219,7 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 部署、配置变更和 Flux 的同步以变更事件的形式送到 Beacon，告警的证据里就能看出它之前刚改过什么。发送方用带 `changes:write` 作用域的令牌发到网关（17006 端口）：
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create ci-deploy -scopes changes:write -expires 365d
+docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 365d
 ```
 
 ```bash
@@ -286,7 +286,7 @@ spec:
 
 变更事件保留 `changes.keep`（默认 `720h`，即 30 天），最多 50,000 条。`GET /api/v1/changes` 和 MCP 工具 `list_changes`（作用域 `status:read`）按时间倒序列出，可按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选。
 
-一个令牌每分钟最多发 60 条变更事件；超出的会被拒绝，返回 `429` 和 `changes.too_many`，到下一分钟才能再发，并计入 `linkos_gateway_changes_limited_total{token}`。把事件合并发送、或者分散开发的发送方，碰不到这个限制。
+一个令牌每分钟最多发 60 条变更事件；超出的会被拒绝，返回 `429` 和 `changes.too_many`，到下一分钟才能再发，并计入 `beacon_gateway_changes_limited_total{token}`。把事件合并发送、或者分散开发的发送方，碰不到这个限制。
 
 ## 自行续期的令牌 {#tokens-that-renew-themselves}
 
@@ -297,7 +297,7 @@ Agent 的令牌就是它在 REST API、MCP 服务和 SSH 通道上的身份。�
 | `GET /api/v1/token`、`whoami` | 令牌在持有者眼里的样子：`name`、`scopes`、`machines`、`ssh_keys`（指纹）、`created`、`expires`、`lifetime`、`renewed`（上次续期）、`renewable` 和 `renewable_at`；从不包含密钥 |
 | `POST /api/v1/token/renew`、`renew_token` | 新密钥（`secret`，只显示这一次）和令牌；`old_secret_valid_until` 说明被替换的旧密钥还能用到什么时候 |
 
-续期后旧密钥还能用十分钟，客户端换令牌文件时不会有竞争，刚读过文件的进程也照常工作。一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。已登记机器的令牌（probe、host、heartbeat）从不自行续期：用 `linkos-beacon enroll … -rotate` 替换它们（`token.not_renewable`，`403`）。每次续期都记进审计日志（`token_renew`）并回显到告警群（「令牌 claude-code 自行续期了，到期日 2027-01-31」），`linkos-beacon token list` 显示每个令牌的生存期和上次续期时间。SSH 登录凭公钥，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
+续期后旧密钥还能用十分钟，客户端换令牌文件时不会有竞争，刚读过文件的进程也照常工作。一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。已登记机器的令牌（probe、host、heartbeat）从不自行续期：用 `beacon enroll … -rotate` 替换它们（`token.not_renewable`，`403`）。每次续期都记进审计日志（`token_renew`）并回显到告警群（「令牌 claude-code 自行续期了，到期日 2027-01-31」），`beacon token list` 显示每个令牌的生存期和上次续期时间。SSH 登录凭公钥，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
 
 Agent 的工具链每天跑一次这样的脚本（cron 或 systemd timer），Agent 每次调用时读令牌文件：
 
@@ -305,7 +305,7 @@ Agent 的工具链每天跑一次这样的脚本（cron 或 systemd timer），A
 #!/bin/sh
 # Renew the Beacon token in $TOKEN_FILE and swap the file atomically.
 set -eu
-TOKEN_FILE=${TOKEN_FILE:-/etc/linkos-oncall/beacon-token}
+TOKEN_FILE=${TOKEN_FILE:-/etc/beacon-oncall/beacon-token}
 BEACON=${BEACON:-https://status.example.com}
 resp=$(curl -sS -w '\n%{http_code}' -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BEACON/api/v1/token/renew")
 code=$(printf '%s\n' "$resp" | tail -n 1)
@@ -319,7 +319,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
 ```
 
-令牌的生存期要比续期间隔长几倍（每天续期就用 `-expires 30d`），工具链停一阵子也不至于丢了令牌；真丢了，照旧由人用 `linkos-beacon token create` 新建一个。泄露的令牌会一直续期下去，直到被撤销（`linkos-beacon token revoke NAME`）：群里能看到每一次续期，`token list` 显示最近一次。
+令牌的生存期要比续期间隔长几倍（每天续期就用 `-expires 30d`），工具链停一阵子也不至于丢了令牌；真丢了，照旧由人用 `beacon token create` 新建一个。泄露的令牌会一直续期下去，直到被撤销（`beacon token revoke NAME`）：群里能看到每一次续期，`token list` 显示最近一次。
 
 ## Beacon 在这里不做什么 {#what-beacon-does-not-do-here}
 
