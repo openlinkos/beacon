@@ -155,9 +155,12 @@ func equal(a, b string) bool {
 	return a != "" && b != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-// local keeps a next parameter that is a path on this site, and turns anything else into "/".
+// local keeps a next parameter that is a path on this site, and turns anything else into "/". Spaces,
+// control characters and backslashes are refused outright: browsers drop or turn some of them into
+// slashes, which could make "/\t/example.com" another site.
 func local(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsAny(next, "\\\r\n") {
+	odd := func(r rune) bool { return r <= ' ' || r == 0x7f || r == '\\' }
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsFunc(next, odd) {
 		return "/"
 	}
 	if u, err := url.Parse(next); err != nil || u.Host != "" || u.Scheme != "" {

@@ -171,7 +171,7 @@ func TestSignIn(t *testing.T) {
 		t.Errorf("the sign-in page when signed in: %d %q", a.code, a.header.Get("Location"))
 	}
 	// next never leads off the site
-	for _, next := range []string{"//evil.example.com/x", "https://evil.example.com", "/\\evil.example.com", "javascript:alert(1)"} {
+	for _, next := range []string{"//evil.example.com/x", "https://evil.example.com", "/\\evil.example.com", "javascript:alert(1)", "/\t/evil.example.com", "/ /evil.example.com"} {
 		if a := b.get("/sign-in?next=" + url.QueryEscape(next)); a.header.Get("Location") != "/" {
 			t.Errorf("next %q leads to %q", next, a.header.Get("Location"))
 		}
@@ -463,7 +463,7 @@ func TestConsolePages(t *testing.T) {
 			checkHeaders(t, a.header)
 			checkPage(t, path, a.body)
 			if lang == i18n.ZH {
-				if !strings.Contains(a.body, `<html lang="zh-CN">`) {
+				if !strings.Contains(a.body, `<html lang="zh-CN">`) || !strings.Contains(a.body, i18n.T(i18n.ZH, "Console")) || !strings.Contains(a.body, i18n.T(i18n.ZH, "Sign out")) {
 					t.Errorf("%s: not in Chinese", path)
 				}
 				continue
