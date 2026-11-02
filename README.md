@@ -41,7 +41,7 @@ Beacon is built for the agent to do the work and for people to see all of it:
 - **Feishu cards** that change in place: what is wrong, since when, which locations fail and why, the agent's notes; buttons to acknowledge and silence; escalation to the Feishu app's urgent notice and to Pushover's emergency priority.
 - **Waking agents**: signed webhooks and GitHub workflow dispatches for new alert groups, and `beacon-oncall`, a small harness that verifies the webhook and starts the agent program you name (wrappers for Claude Code and Codex included).
 - **Public status pages** served by Beacon itself: components from the probe targets, 90 days of history, incidents from the alerts, maintenance windows, JSON, an Atom feed and badges.
-- **The console** at `/console`: alerts with their evidence and timeline, machines, every session with its replay, agents' tokens, the configuration and its history, the audit log.
+- **The console** at `/console` (the site's root is the public status page): alerts with their evidence and timeline, machines, every session with its replay, agents' tokens, the configuration and its history, the audit log.
 - **Configuration through Beacon**: probe locations, targets, modules and status pages live in its database, changed through the API, MCP or the command line, every change a version that can be reverted; files are for import and export, so they can stay in git.
 
 ## Works with
