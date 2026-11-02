@@ -67,3 +67,14 @@
 		header_up X-Forwarded-For {client_ip}
 	}
 }
+
+# A status page on a host name of its own (host: in catalog/status_pages.yaml, docs/status.md): Beacon serves that
+# page at / by the Host header, and nothing else of Beacon answers there. Point the name at this machine, then
+# uncomment the block with the name in place of uptime.example.com, and reload Caddy.
+# uptime.example.com {
+# 	import common
+# 	reverse_proxy beacon:17001 {
+# 		header_up Host {host}
+# 		header_up X-Forwarded-For {client_ip}
+# 	}
+# }

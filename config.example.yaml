@@ -6,7 +6,18 @@ data_dir: /var/lib/beacon                   # bbolt state: alert groups, tokens,
 # The catalogue, probe targets and modules live in the database (docs/catalog.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.
-catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expiring resources (*.yaml)
+catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expiring resources, status pages (*.yaml)
+# The public status pages are in the catalogue too, under status_pages (docs/status.md); for example, in
+# /etc/beacon/catalog/status_pages.yaml:
+#   status_pages:
+#     - name: public                        # served at /status/public; default: true also at /status
+#       title: Example Status
+#       host: uptime.example.com            # optional: at / on this host name, behind the same proxy
+#       components:
+#         - {name: website, title: Website, services: [example.com]}   # the probe targets' service labels
+#         - {name: mirrors, title: Mirrors, page: mirrors}            # every service with a target labelled page: mirrors
+#       links: {home: "https://example.com/", privacy: "https://example.com/privacy"}
+# The days of their 90-day history begin at midnight in the timezone below.
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
 trusted_proxies: [172.16.0.0/12]

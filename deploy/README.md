@@ -23,7 +23,7 @@ sudo ./install.sh        # asks for the two names and the address; or STATUS_HOS
 | --- | --- |
 | `compose.yaml`, `.env` | The four containers, pinned versions; Beacon's version and the host names |
 | `config.yaml` | Beacon's configuration ([config.example.yaml](../config.example.yaml) explains every field). The chat sections are commented out until you fill them in |
-| `catalog/` | Probe locations, heartbeats, expiring resources ([docs/catalog.md](../docs/catalog.md)); imported into Beacon's database at the first start |
+| `catalog/` | Probe locations, heartbeats, expiring resources ([docs/catalog.md](../docs/catalog.md)) and the public status page ([docs/status.md](../docs/status.md)); imported into Beacon's database at the first start |
 | `targets/` | What the probes check (`all-web.yaml`, `all-drill.yaml`) and how (`modules.yml`); imported likewise |
 | `rules/`, `rules/tests/` | vmalert's rules and their unit tests (`vmalert-tool unittest --disableAlertgroupLabel --files 'rules/tests/*.yml'`) |
 | `runbooks/` | One page per alert: what it means, what to check, how to fix, how to verify. The cards link here |
