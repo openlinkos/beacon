@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The guides are rewritten**, in English and Chinese, for the people who run Beacon: each says what you will have at the end and who it is for, moves in the order you act, and gives the command and what you should see at every step. *Up in 30 minutes* (`docs/install.md`) shows each step's expected output and what to do when it differs; the agents guide is now *Put an agent on call* (`docs/agents.md`), with a trimmed example of the evidence; and a new *Troubleshooting* page (`docs/troubleshooting.md`) goes by symptom: an alert that never arrives, an agent that cannot reach a machine, a probe location or a status page without data, a 404 on an old link.
+
 ## 0.3.0
 
 ### rc.13 (2026-11-02)

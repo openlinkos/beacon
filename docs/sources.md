@@ -53,7 +53,7 @@ Deployments and configuration changes reach Beacon as change events, so the evid
 
 ## The chat
 
-People act on the cards in the alert chat: acknowledge with a note, silence for 1, 4 or 24 hours. Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`), or by `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), verified with the app's token. Only the people listed in `feishu.on_call` may act. An emergency notification acknowledged in Pushover acknowledges the alert in Beacon too: Beacon follows the notification's receipt. [Setting up the Feishu app](feishu.md) has the app's side.
+People act on the cards in the alert chat: acknowledge with a note, silence for 1, 4 or 24 hours. Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`), or by `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), verified with the app's token. Only the people listed in `feishu.on_call` may act. An emergency notification acknowledged in Pushover acknowledges the alert in Beacon too: Beacon follows the notification's receipt. [Set up the Feishu app](feishu.md) has the app's side.
 
 ## People and agents
 
