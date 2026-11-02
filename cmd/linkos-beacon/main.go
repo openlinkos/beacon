@@ -43,6 +43,7 @@ import (
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/gateway"
+	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/inventory"
 	"github.com/openlinkos/beacon/internal/mcpserver"
 	"github.com/openlinkos/beacon/internal/metrics"
@@ -53,6 +54,8 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
 	"github.com/openlinkos/beacon/internal/vm"
+	"github.com/openlinkos/beacon/internal/web"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 const defaultConfig = "/etc/linkos-beacon/config.yaml"
@@ -234,9 +237,21 @@ func serve(args []string, stderr io.Writer) int {
 	m.Register("linkos_beacon_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {
 		return []metrics.Sample{{Value: float64(rt.Firing())}}
 	})
+	// the signed links to the pages people open from the chat, under a key made at first start
+	pageKey, err := st.Secret("pages")
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	signer, err := link.NewSigner(pageKey, cfg.Pages.LinkTTL.D(), time.Now)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	pages := &link.Pages{Signer: signer, PublicURL: cfg.PublicURL}
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
-		Catalog: cdb.Catalog, Metrics: m, Log: log,
+		Catalog: cdb.Catalog, Metrics: m, Log: log, Pages: pages,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
 		deps.VM = vm.New(cfg.VictoriaMetrics.URL, nil)
@@ -267,17 +282,19 @@ func serve(args []string, stderr io.Writer) int {
 		deps.ProbeNow = board
 	}
 	br = bridge.New(deps)
-	gate, err := newGate(cfg, st, deps.Bot, m, log)
+	gate, err := newGate(cfg, st, deps.Bot, pages, m, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
+	lang, _ := i18n.Parse(cfg.Language)
 	sd := server.Deps{
 		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb},
 		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
+		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log},
 	}
 	if deps.Feishu != nil && cfg.Feishu.Callback == "http" {
 		sd.Feishu = feishu.HTTPHandler(sec.FeishuVerificationToken, sec.FeishuEncryptKey, br.HandleAction)

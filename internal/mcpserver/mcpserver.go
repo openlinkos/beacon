@@ -157,7 +157,7 @@ type (
 		Limit   int    `json:"limit,omitempty" jsonschema:"how many, newest first; default 50"`
 	}
 	sessionsOut struct {
-		Sessions []store.SessionRecord `json:"sessions"`
+		Sessions []sshgate.SessionView `json:"sessions"`
 	}
 	sessionIn struct {
 		ID string `json:"id" jsonschema:"the session id, as a tool result or list_sessions gives it"`

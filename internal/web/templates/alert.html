@@ -1,0 +1,118 @@
+{{define "head"}}{{end}}
+{{define "scripts"}}{{end}}
+{{define "content"}}
+<h1>{{.Heading}}</h1>
+<p class="sub">{{.When}}</p>
+<div class="chips">
+  <span class="chip {{.StatusClass}}">{{.Status}}</span>
+  <span class="chip {{.SeverityClass}}">{{.Severity}}</span>
+  {{if .Service}}<span class="chip">{{.L.Service}}: {{.Service}}</span>{{end}}
+  {{range .Services}}<span class="chip">{{.}}</span>{{end}}
+</div>
+{{if .Description}}<p>{{.Description}}</p>{{end}}
+{{range .State}}<p class="muted">{{.}}</p>{{end}}
+{{if or .Runbook .Dashboard}}
+<div class="actions">
+  {{if .Runbook}}<a class="btn" href="{{.Runbook}}" rel="noopener noreferrer">{{.L.Runbook}}</a>{{end}}
+  {{if .Dashboard}}<a class="btn" href="{{.Dashboard}}" rel="noopener noreferrer">{{.L.Dashboard}}</a>{{end}}
+</div>
+{{end}}
+
+<h2>{{.L.Probes}}</h2>
+<div class="card">
+{{if .Probes}}
+<table>
+  <thead><tr><th>{{.L.Location}}</th><th>{{.L.Result}}</th><th>{{.L.Reason}}</th><th class="hide-narrow">{{.L.Instance}}</th></tr></thead>
+  <tbody>
+  {{range .Probes}}
+  <tr>
+    <td>{{.Location}}{{if .Service}}<br><span class="muted">{{.Service}}</span>{{end}}</td>
+    <td><span class="{{if .OK}}ok{{else}}bad{{end}}">{{.State}}</span>{{if .Since}}<br><span class="muted">{{.Since}}</span>{{end}}</td>
+    <td>{{.Reason}}{{if .Detail}}<br><span class="muted">{{.Detail}}</span>{{end}}</td>
+    <td class="hide-narrow mono">{{.Instance}}{{if .Module}}<br><span class="muted">{{.Module}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="muted">{{.ProbesNote}}</p>{{end}}
+{{if .ProbesError}}<p class="muted mono">{{.ProbesError}}</p>{{end}}
+<p class="muted">{{.Window}}</p>
+</div>
+
+{{if .Related}}
+<h2>{{.L.Related}}</h2>
+<div class="card">
+<ul class="timeline">
+{{range .Related}}
+  <li><span class="chip {{.SeverityClass}}">{{.Severity}}</span><span class="what"><a href="{{.Href}}">{{.Title}}</a> <span class="muted">{{.Why}}</span></span></li>
+{{end}}
+</ul>
+</div>
+{{end}}
+
+<h2>{{.L.Agents}}</h2>
+<div class="card">
+{{if .Channel}}<p class="{{if .Paused}}bad{{else}}muted{{end}}">{{.Channel}}</p>{{end}}
+{{range .Agents}}<p>{{.}}</p>{{end}}
+{{if .SessionsLine}}<p>{{.SessionsLine}}</p>{{end}}
+{{if and (not .Agents) (not .SessionsLine)}}<p class="muted">{{.L.None}}</p>{{end}}
+</div>
+
+<h2>{{.L.Sessions}}</h2>
+<div class="card">
+{{if .Sessions}}
+{{range .Sessions}}
+<div class="session">
+  <div class="head">
+    <strong>{{.Agent}}</strong> <span class="muted">{{.Via}}</span> → <strong>{{.Machine}}</strong>
+    <span class="muted">{{.Kind}}</span>
+    <time>{{.Started}}</time>
+    {{if .Open}}<span class="chip">{{$.L.Open}}</span>{{else if .Duration}}<span class="muted">{{.Duration}}</span>{{end}}
+    {{if .Exit}}<span class="exit {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span>{{end}}
+    <a class="btn" href="{{.Href}}">{{$.L.Replay}}</a>
+  </div>
+  {{if .Command}}<pre>{{.Command}}</pre>{{end}}
+  {{if .Commands}}
+  <ul class="cmds">
+    {{range .Commands}}<li><code>{{.Command}}</code><span class="exit {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span><span class="muted exit">{{.Took}}</span></li>{{end}}
+  </ul>
+  {{end}}
+</div>
+{{end}}
+{{else}}<p class="muted">{{.L.None}}</p>{{end}}
+</div>
+
+<h2>{{.L.Notes}}</h2>
+<div class="card">
+{{if .Notes}}
+<ul class="timeline">
+{{range .Notes}}<li><time>{{.At}}</time><span class="what"><strong>{{.By}}</strong> <span class="muted">{{.Via}}</span><span class="detail">{{.Text}}</span></span></li>{{end}}
+</ul>
+{{else}}<p class="muted">{{.L.None}}</p>{{end}}
+</div>
+
+<h2>{{.L.Changes}}</h2>
+<div class="card">
+{{if .Changes}}
+<ul class="timeline">
+{{range .Changes}}<li><time>{{.At}}</time><span class="what"><strong>{{.Source}}</strong> <span class="muted">{{.Kind}}</span>{{if .About}} <span class="chip">{{.About}}</span>{{end}}<span class="detail">{{if .Href}}<a href="{{.Href}}" rel="noopener noreferrer">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}</span></span></li>{{end}}
+</ul>
+{{else}}<p class="muted">{{.L.None}}</p>{{end}}
+</div>
+
+<h2>{{.L.Labels}}</h2>
+<div class="card">
+<dl class="kv">
+{{range .Labels}}<dt>{{.K}}</dt><dd class="mono">{{.V}}</dd>{{end}}
+</dl>
+</div>
+
+<h2 id="timeline">{{.L.Timeline}}</h2>
+<div class="card">
+<ul class="timeline">
+{{range .Events}}
+  <li class="kind-{{.Kind}}"><time datetime="{{.ISO}}">{{.At}}</time><span class="what">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="detail">{{.Detail}}</span>{{end}}</span></li>
+{{end}}
+</ul>
+</div>
+{{end}}

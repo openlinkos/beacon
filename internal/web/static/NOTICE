@@ -1,0 +1,21 @@
+Third-party files served by Beacon's pages (internal/web/static). Nothing here is fetched from the
+network at run time; the files are embedded in the linkos-beacon binary.
+
+asciinema-player 3.17.0
+  Copyright 2011 Marcin Kulik. Licensed under the Apache License, Version 2.0 (LICENSE.asciinema-player).
+  Source: https://github.com/asciinema/asciinema-player
+  Release: https://github.com/asciinema/asciinema-player/releases/tag/v3.17.0 (2026-06-30)
+  Files, as downloaded from the release:
+    asciinema-player.min.js
+      https://github.com/asciinema/asciinema-player/releases/download/v3.17.0/asciinema-player.min.js
+      SHA-256 a13c37632e1b5c49fe9128417b9319a9b5bc64cb457dd5ae52cbba8a3aceb880
+    asciinema-player.css
+      https://github.com/asciinema/asciinema-player/releases/download/v3.17.0/asciinema-player.css
+      SHA-256 f619fe17597043564f03b2c6918b3daf890ee8b912fb408542fba11afade4fdb
+    LICENSE.asciinema-player (the repository's LICENSE at v3.17.0)
+      SHA-256 63422284ed65be54ab38d8a94e7518d27e222fbb26c9ae4cd984c63926e91c12
+  The bundle plays asciicast v3 (the format the SSH channel records: i, o, r, m and x events) as well
+  as v2, and runs its terminal emulator as WebAssembly, which is why the pages' Content-Security-Policy
+  allows 'wasm-unsafe-eval' for scripts from Beacon itself and nothing else.
+
+beacon.css and beacon-player.js are Beacon's own (Apache-2.0, see the repository's LICENSE).

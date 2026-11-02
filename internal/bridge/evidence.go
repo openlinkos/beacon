@@ -70,7 +70,8 @@ type AlertBrief struct {
 }
 
 // AlertLinks are where to read more: the REST routes (status:read), the MCP endpoint (get_evidence,
-// get_timeline and add_note take the group's id), the runbook and the dashboard.
+// get_timeline and add_note take the group's id), the runbook, the dashboard, and the alert's page for
+// people (Page: a signed link that needs no token, to hand to a person).
 type AlertLinks struct {
 	Alert     string `json:"alert"`
 	Evidence  string `json:"evidence"`
@@ -78,6 +79,7 @@ type AlertLinks struct {
 	MCP       string `json:"mcp"`
 	Runbook   string `json:"runbook,omitempty"`
 	Dashboard string `json:"dashboard,omitempty"`
+	Page      string `json:"page,omitempty"`
 }
 
 // Evidence is what an agent needs to judge an alert group.
@@ -153,18 +155,21 @@ type SilenceView struct {
 	EndsAt   time.Time `json:"ends_at"`
 }
 
-// SessionView is a session on one of the group's machines, or by an agent that acted on the group.
+// SessionView is a session on one of the group's machines, or by an agent that acted on the group. Page
+// is the signed link to its replay, for people.
 type SessionView struct {
-	ID      string     `json:"id"`
-	Agent   string     `json:"agent"`
-	Via     string     `json:"via"`
-	Machine string     `json:"machine"`
-	Kind    string     `json:"kind"`
-	Command string     `json:"command,omitempty"`
-	Started time.Time  `json:"started"`
-	Ended   *time.Time `json:"ended,omitempty"`
-	Exit    *int       `json:"exit,omitempty"`
-	Related string     `json:"related"` // machine or agent
+	ID       string     `json:"id"`
+	Agent    string     `json:"agent"`
+	Via      string     `json:"via"`
+	Machine  string     `json:"machine"`
+	Kind     string     `json:"kind"`
+	Command  string     `json:"command,omitempty"`
+	Started  time.Time  `json:"started"`
+	Ended    *time.Time `json:"ended,omitempty"`
+	Exit     *int       `json:"exit,omitempty"`
+	Commands int        `json:"commands,omitempty"` // commands run at an interactive shell's prompt
+	Related  string     `json:"related"`            // machine or agent
+	Page     string     `json:"page,omitempty"`
 }
 
 // Done is what was done about the group. Machines are those its labels name, whose sessions are listed
@@ -208,7 +213,8 @@ func (b *Bridge) apiURL(path string) string {
 func (b *Bridge) links(g *store.Group) AlertLinks {
 	base := "/api/v1/alerts/" + g.ID
 	return AlertLinks{Alert: b.apiURL(base), Evidence: b.apiURL(base + "/evidence"), Timeline: b.apiURL(base + "/timeline"),
-		MCP: b.apiURL("/mcp"), Runbook: cleanURL(b.link(b.d.Config.Links.Runbook, g)), Dashboard: cleanURL(b.link(b.d.Config.Links.GrafanaService, g))}
+		MCP: b.apiURL("/mcp"), Runbook: cleanURL(b.link(b.d.Config.Links.Runbook, g)), Dashboard: cleanURL(b.link(b.d.Config.Links.GrafanaService, g)),
+		Page: b.AlertPage(g.ID)}
 }
 
 // groupServices are the group's service, or the services of its alerts (at most five).
@@ -557,7 +563,7 @@ func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []Session
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
 		v := SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via, Machine: r.Machine, Kind: r.Kind, Command: cleanLine(r.Command),
-			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Related: "agent"}
+			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Commands: r.Commands, Related: "agent", Page: b.SessionPage(r.ID)}
 		if slices.Contains(machines, r.Machine) {
 			v.Related = "machine"
 		}

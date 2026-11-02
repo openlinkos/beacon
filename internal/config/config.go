@@ -67,6 +67,11 @@ type Config struct {
 		GrafanaService string `yaml:"grafana_service"`
 		Runbook        string `yaml:"runbook"`
 	} `yaml:"links"`
+	// Pages are the HTML pages people open from the chat (docs/pages.md): an alert's timeline and a
+	// session's replay, reached by signed links built from PublicURL. LinkTTL is how long a link is valid.
+	Pages struct {
+		LinkTTL Duration `yaml:"link_ttl"`
+	} `yaml:"pages"`
 
 	Feishu       Feishu              `yaml:"feishu"`
 	Pushover     Pushover            `yaml:"pushover"`
@@ -291,6 +296,9 @@ func (c *Config) defaults() {
 	if c.AckTTL == 0 {
 		c.AckTTL = Duration(4 * time.Hour)
 	}
+	if c.Pages.LinkTTL == 0 {
+		c.Pages.LinkTTL = Duration(30 * 24 * time.Hour)
+	}
 	c.agentDefaults()
 	if c.Escalation == nil {
 		// The best channel configured; with none, alerts are only recorded (the API and MCP still show them).
@@ -479,6 +487,9 @@ func (c *Config) validate() error {
 	}
 	if c.AckTTL.D() < 10*time.Minute {
 		bad("ack_ttl must be at least 10m")
+	}
+	if ttl := c.Pages.LinkTTL.D(); ttl < time.Hour || ttl > 366*24*time.Hour {
+		bad("pages.link_ttl is between 1h and 366 days (8784h)")
 	}
 	errs = append(errs, c.validateAgents()...)
 	return errors.Join(errs...)

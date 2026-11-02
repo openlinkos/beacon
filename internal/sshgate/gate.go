@@ -27,6 +27,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Poster sends a plain message to the alert chat.
@@ -54,6 +55,8 @@ type Deps struct {
 	// PublicAddress (host:port) is where agents and connector machines reach the channel; it goes into
 	// the setup machine add prints for a machine behind NAT. May be empty.
 	PublicAddress string
+	// Pages builds the signed links to sessions' pages, where people replay them; nil: no links.
+	Pages *link.Pages
 }
 
 // Gate is the SSH channel.
