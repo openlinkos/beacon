@@ -48,14 +48,16 @@ type Config struct {
 	Now      func() time.Time
 }
 
-// Agent runs the cycle.
+// Agent runs the cycle, and beside it the poll for requests to probe on demand (requests.go).
 type Agent struct {
 	cfg Config
 
+	mu       sync.RWMutex // guards mods and settings, which the request poller reads
 	mods     *probe.Modules
-	groups   []targets.Group
+	groups   []targets.Group // the cycle's alone
 	settings targets.Settings
 
+	pushMu     sync.Mutex // one push and queue drain at a time
 	pushErrors atomic.Int64
 	lastPush   atomic.Int64 // unix seconds of the last successful push
 }
@@ -89,8 +91,16 @@ func New(cfg Config) *Agent {
 
 func (a *Agent) queueDir() string { return filepath.Join(a.cfg.StateDir, "queue") }
 
-// Run runs a cycle every interval until ctx ends, starting at once.
+// Run runs a cycle every interval until ctx ends, starting at once, and polls for requests to probe on
+// demand beside it; it returns once both have stopped.
 func (a *Agent) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		a.poll(ctx)
+	}()
+	defer wg.Wait()
 	for {
 		start := a.cfg.Now()
 		if err := a.Cycle(ctx); err != nil && ctx.Err() == nil {
@@ -157,7 +167,9 @@ func (a *Agent) refresh(ctx context.Context) {
 		{"/api/v1/modules", "modules.yml", func(b []byte) error {
 			m, err := probe.ParseModules(b)
 			if err == nil {
+				a.mu.Lock()
 				a.mods = m
+				a.mu.Unlock()
 			}
 			return err
 		}, false},
@@ -173,7 +185,9 @@ func (a *Agent) refresh(ctx context.Context) {
 			var s targets.Settings
 			err := json.Unmarshal(b, &s)
 			if err == nil {
+				a.mu.Lock()
 				a.settings = s
+				a.mu.Unlock()
 			}
 			return err
 		}, true},
@@ -218,9 +232,17 @@ type job struct {
 	target string
 }
 
+// probeAll probes the cycle's targets and writes their samples.
 func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
+	jobs, results, attempts := a.probeGroups(ctx, a.groups)
+	a.writeResults(w, jobs, results, attempts, at)
+}
+
+// probeGroups probes every target of the groups, up to Parallel at once, and returns the jobs with each
+// one's result and attempts. The cycle and requests to probe on demand share it.
+func (a *Agent) probeGroups(ctx context.Context, groups []targets.Group) ([]job, []probe.Result, []int) {
 	var jobs []job
-	for _, g := range a.groups {
+	for _, g := range groups {
 		for _, t := range g.Targets {
 			jobs = append(jobs, job{labels: g.Labels, target: t})
 		}
@@ -243,6 +265,12 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 		}()
 	}
 	wg.Wait()
+	return jobs, results, attempts
+}
+
+// writeResults writes the samples of probed jobs, the same names and labels however the probe was asked
+// for, and logs the failures.
+func (a *Agent) writeResults(w *bytes.Buffer, jobs []job, results []probe.Result, attempts []int, at time.Time) {
 	for i, j := range jobs {
 		r := results[i]
 		if !r.Success {
@@ -271,6 +299,8 @@ func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
 // module is the named module as this location runs it: with the location's least timeout from the
 // gateway, when that is longer than the module's own. nil when there is no such module.
 func (a *Agent) module(name string) *probe.Module {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if a.mods == nil || a.mods.Modules[name] == nil {
 		return nil
 	}
@@ -284,12 +314,19 @@ func (a *Agent) module(name string) *probe.Module {
 	return m
 }
 
+// retries is the location's retries from the gateway.
+func (a *Agent) retries() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.settings.ProbeRetries
+}
+
 // run probes target with m, trying again at once, up to the location's retries, while it fails without
 // an answer: a dropped connection on a lossy path, not a service that answered wrongly.
 func (a *Agent) run(ctx context.Context, m *probe.Module, target string) (probe.Result, int) {
 	r := a.cfg.Prober.Run(ctx, m, target)
-	n := 1
-	for n <= a.settings.ProbeRetries && !r.Success && ctx.Err() == nil &&
+	n, retries := 1, a.retries()
+	for n <= retries && !r.Success && ctx.Err() == nil &&
 		(r.Reason == probe.ReasonDNS || r.Reason == probe.ReasonConnect || r.Reason == probe.ReasonTimeout) {
 		r = a.cfg.Prober.Run(ctx, m, target)
 		n++
@@ -431,8 +468,11 @@ func permanent(err error) bool {
 	return errors.As(err, &pe) && (pe.code == http.StatusUnauthorized || pe.code == http.StatusForbidden || pe.code == http.StatusBadRequest)
 }
 
-// push sends the batch; on failure it queues it. Then it sends what was queued, oldest first.
+// push sends the batch; on failure it queues it. Then it sends what was queued, oldest first. One push
+// at a time: the cycle's and those of requests to probe on demand take turns.
 func (a *Agent) push(ctx context.Context, batch []byte) error {
+	a.pushMu.Lock()
+	defer a.pushMu.Unlock()
 	var gz bytes.Buffer
 	zw := gzip.NewWriter(&gz)
 	_, _ = zw.Write(batch)

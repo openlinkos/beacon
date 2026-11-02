@@ -99,4 +99,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	// machines behind NAT, connected out to the SSH channel
 	"%s set the connector key of machine %s":                             "%s 设置了机器 %s 的连接器密钥",
 	"Beacon pinned the host key of machine %s through its connector: %s": "Beacon 经机器 %s 的连接器固定了它的主机密钥：%s",
+	// probing on demand (probe_now): the echo to the alert chat and its one-line summary
+	"%s had %d locations probe %s again via %s: %s": "%[1]s 经%[4]s让 %[2]d 个检测点重新检测了 %[3]s：%[5]s",
+	"%d targets of %s":  "%[2]s 的 %[1]d 个目标",
+	"%d OK":             "%d 个正常",
+	"%d failing (%s)":   "%d 个失败（%s）",
+	"%d did not answer": "%d 个未应答",
 }

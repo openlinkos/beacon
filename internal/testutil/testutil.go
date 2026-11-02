@@ -11,8 +11,11 @@ import (
 
 	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 )
 
 // AM is a fake silencer, standing in for the router.
@@ -64,6 +67,12 @@ type Env struct {
 // New creates an Env with one critical alert group firing; its id is GroupID.
 func New(t *testing.T) *Env {
 	t.Helper()
+	return NewWith(t, nil)
+}
+
+// NewWith is New with a last word on the bridge's dependencies, for tests that add a collaborator.
+func NewWith(t *testing.T, tweak func(*bridge.Deps)) *Env {
+	t.Helper()
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	cfg := &config.Config{
 		Language: "en", Location: loc, AckTTL: config.Duration(4 * time.Hour),
@@ -77,7 +86,11 @@ func New(t *testing.T) *Env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	e := &Env{Store: st, AM: &AM{}, Bot: &Bot{}}
-	e.Bridge = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: e.AM, Bot: e.Bot})
+	deps := bridge.Deps{Config: cfg, Store: st, AM: e.AM, Bot: e.Bot}
+	if tweak != nil {
+		tweak(&deps)
+	}
+	e.Bridge = bridge.New(deps)
 	err = e.Bridge.HandleWebhook(context.Background(), alertmanager.Webhook{
 		Version: "4", GroupKey: GroupKey, Status: "firing",
 		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "hub-linkos-io"},
@@ -105,4 +118,29 @@ func (e *Env) Token(t *testing.T, name string, scopes ...string) string {
 		t.Fatal(err)
 	}
 	return secret
+}
+
+// ProbeBoard is a board of requests to probe on demand over two locations, edge-1 (overseas) and
+// edge-2 (mainland), and these target sets:
+//
+//	all-web.yaml       https://hub.example.com/ (service hub-linkos-io, the alert's; module http_head)
+//	all-tls.yaml       https://hub.example.com/ again, module tls_expiry
+//	all-docs.yaml      https://docs.example.com/ and https://www.example.com/ (service docs)
+//	overseas-api.yaml  https://api.example.com/ (service api): edge-1 alone probes it
+func ProbeBoard(t *testing.T) *probenow.Board {
+	t.Helper()
+	cat := &catalog.Catalog{Locations: []catalog.Location{
+		{ID: "edge-1", Name: "United States - Los Angeles", Region: "overseas"},
+		{ID: "edge-2", Name: "Mainland China - Shanghai", Region: "mainland"},
+	}}
+	set, err := targets.Build(map[string][]targets.Group{
+		"all-web.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "hub-linkos-io"}}},
+		"all-tls.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "tls_expiry", "service": "hub-linkos-io"}}},
+		"all-docs.yaml":     {{Targets: []string{"https://docs.example.com/", "https://www.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "docs"}}},
+		"overseas-api.yaml": {{Targets: []string{"https://api.example.com/"}, Labels: map[string]string{"module": "http_2xx", "service": "api"}}},
+	}, []string{"edge-1", "edge-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return cat }, Targets: func() *targets.Set { return set }})
 }

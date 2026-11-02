@@ -27,6 +27,7 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/targets"
@@ -46,6 +47,7 @@ type Deps struct {
 	Metrics    *metrics.Metrics
 	Log        *slog.Logger
 	Now        func() time.Time
+	Requests   *probenow.Board // probing on demand (requests.go); nil answers 404 as an older gateway
 }
 
 // MaxBody is the largest request body accepted (a remote-write batch is compressed and far smaller).
@@ -90,6 +92,8 @@ func Handler(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v2/alerts", g.rulesAlerts)
 	mux.Handle("POST /api/v1/changes", g.with("changes", []string{"changes:write"}, g.change))
 	mux.Handle("POST /api/v1/changes/flux", g.with("changes", []string{"changes:write"}, g.fluxChange))
+	mux.Handle("GET /api/v1/agent/requests", g.with("requests", []string{"probe:write"}, g.requests))
+	mux.Handle("POST /api/v1/agent/requests/{id}", g.with("answers", []string{"probe:write"}, g.answer))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, "not_found", "no such endpoint on the metrics gateway")
 	})
