@@ -73,6 +73,7 @@ components:
         dashboard: {type: string, format: uri}
         notes: {type: array, items: {$ref: "#/components/schemas/Note"}}
         agents: {type: array, items: {$ref: "#/components/schemas/AgentCall"}, description: The hooks called to wake agents, and how that went}
+        page: {type: string, format: uri, description: "The alert's page for people (its timeline, the sessions on its machines, each with its replay): a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/pages.md"}
     Note:
       type: object
       properties:
@@ -227,7 +228,9 @@ components:
                   started: {type: string, format: date-time}
                   ended: {type: string, format: date-time}
                   exit: {type: integer}
+                  commands: {type: integer, description: Commands run at an interactive shell's prompt}
                   related: {type: string, enum: [machine, agent]}
+                  page: {type: string, format: uri, description: "The signed link to the session's page, with its replay, for people"}
         links:
           type: object
           properties:
@@ -237,6 +240,7 @@ components:
             mcp: {type: string}
             runbook: {type: string}
             dashboard: {type: string}
+            page: {type: string, format: uri, description: "The alert's page for people: a signed link that needs no token"}
     Timeline:
       type: object
       properties:
@@ -262,7 +266,7 @@ components:
               event: {type: string, enum: [firing, resolved]}
               result: {type: string, enum: [pending, ok, failed]}
               exit: {type: integer}
-              url: {type: string}
+              url: {type: string, description: "A change's link, or the signed link to a session's page where people replay it"}
               related: {type: string, enum: [service, machine, agent]}
     Machine:
       type: object
@@ -337,6 +341,7 @@ components:
         bytes_in: {type: integer}
         bytes_out: {type: integer}
         recording: {type: string}
+        page: {type: string, format: uri, description: "The session's page for people, with its replay: a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/pages.md"}
     Transcript:
       allOf:
         - {$ref: "#/components/schemas/Session"}

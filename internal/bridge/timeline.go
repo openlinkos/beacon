@@ -17,6 +17,7 @@ type Timeline struct {
 
 // Event is one entry of a timeline. Kind is started, notified, buzzed, pushover, acknowledged, note,
 // silenced, silence_ended, agent, change, session or resolved; the other fields say what each needs.
+// URL is a change's link, or the signed link to a session's page, where people replay it.
 type Event struct {
 	At      time.Time  `json:"at"`
 	Kind    string     `json:"kind"`
@@ -78,7 +79,7 @@ func (b *Bridge) Timeline(_ context.Context, id, before string) (Timeline, error
 	}
 	for _, s := range b.sessions(&g, w, machines) {
 		add(Event{At: s.Started, Kind: "session", By: s.Agent, Via: s.Via, Type: s.Kind, Machine: s.Machine, Text: s.Command, ID: s.ID,
-			Exit: s.Exit, Related: s.Related})
+			Exit: s.Exit, URL: s.Page, Related: s.Related})
 	}
 	if !g.Firing() {
 		add(Event{At: g.ResolvedAt, Kind: "resolved"})

@@ -1,0 +1,49 @@
+{{define "head"}}{{if .Recording}}<link rel="stylesheet" href="/static/asciinema-player.css">{{end}}{{end}}
+{{define "scripts"}}{{if .Recording}}<script src="/static/asciinema-player.min.js"></script>
+<script src="/static/beacon-player.js"></script>{{end}}{{end}}
+{{define "content"}}
+<h1>{{.Agent}} <span class="muted">→</span> {{.Machine}}</h1>
+<p class="sub mono">{{.ID}}</p>
+<div class="chips">
+  <span class="chip">{{.Kind}}</span>
+  <span class="chip">{{.Via}}</span>
+  {{if .Open}}<span class="chip">{{.L.Open}}</span>{{end}}
+  {{if .Exit}}<span class="chip {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span>{{end}}
+</div>
+{{if .Command}}<pre>{{.Command}}</pre>{{end}}
+<div class="card">
+<dl class="kv">
+  <dt>{{.L.Started}}</dt><dd>{{.Started}}</dd>
+  {{if .Duration}}<dt>{{.L.Duration}}</dt><dd>{{.Duration}} <span class="muted">({{.Ended}})</span></dd>{{end}}
+</dl>
+</div>
+
+<h2>{{.L.Recording}}</h2>
+<div class="card">
+{{if .Recording}}
+<div id="player" class="player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>
+<p id="player-note" class="muted" hidden></p>
+{{if .Truncated}}<p class="muted">{{.L.RecordingCut}}</p>{{end}}
+<p><a class="btn" href="{{.Recording}}" download="{{.ID}}.cast">{{.L.Download}}</a></p>
+{{else}}<p class="muted">{{.RecordingNote}}</p>{{end}}
+</div>
+
+{{if .Commands}}
+<h2>{{.L.Commands}}</h2>
+<div class="card session">
+<ul class="cmds">
+  {{range .Commands}}<li><code>{{.Command}}</code><span class="exit {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span><span class="muted exit">{{.Took}}</span></li>{{end}}
+</ul>
+</div>
+{{end}}
+
+{{if .Outputs}}
+<h2>{{.L.Output}}</h2>
+{{range .Outputs}}
+<div class="card">
+<p class="muted mono">{{.K}}</p>
+<pre>{{.V}}</pre>
+</div>
+{{end}}
+{{end}}
+{{end}}

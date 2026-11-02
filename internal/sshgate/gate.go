@@ -27,6 +27,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Poster sends a plain message to the alert chat.
@@ -51,6 +52,8 @@ type Deps struct {
 	Now             func() time.Time
 	// Dial connects to machines; nil uses a net.Dialer. Tests replace it.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Pages builds the signed links to sessions' pages, where people replay them; nil: no links.
+	Pages *link.Pages
 }
 
 // Gate is the SSH channel.

@@ -34,6 +34,7 @@ import (
 	"github.com/openlinkos/beacon/internal/notify"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/vm"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Silencer is what the bridge needs from the router: creating, ending and listing silences.
@@ -81,6 +82,8 @@ type Deps struct {
 	Now      func() time.Time
 	// WSReady reports whether Feishu's long connection is up; nil when callbacks come over HTTP.
 	WSReady func() bool
+	// Pages builds the signed links to the pages people open from the chat (pages.go); nil: no links.
+	Pages *link.Pages
 }
 
 // Bridge is the alert bridge.
@@ -621,6 +624,7 @@ type GroupView struct {
 	Dashboard   string            `json:"dashboard,omitempty"`
 	Notes       []store.Note      `json:"notes,omitempty"`
 	Agents      []store.AgentCall `json:"agents,omitempty"` // the hooks called to wake agents, and how that went
+	Page        string            `json:"page,omitempty"`   // the signed link to the alert's page, for people
 }
 
 func tp(t time.Time) *time.Time {
@@ -642,7 +646,7 @@ func (b *Bridge) view(g *store.Group) GroupView {
 		Service: b.service(g), Labels: g.Labels, Alerts: firing, StartsAt: g.StartsAt, ResolvedAt: tp(g.ResolvedAt),
 		Channel: g.Channel, Ack: g.Ack, Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: tp(g.Pushed),
 		Runbook: b.link(b.d.Config.Links.Runbook, g), Dashboard: b.link(b.d.Config.Links.GrafanaService, g),
-		Notes: g.Notes, Agents: g.Agents,
+		Notes: g.Notes, Agents: g.Agents, Page: b.AlertPage(g.ID),
 	}
 }
 

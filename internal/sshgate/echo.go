@@ -65,11 +65,14 @@ func (e *echoer) line(r store.SessionRecord) string {
 	return i18n.T(lang, "opened %s", r.Kind)
 }
 
-// add queues the line for a finished session.
+// add queues the line for a finished session, with the link to its replay when there is one.
 func (e *echoer) add(r store.SessionRecord) {
 	line := e.line(r)
 	if line == "" || e.g.d.Bot == nil {
 		return
+	}
+	if u := e.g.page(r.ID); u != "" {
+		line += " " + i18n.T(e.g.d.Lang, "Replay: %s", u)
 	}
 	now := e.g.now()
 	key := r.Agent + "\x00" + r.Machine

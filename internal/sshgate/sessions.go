@@ -15,16 +15,27 @@ import (
 )
 
 // Transcript is a session as an agent reads it back: the record, plus what a command printed (cleaned
-// of terminal codes) or, for an interactive shell, each command with its output and exit status.
+// of terminal codes) or, for an interactive shell, each command with its output and exit status. Page is
+// the signed link to the session's page, where people replay it; an agent can hand it to a person.
 type Transcript struct {
 	store.SessionRecord
 	Stdout    string    `json:"stdout,omitempty"`
 	Stderr    string    `json:"stderr,omitempty"`
 	Commands  []Command `json:"commands,omitempty"`
 	Truncated bool      `json:"truncated,omitempty"` // the session was longer than what was kept
+	Page      string    `json:"page,omitempty"`
 
 	raw string // what a command printed, before cleaning: the file tools need the bytes as they are
 }
+
+// SessionView is a session as the API and MCP list it: its record and the link to its page.
+type SessionView struct {
+	store.SessionRecord
+	Page string `json:"page,omitempty"`
+}
+
+// page is the signed link to a session's page; "" without a public URL.
+func (g *Gate) page(id string) string { return g.d.Pages.Session(id) }
 
 var idRe = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}(-[0-9]+)?$`)
 
@@ -48,18 +59,19 @@ type SessionFilter struct {
 }
 
 // Sessions lists sessions, the newest first.
-func (g *Gate) Sessions(f SessionFilter) ([]store.SessionRecord, error) {
+func (g *Gate) Sessions(f SessionFilter) ([]SessionView, error) {
 	if g == nil {
 		return nil, ErrDisabled
 	}
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
-	out := g.d.Store.Sessions(min(f.Limit, 1000), func(r store.SessionRecord) bool {
+	rs := g.d.Store.Sessions(min(f.Limit, 1000), func(r store.SessionRecord) bool {
 		return (f.Machine == "" || r.Machine == f.Machine) && (f.Agent == "" || r.Agent == f.Agent)
 	})
-	if out == nil {
-		out = []store.SessionRecord{}
+	out := make([]SessionView, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, SessionView{SessionRecord: r, Page: g.page(r.ID)})
 	}
 	return out, nil
 }
@@ -73,7 +85,7 @@ func (g *Gate) Session(id string) (Transcript, error) {
 	if !ok || !idRe.MatchString(id) {
 		return Transcript{}, fmt.Errorf("%w %q", ErrNoSession, id)
 	}
-	t := Transcript{SessionRecord: r}
+	t := Transcript{SessionRecord: r, Page: g.page(id)}
 	if r.Recording == "" || r.Ended.IsZero() {
 		return t, nil
 	}
@@ -82,7 +94,7 @@ func (g *Gate) Session(id string) (Transcript, error) {
 		return t, nil //nolint:nilerr // the record alone is still the answer
 	}
 	_ = json.Unmarshal(b, &t)
-	t.SessionRecord = r
+	t.SessionRecord, t.Page = r, g.page(id)
 	return t, nil
 }
 

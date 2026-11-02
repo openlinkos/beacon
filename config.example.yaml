@@ -60,6 +60,12 @@ links:
   grafana_service: "https://grafana.example.com/d/linkos-service/service?var-service={service}"
   runbook: "https://github.com/example/ops/blob/main/runbooks/{alertname}.md"
 
+# The pages people open from the chat: an alert's timeline and each session's replay, at public_url
+# above, reached by signed links (no login). Anyone holding a link sees that page until it expires, so
+# the chat the links go to must be private. See docs/pages.md.
+pages:
+  link_ttl: 720h                            # links are valid 30 days
+
 feishu:
   # The self-built app (cards, button callbacks, buzz). See docs/feishu.md.
   app_id_file: /etc/linkos-beacon/secrets/feishu-app-id

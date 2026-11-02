@@ -4,6 +4,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **People's pages** (`docs/pages.md`): from the card, one link opens the alert's page, and from there each session's replay. Served by `linkos-beacon` beside the API at `public_url`; no login system.
+  - `GET /alerts/{id}`: the alert, each location's latest result and reason, related alerts, the agents woken and whether the SSH channel is paused, the sessions on its machines with their commands and exit statuses (each with a **Replay** link), notes, changes, labels, and the timeline. `GET /sessions/{id}`: who, where, when, how long, the commands, and the recording replayed in the page (asciinema-player 3.17.0, embedded; asciicast v3). In the configured language, light and dark, laid out for a phone; a strict `Content-Security-Policy`, `noindex`, no referrer, nothing fetched from elsewhere.
+  - Signed links: `?s=<expiry>.<HMAC-SHA256>` under a key Beacon makes at first start and keeps in its database; valid for `pages.link_ttl` (30 days by default). A bearer token with `status:read` (alerts) or `sessions:read`/`machines:ssh` (sessions) opens a page too; anything else is 404. Anyone holding a link sees that page, so the chat the links go to must be private.
+  - The links are on the card (a **Timeline** button; an **Agents** block with the hooks woken and "N sessions on M machines, K commands"), in the chat echoes of agents' sessions (a **Replay** link each), and in the API and MCP answers (`page` on alerts and sessions, `links.page` in the evidence, `url` on a timeline's session events), so an agent can hand a person a link.
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)

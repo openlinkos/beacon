@@ -21,6 +21,7 @@ import (
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // sshKeys parses the SSH channel's host key and certificate authority from their files.
@@ -37,8 +38,9 @@ func sshKeys(cfg *config.Config) (host, ca ssh.Signer, err error) {
 	return host, ca, nil
 }
 
-// newGate builds the SSH channel when the configuration turns it on; nil otherwise.
-func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, m *metrics.Metrics, log *slog.Logger) (*sshgate.Gate, error) {
+// newGate builds the SSH channel when the configuration turns it on; nil otherwise. pages builds the
+// links to sessions' replays for the chat.
+func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *link.Pages, m *metrics.Metrics, log *slog.Logger) (*sshgate.Gate, error) {
 	if cfg.SSH.CAKeyFile == "" {
 		return nil, nil
 	}
@@ -51,7 +53,7 @@ func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, m *metrics
 		lang = i18n.EN
 	}
 	return sshgate.New(sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
-		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log})
+		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log, Pages: pages})
 }
 
 // keyArg is a public key given on the command line, or @FILE to read it from a file.

@@ -15,9 +15,11 @@ import (
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/web"
 )
 
-// Deps are what the routes need. Feishu is nil unless callbacks come over HTTP.
+// Deps are what the routes need. Feishu is nil unless callbacks come over HTTP; Web is nil without the
+// pages people open from the chat.
 type Deps struct {
 	Bridge  *bridge.Bridge
 	API     *api.Server
@@ -26,6 +28,7 @@ type Deps struct {
 	Feishu  http.Handler
 	Drill   func() time.Time
 	Log     *slog.Logger
+	Web     *web.Server
 }
 
 // CSP for everything the service serves itself; the status page will bring its own.
@@ -64,6 +67,9 @@ func Handler(d Deps) http.Handler {
 	})
 	d.API.Register(mux)
 	mux.Handle("/mcp", d.MCP)
+	if d.Web != nil {
+		d.Web.Register(mux) // the pages set their own Content-Security-Policy over the one below
+	}
 	mux.HandleFunc("GET /{$}", placeholder)
 	return headers(mux)
 }
