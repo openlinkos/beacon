@@ -16,8 +16,10 @@ import (
 // resolves. Beacon only wakes the agent: what to make of the alert is the agent's business.
 //
 // Kind webhook POSTs a JSON payload to URL, signed with HMAC-SHA256 under the secret in SecretFile
-// (header X-Beacon-Signature: sha256=<hex>). Kind github dispatches Workflow in Repository at Ref
-// (workflow_dispatch) with the token in TokenFile, passing the inputs alert (the group id) and event.
+// (header X-Beacon-Signature: sha256=<hex>), and/or with the headers in HeadersFile, for a receiver
+// that checks a secret of its own (Authorization: Bearer …, X-Webhook-Secret: …). Kind github
+// dispatches Workflow in Repository at Ref (workflow_dispatch) with the token in TokenFile, passing
+// the inputs alert (the group id) and event.
 type Agent struct {
 	Name       string   `yaml:"name"`
 	Kind       string   `yaml:"kind"`       // webhook or github
@@ -25,8 +27,9 @@ type Agent struct {
 	Service    string   `yaml:"service"`    // a regular expression over the whole service; empty matches any
 	Resolved   bool     `yaml:"resolved"`   // also call when the group resolves
 
-	URL        string `yaml:"url"`         // webhook
-	SecretFile string `yaml:"secret_file"` // webhook: the signing secret
+	URL         string `yaml:"url"`          // webhook
+	SecretFile  string `yaml:"secret_file"`  // webhook: the signing secret
+	HeadersFile string `yaml:"headers_file"` // webhook: "Name: value" lines sent with every call (the receiver's own secret)
 
 	Repository string `yaml:"repository"` // github: owner/name
 	Workflow   string `yaml:"workflow"`   // github: the workflow's file name (oncall.yml) or id
@@ -34,8 +37,44 @@ type Agent struct {
 	TokenFile  string `yaml:"token_file"` // github: a token that may dispatch the workflow (actions: write)
 	API        string `yaml:"api"`        // github: default https://api.github.com (GitHub Enterprise, tests)
 
-	Secret    string         `yaml:"-"` // read from secret_file or token_file
-	ServiceRe *regexp.Regexp `yaml:"-"`
+	Secret    string            `yaml:"-"` // read from secret_file or token_file
+	Headers   map[string]string `yaml:"-"` // read from headers_file
+	ServiceRe *regexp.Regexp    `yaml:"-"`
+}
+
+// headerNameRe is an HTTP field name (RFC 9110 token).
+var headerNameRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+
+// reservedHeaders are set by Beacon itself and cannot come from headers_file.
+var reservedHeaders = []string{"content-type", "content-length", "host", "user-agent", "x-beacon-signature", "x-beacon-event", "x-beacon-delivery"}
+
+// parseHeaders reads a headers_file: one "Name: value" per line, blank lines and lines starting with
+// # ignored.
+func parseHeaders(b []byte) (map[string]string, error) {
+	h := map[string]string{}
+	for n, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(line, ":")
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		switch {
+		case !ok || !headerNameRe.MatchString(name):
+			return nil, fmt.Errorf("line %d is not \"Name: value\"", n+1)
+		case value == "":
+			return nil, fmt.Errorf("line %d: %s has no value", n+1, name)
+		case strings.ContainsFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }):
+			return nil, fmt.Errorf("line %d: %s has a control character in its value", n+1, name)
+		case slices.Contains(reservedHeaders, strings.ToLower(name)):
+			return nil, fmt.Errorf("line %d: %s is set by Beacon itself", n+1, name)
+		}
+		h[name] = value
+	}
+	if len(h) == 0 {
+		return nil, errors.New("no headers")
+	}
+	return h, nil
 }
 
 // Changes are the change events (deployments, Flux reconciliations) the gateway takes, kept for Keep.
@@ -113,8 +152,9 @@ func (c *Config) validateAgents() []error {
 			if !httpURL(a.URL) {
 				bad("%s.url %q is not an http(s) URL", what, a.URL)
 			}
-			if a.SecretFile == "" {
-				bad("%s.secret_file is required: Beacon signs every call, so the agent can tell it from a forgery", what)
+			if a.SecretFile == "" && a.HeadersFile == "" {
+				bad("%s: secret_file or headers_file is required, so the agent can tell Beacon's calls from a forgery: "+
+					"secret_file signs each call (X-Beacon-Signature), headers_file carries the receiver's own secret", what)
 			}
 			if a.Repository != "" || a.Workflow != "" || a.TokenFile != "" {
 				bad("%s: repository, workflow and token_file are for kind github", what)
@@ -132,8 +172,8 @@ func (c *Config) validateAgents() []error {
 			if !httpURL(a.API) {
 				bad("%s.api %q is not an http(s) URL", what, a.API)
 			}
-			if a.URL != "" || a.SecretFile != "" {
-				bad("%s: url and secret_file are for kind webhook", what)
+			if a.URL != "" || a.SecretFile != "" || a.HeadersFile != "" {
+				bad("%s: url, secret_file and headers_file are for kind webhook", what)
 			}
 		default:
 			bad("%s.kind must be webhook or github, not %q", what, a.Kind)
@@ -149,6 +189,15 @@ func (c *Config) readAgentSecrets() []error {
 		path, what := a.SecretFile, "agents."+a.Name+".secret_file"
 		if a.Kind == "github" {
 			path, what = a.TokenFile, "agents."+a.Name+".token_file"
+		}
+		if a.Kind == "webhook" && a.HeadersFile != "" {
+			hwhat := "agents." + a.Name + ".headers_file"
+			b, err := os.ReadFile(a.HeadersFile)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", hwhat, err))
+			} else if a.Headers, err = parseHeaders(b); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", hwhat, err))
+			}
 		}
 		if path == "" {
 			continue

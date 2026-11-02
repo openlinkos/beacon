@@ -130,6 +130,32 @@ func TestWakeAgentRetries(t *testing.T) {
 	}
 }
 
+func TestWebhookHeaders(t *testing.T) {
+	// a receiver that checks its own secret: the headers from headers_file go out, and without a
+	// signing secret there is no X-Beacon-Signature; event and delivery are always there
+	fastRetries(t)
+	e := newEnv(t)
+	hs := newHookServer(t, 202)
+	e.b.d.Config.PublicURL = "https://status.example.com"
+	a := webhookAgent(hs.srv.URL+"/hook", false)
+	a.Secret = ""
+	a.Headers = map[string]string{"Authorization": "Bearer bot-secret", "X-Webhook-Secret": "s3cret"}
+	e.b.d.Config.Agents = []config.Agent{a}
+	if err := e.b.HandleWebhook(context.Background(), hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	e.b.waitWakes()
+	if len(hs.reqs) != 1 {
+		t.Fatalf("attempts: %d", len(hs.reqs))
+	}
+	r := hs.reqs[0]
+	if r.Header.Get("Authorization") != "Bearer bot-secret" || r.Header.Get("X-Webhook-Secret") != "s3cret" ||
+		r.Header.Get("X-Beacon-Signature") != "" || r.Header.Get("X-Beacon-Event") != "firing" || r.Header.Get("X-Beacon-Delivery") == "" ||
+		r.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("headers: %v", r.Header)
+	}
+}
+
 func TestWakeAgentGivesUp(t *testing.T) {
 	fastRetries(t)
 	e := newEnv(t)

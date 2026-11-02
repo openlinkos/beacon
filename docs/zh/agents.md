@@ -35,6 +35,7 @@ agents:
 | `service` | 匹配整个 `service` 标签的正则表达式；包含多个服务的告警组，只要有一个服务匹配就算 |
 | `resolved` | 唤醒过它的告警组恢复时，再调用一次 |
 | `url`、`secret_file` | Webhook：POST 到哪里，以及给每次调用签名的密钥 |
+| `headers_file` | Webhook：一个文件，每行一个 `Name: value`，随每次调用一起发出，给自己校验密钥的接收方用（`Authorization: Bearer …`、`X-Webhook-Secret: …`）；`#` 开头是注释。`secret_file` 和 `headers_file` 至少给一个，也可以都给 |
 | `repository`、`workflow`、`ref`、`token_file` | GitHub：`owner/name`、workflow 的文件名或 id、分支（默认 `main`），以及能触发它的令牌（对这个仓库有 Actions 读写权限的细粒度令牌） |
 | `api` | GitHub：默认 `https://api.github.com`，GitHub Enterprise 时改掉 |
 

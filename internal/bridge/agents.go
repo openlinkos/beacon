@@ -211,7 +211,12 @@ func (b *Bridge) send(ctx context.Context, h config.Agent, c store.AgentCall, bo
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 		req.Header.Set("Authorization", "Bearer "+h.Secret)
 	} else {
-		req.Header.Set("X-Beacon-Signature", signature(h.Secret, body))
+		for name, value := range h.Headers { // the receiver's own secret, when it checks one
+			req.Header.Set(name, value)
+		}
+		if h.Secret != "" {
+			req.Header.Set("X-Beacon-Signature", signature(h.Secret, body))
+		}
 		req.Header.Set("X-Beacon-Event", c.Event)
 		req.Header.Set("X-Beacon-Delivery", c.Delivery)
 	}

@@ -63,13 +63,53 @@ changes: {keep: 1h}
 	}
 	for _, want := range []string{
 		"agents need public_url", `name "Bad Name"`, `url "ftp://x" is not an http(s) URL`,
-		`"urgent" is not a severity`, "agents.a.service", "secret_file is required", "agents.a is listed twice",
-		`repository "nope"`, `workflow "a b"`, "token_file is required", "url and secret_file are for kind webhook",
+		`"urgent" is not a severity`, "agents.a.service", "secret_file or headers_file is required", "agents.a is listed twice",
+		`repository "nope"`, `workflow "a b"`, "token_file is required", "url, secret_file and headers_file are for kind webhook",
 		`kind must be webhook or github, not "pager"`, "changes.keep is at least 24h",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
 		}
+	}
+}
+
+func TestAgentHeadersFile(t *testing.T) {
+	d := t.TempDir()
+	// a receiver that checks its own secret: no signing secret needed
+	y := full(t) + `
+agents:
+  - {name: a, kind: webhook, url: "https://x.example", headers_file: ` + secret(t, d, "h", "# the bot's own secret\nAuthorization: Bearer abc123\n\nX-Webhook-Secret:  s3cret  \n") + `}
+`
+	c, err := Parse([]byte(y))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.Agents[0]; a.Secret != "" || len(a.Headers) != 2 || a.Headers["Authorization"] != "Bearer abc123" || a.Headers["X-Webhook-Secret"] != "s3cret" {
+		t.Errorf("headers: %+v", a)
+	}
+	for file, want := range map[string]string{
+		"X-Beacon-Event: firing\n":   "is set by Beacon itself",
+		"Content-Type: text/plain\n": "is set by Beacon itself",
+		"no colon here\n":            `is not "Name: value"`,
+		"Bad Name: x\n":              `is not "Name: value"`,
+		"X-Empty:\n":                 "has no value",
+		"X-Ctl: a\x01b\n":            "control character",
+		"# only a comment\n":         "no headers",
+	} {
+		y := full(t) + `
+agents:
+  - {name: a, kind: webhook, url: "https://x.example", headers_file: ` + secret(t, t.TempDir(), "h", file) + `}
+`
+		if _, err := Parse([]byte(y)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want %q, got %v", file, want, err)
+		}
+	}
+	y = full(t) + `
+agents:
+  - {name: a, kind: webhook, url: "https://x.example"}
+`
+	if _, err := Parse([]byte(y)); err == nil || !strings.Contains(err.Error(), "secret_file or headers_file is required") {
+		t.Errorf("neither: %v", err)
 	}
 }
 

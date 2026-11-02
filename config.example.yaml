@@ -110,6 +110,7 @@ agents:
     kind: webhook                           # a JSON POST, signed: X-Beacon-Signature: sha256=<HMAC of the body>
     url: https://agents.example.com/hooks/beacon
     secret_file: /etc/linkos-beacon/secrets/agent-hook-secret   # at least 24 random characters
+    # headers_file: /etc/linkos-beacon/secrets/agent-hook-headers   # "Name: value" lines for a receiver that checks its own secret; then secret_file is optional
     severities: [critical]                  # the default
     # service: "hub-.*|git-.*"              # a regular expression over the whole service label
     resolved: true                          # also call when the group resolves

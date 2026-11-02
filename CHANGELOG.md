@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.4 (2026-11-02)
+
+- **Hooks for receivers with a secret of their own** (`docs/agents.md`): a `kind: webhook` hook takes `headers_file`, a file of `Name: value` lines sent with every call (`Authorization: Bearer …`, `X-Webhook-Secret: …`), for bot platforms that check their own secret rather than Beacon's signature. One of `secret_file` and `headers_file` is required; with both, the call is signed and carries the headers. `X-Beacon-Event` and `X-Beacon-Delivery` are always sent.
+
 ### rc.3 (2026-11-02)
 
 - **The agent on call: `linkos-oncall`** (`docs/agents.md`, "Running an agent when woken"): a reference harness, a third binary in the releases, that runs an agent program when a hook wakes it. It takes the signed webhook, checks the signature, refuses replays and deliveries older than 15 minutes, remembers each delivery for a day, answers at once, and starts the program named with `-run` (`-run-resolved` for resolved events) with the payload on its standard input and the alert in `BEACON_*` variables. `-concurrency` programs run at once, up to 32 wait, beyond that Beacon is told to try later; each run's output is kept under `-log-dir` for `-keep`; a run is killed with its whole process group after `-timeout`; stopping waits for the runs in progress.

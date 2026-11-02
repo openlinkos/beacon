@@ -35,6 +35,7 @@ agents:
 | `service` | A regular expression over the whole `service` label; a group of several services matches when one does |
 | `resolved` | Call again when a group it was woken for resolves |
 | `url`, `secret_file` | Webhook: where to POST, and the secret that signs each call |
+| `headers_file` | Webhook: a file of `Name: value` lines sent with every call, for a receiver that checks a secret of its own (`Authorization: Bearer …`, `X-Webhook-Secret: …`); `#` starts a comment. One of `secret_file` and `headers_file` is required, both may be given |
 | `repository`, `workflow`, `ref`, `token_file` | GitHub: `owner/name`, the workflow's file name or id, the branch (`main` by default), and a token that may dispatch it (a fine-grained token with Actions: read and write on that repository) |
 | `api` | GitHub: `https://api.github.com` by default, for GitHub Enterprise |
 
