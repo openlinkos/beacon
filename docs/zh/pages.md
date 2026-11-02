@@ -1,12 +1,14 @@
-# 控制台
+---
+sourceHash: sha256-6f17b763
+---
 
-[English](../pages.md) | 简体中文
+# 控制台
 
 控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `linkos-beacon` 自己提供，在 17001 端口的 `/` 上，与 API 和 MCP 在一起，地址在 `public_url` 下。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
 
 Beacon 没有自己的登录系统：人用一个 Beacon 令牌登录，控制台能做什么，取决于这个令牌的权限范围。
 
-## 登录
+## 登录 {#signing-in}
 
 `/sign-in` 要一个 Beacon 令牌，像密码一样粘贴进去。至少有 `status:read` 的令牌才能登录；没有它的、不存在的、已过期的都不行。在主机上为自己创建一个：
 
@@ -21,7 +23,7 @@ linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -e
 - **退出登录**在侧栏底部的菜单里。
 - cookie 是 `Secure` 的，所以控制台需要 HTTPS（或 `localhost`）：放在提供 `public_url` 的 TLS 代理后面，参考部署就是这样做的。
 
-## 页面
+## 页面 {#the-pages}
 
 所有页面共用设计系统的工作台：窄侧栏列出各栏目和数量，顶栏就是页头（导航路径、标题、数量），列表的筛选在左边。列表按时间倒序，每页 50 条；每个筛选都是链接，所以每个视图都有自己的 URL。
 
@@ -41,7 +43,7 @@ linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -e
 | `/audit` | 审计日志，可按操作者、操作和途径筛选，可搜索 | `status:read` |
 | `/changes` | 来自 CI、Flux 等的变更事件，可按来源、类型、服务和机器筛选 | `status:read` |
 
-## 控制台能做什么
+## 控制台能做什么 {#what-the-console-may-do}
 
 控制台的表单与 API 的操作相同，权限范围也相同，以登录的令牌身份、途径 `console` 执行：与其他所有写操作一样记入审计日志，并回显到告警群。
 
@@ -58,7 +60,7 @@ linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -e
 
 **在控制台吊销令牌。**令牌在主机上经管理套接字创建，大多也在那里吊销。控制台只吊销能经 SSH 通道访问机器的令牌（`machines:ssh`）：这相当于针对单个 Agent 的暂停开关，立即停下它在机器上做的事，而不影响其他 Agent，所以它用暂停开关的权限范围 `machines:write`。吊销同时结束这个令牌在控制台的登录。机器和服务的令牌（检测点、主机、心跳、规则引擎、变更发送方、指标读取方）不能在页面上吊销：它们维持着监控，而告警一条都不能丢。
 
-## 告警页面：`/alerts/{id}`
+## 告警页面：`/alerts/{id}` {#the-alerts-page-alertsid}
 
 卡片上的**时间线**按钮打开它。页面显示：
 
@@ -73,11 +75,11 @@ linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -e
 
 时间范围从告警开始前 30 分钟起，到现在，或到恢复后 30 分钟，与证据一致。
 
-## 会话页面：`/sessions/{id}`
+## 会话页面：`/sessions/{id}` {#the-sessions-page-sessionsid}
 
 谁、在哪台机器、经什么途径（ssh、MCP 或 API）、什么类型的会话、何时开始、持续多久、退出码，以及用 [asciinema-player](https://github.com/asciinema/asciinema-player) 在页面里回放的录像（asciicast v3，正是 SSH 通道录下的格式：输出、输入、窗口大小、每条命令处的标记、退出码）。播放器下面是交互 shell 的各条命令及退出码，或者一条命令的输出。录像也可以下载。仍在进行的会话只显示记录，结束后才能回放。
 
-## 带签名的链接
+## 带签名的链接 {#signed-links}
 
 页面链接以 `?s=<到期时间>.<签名>` 结尾：到期时间是 Unix 秒数，签名是对方法、路径和到期时间（各自后跟一个换行）做的 HMAC-SHA256，base64url 编码，密钥是 32 字节，Beacon 第一次启动时生成并保存在数据库里。链接的有效期是 `pages.link_ttl`（默认 30 天）：
 
@@ -97,11 +99,11 @@ Beacon 在人可能拿到链接的每个地方都给出链接：
 - 群里回显 Agent 在机器上做了什么的消息：每次会话一个**回放**链接；
 - API 和 MCP 的结果，让 Agent 能把链接交给人：告警上的 `page`（`GET /api/v1/alerts/{id}`、`get_alert`）、证据里的 `links.page`、时间线里会话事件的 `url`、会话上的 `page`（`list_sessions`、`get_session`、证据里的 `done.sessions[]`）。
 
-## 用令牌代替
+## 用令牌代替 {#tokens-instead}
 
 Bearer 令牌打开告警页面和会话页面的规则与对应的 API 路由一致，而且只读：告警页面要 `status:read`，会话页面和录像要 `sessions:read` 或 `machines:ssh`。以 `Authorization: Bearer lbt_…` 发送；这样打开的页面，里面到会话和录像的链接有效一小时。缺少权限的令牌、未知的令牌、没有令牌，得到的都是同样的 404。
 
-## 怎么做的
+## 怎么做的 {#how-it-is-built}
 
 - 基于 OpenLinkOS 设计系统 [`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui) 0.6.1 的工作台外框和布局，与 Origin 的管理工作台一样，让这一系列产品看起来是一家。它的样式表、图标和 Geist 字体放在 `internal/web/static/ol` 下，许可证和哈希在 `NOTICE` 里；`scripts/update-ui.sh` 从 npm 更新它们。Beacon 的主题色（`data-brand="beacon"`，一种温暖的烽火橙）是暂定的，写在 `static/beacon-brand.css` 里，等设计系统发布这个品牌后删掉。
 - 所有屏幕用同一个页面：1200px 以上是完整侧栏，860px 起是图标栏，再窄就是抽屉；手机宽度下列表重排成卡片，全靠 CSS。服务器从不过问屏幕有多宽。
@@ -109,7 +111,7 @@ Bearer 令牌打开告警页面和会话页面的规则与对应的 API 路由�
 - 来自 Beacon 之外的文字（告警注释、备注、命令、变更事件）经桥接层清理，输出时再转义。
 - 控制台用配置的 `language` 显示，中文或英文，跟随系统的浅色或深色模式。
 
-## 控制台不做什么
+## 控制台不做什么 {#what-the-console-does-not-do}
 
 - 没有账号，没有密码：令牌就是身份，Beacon 不另设别的。
 - 没有审批流程：这些表单是令牌持有者本来就能经 API 做的事；控制台让它们看得见、做得快，而不是设卡。人看，Agent 做，暂停开关让它们停下。

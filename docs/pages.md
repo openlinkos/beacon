@@ -1,7 +1,5 @@
 # The console
 
-English | [简体中文](zh/pages.md)
-
 The console is Beacon's own workbench: one place for a person to look at everything agents and alerts are doing. `linkos-beacon` serves it itself, at `/` on port 17001 beside the API and MCP, under `public_url`. From the card in the chat, one link opens the alert's page (what the probes see, the timeline, the notes, the agents woken, every session on the alert's machines with its commands and a replay) without signing in; signed in, the same page sits among all the others, with the pause switch a click away.
 
 There is no login system of Beacon's own: a person signs in with a Beacon token, and what the console may do is what that token's scopes allow.
