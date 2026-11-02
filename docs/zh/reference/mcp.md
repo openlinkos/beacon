@@ -1,20 +1,21 @@
 ---
-sourceHash: sha256-a437a672
+sourceHash: sha256-4059b407
 ---
 
 # MCP 工具
 
-Beacon 的 MCP server 在 17001 端口的 `/mcp`：streamable HTTP，无状态，令牌和作用域与 [REST API](api.md) 相同。每个工具都调用和对应 REST 路径同样的方法。机器工具沿用 Agent 本地工具的名字和行为（执行命令、读文件、写文件、改文件）；结果是结构化的，不夹终端控制字符，长输出会截断，并说明怎么取全文。每次写操作和每次会话都连同令牌的名字记录下来，并回显到告警群。
+Beacon 的 MCP server 在 17001 端口的 `/mcp`：streamable HTTP，无状态，令牌和作用域与 [REST API](api.md) 相同。每个工具都调用和对应 REST 路径同样的方法。机器工具沿用 Agent 本地工具的名字和行为（执行命令、读文件、写文件、改文件）；结果是结构化的，不夹终端控制字符，长输出会截断，并说明怎么取全文。每次写操作和每次会话都连同调用者的名字记录下来（Agent 记为 `alice / claude-code`，其他令牌记为令牌自己的名字），并回显到告警群。
 
 ## 接入 {#connecting}
 
-Claude Code：
+Claude Code 用 OAuth 登录：添加 Beacon，然后从 Claude Code 登录，浏览器会打开 Beacon 的授权页面，由一位成员把它允许为自己的一个 Agent（[成员、Agent 与登录](../accounts.md#connecting-claude-code-or-codex)）：
 
 ```bash
-claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp
+claude mcp login beacon     # or /mcp inside Claude Code
 ```
 
-Codex，写在 `~/.codex/config.toml` 里，令牌放在环境变量中：
+Codex 也一样：`codex mcp add beacon --url https://status.example.com/mcp`，然后 `codex mcp login beacon`。无界面的 Agent 改为发送 Agent 的令牌，令牌在控制台的 **Agent** 页面或用 `beacon agent add` 创建：Claude Code 用 `--header "Authorization: Bearer lbt_…"`，Codex 写在 `~/.codex/config.toml` 里，令牌放在环境变量中：
 
 ```toml
 [mcp_servers.beacon]
@@ -22,7 +23,7 @@ url = "https://status.example.com/mcp"
 bearer_token_env_var = "BEACON_TOKEN"
 ```
 
-其他支持 HTTP 上 MCP 的客户端也一样接入。server 的说明会告诉 Agent 每组工具是做什么的，以及怎样谨慎地使用写工具；每个令牌都能看到全部工具，调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个。
+其他支持 HTTP 上 MCP 的客户端也一样接入。没有凭据，或凭据通不过校验的请求，会得到 `401`，它的 `WWW-Authenticate` 指向受保护资源的元数据（`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`），MCP 客户端从那里找到怎样登录。server 的说明会告诉 Agent 每组工具是做什么的，以及怎样谨慎地使用写工具；每个凭据都能看到全部工具，调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个，对 Agent 还说明它的预设在所有者角色范围内允许什么。
 
 ## 告警 {#alerts}
 
@@ -90,13 +91,25 @@ Beacon 监控的内容，按文件里的样子读写（[目录、检测目标和
 | `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内静默这些服务的告警。最长 7 天，在 90 天内开始，不能从过去开始 |
 | `end_maintenance` | `maintenance:write` | 立即结束一个维护窗口，或在开始前取消（`id`）：它的静默随之结束，状态页上也会显示 |
 
+## 成员与 SSH 密钥 {#people-and-ssh-keys}
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
+| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
+| `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |
+| `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
+| `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
+
+没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。修改角色、停用成员和重设密码都不是 MCP 工具；那是人的事，在控制台或主机上做。
+
 ## 你的令牌 {#your-token}
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `whoami` | 任意 | 令牌本身：名字、作用域、能到达的机器、到期时间、有效期长度，以及能否、何时可以续期 |
-| `renew_token` | 任意 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和密钥不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期 |
-| `revoke_token` | `machines:write` | 吊销一把能到达机器的令牌：它的会话结束，之后的请求都被拒绝。针对单个 Agent 的暂停开关；机器和服务的令牌只能在主机上吊销 |
+| `whoami` | 任意 | 你在 Beacon 眼里是谁：审计日志给你的名字（`alice / claude-code`）、你所代表的人、你的预设和它在那个人的角色范围内当前给你的作用域、你能到达的机器、你的 SSH 密钥，以及你的凭据：令牌（到期时间、有效期长度、能否以及何时可以续期），或由客户端刷新的 OAuth 登录 |
+| `renew_token` | 任意 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和密钥不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期，OAuth 登录也不能，由它的客户端刷新 |
+| `revoke_token` | `machines:write` | 吊销一把能到达机器的令牌，或任何 Agent 的令牌：它在机器上打开着的东西立即关闭，之后的请求都被拒绝。针对单个 Agent 的暂停开关；机器和服务的令牌只能在主机上吊销 |
 
 ## 结果 {#results}
 

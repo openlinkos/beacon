@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-96d07436
+sourceHash: sha256-39257971
 ---
 
 # SSH 通道
@@ -93,16 +93,16 @@ docker exec beacon beacon machine add edge-9 connector -key "$(cat /etc/ssh/beac
 
 ## 给 Agent 权限 {#give-an-agent-access}
 
-一个带 `machines:ssh` 作用域和 Agent 公钥的令牌：
+一个预设能到达机器的 Agent（值班或运维），加上它的公钥（[成员、Agent 与登录](accounts.md)）。Claude Code 这类交互式客户端用 OAuth 登录，自己用 `add_ssh_key` 登记公钥；无界面的 Agent 在控制台的 **Agent** 页面创建，或在主机上：
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
+docker exec beacon beacon agent add claude-code -owner alice -preset oncall \
+  -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
-`-machines edge-1,edge-2` 限定它能到达的机器；`token machines NAME all` 取消限定。以后用 `token ssh-key NAME add KEY` 和 `remove FINGERPRINT` 增删公钥。
+`-machines edge-1,edge-2` 限定它能到达的机器；以后在 Agent 页面上修改它的机器和公钥，Agent 自己的 `add_ssh_key` 和 `remove_ssh_key` 也可以。不属于 Agent 的独立令牌仍在主机上设置：`beacon token create NAME -scopes … -ssh-key KEY -machines a,b`，之后用 `token ssh-key NAME add KEY` 和 `remove FINGERPRINT`、`token machines NAME all`。吊销令牌、删除 Agent、降低或停用它的所有者、移除公钥，或把机器从它的列表里去掉，都会立即关闭它在不再能到达的机器上打开着的东西。
 
-同一个令牌也用于 MCP，工具有：
+Agent 的凭据同样用于 MCP，工具有：
 
 | 工具 | 做什么 |
 | --- | --- |

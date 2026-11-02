@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-df74dae2
+sourceHash: sha256-29edc217
 ---
 
 # Agent 与告警
@@ -290,14 +290,14 @@ spec:
 
 ## 自行续期的令牌 {#tokens-that-renew-themselves}
 
-Agent 的令牌就是它在 REST API、MCP 服务和 SSH 通道上的身份。与其让人发一个长期令牌、到期再发一个，不如让令牌自己续期：到期之前，持有者申请一个新密钥，拿到的令牌名字、作用域、subject、机器和 SSH 公钥都不变，从现在起再有效一个生存期（用 `-expires 90d` 创建的令牌，每次续期都再给 90 天）。除了令牌本身什么都不需要：这两个接口接受任何作用域。
+无界面的 Agent 用令牌登录 REST API 和 MCP 服务，令牌是它所属 Agent 的凭据之一，在控制台的 **Agent** 页面或用 `beacon agent add` 创建（[成员、Agent 与登录](accounts.md#headless-agents-and-ci)）；交互式客户端改用 OAuth 登录，由客户端自己刷新。与其让人给 Agent 发一个长期令牌、到期再发一个，不如让令牌自己续期：到期之前，持有者申请一个新密钥，拿到的令牌名字、所属 Agent、作用域、subject、机器和 SSH 公钥都不变，从现在起再有效一个生存期（用 `-expires 90d` 创建的令牌，每次续期都再给 90 天）。除了令牌本身什么都不需要：这两个接口接受任何作用域。
 
 | 路径、工具 | 作用 |
 | --- | --- |
-| `GET /api/v1/token`、`whoami` | 令牌在持有者眼里的样子：`name`、`scopes`、`machines`、`ssh_keys`（指纹）、`created`、`expires`、`lifetime`、`renewed`（上次续期）、`renewable` 和 `renewable_at`；从不包含密钥 |
+| `GET /api/v1/token`、`whoami` | 调用者是谁，以及它的凭据在持有者眼里的样子：`name`、`actor`（审计日志里的称呼，如 `alice / ci-deploy`）、`user`、`agent`、`preset`、`credential`（`token` 或 `oauth`，后者带 `client`）、`scopes`（当前能做的，不超出所有者的角色）、`machines`、`ssh_keys`（指纹）、`created`、`expires`、`lifetime`、`renewed`（上次续期）、`renewable` 和 `renewable_at`；从不包含密钥 |
 | `POST /api/v1/token/renew`、`renew_token` | 新密钥（`secret`，只显示这一次）和令牌；`old_secret_valid_until` 说明被替换的旧密钥还能用到什么时候 |
 
-续期后旧密钥还能用十分钟，客户端换令牌文件时不会有竞争，刚读过文件的进程也照常工作。一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。已登记机器的令牌（probe、host、heartbeat）从不自行续期：用 `beacon enroll … -rotate` 替换它们（`token.not_renewable`，`403`）。每次续期都记进审计日志（`token_renew`）并回显到告警群（「令牌 claude-code 自行续期了，到期日 2027-01-31」），`beacon token list` 显示每个令牌的生存期和上次续期时间。SSH 登录凭公钥，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
+续期后旧密钥还能用十分钟，客户端换令牌文件时不会有竞争，刚读过文件的进程也照常工作。一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。已登记机器的令牌（probe、host、heartbeat）从不自行续期：用 `beacon enroll … -rotate` 替换它们（`token.not_renewable`，`403`）；OAuth 访问令牌也不续期，由它的客户端刷新。每次续期都记进审计日志（`token_renew`）并回显到告警群（「令牌 claude-code 自行续期了，到期日 2027-01-31」），`beacon token list` 显示每个令牌的生存期和上次续期时间。SSH 登录凭公钥，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
 
 Agent 的工具链每天跑一次这样的脚本（cron 或 systemd timer），Agent 每次调用时读令牌文件：
 
@@ -319,7 +319,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
 ```
 
-令牌的生存期要比续期间隔长几倍（每天续期就用 `-expires 30d`），工具链停一阵子也不至于丢了令牌；真丢了，照旧由人用 `beacon token create` 新建一个。泄露的令牌会一直续期下去，直到被撤销（`beacon token revoke NAME`）：群里能看到每一次续期，`token list` 显示最近一次。
+令牌的生存期要比续期间隔长几倍（每天续期就用 `-expires 30d`），工具链停一阵子也不至于丢了令牌；真丢了，由 Agent 的所有者在 Agent 页面上点**新令牌**再发一个。泄露的令牌会一直续期下去，直到被撤销（Agent 页面上的**吊销**，或 `beacon token revoke NAME`），撤销也会关闭它在机器上打开着的东西：群里能看到每一次续期，`token list` 显示最近一次。
 
 ## Beacon 在这里不做什么 {#what-beacon-does-not-do-here}
 

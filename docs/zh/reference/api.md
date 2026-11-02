@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a374c49e
+sourceHash: sha256-7c5c0a3c
 ---
 
 # REST API
@@ -14,15 +14,15 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes -d '{"text": "Restarted the relay; probing again."}'
 ```
 
-- **令牌**以 `lbt_` 开头，这是 Beacon 令牌的标记；用 `beacon token create NAME -scopes … -expires …` 创建。Beacon 只保存它们的 SHA-256 哈希；每个令牌都有作用域和有效期，并能按请求自行续期（`POST /api/v1/token/renew`）。
+- **凭据**是令牌或 OAuth 访问令牌。令牌以 `lbt_` 开头，这是 Beacon 令牌的标记：Agent 的令牌在控制台的 **Agent** 页面或用 `beacon agent add` 创建，机器的或熟手用的令牌用 `beacon token create NAME -scopes … -expires …` 创建；它有有效期，并能按请求自行续期（`POST /api/v1/token/renew`）。OAuth 访问令牌（`lba_…`）是 Claude Code 这类 MCP 客户端在成员允许后拿到的；它有效一小时，由客户端刷新（[成员、Agent 与登录](../accounts.md)）。Beacon 只保存它们的 SHA-256 哈希。
 - **请求体**是 JSON（`Content-Type: application/json`）；不认识的字段会被拒绝，这样拼错的字段不会被悄悄忽略。
-- **写操作**连同令牌的名字记入审计日志，并回显到告警群。机器上的会话也都有记录。
+- **写操作**连同操作者记入审计日志（Agent 记为 `alice / claude-code`，其他令牌记为令牌自己的名字），并回显到告警群。机器上的会话也都有记录。
 - **错误**是 `{"error": "…", "code": "…"}`：消息说明出了什么错、怎么改正，错误码保持稳定，客户端可以据此处理。错误码[列在下面](#error-codes)。`401`（`auth.required`、`auth.invalid`）在这里和网关上还带着 `"docs": "https://beacon.openlinkos.com/reference/api"`，指向本页的英文版，给第一次接触 Beacon 的人。
 - **不可信的文本**：应答的 `untrusted` 对象列出的字段来自 Beacon 之外（标签、被检测的服务、变更的发送方、机器），已去掉控制字符和不可见字符，太长的会截断：它们是数据，不是指令。
 
 ## 作用域 {#scopes}
 
-一个令牌带一个或多个作用域。前八个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。
+一个凭据可以用一个或多个作用域。前九个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌按名字指定作用域。
 
 | 作用域 | 允许做什么 |
 | --- | --- |
@@ -32,6 +32,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `machines:write` | 添加和删除机器、连接密钥，暂停和恢复 Agent 到达机器 |
 | `sessions:read` | 会话的文字记录和录制 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标组和检测模块）和状态页，也能读取 |
+| `accounts:write` | 管理成员：列出、邀请、修改角色、停用、重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。所有者才有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页提前公告，窗口内静默相关服务的告警 |
 | `incidents:write` | 为在状态页上手写事件预留；目前没有路径用到（事件来自告警组） |
 | `probe:write` | 检测点：推送结果，取它的检测目标、检测模块和设置，按需检测。只能以它自己的检测点写入 |
@@ -40,6 +41,15 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `metrics:read` | 经网关查询指标 |
 | `alerts:send` | 像规则引擎一样发送告警 |
 | `changes:write` | 发送变更事件 |
+
+| 角色 | Agent 预设 | 作用域 |
+| --- | --- | --- |
+| 查看者 | 只读 | `status:read`、`sessions:read` |
+| 值班 | 值班 | + `alerts:write`、`machines:ssh` |
+| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write` |
+| 所有者 | | + `config:write`、`accounts:write` |
+
+Agent 能用一个作用域，要它的预设给了、它的所有者的角色也给了，每次请求时检查：降低或停用所有者会立即限制这个 Agent。OAuth 登录还要受成员当初允许它的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
 
 `GET /api/v1/token` 和 `POST /api/v1/token/renew` 接受任何作用域：令牌本身就是凭据。
 
@@ -131,13 +141,27 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `POST /api/v1/maintenance` | `maintenance:write` | 安排一个窗口：`services`、`starts_at`（不填就是现在）、`ends_at`（最长 7 天）、`title`、`description`。状态页会公告它，每个服务一个静默，窗口内告警不会叫醒人 |
 | `DELETE /api/v1/maintenance/{id}` | `maintenance:write` | 立即结束一个窗口，或在开始前取消 |
 
+## 成员与 SSH 密钥 {#people-and-ssh-keys}
+
+成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[成员、Agent 与登录](../accounts.md)）。没有哪个 Agent 预设给 `accounts:write`，所以只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员；重设密码没有 MCP 工具。
+
+| 路径 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `GET /api/v1/users` | `accounts:write` | 成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent；从不包括密码或它的哈希）和尚未使用的邀请 |
+| `POST /api/v1/users/invitations` | `accounts:write` | 邀请一个人，带 `role` 和 `note`：一个一次性链接，24 小时内有效，只在应答里出现 |
+| `PATCH /api/v1/users/{name}` | `accounts:write` | 修改成员的 `role`、`display_name` 或 `feishu_open_id`（联系信息，从不用于登录），或设置 `disabled`；立即作用于他的会话和 Agent。Beacon 始终保留一个启用的所有者（`user.last_owner`） |
+| `POST /api/v1/users/{name}/reset` | `accounts:write` | 一个一次性的重设密码链接，30 分钟内有效，只在应答里出现 |
+| `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
+| `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不属于机器的连接程序（`key.exists`） |
+| `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
+
 ## 令牌 {#the-token}
 
 | 路径 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/token` | 任意 | 调用者自己的令牌：名字、作用域、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否以及何时可以续期；从不包括密钥本身 |
-| `POST /api/v1/token/renew` | 任意 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期 |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一把能到达机器的令牌（`machines:ssh`）：针对单个 Agent 的暂停开关。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在主机上吊销（`token.not_revocable`） |
+| `GET /api/v1/token` | 任意 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），它的凭据（`token`，或带 `client` 的 `oauth`），当前能做什么、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否以及何时可以续期；从不包括密钥本身 |
+| `POST /api/v1/token/renew` | 任意 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，由它的客户端刷新 |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一把能到达机器的令牌（`machines:ssh`），或任何 Agent 的令牌：针对单个 Agent 的暂停开关，它用这把令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在主机上吊销（`token.not_revocable`） |
 | `GET /api/v1/openapi.yaml` | 无需 | OpenAPI 文档 |
 
 ## 网关 {#the-gateway}
@@ -162,9 +186,11 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 
 | 路径 | 做什么 |
 | --- | --- |
-| `/mcp` | MCP server，streamable HTTP，用同样的 bearer 令牌（[MCP 工具](mcp.md)） |
+| `/mcp` | MCP server，streamable HTTP，用同样的 bearer 令牌或 OAuth 访问令牌；`401` 会指明去哪里登录（`WWW-Authenticate: Bearer resource_metadata="…"`）（[MCP 工具](mcp.md)） |
 | `GET /` | 公开：默认状态页，与 `/status` 提供的相同；没有状态页时，是一个写明这套部署、带**登录**的页面（[状态页](../status.md#branding)） |
-| `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，供用令牌登录的人使用（[控制台](../pages.md)） |
+| `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，供用账号登录的人使用，再保留一个版本也可以用令牌登录（[控制台](../pages.md)） |
+| `GET /.well-known/oauth-protected-resource/mcp`、`GET /.well-known/oauth-protected-resource`、`GET /.well-known/oauth-authorization-server` | MCP 客户端用来发现 Beacon 的 OAuth 元数据（RFC 9728、RFC 8414） |
+| `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token`、`POST /oauth/revoke` | Beacon 作为 MCP 客户端的授权服务器：注册、授权页面、令牌和吊销（[成员、Agent 与登录](../accounts.md#the-oauth-endpoints)） |
 | `GET /console/alerts/{id}`、`GET /console/sessions/{id}` | 人从卡片点开的页面，凭签名链接或令牌打开（[控制台](../pages.md#signed-links)） |
 | `GET /alerts/{id}`、`GET /sessions/{id}`、`GET /sign-in` 以及控制台的其他旧路径 | `308` 转到 `/console` 下的同一路径，带着查询参数；为旧路径签名的链接换上新路径的签名，到期时间不变 |
 | `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开的状态页和其中的事件，不需要令牌（[状态页](../status.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
@@ -182,7 +208,7 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | --- | --- | --- |
 | `auth.required` | 401 | 没有带 bearer 令牌 |
 | `auth.invalid` | 401 | 令牌不存在或已过期 |
-| `auth.scope` | 403 | 令牌缺少这个路径需要的作用域；消息里写明是哪个 |
+| `auth.scope` | 403 | 凭据缺少这个路径需要的作用域；消息里写明是哪个，对 Agent 还说明它的预设在所有者角色范围内允许什么 |
 | `auth.too_many_failures` | 429 | 这个地址失败次数太多；稍后再试 |
 | `bad_input` | 400、415 | 请求不合这个路径的要求：不是 JSON、有不认识的字段、值超出范围。消息里写明是哪里 |
 | `upstream` | 502、503 | Beacon 依赖的东西没有回应（VictoriaMetrics、存储），或这个 Beacon 不接收这类请求 |
@@ -210,9 +236,13 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |
 | `token.too_soon` | 429 | 令牌不到 24 小时前刚续过期，仍然有效 |
-| `token.not_renewable` | 403 | 登记的机器的令牌；用 `beacon enroll … -rotate` 换新 |
+| `token.not_renewable` | 403 | 登记的机器的令牌，用 `beacon enroll … -rotate` 换新；或 OAuth 访问令牌，由它的客户端刷新 |
 | `token.not_found` | 404 | 没有这个名字的令牌可吊销 |
-| `token.not_revocable` | 403 | 这把令牌不能到达机器；机器和服务的令牌要在主机上用 `beacon token revoke` 吊销 |
+| `token.not_revocable` | 403 | 这把令牌既不能到达机器，也不属于 Agent；机器和服务的令牌要在主机上用 `beacon token revoke` 吊销 |
+| `user.not_found` | 404 | 没有这个名字的成员 |
+| `user.last_owner` | 409 | 这样改会让 Beacon 没有启用的所有者；请先让另一个人成为所有者 |
+| `key.not_found` | 404 | 调用者没有这个指纹的 SSH 密钥 |
+| `key.exists` | 409 | 这个密钥属于另一个 Agent 或令牌，或是机器的连接密钥 |
 | `probe.busy` | 429 | 这个目标不到 15 秒前刚按需检测过，或这个令牌已有三个请求在进行 |
 | `probe.not_found` | 404 | 没有正在工作的检测点检测这个目标 |
 | `probe.unavailable` | 503 | 这个 Beacon 没有可用来检测的网关 |

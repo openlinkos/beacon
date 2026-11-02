@@ -286,14 +286,14 @@ A token may post 60 change events a minute; the ones beyond that are refused wit
 
 ## Tokens that renew themselves
 
-An agent's token is its identity on the REST API, the MCP server and the SSH channel. Rather than have someone hand it a long-lived token and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope.
+A headless agent signs in to the REST API and the MCP server with a token, one of its agent's credentials, made on the console's **Agents** page or with `beacon agent add` ([People, agents and signing in](accounts.md#headless-agents-and-ci)); an interactive client signs in with OAuth instead, and its client refreshes that by itself. Rather than have someone hand an agent a long-lived token and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, agent, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope.
 
 | Route, tool | What |
 | --- | --- |
-| `GET /api/v1/token`, `whoami` | The token as its holder sees it: `name`, `scopes`, `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
+| `GET /api/v1/token`, `whoami` | Who the caller is and its credential as its holder sees it: `name`, `actor` (as the audit log names it, `alice / ci-deploy`), `user`, `agent`, `preset`, `credential` (`token` or `oauth`, with `client`), `scopes` (what it may do now, within its owner's role), `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
 | `POST /api/v1/token/renew`, `renew_token` | A new secret (`secret`, shown once) and the token; `old_secret_valid_until` says how long the one it replaced keeps working |
 
-The old secret stays valid for ten minutes after a renewal, so a client can swap its token file without a race and a process that read the file a moment before keeps working. A token renews itself at most once every 24 hours (`token.too_soon`, `429`). The tokens of enrolled machines (probe, host, heartbeat) never do: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal. SSH sign-in is by key and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
+The old secret stays valid for ten minutes after a renewal, so a client can swap its token file without a race and a process that read the file a moment before keeps working. A token renews itself at most once every 24 hours (`token.too_soon`, `429`). The tokens of enrolled machines (probe, host, heartbeat) never do: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`); nor does an OAuth access token, which its client refreshes. Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal. SSH sign-in is by key and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
 
 A harness runs something like this once a day (cron, a systemd timer), with the token file read by the agent on every call:
 
@@ -315,7 +315,7 @@ printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
 mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
 ```
 
-Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token; when it does, someone creates a new one with `beacon token create`, as before. A token that is leaked keeps renewing itself until it is revoked (`beacon token revoke NAME`): the chat sees every renewal, and `token list` shows the last one.
+Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token; when it does, the agent's owner gives it a new one with **New token** on the agent's page. A token that is leaked keeps renewing itself until it is revoked (**Revoke** on the agent's page, or `beacon token revoke NAME`), which also closes what it has open on machines: the chat sees every renewal, and `token list` shows the last one.
 
 ## What Beacon does not do here
 

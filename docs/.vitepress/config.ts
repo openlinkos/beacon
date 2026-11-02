@@ -81,6 +81,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
             items: [
               { text: 'Up in 30 minutes', link: '/install' },
               { text: 'Agents and alerts', link: '/agents' },
+              { text: 'People, agents and signing in', link: '/accounts' },
               { text: 'The SSH channel', link: '/ssh' },
               { text: 'Catalogue, targets and modules', link: '/catalog' },
               { text: 'The console', link: '/pages' },
@@ -137,6 +138,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
             items: [
               { text: '30 分钟上线', link: '/zh/install' },
               { text: 'Agent 与告警', link: '/zh/agents' },
+              { text: '成员、Agent 与登录', link: '/zh/accounts' },
               { text: 'SSH 通道', link: '/zh/ssh' },
               { text: '目录、检测目标和检测模块', link: '/zh/catalog' },
               { text: '控制台', link: '/zh/pages' },

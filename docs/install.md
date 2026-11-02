@@ -92,23 +92,24 @@ Two more lines are worth it now rather than later: what the `beacon` account may
 
 ## 4. The first agent
 
-5 minutes. One token works for the API, MCP and the SSH channel; give it the agent's public key so its own `ssh` works too:
+5 minutes. First your own account: Beacon has none yet, and makes a one-time link to set itself up, valid for 30 minutes (it also wrote one to its log when it started):
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
-  -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
+docker exec beacon beacon setup
 ```
 
-The secret is printed once. On the workstation where Claude Code runs:
+Open the link, choose a username and a password: you are the first owner, signed in to the console at `https://status.example.com/console`. Then, on the workstation where Claude Code runs, add Beacon and sign in from Claude Code:
 
 ```bash
-claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp
+claude mcp login beacon     # or /mcp inside Claude Code
 ```
 
-Then, in Claude Code, ask it to list the machines and run `uptime` on `edge-1`. It calls `list_machines`, then `run_command`; the result comes back as exit code, stdout and stderr, without terminal codes. The same `list_machines` answer carries an `ssh_config` block and a `known_hosts` line: put them in `~/.ssh/config` and `~/.ssh/known_hosts`, and `ssh edge-1 uptime`, `scp`, `rsync -e ssh` and `ssh -L` work as usual, the user name naming the machine. Beacon signed a certificate valid for five minutes for that connection; the agent holds no key for the machine.
+The browser opens Beacon's consent page: allow Claude Code as one of your agents (`you / claude-code` in the audit log), with what it may do (On call is enough here) and for how long. No token is copied anywhere; Claude Code refreshes its own. A headless agent or a CI job gets a token instead, from **Agents** on the console or `beacon agent add`, shown once with the commands that use it ([People, agents and signing in](accounts.md)).
 
-Every session is on record: `docker exec beacon beacon token list` shows the token, `list_sessions` (or `GET /api/v1/sessions`) the sessions, with each command and its exit status. `beacon ssh pause` closes them all until `ssh resume`.
+Then, in Claude Code, ask it to register its public key (`~/.ssh/id_ed25519.pub`) with `add_ssh_key`, list the machines and run `uptime` on `edge-1`. It calls `list_machines`, then `run_command`; the result comes back as exit code, stdout and stderr, without terminal codes. The same `list_machines` answer carries an `ssh_config` block and a `known_hosts` line: put them in `~/.ssh/config` and `~/.ssh/known_hosts`, and `ssh edge-1 uptime`, `scp`, `rsync -e ssh` and `ssh -L` work as usual, the user name naming the machine. Beacon signed a certificate valid for five minutes for that connection; the agent holds no key for the machine.
+
+Every session is on record: the console's **Agents** page shows the agent, its sign-in and its key, `list_sessions` (or `GET /api/v1/sessions`) the sessions, with each command and its exit status. `beacon ssh pause` closes them all until `ssh resume`.
 
 ## 5. The first drill
 

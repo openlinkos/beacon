@@ -1,26 +1,27 @@
 ---
-sourceHash: sha256-adaa3fea
+sourceHash: sha256-06f13ac1
 ---
 
 # 控制台
 
 控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `beacon` 自己提供，在 17001 端口的 `/console` 上，与 API 和 MCP 在一起，地址在 `public_url` 下；站点根路径 `/` 是公开的，放默认的[状态页](status.md)，没有状态页时是一个写明这套部署是什么的页面。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
 
-Beacon 没有自己的登录系统：人用一个 Beacon 令牌登录，控制台能做什么，取决于这个令牌的权限范围。
+人用自己的 Beacon 账号登录（[成员、Agent 与登录](accounts.md)），控制台能做什么，取决于他的角色。
 
 ## 登录 {#signing-in}
 
-`/console/sign-in` 要一个 Beacon 令牌，像密码一样粘贴进去；未登录的人打开控制台的任何页面都会被带到这里，登录后再回到原来的页面。`/` 上的公开页面在页头右侧有**登录**（已登录时是**控制台**），通往 `/console`；放在自己域名上的状态页两者都没有，因为控制台在那个域名上不应答。至少有 `status:read` 的令牌才能登录；没有它的、不存在的、已过期的都不行。在主机上为自己创建一个：
+`/console/sign-in` 要用户名和密码；未登录的人打开控制台的任何页面都会被带到这里，登录后再回到原来的页面。`/` 上的公开页面在页头右侧有**登录**（已登录时是**控制台**），通往 `/console`；放在自己域名上的状态页两者都没有，因为控制台在那个域名上不应答。第一个账号是所有者，用一次性的初始化链接创建，Beacon 在还没有账号时把它写进日志；其他人凭邀请加入（[成员、Agent 与登录](accounts.md#the-first-owner)）：
 
 ```bash
-beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
+docker exec beacon beacon setup     # while Beacon has no account: a new link to make the first, an owner
 ```
 
-- 登录就是 Beacon 数据库里的一个会话，有效 12 小时，令牌更早到期的话随令牌到期。浏览器只拿着会话的 ID，放在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 cookie 里（`__Host-beacon-console`，路径是 `/`，`__Host-` cookie 必须如此）；数据库只保存它的 SHA-256，令牌本身不保存。
-- 会话与这个令牌绑定：吊销令牌，或者用同名的另一个令牌替换它（吊销后重新创建），会话立即结束。权限范围在每次请求时重新读取。
-- 登录失败与 API 共用同一个限额：同一客户端地址 10 分钟内失败 20 次，就会在这 10 分钟剩下的时间里被拒绝。
-- 登录表单带着自己的密钥，其他网站无法用它选的令牌替人登录。登录记入审计日志（`console_sign_in`）。
-- **退出登录**在侧栏底部的菜单里。
+- 登录就是 Beacon 数据库里的一个会话，有效 12 小时。浏览器只拿着会话的 ID，放在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 cookie 里（`__Host-beacon-console`，路径是 `/`，`__Host-` cookie 必须如此）；数据库只保存它的 SHA-256。
+- 控制台能做什么取决于这个人的角色，每次请求时重新读取：角色降低立即生效，停用账号会结束它的会话。设置新密码会结束这个人的其他会话；重设密码会结束全部会话。
+- 登录失败与 API 共用同一个限额：同一客户端地址 10 分钟内失败 20 次，就会在这 10 分钟剩下的时间里被拒绝。同一用户名 10 分钟内密码错 10 次，这个用户名也会被拒绝，不论来自哪里。
+- 登录、初始化、邀请和重设表单都带着自己的密钥，其他网站无法替人登录它选定的账号。登录记入审计日志（`console_sign_in`）。
+- **你的账号**（修改密码）和**退出登录**在侧栏底部的菜单里。
+- 表单下方的**改用令牌登录**仍可粘贴一个至少有 `status:read` 的 Beacon 令牌，再保留一个版本：给脚本用，也给还没有账号的 Beacon 用。这样的会话与令牌绑定：吊销令牌，或者用同名的另一个令牌替换它，会话就结束；它能做的就是令牌能做的。
 - cookie 是 `Secure` 的，所以控制台需要 HTTPS（或 `localhost`）：放在提供 `public_url` 的 TLS 代理后面，参考部署就是这样做的。
 
 ## 页面 {#the-pages}
@@ -36,16 +37,21 @@ beacon token create you -scopes status:read,sessions:read,alerts:write -expires 
 | `/console/machines/{name}` | 一台机器：地址、账户、主机密钥和备注，最近的会话，以及在上面执行过的命令 | `status:read` 或 `machines:ssh` |
 | `/console/sessions` | 所有会话，可按 Agent、机器、类型、途径、退出码和日期筛选，可搜索命令 | `status:read` 或 `machines:ssh` |
 | `/console/sessions/{id}` | 会话页面（见下文），带回放 | `sessions:read` 或 `machines:ssh` |
-| `/console/tokens` | 所有令牌：名称、权限范围、能访问的机器、SSH 密钥指纹、何时由谁创建、何时到期、最近一次自行续期。从不显示密钥本身 | `status:read`；吊销要 `machines:write` |
+| `/console/tokens` | 所有令牌：名称、权限范围、能访问的机器、SSH 密钥指纹、何时由谁创建、何时到期、最近一次自行续期，以及属于谁的 Agent；有账号之前的令牌标为**旧令牌**，附把它归为某个成员的 Agent 的表单。从不显示密钥本身 | `status:read`；吊销要 `machines:write`；归入要 `accounts:write` |
 | `/console/config` | Beacon 保存的配置，只读：检测点（是否应上报、是否在上报）、心跳、资源、检测目标组和检测模块；然后是版本历史：谁、何时、经什么途径、为什么 | `status:read` 或 `config:write` |
 | `/console/config/history/{version}` | 一个版本逐条改了什么，以差异显示，附撤销表单 | `status:read` 或 `config:write`；撤销要 `config:write` |
-| `/console/agents` | 配置的 Agent Hook（只显示地址的主机名，不显示路径和查询参数）和发出的每次调用：Hook、事件、状态、HTTP 状态码、尝试次数、时间、对应的告警 | `status:read` |
+| `/console/agents` | 你的 Agent（所有者看到所有人的）：预设、当前能做什么、机器、凭据、密钥；用 OAuth 接入 Claude Code 或 Codex 的命令，以及给无界面 Agent 发令牌的表单，令牌只显示一次，连同使用它的命令 | 已登录：成员为自己创建 Agent，所有者为任何人 |
+| `/console/agents/{name}` | 一个 Agent：当前能做什么、它的预设和机器（在这里修改）、它的 OAuth 登录（各自带着当初允许的内容）、令牌和 SSH 密钥，都可在这里吊销或移除，发新令牌，删除 Agent | 它的所有者，或 `accounts:write` |
+| `/console/hooks` | 配置的 Agent Hook（只显示地址的主机名，不显示路径和查询参数）和发出的每次调用：Hook、事件、状态、HTTP 状态码、尝试次数、时间、对应的告警 | `status:read` |
+| `/console/people` | 成员：角色、最近登录、Agent、是否启用；邀请成员（链接只显示一次）、尚未使用的邀请、修改角色、停用和启用、重设密码链接 | `accounts:write`（所有者） |
+| `/console/account` | 你的账号，以及修改密码 | 已登录 |
+| `/console/setup`、`/console/join`、`/console/reset`、`/oauth/authorize` | 一次性链接打开的页面（第一位所有者、邀请、新密码），以及 MCP 客户端把人送去的授权页面（[成员、Agent 与登录](accounts.md)） | 链接里的代码；授权页面要用账号登录 |
 | `/console/audit` | 审计日志，可按操作者、操作和途径筛选，可搜索 | `status:read` |
 | `/console/changes` | 来自 CI、Flux 等的变更事件，可按来源、类型、服务和机器筛选 | `status:read` |
 
 ## 控制台能做什么 {#what-the-console-may-do}
 
-控制台的表单与 API 的操作相同，权限范围也相同，以登录的令牌身份、途径 `console` 执行：与其他所有写操作一样记入审计日志，并回显到告警群。
+控制台的表单与 API 和命令行的操作相同，以登录的成员身份（`alice`；用令牌登录的，以那个令牌的身份）、途径 `console` 执行：与其他所有写操作一样记入审计日志，并回显到告警群。
 
 | 表单 | 权限范围 | 等同于 |
 | --- | --- | --- |
@@ -53,12 +59,20 @@ beacon token create you -scopes status:read,sessions:read,alerts:write -expires 
 | 静默告警 1、4 或 24 小时，写明原因 | `alerts:write` | `POST /api/v1/silences` |
 | 给告警添加备注 | `alerts:write` | `POST /api/v1/alerts/{id}/notes` |
 | 暂停或恢复 Agent 对机器的访问 | `machines:write` | `POST /api/v1/ssh/pause`、`/resume` |
-| 吊销能访问机器的令牌 | `machines:write` | `beacon token revoke` |
+| 吊销能访问机器的令牌，或任何 Agent 的令牌 | `machines:write` | `beacon token revoke` |
 | 撤销一次配置变更 | `config:write` | `POST /api/v1/config/history/{version}/revert` |
+| 邀请成员、撤回邀请 | `accounts:write` | `POST /api/v1/users/invitations`、`beacon user invite` |
+| 修改角色、停用或启用成员 | `accounts:write` | `PATCH /api/v1/users/{name}`、`beacon user role`、`disable`、`enable` |
+| 生成重设密码链接 | `accounts:write` | `POST /api/v1/users/{name}/reset`、`beacon user reset` |
+| 把旧令牌归为某个成员的 Agent | `accounts:write` | `beacon token claim` |
+| 创建带令牌的 Agent，修改它的预设和机器，给它新令牌，删除它 | 它的所有者，或 `accounts:write` | `beacon agent add`、`beacon agent remove` |
+| 添加或移除 Agent 的 SSH 密钥 | 它的所有者，或 `accounts:write` | `POST /api/v1/ssh-keys`、`DELETE /api/v1/ssh-keys`，由 Agent 自己调用 |
+| 吊销 Agent 的令牌或 OAuth 登录 | 它的所有者，或 `accounts:write` | `beacon token revoke`、`POST /oauth/revoke` |
+| 修改自己的密码，需要当前密码 | 用账号登录 | |
 
-每个表单都带着会话的 CSRF 密钥；浏览器表明来自其他网站的请求会被拒绝。令牌权限范围不允许的表单不会显示，硬发过来也会被拒绝。
+每个表单都带着会话的 CSRF 密钥；浏览器表明来自其他网站的请求会被拒绝。这个人的角色（或令牌的权限范围）不允许的表单不会显示，硬发过来也会被拒绝；Agent 的预设不能超出它的所有者的角色。
 
-**在控制台吊销令牌。**令牌在主机上经管理套接字创建，大多也在那里吊销。控制台只吊销能经 SSH 通道访问机器的令牌（`machines:ssh`）：这相当于针对单个 Agent 的暂停开关，立即停下它在机器上做的事，而不影响其他 Agent，所以它用暂停开关的权限范围 `machines:write`。吊销同时结束这个令牌在控制台的登录。机器和服务的令牌（检测点、主机、心跳、规则引擎、变更发送方、指标读取方）不能在页面上吊销：它们维持着监控，而告警一条都不能丢。
+**在控制台吊销令牌。**Agent 的所有者在 Agent 页面上吊销它的令牌和 OAuth 登录，也在那里删除这个 Agent。在**令牌**页面上，有 `machines:write` 就能吊销任何能经 SSH 通道访问机器的令牌（`machines:ssh`）和任何 Agent 的令牌：这相当于针对单个 Agent 的暂停开关，停下它在机器上做的事，而不影响其他 Agent，所以它用暂停开关的权限范围。Agent 凭被吊销的凭据在机器上打开着的东西（连接、转发的端口、工具调用）会立即关闭，这个令牌在控制台的登录也随之结束。机器和服务的令牌（检测点、主机、心跳、规则引擎、变更发送方、指标读取方）不能在页面上吊销：它们在主机上经管理套接字创建和吊销，因为它们维持着监控，而告警一条都不能丢。
 
 ## 告警页面：`/console/alerts/{id}` {#the-alerts-page-consolealertsid}
 
@@ -93,7 +107,7 @@ pages:
 
 用链接打开的页面只显示这一页，侧栏里有**登录**，登录后能看其余页面。已登录时，同一个链接会在控制台里打开这个页面，并显示令牌权限范围允许的表单。
 
-**0.3.0 之前发出的链接。**在那之前控制台在站点根路径上，群里已有的链接写的是 `/alerts/{id}` 和 `/sessions/{id}`（以及 `/sessions/{id}/recording`），而且路径就在签名里。这些路径仍然应答：签名对旧路径校验通过的链接，会被转到（`308`）页面在 `/console` 下的路径，并换上对新路径的签名，到期时间与原来的相同。伪造的或过期的链接转过去时不带签名，于是和以前一样得到 404；已登录的话，照旧能打开页面。控制台的其他旧路径（`/sign-in`、`/alerts`、`/machines`、`/sessions`、`/tokens`、`/config`、`/agents`、`/audit`、`/changes` 及其下的页面）都带着查询参数转到 `/console` 下的对应位置，所以书签还能用。表单只提交到 `/console`。
+**0.3.0 之前发出的链接。**在那之前控制台在站点根路径上，群里已有的链接写的是 `/alerts/{id}` 和 `/sessions/{id}`（以及 `/sessions/{id}/recording`），而且路径就在签名里。这些路径仍然应答：签名对旧路径校验通过的链接，会被转到（`308`）页面在 `/console` 下的路径，并换上对新路径的签名，到期时间与原来的相同。伪造的或过期的链接转过去时不带签名，于是和以前一样得到 404；已登录的话，照旧能打开页面。控制台的其他旧路径（`/sign-in`、`/alerts`、`/machines`、`/sessions`、`/tokens`、`/config`、`/agents`、`/audit`、`/changes` 及其下的页面）都带着查询参数转到 `/console` 下的对应位置（原先显示 Hook 的 `/agents` 转到 `/console/hooks`），所以书签还能用。表单只提交到 `/console`。
 
 Beacon 在人可能拿到链接的每个地方都给出链接：
 
@@ -103,7 +117,7 @@ Beacon 在人可能拿到链接的每个地方都给出链接：
 
 ## 用令牌代替 {#tokens-instead}
 
-Bearer 令牌打开告警页面和会话页面的规则与对应的 API 路由一致，而且只读：告警页面要 `status:read`，会话页面和录像要 `sessions:read` 或 `machines:ssh`。以 `Authorization: Bearer lbt_…` 发送；这样打开的页面，里面到会话和录像的链接有效一小时。缺少权限的令牌、未知的令牌、没有令牌，得到的都是同样的 404。
+任何带着所需权限范围的凭据，打开告警页面和会话页面的规则都与对应的 API 路由一致，而且只读：令牌（`lbt_…`，Agent 的或独立的）或 OAuth 访问令牌（`lba_…`），告警页面要 `status:read`，会话页面和录像要 `sessions:read` 或 `machines:ssh`；Agent 的权限是它的预设在所有者角色范围内允许的。以 `Authorization: Bearer …` 发送；这样打开的页面，里面到会话和录像的链接有效一小时。缺少权限的凭据、未知的凭据、没有凭据，得到的都是同样的 404。
 
 ## 怎么做的 {#how-it-is-built}
 
@@ -116,6 +130,6 @@ Bearer 令牌打开告警页面和会话页面的规则与对应的 API 路由�
 
 ## 控制台不做什么 {#what-the-console-does-not-do}
 
-- 没有账号，没有密码：令牌就是身份，Beacon 不另设别的。
+- 不经别处登录：Beacon 自己的账号是唯一的入口，不经 GitHub、飞书、OIDC、LDAP 或其他任何地方。
 - 没有审批流程：这些表单是令牌持有者本来就能经 API 做的事；控制台让它们看得见、做得快，而不是设卡。人看，Agent 做，暂停开关让它们停下。
-- 不编辑配置，只能撤销变更：修改经 API、MCP 和命令行进行，每次都像检查文件那样检查。也不创建令牌，那是主机上管理套接字的事。
+- 不编辑配置，只能撤销变更：修改经 API、MCP 和命令行进行，每次都像检查文件那样检查。它会创建 Agent 的令牌，但不创建机器的令牌，那是主机上管理套接字的事。

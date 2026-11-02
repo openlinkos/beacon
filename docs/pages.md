@@ -2,21 +2,22 @@
 
 The console is Beacon's own workbench: one place for a person to look at everything agents and alerts are doing. `beacon` serves it itself, at `/console` on port 17001 beside the API and MCP, under `public_url`; the site's root `/` is public, the default [status page](status.md) or, without one, a page that names the deployment. From the card in the chat, one link opens the alert's page (what the probes see, the timeline, the notes, the agents woken, every session on the alert's machines with its commands and a replay) without signing in; signed in, the same page sits among all the others, with the pause switch a click away.
 
-There is no login system of Beacon's own: a person signs in with a Beacon token, and what the console may do is what that token's scopes allow.
+People sign in with their own Beacon account ([People, agents and signing in](accounts.md)), and what the console may do is what their role allows.
 
 ## Signing in
 
-`/console/sign-in` asks for a Beacon token, pasted like a password; every page of the console sends whoever is not signed in there, and back afterwards. The public pages at `/` have **Sign in** at the right of their header (**Console** for someone signed in), leading to `/console`; a status page on a host name of its own has neither, since the console does not answer there. A token with `status:read` at least signs in; one without it, an unknown one and an expired one do not. Make one for yourself on the host:
+`/console/sign-in` asks for a username and a password; every page of the console sends whoever is not signed in there, and back afterwards. The public pages at `/` have **Sign in** at the right of their header (**Console** for someone signed in), leading to `/console`; a status page on a host name of its own has neither, since the console does not answer there. The first account, an owner, is made with a one-time setup link, which Beacon writes to its log while it has no account; the others join with invitations ([People, agents and signing in](accounts.md#the-first-owner)):
 
 ```bash
-beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
+docker exec beacon beacon setup     # while Beacon has no account: a new link to make the first, an owner
 ```
 
-- A sign-in is a session kept in Beacon's database for 12 hours, or until the token expires if that comes sooner. The browser holds only the session's id, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict` (`__Host-beacon-console`, on the path `/` as a `__Host-` cookie must be); the database keeps only its SHA-256, and the token itself is not stored.
-- The session is bound to that token: revoking the token, or replacing it with another of the same name (revoked and made again), ends it at once. Its scopes are read again on every request.
-- Failed sign-ins count against the same limit as the API's: 20 failures from one client address within 10 minutes block it for the rest of those 10 minutes.
-- The sign-in form carries a secret of its own, so no other site can sign a person in with a token of its choosing. Signing in is recorded in the audit log (`console_sign_in`).
-- **Sign out** is in the menu at the foot of the sidebar.
+- A sign-in is a session kept in Beacon's database for 12 hours. The browser holds only the session's id, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict` (`__Host-beacon-console`, on the path `/` as a `__Host-` cookie must be); the database keeps only its SHA-256.
+- What the console may do is what the person's role allows, read again on every request: a lower role takes effect at once, and disabling the account ends its sessions. A new password ends the person's other sessions; a reset ends all of them.
+- Failed sign-ins count against the same limit as the API's: 20 failures from one client address within 10 minutes block it for the rest of those 10 minutes. 10 wrong passwords for one username within 10 minutes block that username too, from anywhere.
+- The sign-in, setup, invitation and reset forms carry a secret of their own, so no other site can sign a person in to an account of its choosing. Signing in is recorded in the audit log (`console_sign_in`).
+- **Your account** (to change your password) and **Sign out** are in the menu at the foot of the sidebar.
+- **Sign in with a token instead**, below the form, still takes a pasted Beacon token with `status:read` at least, for one more release: for scripts, and for a Beacon that has no account yet. That session is bound to the token: revoking it, or replacing it with another of the same name, ends the session, and it may do what the token may.
 - The cookie is `Secure`, so the console needs HTTPS (or `localhost`): put it behind the TLS proxy that serves `public_url`, as in the reference deployment.
 
 ## The pages
@@ -32,16 +33,21 @@ Every page shares the design system's workbench: the sections in a narrow sideba
 | `/console/machines/{name}` | One machine: its address, account, host key and note, its recent sessions, and the commands run on it | `status:read` or `machines:ssh` |
 | `/console/sessions` | Every session, with facets for agent, machine, kind, via, exit status and day, and search over commands | `status:read` or `machines:ssh` |
 | `/console/sessions/{id}` | The session's page (below), with its replay | `sessions:read` or `machines:ssh` |
-| `/console/tokens` | Every token: name, scopes, the machines it reaches, the fingerprints of its SSH keys, when it was made and by whom, when it expires, when it last renewed itself. Never a secret | `status:read`; revoking `machines:write` |
+| `/console/tokens` | Every token: name, scopes, the machines it reaches, the fingerprints of its SSH keys, when it was made and by whom, when it expires, when it last renewed itself, and whose agent it is; tokens from before accounts are marked **Legacy**, with the form to claim one as an agent of a person. Never a secret | `status:read`; revoking `machines:write`; claiming `accounts:write` |
 | `/console/config` | The configuration Beacon holds, read-only: probe locations (expected, reporting), heartbeats, resources, target sets and modules; then the history of versions, who, when, through what and why | `status:read` or `config:write` |
 | `/console/config/history/{version}` | What a version changed, item by item, as a diff, with the form to revert it | `status:read` or `config:write`; reverting `config:write` |
-| `/console/agents` | The agent hooks configured (the address's host, never its path or query) and every call made: hook, event, status, HTTP status, attempts, when, for which alert | `status:read` |
+| `/console/agents` | Your agents (an owner sees everyone's): preset, what each may do now, machines, credentials, keys; the commands to connect Claude Code or Codex by OAuth, and the form for a headless agent's token, shown once with what uses it | signed in: a person makes agents for themself, an owner for anyone |
+| `/console/agents/{name}` | One agent: what it may do now, its preset and machines (changed here), its OAuth sign-ins (each with what it was allowed), tokens and SSH keys, each revoked or removed here, a new token, deleting the agent | its owner, or `accounts:write` |
+| `/console/hooks` | The agent hooks configured (the address's host, never its path or query) and every call made: hook, event, status, HTTP status, attempts, when, for which alert | `status:read` |
+| `/console/people` | The people: role, last sign-in, agents, whether enabled; inviting someone (the link shown once), the invitations not yet used, changing a role, disabling and enabling, password reset links | `accounts:write` (owners) |
+| `/console/account` | Your account, and changing your password | signed in |
+| `/console/setup`, `/console/join`, `/console/reset`, `/oauth/authorize` | The pages a one-time link opens (the first owner, an invitation, a new password), and the consent page an MCP client sends a person to ([People, agents and signing in](accounts.md)) | the link's code; for the consent page, signed in with an account |
 | `/console/audit` | The audit log, with facets for who, action and via, and search | `status:read` |
 | `/console/changes` | Change events from CI, Flux and the like, with facets for source, kind, service and machine | `status:read` |
 
 ## What the console may do
 
-The console's forms are the same operations as the API's, on the same scopes, done as the signed-in token with `via` `console`: recorded in the audit log and echoed to the alert chat like every other write.
+The console's forms are the same operations as the API's and the command line's, done as the signed-in person (`alice`; a token's sign-in, as that token) with `via` `console`: recorded in the audit log and echoed to the alert chat like every other write.
 
 | Form | Scope | The same as |
 | --- | --- | --- |
@@ -49,12 +55,20 @@ The console's forms are the same operations as the API's, on the same scopes, do
 | Silence an alert for 1, 4 or 24 hours, saying why | `alerts:write` | `POST /api/v1/silences` |
 | Add a note to an alert | `alerts:write` | `POST /api/v1/alerts/{id}/notes` |
 | Pause or resume agents' access to machines | `machines:write` | `POST /api/v1/ssh/pause`, `/resume` |
-| Revoke a token that reaches machines | `machines:write` | `beacon token revoke` |
+| Revoke a token that reaches machines, or any agent's | `machines:write` | `beacon token revoke` |
 | Revert a configuration change | `config:write` | `POST /api/v1/config/history/{version}/revert` |
+| Invite someone, withdraw an invitation | `accounts:write` | `POST /api/v1/users/invitations`, `beacon user invite` |
+| Change a role, disable or enable someone | `accounts:write` | `PATCH /api/v1/users/{name}`, `beacon user role`, `disable`, `enable` |
+| Make a password reset link | `accounts:write` | `POST /api/v1/users/{name}/reset`, `beacon user reset` |
+| Claim a legacy token as an agent of a person | `accounts:write` | `beacon token claim` |
+| Make an agent with a token, change its preset and machines, give it a new token, delete it | its owner, or `accounts:write` | `beacon agent add`, `beacon agent remove` |
+| Add or remove an agent's SSH key | its owner, or `accounts:write` | `POST /api/v1/ssh-keys`, `DELETE /api/v1/ssh-keys`, by the agent itself |
+| Revoke an agent's token or OAuth sign-in | its owner, or `accounts:write` | `beacon token revoke`, `POST /oauth/revoke` |
+| Change your own password, with the current one | signed in with an account | |
 
-Every form carries the session's CSRF secret, and one the browser says came from another site is refused. A form the token's scopes do not allow is not offered, and is refused if sent anyway.
+Every form carries the session's CSRF secret, and one the browser says came from another site is refused. A form the person's role (or the token's scopes) does not allow is not offered, and is refused if sent anyway; an agent's preset may not exceed its owner's role.
 
-**Revoking from the console.** Tokens are made on the host, through the admin socket, and most are revoked there too. The console revokes only tokens that reach machines through the SSH channel (`machines:ssh`): that is the pause switch for one agent, stopping what it does on machines at once without stopping the others, and so it takes the pause switch's scope, `machines:write`. Revoking also ends the token's console sign-ins. The tokens of machines and services (probes, hosts, heartbeats, the rule engine, change senders, metrics readers) are not revoked from a page: they keep monitoring running, and no alert may be lost.
+**Revoking from the console.** An agent's owner revokes its tokens and OAuth sign-ins on the agent's page, and deletes the agent there. On the **Tokens** page, `machines:write` revokes any token that reaches machines through the SSH channel (`machines:ssh`) and any agent's: that is the pause switch for one agent, stopping what it does on machines without stopping the others, and so it takes the pause switch's scope. Whatever the agent has open on machines with what was revoked (connections, forwarded ports, tool calls) is closed at once, and the token's console sign-ins end. The tokens of machines and services (probes, hosts, heartbeats, the rule engine, change senders, metrics readers) are not revoked from a page: they are made and revoked on the host, through the admin socket, since they keep monitoring running and no alert may be lost.
 
 ## The alert's page: `/console/alerts/{id}`
 
@@ -89,7 +103,7 @@ A link grants exactly one page, view-only: the alert's page, or the session's pa
 
 A page opened by a link shows the page alone, with **Sign in** in the sidebar for the rest. Signed in, the same link opens the page among the console's others, with the forms the token's scopes allow.
 
-**Links made before 0.3.0.** Until then the console was at the site's root, and the links already in the chat name `/alerts/{id}` and `/sessions/{id}` (and `/sessions/{id}/recording`), inside their signatures. Those paths still answer: a link whose signature verifies for its old path is sent on (`308`) to the page's path under `/console`, with a signature for that path which expires when the old one would have. A forged or expired link is sent on without its signature, and then gets the same 404 as before; signed in, it opens the page as it always did. Every other old path of the console (`/sign-in`, `/alerts`, `/machines`, `/sessions`, `/tokens`, `/config`, `/agents`, `/audit`, `/changes` and the pages under them) is sent on to its place under `/console` with its query, so bookmarks keep working. The forms post to `/console` only.
+**Links made before 0.3.0.** Until then the console was at the site's root, and the links already in the chat name `/alerts/{id}` and `/sessions/{id}` (and `/sessions/{id}/recording`), inside their signatures. Those paths still answer: a link whose signature verifies for its old path is sent on (`308`) to the page's path under `/console`, with a signature for that path which expires when the old one would have. A forged or expired link is sent on without its signature, and then gets the same 404 as before; signed in, it opens the page as it always did. Every other old path of the console (`/sign-in`, `/alerts`, `/machines`, `/sessions`, `/tokens`, `/config`, `/agents`, `/audit`, `/changes` and the pages under them) is sent on to its place under `/console` with its query (`/agents`, which showed the hooks, to `/console/hooks`), so bookmarks keep working. The forms post to `/console` only.
 
 Beacon hands out the links wherever a person might pick one up:
 
@@ -99,7 +113,7 @@ Beacon hands out the links wherever a person might pick one up:
 
 ## Tokens instead
 
-A bearer token opens the alert's and the session's pages as it opens the matching API routes, view-only: `status:read` for an alert's page, `sessions:read` or `machines:ssh` for a session's page and its recording. Send it as `Authorization: Bearer lbt_…`; a page opened this way links to its sessions and recording for an hour. A token without the scope, an unknown token and no token all get the same 404.
+Any credential with the scope opens the alert's and the session's pages as it opens the matching API routes, view-only: a token (`lbt_…`, an agent's or one of its own) or an OAuth access token (`lba_…`), with `status:read` for an alert's page, `sessions:read` or `machines:ssh` for a session's page and its recording; an agent's is what its preset allows within its owner's role. Send it as `Authorization: Bearer …`; a page opened this way links to its sessions and recording for an hour. A credential without the scope, an unknown one and none all get the same 404.
 
 ## How it is built
 
@@ -112,6 +126,6 @@ A bearer token opens the alert's and the session's pages as it opens the matchin
 
 ## What the console does not do
 
-- No accounts and no passwords: the token is the identity, and Beacon keeps no other.
+- No sign-in from anywhere else: Beacon's own accounts are the only way in, without GitHub, Feishu, OIDC, LDAP or any other.
 - No approval workflow: the forms are what any holder of the token could already do through the API; the console makes them visible and quick, not gated. People see; agents do; the pause switch stops them.
-- It does not edit the configuration, beyond reverting a change: changes go through the API, MCP and the command line, which check each one as the files were checked. Nor does it make tokens, which the host's admin socket does.
+- It does not edit the configuration, beyond reverting a change: changes go through the API, MCP and the command line, which check each one as the files were checked. It makes agents' tokens, but not machines', which the host's admin socket makes.

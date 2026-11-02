@@ -89,16 +89,16 @@ docker exec beacon beacon machine add edge-9 connector -key "$(cat /etc/ssh/beac
 
 ## Give an agent access
 
-A token with the `machines:ssh` scope and the agent's public key:
+An agent whose preset reaches machines (On call or Operator), and its public key ([People, agents and signing in](accounts.md)). An interactive client such as Claude Code signs in with OAuth and registers its own key with `add_ssh_key`; a headless agent is made on the console's **Agents** page, or on the host:
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,machines:ssh,sessions:read -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
+docker exec beacon beacon agent add claude-code -owner alice -preset oncall \
+  -expires 90d -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
-`-machines edge-1,edge-2` limits the machines it reaches; `token machines NAME all` lifts the limit. `token ssh-key NAME add KEY` and `remove FINGERPRINT` change the keys later.
+`-machines edge-1,edge-2` limits the machines it reaches; the agent's page changes its machines and keys later, as the agent's own `add_ssh_key` and `remove_ssh_key` do. A token of its own, not an agent's, still takes them on the host: `beacon token create NAME -scopes … -ssh-key KEY -machines a,b`, then `token ssh-key NAME add KEY` and `remove FINGERPRINT`, `token machines NAME all`. Revoking a token, deleting the agent, demoting or disabling its owner, removing a key or taking a machine from its list closes at once what it has open on the machines it may no longer reach.
 
-The same token works for MCP, where the tools are:
+The agent's credentials work for MCP too, where the tools are:
 
 | Tool | What it does |
 | --- | --- |

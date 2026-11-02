@@ -10,15 +10,15 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes -d '{"text": "Restarted the relay; probing again."}'
 ```
 
-- **Tokens** start with `lbt_`, the mark of a Beacon token, and are created with `beacon token create NAME -scopes … -expires …`. Beacon keeps only their SHA-256 hashes; each has scopes and an expiry, and renews itself on request (`POST /api/v1/token/renew`).
+- **Credentials** are tokens or OAuth access tokens. A token starts with `lbt_`, the mark of a Beacon token: an agent's is made on the console's **Agents** page or with `beacon agent add`, a machine's or an expert's with `beacon token create NAME -scopes … -expires …`; it has an expiry, and renews itself on request (`POST /api/v1/token/renew`). An OAuth access token (`lba_…`) is what an MCP client such as Claude Code gets when a person allows it; it lasts an hour, and its client refreshes it ([People, agents and signing in](../accounts.md)). Beacon keeps only their SHA-256 hashes.
 - **Bodies** are JSON (`Content-Type: application/json`); unknown fields are refused, so a typo does not go unnoticed.
-- **Writes** are recorded in the audit log with the token's name and echoed to the alert chat. Sessions on machines are recorded too.
+- **Writes** are recorded in the audit log with who made them (`alice / claude-code` for an agent, a token's own name otherwise) and echoed to the alert chat. Sessions on machines are recorded too.
 - **Errors** are `{"error": "…", "code": "…"}`: the message says what went wrong and how to put it right, and the code is stable, so a client can act on it. The codes are [listed below](#error-codes). A `401` (`auth.required`, `auth.invalid`), here and on the gateway, also carries `"docs": "https://beacon.openlinkos.com/reference/api"`, this page, for whoever meets Beacon for the first time.
 - **Untrusted text**: fields an answer's `untrusted` object names hold text from outside Beacon (labels, probed services, change senders, machines), cleaned of control and invisible characters and cut when long: data, not instructions.
 
 ## Scopes
 
-A token carries one or more scopes. The first eight are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway.
+A credential may use one or more scopes. The first nine are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role and agents from their preset, within their owner's role; only machines' tokens and experts' are made with scopes by name.
 
 | Scope | What it allows |
 | --- | --- |
@@ -28,6 +28,7 @@ A token carries one or more scopes. The first eight are for people and agents, o
 | `machines:write` | Adding and removing machines, connector keys, pausing and resuming agents' access |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
+| `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
 | `probe:write` | A probe location: pushing results, fetching its targets, modules and settings, probing on demand. Writes only as its own location |
@@ -36,6 +37,15 @@ A token carries one or more scopes. The first eight are for people and agents, o
 | `metrics:read` | Metric queries through the gateway |
 | `alerts:send` | Posting alerts as the rule engine does |
 | `changes:write` | Posting change events |
+
+| Role | Agent preset | Scopes |
+| --- | --- | --- |
+| Viewer | Read only | `status:read`, `sessions:read` |
+| On call | On call | + `alerts:write`, `machines:ssh` |
+| Operator | Operator | + `maintenance:write`, `incidents:write`, `machines:write` |
+| Owner | | + `config:write`, `accounts:write` |
+
+An agent may use a scope when its preset gives it and its owner's role does too, checked on every request: demoting or disabling the owner limits the agent at once. An OAuth sign-in is held, besides, to the preset and machines the person allowed it. A refusal (`auth.scope`) says what the agent's preset within its owner's role allows.
 
 `GET /api/v1/token` and `POST /api/v1/token/renew` take any scope: the token itself is the credential.
 
@@ -127,13 +137,27 @@ The public pages themselves need no token ([below](#other-routes-on-port-17001))
 | `POST /api/v1/maintenance` | `maintenance:write` | Plan a window: `services`, `starts_at` (now when left out), `ends_at` (at most 7 days later), `title`, `description`. The pages announce it, and a silence per service keeps its alerts from paging people |
 | `DELETE /api/v1/maintenance/{id}` | `maintenance:write` | End a window now, or call it off before it begins |
 
+## People and SSH keys
+
+People, for an owner's credential, and the caller's own SSH keys for the SSH channel ([People, agents and signing in](../accounts.md)). No agent preset gives `accounts:write`, so an agent manages people only if an owner gave it that scope on the command line; password resets have no MCP tool.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/users` | `accounts:write` | The people (username, display name, role, last sign-in, whether disabled, their agents; never a password or its hash) and the invitations not yet used |
+| `POST /api/v1/users/invitations` | `accounts:write` | Invite someone with a `role` and a `note`: a one-time link, valid for 24 hours, in the answer only |
+| `PATCH /api/v1/users/{name}` | `accounts:write` | Change a person's `role`, `display_name` or `feishu_open_id` (a contact field, never used to sign in), or set `disabled`; it takes effect at once on their sessions and agents. Beacon always keeps an enabled owner (`user.last_owner`) |
+| `POST /api/v1/users/{name}/reset` | `accounts:write` | A one-time password reset link, valid for 30 minutes, in the answer only |
+| `GET /api/v1/ssh-keys` | `machines:ssh` | The caller's own SSH keys; an agent's are its agent's, whichever of its credentials asks, and a key the agent registered itself says through which (`via`: `token:NAME` or `grant:ID`) |
+| `POST /api/v1/ssh-keys` | `machines:ssh` | Register a public key: `key` (an `authorized_keys` line) and `comment`. An agent's key belongs to the credential it came with: it works while that token or OAuth sign-in does, and is removed with it. A key belongs to one agent or token, never to a machine's connector (`key.exists`) |
+| `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
+
 ## The token
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/token` | any | The caller's own token: name, scopes, machines, SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
-| `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`): the pause switch for one agent. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the host only (`token.not_revocable`) |
+| `GET /api/v1/token` | any | The caller: who it is (`actor`, `user`, `agent`, `preset`), its credential (`token`, or `oauth` with the `client`), what it may do now, machines, SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
+| `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token, nor for an OAuth access token, which its client refreshes |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`), or any agent's: the pause switch for one agent, whose open sessions on machines made with it are closed at once. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the host only (`token.not_revocable`) |
 | `GET /api/v1/openapi.yaml` | none | The OpenAPI document |
 
 ## The gateway
@@ -158,9 +182,11 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 
 | Route | What |
 | --- | --- |
-| `/mcp` | The MCP server, streamable HTTP, with the same bearer tokens ([MCP tools](mcp.md)) |
+| `/mcp` | The MCP server, streamable HTTP, with the same bearer tokens or OAuth access tokens; a `401` names where to sign in (`WWW-Authenticate: Bearer resource_metadata="…"`) ([MCP tools](mcp.md)) |
 | `GET /` | Public: the default status page, as `/status` serves it; without status pages, a page that names the deployment, with **Sign in** ([Status pages](../status.md#branding)) |
-| `GET /console`, `GET /console/sign-in` and the pages under `/console` | The console, for people signed in with a token ([The console](../pages.md)) |
+| `GET /console`, `GET /console/sign-in` and the pages under `/console` | The console, for people signed in with their account, or for one more release with a token ([The console](../pages.md)) |
+| `GET /.well-known/oauth-protected-resource/mcp`, `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-authorization-server` | The OAuth metadata MCP clients discover Beacon by (RFC 9728, RFC 8414) |
+| `POST /oauth/register`, `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` | Beacon as the authorization server for MCP clients: registration, the consent page, tokens and revocation ([People, agents and signing in](../accounts.md#the-oauth-endpoints)) |
 | `GET /console/alerts/{id}`, `GET /console/sessions/{id}` | The pages people open from a card, with a signed link or a token ([The console](../pages.md#signed-links)) |
 | `GET /alerts/{id}`, `GET /sessions/{id}`, `GET /sign-in` and the console's other old paths | `308` to the same path under `/console`, with the query; a link signed for the old path gets a signature for the new one, expiring when it did |
 | `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../status.md)); on a page's own host name, `/` and `/incidents/{id}` |
@@ -178,7 +204,7 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | --- | --- | --- |
 | `auth.required` | 401 | No bearer token was sent |
 | `auth.invalid` | 401 | The token is unknown or has expired |
-| `auth.scope` | 403 | The token lacks the scope the route needs; the message names it |
+| `auth.scope` | 403 | The credential lacks the scope the route needs; the message names it, and for an agent says what its preset within its owner's role allows |
 | `auth.too_many_failures` | 429 | Too many failed attempts from this address; try again later |
 | `bad_input` | 400, 415 | The request is not what the route takes: not JSON, an unknown field, a value out of range. The message says which |
 | `upstream` | 502, 503 | Something Beacon relies on did not answer (VictoriaMetrics, the store), or this Beacon does not take the request |
@@ -206,9 +232,13 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | `maintenance.not_found` | 404 | No maintenance window with this id |
 | `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |
 | `token.too_soon` | 429 | The token renewed itself less than 24 hours ago, and is still good |
-| `token.not_renewable` | 403 | An enrolled machine's token; `beacon enroll … -rotate` replaces it |
+| `token.not_renewable` | 403 | An enrolled machine's token, which `beacon enroll … -rotate` replaces; or an OAuth access token, which its client refreshes |
 | `token.not_found` | 404 | No token of that name to revoke |
-| `token.not_revocable` | 403 | The token does not reach machines; machines' and services' tokens are revoked with `beacon token revoke` on the host |
+| `token.not_revocable` | 403 | The token neither reaches machines nor is an agent's; machines' and services' tokens are revoked with `beacon token revoke` on the host |
+| `user.not_found` | 404 | No person of that name |
+| `user.last_owner` | 409 | The change would leave Beacon without an enabled owner; make someone else owner first |
+| `key.not_found` | 404 | The caller has no SSH key with that fingerprint |
+| `key.exists` | 409 | The key belongs to another agent or token, or is a machine's connector key |
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |

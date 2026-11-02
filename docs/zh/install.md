@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7502a44c
+sourceHash: sha256-8534cd32
 ---
 
 # 30 分钟上线
@@ -96,23 +96,24 @@ systemctl reload ssh
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
-5 分钟。一个令牌同时用于 API、MCP 和 SSH 通道；把 Agent 的公钥给它，它自己的 `ssh` 也就能用了：
+5 分钟。先建你自己的账号：Beacon 还没有账号，会生成一个用来初始化的一次性链接，30 分钟内有效（启动时也已写进日志）：
 
 ```bash
-docker exec beacon beacon token create claude-code \
-  -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d \
-  -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
+docker exec beacon beacon setup
 ```
 
-令牌只显示一次。在跑 Claude Code 的工作站上：
+打开链接，选定用户名和密码：你就是第一位所有者，已经登录了 `https://status.example.com/console` 上的控制台。然后在跑 Claude Code 的工作站上添加 Beacon，并从 Claude Code 登录：
 
 ```bash
-claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+claude mcp add --transport http beacon https://status.example.com/mcp
+claude mcp login beacon     # or /mcp inside Claude Code
 ```
 
-然后在 Claude Code 里让它列出机器，并在 `edge-1` 上执行 `uptime`。它会调用 `list_machines`，再调用 `run_command`；结果以退出码、stdout 和 stderr 返回，没有终端控制码。同一个 `list_machines` 的结果里有一段 `ssh_config` 和一行 `known_hosts`：放进 `~/.ssh/config` 和 `~/.ssh/known_hosts`，`ssh edge-1 uptime`、`scp`、`rsync -e ssh` 和 `ssh -L` 就照常可用，用户名就是机器名。这次连接 Beacon 签了一张五分钟有效的证书；Agent 手里没有这台机器的任何密钥。
+浏览器会打开 Beacon 的授权页面：把 Claude Code 允许为你的一个 Agent（审计日志里是 `you / claude-code`），选定它能做什么（这里用值班就够了）和有效多久。不用复制任何令牌；Claude Code 自己刷新。无界面的 Agent 或 CI 任务则拿一个令牌，在控制台的 **Agent** 页面或用 `beacon agent add` 创建，只显示一次，连同使用它的命令（[成员、Agent 与登录](accounts.md)）。
 
-每次会话都有记录：`docker exec beacon beacon token list` 看到令牌，`list_sessions`（或 `GET /api/v1/sessions`）看到会话，每条命令和它的退出码都在。`beacon ssh pause` 关闭全部会话，直到 `ssh resume`。
+然后在 Claude Code 里让它用 `add_ssh_key` 登记自己的公钥（`~/.ssh/id_ed25519.pub`），列出机器，并在 `edge-1` 上执行 `uptime`。它会调用 `list_machines`，再调用 `run_command`；结果以退出码、stdout 和 stderr 返回，没有终端控制码。同一个 `list_machines` 的结果里有一段 `ssh_config` 和一行 `known_hosts`：放进 `~/.ssh/config` 和 `~/.ssh/known_hosts`，`ssh edge-1 uptime`、`scp`、`rsync -e ssh` 和 `ssh -L` 就照常可用，用户名就是机器名。这次连接 Beacon 签了一张五分钟有效的证书；Agent 手里没有这台机器的任何密钥。
+
+每次会话都有记录：控制台的 **Agent** 页面显示这个 Agent、它的登录和密钥，`list_sessions`（或 `GET /api/v1/sessions`）显示会话，每条命令和它的退出码都在。`beacon ssh pause` 关闭全部会话，直到 `ssh resume`。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
