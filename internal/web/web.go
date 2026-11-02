@@ -270,7 +270,6 @@ var staticFiles = map[string]string{
 	"asciinema-player.css":              "text/css; charset=utf-8",
 	"beacon-player.js":                  "text/javascript; charset=utf-8",
 	"beacon.css":                        "text/css; charset=utf-8",
-	"beacon-brand.css":                  "text/css; charset=utf-8",
 	"ol/ui.css":                         "text/css; charset=utf-8",
 	"ol/fonts/Geist-Variable.woff2":     "font/woff2",
 	"ol/fonts/GeistMono-Variable.woff2": "font/woff2",

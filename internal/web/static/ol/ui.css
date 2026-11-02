@@ -1,4 +1,4 @@
-/*! @openlinkos/ui 0.6.1 | MIT | https://github.com/openlinkos/design */
+/*! @openlinkos/ui 0.7.0 | MIT | https://github.com/openlinkos/design */
 
 @layer ol.reset, ol.tokens, ol.base, ol.layout, ol.components, ol.utilities;
 
@@ -468,78 +468,6 @@
     --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
   }
 
-  [data-brand="origin"] {
-    --ol-palette-accent-1: light-dark(#fdfdfe, #11131f);
-    --ol-palette-accent-2: light-dark(#f7f9ff, #141726);
-    --ol-palette-accent-3: light-dark(#eef2fe, #1d2348);
-    --ol-palette-accent-4: light-dark(#e3e8fe, #252c60);
-    --ol-palette-accent-5: light-dark(#d5ddfe, #2e3772);
-    --ol-palette-accent-6: light-dark(#c4cffe, #374182);
-    --ol-palette-accent-7: light-dark(#aebcf7, #424d95);
-    --ol-palette-accent-8: light-dark(#93a3ed, #4e5bae);
-    --ol-palette-accent-9: #4f5bd5;
-    --ol-palette-accent-10: light-dark(#4650cc, #5d6cdc);
-    --ol-palette-accent-11: light-dark(#4b57c4, #a0b1fd);
-    --ol-palette-accent-12: light-dark(#252c5b, #d8e0fe);
-    --ol-palette-accent-text-subtle: light-dark(#4650cc, #7183f5);
-    --ol-palette-accent-border-input: light-dark(#7988d0, #5b69be);
-    --ol-palette-accent-border-input-hover: light-dark(#6c7ac1, #6777cc);
-    --ol-palette-accent-on-solid: #ffffff;
-    --ol-palette-accent-mark: light-dark(#4f5bd5, #8b96ff);
-    --ol-palette-accent-mark-inverse: #8b96ff;
-    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
-    --ol-color-selection: var(--ol-palette-accent-5);
-    --ol-color-mark: var(--ol-palette-accent-mark);
-    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
-    --ol-color-accent-bg: var(--ol-palette-accent-3);
-    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
-    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
-    --ol-color-accent-border: var(--ol-palette-accent-7);
-    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
-    --ol-color-accent-solid: var(--ol-palette-accent-9);
-    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
-    --ol-color-accent-text: var(--ol-palette-accent-11);
-    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
-    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
-    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
-  }
-
-  [data-brand="agent"] {
-    --ol-palette-accent-1: light-dark(#fdfdfe, #141121);
-    --ol-palette-accent-2: light-dark(#f9f8ff, #191528);
-    --ol-palette-accent-3: light-dark(#f2f0ff, #291b4e);
-    --ol-palette-accent-4: light-dark(#eae6ff, #372068);
-    --ol-palette-accent-5: light-dark(#dfd9ff, #422a7b);
-    --ol-palette-accent-6: light-dark(#d3c9ff, #4d338c);
-    --ol-palette-accent-7: light-dark(#c2b3ff, #5a3ea0);
-    --ol-palette-accent-8: light-dark(#ac95fa, #6a49bb);
-    --ol-palette-accent-9: light-dark(#7c3aed, #6d28d9);
-    --ol-palette-accent-10: light-dark(#7428e4, #7743df);
-    --ol-palette-accent-11: light-dark(#7139d6, #b9a7ff);
-    --ol-palette-accent-12: light-dark(#352163, #e2dcff);
-    --ol-palette-accent-text-subtle: light-dark(#7428e4, #9871ff);
-    --ol-palette-accent-border-input: light-dark(#947cdf, #7859cc);
-    --ol-palette-accent-border-input-hover: light-dark(#866ecf, #8567db);
-    --ol-palette-accent-on-solid: #ffffff;
-    --ol-palette-accent-mark: light-dark(#7c3aed, #a78bfa);
-    --ol-palette-accent-mark-inverse: #a78bfa;
-    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
-    --ol-color-selection: var(--ol-palette-accent-5);
-    --ol-color-mark: var(--ol-palette-accent-mark);
-    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
-    --ol-color-accent-bg: var(--ol-palette-accent-3);
-    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
-    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
-    --ol-color-accent-border: var(--ol-palette-accent-7);
-    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
-    --ol-color-accent-solid: var(--ol-palette-accent-9);
-    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
-    --ol-color-accent-text: var(--ol-palette-accent-11);
-    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
-    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
-    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
-  }
-
   [data-brand="linkos"] {
     --ol-palette-accent-1: light-dark(#fdfdfd, #0e1613);
     --ol-palette-accent-2: light-dark(#f6faf8, #111b16);
@@ -631,6 +559,116 @@
     --ol-palette-accent-on-solid: #ffffff;
     --ol-palette-accent-mark: light-dark(#0d9b76, #34d399);
     --ol-palette-accent-mark-inverse: #34d399;
+    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
+    --ol-color-selection: var(--ol-palette-accent-5);
+    --ol-color-mark: var(--ol-palette-accent-mark);
+    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
+    --ol-color-accent-bg: var(--ol-palette-accent-3);
+    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
+    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
+    --ol-color-accent-border: var(--ol-palette-accent-7);
+    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
+    --ol-color-accent-solid: var(--ol-palette-accent-9);
+    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
+    --ol-color-accent-text: var(--ol-palette-accent-11);
+    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
+    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
+    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
+  }
+
+  [data-brand="origin"] {
+    --ol-palette-accent-1: light-dark(#fdfdfe, #11131f);
+    --ol-palette-accent-2: light-dark(#f7f9ff, #141726);
+    --ol-palette-accent-3: light-dark(#eef2fe, #1d2348);
+    --ol-palette-accent-4: light-dark(#e3e8fe, #252c60);
+    --ol-palette-accent-5: light-dark(#d5ddfe, #2e3772);
+    --ol-palette-accent-6: light-dark(#c4cffe, #374182);
+    --ol-palette-accent-7: light-dark(#aebcf7, #424d95);
+    --ol-palette-accent-8: light-dark(#93a3ed, #4e5bae);
+    --ol-palette-accent-9: #4f5bd5;
+    --ol-palette-accent-10: light-dark(#4650cc, #5d6cdc);
+    --ol-palette-accent-11: light-dark(#4b57c4, #a0b1fd);
+    --ol-palette-accent-12: light-dark(#252c5b, #d8e0fe);
+    --ol-palette-accent-text-subtle: light-dark(#4650cc, #7183f5);
+    --ol-palette-accent-border-input: light-dark(#7988d0, #5b69be);
+    --ol-palette-accent-border-input-hover: light-dark(#6c7ac1, #6777cc);
+    --ol-palette-accent-on-solid: #ffffff;
+    --ol-palette-accent-mark: light-dark(#4f5bd5, #8b96ff);
+    --ol-palette-accent-mark-inverse: #8b96ff;
+    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
+    --ol-color-selection: var(--ol-palette-accent-5);
+    --ol-color-mark: var(--ol-palette-accent-mark);
+    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
+    --ol-color-accent-bg: var(--ol-palette-accent-3);
+    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
+    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
+    --ol-color-accent-border: var(--ol-palette-accent-7);
+    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
+    --ol-color-accent-solid: var(--ol-palette-accent-9);
+    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
+    --ol-color-accent-text: var(--ol-palette-accent-11);
+    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
+    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
+    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
+  }
+
+  [data-brand="beacon"] {
+    --ol-palette-accent-1: light-dark(#fefdfd, #1c110d);
+    --ol-palette-accent-2: light-dark(#fef8f6, #22140f);
+    --ol-palette-accent-3: light-dark(#fbefeb, #3f1b0d);
+    --ol-palette-accent-4: light-dark(#fae4dc, #53220c);
+    --ol-palette-accent-5: light-dark(#f7d7ca, #632b13);
+    --ol-palette-accent-6: light-dark(#f4c6b5, #72341b);
+    --ol-palette-accent-7: light-dark(#eab09a, #833f23);
+    --ol-palette-accent-8: light-dark(#db9478, #994a29);
+    --ol-palette-accent-9: #b84400;
+    --ol-palette-accent-10: light-dark(#a93e00, #c25729);
+    --ol-palette-accent-11: light-dark(#a7410c, #eba285);
+    --ol-palette-accent-12: light-dark(#4f2210, #f8dacf);
+    --ol-palette-accent-text-subtle: light-dark(#a93e00, #db6d41);
+    --ol-palette-accent-border-input: light-dark(#bf7a5f, #a95837);
+    --ol-palette-accent-border-input-hover: light-dark(#b16d52, #b76544);
+    --ol-palette-accent-on-solid: #ffffff;
+    --ol-palette-accent-mark: light-dark(#e55900, #ff7728);
+    --ol-palette-accent-mark-inverse: #ff7728;
+    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
+    --ol-color-selection: var(--ol-palette-accent-5);
+    --ol-color-mark: var(--ol-palette-accent-mark);
+    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
+    --ol-color-accent-bg: var(--ol-palette-accent-3);
+    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
+    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
+    --ol-color-accent-border: var(--ol-palette-accent-7);
+    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
+    --ol-color-accent-solid: var(--ol-palette-accent-9);
+    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
+    --ol-color-accent-text: var(--ol-palette-accent-11);
+    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
+    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
+    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
+    --ol-color-series-2: light-dark(#2563eb, #3a74f1);
+    --ol-color-series-8: light-dark(#008e82, #31c3b5);
+  }
+
+  [data-brand="agent"] {
+    --ol-palette-accent-1: light-dark(#fdfdfe, #141121);
+    --ol-palette-accent-2: light-dark(#f9f8ff, #191528);
+    --ol-palette-accent-3: light-dark(#f2f0ff, #291b4e);
+    --ol-palette-accent-4: light-dark(#eae6ff, #372068);
+    --ol-palette-accent-5: light-dark(#dfd9ff, #422a7b);
+    --ol-palette-accent-6: light-dark(#d3c9ff, #4d338c);
+    --ol-palette-accent-7: light-dark(#c2b3ff, #5a3ea0);
+    --ol-palette-accent-8: light-dark(#ac95fa, #6a49bb);
+    --ol-palette-accent-9: light-dark(#7c3aed, #6d28d9);
+    --ol-palette-accent-10: light-dark(#7428e4, #7743df);
+    --ol-palette-accent-11: light-dark(#7139d6, #b9a7ff);
+    --ol-palette-accent-12: light-dark(#352163, #e2dcff);
+    --ol-palette-accent-text-subtle: light-dark(#7428e4, #9871ff);
+    --ol-palette-accent-border-input: light-dark(#947cdf, #7859cc);
+    --ol-palette-accent-border-input-hover: light-dark(#866ecf, #8567db);
+    --ol-palette-accent-on-solid: #ffffff;
+    --ol-palette-accent-mark: light-dark(#7c3aed, #a78bfa);
+    --ol-palette-accent-mark-inverse: #a78bfa;
     --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
     --ol-color-selection: var(--ol-palette-accent-5);
     --ol-color-mark: var(--ol-palette-accent-mark);

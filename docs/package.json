@@ -22,7 +22,7 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
-    "@openlinkos/vitepress-theme": "0.6.1",
+    "@openlinkos/vitepress-theme": "0.7.0",
     "vitepress": "1.6.4"
   }
 }

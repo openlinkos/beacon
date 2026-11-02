@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.9 (2026-11-02)
+
+- The console draws with `@openlinkos/ui` 0.7.0, which carries the Beacon brand (signal orange, the mark); the provisional stylesheet is gone. The docs site uses the theme 0.7.0 with the same brand.
+
 ### rc.8 (2026-11-02)
 
 - A `SIGHUP` that arrives while the service is still starting no longer ends it: the signal is taken from the first instant and acted on once the service is up. A deployment that reloads right after starting the service used to kill it, the more so as start-up grew with the console.

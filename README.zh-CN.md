@@ -1,5 +1,7 @@
 # Beacon · 烽火
 
+<p><img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56"></p>
+
 [English](README.md) | 简体中文
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)

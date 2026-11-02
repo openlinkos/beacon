@@ -22,5 +22,4 @@ asciinema-player 3.17.0
   the Geist fonts), is vendored under ol/, with its own NOTICE, licences and hashes; scripts/update-ui.sh
   refreshes it from npm.
 
-beacon.css, beacon-brand.css and beacon-player.js are Beacon's own (Apache-2.0, see the repository's
-LICENSE). beacon-brand.css is provisional: Beacon's accent until @openlinkos/ui ships data-brand="beacon".
+beacon.css and beacon-player.js are Beacon's own (Apache-2.0, see the repository's LICENSE).
