@@ -4,6 +4,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The console** (`docs/pages.md`): Beacon's own workbench, served by `linkos-beacon` at `/` on port 17001 beside the API, on the OpenLinkOS design system `@openlinkos/ui` 0.6.1 (its workbench shell, vendored under `internal/web/static/ol` with `scripts/update-ui.sh`), so the family looks alike. One place for people to look at everything:
+  - the overview (firing alerts by severity, probe locations expected and reporting, machines, the SSH channel, agents woken and sessions today, the configuration's and Beacon's versions, each linking to its list); alerts, sessions, agent calls, the audit log and change events as lists with facets and search, 50 to a page; machines with the pause switch, and each machine's sessions and commands; tokens with their scopes, machines and SSH keys; the configuration read-only, with its history and each version's diff. The alert's and the session's pages move onto the same shell; signed links and bearer tokens keep opening them without signing in, view-only.
+  - No login system of Beacon's own: `/sign-in` takes a Beacon token (`status:read` at least) and keeps a 12-hour session bound to it, in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie; revoking the token ends it, and its scopes are what the console may do. Failed sign-ins count against the API's limit. The console needs HTTPS (or `localhost`).
+  - Forms, each with a CSRF secret and the scope of the matching API route, done as the token with `via` `console`, audited and echoed to the chat: acknowledge with a note, silence for 1, 4 or 24 hours, add a note (`alerts:write`); pause and resume agents' access, revoke a token that reaches machines (`machines:write`; other tokens stay with the admin socket); revert a configuration change (`config:write`).
+  - One page for every screen, adapted by CSS alone (a full sidebar from 1200px, a rail from 860px, a sheet below, lists restacked at phone widths); in Chinese or English; no inline script or style. The pages' `Content-Security-Policy` now also allows fonts and forms from Beacon itself. Beacon's accent (`data-brand="beacon"`) is provisional until the design system ships it.
+
 ## 0.3.0
 
 ### rc.6 (2026-11-02)
