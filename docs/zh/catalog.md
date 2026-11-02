@@ -32,6 +32,14 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/
 
 路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），说明见 [internal/api/openapi.yaml](../../internal/api/openapi.yaml)。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/linkos-agent/secrets`，`linkos-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
 
+修改可以说明它基于哪个版本：`PUT` 和 `DELETE` 加 `?if_version=12`，`put_config` 和 `delete_config` 加 `if_version`，值是 `GET /api/v1/config`（`get_config`）返回的版本号。已有更新的版本生效时，修改被拒绝，返回 `config.conflict` 并指出生效的版本，什么都不变：重新读一遍再做决定。Agent 先读配置、再思考、然后写入时带上它，就不会覆盖别人在这期间改的东西。
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "https://status.example.com/api/v1/config/heartbeats/nas-backup?if_version=12&note=longer+window" \
+  -d '{"max_age": "30h", "severity": "warning", "description": "Nightly backup of the NAS"}'
+```
+
 ### 历史与撤销
 
 `GET /api/v1/config/history`（MCP `list_config_changes`，命令行 `linkos-beacon config history`）按从新到旧列出修改：版本号、时间、谁、经什么（`api`、`mcp`、`cli`；服务自己导入文件时是 `start` 和 `signal`）、做了什么（`put`、`delete`、`import`、`revert`）、新增、修改或删除了哪些项，以及备注。用 `kind` 和 `key` 只看某一项。`GET /api/v1/config/history/{version}`（`get_config_change`）给出每一项改前和改后的值。

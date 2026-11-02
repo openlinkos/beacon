@@ -214,6 +214,8 @@ spec:
 
 变更事件保留 `changes.keep`（默认 `720h`，即 30 天），最多 50,000 条。`GET /api/v1/changes` 和 MCP 工具 `list_changes`（作用域 `status:read`）按时间倒序列出，可按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选。
 
+一个令牌每分钟最多发 60 条变更事件；超出的会被拒绝，返回 `429` 和 `changes.too_many`，到下一分钟才能再发，并计入 `linkos_gateway_changes_limited_total{token}`。把事件合并发送、或者分散开发的发送方，碰不到这个限制。
+
 ## 自行续期的令牌
 
 Agent 的令牌就是它在 REST API、MCP 服务和 SSH 通道上的身份。与其让人发一个长期令牌、到期再发一个，不如让令牌自己续期：到期之前，持有者申请一个新密钥，拿到的令牌名字、作用域、subject、机器和 SSH 公钥都不变，从现在起再有效一个生存期（用 `-expires 90d` 创建的令牌，每次续期都再给 90 天）。除了令牌本身什么都不需要：这两个接口接受任何作用域。

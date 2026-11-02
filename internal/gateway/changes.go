@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -118,8 +119,25 @@ func (g *gateway) record(w http.ResponseWriter, r *http.Request, t store.Token, 
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// limited refuses the request, counting it, when the token has posted more than changeLimit change
+// events this minute (limit.go).
+func (g *gateway) limited(w http.ResponseWriter, t store.Token) bool {
+	if g.changeRate.allow(t.Name, g.Now(), changeLimit, changeWindow) {
+		return false
+	}
+	if g.Metrics != nil {
+		g.Metrics.Inc("linkos_gateway_changes_limited_total", "Change events refused because the token posted more than 60 in a minute",
+			metrics.Labels("token", t.Name))
+	}
+	fail(w, http.StatusTooManyRequests, "changes.too_many", "this token posted more than 60 change events in a minute; batch them, or wait for the minute to pass")
+	return true
+}
+
 // change takes a change event in Beacon's form.
 func (g *gateway) change(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.limited(w, t) {
+		return
+	}
 	var in changeIn
 	dec := json.NewDecoder(io.LimitReader(r.Body, maxChange))
 	dec.DisallowUnknownFields()
@@ -134,6 +152,9 @@ func (g *gateway) change(w http.ResponseWriter, r *http.Request, t store.Token) 
 
 // fluxChange takes an event from Flux's notification-controller (a Provider of type generic).
 func (g *gateway) fluxChange(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.limited(w, t) {
+		return
+	}
 	var ev fluxEvent
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxChange)).Decode(&ev); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", "the body is not a Flux event: "+err.Error())

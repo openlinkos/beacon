@@ -401,6 +401,13 @@ func (s *Service) Item(kind, key string) (json.RawMessage, error) {
 // Put adds or replaces one item, given as JSON in the shape of its file. The whole configuration is
 // checked as the files were, and takes effect at once.
 func (s *Service) Put(ctx context.Context, who Actor, kind, key string, value json.RawMessage, note string) (store.ConfigChange, error) {
+	return s.PutIf(ctx, who, kind, key, value, note, 0)
+}
+
+// PutIf is Put on condition that version, the one the caller last saw, is still in force (0: no
+// condition): when the configuration moved on meanwhile, the change is refused with ErrConflict naming
+// the version in force, and nothing changes, so that a caller never overwrites what it has not seen.
+func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value json.RawMessage, note string, version int64) (store.ConfigChange, error) {
 	k, ok := Kind(kind)
 	if !ok {
 		return store.ConfigChange{}, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
@@ -410,7 +417,11 @@ func (s *Service) Put(ctx context.Context, who Actor, kind, key string, value js
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := maps.Clone(s.state.Load().entries)
+	cur := s.state.Load()
+	if err := expect(cur, version); err != nil {
+		return store.ConfigChange{}, err
+	}
+	next := maps.Clone(cur.entries)
 	if next == nil {
 		next = map[string][]byte{}
 	}
@@ -422,17 +433,41 @@ func (s *Service) Put(ctx context.Context, who Actor, kind, key string, value js
 
 // Delete removes one item.
 func (s *Service) Delete(ctx context.Context, who Actor, kind, key, note string) (store.ConfigChange, error) {
-	if _, err := s.Item(kind, key); err != nil {
-		return store.ConfigChange{}, err
+	return s.DeleteIf(ctx, who, kind, key, note, 0)
+}
+
+// DeleteIf is Delete on the condition PutIf takes.
+func (s *Service) DeleteIf(ctx context.Context, who Actor, kind, key, note string, version int64) (store.ConfigChange, error) {
+	k, ok := Kind(kind)
+	if !ok {
+		return store.ConfigChange{}, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
 	}
-	k, _ := Kind(kind)
+	key = normalKey(k, key)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := maps.Clone(s.state.Load().entries)
-	if err := set(next, k, normalKey(k, key), nil); err != nil {
+	cur := s.state.Load()
+	if err := expect(cur, version); err != nil {
+		return store.ConfigChange{}, err
+	}
+	if _, ok := items(cur.entries)[itemKey{k, key}]; !ok {
+		return store.ConfigChange{}, fmt.Errorf("%w: no %s %q", ErrNotFound, k, key)
+	}
+	next := maps.Clone(cur.entries)
+	if err := set(next, k, key, nil); err != nil {
 		return store.ConfigChange{}, err
 	}
 	return s.commit(ctx, who, "delete", note, 0, next, false)
+}
+
+// expect checks the version a caller's change is based on against the one in force (0: it says none).
+func expect(cur *State, version int64) error {
+	switch {
+	case version < 0:
+		return fmt.Errorf("%w: if_version is a version, a whole number from 1", ErrBadInput)
+	case version != 0 && cur.Version != version:
+		return fmt.Errorf("%w: version %d is in force, not %d as you last saw; read it again and retry", ErrConflict, cur.Version, version)
+	}
+	return nil
 }
 
 // Revert undoes the change that made version v, as a new change: every item it touched gets back its

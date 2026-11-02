@@ -103,7 +103,11 @@ func (s *Server) putConfigItem(k configKind) handler {
 		if !readBody(w, r, &v, 1<<20) {
 			return
 		}
-		ch, err := s.Config.Put(r.Context(), configActor(who), k.kind, r.PathValue(k.param), v, r.URL.Query().Get("note"))
+		ifVersion, ok := ifVersion(w, r)
+		if !ok {
+			return
+		}
+		ch, err := s.Config.PutIf(r.Context(), configActor(who), k.kind, r.PathValue(k.param), v, r.URL.Query().Get("note"), ifVersion)
 		if err != nil {
 			s.configError(w, err)
 			return
@@ -114,13 +118,32 @@ func (s *Server) putConfigItem(k configKind) handler {
 
 func (s *Server) deleteConfigItem(k configKind) handler {
 	return func(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
-		ch, err := s.Config.Delete(r.Context(), configActor(who), k.kind, r.PathValue(k.param), r.URL.Query().Get("note"))
+		ifVersion, ok := ifVersion(w, r)
+		if !ok {
+			return
+		}
+		ch, err := s.Config.DeleteIf(r.Context(), configActor(who), k.kind, r.PathValue(k.param), r.URL.Query().Get("note"), ifVersion)
 		if err != nil {
 			s.configError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, ch)
 	}
+}
+
+// ifVersion reads the query's if_version, the version the caller's change is based on (0 when absent),
+// answering 400 when it is not one.
+func ifVersion(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	s := r.URL.Query().Get("if_version")
+	if s == "" {
+		return 0, true
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 1 {
+		writeError(w, http.StatusBadRequest, "bad_input", "if_version is the version you last saw, a whole number from 1")
+		return 0, false
+	}
+	return v, true
 }
 
 // version reads the path's version, answering 400 when it is not one.

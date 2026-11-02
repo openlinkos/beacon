@@ -4,6 +4,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Agents' credentials and safe configuration** (goals 6 and 7; `docs/agents.md`, `docs/catalog.md`): tokens renew themselves, and `config:write` is safe to give an agent.
+  - Tokens renew themselves: `POST /api/v1/token/renew` and the MCP tool `renew_token` (any scope) give the caller's token a new secret with the same name, scopes, subject, machines and SSH keys, expiring its lifetime from now; the old secret works for ten more minutes, so a client swaps its token file without a race. At most once every 24 hours (`token.too_soon`, 429); enrolled machines' tokens cannot (`token.not_renewable`, 403), `enroll -rotate` replaces them. Audited (`token_renew`) and echoed to the chat. `GET /api/v1/token` and `whoami` describe the caller's token: name, scopes, machines, expiry, lifetime, whether and when it may renew. Tokens keep their lifetime (`token list` shows it and the last renewal); tokens from before get `expires - created`. SSH sign-in is by key and is untouched by a renewal.
+  - Probe modules read files from one directory: `password_file` names a file in the probe's secrets directory (`linkos-probe -secrets-dir`, `/etc/linkos-agent/secrets` by default), never a path. The probe refuses a path before reading anything (`probe_failure_info{reason="config"}`), and Beacon refuses it with `config.invalid` when a module is put or imported (API, MCP, CLI, files). Transition: a module file already in the database with such a value is still served, with the problem logged, until the module is put right; probes from before this release read the name relative to their working directory, so upgrade them before adding a module with `password_file`.
+  - `if_version` on `PUT` and `DELETE` under `/api/v1/config` and on `put_config` and `delete_config`: the version the caller last saw; when a later one is in force the change is refused with `config.conflict`, naming it.
+  - The gateway takes at most 60 change events a minute per token; the rest get `429` with `changes.too_many`, counted in `linkos_gateway_changes_limited_total{token}`.
+  - MCP has two more tools (`whoami`, `renew_token`); new error codes `token.too_soon`, `token.not_renewable`, `changes.too_many`.
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)

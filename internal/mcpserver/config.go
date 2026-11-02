@@ -18,7 +18,9 @@ shows them with the version in force. With the config:write scope, put_config an
 one item at a time; the whole configuration is checked as the files always were, and the gateway hands
 probes the result at once, so a mistake reaches every probe within a minute: change only what you were
 asked to, and say why in the note. Every change is a version with who made it and the values before and
-after: list_config_changes and get_config_change show them, and revert_config_change undoes one.`
+after: list_config_changes and get_config_change show them, and revert_config_change undoes one. Pass the
+version you read as if_version, so that you never overwrite what someone changed meanwhile. A module's
+password_file is the name of a file in the probe's secrets directory, never a path.`
 
 // Option changes what the server offers.
 type Option func(*options)
@@ -40,15 +42,17 @@ type (
 		Key  string `json:"key,omitempty" jsonschema:"with kind, one item: a location id, a heartbeat or resource name, a target set's name (all-web for the file all-web.yaml) or a module name"`
 	}
 	putConfigIn struct {
-		Kind  string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
-		Key   string `json:"key" jsonschema:"the item's id or name; a target set's name starts with all-, overseas-, mainland- or a location id and a dash, which says who probes it"`
-		Value any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}"`
-		Note  string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
+		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
+		Key       string `json:"key" jsonschema:"the item's id or name; a target set's name starts with all-, overseas-, mainland- or a location id and a dash, which says who probes it"`
+		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}"`
+		Note      string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
+		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw (get_config returns it): the change is refused with config.conflict when a later one is in force, so you never overwrite what changed meanwhile"`
 	}
 	deleteConfigIn struct {
-		Kind string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
-		Key  string `json:"key" jsonschema:"the item's id or name"`
-		Note string `json:"note,omitempty" jsonschema:"why"`
+		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
+		Key       string `json:"key" jsonschema:"the item's id or name"`
+		Note      string `json:"note,omitempty" jsonschema:"why"`
+		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw; refused with config.conflict when a later one is in force"`
 	}
 	configChangesIn struct {
 		Kind   string `json:"kind,omitempty" jsonschema:"only changes to this kind"`
@@ -98,7 +102,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			if err != nil {
 				return nil, store.ConfigChange{}, fmt.Errorf("value: %w", err)
 			}
-			ch, err := c.Put(ctx, who, in.Kind, in.Key, raw, in.Note)
+			ch, err := c.PutIf(ctx, who, in.Kind, in.Key, raw, in.Note, in.IfVersion)
 			return nil, ch, err
 		})
 
@@ -110,7 +114,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			if err != nil {
 				return nil, store.ConfigChange{}, err
 			}
-			ch, err := c.Delete(ctx, who, in.Kind, in.Key, in.Note)
+			ch, err := c.DeleteIf(ctx, who, in.Kind, in.Key, in.Note, in.IfVersion)
 			return nil, ch, err
 		})
 

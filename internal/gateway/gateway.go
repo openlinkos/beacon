@@ -64,6 +64,8 @@ type gateway struct {
 
 	mu        sync.Mutex
 	lastWrite map[string]time.Time // by location or host
+
+	changeRate limiter // change events per token (limit.go)
 }
 
 // Handler builds the gateway's router.

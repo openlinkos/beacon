@@ -214,6 +214,8 @@ spec:
 
 Change events are kept for `changes.keep` (`720h`, 30 days, by default), at most 50,000. `GET /api/v1/changes` and the MCP tool `list_changes` (scope `status:read`) list them, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default).
 
+A token may post 60 change events a minute; the ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `linkos_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.
+
 ## Tokens that renew themselves
 
 An agent's token is its identity on the REST API, the MCP server and the SSH channel. Rather than have someone hand it a long-lived token and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope.

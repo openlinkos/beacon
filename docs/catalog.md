@@ -32,6 +32,14 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/
 
 The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), described in [internal/api/openapi.yaml](../internal/api/openapi.yaml). The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes: a location cannot go while a target set is named after it alone, and a set must start with a known prefix. Every change is in the audit log and echoed to the alert chat, with the note if one was given. `config:write` decides what every probe checks and how, including which file a module sends as a password (`password_file`); a probe reads such files only from its secrets directory (`/etc/linkos-agent/secrets`, `linkos-probe -secrets-dir`), by name, so that a holder of `config:write` can have a probe send what someone put there and nothing else. Give it to those you would let change these files.
 
+A change may say which version it is based on: `?if_version=12` on `PUT` and `DELETE`, `if_version` in `put_config` and `delete_config`, the version `GET /api/v1/config` (`get_config`) returned. When a later version is in force, the change is refused with `config.conflict`, naming it, and nothing changes: read the item again and decide afresh. An agent that reads the configuration, thinks, and then writes passes it, so that it never overwrites what someone changed meanwhile.
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "https://status.example.com/api/v1/config/heartbeats/nas-backup?if_version=12&note=longer+window" \
+  -d '{"max_age": "30h", "severity": "warning", "description": "Nightly backup of the NAS"}'
+```
+
 ### History and revert
 
 `GET /api/v1/config/history` (MCP `list_config_changes`, CLI `linkos-beacon config history`) lists the changes, newest first: version, time, who, through what (`api`, `mcp`, `cli`; `start` and `signal` for files the service imported itself), what (`put`, `delete`, `import`, `revert`), the items added, changed or removed, and the note. `kind` and `key` narrow it to one item. `GET /api/v1/config/history/{version}` (`get_config_change`) has every item's value before and after.

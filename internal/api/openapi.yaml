@@ -501,6 +501,11 @@ components:
       in: path
       required: true
       schema: {type: integer, minimum: 1}
+    IfVersion:
+      name: if_version
+      in: query
+      description: "The version the caller last saw (GET /config returns it): when a later one is in force the change is refused with config.conflict, naming it, so that nothing is overwritten unseen"
+      schema: {type: integer, minimum: 1}
   responses:
     Error:
       description: An error
@@ -988,7 +993,7 @@ paths:
     put:
       summary: Add or replace a probe location
       description: "Scope: config:write. The whole configuration is checked (config.invalid says what fails) and takes effect at once."
-      parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       requestBody:
         required: true
         content:
@@ -1000,7 +1005,7 @@ paths:
     delete:
       summary: Remove a probe location
       description: "Scope: config:write. Refused while a target set is named after it alone."
-      parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
@@ -1026,7 +1031,7 @@ paths:
     put:
       summary: Add or replace a heartbeat
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       requestBody:
         required: true
         content:
@@ -1038,7 +1043,7 @@ paths:
     delete:
       summary: Remove a heartbeat
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
@@ -1064,7 +1069,7 @@ paths:
     put:
       summary: Add or replace a resource
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       requestBody:
         required: true
         content:
@@ -1076,7 +1081,7 @@ paths:
     delete:
       summary: Remove a resource
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
@@ -1102,7 +1107,7 @@ paths:
     put:
       summary: Add or replace a target set
       description: "Scope: config:write. Probes get the change on their next fetch, within a minute."
-      parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       requestBody:
         required: true
         content:
@@ -1114,7 +1119,7 @@ paths:
     delete:
       summary: Remove a target set
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
@@ -1140,7 +1145,7 @@ paths:
     put:
       summary: Add or replace a probe module
       description: "Scope: config:write. The module file keeps its other modules and their comments."
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       requestBody:
         required: true
         content:
@@ -1152,7 +1157,7 @@ paths:
     delete:
       summary: Remove a probe module
       description: "Scope: config:write"
-      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}]
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
