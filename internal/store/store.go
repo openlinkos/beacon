@@ -105,16 +105,24 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 //
 // SSHKeys are the public keys its holder signs in to the SSH channel with, and Machines the machines it
 // may reach there (none: all of them).
+//
+// Lifetime is how long it was made to last; a renewal (renew.go) gives it a new secret that expires
+// Lifetime from then, and the old secret (OldHash) stays valid until OldUntil, so that a client can swap
+// its token file without a race. Tokens from before Lifetime was kept get Expires - Created when loaded.
 type Token struct {
-	Name      string    `json:"name"`
-	Hash      string    `json:"hash"`
-	Scopes    []string  `json:"scopes"`
-	Subject   string    `json:"subject,omitempty"`
-	Created   time.Time `json:"created"`
-	CreatedBy string    `json:"created_by,omitempty"`
-	Expires   time.Time `json:"expires"`
-	SSHKeys   []SSHKey  `json:"ssh_keys,omitempty"`
-	Machines  []string  `json:"machines,omitempty"`
+	Name      string        `json:"name"`
+	Hash      string        `json:"hash"`
+	Scopes    []string      `json:"scopes"`
+	Subject   string        `json:"subject,omitempty"`
+	Created   time.Time     `json:"created"`
+	CreatedBy string        `json:"created_by,omitempty"`
+	Expires   time.Time     `json:"expires"`
+	SSHKeys   []SSHKey      `json:"ssh_keys,omitempty"`
+	Machines  []string      `json:"machines,omitempty"`
+	Lifetime  time.Duration `json:"lifetime,omitempty"`
+	Renewed   time.Time     `json:"renewed,omitzero"`
+	OldHash   string        `json:"old_hash,omitempty"`
+	OldUntil  time.Time     `json:"old_until,omitzero"`
 }
 
 // SSHKey is a public key in the authorized_keys form (without its comment) and its SHA256 fingerprint.
@@ -175,6 +183,9 @@ func Open(path string) (*Store, error) {
 			var t Token
 			if err := json.Unmarshal(v, &t); err != nil {
 				return err
+			}
+			if t.Lifetime == 0 { // from before the lifetime was kept
+				t.Lifetime = t.Expires.Sub(t.Created)
 			}
 			s.tokens[t.Hash] = t
 			return nil
@@ -317,7 +328,7 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	}
 	secret := TokenPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw))
 	now := s.now().UTC()
-	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl)}
+	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 	b, _ := json.Marshal(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -408,13 +419,18 @@ func (s *Store) TokenBySSHKey(fingerprint string) (Token, bool) {
 	return Token{}, false
 }
 
-// VerifyToken returns the token whose secret this is, if it exists and has not expired.
+// VerifyToken returns the token whose secret this is, if it exists and has not expired. The secret a
+// renewal replaced is still accepted during its grace period (renew.go).
 func (s *Store) VerifyToken(secret string) (Token, bool) {
 	if !strings.HasPrefix(secret, TokenPrefix) {
 		return Token{}, false
 	}
+	h := hashToken(secret)
 	s.mu.RLock()
-	t, ok := s.tokens[hashToken(secret)]
+	t, ok := s.tokens[h]
+	if !ok {
+		t, ok = s.byOldHash(h)
+	}
 	s.mu.RUnlock()
 	if !ok || !s.now().Before(t.Expires) {
 		return Token{}, false

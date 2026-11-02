@@ -146,6 +146,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/sessions", s.with("status:read|machines:ssh", s.listSessions))
 	mux.Handle("GET /api/v1/sessions/{id}", s.with("sessions:read|machines:ssh", s.getSession))
 	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
+	s.registerToken(mux)
 }
 
 // Routes lists the authenticated routes, for the test that keeps the OpenAPI description in step.
@@ -176,6 +177,13 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 
 // with guards h with a token carrying scope, or one of the scopes in "a|b".
 func (s *Server) with(scope string, h handler) http.Handler {
+	return s.withToken(scope, func(w http.ResponseWriter, r *http.Request, t store.Token) {
+		h(w, r, bridge.Actor{Name: t.Name, Via: "api"})
+	})
+}
+
+// withToken is with for a handler that needs the token itself (token.go); an empty scope admits any token.
+func (s *Server) withToken(scope string, h func(w http.ResponseWriter, r *http.Request, t store.Token)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.Auth.Blocked(r) {
 			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts; try again later")
@@ -193,11 +201,11 @@ func (s *Server) with(scope string, h handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return
 		}
-		if !slices.ContainsFunc(strings.Split(scope, "|"), t.Has) {
+		if scope != "" && !slices.ContainsFunc(strings.Split(scope, "|"), t.Has) {
 			writeError(w, http.StatusForbidden, "auth.scope", "the token lacks the "+strings.ReplaceAll(scope, "|", " or ")+" scope")
 			return
 		}
-		h(w, r, bridge.Actor{Name: t.Name, Via: "api"})
+		h(w, r, t)
 	})
 }
 

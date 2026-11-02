@@ -73,6 +73,8 @@ func (c *Client) Tokens(ctx context.Context) ([]TokenInfo, error) {
 
 // TokenInfo is a token as the socket lists it (the hash is not interesting to people): SSHKeys are the
 // fingerprints of its keys for the SSH channel, Machines the machines it reaches there (none: all).
+// Lifetime is what it was created with, as token create -expires takes it; Renewed the last time it
+// renewed itself.
 type TokenInfo struct {
 	Name      string    `json:"name"`
 	Scopes    []string  `json:"scopes"`
@@ -82,6 +84,8 @@ type TokenInfo struct {
 	Expires   time.Time `json:"expires"`
 	SSHKeys   []string  `json:"ssh_keys,omitempty"`
 	Machines  []string  `json:"machines,omitempty"`
+	Lifetime  string    `json:"lifetime,omitempty"`
+	Renewed   time.Time `json:"renewed,omitzero"`
 }
 
 func urlQuery(s string) string { return url.QueryEscape(s) }

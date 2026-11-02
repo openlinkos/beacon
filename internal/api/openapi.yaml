@@ -37,7 +37,8 @@ components:
             ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
-            config.not_found, config.invalid, config.conflict]
+            config.not_found, config.invalid, config.conflict,
+            token.too_soon, token.not_renewable]
     Ack:
       type: object
       properties:
@@ -451,6 +452,28 @@ components:
               op: {type: string, enum: [added, changed, removed]}
               before: {description: "The value before (absent when added; left out in the history list)"}
               after: {description: "The value after (absent when removed; left out in the history list)"}
+    Token:
+      type: object
+      description: The caller's own token, as its holder sees it; never the secret
+      properties:
+        name: {type: string}
+        scopes: {type: array, items: {type: string}}
+        subject: {type: string, description: "The location or host a machine's token writes as"}
+        machines: {type: array, items: {type: string}, description: "The machines it reaches through the SSH channel; absent: all"}
+        ssh_keys: {type: array, items: {type: string}, description: Fingerprints of the keys it signs in to the SSH channel with}
+        created: {type: string, format: date-time}
+        expires: {type: string, format: date-time}
+        lifetime: {type: string, examples: ["365d", "12h0m0s"], description: "What it was created with, as token create -expires takes it; a renewal makes it expire this long from then"}
+        renewed: {type: string, format: date-time, description: The last renewal}
+        renewable: {type: boolean, description: "False for an enrolled machine's token, which enroll -rotate replaces"}
+        renewable_at: {type: string, format: date-time, description: When it may next renew itself (at most once a day)}
+        via: {type: string, enum: [api, mcp]}
+    Renewed:
+      type: object
+      properties:
+        token: {$ref: "#/components/schemas/Token"}
+        secret: {type: string, description: The new secret, shown once}
+        old_secret_valid_until: {type: string, format: date-time, description: The secret that was replaced works until then (ten minutes)}
   parameters:
     Note:
       name: note
@@ -1167,4 +1190,31 @@ paths:
       parameters: [{$ref: "#/components/parameters/Version"}, {$ref: "#/components/parameters/Note"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /token:
+    get:
+      summary: "The caller's own token: what it may do, when it expires, whether it may renew itself"
+      description: "Any scope: the token itself is the credential."
+      responses:
+        "200":
+          description: The token
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Token"}
+        default: {$ref: "#/components/responses/Error"}
+  /token/renew:
+    post:
+      summary: Give the caller's token a new secret before it expires
+      description: >-
+        Any scope. The token keeps its name, scopes, subject, machines and SSH keys and expires its lifetime from
+        now; the secret it had keeps working for ten minutes, so a client can swap its token file without a race.
+        At most once every 24 hours (token.too_soon, 429); never for an enrolled machine's token, which
+        `linkos-beacon enroll -rotate` replaces (token.not_renewable, 403). Audited (token_renew) and echoed to the
+        alert chat.
+      responses:
+        "200":
+          description: The new secret, shown once, and the token
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Renewed"}
         default: {$ref: "#/components/responses/Error"}

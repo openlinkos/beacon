@@ -5,7 +5,7 @@ package i18n
 
 const zhName = "简体中文"
 
-var zh = map[string]string{
+var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
 	// the status page
 	"The status page is on its way.": "状态页正在建设中。",
 	// alert cards, the group bot and Pushover
@@ -94,4 +94,6 @@ var zh = map[string]string{
 	"target set":                                                         "检测目标组",
 	"module":                                                             "检测模块",
 	"the command line":                                                   "命令行",
+	// tokens that renew themselves, echoed to the alert chat
+	"Token %s renewed itself; expires %s": "令牌 %s 自行续期了，到期日 %s",
 }

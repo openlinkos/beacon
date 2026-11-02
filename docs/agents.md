@@ -214,6 +214,39 @@ spec:
 
 Change events are kept for `changes.keep` (`720h`, 30 days, by default), at most 50,000. `GET /api/v1/changes` and the MCP tool `list_changes` (scope `status:read`) list them, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default).
 
+## Tokens that renew themselves
+
+An agent's token is its identity on the REST API, the MCP server and the SSH channel. Rather than have someone hand it a long-lived token and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope.
+
+| Route, tool | What |
+| --- | --- |
+| `GET /api/v1/token`, `whoami` | The token as its holder sees it: `name`, `scopes`, `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
+| `POST /api/v1/token/renew`, `renew_token` | A new secret (`secret`, shown once) and the token; `old_secret_valid_until` says how long the one it replaced keeps working |
+
+The old secret stays valid for ten minutes after a renewal, so a client can swap its token file without a race and a process that read the file a moment before keeps working. A token renews itself at most once every 24 hours (`token.too_soon`, `429`). The tokens of enrolled machines (probe, host, heartbeat) never do: `linkos-beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-code renewed itself; expires 2027-01-31"), and `linkos-beacon token list` shows each token's lifetime and last renewal. SSH sign-in is by key and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
+
+A harness runs something like this once a day (cron, a systemd timer), with the token file read by the agent on every call:
+
+```bash
+#!/bin/sh
+# Renew the Beacon token in $TOKEN_FILE and swap the file atomically.
+set -eu
+TOKEN_FILE=${TOKEN_FILE:-/etc/linkos-oncall/beacon-token}
+BEACON=${BEACON:-https://status.example.com}
+resp=$(curl -sS -w '\n%{http_code}' -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BEACON/api/v1/token/renew")
+code=$(printf '%s\n' "$resp" | tail -n 1)
+case $code in
+  200) ;;
+  429) exit 0 ;;     # renewed less than a day ago: the token is still good
+  *) echo "renewing the Beacon token failed: HTTP $code" >&2; exit 1 ;;
+esac
+umask 077
+printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
+mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
+```
+
+Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token; when it does, someone creates a new one with `linkos-beacon token create`, as before. A token that is leaked keeps renewing itself until it is revoked (`linkos-beacon token revoke NAME`): the chat sees every renewal, and `token list` shows the last one.
+
 ## What Beacon does not do here
 
 - It does not run agents or decide what they do, and it calls no model. It wakes the agent, answers it, and records what it did.

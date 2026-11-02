@@ -517,9 +517,13 @@ func token(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tSCOPES\tEXPIRES\tCREATED BY")
+		fmt.Fprintln(tw, "NAME\tSCOPES\tEXPIRES\tLIFETIME\tRENEWED\tCREATED BY")
 		for _, t := range list {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Name, strings.Join(t.Scopes, ","), t.Expires.Format(time.DateOnly), t.CreatedBy)
+			renewed := "-"
+			if !t.Renewed.IsZero() {
+				renewed = t.Renewed.Local().Format(time.DateOnly)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, strings.Join(t.Scopes, ","), t.Expires.Format(time.DateOnly), t.Lifetime, renewed, t.CreatedBy)
 		}
 		_ = tw.Flush()
 		return 0

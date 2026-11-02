@@ -219,7 +219,8 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 
 // info is a token as the socket shows it.
 func info(t store.Token) TokenInfo {
-	ti := TokenInfo{Name: t.Name, Scopes: t.Scopes, Subject: t.Subject, Created: t.Created, CreatedBy: t.CreatedBy, Expires: t.Expires, Machines: t.Machines}
+	ti := TokenInfo{Name: t.Name, Scopes: t.Scopes, Subject: t.Subject, Created: t.Created, CreatedBy: t.CreatedBy, Expires: t.Expires, Machines: t.Machines,
+		Lifetime: store.FormatTTL(t.Lifetime), Renewed: t.Renewed}
 	for _, k := range t.SSHKeys {
 		ti.SSHKeys = append(ti.SSHKeys, k.Fingerprint)
 	}
