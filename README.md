@@ -2,6 +2,13 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/openlinkos/beacon)](https://goreportcard.com/report/github.com/openlinkos/beacon)
+
+Documentation: **[beacon.openlinkos.com](https://beacon.openlinkos.com)**
+
 Beacon is infrastructure for AI agents that run operations. It tells whether your services work for your users, checked from where they are; it lets agents reach your machines over SSH without ever holding a key, and records every session; and it puts the people on call and their agents on one platform. A Go service and a small probe agent, on top of VictoriaMetrics and vmalert. What it aims at, and what it leaves out, is in [docs/goals.md](docs/goals.md).
 
 > Named after the beacon towers of the Great Wall: watch posts along the border lit a fire when they saw trouble, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.

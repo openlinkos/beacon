@@ -2,6 +2,13 @@
 
 [English](README.md) | 简体中文
 
+[![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/openlinkos/beacon)](https://goreportcard.com/report/github.com/openlinkos/beacon)
+
+文档：**[beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)**
+
 Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方检测，告诉你服务对用户是否正常；让 Agent 经 SSH 到达你的机器，自己却从不拿到密钥，每次会话都有录制；并把值班的人和他们的 Agent 放在同一个平台上。一个 Go 服务加一个很小的检测点程序，底下是 VictoriaMetrics 和 vmalert。它要做到什么、不做什么，见 [docs/zh/goals.md](docs/zh/goals.md)。
 
 > 名字取自长城的烽燧：散在边境的哨台发现敌情就点火，一台接一台传回都城，烽火的数量表示敌情大小。
