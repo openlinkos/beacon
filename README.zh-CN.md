@@ -33,6 +33,7 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 - **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默、写备注，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
 - **唤醒 Agent，证据随手可取。**新告警可以唤醒 Agent：一个带签名的 webhook，或一次 GitHub workflow 触发，告诉它证据在哪里。一次调用就能拿到证据：每个检测点的结果和失败原因、同一故障域里的告警、之前刚做的变更（部署、Flux），以及已经做了什么。Agent 留的备注显示在卡片上，一条时间线串起告警、备注、唤醒的 Agent、变更和会话。Beacon 不调用任何模型，由 Agent 自己判断。见 [docs/zh/agents.md](docs/zh/agents.md)。
 - **一个 Agent 端到端值班。**`linkos-oncall` 是第三个小程序：接住 hook、验签、启动你指定的 Agent 程序，附 Claude Code 和 Codex 的包装脚本和一个 GitHub Actions 示例。Agent 修好以后用 `probe_now` 让各检测点立刻重测，一分钟内看到每个检测点的答复，告警也更快解除。Agent 的令牌到期前自己续期，不用再手工发长期令牌。
+- **人看一个链接就够。**从卡片点一个签名链接就打开告警的页面：各检测点的结果、时间线、备注、唤醒了哪些 Agent、它在机器上的每次会话和执行过的命令；每次会话都能在浏览器里回放。不另做登录：链接会过期（默认 30 天），也可以用 bearer 令牌打开。见 [docs/zh/pages.md](docs/zh/pages.md)。
 - **配置在 Beacon 里。**检测点、心跳、会到期的资源、检测目标和检测模块存在 Beacon 的数据库里，通过 API、MCP 和命令行修改，校验后立即生效。每次修改都是一个版本，记下谁改的、改前改后的值，可以撤销；文件只用来导入和导出，所以仍然可以放在 git 里。
 - **很轻。**一整套只有四个容器（Beacon、VictoriaMetrics、vmalert、Caddy），每个检测点一个程序。
 
@@ -60,7 +61,7 @@ docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:1
   ghcr.io/openlinkos/beacon:latest
 ```
 
-从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。第一次启动时这些文件会导入数据库，此后在数据库里修改；上面两个目录只在这时、收到 `SIGHUP` 时和 `config import` 时才用到。17001 端口提供 API 和 MCP，以后也提供状态页；17006 端口是给机器用的网关；17002 端口是 SSH 通道，配置见 [docs/zh/ssh.md](docs/zh/ssh.md)。
+从 [config.example.yaml](config.example.yaml) 开始改；`linkos-beacon check-config` 会校验配置、目录（检测点、心跳、会到期的资源）、检测目标和检测模块文件，写法见 [docs/zh/catalog.md](docs/zh/catalog.md)。第一次启动时这些文件会导入数据库，此后在数据库里修改；上面两个目录只在这时、收到 `SIGHUP` 时和 `config import` 时才用到。17001 端口提供 API 和 MCP，以及人从卡片点开的页面（`/alerts/{id}`、`/sessions/{id}` 带回放；签名链接，不用登录；见 [docs/zh/pages.md](docs/zh/pages.md)）；17006 端口是给机器用的网关；17002 端口是 SSH 通道，配置见 [docs/zh/ssh.md](docs/zh/ssh.md)。
 
 让 vmalert 把告警发给网关：`-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<rules.token_file 里那个文件>`。
 

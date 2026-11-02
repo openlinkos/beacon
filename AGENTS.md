@@ -33,6 +33,7 @@ One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, 
 | `internal/bridge` | Alert groups to people: cards, acknowledgements, silences, escalation, budget, readiness and the healthchecks.io ping; and to agents: hooks that wake them (`agents.go`), evidence, timeline, notes and change events, untrusted text cleaned (`untrusted.go`) |
 | `internal/feishu`, `internal/notify` | The Feishu app (cards, long connection, buzz); Pushover, Bark and the group bot |
 | `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods |
+| `internal/web`, `internal/web/link` | The pages people open from a card (`/alerts/{id}`, `/sessions/{id}` with the replay; asciinema-player vendored under `static/`), and the signed links that open them |
 | `internal/sshgate` | The SSH channel: agents' SSH sign-in by the keys on their tokens, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts (shell-integration marks), the tools (run, read, write, edit), pausing, echoes to the chat |
 | `internal/store` | bbolt: groups (with notes and agent calls), silences, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), machines, the index of SSH sessions, change events, audit log, drill |
 | `internal/ctl` | The admin socket in the data directory, behind the CLI's `token`, `enroll`, `machine`, `ssh`, `config` and `drill` |
