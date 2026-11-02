@@ -53,6 +53,7 @@ import (
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/server"
+	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
 	"github.com/openlinkos/beacon/internal/vm"
@@ -305,12 +306,19 @@ func serve(args []string, stderr io.Writer) int {
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
 	lang, _ := i18n.Parse(cfg.Language)
+	// the public status pages, from the catalogue's status_pages, the probes, the incidents and maintenance
+	sdeps := status.Deps{Config: cdb, Bridge: br, Store: st, PublicURL: cfg.PublicURL, Location: cfg.Location, Log: log}
+	if cfg.VictoriaMetrics.URL != "" {
+		sdeps.VM = vm.New(cfg.VictoriaMetrics.URL, &http.Client{Timeout: 30 * time.Second}) // a day of minutes per query
+	}
+	pagesOut := status.New(sdeps)
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb},
-		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb)),
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Status: pagesOut},
+		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
+			mcpserver.WithStatus(pagesOut)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version}, // the console, served at /
+			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut}, // the console, served at /
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway
@@ -334,6 +342,7 @@ func serve(args []string, stderr io.Writer) int {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
 	go br.Run(ctx, ping)
+	go pagesOut.Run(ctx)
 	rt.Restore(st.Groups())
 	go rt.Run(ctx)
 	inv := &inventory.Checker{Catalog: cdb.Catalog}

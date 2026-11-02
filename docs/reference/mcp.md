@@ -62,7 +62,7 @@ Any other client that speaks MCP over HTTP works the same way. The server's inst
 
 ## Configuration
 
-What Beacon monitors, in the shapes of its files ([Catalogue, targets and modules](../catalog.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets` or `modules`; `key` names one item.
+What Beacon monitors, in the shapes of its files ([Catalogue, targets and modules](../catalog.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../status.md)); `key` names one item.
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
@@ -74,6 +74,17 @@ What Beacon monitors, in the shapes of its files ([Catalogue, targets and module
 | `revert_config_change` | `config:write` | Undo one change as a new change (`version`, `note`); refused when a later change touched one of its items |
 
 Pass the version you read as `if_version`: a change made on top of a later version is refused with `config.conflict`, so an agent never overwrites what someone changed meanwhile.
+
+## Status pages and maintenance
+
+The public status pages are made from the alert groups and the maintenance windows ([Status pages](../status.md)). A note left with `add_note` that begins with `public:` is an update of the incident for the public.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `get_status_page` | `status:read` | A status page as its public JSON has it (`name`, `language`): the overall state, each component's state now and over 90 days, the incidents (active, then the last 30 days) with their public updates, the maintenance windows |
+| `list_maintenance` | `status:read` | The maintenance windows, the latest to start first, ended ones kept for 91 days: services, when, title, who planned them, their silences |
+| `schedule_maintenance` | `maintenance:write` | Plan a window (`services`, `starts_at`, `ends_at`, `title`, `description`): the pages announce it, and the services' alerts are silenced for it. At most 7 days, starting within 90, never in the past |
+| `end_maintenance` | `maintenance:write` | End a window now, or call it off before it begins (`id`): its silences end and the pages say so |
 
 ## Your token
 

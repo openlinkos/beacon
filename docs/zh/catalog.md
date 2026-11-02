@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-8fd40617
+sourceHash: sha256-11c2e029
 ---
 
 # 目录、检测目标和检测模块
@@ -11,6 +11,7 @@ Beacon 监控什么，存在它自己的数据库里：目录（检测点、心�
 | 目录：检测点、心跳、会到期的资源 | `locations`、`heartbeats`、`resources` | `catalog/*.yaml`（配置项 `catalog_dir`） | Beacon：导出成指标给规则用，并据此给检测点写入的数据打标签 |
 | 检测目标，分成有名字的组 | `targets` | `targets/*.yaml`，每组一个文件（`gateway.targets_dir`） | 网关：给每个检测点发它自己的列表 |
 | 检测模块 | `modules` | `targets/modules.yml`（`gateway.modules_file`） | 网关：发给每个检测点 |
+| 公开的状态页 | `status_pages` | `catalog/*.yaml`，写在 `status_pages` 下 | Beacon：提供这些页面（[状态页](status.md)） |
 
 本节之后各节用 YAML 给出每一项的写法，和文件里一样；API 和 MCP 收发的是同样结构的 JSON。目录可以拆成多个文件，各列表会合并。
 
@@ -32,7 +33,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），列在 [API 参考](reference/api.md)里，完整说明见 `internal/api/openapi.yaml`。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/beacon-probe/secrets`，`beacon-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
+路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules,status_pages}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），列在 [API 参考](reference/api.md)里，完整说明见 `internal/api/openapi.yaml`。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/beacon-probe/secrets`，`beacon-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
 
 修改可以说明它基于哪个版本：`PUT` 和 `DELETE` 加 `?if_version=12`，`put_config` 和 `delete_config` 加 `if_version`，值是 `GET /api/v1/config`（`get_config`）返回的版本号。已有更新的版本生效时，修改被拒绝，返回 `config.conflict` 并指出生效的版本，什么都不变：重新读一遍再做决定。Agent 先读配置、再思考、然后写入时带上它，就不会覆盖别人在这期间改的东西。
 
@@ -56,7 +57,7 @@ docker exec beacon beacon config import /srv/ops/beacon -note "ops repository at
 docker exec beacon beacon config export /srv/ops/beacon
 ```
 
-目录结构同上：`catalog/*.yaml`、`targets/*.yaml` 和 `targets/modules.yml`。导入把这些文件作为完整的配置，算一次修改：文件里没有的项会被删除；文件通不过校验时什么都不变。导出把目录写成 `catalog/locations.yaml`、`heartbeats.yaml` 和 `resources.yaml`，每个检测目标组写成 `targets/<组名>.yaml`，模块文件原样写出，并删掉这两个目录里其余的 `*.yaml` 文件（配置里没有模块文件时也删掉 `modules.yml`），这样再导入这个目录什么都不会变。来回导入导出内容不丢；目录和检测目标文件里的注释和排版不保留，列表按 id 和名字排序。模块文件按导入时的样子保存，注释也在，检测点拿到的逐字节相同。
+目录结构同上：`catalog/*.yaml`、`targets/*.yaml` 和 `targets/modules.yml`。导入把这些文件作为完整的配置，算一次修改：文件里没有的项会被删除；文件通不过校验时什么都不变。导出把目录写成 `catalog/locations.yaml`、`heartbeats.yaml`、`resources.yaml` 和 `status_pages.yaml`，每个检测目标组写成 `targets/<组名>.yaml`，模块文件原样写出，并删掉这两个目录里其余的 `*.yaml` 文件（配置里没有模块文件时也删掉 `modules.yml`），这样再导入这个目录什么都不会变。来回导入导出内容不丢；目录和检测目标文件里的注释和排版不保留，列表按 id 和名字排序。模块文件按导入时的样子保存，注释也在，检测点拿到的逐字节相同。
 
 ### 启动时和收到 SIGHUP 时的文件 {#the-files-at-start-and-on-sighup}
 

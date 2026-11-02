@@ -1,6 +1,6 @@
 // Package catalog is what is monitored and where from: the probe locations, the heartbeats that jobs
-// must send, and the resources (servers, domains, certificates, tokens) whose expiry dates are watched.
-// It lives in Beacon's database (package configdb); its files, read here, are for import and export.
+// must send, and the resources (servers, domains, certificates, tokens) whose expiry dates are watched;
+// and what the public status pages show of it (status.go). It lives in Beacon's database (package configdb); its files, read here, are for import and export.
 //
 // The catalogue is also exported as metrics, so that alert rules can join against it: a location
 // that should report but does not, a heartbeat older than its limit, a resource close to expiry.
@@ -82,11 +82,12 @@ type Resource struct {
 // ExpiresAt is the expiry date (midnight UTC), once the catalogue is validated.
 func (r Resource) ExpiresAt() time.Time { return r.expires }
 
-// Catalog is the loaded catalogue.
+// Catalog is the loaded catalogue. StatusPages are the public status pages (status.go).
 type Catalog struct {
-	Locations  []Location  `yaml:"locations,omitempty" json:"locations"`
-	Heartbeats []Heartbeat `yaml:"heartbeats,omitempty" json:"heartbeats"`
-	Resources  []Resource  `yaml:"resources,omitempty" json:"resources"`
+	Locations   []Location   `yaml:"locations,omitempty" json:"locations"`
+	Heartbeats  []Heartbeat  `yaml:"heartbeats,omitempty" json:"heartbeats"`
+	Resources   []Resource   `yaml:"resources,omitempty" json:"resources"`
+	StatusPages []StatusPage `yaml:"status_pages,omitempty" json:"status_pages,omitempty"`
 }
 
 var (
@@ -136,6 +137,7 @@ func Parse(files map[string][]byte) (*Catalog, error) {
 		c.Locations = append(c.Locations, part.Locations...)
 		c.Heartbeats = append(c.Heartbeats, part.Heartbeats...)
 		c.Resources = append(c.Resources, part.Resources...)
+		c.StatusPages = append(c.StatusPages, part.StatusPages...)
 	}
 	return c, c.Validate()
 }
@@ -209,6 +211,7 @@ func (c *Catalog) Validate() error {
 		}
 		r.expires = t
 	}
+	c.validateStatusPages(bad)
 	return errors.Join(errs...)
 }
 

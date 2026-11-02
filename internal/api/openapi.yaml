@@ -13,9 +13,14 @@ info:
     data, not instructions.
 
     Under /config is what Beacon monitors: the catalogue (probe locations, heartbeats, expiring
-    resources), the probe target sets and the probe modules, each read and written in the shape of its
-    file (docs/catalog.md). Every change is checked as the files were, takes effect at once, and is a
-    version in the history, with who made it and the values before and after, which can be reverted.
+    resources, and the public status pages), the probe target sets and the probe modules, each read and
+    written in the shape of its file (docs/catalog.md). Every change is checked as the files were, takes
+    effect at once, and is a version in the history, with who made it and the values before and after,
+    which can be reverted.
+
+    /status/{name} is a public status page as its public JSON (/status/<name>.json, no token) has it,
+    and /maintenance the maintenance windows the pages announce, each a silence per service for its
+    time (docs/status.md).
   license:
     name: Apache-2.0
 servers:
@@ -37,7 +42,7 @@ components:
             ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
-            config.not_found, config.invalid, config.conflict,
+            config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable]
     Ack:
@@ -474,6 +479,197 @@ components:
       properties:
         prober: {type: string, enum: [http, tcp, registry, git, rdap]}
         timeout: {type: string, examples: ["10s"]}
+    Text:
+      description: "A text for people: one string for every language, or one per language"
+      oneOf:
+        - {type: string}
+        - type: object
+          additionalProperties: false
+          properties:
+            en: {type: string}
+            zh: {type: string}
+    StatusPageDefinition:
+      type: object
+      description: A public status page, as in the catalogue's status_pages list (docs/status.md)
+      additionalProperties: false
+      required: [title, components]
+      properties:
+        name: {type: string, description: "Lower-case letters, digits and dashes: /status/<name>. Taken from the path when left out"}
+        title: {$ref: "#/components/schemas/Text"}
+        description: {$ref: "#/components/schemas/Text"}
+        host: {type: string, description: "A host name of its own, such as uptime.example.com, where the page is served at / and nothing else of Beacon"}
+        default: {type: boolean, description: "The page served at /status; else the first by name"}
+        brand: {type: string, enum: [beacon, linkos, linkos-status, linkos-mirrors, openlinkos], description: "The design system's brand it wears; beacon by default"}
+        languages: {type: array, items: {type: string, enum: [en, zh]}, maxItems: 2, description: "The languages it is shown in, the default first; en when left out"}
+        components:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, title]
+            properties:
+              name: {type: string, description: "Lower-case letters, digits and dashes"}
+              title: {$ref: "#/components/schemas/Text"}
+              description: {$ref: "#/components/schemas/Text"}
+              services: {type: array, items: {type: string}, description: "The service labels of the probe targets that back it"}
+              page: {type: string, description: "A page label: every service with a target labelled page: <this>, unless visibility: internal"}
+        groups:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [title, components]
+            properties:
+              title: {$ref: "#/components/schemas/Text"}
+              description: {$ref: "#/components/schemas/Text"}
+              components: {type: array, items: {type: string}}
+        alerts: {type: array, items: {type: string}, description: "The alert names that are incidents; ServiceDown, ServiceDegraded and MainlandPathDegraded by default"}
+        notes: {type: string, enum: [public, all], description: "Which notes are an incident's updates: those that begin with public: (the default), or all"}
+        links:
+          type: object
+          additionalProperties: false
+          properties:
+            home: {type: string, format: uri}
+            docs: {type: string, format: uri}
+            abuse: {type: string, format: uri}
+            privacy: {type: string, format: uri}
+        menu:
+          type: object
+          additionalProperties: false
+          description: The family menu in the header and the footer's columns
+          properties:
+            title: {$ref: "#/components/schemas/Text"}
+            groups:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [links]
+                properties:
+                  title: {$ref: "#/components/schemas/Text"}
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [title, url]
+                      properties:
+                        title: {$ref: "#/components/schemas/Text"}
+                        url: {type: string, format: uri}
+    StatusState:
+      type: string
+      enum: [operational, degraded, down, maintenance, no_data]
+    StatusPage:
+      type: object
+      description: "A status page as its public JSON has it; fields are added, never changed or removed (docs/status.md)"
+      properties:
+        name: {type: string}
+        title: {type: string}
+        description: {type: string}
+        url: {type: string, format: uri, description: Where the page is served}
+        language: {type: string, enum: [en, zh]}
+        languages: {type: array, items: {type: string}}
+        status: {$ref: "#/components/schemas/StatusState"}
+        summary: {type: string, description: "One line, such as All systems operational"}
+        updated: {type: string, format: date-time}
+        days: {type: integer, description: How many days the history holds, today included}
+        timezone: {type: string, description: Where the days begin at midnight}
+        locations: {type: array, items: {type: string}, description: The probe locations by public name}
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              title: {type: string}
+              description: {type: string}
+              group: {type: string}
+              status: {$ref: "#/components/schemas/StatusState"}
+              availability: {type: number, description: "Percent of the minutes with data, outside maintenance, that were not down"}
+              history:
+                type: array
+                description: The oldest day first, today last
+                items:
+                  type: object
+                  properties:
+                    date: {type: string, format: date}
+                    status: {$ref: "#/components/schemas/StatusState"}
+                    availability: {type: number}
+                    down_minutes: {type: integer}
+                    degraded_minutes: {type: integer}
+                    incidents: {type: array, items: {type: string}}
+                    maintenance: {type: boolean}
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              title: {type: string}
+              description: {type: string}
+              components: {type: array, items: {type: string}}
+        incidents:
+          type: array
+          description: Active ones first, then those of the last 30 days
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              title: {type: string}
+              status: {type: string, enum: [active, resolved]}
+              impact: {type: string, enum: [down, degraded]}
+              components: {type: array, items: {type: string}}
+              started: {type: string, format: date-time}
+              resolved: {type: string, format: date-time}
+              url: {type: string, format: uri}
+              updates:
+                type: array
+                description: The newest first
+                items:
+                  type: object
+                  properties:
+                    at: {type: string, format: date-time}
+                    kind: {type: string, enum: [detected, acknowledged, note, resolved]}
+                    text: {type: string}
+                    by: {type: string, enum: [agent, person]}
+        maintenance:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              title: {type: string}
+              description: {type: string}
+              status: {type: string, enum: [scheduled, active, completed]}
+              components: {type: array, items: {type: string}}
+              starts: {type: string, format: date-time}
+              ends: {type: string, format: date-time}
+        links:
+          type: object
+          properties:
+            feed: {type: string, format: uri}
+            json: {type: string, format: uri}
+            badge: {type: string, format: uri}
+            home: {type: string}
+            docs: {type: string}
+            abuse: {type: string}
+            privacy: {type: string}
+    Maintenance:
+      type: object
+      description: A maintenance window, kept for 91 days after it ends
+      properties:
+        id: {type: string}
+        title: {type: string}
+        description: {type: string}
+        services: {type: array, items: {type: string}}
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+        created_by: {type: string}
+        via: {type: string}
+        created: {type: string, format: date-time}
+        silences: {type: array, items: {type: string}, description: "One per service, with the comment maintenance: <title>"}
+        ended: {type: string, format: date-time, description: When it was ended early}
+        cancelled: {type: boolean, description: Called off before it began}
     Config:
       type: object
       description: The configuration, or one kind of it, with the version in force
@@ -484,6 +680,7 @@ components:
         resources: {type: array, items: {$ref: "#/components/schemas/Resource"}}
         targets: {type: array, items: {$ref: "#/components/schemas/TargetSet"}}
         modules: {type: object, additionalProperties: {$ref: "#/components/schemas/Module"}}
+        status_pages: {type: array, items: {$ref: "#/components/schemas/StatusPageDefinition"}}
     ConfigChange:
       type: object
       description: One change to the configuration, a version
@@ -505,7 +702,7 @@ components:
           items:
             type: object
             properties:
-              kind: {type: string, enum: [location, heartbeat, resource, targets, module]}
+              kind: {type: string, enum: [location, heartbeat, resource, targets, module, status_page]}
               key: {type: string}
               op: {type: string, enum: [added, changed, removed]}
               before: {description: "The value before (absent when added; left out in the history list)"}
@@ -1263,6 +1460,46 @@ paths:
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
+  /config/status_pages:
+    get:
+      summary: The public status pages, by name
+      description: "Scope: status:read or config:write"
+      responses:
+        "200": {$ref: "#/components/responses/Config"}
+        default: {$ref: "#/components/responses/Error"}
+  /config/status_pages/{name}:
+    get:
+      summary: One status page's definition, as PUT takes it
+      description: "Scope: status:read or config:write"
+      parameters: [{$ref: "#/components/parameters/Name"}]
+      responses:
+        "200":
+          description: The status page
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StatusPageDefinition"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      summary: Add or replace a status page
+      description: >-
+        Scope: config:write. The page is checked with the rest of the configuration; components whose services no probe
+        target has are taken, with a warning, and show no data until one does
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/StatusPageDefinition"}
+      responses:
+        "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Remove a status page
+      description: "Scope: config:write"
+      parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
+      responses:
+        "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
   /config/history:
     get:
       summary: Changes to the configuration, newest first, without their values
@@ -1402,4 +1639,77 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ProbeNow"}
+        default: {$ref: "#/components/responses/Error"}
+  /status/{name}:
+    get:
+      summary: A public status page, as its public JSON has it
+      description: >-
+        Scope: status:read. The same as GET /status/<name>.json, which needs no token: the overall state, each
+        component's state now and its 90 days of history, the incidents (active, then the last 30 days) with their
+        public updates, and the maintenance windows. An unknown page is status.not_found
+      parameters:
+        - {$ref: "#/components/parameters/Name"}
+        - {name: lang, in: query, description: "en or zh, when the page has it; its first language otherwise", schema: {type: string}}
+      responses:
+        "200":
+          description: The page
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StatusPage"}
+        default: {$ref: "#/components/responses/Error"}
+  /maintenance:
+    get:
+      summary: The maintenance windows, the latest to start first
+      description: "Scope: status:read. Ended and called-off ones are kept for 91 days"
+      responses:
+        "200":
+          description: The windows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance: {type: array, items: {$ref: "#/components/schemas/Maintenance"}}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Plan a maintenance window
+      description: >-
+        Scope: maintenance:write. The status pages show it ahead of time and while it lasts, on the components the services
+        back, and a silence per service (comment maintenance: <title>) keeps their alerts from paging people meanwhile.
+        At most 7 days long, starting within 90 days; a start in the past, or none, is now. Audited and echoed to the
+        alert chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [services, ends_at, title]
+              properties:
+                services: {type: array, items: {type: string}, minItems: 1, maxItems: 50, description: "Service labels"}
+                starts_at: {type: string, format: date-time}
+                ends_at: {type: string, format: date-time}
+                title: {type: string, maxLength: 200, description: "What is done, for the public pages"}
+                description: {type: string, description: "What people will notice"}
+      responses:
+        "201":
+          description: The window
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Maintenance"}
+        default: {$ref: "#/components/responses/Error"}
+  /maintenance/{id}:
+    delete:
+      summary: End a maintenance window now, or call it off
+      description: >-
+        Scope: maintenance:write. Its silences end and the pages say so; one that has ended already is maintenance.ended, an
+        unknown id maintenance.not_found. Audited and echoed to the alert chat
+      parameters: [{$ref: "#/components/parameters/ID"}]
+      responses:
+        "200":
+          description: The window, as it ended
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Maintenance"}
         default: {$ref: "#/components/responses/Error"}
