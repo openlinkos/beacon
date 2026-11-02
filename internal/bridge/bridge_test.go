@@ -382,6 +382,54 @@ func TestAPIOperations(t *testing.T) {
 	}
 }
 
+func TestSilenceLabels(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := hook("firing", "critical", "f1")
+	w.Alerts[0].Labels = map[string]string{"alertname": "ServiceDown", "service": "git-linkos-io", "severity": "critical"}
+	_ = e.b.HandleWebhook(ctx, w)
+	id := GroupID(w.GroupKey)
+	who := Actor{Name: "cli:alice", Via: "cli"}
+	for _, bad := range []struct {
+		labels  map[string]string
+		d       time.Duration
+		comment string
+	}{
+		{map[string]string{"service": "git-linkos-io"}, time.Hour, ""},
+		{map[string]string{"service": "git-linkos-io"}, 25 * time.Hour, "x"},
+		{nil, time.Hour, "x"},
+		{map[string]string{"service": ""}, time.Hour, "x"},
+	} {
+		if _, err := e.b.SilenceLabels(ctx, bad.labels, bad.d, who, bad.comment); !errors.Is(err, ErrBadInput) {
+			t.Errorf("%+v: %v", bad, err)
+		}
+	}
+	// labels the group's alerts do not all carry: the silence exists, the group is not marked
+	s, err := e.b.SilenceLabels(ctx, map[string]string{"service": "hub-linkos-io"}, time.Hour, who, "hub maintenance")
+	if err != nil || s.ID == "" || len(s.Matchers) != 1 || s.Status.State != "active" || len(e.am.created) != 1 {
+		t.Fatalf("SilenceLabels: %+v %v", s, err)
+	}
+	if g, _ := e.b.Group(id); g.Silence != nil || g.Ack != nil {
+		t.Error("a silence for another service must not mark this group")
+	}
+	// labels every alert carries: the group is silenced and acknowledged, the chat hears it
+	s, err = e.b.SilenceLabels(ctx, map[string]string{"alertname": "ServiceDown", "service": "git-linkos-io"}, 4*time.Hour, who, "upgrading gitea")
+	if err != nil || len(s.Matchers) != 2 || s.Matchers[0].Name != "alertname" || s.EndsAt.Sub(s.StartsAt) != 4*time.Hour {
+		t.Fatalf("SilenceLabels: %+v %v", s, err)
+	}
+	g, _ := e.b.Group(id)
+	if g.Silence == nil || g.Silence.ID != s.ID || g.Silence.By != "cli:alice" || g.Ack == nil || g.Ack.Via != "cli" {
+		t.Errorf("the matching group is silenced and acknowledged: %+v", g)
+	}
+	if last := e.bot.texts[len(e.bot.texts)-1]; !strings.Contains(last, `cli:alice silenced "alertname=ServiceDown,service=git-linkos-io" for 4 h via the command line: upgrading gitea`) {
+		t.Errorf("echo: %q", last)
+	}
+	audit := e.b.Audit(10)
+	if len(audit) != 2 || audit[0].Action != "silence" || audit[0].Via != "cli" || audit[0].Target != "alertname=ServiceDown,service=git-linkos-io" {
+		t.Errorf("audit: %+v", audit)
+	}
+}
+
 func TestGroupedPathWarning(t *testing.T) {
 	e := newEnv(t)
 	w := alertmanager.Webhook{Version: "4", GroupKey: `{}:{alertname="OverseasOnlyFailing"}`, Status: "firing",
