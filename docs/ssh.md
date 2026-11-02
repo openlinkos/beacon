@@ -89,7 +89,7 @@ Host edge-1
 
 Then `ssh edge-1 'systemctl status relay'`, `scp`, `sftp`, `rsync -e ssh` and `ssh -L` work as usual. The user name tells Beacon which machine; on the machine, the session runs as `beacon`. `HostKeyAlias beacon` makes ssh check Beacon's own host key, the same for every machine; Beacon checks each machine's pinned key itself.
 
-When the channel refuses, the agent's ssh prints why and exits with 1, such as `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1`. [Troubleshooting](troubleshooting.md#the-agent-cannot-reach-a-machine) lists the messages and what to do about each.
+When the channel refuses, the agent's ssh prints why and exits with 1, such as `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`. [Troubleshooting](troubleshooting.md#the-agent-cannot-reach-a-machine) lists the messages and what to do about each.
 
 ## The MCP tools
 

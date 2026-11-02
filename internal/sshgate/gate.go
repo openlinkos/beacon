@@ -93,7 +93,7 @@ var (
 	ErrDisabled    = errors.New("the SSH channel is not configured")
 	ErrPaused      = errors.New("agents' access to machines is paused")
 	ErrNoMachine   = errors.New("no such machine")
-	ErrForbidden   = errors.New("this token may not reach the machine")
+	ErrForbidden   = errors.New("this agent may not reach the machine")
 	ErrUnreachable = errors.New("the machine cannot be reached")
 	ErrExists      = errors.New("a machine with this name exists")
 	ErrBadInput    = errors.New("bad input")
@@ -315,7 +315,7 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 	}
 	t, ok := g.principal(who)
 	if !ok || !t.Has("machines:ssh") {
-		return store.Machine{}, fmt.Errorf("%w: the token lacks the machines:ssh scope", ErrForbidden)
+		return store.Machine{}, fmt.Errorf("%w: the agent lacks the machines:ssh scope", ErrForbidden)
 	}
 	m, found := g.d.Store.Machine(name)
 	if !found || !t.Reaches(name) {
@@ -324,9 +324,9 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 			list = "none"
 		}
 		if !found {
-			return store.Machine{}, fmt.Errorf("%w called %q; machines this token reaches: %s", ErrNoMachine, name, list)
+			return store.Machine{}, fmt.Errorf("%w called %q; machines this agent reaches: %s", ErrNoMachine, name, list)
 		}
-		return store.Machine{}, fmt.Errorf("%w %s; machines this token reaches: %s", ErrForbidden, name, list)
+		return store.Machine{}, fmt.Errorf("%w %s; machines this agent reaches: %s", ErrForbidden, name, list)
 	}
 	return m, nil
 }

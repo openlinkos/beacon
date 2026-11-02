@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f2dfcd09
+sourceHash: sha256-9a37cbcd
 ---
 
 # SSH 通道
@@ -93,7 +93,7 @@ Host edge-1
 
 之后 `ssh edge-1 'systemctl status relay'`、`scp`、`sftp`、`rsync -e ssh` 和 `ssh -L` 都和平常一样用。用户名告诉 Beacon 要去哪台机器；会话在机器上以 `beacon` 账户运行。`HostKeyAlias beacon` 让 ssh 校验 Beacon 自己的主机密钥，所有机器都是同一把；每台机器固定下来的主机密钥，由 Beacon 自己校验。
 
-通道拒绝连接时，Agent 的 ssh 会打印原因并以 1 退出，比如 `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1`。各种提示及处理方法见[常见问题](troubleshooting.md#the-agent-cannot-reach-a-machine)。
+通道拒绝连接时，Agent 的 ssh 会打印原因并以 1 退出，比如 `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`。各种提示及处理方法见[常见问题](troubleshooting.md#the-agent-cannot-reach-a-machine)。
 
 ## MCP 工具 {#the-mcp-tools}
 

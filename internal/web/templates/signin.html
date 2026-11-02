@@ -17,7 +17,7 @@
       {{if not .NoAccounts}}<p><a href="{{.PasswordHref}}">{{.L.WithPassword}}</a></p>{{end}}
       <details class="ol-details">
         <summary>{{.L.HowTo}}</summary>
-        <div class="ol-code"><pre><code>beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d</code></pre></div>
+        <div class="ol-code"><pre><code>beacon agent add NAME -owner YOU -preset readonly</code></pre></div>
       </details>
       {{else}}
       <form method="post" action="{{console "/sign-in"}}" class="ol-stack">
