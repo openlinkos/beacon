@@ -501,7 +501,7 @@ func checkPage(t *testing.T, path, body string) {
 	if !strings.Contains(body, `<ol class="ol-breadcrumb">`) {
 		t.Errorf("%s has no breadcrumb", path)
 	}
-	for _, want := range []string{`class="ol-app ol-app-workbench"`, `href="/static/ol/ui.css"`, `data-brand="beacon"`, `class="ol-sidebar" id="nav" popover`, `ol-nav-open`, `<symbol id="i-`} {
+	for _, want := range []string{`class="ol-app ol-app-workbench"`, `href="/static/ol/ui.css?v=`, `data-brand="beacon"`, `class="ol-sidebar" id="nav" popover`, `ol-nav-open`, `<symbol id="i-`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("%s lacks %s", path, want)
 		}

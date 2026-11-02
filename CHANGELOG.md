@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.10 (2026-11-02)
+
+- The console's stylesheets and scripts are linked with Beacon's version in the URL, so a cache in front (a CDN, a browser) never serves the previous release's styling after an upgrade.
+
 ### rc.9 (2026-11-02)
 
 - The console draws with `@openlinkos/ui` 0.7.0, which carries the Beacon brand (signal orange, the mark); the provisional stylesheet is gone. The docs site uses the theme 0.7.0 with the same brand.

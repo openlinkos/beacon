@@ -1,6 +1,6 @@
-{{define "head"}}{{if .Recording}}<link rel="stylesheet" href="/static/asciinema-player.css">{{end}}{{end}}
-{{define "scripts"}}{{if .Recording}}<script src="/static/asciinema-player.min.js"></script>
-<script src="/static/beacon-player.js"></script>{{end}}{{end}}
+{{define "head"}}{{if .Recording}}<link rel="stylesheet" href="/static/asciinema-player.css?v={{.Version}}">{{end}}{{end}}
+{{define "scripts"}}{{if .Recording}}<script src="/static/asciinema-player.min.js?v={{.Version}}"></script>
+<script src="/static/beacon-player.js?v={{.Version}}"></script>{{end}}{{end}}
 {{define "content"}}<div class="ol-layout-supporting">
 <div class="ol-stack">
   {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
