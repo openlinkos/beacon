@@ -4,6 +4,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.11 (2026-11-02)
+
 **Renamed: the commands are `beacon`, `beacon-probe` and `beacon-oncall`.** The product is called Beacon, so its commands are too, as the family's other products name theirs (Origin's is `origin`). The prefix `linkos` goes from the commands, their paths, units, metrics and rules; nothing else changes in what they do.
 
 | Before | Now |
@@ -102,8 +106,6 @@ Moving a running deployment, in this order (each step works with the next one no
 3. **Heartbeats**, within a day of step 1: jobs that end with `linkos-heartbeat <name>` call `beacon-heartbeat <name>`, and jobs that push a sample with their token write `beacon_heartbeat_last_success_timestamp_seconds`. `HeartbeatStale` reads the new name only, and `HeartbeatMissing` waits a day for a heartbeat that has never reported under it. For a job that runs less often than daily, let the recording rule read both names until it has run, then put it back: `max by (heartbeat) (last_over_time({__name__=~"(linkos|beacon)_heartbeat_last_success_timestamp_seconds"}[31d]))`.
 4. **The harness**, on the agent's machine, as root: `systemctl disable --now linkos-oncall`, then `usermod -l beacon-oncall -d /var/lib/beacon-oncall -m linkos-oncall && groupmod -n beacon-oncall linkos-oncall` (the agent's sign-in moves with its home), `mv /etc/linkos-oncall /etc/beacon-oncall && mv /usr/local/lib/linkos-oncall /usr/local/lib/beacon-oncall` (your prompt stays), `rm /usr/local/bin/linkos-oncall /etc/systemd/system/linkos-oncall.service`, then install `beacon-oncall`, the new release's wrappers (their defaults name the new paths) and `beacon-oncall.service` as the unit's header says, and `systemctl enable --now beacon-oncall`.
 5. **Agents' MCP clients** may keep the server's old name, since it is the client's own label; to follow it, `claude mcp remove linkos-beacon` and add it again as `beacon`.
-
-## 0.3.0
 
 ### rc.10 (2026-11-02)
 
