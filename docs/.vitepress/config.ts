@@ -37,10 +37,6 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
   },
   legal: [
     {
-      text: { en: 'Privacy', zh: '隐私说明' },
-      link: { en: 'https://linkos.io/privacy', zh: 'https://linkos.io/zh/privacy' },
-    },
-    {
       text: { en: 'Apache License 2.0', zh: 'Apache 许可证 2.0' },
       link: `${repo}/blob/main/LICENSE`,
     },
