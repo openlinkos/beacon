@@ -26,11 +26,13 @@ Beacon 是给做运维的 AI Agent 用的基础设施：从用户所在的地方
 - **Agent 用它熟悉的工具。**ssh、scp、sftp、rsync 和端口转发经 Beacon 照常使用；MCP 工具可以执行命令、读文件、改文件，返回干净的结构化结果。
 - **Agent 不拿密钥。**凭据由 Beacon 保管，每次连接签一张几分钟有效的证书；机器只信任 Beacon 的 CA。
 - **每次会话都有记录。**会话录制下来可以回放，交互 shell 拆成一条条命令并带退出码。执行什么由 Agent 自己判断；它做的每件事人都看得到，也能一键暂停所有 Agent。
+- **NAT 后面的机器自己连出来。**Beacon 连不到的机器，用自带的 `ssh -R` 带一把登记过的密钥连到通道上，Beacon 经这条连接到达它的 sshd；机器上什么都不用装。
 
 ### 连得上：平台
 
 - **给 Agent 用的 API 和 MCP。**列出告警、认领、静默、结束静默、写备注，令牌按作用域授权、会过期。每次写操作都记审计，并回显到告警群，Agent 做了什么所有人都看得到。
 - **唤醒 Agent，证据随手可取。**新告警可以唤醒 Agent：一个带签名的 webhook，或一次 GitHub workflow 触发，告诉它证据在哪里。一次调用就能拿到证据：每个检测点的结果和失败原因、同一故障域里的告警、之前刚做的变更（部署、Flux），以及已经做了什么。Agent 留的备注显示在卡片上，一条时间线串起告警、备注、唤醒的 Agent、变更和会话。Beacon 不调用任何模型，由 Agent 自己判断。见 [docs/zh/agents.md](docs/zh/agents.md)。
+- **一个 Agent 端到端值班。**`linkos-oncall` 是第三个小程序：接住 hook、验签、启动你指定的 Agent 程序，附 Claude Code 和 Codex 的包装脚本和一个 GitHub Actions 示例。Agent 修好以后用 `probe_now` 让各检测点立刻重测，一分钟内看到每个检测点的答复，告警也更快解除。Agent 的令牌到期前自己续期，不用再手工发长期令牌。
 - **配置在 Beacon 里。**检测点、心跳、会到期的资源、检测目标和检测模块存在 Beacon 的数据库里，通过 API、MCP 和命令行修改，校验后立即生效。每次修改都是一个版本，记下谁改的、改前改后的值，可以撤销；文件只用来导入和导出，所以仍然可以放在 git 里。
 - **很轻。**一整套只有四个容器（Beacon、VictoriaMetrics、vmalert、Caddy），每个检测点一个程序。
 
@@ -80,6 +82,7 @@ docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:
   -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # 它登录 SSH 通道用的公钥
 docker exec linkos-beacon linkos-beacon token list
 docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # 固定主机密钥，并打印机器要做的配置
+docker exec linkos-beacon linkos-beacon machine add nas-1 connector -key "ssh-ed25519 AAAA…"   # NAT 后面的机器：它用 ssh -R 自己连出来
 docker exec linkos-beacon linkos-beacon ssh pause         # 关闭 Agent 在机器上的会话，直到 ssh resume
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # 换一个新令牌，旧的立即失效
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz 返回 503：检测它，就能演练整条链路
@@ -92,7 +95,7 @@ docker exec linkos-beacon linkos-beacon config history    # 谁改了什么；co
 ## API 与 MCP
 
 - REST：`/api/v1`，说明见 [internal/api/openapi.yaml](internal/api/openapi.yaml)（也在 `/api/v1/openapi.yaml` 提供）。
-- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。处理告警用的工具：`get_evidence`、`get_timeline`、`add_note`、`list_changes`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`remove_machine`、`pause_ssh`、`resume_ssh`。配置相关的工具（修改需要 `config:write` 作用域）：`get_config`、`put_config`、`delete_config`、`list_config_changes`、`get_config_change`、`revert_config_change`。
+- MCP：`/mcp`，streamable HTTP，用同样的 bearer 令牌。告警相关的工具：`status_summary`、`list_alerts`、`get_alert`、`list_silences`、`list_audit`、`ack_alert`、`silence_alert`、`expire_silence`。处理告警用的工具：`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`。机器相关的工具：`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session`、`add_machine`、`set_machine_connector`、`remove_machine`、`pause_ssh`、`resume_ssh`。配置相关的工具（修改需要 `config:write` 作用域）：`get_config`、`put_config`、`delete_config`、`list_config_changes`、`get_config_change`、`revert_config_change`。Agent 自己的令牌：`whoami`、`renew_token`。
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -110,6 +113,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | 文本格式的样本（`linkos-probe` 推送的）、心跳 |
 | `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write |
 | `GET /api/v1/targets`、`GET /api/v1/modules`、`GET /api/v1/agent` | `probe:write` | 检测什么、怎么检测、所在检测点的设置 |
+| `GET /api/v1/agent/requests`、`POST /api/v1/agent/requests/{id}` | `probe:write` | 按需检测：检测点长轮询等着「现在测一次」的请求，测完把结果交回；见 [docs/zh/agents.md](docs/zh/agents.md) |
 | `POST /api/v2/alerts` | 规则引擎的令牌、`alerts:send` | 告警，Alertmanager API v2 格式 |
 | `POST /api/v1/changes`、`POST /api/v1/changes/flux` | `changes:write` | 变更事件：部署之类，以及 Flux 的事件（它的 `generic` provider）；见 [docs/zh/agents.md](docs/zh/agents.md) |
 | `GET /api/v1/query`、`query_range`、`series` 等 | `metrics:read` | 给 Agent 的指标查询 |

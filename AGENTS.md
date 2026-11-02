@@ -26,6 +26,8 @@ One process, `linkos-beacon serve`, holds the gateway (port 17006), the router, 
 | --- | --- |
 | `cmd/linkos-beacon` | The service and its CLI: `serve`, `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `drill`, `healthcheck`. Wires everything; imports the configuration files at the first start and on SIGHUP |
 | `cmd/linkos-probe` | The probe agent: `agent` (push mode), `serve` (pull, like the Blackbox Exporter), `check`, `run` |
+| `cmd/linkos-oncall`, `internal/oncall` | The reference harness on the agent's machine: checks a hook's signature, starts the agent program named on its command line with the payload on stdin; `contrib/oncall` has the wrappers and the unit |
+| `internal/probenow` | Probing on demand: the board of requests the gateway's long-poll serves and `probe_now` waits on |
 | `internal/gateway` | The machines' door: token scopes, labels from the catalogue, write/import proxy to VictoriaMetrics, targets/modules/settings for probes, alerts from the rule engine, change events from CI and Flux, read proxy for `metrics:read` |
 | `internal/router` | Alertmanager's job: grouping, `group_wait`/`group_interval`, `resolve_timeout`, inhibition, silences, Watchdog; groups survive restarts |
 | `internal/bridge` | Alert groups to people: cards, acknowledgements, silences, escalation, budget, readiness and the healthchecks.io ping; and to agents: hooks that wake them (`agents.go`), evidence, timeline, notes and change events, untrusted text cleaned (`untrusted.go`) |

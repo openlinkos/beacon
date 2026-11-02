@@ -26,11 +26,13 @@ Early days. Agents already work through it in production: they see alerts with t
 - **Agents use the tools they know.** ssh, scp, sftp, rsync and port forwarding go through Beacon unchanged, and MCP tools run commands and read and edit files with clean, structured results.
 - **No keys for agents.** Beacon holds the credentials and signs a certificate valid for a few minutes for each connection; machines trust only Beacon's certificate authority.
 - **Every session on record.** Sessions are recorded for replay, and interactive shells are broken down into commands with their exit status. Deciding what to run is the agent's own business; people see everything it does and can pause agents at once.
+- **Machines behind NAT connect out.** A machine Beacon cannot reach runs plain `ssh -R` to the channel with a key enrolled for it, and Beacon reaches its sshd through that connection; nothing is installed on the machine.
 
 ### Connects: the platform
 
 - **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, leave notes, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
 - **Agents woken, with the evidence at hand.** A new alert can wake an agent: a signed webhook or a GitHub workflow, told where the evidence is. One call returns it: each probe location's result and why it fails, the alerts in the same failure domain, the changes just before (deployments, Flux), and what was done. Notes an agent leaves show on the card, and one timeline joins alerts, notes, agents woken, changes and sessions. Beacon calls no model: the agent decides. See [docs/agents.md](docs/agents.md).
+- **An agent on call, end to end.** `linkos-oncall`, a small third binary, catches the hook, checks its signature and starts the agent program you name, with wrappers for Claude Code and Codex and a GitHub Actions example. When the agent has fixed something, `probe_now` has every location probe the target again and shows each answer within a minute, and the alert resolves sooner. Agents' tokens renew themselves before they expire, so nobody hands out long-lived ones.
 - **Configured through Beacon.** Probe locations, heartbeats, expiring resources, probe targets and modules live in Beacon's database and are changed through the API, MCP and the command line, checked and in force at once. Every change is a version with who made it and the values before and after, and can be reverted; files are for import and export, so they can still live in git.
 - **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
 
@@ -80,6 +82,7 @@ docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:
   -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # the key it signs in to the SSH channel with
 docker exec linkos-beacon linkos-beacon token list
 docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # pins its host key, prints what the machine needs
+docker exec linkos-beacon linkos-beacon machine add nas-1 connector -key "ssh-ed25519 AAAA…"   # behind NAT: it connects out with ssh -R
 docker exec linkos-beacon linkos-beacon ssh pause         # closes agents' sessions on machines until "ssh resume"
 docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
 docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
@@ -92,7 +95,7 @@ docker exec linkos-beacon linkos-beacon config history    # who changed what; co
 ## API and MCP
 
 - REST: `/api/v1`, described in [internal/api/openapi.yaml](internal/api/openapi.yaml) (also served at `/api/v1/openapi.yaml`).
-- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `remove_machine`, `pause_ssh`, `resume_ssh`. For the configuration (scope `config:write` to change it): `get_config`, `put_config`, `delete_config`, `list_config_changes`, `get_config_change`, `revert_config_change`.
+- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `set_machine_connector`, `remove_machine`, `pause_ssh`, `resume_ssh`. For the configuration (scope `config:write` to change it): `get_config`, `put_config`, `delete_config`, `list_config_changes`, `get_config_change`, `revert_config_change`. For the agent's own token: `whoami`, `renew_token`.
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
@@ -110,6 +113,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 | `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `linkos-probe` pushes), heartbeats |
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
 | `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
+| `GET /api/v1/agent/requests`, `POST /api/v1/agent/requests/{id}` | `probe:write` | Probing on demand: the probe long-polls for targets to probe now, and posts what it found; see [docs/agents.md](docs/agents.md) |
 | `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
 | `POST /api/v1/changes`, `POST /api/v1/changes/flux` | `changes:write` | Change events: deployments and the like, and Flux's events (its `generic` provider); see [docs/agents.md](docs/agents.md) |
 | `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
