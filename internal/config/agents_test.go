@@ -22,6 +22,7 @@ agents:
     repository: example/ops
     workflow: oncall.yml
     token_file: ` + secret(t, d, "gh", "github_pat_x") + `
+    resolved_after: 0s
 changes:
   keep: 240h
 `
@@ -39,6 +40,9 @@ changes:
 	if c.Changes.Keep.D() != 240*time.Hour {
 		t.Errorf("changes.keep: %v", c.Changes.Keep)
 	}
+	if w.ResolvedWait() != time.Minute || g.ResolvedWait() != 0 {
+		t.Errorf("resolved_after: a minute by default, 0 when set so: %v %v", w.ResolvedWait(), g.ResolvedWait())
+	}
 
 	plain, err := Parse([]byte(full(t)))
 	if err != nil || plain.Changes.Keep.D() != 30*24*time.Hour {
@@ -54,7 +58,7 @@ agents:
   - {name: Bad Name, kind: webhook, url: "ftp://x", secret_file: ` + short + `}
   - {name: a, kind: webhook, url: "https://x.example", severities: [urgent], service: "("}
   - {name: a, kind: github, repository: nope, workflow: "a b", url: "https://x"}
-  - {name: c, kind: pager}
+  - {name: c, kind: pager, resolved_after: 10m}
 changes: {keep: 1h}
 `
 	_, err := Parse([]byte(y))
@@ -66,6 +70,7 @@ changes: {keep: 1h}
 		`"urgent" is not a severity`, "agents.a.service", "secret_file or headers_file is required", "agents.a is listed twice",
 		`repository "nope"`, `workflow "a b"`, "token_file is required", "url, secret_file and headers_file are for kind webhook",
 		`kind must be webhook or github, not "pager"`, "changes.keep is at least 24h",
+		"agents.c.resolved_after is between 0 (at once) and 5m, not 10m",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)

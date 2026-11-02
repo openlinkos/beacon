@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -121,7 +122,7 @@ func checkDatabase(cfg *config.Config) (string, error) {
 		case s.Problem != "":
 			return "", fmt.Errorf("database (the running service), version %d: %s", s.Version, s.Problem)
 		}
-		return fmt.Sprintf("version %d in the running service: %s", s.Version, s.Summary), nil
+		return fmt.Sprintf("version %d in the running service: %s", s.Version, s.Summary) + warningLines(s.Warnings), nil
 	}
 	st, err := store.Open(path)
 	if errors.Is(err, store.ErrLocked) {
@@ -138,7 +139,17 @@ func checkDatabase(cfg *config.Config) (string, error) {
 	if cdb.Version() == 0 {
 		return "no configuration yet; the service imports the files when it next starts", nil
 	}
-	return fmt.Sprintf("version %d: %s", cdb.Version(), cdb.Summary()), nil
+	return fmt.Sprintf("version %d: %s", cdb.Version(), cdb.Summary()) + warningLines(cdb.Warnings()), nil
+}
+
+// warningLines are the warnings of a check or a change, one per line: what the configuration names that
+// Beacon does not know, which stops nothing.
+func warningLines(ws []string) string {
+	var sb strings.Builder
+	for _, w := range ws {
+		sb.WriteString("\n  warning: " + w)
+	}
+	return sb.String()
 }
 
 const configUsage = "config import DIR [-dry-run] [-note TEXT] | config export DIR | config history [-limit 20] | config revert VERSION [-note TEXT]"
@@ -243,7 +254,7 @@ func configCmd(args []string, stdout, stderr io.Writer) int {
 func printChange(w io.Writer, ch store.ConfigChange, dryRun bool) {
 	switch {
 	case ch.Unchanged:
-		fmt.Fprintf(w, "nothing to change: version %d holds this already\n", ch.Version)
+		fmt.Fprintf(w, "nothing to change: version %d holds this already%s\n", ch.Version, warningLines(ch.Warnings))
 		return
 	case dryRun:
 		fmt.Fprintf(w, "would change %d items (nothing changed):\n", len(ch.Items))
@@ -255,5 +266,8 @@ func printChange(w io.Writer, ch store.ConfigChange, dryRun bool) {
 	}
 	for _, it := range ch.Items {
 		fmt.Fprintf(w, "  %s %s %s\n", map[string]string{"added": "+", "changed": "~", "removed": "-"}[it.Op], it.Kind, it.Key)
+	}
+	if len(ch.Warnings) > 0 {
+		fmt.Fprintln(w, strings.TrimPrefix(warningLines(ch.Warnings), "\n"))
 	}
 }

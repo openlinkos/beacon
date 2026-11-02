@@ -31,15 +31,37 @@ type RangeQuerier interface {
 }
 
 const (
-	defaultBefore   = 30 * time.Minute
-	maxBefore       = 24 * time.Hour
-	maxRelated      = 20
-	maxListed       = 50 // changes and sessions
-	maxResults      = 100
-	maxServices     = 5
-	staleAfter      = 3 * time.Minute // a probe silent this long is stale
-	evidenceTimeout = 5 * time.Second
+	defaultBefore    = 30 * time.Minute
+	maxBefore        = 24 * time.Hour
+	maxRelated       = 20
+	maxListed        = 50 // changes and sessions
+	maxListedBefore  = 20 // of those sessions, the ones on the alert's machines before it started, kept first
+	maxShells        = 10 // shell sessions whose commands are read from their transcripts
+	maxShellCommands = 20 // commands of each, the last ones
+	maxResults       = 100
+	maxServices      = 5
+	staleAfter       = 3 * time.Minute // a probe silent this long is stale
+	evidenceTimeout  = 5 * time.Second
 )
+
+// The phases of an alert group's story that a change, a session or a command falls in: before the group
+// started (what may have caused it), while it fired, and after it resolved.
+const (
+	phaseBefore = "before"
+	phaseDuring = "during"
+	phaseAfter  = "after"
+)
+
+// phase says which phase of g's story t falls in.
+func phase(g *store.Group, t time.Time) string {
+	switch {
+	case t.Before(g.StartsAt):
+		return phaseBefore
+	case !g.Firing() && !g.ResolvedAt.IsZero() && t.After(g.ResolvedAt):
+		return phaseAfter
+	}
+	return phaseDuring
+}
 
 // machineLabels are the labels whose values may name the machine an alert is about.
 var machineLabels = []string{"machine", "host", "location", "failure_domain"}
@@ -82,16 +104,18 @@ type AlertLinks struct {
 	Page      string `json:"page,omitempty"`
 }
 
-// Evidence is what an agent needs to judge an alert group.
+// Evidence is what an agent needs to judge an alert group. Heartbeats are there when its labels name a
+// heartbeat (HeartbeatStale, HeartbeatMissing).
 type Evidence struct {
-	Alert     AlertBrief     `json:"alert"`
-	Window    Window         `json:"window"`
-	Untrusted Untrusted      `json:"untrusted"`
-	Probes    ProbeEvidence  `json:"probes"`
-	Related   []RelatedAlert `json:"related"`
-	Changes   []ChangeView   `json:"changes"` // related ones first, then the newest
-	Done      Done           `json:"done"`
-	Links     AlertLinks     `json:"links"`
+	Alert      AlertBrief      `json:"alert"`
+	Window     Window          `json:"window"`
+	Untrusted  Untrusted       `json:"untrusted"`
+	Probes     ProbeEvidence   `json:"probes"`
+	Heartbeats []HeartbeatView `json:"heartbeats,omitempty"`
+	Related    []RelatedAlert  `json:"related"`
+	Changes    []ChangeView    `json:"changes"` // related ones first, then the newest
+	Done       Done            `json:"done"`
+	Links      AlertLinks      `json:"links"`
 }
 
 // ProbeEvidence is what the probes of the group's services saw, one result per location, target and
@@ -140,10 +164,11 @@ type RelatedAlert struct {
 }
 
 // ChangeView is a change event in the window; Related says whether it is about the group's service or
-// one of its machines.
+// one of its machines, Phase whether it came before the group started, while it fired or after.
 type ChangeView struct {
 	store.Change
 	Related string `json:"related,omitempty"` // service or machine
+	Phase   string `json:"phase"`             // before, during or after
 }
 
 // SilenceView is a silence covering the group in the window.
@@ -156,24 +181,37 @@ type SilenceView struct {
 }
 
 // SessionView is a session on one of the group's machines, or by an agent that acted on the group. Page
-// is the signed link to its replay, for people.
+// is the signed link to its replay, for people. Phase says whether it began before the group started (a
+// possible cause), while it fired or after it resolved. A shell's ShellCommands are the last commands run
+// at its prompt, with their exit statuses, from its transcript (Commands counts them all; get_session
+// has the rest and their output).
 type SessionView struct {
-	ID       string     `json:"id"`
-	Agent    string     `json:"agent"`
-	Via      string     `json:"via"`
-	Machine  string     `json:"machine"`
-	Kind     string     `json:"kind"`
-	Command  string     `json:"command,omitempty"`
-	Started  time.Time  `json:"started"`
-	Ended    *time.Time `json:"ended,omitempty"`
-	Exit     *int       `json:"exit,omitempty"`
-	Commands int        `json:"commands,omitempty"` // commands run at an interactive shell's prompt
-	Related  string     `json:"related"`            // machine or agent
-	Page     string     `json:"page,omitempty"`
+	ID            string         `json:"id"`
+	Agent         string         `json:"agent"`
+	Via           string         `json:"via"`
+	Machine       string         `json:"machine"`
+	Kind          string         `json:"kind"`
+	Command       string         `json:"command,omitempty"`
+	Started       time.Time      `json:"started"`
+	Ended         *time.Time     `json:"ended,omitempty"`
+	Exit          *int           `json:"exit,omitempty"`
+	Commands      int            `json:"commands,omitempty"` // commands run at an interactive shell's prompt
+	Related       string         `json:"related"`            // machine or agent
+	Phase         string         `json:"phase"`              // before, during or after
+	ShellCommands []ShellCommand `json:"shell_commands,omitempty"`
+	Page          string         `json:"page,omitempty"`
 }
 
-// Done is what was done about the group. Machines are those its labels name, whose sessions are listed
-// with the sessions of the agents that acknowledged it or left notes.
+// ShellCommand is a command run at an interactive shell's prompt, as the session's transcript has it.
+type ShellCommand struct {
+	Command string    `json:"command"`
+	Exit    *int      `json:"exit,omitempty"`
+	Started time.Time `json:"started"`
+}
+
+// Done is what was done about the group. Machines are those its labels name and those the catalogue
+// names for its heartbeats, whose sessions in the window (from before the group started) are listed with
+// the sessions of the agents that acknowledged it or left notes.
 type Done struct {
 	Ack      *store.Ack        `json:"ack,omitempty"`
 	Silences []SilenceView     `json:"silences"`
@@ -278,16 +316,19 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 	}
 	w := b.window(&g, d)
 	machines := b.machines(&g)
+	done := b.done(&g, w, machines)
+	b.withCommands(done.Sessions)
 	return Evidence{
 		Alert: b.brief(&g), Window: w,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
 			"probes.services", "probes.failing", "probes.results[].location", "probes.results[].service", "probes.results[].instance",
 			"probes.results[].module", "probes.results[].reason", "probes.results[].reasons", "probes.error",
+			"heartbeats[].description", "heartbeats[].error",
 			"related[].title", "related[].service", "related[].why", "changes[].summary", "changes[].service", "changes[].object",
 			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
-			"done.agents[].error", "done.sessions[].command"),
-		Probes: b.probeEvidence(ctx, &g, w), Related: b.related(&g), Changes: b.changesAround(&g, w, machines),
-		Done: b.done(&g, w, machines), Links: b.links(&g),
+			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),
+		Probes: b.probeEvidence(ctx, &g, w), Heartbeats: b.heartbeats(ctx, &g, w), Related: b.related(&g),
+		Changes: b.changesAround(&g, w, machines), Done: done, Links: b.links(&g),
 	}, nil
 }
 
@@ -300,20 +341,24 @@ func safeValue(s string) bool {
 }
 
 // serviceSelector matches the services' series, or reports that a service cannot be queried safely.
-func serviceSelector(svcs []string) (string, bool) {
-	for _, s := range svcs {
+func serviceSelector(svcs []string) (string, bool) { return labelSelector("service", svcs) }
+
+// labelSelector matches the series whose label name has one of values, or reports that a value cannot
+// be queried safely.
+func labelSelector(name string, values []string) (string, bool) {
+	for _, s := range values {
 		if !safeValue(s) {
 			return "", false
 		}
 	}
-	if len(svcs) == 1 {
-		return `service="` + svcs[0] + `"`, true
+	if len(values) == 1 {
+		return name + `="` + values[0] + `"`, true
 	}
-	quoted := make([]string, len(svcs))
-	for i, s := range svcs {
+	quoted := make([]string, len(values))
+	for i, s := range values {
 		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(s), `\`, `\\`)
 	}
-	return `service=~"` + strings.Join(quoted, "|") + `"`, true
+	return name + `=~"` + strings.Join(quoted, "|") + `"`, true
 }
 
 // vmError is a query's error without the server's address, which is the deployment's business.
@@ -506,7 +551,7 @@ func (b *Bridge) related(g *store.Group) []RelatedAlert {
 	return out
 }
 
-// machines are the machines g's labels name.
+// machines are the machines g's labels name, and those the catalogue names for its heartbeats.
 func (b *Bridge) machines(g *store.Group) []string {
 	out := []string{}
 	for _, l := range machineLabels {
@@ -514,6 +559,11 @@ func (b *Bridge) machines(g *store.Group) []string {
 			if store.MachineName.MatchString(v) && !slices.Contains(out, v) {
 				out = append(out, v)
 			}
+		}
+	}
+	for _, m := range b.heartbeatMachines(g) {
+		if !slices.Contains(out, m) {
+			out = append(out, m)
 		}
 	}
 	slices.Sort(out)
@@ -526,7 +576,7 @@ func (b *Bridge) changesAround(g *store.Group, w Window, machines []string) []Ch
 	svcs := b.groupServices(g)
 	out := []ChangeView{}
 	for _, c := range b.d.Store.Changes(store.ChangeFilter{From: w.From, To: w.To, Limit: 500}) {
-		v := ChangeView{Change: c}
+		v := ChangeView{Change: c, Phase: phase(g, c.Time)}
 		switch {
 		case c.Service != "" && slices.Contains(svcs, c.Service):
 			v.Related = "service"
@@ -553,23 +603,81 @@ func actors(g *store.Group) []string {
 	return out
 }
 
-// sessions lists the latest sessions in the window on g's machines or by the agents that acted on it.
+// sessions lists the latest sessions in the window, which opens before g started, on g's machines or by
+// the agents that acted on it, the oldest first.
 func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []SessionView {
 	who := actors(g)
 	rs := b.d.Store.SessionsBetween(w.From, w.To, 1000, func(r store.SessionRecord) bool {
 		return slices.Contains(machines, r.Machine) || slices.Contains(who, r.Agent)
 	})
-	rs = rs[max(0, len(rs)-maxListed):]
+	rs = keepSessions(rs, g.StartsAt, machines)
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
 		v := SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via, Machine: r.Machine, Kind: r.Kind, Command: cleanLine(r.Command),
-			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Commands: r.Commands, Related: "agent", Page: b.SessionPage(r.ID)}
+			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Commands: r.Commands, Related: "agent", Phase: phase(g, r.Started),
+			Page: b.SessionPage(r.ID)}
 		if slices.Contains(machines, r.Machine) {
 			v.Related = "machine"
 		}
 		out = append(out, v)
 	}
 	return out
+}
+
+// keepSessions keeps at most maxListed of rs (the oldest first), the latest ones; but the sessions on the
+// alert's machines that began before it started, which may be what caused it, are kept first, up to
+// maxListedBefore of them, so that the work done during the alert does not push them out.
+func keepSessions(rs []store.SessionRecord, start time.Time, machines []string) []store.SessionRecord {
+	if len(rs) <= maxListed {
+		return rs
+	}
+	var before, rest []store.SessionRecord
+	for _, r := range rs {
+		if r.Started.Before(start) && slices.Contains(machines, r.Machine) {
+			before = append(before, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	before = before[max(0, len(before)-maxListedBefore):]
+	rest = rest[max(0, len(rest)-(maxListed-len(before))):]
+	out := slices.Concat(before, rest)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
+}
+
+// withCommands adds to the shell sessions listed the commands their transcripts say were run at the
+// prompt, with their exit statuses: the last maxShellCommands of each, for at most maxShells sessions,
+// those before the alert first, then the latest.
+func (b *Bridge) withCommands(ss []SessionView) {
+	if b.d.ShellCommands == nil {
+		return
+	}
+	order := make([]int, 0, len(ss))
+	for i := range ss {
+		if ss[i].Phase == phaseBefore {
+			order = append(order, i)
+		}
+	}
+	for i := len(ss) - 1; i >= 0; i-- {
+		if ss[i].Phase != phaseBefore {
+			order = append(order, i)
+		}
+	}
+	n := 0
+	for _, i := range order {
+		s := &ss[i]
+		if s.Kind != "shell" || s.Commands == 0 || s.Ended == nil {
+			continue
+		}
+		if n++; n > maxShells {
+			return
+		}
+		cs := b.d.ShellCommands(s.ID)
+		for _, c := range cs[max(0, len(cs)-maxShellCommands):] {
+			s.ShellCommands = append(s.ShellCommands, ShellCommand{Command: cleanLine(c.Command), Exit: c.Exit, Started: c.Started})
+		}
+	}
 }
 
 // silenceMatches reports whether every matcher of s matches labels, as the router decides.

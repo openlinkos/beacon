@@ -212,7 +212,10 @@ func TestWhichHooksWake(t *testing.T) {
 	}
 	var p HookPayload
 	_ = json.Unmarshal(hs.bodies[1], &p)
-	if p.Event != "resolved" || p.Alert.Status != "resolved" || p.Alert.ResolvedAt == nil || p.Hint != hintResolved {
+	// the group resolved right after the firing call, so the payload says the agent's earlier run may be
+	// at work still (resolved_call_test.go has the call that waits, and the one that does not)
+	if p.Event != "resolved" || p.Alert.Status != "resolved" || p.Alert.ResolvedAt == nil || p.Hint != hintResolvedSoon ||
+		p.FiringCall == nil || !p.FiringCall.Recent || p.FiringCall.Delivery != hs.reqs[0].Header.Get("X-Beacon-Delivery") {
 		t.Fatalf("resolved payload: %+v", p)
 	}
 	if !strings.Contains(e.bot.texts[len(e.bot.texts)-1], `Told agent claude-oncall that "git.linkos.io is down" resolved`) {

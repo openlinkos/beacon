@@ -68,3 +68,33 @@ func TestConfig(t *testing.T) {
 		t.Errorf("audit entries: %d", n)
 	}
 }
+
+func TestConfigWarnings(t *testing.T) {
+	// a heartbeat naming a machine that is not enrolled is imported, and both the import and the check
+	// say so
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(ConfigHandler(configdb.Open(configdb.Deps{Store: st})))
+	defer srv.Close()
+	c := newClient(func(ctx context.Context) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", strings.TrimPrefix(srv.URL, "http://"))
+	})
+	ctx := context.Background()
+	files := configdb.Files{"catalog/heartbeats.yaml": "heartbeats: [{name: nas-backup, max_age: 26h, severity: warning, machine: nas-1}]\n"}
+	ch, err := c.ImportConfig(ctx, ImportRequest{Files: files})
+	if err != nil || len(ch.Warnings) != 1 || !strings.Contains(ch.Warnings[0], `machine "nas-1", which is not enrolled`) {
+		t.Fatalf("import: %+v %v", ch, err)
+	}
+	if state, err := c.CheckConfig(ctx); err != nil || state.Problem != "" || len(state.Warnings) != 1 {
+		t.Errorf("check: %+v %v", state, err)
+	}
+	if err := st.PutMachine(store.Machine{Name: "nas-1", Address: "nas-1.example.com:22", User: "beacon"}); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := c.CheckConfig(ctx); err != nil || len(state.Warnings) != 0 {
+		t.Errorf("check once the machine is enrolled: %+v %v", state, err)
+	}
+}

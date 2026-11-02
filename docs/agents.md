@@ -19,6 +19,7 @@ agents:
     severities: [critical, warning]
     service: "hub-.*|git-.*"                  # optional
     resolved: true                            # also say when the alert resolves
+    resolved_after: 1m                        # ... a minute later (the default)
   - name: ops-workflow
     kind: github
     repository: example/ops
@@ -34,12 +35,13 @@ agents:
 | `severities` | Which alert groups wake it; `[critical]` by default |
 | `service` | A regular expression over the whole `service` label; a group of several services matches when one does |
 | `resolved` | Call again when a group it was woken for resolves |
+| `resolved_after` | How long that call waits after the group resolved, so that the closing note the agent's first run writes right after its fix is on the timeline when the agent hears of the end; `1m` by default, `0` to call at once, at most `5m` |
 | `url`, `secret_file` | Webhook: where to POST, and the secret that signs each call |
 | `headers_file` | Webhook: a file of `Name: value` lines sent with every call, for a receiver that checks a secret of its own (`Authorization: Bearer …`, `X-Webhook-Secret: …`); `#` starts a comment. One of `secret_file` and `headers_file` is required, both may be given |
 | `repository`, `workflow`, `ref`, `token_file` | GitHub: `owner/name`, the workflow's file name or id, the branch (`main` by default), and a token that may dispatch it (a fine-grained token with Actions: read and write on that repository) |
 | `api` | GitHub: `https://api.github.com` by default, for GitHub Enterprise |
 
-A hook is called once when a new alert group is first notified (when its card goes out), not again while it keeps firing, and once more when it resolves if `resolved` is set. A group that fires again after resolving is a new episode and wakes the hook again.
+A hook is called once when a new alert group is first notified (when its card goes out), not again while it keeps firing, and once more when it resolves if `resolved` is set, `resolved_after` later. A group that fires again after resolving is a new episode and wakes the hook again; a resolved call still waiting then is not made (the audit log says so), since the episode it was about is over.
 
 The calls run beside alert delivery: the card, the buzz and Pushover never wait for them. A call that gets no answer, a timeout, a 429 or a 5xx is tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes; any other refusal (401, 404, 422) fails at once, since trying again would not help. Redirects are not followed, so the payload and its signature go only to the address configured. Calls a restart interrupted are taken up again when they are less than ten minutes old.
 
@@ -79,6 +81,16 @@ Beacon POSTs JSON with these headers:
   "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
 }
 ```
+
+When the alert is about a heartbeat whose catalogue entry names its machine ([catalog.md](catalog.md#heartbeats)), the `hint` of a `firing` call says which machine that is and that `list_machines` shows how to reach it.
+
+A `resolved` payload has the same fields, its `at` being when the group resolved (not when the call went out, `resolved_after` later), and one more: `firing_call`, the call that woke the agent for this episode, so that the run it started can be told apart, with whether that run may still be going:
+
+```json
+"firing_call": {"delivery": "9f3c2a1b7e4d5c60", "at": "2026-11-02T02:00:31Z", "status": "ok", "recent": true}
+```
+
+`recent` is true when the firing call was made less than ten minutes before the group resolved. The hint then says that the run that call started may still be finishing its notes, and to read `get_timeline`, the notes included, before leaving a closing note of its own.
 
 Check the signature against the raw body before reading it, and refuse a delivery whose `at` is more than ten minutes old or whose `delivery` you have seen:
 
@@ -168,12 +180,13 @@ The harness checks the signature and starts the program; that is all it decides.
 `GET /api/v1/alerts/{id}/evidence` or the MCP tool `get_evidence` (scope `status:read`) gives in one answer what an agent needs to judge the alert:
 
 - **probes**: for the group's service, one result per location, target and module: whether it works at the end of the window, since when it fails (or when it came back), the reason (`probe_failure_info{reason}`: `dns`, `connect`, `timeout`, `tls`, `http_status`, …) and how many checks failed for each reason in the window, the duration, the HTTP status, the attempts (`linkos_probe_attempts`), the certificate's expiry, and whether the location has gone silent. Failing results come first. `queries` are the PromQL used, for a closer look through the gateway with a `metrics:read` token.
+- **heartbeats**: for an alert whose labels name a `heartbeat` (`HeartbeatStale`, `HeartbeatMissing`), the heartbeat's catalogue entry (`name`, `description`, `max_age`, `severity`, `machine`), whether the SSH channel has that machine (`enrolled`), its last success (`last_success`, from `linkos_heartbeat_last_success_timestamp_seconds` within 31 days) and a `hint` on reaching the machine. Absent for other alerts.
 - **related**: other alert groups firing in the same `failure_domain`, or for the same service.
 - **changes**: change events in the window (below), those about the group's service or machines first.
-- **done**: the acknowledgement, the silences, the notes, the agents woken, the escalation, and the sessions in the window on the machines the alert's labels name (`machine`, `host`, `location`, `failure_domain`) or by the agents that acknowledged it or left notes.
+- **done**: the acknowledgement, the silences, the notes, the agents woken, the escalation, the alert's `machines` (those its labels name, `machine`, `host`, `location`, `failure_domain`, and those the catalogue names for its heartbeats), and the sessions in the window on those machines or by the agents that acknowledged it or left notes, the oldest first. Each session has its agent, machine, kind, command and exit status, a shell its last 20 commands with their exit statuses (`shell_commands`, for up to ten shells, those before the alert first; `commands` counts them all, and `get_session` has the rest with their output), and the link to its page.
 - **links**: the runbook and the dashboard, and the routes for the alert and its timeline.
 
-The window opens 30 minutes before the group started (`?before=2h` for longer, at most 24 hours) and closes now, or 30 minutes after the group resolved. When VictoriaMetrics cannot be reached, `probes.error` says so and the rest still answers.
+The window opens 30 minutes before the group started (`?before=2h` for longer, at most 24 hours) and closes now, or 30 minutes after the group resolved, so what was done on the alert's machines just before it is there: the session that stopped a heartbeat's timer three minutes before `HeartbeatStale` fired, say. Every change and session has a `phase`: `before` the group started (a possible cause), `during` (while it fired) or `after` it resolved. When there are more than 50 sessions, up to 20 of those on the alert's machines before it started are kept first, then the latest. When VictoriaMetrics cannot be reached, `probes.error` and `heartbeats[].error` say so and the rest still answers.
 
 ### Untrusted text
 
@@ -197,7 +210,7 @@ For the probes, the protocol gains two gateway routes and nothing changes for ol
 
 ## The timeline
 
-`GET /api/v1/alerts/{id}/timeline` or `get_timeline` (scope `status:read`) puts the alert's story in time order: `started`, `notified`, `buzzed`, `pushover`, `acknowledged`, `note`, `silenced` and `silence_ended`, `agent` (each hook called, with its result), `change` and `session` (those of the evidence), `resolved`. It covers the same window as the evidence.
+`GET /api/v1/alerts/{id}/timeline` or `get_timeline` (scope `status:read`) puts the alert's story in time order: `started`, `notified`, `buzzed`, `pushover`, `acknowledged`, `note`, `silenced` and `silence_ended`, `agent` (each hook called, with its result), `change` and `session` (those of the evidence), `command` (each of a shell's `shell_commands`, with its session's id and its exit status), `heartbeat` (a heartbeat's last success, even when that is before the window), `resolved`. It covers the same window as the evidence, so the changes and sessions on the alert's machines just before it come before `started`; those events have the evidence's `phase`, and `heartbeats` is there as in the evidence.
 
 ## Change events
 

@@ -428,6 +428,11 @@ func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value 
 	if err := set(next, k, normalKey(k, key), value); err != nil {
 		return store.ConfigChange{}, err
 	}
+	if k == KindHeartbeat {
+		if err := s.checkMachine(cur, next, normalKey(k, key)); err != nil {
+			return store.ConfigChange{}, err
+		}
+	}
 	return s.commit(ctx, who, "put", note, 0, next, false)
 }
 

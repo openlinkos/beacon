@@ -288,12 +288,15 @@ func serve(args []string, stderr io.Writer) int {
 		board = probenow.New(probenow.Deps{Catalog: cdb.Catalog, Targets: cdb.Targets, Metrics: m})
 		deps.ProbeNow = board
 	}
-	br = bridge.New(deps)
 	gate, err := newGate(cfg, st, deps.Bot, pages, m, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
+	if gate != nil {
+		deps.ShellCommands = shellCommands(gate)
+	}
+	br = bridge.New(deps)
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
 	lang, _ := i18n.Parse(cfg.Language)

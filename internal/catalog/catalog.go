@@ -58,12 +58,16 @@ type ProbeSettings struct {
 	Retries int `yaml:"retries,omitempty" json:"retries,omitempty"`
 }
 
-// Heartbeat is a job that must report success at least every MaxAge.
+// Heartbeat is a job that must report success at least every MaxAge. Machine, when set, is the machine
+// the job runs on, as the SSH channel names it (store.Machine.Name): the evidence for the heartbeat's
+// alerts then names that machine and lists the sessions on it. The catalogue checks only the name's
+// form; whether the machine is enrolled is checked where the machines are known (package configdb).
 type Heartbeat struct {
 	Name        string          `yaml:"name" json:"name"`
 	MaxAge      config.Duration `yaml:"max_age" json:"max_age"`
 	Severity    string          `yaml:"severity" json:"severity"`
 	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
+	Machine     string          `yaml:"machine,omitempty" json:"machine,omitempty"`
 }
 
 // Resource is something that expires: a server, a domain, a certificate, a token.
@@ -182,6 +186,10 @@ func (c *Catalog) Validate() error {
 		if !slices.Contains(config.Severities, h.Severity) {
 			bad("heartbeat %q: severity must be one of %s", h.Name, strings.Join(config.Severities, ", "))
 		}
+		if h.Machine != "" && !idRe.MatchString(h.Machine) {
+			bad("heartbeat %q: machine %q is not a machine's name: lower case letters, digits and dashes, as linkos-beacon machine list shows it",
+				h.Name, h.Machine)
+		}
 	}
 	for i := range c.Resources {
 		r := &c.Resources[i]
@@ -220,6 +228,20 @@ func (c *Catalog) Expected(l Location, t time.Time) bool {
 	return !ok || r.Kind != "vps" || t.Before(r.expires.AddDate(0, 0, 1))
 }
 
+// ValidName reports whether s has the form of a location's id or a heartbeat's name: lower case
+// letters, digits and dashes.
+func ValidName(s string) bool { return idRe.MatchString(s) }
+
+// Heartbeat returns the heartbeat called name.
+func (c *Catalog) Heartbeat(name string) (Heartbeat, bool) {
+	for _, h := range c.Heartbeats {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return Heartbeat{}, false
+}
+
 // Location returns the location with id.
 func (c *Catalog) Location(id string) (Location, bool) {
 	for _, l := range c.Locations {
@@ -242,10 +264,16 @@ func Register(m *metrics.Metrics, cat func() *Catalog) {
 		}
 		return out
 	})
+	// A heartbeat that names its machine has it as a label too. The rules aggregate by (heartbeat,
+	// severity), so the label changes no alert; it is there for a rule or a dashboard that wants it.
 	m.Register("linkos_heartbeat_max_age_seconds", "How old a heartbeat may get before it alerts", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, h := range cat().Heartbeats {
-			out = append(out, metrics.Sample{Labels: metrics.Labels("heartbeat", h.Name, "severity", h.Severity), Value: h.MaxAge.D().Seconds()})
+			kv := []string{"heartbeat", h.Name, "severity", h.Severity}
+			if h.Machine != "" {
+				kv = append(kv, "machine", h.Machine)
+			}
+			out = append(out, metrics.Sample{Labels: metrics.Labels(kv...), Value: h.MaxAge.D().Seconds()})
 		}
 		return out
 	})

@@ -13,6 +13,7 @@ package configdb
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -167,11 +168,13 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 	items := diff(cur.entries, next)
 	ch := store.ConfigChange{Time: s.d.Now().UTC(), Actor: who.Name, Via: who.Via, Action: action, Reverts: reverts,
 		Note: strings.TrimSpace(note), Items: items}
+	warnings := s.unenrolled(st.Catalog)
 	exact := action == "import"
 	if len(items) == 0 && (!exact || maps.EqualFunc(cur.entries, next, bytes.Equal)) {
-		return store.ConfigChange{Version: cur.Version, Action: action, Items: []store.ConfigItem{}, Unchanged: true}, nil
+		return store.ConfigChange{Version: cur.Version, Action: action, Items: []store.ConfigItem{}, Unchanged: true, Warnings: warnings}, nil
 	}
 	if dryRun {
+		ch.Warnings = warnings
 		return ch, nil
 	}
 	var writes []store.ConfigWrite
@@ -195,5 +198,49 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 	st.Version = ch.Version
 	s.state.Store(st)
 	s.record(ctx, who, ch)
+	for _, w := range warnings {
+		s.d.Log.Warn("the configuration names what Beacon does not know", "version", ch.Version, "warning", w)
+	}
+	ch.Warnings = warnings
 	return ch, nil
+}
+
+// Warnings lists what the configuration in force names that Beacon does not know: heartbeats whose
+// machine is not enrolled on the SSH channel. They stop no change; check-config reports them.
+func (s *Service) Warnings() []string { return s.unenrolled(s.state.Load().Catalog) }
+
+// unenrolled lists, as warnings, the heartbeats in c whose machine the SSH channel does not have.
+//
+// An import and a revert take such a heartbeat: files kept elsewhere are imported at the first start,
+// before anyone could enrol a machine, and a revert restores what was there before. A put refuses one
+// (checkMachine), so that a mistyped name is caught where it is made.
+func (s *Service) unenrolled(c *catalog.Catalog) []string {
+	var out []string
+	for _, h := range c.Heartbeats {
+		if h.Machine == "" {
+			continue
+		}
+		if _, ok := s.d.Store.Machine(h.Machine); !ok {
+			out = append(out, fmt.Sprintf("heartbeat %q names machine %q, which is not enrolled on the SSH channel; "+
+				"until it is (linkos-beacon machine add, or add_machine), the evidence for its alerts names a machine no agent can reach", h.Name, h.Machine))
+		}
+	}
+	return out
+}
+
+// checkMachine refuses a put of heartbeat key naming a machine that is not enrolled on the SSH channel,
+// unless the heartbeat named that machine already, so that it can still be changed after its machine was
+// removed. A name that is not a machine's at all is left to the catalogue's checks, which say so.
+func (s *Service) checkMachine(cur *State, next map[string][]byte, key string) error {
+	var was, now catalog.Heartbeat
+	_ = json.Unmarshal(cur.entries[entryKey(KindHeartbeat, key)], &was) // absent when the heartbeat is new
+	_ = json.Unmarshal(next[entryKey(KindHeartbeat, key)], &now)        // set has just written it
+	if now.Machine == "" || now.Machine == was.Machine || !store.MachineName.MatchString(now.Machine) {
+		return nil
+	}
+	if _, ok := s.d.Store.Machine(now.Machine); ok {
+		return nil
+	}
+	return fmt.Errorf("%w: heartbeat %q: machine %q is not enrolled on the SSH channel; enrol it first (linkos-beacon machine add, "+
+		"or add_machine), name one that list_machines shows, or leave machine out", ErrInvalid, key, now.Machine)
 }

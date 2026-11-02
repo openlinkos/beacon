@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/i18n"
@@ -36,6 +37,22 @@ func sshKeys(cfg *config.Config) (host, ca ssh.Signer, err error) {
 		return nil, nil, errors.New("ssh: the host key and the certificate authority must be different keys")
 	}
 	return host, ca, nil
+}
+
+// shellCommands reads, for the evidence and the timeline, the commands run at a shell's prompt from a
+// session's transcript, without their output.
+func shellCommands(gate *sshgate.Gate) func(string) []bridge.ShellCommand {
+	return func(id string) []bridge.ShellCommand {
+		t, err := gate.Session(id)
+		if err != nil {
+			return nil
+		}
+		out := make([]bridge.ShellCommand, 0, len(t.Commands))
+		for _, c := range t.Commands {
+			out = append(out, bridge.ShellCommand{Command: c.Command, Exit: c.Exit, Started: c.Started})
+		}
+		return out
+	}
 }
 
 // newGate builds the SSH channel when the configuration turns it on; nil otherwise. pages builds the

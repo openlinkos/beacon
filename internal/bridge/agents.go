@@ -62,23 +62,42 @@ func (h *hooks) init() {
 func (b *Bridge) waitWakes() { b.hooks.wg.Wait() }
 
 // HookPayload is what a webhook receives. Delivery stays the same when a call is retried, and At is when
-// the event happened, so a receiver can refuse a delivery it has seen or one that is too old.
+// the event happened, so a receiver can refuse a delivery it has seen or one that is too old. A resolved
+// payload has the FiringCall that woke the agent for this episode.
 type HookPayload struct {
-	Delivery  string     `json:"delivery"`
-	Event     string     `json:"event"` // firing or resolved
-	At        time.Time  `json:"at"`
-	Hook      string     `json:"hook"`
-	Alert     AlertBrief `json:"alert"`
-	Links     AlertLinks `json:"links"`
-	Hint      string     `json:"hint"`
-	Untrusted Untrusted  `json:"untrusted"`
+	Delivery   string      `json:"delivery"`
+	Event      string      `json:"event"` // firing or resolved
+	At         time.Time   `json:"at"`
+	Hook       string      `json:"hook"`
+	Alert      AlertBrief  `json:"alert"`
+	Links      AlertLinks  `json:"links"`
+	FiringCall *FiringCall `json:"firing_call,omitempty"`
+	Hint       string      `json:"hint"`
+	Untrusted  Untrusted   `json:"untrusted"`
 }
+
+// FiringCall is, in a resolved payload, the hook's call that woke the agent when the group fired: its
+// delivery, when it was made and how it went. Recent says it was made less than recentFiring before the
+// group resolved, so the run it started may still be going, writing its notes.
+type FiringCall struct {
+	Delivery string    `json:"delivery"`
+	At       time.Time `json:"at"`
+	Status   string    `json:"status"` // pending, ok or failed
+	Recent   bool      `json:"recent"`
+}
+
+// recentFiring is how long after a firing call the run it started may still be going.
+const recentFiring = 10 * time.Minute
 
 const (
 	hintFiring = "Beacon woke you for this alert group. Get its evidence in one call: the MCP tool get_evidence with " +
 		"alert.id, or GET links.evidence with a token that has status:read. get_timeline shows what happened in order; " +
 		"add_note leaves what you find or do on the alert, for people to see. Beacon does not decide what to do: you do."
 	hintResolved = "This alert group has resolved. get_timeline shows what happened; add_note leaves a closing note for people to see."
+	// hintResolvedSoon is the hint when the firing call is recent: the agent's earlier run may still be at work.
+	hintResolvedSoon = "This alert group has resolved soon after Beacon woke you for it (firing_call), so the run that call started " +
+		"may still be finishing its notes. Read get_timeline first, the notes included, and leave a closing note with add_note only " +
+		"if what it says is not there yet."
 )
 
 // dispatch is the body of a GitHub workflow_dispatch: the workflow must declare the inputs alert and event.
@@ -123,41 +142,96 @@ func (b *Bridge) takes(h config.Agent, g *store.Group, event string) bool {
 }
 
 // wake calls the hooks that take g for event (firing or resolved), recording each call on g as pending.
-// It is called with b.mu held, before g is saved; the calls run on their own.
+// It is called with b.mu held, before g is saved; the calls run on their own. A resolved call waits the
+// hook's resolved_after (Due), so that a closing note the agent's earlier run writes right after its fix
+// is on the timeline when the agent is told.
 func (b *Bridge) wake(g *store.Group, event string) {
 	for _, h := range b.d.Config.Agents {
 		if !b.takes(h, g, event) {
 			continue
 		}
 		c := store.AgentCall{Hook: h.Name, Kind: h.Kind, Event: event, Delivery: newDelivery(), Status: "pending", At: b.now()}
+		if d := h.ResolvedWait(); event == "resolved" && d > 0 {
+			c.Due = c.At.Add(d)
+		}
 		g.Agents = append(g.Agents, c)
-		b.startCall(h, g.ID, c, b.hookBody(g, h, c))
+		var body []byte // a call that waits is made from the group as it is when it goes out
+		if c.Due.IsZero() {
+			body = b.hookBody(g, h, c)
+		}
+		b.startCall(h, g.ID, c, body)
 	}
 }
 
 func (b *Bridge) hookBody(g *store.Group, h config.Agent, c store.AgentCall) []byte {
 	var v any = dispatch{Ref: h.Ref, Inputs: map[string]string{"alert": g.ID, "event": c.Event}}
 	if h.Kind != "github" {
-		hint := hintFiring
+		p := HookPayload{Delivery: c.Delivery, Event: c.Event, At: c.At, Hook: h.Name, Alert: b.brief(g), Links: b.links(g),
+			Hint: hintFiring + b.heartbeatHint(g), Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels")}
 		if c.Event == "resolved" {
-			hint = hintResolved
+			p.Hint, p.FiringCall = hintResolved, firingCall(g, h.Name, c.At)
+			if p.FiringCall != nil && p.FiringCall.Recent {
+				p.Hint = hintResolvedSoon
+			}
 		}
-		v = HookPayload{Delivery: c.Delivery, Event: c.Event, At: c.At, Hook: h.Name, Alert: b.brief(g), Links: b.links(g), Hint: hint,
-			Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels")}
+		v = p
 	}
 	body, _ := json.Marshal(v)
 	return body
 }
 
+// firingCall is the latest call of hook on g for the group firing, as a resolved payload tells of it;
+// resolvedAt is when the group resolved.
+func firingCall(g *store.Group, hook string, resolvedAt time.Time) *FiringCall {
+	for i := len(g.Agents) - 1; i >= 0; i-- {
+		if c := g.Agents[i]; c.Hook == hook && c.Event == "firing" {
+			return &FiringCall{Delivery: c.Delivery, At: c.At, Status: c.Status, Recent: resolvedAt.Sub(c.At) < recentFiring}
+		}
+	}
+	return nil
+}
+
+// startCall makes call c on its own: at once with body, or, for a call that waits (body nil), when it is
+// due and only if it still belongs to its group.
 func (b *Bridge) startCall(h config.Agent, groupID string, c store.AgentCall, body []byte) {
 	b.hooks.init()
 	b.hooks.wg.Add(1)
+	wait := c.Due.Sub(b.now())
 	go func() {
 		defer b.hooks.wg.Done()
+		if body == nil {
+			var ok bool
+			if body, ok = b.whenDue(h, groupID, c, wait); !ok {
+				return
+			}
+		}
 		b.hooks.sem <- struct{}{}
 		defer func() { <-b.hooks.sem }()
 		b.call(h, groupID, c, body)
 	}()
+}
+
+// whenDue waits until call c is due (wait from when it was started), then makes its body from the group
+// as it is then. A group that fired again meanwhile is a new episode, which forgot the call (and wakes
+// the hook anew): the call is not made, and the audit log says so.
+func (b *Bridge) whenDue(h config.Agent, groupID string, c store.AgentCall, wait time.Duration) ([]byte, bool) {
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g, ok := b.d.Store.Group(groupID)
+	i := -1
+	if ok {
+		i = slices.IndexFunc(g.Agents, func(x store.AgentCall) bool { return x.Delivery == c.Delivery })
+	}
+	if i < 0 || g.Firing() {
+		b.d.Log.Info("agent call not made: its alert group fired again or is gone", "group", groupID, "hook", c.Hook, "delivery", c.Delivery)
+		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: "beacon", Via: "hook", Action: "wake_agent", Target: groupID,
+			Detail: fmt.Sprintf("%s (%s, %s): not made, the alert group fired again or is gone before it was due", c.Hook, c.Kind, c.Event)})
+		return nil, false
+	}
+	return b.hookBody(&g, h, g.Agents[i]), true
 }
 
 // call tries the hook until it answers, it refuses for good, or the retries run out.
@@ -315,7 +389,11 @@ func (b *Bridge) resumeWakes(ctx context.Context) {
 			}
 			h, ok := b.hook(c.Hook)
 			if ok && b.now().Sub(c.At) < wakeResume {
-				b.startCall(h, g.ID, c, b.hookBody(&g, h, c))
+				var body []byte // a call that waits waits on, and is made when due
+				if c.Due.IsZero() {
+					body = b.hookBody(&g, h, c)
+				}
+				b.startCall(h, g.ID, c, body)
 				continue
 			}
 			c.Status, c.Done, c.Error = "failed", b.now(), "interrupted by a restart of Beacon"

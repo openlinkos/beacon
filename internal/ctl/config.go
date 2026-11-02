@@ -18,6 +18,7 @@ type Config interface {
 	History(f configdb.HistoryFilter) ([]store.ConfigChange, error)
 	Revert(ctx context.Context, who configdb.Actor, version int64, note string) (store.ConfigChange, error)
 	Check() error
+	Warnings() []string
 	Version() int64
 	Summary() string
 }
@@ -41,11 +42,13 @@ type RevertRequest struct {
 	Note    string `json:"note,omitempty"`
 }
 
-// ConfigState is what check-config reports of the running service's configuration.
+// ConfigState is what check-config reports of the running service's configuration. Warnings name what
+// it refers to that Beacon does not know (a heartbeat's machine not enrolled), which is no problem.
 type ConfigState struct {
-	Version int64  `json:"version"`
-	Summary string `json:"summary"`
-	Problem string `json:"problem,omitempty"`
+	Version  int64    `json:"version"`
+	Summary  string   `json:"summary"`
+	Problem  string   `json:"problem,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // MaxImport is the largest import the socket takes.
@@ -115,7 +118,7 @@ func ConfigHandler(c Config) http.Handler {
 		writeJSON(w, http.StatusOK, ch)
 	})
 	mux.HandleFunc("GET /v1/config/check", func(w http.ResponseWriter, _ *http.Request) {
-		st := ConfigState{Version: c.Version(), Summary: c.Summary()}
+		st := ConfigState{Version: c.Version(), Summary: c.Summary(), Warnings: c.Warnings()}
 		if err := c.Check(); err != nil {
 			st.Problem = err.Error()
 		}

@@ -37,6 +37,10 @@ type ConfigChange struct {
 	// Unchanged is set, never stored, on the answer to a request that changed nothing; Version is then
 	// the version in force.
 	Unchanged bool `json:"unchanged,omitempty"`
+	// Warnings are set, never stored, on the answer: what the configuration after the change names
+	// that Beacon does not know (a heartbeat's machine not enrolled on the SSH channel), which does not
+	// stop the change.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ConfigItem is one item a change touched. Before is absent for an item added, After for one removed.

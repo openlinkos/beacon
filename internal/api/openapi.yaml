@@ -95,7 +95,28 @@ components:
         code: {type: integer, description: The HTTP status of the last attempt}
         error: {type: string}
         at: {type: string, format: date-time}
+        due: {type: string, format: date-time, description: "When a call that waits goes out: a resolved call waits the hook's resolved_after"}
         done: {type: string, format: date-time}
+    HeartbeatState:
+      type: object
+      description: A heartbeat an alert is about, from the catalogue, with its last success
+      properties:
+        name: {type: string}
+        description: {type: string}
+        max_age: {type: string, examples: ["26h"]}
+        severity: {type: string, enum: [critical, warning, info]}
+        machine: {type: string, description: The machine the job runs on, as the catalogue names it}
+        enrolled: {type: boolean, description: "Whether the SSH channel has that machine; present when the catalogue names one"}
+        last_success: {type: string, format: date-time, description: "linkos_heartbeat_last_success_timestamp_seconds within 31 days, at the end of the window"}
+        hint: {type: string, description: How to reach the machine}
+        error: {type: string, description: "What could not be found out: not in the catalogue, VictoriaMetrics unreachable"}
+    ShellCommand:
+      type: object
+      description: A command run at an interactive shell's prompt, from the session's transcript
+      properties:
+        command: {type: string}
+        exit: {type: integer}
+        started: {type: string, format: date-time}
     Change:
       type: object
       properties:
@@ -174,6 +195,10 @@ components:
             truncated: {type: boolean}
             queries: {type: array, items: {type: string}, description: "The PromQL used, for a closer look with a metrics:read token on the gateway"}
             error: {type: string}
+        heartbeats:
+          type: array
+          description: "The heartbeats the alert's labels name (heartbeat), as HeartbeatStale and HeartbeatMissing carry it; absent otherwise"
+          items: {$ref: "#/components/schemas/HeartbeatState"}
         related:
           type: array
           description: Other firing groups in the same failure domain or of the same service
@@ -196,6 +221,7 @@ components:
               - type: object
                 properties:
                   related: {type: string, enum: [service, machine]}
+                  phase: {type: string, enum: [before, during, after], description: "Before the group started, while it fired, or after it resolved"}
         done:
           type: object
           properties:
@@ -214,10 +240,10 @@ components:
             agents: {type: array, items: {$ref: "#/components/schemas/AgentCall"}}
             buzzed_at: {type: string, format: date-time}
             pushover_at: {type: string, format: date-time}
-            machines: {type: array, items: {type: string}, description: "The machines the alert's labels name (machine, host, location, failure_domain)"}
+            machines: {type: array, items: {type: string}, description: "The machines the alert's labels name (machine, host, location, failure_domain), and those the catalogue names for its heartbeats"}
             sessions:
               type: array
-              description: Sessions in the window on those machines, or by the agents that acknowledged the group or left notes
+              description: "Sessions in the window, which opens before the group started, on those machines, or by the agents that acknowledged the group or left notes; the oldest first"
               items:
                 type: object
                 properties:
@@ -232,6 +258,11 @@ components:
                   exit: {type: integer}
                   commands: {type: integer, description: Commands run at an interactive shell's prompt}
                   related: {type: string, enum: [machine, agent]}
+                  phase: {type: string, enum: [before, during, after], description: "Whether it began before the group started (a possible cause), while it fired, or after it resolved"}
+                  shell_commands:
+                    type: array
+                    description: "A shell's last 20 commands, with their exit statuses (commands counts them all; get_session has the rest and their output)"
+                    items: {$ref: "#/components/schemas/ShellCommand"}
                   page: {type: string, format: uri, description: "The signed link to the session's page, with its replay, for people"}
         links:
           type: object
@@ -249,14 +280,21 @@ components:
         alert: {$ref: "#/components/schemas/AlertBrief"}
         window: {$ref: "#/components/schemas/Window"}
         untrusted: {$ref: "#/components/schemas/Untrusted"}
+        heartbeats:
+          type: array
+          description: As in the evidence; absent when the alert's labels name no heartbeat
+          items: {$ref: "#/components/schemas/HeartbeatState"}
         events:
           type: array
-          description: In time order
+          description: "In time order; changes and sessions from before the group started come before started"
           items:
             type: object
             properties:
               at: {type: string, format: date-time}
-              kind: {type: string, enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, resolved]}
+              kind:
+                type: string
+                enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, resolved]
+                description: "command: one run at a shell's prompt (id is its session); heartbeat: its last success (id is its name), even before the window"
               by: {type: string}
               via: {type: string}
               text: {type: string}
@@ -270,6 +308,7 @@ components:
               exit: {type: integer}
               url: {type: string, description: "A change's link, or the signed link to a session's page where people replay it"}
               related: {type: string, enum: [service, machine, agent]}
+              phase: {type: string, enum: [before, during, after], description: "On changes, sessions, commands and heartbeats: before the group started, while it fired, or after it resolved"}
     Machine:
       type: object
       properties:
@@ -395,6 +434,12 @@ components:
         max_age: {type: string, examples: ["26h"], description: At least 1m}
         severity: {type: string, enum: [critical, warning, info]}
         description: {type: string}
+        machine:
+          type: string
+          description: >-
+            The machine the job runs on, as the SSH channel names it; the evidence for the heartbeat's alerts names it and lists
+            the sessions on it. A put refuses a machine that is not enrolled (unless the heartbeat named it already); an import
+            takes one and warns
     Resource:
       type: object
       description: Something that expires. A vps named like a location also bounds that location
@@ -451,6 +496,10 @@ components:
         reverts: {type: integer, description: The version a revert undid}
         note: {type: string}
         unchanged: {type: boolean, description: "Nothing changed; version is the one in force"}
+        warnings:
+          type: array
+          items: {type: string}
+          description: "On the answer, never stored: what the configuration after the change names that Beacon does not know, such as a heartbeat's machine not enrolled; it stops nothing"
         items:
           type: array
           items:

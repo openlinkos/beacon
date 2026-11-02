@@ -88,6 +88,9 @@ type Deps struct {
 	ProbeNow *probenow.Board
 	// Pages builds the signed links to the pages people open from the chat (pages.go); nil: no links.
 	Pages *link.Pages
+	// ShellCommands reads, from a finished session's transcript, the commands run at an interactive
+	// shell's prompt with their exit statuses; nil without the SSH channel.
+	ShellCommands func(sessionID string) []ShellCommand
 }
 
 // Bridge is the alert bridge.

@@ -25,18 +25,25 @@ locations:
   - {id: us-los-angeles, name: United States - Los Angeles, region: overseas, network: CN2 GIA}
   - {id: cn-shanghai-bgp, name: Mainland China - Shanghai BGP, region: mainland, network: BGP}
 `)
-	write(t, d, "heartbeats.yaml", "heartbeats:\n  - {name: lo1-backup, max_age: 26h, severity: warning}\n")
+	write(t, d, "heartbeats.yaml", "heartbeats:\n  - {name: lo1-backup, max_age: 26h, severity: warning}\n"+
+		"  - {name: nightly-dump, max_age: 1h, severity: critical, machine: db-1}\n")
 	write(t, d, "resources.yaml", "resources:\n  - {name: cdn-pre-us3, kind: vps, expires: 2026-11-27}\n")
 	write(t, d, "notes.txt", "ignored")
 	c, err := Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Locations) != 2 || len(c.Heartbeats) != 1 || len(c.Resources) != 1 {
+	if len(c.Locations) != 2 || len(c.Heartbeats) != 2 || len(c.Resources) != 1 {
 		t.Fatalf("loaded %+v", c)
 	}
 	if l, ok := c.Location("cn-shanghai-bgp"); !ok || l.Region != "mainland" {
 		t.Errorf("Location: %+v", l)
+	}
+	if h, ok := c.Heartbeat("nightly-dump"); !ok || h.Machine != "db-1" {
+		t.Errorf("Heartbeat: %+v", h)
+	}
+	if _, ok := c.Heartbeat("nope"); ok {
+		t.Error("an unknown heartbeat")
 	}
 	m := metrics.New("test")
 	Register(m, func() *Catalog { return c })
@@ -46,6 +53,7 @@ locations:
 	for _, want := range []string{
 		`linkos_expected_location{location="us-los-angeles",region="overseas",network="CN2 GIA"} 1`,
 		`linkos_heartbeat_max_age_seconds{heartbeat="lo1-backup",severity="warning"} 93600`,
+		`linkos_heartbeat_max_age_seconds{heartbeat="nightly-dump",severity="critical",machine="db-1"} 3600`,
 		`linkos_resource_expiry_timestamp_seconds{resource="cdn-pre-us3",kind="vps"} 1.7957376e+09`,
 	} {
 		if !strings.Contains(body, want) {
@@ -76,6 +84,8 @@ func TestValidate(t *testing.T) {
 		"unnamed res":    "resources: [{kind: vps, expires: 2026-11-27}]",
 		"duplicate res":  "resources: [{name: a, kind: vps, expires: 2026-11-27}, {name: a, kind: vps, expires: 2026-11-28}]",
 		"hb bad name":    "heartbeats: [{name: LO1, max_age: 1h, severity: warning}]",
+		"hb bad machine": "heartbeats: [{name: a, max_age: 1h, severity: warning, machine: DB_1}]",
+		"hb host:port":   "heartbeats: [{name: a, max_age: 1h, severity: warning, machine: \"db-1:22\"}]",
 		"region missing": "locations: [{id: a, name: x}]",
 	}
 	for name, body := range cases {

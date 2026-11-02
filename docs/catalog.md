@@ -112,9 +112,12 @@ heartbeats:
     max_age: 26h              # at least 1m
     severity: warning         # critical, warning or info
     description: Nightly backup of the NAS
+    machine: nas-1            # optional: the machine the job runs on, as the SSH channel names it
 ```
 
-Exported as `linkos_heartbeat_max_age_seconds{heartbeat, severity}`.
+`machine` names the machine the job runs on, as `linkos-beacon machine list` and `list_machines` show it. The evidence and the timeline for the heartbeat's alerts then name that machine and list the sessions and changes on it, those just before the alert included, so that an agent woken by `HeartbeatStale` knows where to look ([agents.md](agents.md#the-evidence)). A put (API, MCP) refuses a machine the SSH channel does not have, with `config.invalid` and how to put it right, unless the heartbeat named that machine already; an import and a revert take one, since files are often imported before the machines are enrolled, and say so in the change's `warnings`, in the log and in `config import`'s output; `check-config` lists such heartbeats too, without failing.
+
+Exported as `linkos_heartbeat_max_age_seconds{heartbeat, severity}`, with `machine` too when the heartbeat names one. The rules aggregate by `heartbeat` and `severity`, so the label changes no alert.
 
 ## Resources
 

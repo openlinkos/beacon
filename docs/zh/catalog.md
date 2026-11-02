@@ -112,9 +112,12 @@ heartbeats:
     max_age: 26h              # 至少 1m
     severity: warning         # critical、warning 或 info
     description: Nightly backup of the NAS
+    machine: nas-1            # 可选：任务所在的机器，用 SSH 通道里的名字
 ```
 
-导出为 `linkos_heartbeat_max_age_seconds{heartbeat, severity}`。
+`machine` 写任务跑在哪台机器上，名字和 `linkos-beacon machine list`、`list_machines` 显示的一致。这样，这个心跳的告警的证据和时间线就会点出这台机器，并列出这台机器上的会话和变更，告警之前刚发生的也在内，被 `HeartbeatStale` 唤醒的 Agent 就知道该去哪里看（[agents.md](agents.md#证据)）。通过 API、MCP 修改时，SSH 通道里没有的机器会被拒绝，返回 `config.invalid` 并说明怎么改，除非这个心跳原来就写的是这台机器；导入和回滚则照样接受，因为文件常常在机器登记之前就导入了，同时在这次变更的 `warnings`、日志和 `config import` 的输出里提示；`check-config` 也会列出这样的心跳，但不算失败。
+
+导出为 `linkos_heartbeat_max_age_seconds{heartbeat, severity}`，心跳写了机器时还带 `machine`。规则按 `heartbeat` 和 `severity` 聚合，所以这个标签不会改变任何告警。
 
 ## 资源
 

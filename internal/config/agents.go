@@ -20,12 +20,16 @@ import (
 // that checks a secret of its own (Authorization: Bearer …, X-Webhook-Secret: …). Kind github
 // dispatches Workflow in Repository at Ref (workflow_dispatch) with the token in TokenFile, passing
 // the inputs alert (the group id) and event.
+//
+// ResolvedAfter is how long the call for a resolved group waits (a minute unless set; 0 sends it at
+// once), so that the agent's earlier run can leave its closing note before the agent hears of the end.
 type Agent struct {
-	Name       string   `yaml:"name"`
-	Kind       string   `yaml:"kind"`       // webhook or github
-	Severities []string `yaml:"severities"` // default [critical]
-	Service    string   `yaml:"service"`    // a regular expression over the whole service; empty matches any
-	Resolved   bool     `yaml:"resolved"`   // also call when the group resolves
+	Name          string    `yaml:"name"`
+	Kind          string    `yaml:"kind"`           // webhook or github
+	Severities    []string  `yaml:"severities"`     // default [critical]
+	Service       string    `yaml:"service"`        // a regular expression over the whole service; empty matches any
+	Resolved      bool      `yaml:"resolved"`       // also call when the group resolves
+	ResolvedAfter *Duration `yaml:"resolved_after"` // default 1m, at most 5m; nil (in code) sends at once
 
 	URL         string `yaml:"url"`          // webhook
 	SecretFile  string `yaml:"secret_file"`  // webhook: the signing secret
@@ -40,6 +44,21 @@ type Agent struct {
 	Secret    string            `yaml:"-"` // read from secret_file or token_file
 	Headers   map[string]string `yaml:"-"` // read from headers_file
 	ServiceRe *regexp.Regexp    `yaml:"-"`
+}
+
+// DefaultResolvedAfter and MaxResolvedAfter bound how long a resolved call waits. The most a call can
+// then take, with its retries, stays under the ten minutes after which receivers refuse a delivery.
+const (
+	DefaultResolvedAfter = time.Minute
+	MaxResolvedAfter     = 5 * time.Minute
+)
+
+// ResolvedWait is how long the call for a resolved group waits before it goes out.
+func (a Agent) ResolvedWait() time.Duration {
+	if a.ResolvedAfter == nil {
+		return 0
+	}
+	return a.ResolvedAfter.D()
 }
 
 // headerNameRe is an HTTP field name (RFC 9110 token).
@@ -97,6 +116,10 @@ func (c *Config) agentDefaults() {
 		if len(a.Severities) == 0 {
 			a.Severities = []string{"critical"}
 		}
+		if a.ResolvedAfter == nil {
+			d := Duration(DefaultResolvedAfter)
+			a.ResolvedAfter = &d
+		}
 		if a.Kind == "github" {
 			if a.Ref == "" {
 				a.Ref = "main"
@@ -139,6 +162,9 @@ func (c *Config) validateAgents() []error {
 			if !slices.Contains(Severities, s) {
 				bad("%s: %q is not a severity (%s)", what, s, strings.Join(Severities, ", "))
 			}
+		}
+		if d := a.ResolvedWait(); d < 0 || d > MaxResolvedAfter {
+			bad("%s.resolved_after is between 0 (at once) and %s, not %s", what, Duration(MaxResolvedAfter), Duration(d))
 		}
 		if a.Service != "" {
 			re, err := regexp.Compile("^(?:" + a.Service + ")$")

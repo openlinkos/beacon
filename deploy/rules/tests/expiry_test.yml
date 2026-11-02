@@ -83,3 +83,27 @@ tests:
               summary: nas-backup has not succeeded for 2h 0m 0s
               description: The job behind heartbeat nas-backup did not report success within its max_age. Check whether it ran, and whether it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md
+
+  - name: a heartbeat that names its machine alerts as before, the machine label aggregated away
+    interval: 10m
+    input_series:
+      - series: 'linkos_heartbeat_last_success_timestamp_seconds{heartbeat="drill-1"}'
+        values: '946684800'
+      - series: 'linkos_heartbeat_max_age_seconds{job="linkos-beacon",heartbeat="drill-1",severity="critical",machine="develop-1"}'
+        values: '3600x20'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: HeartbeatStale
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: HeartbeatStale
+        exp_alerts:
+          - exp_labels:
+              heartbeat: drill-1
+              severity: critical
+              service: drill-1
+              failure_domain: drill-1
+            exp_annotations:
+              summary: drill-1 has not succeeded for 2h 0m 0s
+              description: The job behind heartbeat drill-1 did not report success within its max_age. Check whether it ran, and whether it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md

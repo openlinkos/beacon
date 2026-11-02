@@ -19,6 +19,7 @@ agents:
     severities: [critical, warning]
     service: "hub-.*|git-.*"                  # 可选
     resolved: true                            # 告警恢复时也通知
+    resolved_after: 1m                        # ……恢复一分钟后再通知（默认）
   - name: ops-workflow
     kind: github
     repository: example/ops
@@ -34,12 +35,13 @@ agents:
 | `severities` | 哪些级别的告警组会唤醒它；默认 `[critical]` |
 | `service` | 匹配整个 `service` 标签的正则表达式；包含多个服务的告警组，只要有一个服务匹配就算 |
 | `resolved` | 唤醒过它的告警组恢复时，再调用一次 |
+| `resolved_after` | 告警组恢复后，这次调用等多久再发：Agent 第一轮运行修好之后紧接着写的收尾备注，等它得知告警已恢复时已经在时间线上了；默认 `1m`，`0` 表示立即发，最多 `5m` |
 | `url`、`secret_file` | Webhook：POST 到哪里，以及给每次调用签名的密钥 |
 | `headers_file` | Webhook：一个文件，每行一个 `Name: value`，随每次调用一起发出，给自己校验密钥的接收方用（`Authorization: Bearer …`、`X-Webhook-Secret: …`）；`#` 开头是注释。`secret_file` 和 `headers_file` 至少给一个，也可以都给 |
 | `repository`、`workflow`、`ref`、`token_file` | GitHub：`owner/name`、workflow 的文件名或 id、分支（默认 `main`），以及能触发它的令牌（对这个仓库有 Actions 读写权限的细粒度令牌） |
 | `api` | GitHub：默认 `https://api.github.com`，GitHub Enterprise 时改掉 |
 
-新告警组第一次发出通知时（也就是卡片发出时）调用一次钩子，告警持续触发期间不再调用；设了 `resolved` 的话，恢复时再调用一次。告警组恢复后又触发，算新的一轮，会再次唤醒。
+新告警组第一次发出通知时（也就是卡片发出时）调用一次钩子，告警持续触发期间不再调用；设了 `resolved` 的话，恢复 `resolved_after` 之后再调用一次。告警组恢复后又触发，算新的一轮，会再次唤醒；这时还在等待的恢复调用就不发了（审计日志里有记录），因为它说的那一轮已经结束。
 
 这些调用和告警送达各走各的：卡片、加急、Pushover 从不等它们。没有应答、超时、429 或 5xx 时，分别在 5 秒、20 秒、1 分钟、3 分钟后重试；其他拒绝（401、404、422）重试也没用，立即算失败。不跟随重定向，所以载荷和签名只会发到配置的地址。服务重启打断的调用，不到 10 分钟的会接着做完。
 
@@ -79,6 +81,16 @@ Beacon POST 一段 JSON，带这些请求头：
   "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
 }
 ```
+
+告警说的是一个心跳、而目录里这个心跳写了所在机器（[catalog.md](catalog.md#心跳)）时，`firing` 调用的 `hint` 会说是哪台机器，并提示用 `list_machines` 查怎么连上它。
+
+`resolved` 载荷的字段相同，其中 `at` 是告警组恢复的时间（不是 `resolved_after` 之后真正发出的时间），另外多一个 `firing_call`：这一轮唤醒 Agent 的那次调用，好让它启动的那次运行认出自己，并说明那次运行是否可能还没结束：
+
+```json
+"firing_call": {"delivery": "9f3c2a1b7e4d5c60", "at": "2026-11-02T02:00:31Z", "status": "ok", "recent": true}
+```
+
+触发调用发生在告警组恢复前不到 10 分钟时，`recent` 为 true。这时 hint 会说，那次调用启动的运行可能还在写备注，请先读 `get_timeline`（包括备注），再决定要不要自己写收尾备注。
 
 读请求体之前，先用原始请求体核对签名；`at` 超过 10 分钟的、`delivery` 见过的，一律拒绝：
 
@@ -168,12 +180,13 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 `GET /api/v1/alerts/{id}/evidence` 或 MCP 工具 `get_evidence`（作用域 `status:read`）一次给出 Agent 判断这条告警需要的东西：
 
 - **probes**：告警组所属服务的检测结果，每个检测点、目标、模块一条：窗口结束时是否正常，从什么时候开始失败（或什么时候恢复），失败原因（`probe_failure_info{reason}`：`dns`、`connect`、`timeout`、`tls`、`http_status` 等）以及窗口内各原因失败了几次，耗时，HTTP 状态码，尝试次数（`linkos_probe_attempts`），证书到期时间，以及这个检测点是否已经没有数据。失败的排在前面。`queries` 是用到的 PromQL，想细看时可以带 `metrics:read` 令牌经网关再查。
+- **heartbeats**：告警标签里有 `heartbeat` 的（`HeartbeatStale`、`HeartbeatMissing`），给出这个心跳在目录里的条目（`name`、`description`、`max_age`、`severity`、`machine`），SSH 通道里有没有这台机器（`enrolled`），最近一次成功的时间（`last_success`，取自 31 天内的 `linkos_heartbeat_last_success_timestamp_seconds`），以及怎么连上这台机器的 `hint`。其他告警没有这一项。
 - **related**：同一 `failure_domain` 里、或者同一服务正在触发的其他告警组。
 - **changes**：窗口内的变更事件（见下文），和这个告警组的服务或机器有关的排在前面。
-- **done**：认领、静默、备注、唤醒过的 Agent、升级情况，以及窗口内的会话：在告警标签（`machine`、`host`、`location`、`failure_domain`）指到的机器上的，或者由认领过它、给它写过备注的 Agent 发起的。
+- **done**：认领、静默、备注、唤醒过的 Agent、升级情况，告警涉及的机器 `machines`（告警标签 `machine`、`host`、`location`、`failure_domain` 指到的，以及目录里为它的心跳写的机器），以及窗口内的会话：在这些机器上的，或者由认领过它、给它写过备注的 Agent 发起的，按时间先后。每个会话给出 Agent、机器、类型、命令和退出码；交互式 shell 还给出最后 20 条命令及各自的退出码（`shell_commands`，最多十个 shell，告警之前的优先；`commands` 是总条数，其余的连同输出用 `get_session` 取），以及会话页面的链接。
 - **links**：处理手册和面板，以及这条告警和它的时间线的地址。
 
-窗口从告警组开始前 30 分钟起（`?before=2h` 可以更长，最多 24 小时），到现在为止；告警组已恢复的，到恢复后 30 分钟为止。连不上 VictoriaMetrics 时，`probes.error` 会说明，其余部分照常返回。
+窗口从告警组开始前 30 分钟起（`?before=2h` 可以更长，最多 24 小时），到现在为止；告警组已恢复的，到恢复后 30 分钟为止。所以告警之前刚在它的机器上做过的事也在里面，比如在 `HeartbeatStale` 触发前三分钟停掉心跳定时器的那个会话。每个变更和会话都有 `phase`：`before` 是告警组开始之前（可能就是原因），`during` 是触发期间，`after` 是恢复之后。会话超过 50 个时，先保留告警开始前在它的机器上的会话（最多 20 个），再保留最新的。连不上 VictoriaMetrics 时，`probes.error` 和 `heartbeats[].error` 会说明，其余部分照常返回。
 
 ### 不可信的文本
 
@@ -197,7 +210,7 @@ linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
 
 ## 时间线
 
-`GET /api/v1/alerts/{id}/timeline` 或 `get_timeline`（作用域 `status:read`）按时间顺序列出这条告警的经过：`started`、`notified`、`buzzed`、`pushover`、`acknowledged`、`note`、`silenced` 和 `silence_ended`、`agent`（调用过的每个钩子及结果）、`change` 和 `session`（与证据里的相同）、`resolved`。窗口和证据一样。
+`GET /api/v1/alerts/{id}/timeline` 或 `get_timeline`（作用域 `status:read`）按时间顺序列出这条告警的经过：`started`、`notified`、`buzzed`、`pushover`、`acknowledged`、`note`、`silenced` 和 `silence_ended`、`agent`（调用过的每个钩子及结果）、`change` 和 `session`（与证据里的相同）、`command`（shell 的每条 `shell_commands`，带所属会话的 id 和退出码）、`heartbeat`（心跳最近一次成功，早于窗口也列出）、`resolved`。窗口和证据一样，所以告警之前在它的机器上的变更和会话排在 `started` 前面；这些事件带着证据里的 `phase`，`heartbeats` 也和证据里一样。
 
 ## 变更事件
 

@@ -4,6 +4,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **What the first drill showed missing** (`docs/agents.md`, `docs/catalog.md`): the agent woken by `HeartbeatStale` found the machine only in the heartbeat's description, did not see the session that broke it, and was told of the end while its first run was still writing.
+  - **Heartbeats name their machine**: a heartbeat in the catalogue takes `machine`, a machine as the SSH channel names it. The evidence and the timeline for an alert with a `heartbeat` label then have `heartbeats` (the catalogue entry, whether the machine is enrolled, the last success from VictoriaMetrics, a hint on reaching it) and count that machine among the alert's machines, so its sessions and changes are listed; the firing hook's hint names it. A put through the API or MCP refuses a machine that is not enrolled (`config.invalid`), unless the heartbeat named it already; an import or a revert takes one and warns (`warnings` on the change, the log, `config import`'s output), and `check-config` lists such heartbeats without failing. `linkos_heartbeat_max_age_seconds` has a `machine` label when one is set; the rules aggregate it away. `config export` writes it.
+  - **Before the alert**: every change and session in the evidence and the timeline has a `phase`, `before` the alert started, `during` or `after` it resolved, and the sessions on the alert's machines before it are kept first when there are many. A shell session has its last 20 commands with their exit statuses (`shell_commands`), and the timeline has each as a `command` event, and a heartbeat's last success as a `heartbeat` event.
+  - **The resolved call waits**: a hook's call for a resolved group goes out `resolved_after` later (`1m` by default, `0` at once, at most `5m`), so the first run's closing note is on the timeline; a group that fires again meanwhile drops it. The `resolved` payload has `firing_call` (`delivery`, `at`, `status`, `recent`), and when the firing call is under ten minutes old the hint says the earlier run may still be finishing its notes. Agent calls have `due`.
+
 ## 0.3.0
 
 ### rc.6 (2026-11-02)
