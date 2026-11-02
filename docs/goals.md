@@ -4,16 +4,16 @@ What Beacon is for, what it will not do, and how to choose when goals pull apart
 
 ## North star
 
-Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to take away what gets in the way of AI and agents while they work, so that using them is smooth. Other pieces, memory that lasts across sessions for one, are other projects; Beacon stays in its lane.
+Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to remove what gets in the way of AI and agents at work, so that using them goes smoothly. Other pieces, such as memory that lasts across sessions, are other projects; Beacon stays in its lane.
 
 For Beacon that means: **operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
 
-It is read two ways:
+It is measured two ways:
 
 - **Coverage**: of everything agents do on machines and alerts, how much goes through Beacon. Target: all of it, with no key in any agent's hands.
 - **Closure**: of the critical alerts, how many an agent takes from being woken to a verified recovery with nobody stepping in. Target: most of them.
 
-Three guardrails are never traded for either: no alert lost, no credential leaked, nothing done without a record. A change that moves neither coverage nor closure, and holds no guardrail, waits.
+Three guardrails are never traded for either: no alert lost, no credential leaked, nothing done without a record. A change that moves neither coverage nor closure, and upholds no guardrail, waits.
 
 ## In one sentence
 
@@ -26,12 +26,12 @@ Two tests:
 
 ## The problem
 
-An operations engineer needs eyes (monitoring and alerts), hands (logging in to machines, running commands, editing files), a record (what was done, to look up and to replay) and a line to people (being woken, reporting, being seen). An agent needs the same four, with three differences: it knows general tools such as ssh, the shell, HTTP and MCP rather than each product's own interface; it remembers nothing from one session to the next; and it does not watch a screen, so something has to wake it. Beacon offers the four in the ways agents already work, rather than a new system for them to learn.
+An operations engineer needs eyes (monitoring and alerts), hands (logging in to machines, running commands, editing files), a record (what was done, to look up and to replay) and a line to people (being woken, reporting, being seen). An agent needs the same four, with three differences: it knows general tools such as ssh, the shell, HTTP and MCP, not each product's own interface; it remembers nothing from one session to the next; and it does not watch a screen, so something has to wake it. Beacon offers the four in the ways agents already work, instead of a new system for them to learn.
 
 ## Who it is for
 
 - **People who run their own machines and services with AI agents** (Claude Code, Codex and the like): from one person with a few agents and a dozen machines to a small team, self-hosted.
-- **Beacon's makers first**: they run their own operations on it before anyone else does.
+- **Beacon's makers first**: they run their own operations on it before anyone else.
 
 ## Product goals: three pillars
 
@@ -57,7 +57,7 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 
 - **Beacon is not an agent and calls no model.** It wakes agents, and `beacon-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
 - **No approval workflow.** The pause switch and each machine's access are the only brakes.
-- **No log platform, tracing, APM or custom dashboards.** An agent reads logs over the SSH channel (journalctl and the like), the way it knows best.
+- **No log platform, tracing, APM or custom dashboards.** An agent reads logs through the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.
 - **No code that only one deployment needs.** What is particular to a deployment is configuration, kept outside this repository.
@@ -72,4 +72,4 @@ The project has landed (1.0) when all three hold:
 
 ## When goals pull apart
 
-Not losing alerts and not leaking credentials, then closeness to how agents work, then visibility, then staying small, then more features.
+First not losing alerts and not leaking credentials; then closeness to how agents work; then visibility; then staying small; and only then more features.
