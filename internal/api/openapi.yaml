@@ -4,7 +4,7 @@ info:
   version: "1"
   description: |
     Alerts, acknowledgements, silences and notes of Beacon, the evidence and timeline of an alert, the
-    change events around it, and the SSH channel: the machines agents reach,
+    change events around it, probing a target again on demand, and the SSH channel: the machines agents reach,
     tools that run commands and read and edit files on them, and the recorded sessions. Every route
     except this description needs a bearer token (`Authorization: Bearer lbt_…`) with the scope listed
     on the operation. Writes and sessions are recorded in the audit log and echoed to the alert chat.
@@ -37,7 +37,8 @@ components:
             ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
-            config.not_found, config.invalid, config.conflict]
+            config.not_found, config.invalid, config.conflict,
+            probe.busy, probe.not_found, probe.unavailable]
     Ack:
       type: object
       properties:
@@ -451,6 +452,39 @@ components:
               op: {type: string, enum: [added, changed, removed]}
               before: {description: "The value before (absent when added; left out in the history list)"}
               after: {description: "The value after (absent when removed; left out in the history list)"}
+    ProbeTarget:
+      type: object
+      properties:
+        instance: {type: string, description: The target, as the target sets name it}
+        module: {type: string}
+        service: {type: string}
+        locations: {type: array, items: {type: string}, description: The locations expected to probe it}
+    ProbeNowResult:
+      type: object
+      description: One location's fresh result for one target
+      properties:
+        location: {type: string}
+        instance: {type: string}
+        module: {type: string}
+        service: {type: string, description: When the request spans several services}
+        ok: {type: boolean}
+        reason: {type: string, description: "While failing: dns, connect, timeout, tls, not_ssl, http_status, body, banner, protocol, auth, manifest, config"}
+        duration_seconds: {type: number}
+        http_status: {type: integer}
+        attempts: {type: integer, description: Tries, with the location's retries}
+        cert_expires: {type: string, format: date-time}
+        probed_at: {type: string, format: date-time, description: When the answer reached Beacon}
+    ProbeNow:
+      type: object
+      properties:
+        id: {type: string, description: The request}
+        targets: {type: array, items: {$ref: "#/components/schemas/ProbeTarget"}}
+        locations: {type: array, items: {type: string}, description: The locations expected to answer}
+        results: {type: array, items: {$ref: "#/components/schemas/ProbeNowResult"}, description: Failing first}
+        missing: {type: array, items: {type: string}, description: Locations that did not answer in time}
+        complete: {type: boolean, description: Every expected location answered}
+        summary: {type: string, description: "One line, such as 7 OK, 2 failing (dns)"}
+        untrusted: {$ref: "#/components/schemas/Untrusted"}
   parameters:
     Note:
       name: note
@@ -1167,4 +1201,38 @@ paths:
       parameters: [{$ref: "#/components/parameters/Version"}, {$ref: "#/components/parameters/Note"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /probe-now:
+    post:
+      summary: Have every location probe a target again, now
+      description: >-
+        Scope: alerts:write. Every location that has the target assigned probes it at once with its usual module and
+        settings, pushes the samples as in its cycle (so VictoriaMetrics and the rule engine see the fresh result and
+        an alert resolves sooner) and reports what it found. The call waits for the expected locations (wait seconds,
+        45 by default, at most 90) and returns each location's answer, the locations that did not answer in time
+        (a probe that is down, or too old to know the route) and a one-line summary. Give one of alert_id (the
+        targets of the group's alerts, from their instance and module labels, or every target of their service),
+        target (with an optional module) or service (every target of the service, at most 20). A target is probed on
+        demand at most every 15 seconds and a token has at most three requests in flight (probe.busy); an unknown
+        target, or one no active location probes, is probe.not_found; without a gateway, probe.unavailable.
+        Audited and echoed to the alert chat.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                alert_id: {type: string}
+                target: {type: string}
+                module: {type: string}
+                service: {type: string}
+                wait: {type: integer, minimum: 1, maximum: 90, default: 45}
+      responses:
+        "200":
+          description: Each location's result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ProbeNow"}
         default: {$ref: "#/components/responses/Error"}

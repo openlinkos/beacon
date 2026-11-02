@@ -24,6 +24,11 @@ type gateway struct {
 	targets  string
 	settings string // GET /api/v1/agent; empty: 404, as from an older gateway
 	modules  string // GET /api/v1/modules; empty: one http_2xx module
+
+	requests       chan string       // GET /api/v1/agent/requests: a poll hangs until a list is sent; nil: 404, as from an older gateway
+	requestsStatus int               // when set, the requests route answers this status instead
+	polls          int               // polls seen
+	answers        map[string]string // POST /api/v1/agent/requests/{id}: the body, by id
 }
 
 func (g *gateway) server(t *testing.T, target string) *httptest.Server {
@@ -71,7 +76,35 @@ func (g *gateway) server(t *testing.T, target string) *httptest.Server {
 			}
 			g.pushes = append(g.pushes, string(b))
 			w.WriteHeader(http.StatusNoContent)
+		case "/api/v1/agent/requests":
+			g.mu.Lock()
+			g.polls++
+			st, ch := g.requestsStatus, g.requests
+			g.mu.Unlock()
+			switch {
+			case st != 0:
+				w.WriteHeader(st)
+			case ch == nil:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				select {
+				case body := <-ch:
+					_, _ = io.WriteString(w, body)
+				case <-r.Context().Done():
+				}
+			}
 		default:
+			if id, ok := strings.CutPrefix(r.URL.Path, "/api/v1/agent/requests/"); ok && r.Method == http.MethodPost {
+				b, _ := io.ReadAll(r.Body)
+				g.mu.Lock()
+				if g.answers == nil {
+					g.answers = map[string]string{}
+				}
+				g.answers[id] = string(b)
+				g.mu.Unlock()
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -104,9 +137,10 @@ func newAgent(t *testing.T) (*Agent, *gateway, string) {
 	_ = os.WriteFile(filepath.Join(proc, "loadavg"), []byte("0.5 0.4 0.3 1/2 3\n"), 0o600)
 	text := t.TempDir()
 	_ = os.WriteFile(filepath.Join(text, "heartbeat_backup.prom"), []byte(`linkos_heartbeat_last_success_timestamp_seconds{heartbeat="backup"} 1793436000`+"\n"), 0o600)
+	var mu sync.Mutex // the cycle and the request poller both ask the time
 	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	a := New(Config{Gateway: srv.URL + "/", Token: "lbt_test", StateDir: state, Host: &hostmetrics.Collector{ProcRoot: proc, TextfileDir: text},
-		Now: func() time.Time { now = now.Add(time.Millisecond); return now }})
+		Now: func() time.Time { mu.Lock(); defer mu.Unlock(); now = now.Add(time.Millisecond); return now }})
 	return a, gw, target.URL
 }
 

@@ -32,6 +32,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/notify"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/vm"
 )
@@ -81,6 +82,8 @@ type Deps struct {
 	Now      func() time.Time
 	// WSReady reports whether Feishu's long connection is up; nil when callbacks come over HTTP.
 	WSReady func() bool
+	// ProbeNow is the board of requests to probe on demand (probenow.go); nil without a gateway.
+	ProbeNow *probenow.Board
 }
 
 // Bridge is the alert bridge.

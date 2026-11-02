@@ -47,6 +47,7 @@ import (
 	"github.com/openlinkos/beacon/internal/mcpserver"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/notify"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/server"
 	"github.com/openlinkos/beacon/internal/store"
@@ -256,6 +257,11 @@ func serve(args []string, stderr io.Writer) int {
 		}, log)
 		deps.WSReady = listener.Ready
 	}
+	var board *probenow.Board // requests to probe on demand, shared by the bridge and the gateway
+	if cfg.Gateway.Listen != "" {
+		board = probenow.New(probenow.Deps{Catalog: cdb.Catalog, Targets: cdb.Targets, Metrics: m})
+		deps.ProbeNow = board
+	}
 	br = bridge.New(deps)
 	gate, err := newGate(cfg, st, deps.Bot, m, log)
 	if err != nil {
@@ -321,7 +327,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: server.Handler(sd), ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute}
+		ReadTimeout: 30 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 2 * time.Minute} // probe_now waits up to 90s
 	errc := make(chan error, 3)
 	go func() { errc <- hs.ListenAndServe() }()
 	var gs *http.Server
@@ -331,7 +337,7 @@ func serve(args []string, stderr io.Writer) int {
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
 			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
 				Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
-				Metrics: m, Log: log})}
+				Metrics: m, Log: log, Requests: board})}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	if gate != nil {

@@ -4,6 +4,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Probe again, now** (`docs/agents.md`): `POST /api/v1/probe-now` and the MCP tool `probe_now` (`alerts:write`) have every location that probes a target probe it again at once and return each location's result (ok, reason, duration, HTTP status, attempts, certificate expiry, when), the locations that did not answer in time and a one-line summary; by `alert_id`, `target` (with a `module`) or `service`, waiting 45 seconds by default and 90 at most. The probes push the fresh samples as in their cycle, so alerts resolve sooner. Limits: one request per target every 15 seconds and three in flight per token (`probe.busy`); an unknown target is `probe.not_found`; without a gateway, `probe.unavailable`. Audited (`probe_now`) and echoed to the chat.
+  - The probe protocol gains `GET /api/v1/agent/requests?wait=25s` (a long-poll) and `POST /api/v1/agent/requests/{id}` on the gateway. `linkos-probe agent` polls beside its cycle; against an older gateway it asks again in an hour. Older probes keep working and show up as missing.
+  - Metrics `linkos_probe_now_requests_total`, `linkos_probe_now_answers_total{location}`, `linkos_probe_now_missing_total{location}` and `linkos_probe_now_requests_open`.
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)

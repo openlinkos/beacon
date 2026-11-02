@@ -94,4 +94,10 @@ var zh = map[string]string{
 	"target set":                                                         "检测目标组",
 	"module":                                                             "检测模块",
 	"the command line":                                                   "命令行",
+	// probing on demand (probe_now): the echo to the alert chat and its one-line summary
+	"%s had %d locations probe %s again via %s: %s": "%[1]s 经%[4]s让 %[2]d 个检测点重新检测了 %[3]s：%[5]s",
+	"%d targets of %s":  "%[2]s 的 %[1]d 个目标",
+	"%d OK":             "%d 个正常",
+	"%d failing (%s)":   "%d 个失败（%s）",
+	"%d did not answer": "%d 个未应答",
 }

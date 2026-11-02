@@ -16,6 +16,7 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/targets"
@@ -55,7 +56,9 @@ type env struct {
 	vm      *seen
 	posted  []router.Postable
 	m       *metrics.Metrics
+	board   *probenow.Board
 	probe   string // cdn-pre-us1
+	probe2  string // cdn-pre-de1
 	expired string // cdn-pre-cn1, whose machine expired
 	host    string
 	beat    string
@@ -79,6 +82,7 @@ func newEnv(t *testing.T, withAM bool) *env {
 locations:
   - {id: cdn-pre-us1, name: United States - Los Angeles CN2 GIA, region: overseas, network: CN2 GIA, probe: {timeout: 45s, retries: 1}}
   - {id: cdn-pre-cn1, name: Mainland China - Zhejiang Telecom, region: mainland, network: Telecom}
+  - {id: cdn-pre-de1, name: Germany - Frankfurt, region: overseas}
 resources:
   - {name: cdn-pre-us1, kind: vps, expires: 2027-04-02}
   - {name: cdn-pre-cn1, kind: vps, expires: 2026-11-02}
@@ -97,7 +101,7 @@ resources:
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := targets.Load(tg, []string{"cdn-pre-us1", "cdn-pre-cn1"})
+	set, err := targets.Load(tg, []string{"cdn-pre-us1", "cdn-pre-cn1", "cdn-pre-de1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +124,7 @@ resources:
 		return s
 	}
 	e.probe = mk("probe-cdn-pre-us1", "cdn-pre-us1", "probe:write")
+	e.probe2 = mk("probe-cdn-pre-de1", "cdn-pre-de1", "probe:write")
 	e.expired = mk("probe-cdn-pre-cn1", "cdn-pre-cn1", "probe:write")
 	e.host = mk("host-worker-us", "worker-us", "host:write")
 	e.beat = mk("heartbeat-nas", "nas", "heartbeat:write")
@@ -127,9 +132,11 @@ resources:
 	e.flux = mk("flux", "", "alerts:send")
 	e.human = mk("claude-code", "", "status:read", "alerts:write")
 	now := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // cdn-pre-cn1 expired on 11-02
+	e.board = probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return c }, Targets: func() *targets.Set { return set },
+		Metrics: e.m, Now: func() time.Time { return now }})
 	e.h = Handler(Deps{Auth: &api.Auth{Store: st}, Catalog: func() *catalog.Catalog { return c },
 		Targets: func() *targets.Set { return set }, Modules: func() []byte { return []byte("modules: {}\n") }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
-		Metrics: e.m, Now: func() time.Time { return now }})
+		Metrics: e.m, Now: func() time.Time { return now }, Requests: e.board})
 	return e
 }
 
