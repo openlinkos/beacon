@@ -34,14 +34,14 @@ Beacon is built for the agent to do the work and for people to see all of it:
 
 ## Features
 
-- **MCP server** at `/mcp` with 38 tools: alerts (`list_alerts`, `get_alert`, `ack_alert`, `silence_alert`, …), working an alert (`get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`), machines (`list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, …), maintenance and status pages, the configuration, and the agent's own token (`whoami`, `renew_token`). Every tool has the same REST route under `/api/v1`.
+- **MCP server** at `/mcp` with 43 tools: alerts (`list_alerts`, `get_alert`, `ack_alert`, `silence_alert`, …), working an alert (`get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`), machines (`list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, …), maintenance and status pages, the configuration, people and the agent's own SSH keys (`list_users`, `invite_user`, `add_ssh_key`, …), and the agent's own token (`whoami`, `renew_token`). Claude Code and Codex sign in to it through the browser, with MCP's OAuth. Every tool has the same REST route under `/api/v1`.
 - **The SSH channel** on port 17002: `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` to any enrolled machine, the user name naming the machine, also machines behind NAT that connect out with plain `ssh -R`.
 - **Probes** (`beacon-probe`): Blackbox-compatible checks with failure reasons, host metrics and heartbeats, pushed through a queue on disk when the network is down; targets and modules come from the centre, so changing what is checked needs no redeployment.
 - **Alerting** without Alertmanager: grouping, inhibition, silences and a dead man's switch inside the service; vmalert posts its alerts to Beacon as it would to Alertmanager.
 - **Feishu cards** that change in place: what is wrong, since when, which locations fail and why, the agent's notes; buttons to acknowledge and silence; escalation to the Feishu app's urgent notice and to Pushover's emergency priority.
 - **Waking agents**: signed webhooks and GitHub workflow dispatches for new alert groups, and `beacon-oncall`, a small harness that verifies the webhook and starts the agent program you name (wrappers for Claude Code and Codex included).
 - **Public status pages** served by Beacon itself: components from the probe targets, 90 days of history, incidents from the alerts, maintenance windows, JSON, an Atom feed and badges.
-- **The console** at `/console` (the site's root is the public status page): alerts with their evidence and timeline, machines, every session with its replay, agents' tokens, the configuration and its history, the audit log.
+- **The console** at `/console` (the site's root is the public status page): alerts with their evidence and timeline, machines, every session with its replay, people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, the audit log.
 - **Configuration through Beacon**: probe locations, targets, modules and status pages live in its database, changed through the API, MCP or the command line, every change a version that can be reverted; files are for import and export, so they can stay in git.
 
 ## Works with
@@ -70,18 +70,18 @@ sudo ./install.sh        # asks for the two host names and an e-mail address for
 ### Connect Claude Code
 
 ```bash
-docker exec beacon beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp \
-  --header "Authorization: Bearer lbt_…"
+docker exec beacon beacon setup    # a one-time link: open it and choose your username and password
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-Then ask, in any session: *"Is anything failing right now? Look at the evidence, check the machine, and tell me what you would do."* The agent answers from `get_evidence` and the machine itself, and everything it ran is in the console under Sessions.
+Then run `/mcp` in Claude Code and sign in through the browser: Beacon asks you to allow Claude Code as one of your agents, with what it may do and for how long, and no token is copied anywhere. Then ask, in any session: *"Is anything failing right now? Look at the evidence, check the machine, and tell me what you would do."* The agent answers from `get_evidence` and the machine itself, and everything it ran is in the console under Sessions. An agent without a browser takes a token instead: `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`.
 
 ## Documentation
 
 The documentation lives in [`docs/`](docs/) and is published at [beacon.openlinkos.com](https://beacon.openlinkos.com):
 
 - [Up in 30 minutes](docs/install.md): from a bare machine to the first probe, machine, agent and drill
+- [People and their agents](docs/accounts.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
 - [Put an agent on call](docs/agents.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
 - [The SSH channel](docs/ssh.md): how agents reach machines without keys, recordings, machines behind NAT
 - [Catalogue, targets and modules](docs/catalog.md): what is probed, from where, and how it is configured
@@ -107,7 +107,7 @@ One service, `beacon`, holds the gateway for machines, the alert router, the bri
 
 ## Security
 
-Agents never see a password or a private key: the SSH channel signs a short-lived certificate for every connection and the machines trust only its certificate authority. Tokens are stored as SHA-256 hashes, carry scopes and expire; each probe and host can write only as itself. Everything an agent does is audited and echoed to the alert chat. Secrets are read from files and never logged. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
+Agents never see a password or a private key: the SSH channel signs a short-lived certificate for every connection and the machines trust only its certificate authority. People sign in with Beacon's own accounts, their passwords kept as argon2id hashes; there is no external sign-in. An agent acts for a person and never does more than that person's role allows, checked on every request. Tokens are stored as SHA-256 hashes, carry scopes and expire; each probe and host can write only as itself. Everything an agent does is audited and echoed to the alert chat. Secrets are read from files and never logged. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
 ## Contributing
 

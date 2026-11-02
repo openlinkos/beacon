@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b7757f91
+sourceHash: sha256-8e277aaa
 ---
 
 # 常见问题
@@ -87,7 +87,7 @@ sudo -u beacon-probe /opt/beacon-probe/bin/beacon-probe run -modules /var/lib/be
 
 ### Agent 没有被叫醒 {#the-agent-is-not-woken}
 
-告警触发了，钩子对应的 Agent 却什么也没做。先看这个告警的调用记录：`get_alert` 里的 `agents` 列出每次调用的状态、HTTP 状态码、尝试次数和错误，控制台的 Agent 页面也列出所有调用。
+告警触发了，钩子对应的 Agent 却什么也没做。先看这个告警的调用记录：`get_alert` 里的 `agents` 列出每次调用的状态、HTTP 状态码、尝试次数和错误，控制台的 **Hook** 页面也列出所有调用。
 
 - **一次调用都没有。** 钩子只响应它列出的级别（默认 `[critical]`）；设了 `service` 的话，正则表达式必须匹配整个 `service` 标签。钩子只在新告警组第一次发出通知时调用，所以你加钩子之前就已经在触发的告警组，不会叫醒它。钩子写在 `config.yaml` 里，新增或修改钩子都要重启。
 - **`beacon-oncall` 返回 401。** 它的日志里有 `refused`，`reason` 是 `bad signature`（接收程序的 `-secret-file` 和钩子的 `secret_file` 不一致）、`no signature`，或者 `stale delivery`（载荷里的 `at` 比接收程序的时钟早了 15 分钟以上：检查两边的时钟）。
@@ -102,10 +102,10 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 
 | Agent 看到 | 原因 | 怎么办 |
 | --- | --- | --- |
-| `Permission denied (publickey)` | ssh 出示的密钥不在任何令牌上 | 加上去：`beacon token ssh-key NAME add "ssh-ed25519 AAAA…"` |
-| `beacon: this token may not reach the machine: the token lacks the machines:ssh scope`（`machine.forbidden`） | 令牌没有 `machines:ssh` | 创建一个带这个作用域的令牌 |
+| `Permission denied (publickey)` | ssh 出示的密钥不属于任何此刻能用通道的 Agent 或令牌：从没登记过、Agent 没有还能用的凭据、它的预设不给 `machines:ssh`，或者它的所有者已停用 | 让 Agent 用 `add_ssh_key` 登记，或者在 Agent 页面上加上（**添加 SSH 密钥**）；再在 Agent 页面上确认它有能用的凭据，以及它的预设 |
+| `beacon: this token may not reach the machine: the token lacks the machines:ssh scope`（`machine.forbidden`） | Agent 的预设或所有者的角色不给 `machines:ssh` | 在 Agent 页面上把预设改为**值班**或**运维**（不能超出所有者的角色）；独立令牌则新建一个带这个作用域的 |
 | `beacon: no such machine called "edge-3"; machines this token reaches: edge-1, edge-2`（`machine.not_found`） | 用户名不是任何一台机器的名字 | 看 `beacon machine list`；ssh 的用户名就是机器名 |
-| `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1`（`machine.forbidden`） | 令牌创建时用 `-machines` 限定了机器 | `beacon token machines NAME edge-1,edge-2`，或者 `all` |
+| `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1`（`machine.forbidden`） | Agent，或者它所用的 OAuth 登录，只限其他机器 | 在 Agent 页面上加上这台机器；OAuth 登录则从客户端重新登录并勾选它；独立令牌用 `beacon token machines NAME edge-1,edge-2`，或者 `all` |
 | `beacon: agents' access to machines is paused since …`（`ssh.paused`） | 有人暂停了通道 | 和暂停它的人确认后，执行 `beacon ssh resume` |
 | `beacon: the machine cannot be reached: edge-1: dial tcp …`（`machine.unreachable`） | Beacon 连不上机器的 SSH 端口 | 机器宕了，或者它的防火墙不让中心连进来 |
 | `… ssh: handshake failed: ssh: unable to authenticate …`（`machine.unreachable`） | 机器的 sshd 不接受 Beacon 的证书 | 执行 `machine add` 打印的那几行：`/etc/ssh/beacon_ca.pub`、`TrustedUserCAKeys`、`beacon` 账户、`systemctl reload ssh` |
@@ -115,13 +115,14 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 
 还有两种情况。如果连续失败几次之后，所有 Agent 连同一台机器都开始失败，可能是 OpenSSH 的惩罚机制（9.8 及以后的版本）限制了中心的地址，而所有 Agent 都从这个地址连过来：在机器的 `beacon.conf` 里加上带中心地址的 `PerSourcePenaltyExemptList`（见[添加机器](ssh.md#add-a-machine)）。另外，同一个地址 10 分钟内登录失败 20 次后，通道在这 10 分钟剩下的时间里，对这个地址的连接一律不应答、直接关闭。
 
-### Agent 的令牌被拒绝 {#the-agents-token-is-refused}
+### Agent 的凭据被拒绝 {#the-agents-credential-is-refused}
 
-API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上。
+API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求重新登录。
 
-- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间。用 `beacon token create` 新建一个，并让 Agent 能自己续期（见[自动续期的令牌](agents.md#tokens-that-renew-themselves)）。
+- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了；也可能是 Agent 被删除了，或者它的所有者被停用了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间，Agent 页面上能看到它的各个凭据。在 Agent 页面上点**新令牌**新建一个（独立令牌用 `beacon token create`），并让 Agent 能自己续期（见[自动续期的令牌](agents.md#tokens-that-renew-themselves)）。
+- **OAuth 客户端要求重新登录。** 它的登录被吊销了，或者授权页面上允许的期限到了：从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的。** 像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥，而旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
-- **`auth.scope`，`the token lacks the … scope`。** 接口或工具需要令牌没有的作用域，提示里写明了是哪个（见[作用域](reference/api.md#scopes)）。
+- **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](reference/api.md#scopes)）。
 - **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住；常见于客户端拿着错误的令牌不停重试。
 - **续期时返回 `token.too_soon`（429）。** 令牌不到 24 小时前刚续过期，仍然有效。
 
@@ -135,12 +136,14 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上。
 
 `/console/sign-in` 的登录表单会说明原因（括号里是界面语言为中文时的提示）：
 
-- `The token is unknown or has expired.`（「令牌不存在或已过期。」）：令牌输错了、过期了或者被吊销了。
-- `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」）：换一个带 `status:read` 的令牌。
-- 一次又一次地提示 `The form has expired; paste the token again.`（「表单已过期，请重新粘贴令牌。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
+- `Wrong username or password.`（「用户名或密码不对。」）：两者有一个不对，提示对两种情况都一样。忘了密码，请所有者给一个重设链接（**成员**页面，或 `beacon user reset NAME`）。
+- `This account is disabled; an owner can enable it.`（「这个账号已停用；所有者可以重新启用。」）：所有者在**成员**页面上启用它，或者执行 `beacon user enable NAME`。
+- `Too many failed sign-ins; try again in a few minutes.`（「登录失败的次数太多，请过几分钟再试。」）：这个用户名 10 分钟内密码错了 10 次，不论来自哪里；等这 10 分钟过去。
 - `Too many failed sign-ins from here; try again in a few minutes.`（「这里登录失败的次数太多，请过几分钟再试。」）：你的地址 10 分钟内失败了 20 次，等这 10 分钟过去。
+- 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
+- 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 
-目前登录控制台要用 Beacon 令牌，详见[控制台](pages.md)。
+还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](accounts.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link does not work: it was used already, it expired, or it is wrong.`（「这个链接不能用：已用过、已过期或不正确。」）时，请所有者重新给一个。详见[控制台](pages.md#signing-in)。
 
 ### 打开旧链接，控制台显示 404 {#the-console-says-404-on-an-old-link}
 

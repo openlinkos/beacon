@@ -39,7 +39,7 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 | --- | --- |
 | **1. Sees** (monitoring): whether services work for their users, what broke and why | A critical outage reaches agents and people within 5 minutes; one probe location's hiccup disturbs nobody; every failure carries its location and its reason; one call returns the evidence |
 | **2. Reaches** (the SSH channel): agents get to every enrolled machine and work on it | ssh, scp, rsync, `ssh -L` and the MCP tools reach any enrolled machine, also behind NAT; the channel adds under 50 ms (measured: about 23 ms per new connection); agents never touch a password or a key |
-| **3. Connects** (the platform): people and agents share one identity and one timeline | One token works for SSH, REST and MCP; a machine is enrolled once, and monitoring and the SSH channel share that identity; one timeline joins alerts, sessions, commands and notes; a new alert can wake an agent; people see in Feishu everything agents do, can replay it, and can pause agents at once |
+| **3. Connects** (the platform): people and agents share one identity and one timeline | An agent is one identity on SSH, REST and MCP, acting for a person and never beyond that person's role; a machine is enrolled once, and monitoring and the SSH channel share that identity; one timeline joins alerts, sessions, commands and notes; a new alert can wake an agent; people see in Feishu everything agents do, can replay it, and can pause agents at once |
 
 ## Design goals
 

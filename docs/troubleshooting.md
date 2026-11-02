@@ -83,7 +83,7 @@ The alert is in `list_alerts`, but no card, no message and no phone call came.
 
 ### The agent is not woken
 
-An alert fired, and the hook's agent did nothing. Look at the alert's calls first: `agents` in `get_alert` gives each call's status, HTTP status, attempts and error, and the console's Agents page lists every call.
+An alert fired, and the hook's agent did nothing. Look at the alert's calls first: `agents` in `get_alert` gives each call's status, HTTP status, attempts and error, and the console's **Hooks** page lists every call.
 
 - **No call at all.** A hook is called only for the severities it lists (`[critical]` by default) and, with `service`, only when the regular expression matches the whole `service` label. It is called when a new alert group is first notified, so a group that was already firing when you added the hook does not wake it. Hooks are read from `config.yaml`, so a new or changed hook needs a restart.
 - **401 from `beacon-oncall`.** Its log says `refused` with `reason` `bad signature` (the harness's `-secret-file` and the hook's `secret_file` differ), `no signature`, or `stale delivery` (the payload's `at` is more than 15 minutes older than the harness's clock: check both clocks).
@@ -98,10 +98,10 @@ The agent's ssh fails, or a tool such as `run_command` returns an error. The cha
 
 | The agent sees | Why | What to do |
 | --- | --- | --- |
-| `Permission denied (publickey)` | The key ssh offers is on no token | Add it: `beacon token ssh-key NAME add "ssh-ed25519 AAAA…"` |
-| `beacon: this token may not reach the machine: the token lacks the machines:ssh scope` (`machine.forbidden`) | The token has no `machines:ssh` | Create a token with that scope |
+| `Permission denied (publickey)` | The key ssh offers belongs to no agent or token that may use the channel now: it was never registered, the agent has no credential that works, its preset gives no `machines:ssh`, or its owner is disabled | Have the agent register it with `add_ssh_key`, or add it on the agent's page (**Add an SSH key**); check the agent's page for a working credential and its preset |
+| `beacon: this token may not reach the machine: the token lacks the machines:ssh scope` (`machine.forbidden`) | The agent's preset, or its owner's role, gives no `machines:ssh` | Give the agent the On call or Operator preset on its page, within its owner's role; for a token of its own, create one with that scope |
 | `beacon: no such machine called "edge-3"; machines this token reaches: edge-1, edge-2` (`machine.not_found`) | The user name is not a machine's name | `beacon machine list`; the user name in ssh is the machine's name |
-| `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1` (`machine.forbidden`) | The token was created with `-machines` | `beacon token machines NAME edge-1,edge-2`, or `all` |
+| `beacon: this token may not reach the machine edge-2; machines this token reaches: edge-1` (`machine.forbidden`) | The agent, or the OAuth sign-in it uses, is limited to other machines | Add the machine on the agent's page; for an OAuth sign-in, sign in again from the client and tick it; for a token of its own, `beacon token machines NAME edge-1,edge-2`, or `all` |
 | `beacon: agents' access to machines is paused since …` (`ssh.paused`) | Someone paused the channel | `beacon ssh resume`, once whoever paused it agrees |
 | `beacon: the machine cannot be reached: edge-1: dial tcp …` (`machine.unreachable`) | Beacon cannot open a connection to the machine's SSH port | The machine is down, or its firewall does not let the centre in |
 | `… ssh: handshake failed: ssh: unable to authenticate …` (`machine.unreachable`) | The machine's sshd does not accept Beacon's certificate | Run the lines `machine add` printed: `/etc/ssh/beacon_ca.pub`, `TrustedUserCAKeys`, the `beacon` account, `systemctl reload ssh` |
@@ -111,13 +111,14 @@ The agent's ssh fails, or a tool such as `run_command` returns an error. The cha
 
 Two more cases. When connections to one machine start failing for every agent at once after a run of failed attempts, OpenSSH's penalties (9.8 and later) may have caught the centre's address, from which every agent arrives: add `PerSourcePenaltyExemptList` with the centre's address to the machine's `beacon.conf` ([Add a machine](ssh.md#add-a-machine)). And after 20 failed sign-ins within 10 minutes from one address, the channel closes that address's connections without an answer for the rest of those 10 minutes.
 
-### The agent's token is refused
+### The agent's credential is refused
 
-The API or MCP answers 401 or 403, or the MCP client says it cannot connect.
+The API or MCP answers 401 or 403, or the MCP client says it cannot connect, or asks to sign in again.
 
-- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped. `beacon token list` shows each token's expiry and last renewal. Create a new one with `beacon token create`, and give the agent a way to renew it ([Tokens that renew themselves](agents.md#tokens-that-renew-themselves)).
+- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped; or the agent was deleted, or its owner disabled. `beacon token list` shows each token's expiry and last renewal, and the agent's page its credentials. Make a new token with **New token** on the agent's page (`beacon token create` for a token of its own), and give the agent a way to renew it ([Tokens that renew themselves](agents.md#tokens-that-renew-themselves)).
+- **An OAuth client asks to sign in again.** Its sign-in was revoked, or the time allowed on the consent page is up: sign in again from the client (`/mcp` in Claude Code, `codex mcp login beacon`).
 - **A renewed token that the client no longer has.** A client registered with a fixed header, as `claude mcp add --header` does, keeps the old secret, which stops working ten minutes after a renewal: add it again with the new secret. The wrappers in `contrib/oncall` read the token file on every connection instead.
-- **`auth.scope`, `the token lacks the … scope`.** The route or tool needs a scope the token does not have; the message names it ([Scopes](reference/api.md#scopes)).
+- **`auth.scope`.** The route or tool needs a scope the credential does not have. The message names it: `the token lacks the … scope` for a token of its own, and for an agent what its preset within its owner's role allows. Change the agent's preset on its page, or ask an owner for a role that allows it ([Scopes](reference/api.md#scopes)).
 - **`auth.too_many_failures`.** 20 failed attempts from one address within 10 minutes block it for the rest of those 10 minutes; a client retrying with a wrong token causes it.
 - **`token.too_soon` (429) on a renewal.** The token renewed itself less than 24 hours ago and is still good.
 
@@ -131,12 +132,14 @@ The API or MCP answers 401 or 403, or the MCP client says it cannot connect.
 
 The sign-in form at `/console/sign-in` says why:
 
-- `The token is unknown or has expired.`: the token is mistyped, expired or revoked.
-- `Token NAME lacks status:read, which the console needs to show anything.`: make a token with `status:read`.
-- `The form has expired; paste the token again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
+- `Wrong username or password.`: one of the two is wrong; the answer is the same for both. A lost password takes a reset link from an owner (**People**, or `beacon user reset NAME`).
+- `This account is disabled; an owner can enable it.`: an owner enables it on **People**, or with `beacon user enable NAME`.
+- `Too many failed sign-ins; try again in a few minutes.`: 10 wrong passwords for this username within 10 minutes, from anywhere; wait for the 10 minutes to pass.
 - `Too many failed sign-ins from here; try again in a few minutes.`: 20 failures from your address within 10 minutes; wait for the 10 minutes to pass.
+- `The form has expired; try again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
+- With a token instead: `The token is unknown or has expired.` (the token is mistyped, expired or revoked), or `Token NAME lacks status:read, which the console needs to show anything.` (make a token with `status:read`).
 
-Signing in today takes a Beacon token; [The console](pages.md) has the details.
+Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](accounts.md#the-first-owner)). A setup, invitation or reset link that says `This link does not work: it was used already, it expired, or it is wrong.` needs a new one from an owner. [The console](pages.md#signing-in) has the details.
 
 ### The console says 404 on an old link
 

@@ -34,14 +34,14 @@ Beacon 的设计是让 Agent 干活，让人看得见全部：
 
 ## 功能
 
-- **MCP 服务器**（`/mcp`），38 个工具：告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置，以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。
+- **MCP 服务器**（`/mcp`），43 个工具：告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
 - **SSH 通道**（17002 端口）：`ssh`、`scp`、`sftp`、`rsync` 和 `ssh -L` 到任何登记过的机器，用户名就是机器名；NAT 后面的机器用普通的 `ssh -R` 自己连出来。
 - **检测程序**（`beacon-probe`）：和 Blackbox Exporter 兼容的检测并给出失败原因，主机指标和心跳，断网时先存进磁盘队列；检测目标和模块由中心下发，改检测内容不用重新部署。
 - **告警路由**，不需要 Alertmanager：分组、抑制、静默和死信开关都在服务里；vmalert 像发给 Alertmanager 一样把告警发给 Beacon。
 - **飞书卡片**原地更新：什么坏了、从什么时候、哪些检测点失败及原因、Agent 的备注；卡片上的按钮可以认领和静默；没人响应时升级到飞书加急和 Pushover 紧急通知。
 - **唤醒 Agent**：新告警组触发签名 webhook 或 GitHub workflow；还有 `beacon-oncall`，一个小的接收程序，验证 webhook 后启动你指定的 Agent 程序（附 Claude Code 和 Codex 的包装脚本）。
 - **公开状态页**由 Beacon 自己提供：组件来自检测目标，90 天历史，事件来自告警，维护窗口，JSON、Atom 订阅和徽章。
-- **控制台**（`/console`；站点根路径是公开状态页）：告警及其证据和时间线、机器、每次会话及回放、Agent 的令牌、配置及历史、审计日志。
+- **控制台**（`/console`；站点根路径是公开状态页）：告警及其证据和时间线、机器、每次会话及回放、成员和他们的 Agent（连同令牌、OAuth 登录和密钥）、配置及历史、审计日志。
 - **在 Beacon 里配置**：检测点、检测目标、模块和状态页存在它的数据库里，经 API、MCP 或命令行修改，每次修改都是一个能撤销的版本；文件只用于导入导出，所以仍然可以放在 git 里。
 
 ## 支持哪些 Agent
@@ -70,18 +70,18 @@ sudo ./install.sh        # 会问两个域名和一个用于申请证书的邮�
 ### 接入 Claude Code
 
 ```bash
-docker exec beacon beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp \
-  --header "Authorization: Bearer lbt_…"
+docker exec beacon beacon setup    # 一次性链接：打开它，设置你的用户名和密码
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-然后在任意会话里问：*「现在有什么在报错吗？看一下证据，上机器查一查，告诉我你打算怎么处理。」* Agent 会根据 `get_evidence` 和机器上的实际情况回答，它执行过的一切都在控制台的「会话」里。
+然后在 Claude Code 里执行 `/mcp`，在浏览器里登录：Beacon 会请你把 Claude Code 允许为你的一个 Agent，并选好它能做什么、有效多久，全程不用复制任何令牌。之后在任意会话里问：*「现在有什么在报错吗？看一下证据，上机器查一查，告诉我你打算怎么处理。」* Agent 会根据 `get_evidence` 和机器上的实际情况回答，它执行过的一切都在控制台的「会话」里。没有浏览器的 Agent 改用令牌：`docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`。
 
 ## 文档
 
 文档在 [`docs/`](docs/)，发布在 [beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)：
 
 - [30 分钟装好](docs/zh/install.md)：从一台空机器到第一个检测点、第一台机器、第一个 Agent 和第一次演练
+- [成员和 Agent](docs/zh/accounts.md)：账号和角色、Claude Code 和 Codex 通过浏览器接入、无界面 Agent 和它的令牌
 - [让 Agent 值班](docs/zh/agents.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
 - [SSH 通道](docs/zh/ssh.md)：Agent 不拿密钥怎么上机器、录像、NAT 后面的机器
 - [目录、检测目标和模块](docs/zh/catalog.md)：检测什么、从哪里检测、怎么配置
@@ -107,7 +107,7 @@ Agent ──▶ ssh、scp、rsync（17002 端口）──▶ SSH 通道 ──�
 
 ## 安全
 
-Agent 从不接触密码和私钥：SSH 通道每次连接签一张短期证书，机器只信任它的 CA。令牌只存 SHA-256 哈希，有作用域、会过期；每个检测点和主机只能以自己的身份写入。Agent 做的每件事都记入审计并回显到告警群。密钥只从文件读取，从不写进日志。漏洞报告方式见 [SECURITY.md](SECURITY.md)。
+Agent 从不接触密码和私钥：SSH 通道每次连接签一张短期证书，机器只信任它的 CA。人用 Beacon 自带的账号登录，密码只存 argon2id 哈希，不接外部登录。Agent 代表某个人行事，能做的事绝不超出这个人的角色，每次请求都重新核对。令牌只存 SHA-256 哈希，有作用域、会过期；每个检测点和主机只能以自己的身份写入。Agent 做的每件事都记入审计并回显到告警群。密钥只从文件读取，从不写进日志。漏洞报告方式见 [SECURITY.md](SECURITY.md)。
 
 ## 参与贡献
 

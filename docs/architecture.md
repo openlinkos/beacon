@@ -22,7 +22,7 @@ Three binaries, all in Go without cgo:
 
 | Binary | Where it runs | What it does |
 | --- | --- | --- |
-| `beacon` | The centre (the machine Beacon runs on), beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck` |
+| `beacon` | The centre (the machine Beacon runs on), beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck` |
 | `beacon-probe` | Each probe location: an edge node, a small VPS where users are | `agent` pushes results to the gateway; `serve` answers scrapes like the Blackbox Exporter; `check` validates a module file; `run` probes once |
 | `beacon-oncall` | The machine where an agent runs | The reference harness: checks a hook's signature and starts the agent program you name, with the payload on its standard input |
 
@@ -34,7 +34,7 @@ The reference deployment (`deploy/`) is four containers on the centre: Beacon (m
 
 | Port | For | What answers |
 | --- | --- | --- |
-| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`), the public pages (`/`, `/status`), the console (`/console`, with the pages a card links to: `/console/alerts/{id}`, `/console/sessions/{id}`), `/healthz`, `/readyz`, `/metrics` (direct connections only) and the drill target |
+| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`) and its OAuth (`/.well-known/…`, `/oauth/…`), the public pages (`/`, `/status`), the console (`/console`, with the pages a card links to: `/console/alerts/{id}`, `/console/sessions/{id}`), `/healthz`, `/readyz`, `/metrics` (direct connections only) and the drill target |
 | 17002 | Agents, and machines behind NAT | The SSH channel: plain SSH, published directly rather than through the HTTP proxy |
 | 17006 | Machines | The gateway: probes, hosts, heartbeats, the rule engine's alerts, change events, metric queries |
 
@@ -42,9 +42,9 @@ In the reference deployment Caddy serves 17001 as `https://status.example.com` a
 
 ## Where state lives
 
-- **One bbolt file**, `status.db` in the data directory (`data_dir`, `/var/lib/beacon`): alert groups with their notes and agent calls, silences, tokens (as SHA-256 hashes), machines, the index of SSH sessions, change events, the configuration with its history, the console's sign-ins, and the audit log.
+- **One bbolt file**, `status.db` in the data directory (`data_dir`, `/var/lib/beacon`): alert groups with their notes and agent calls, silences, people's accounts (passwords as argon2id hashes), their agents, tokens and OAuth sign-ins (as SHA-256 hashes), machines, the index of SSH sessions, change events, the configuration with its history, the console's sign-ins, and the audit log.
 - **Recordings** of SSH sessions, as files beside it under `recordings/YYYY/MM/DD/`, kept for `ssh.keep` (180 days by default).
-- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` need no network and no token; only the service's own user and root may connect. Tokens are made there.
+- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` need no network and no token; only the service's own user and root may connect. Machines' tokens are made there, and the setup link that makes the first account.
 - **Metrics and rules are not Beacon's**: VictoriaMetrics stores and queries the probes' results (400 days in the reference deployment), and vmalert evaluates the rules.
 
 ## An alert's path
@@ -59,20 +59,20 @@ From a service breaking to people and agents hearing of it, with the reference r
 
 ## An agent's path
 
-An agent woken by a hook, or asked by a person, uses one token for every door:
+An agent acts for a person, its owner, and never does more than its owner's role allows, read afresh on every request. Woken by a hook or asked by a person, it signs in once, through the browser with MCP's OAuth or with a token, and that identity opens every door:
 
 - **REST and MCP** call the same bridge methods. `get_evidence` gathers in one answer each location's result and reason (from VictoriaMetrics), the other alerts in the same failure domain, the change events just before, and what people and agents have done, over a window that opens 30 minutes before the alert started. `add_note`, `ack_alert` and `silence_alert` write; every write is in the audit log and echoed to the alert chat.
 - **Probing on demand.** `probe_now` puts a request on a board in memory that every probe long-polls through the gateway (up to 55 seconds a poll). The locations that probe the target do so at once, push the samples as in their cycle, and post their answers, which the call returns within its wait (45 seconds by default, at most 90).
 - **Machines** are reached through the SSH channel (next section).
-- **Its own token** renews itself before it expires (`renew_token`, at most once a day), so nobody has to hand an agent a long-lived one.
+- **Its credentials** look after themselves: a token renews itself before it expires (`renew_token`, at most once a day), and an OAuth client refreshes its own access token, so nobody has to hand an agent a long-lived one.
 
 Text that comes from outside Beacon (labels, probed services' answers, change events, what machines print) is cleaned of control and invisible characters, cut when long, and named in an `untrusted` object in every answer that carries it.
 
 ## Reaching a machine
 
-An agent signs in to the SSH channel with the key on its token; the user name it gives is the machine it wants. The channel checks that the token has `machines:ssh` and reaches that machine, connects to the machine with its pinned host key, and presents a certificate it signed for that one connection: valid for five minutes, for the machine's account (`beacon` by default), with a key ID that names the connection, the token and the way in (`beacon 20261101-091724-aa8bba for claude-code via ssh`), and limited to `ssh.source_addresses` when that is set. The machine trusts only Beacon's certificate authority. The agent's `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` go through unchanged, and the MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`) take the same path.
+An agent signs in to the SSH channel with its own key, registered with Beacon; the user name it gives is the machine it wants. The channel checks that the agent may use `machines:ssh` and reaches that machine, connects to the machine with its pinned host key, and presents a certificate it signed for that one connection: valid for five minutes, for the machine's account (`beacon` by default), with a key ID that names the connection, the agent and the way in (`beacon 20261101-091724-aa8bba for alice / claude-code via ssh`), and limited to `ssh.source_addresses` when that is set. The machine trusts only Beacon's certificate authority. The agent's `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` go through unchanged, and the MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`) take the same path.
 
-Every session is recorded as asciicast v3 for replay; an interactive shell is broken down into its commands and their exit statuses through shell-integration marks, and the alert chat hears what ran. `beacon ssh pause` closes every session at once and refuses new ones until `ssh resume`. A machine Beacon cannot reach connects out with plain `ssh -R` and a key registered for it, and Beacon reaches its sshd back through that connection.
+Every session is recorded as asciicast v3 for replay; an interactive shell is broken down into its commands and their exit statuses through shell-integration marks, and the alert chat hears what ran. `beacon ssh pause` closes every session at once and refuses new ones until `ssh resume`; when one agent's access ends (a credential revoked or expired, the agent deleted or narrowed, its owner disabled or demoted), what that agent has open closes at once. A machine Beacon cannot reach connects out with plain `ssh -R` and a key registered for it, and Beacon reaches its sshd back through that connection.
 
 ## Configuration
 
@@ -93,12 +93,13 @@ Every session is recorded as asciicast v3 for replay; an interactive shell is br
 | `internal/router` | Alertmanager's job: grouping, `group_wait` and `group_interval`, `resolve_timeout`, inhibition, silences and the Watchdog; groups survive restarts |
 | `internal/bridge` | Alert groups to people (cards, acknowledgements, silences, escalation, the Feishu budget, readiness, the healthchecks.io ping) and to agents (the hooks that wake them, evidence, timeline, notes, change events, untrusted text cleaned) |
 | `internal/feishu`, `internal/notify` | The Feishu app (cards, the long connection, buzz); Pushover, Bark and the group's custom bot |
-| `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods |
+| `internal/api`, `internal/mcpserver` | REST (`openapi.yaml`) and MCP, both calling the same bridge and SSH channel methods, for whoever a credential resolves to: a person, a person's agent, or a token of its own |
+| `internal/oauth` | Beacon as the authorization server for its own `/mcp`: the metadata, client registration and client ID metadata documents, the token and revocation endpoints; the consent page is the console's |
 | `internal/status` | The public status pages: components, their state now and 90 days of history from the probes' agreement, incidents from alert groups, maintenance windows |
-| `internal/web`, `internal/web/link` | The console and the public status pages, on the workbench shell of `@openlinkos/ui` (vendored under `static/ol`, refreshed by `scripts/update-ui.sh`; asciinema-player under `static/`), and the signed links a card opens them with |
-| `internal/sshgate` | The SSH channel: agents' sign-in by the keys on their tokens, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts, the tools (run, read, write, edit), connectors for machines behind NAT, pausing, echoes to the chat |
-| `internal/store` | The bbolt database: groups (with notes and agent calls), silences, tokens (hashed, with scopes, subjects, expiry, SSH keys and machines), machines, the index of SSH sessions, change events, console sign-ins, the audit log, the drill |
-| `internal/ctl` | The admin socket in the data directory, behind the command line's `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` |
+| `internal/web`, `internal/web/link` | The console (with sign-in, setup, invitations and resets, people, agents and the OAuth consent page) and the public status pages, on the workbench shell of `@openlinkos/ui` (vendored under `static/ol`, refreshed by `scripts/update-ui.sh`; asciinema-player under `static/`), and the signed links a card opens them with |
+| `internal/sshgate` | The SSH channel: agents' sign-in by their keys, what is open closed when access ends, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts, the tools (run, read, write, edit), connectors for machines behind NAT, pausing, echoes to the chat |
+| `internal/store` | The bbolt database: groups (with notes and agent calls), silences, accounts and one-time links, agents and their presets, tokens (hashed, with scopes, subjects, expiry, SSH keys and machines), OAuth clients and grants, machines, the index of SSH sessions, change events, console sign-ins, the audit log, the drill |
+| `internal/ctl` | The admin socket in the data directory, behind the command line's `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` |
 | `internal/catalog`, `internal/targets` | Locations, heartbeats, resources and status pages; the target files and the probe protocol's types; the checks every change passes |
 | `internal/configdb` | The catalogue, target sets and module file in the database: changes with versions, history and revert, import and export, the state the gateway reads |
 | `internal/probe`, `internal/hostmetrics`, `internal/agent` | The probers (Blackbox-compatible, plus container registries, Git over HTTP and RDAP) with failure reasons; host metrics from `/proc`; the agent's cycle and disk queue |
@@ -110,7 +111,8 @@ Every session is recorded as asciicast v3 for replay; an interactive shell is br
 ## Rules every part keeps
 
 - **Secrets come only from files** the configuration names, and are never logged or put in errors.
-- **Tokens are stored as SHA-256 hashes**, with scopes and an expiry; 20 failed attempts from one client address within 10 minutes block that address for the rest of those 10 minutes (one count for the API, the console's sign-in and the gateway; the SSH channel keeps its own, with the same limit). A probe's or host's token writes only as its own subject.
+- **Tokens are stored as SHA-256 hashes**, with scopes and an expiry, as are OAuth tokens, one-time link codes and console session ids; passwords as argon2id hashes. 20 failed attempts from one client address within 10 minutes block that address for the rest of those 10 minutes (one count for the API, the console's sign-in and the gateway; the SSH channel keeps its own, with the same limit), and 10 wrong passwords block a username. A probe's or host's token writes only as its own subject.
+- **People sign in only with Beacon's own accounts, and an agent never does more than its owner's role allows**, read afresh on every request.
 - **Every operation is both a REST route and an MCP tool**, through the same method, with a scope check, an audit entry and an echo to the alert chat. Errors are `{"error", "code"}`, with codes that stay stable ([REST API](reference/api.md)).
 - **The probe protocol only grows**: fields and routes are added, never changed or removed, so probes and gateways of different versions keep working together.
 - **Close to how agents work**: SSH, the shell, HTTP with JSON, Prometheus queries and MCP, rather than a protocol or configuration language of Beacon's own.
