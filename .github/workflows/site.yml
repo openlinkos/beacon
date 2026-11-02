@@ -50,7 +50,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=beacon-site
-            org.opencontainers.image.description=The site of Beacon, infrastructure for AI agents that run operations.
+            org.opencontainers.image.description=The site of Beacon: self-hosted monitoring and SSH access for the AI agents that run your servers.
             org.opencontainers.image.url=https://beacon.openlinkos.com
             org.opencontainers.image.licenses=Apache-2.0
 
@@ -67,7 +67,7 @@ jobs:
           docker run -d --name site -p 8080:8080 beacon-site:test
           s=http://localhost:8080
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
-          curl -fsS "$s/" | grep -q 'Infrastructure for AI agents that run operations'
+          curl -fsS "$s/" | grep -q 'Put your AI agent on call'
           curl -fsS "$s/zh/" | grep -q 'lang="zh-CN"'
           curl -fsS "$s/install" | grep -q 'Up in 30 minutes'
           curl -fsS "$s/reference/api" | grep -q 'auth.scope'
