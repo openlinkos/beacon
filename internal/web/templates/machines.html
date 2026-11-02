@@ -1,0 +1,38 @@
+{{define "switch"}}<section class="ol-panel{{if .Channel.Paused}} ol-panel-danger{{end}}">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "power"}} {{.L.Channel}}</h2>
+    {{if .Channel.On}}<span class="ol-status ol-status-{{if .Channel.Paused}}danger{{else}}success{{end}}"><span class="ol-dot{{if not .Channel.Paused}} ol-dot-live{{end}}"></span>{{.Channel.State}}</span>{{end}}
+  </div>
+  <div class="ol-panel-body">
+    {{if not .Channel.On}}<p class="ol-hint">{{.L.Off}}</p>
+    {{else if .Channel.Paused}}<p>{{.Channel.Since}}</p><p class="ol-hint">{{.L.ResumeHint}}</p>
+    {{else}}<p class="ol-hint">{{.L.PauseHint}}</p>{{end}}
+  </div>
+  {{if and .Channel.On .Channel.Can}}
+  <div class="ol-panel-footer">
+    {{if .Channel.Paused}}
+    <form method="post" action="/machines/resume"><input type="hidden" name="csrf" value="{{.Channel.CSRF}}"><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "power"}}{{.L.Resume}}</button></form>
+    {{else}}
+    <form method="post" action="/machines/pause"><input type="hidden" name="csrf" value="{{.Channel.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger ol-btn-sm">{{iconSm "ban"}}{{.L.Pause}}</button></form>
+    {{end}}
+  </div>
+  {{end}}
+</section>{{end}}
+
+{{define "content"}}<div class="ol-stack">
+{{template "switch" .}}
+{{if .Rows}}
+<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+  <thead><tr><th>{{.L.Name}}</th><th>{{.L.Address}}</th><th>{{.L.Critical}}</th><th class="ol-num">{{.L.Sessions24h}}</th><th>{{.L.LastSession}}</th></tr></thead>
+  <tbody>
+  {{range .Rows}}<tr>
+    <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Name}}</a></td>
+    <td data-label="{{$.L.Address}}">{{if .ConnectorTone}}<span class="ol-badge ol-badge-{{.ConnectorTone}}"><span class="ol-dot"></span>{{.Address}}</span>{{else}}<span class="ol-mono">{{.Address}}</span>{{end}}</td>
+    <td data-label="{{$.L.Critical}}">{{if .Critical}}<span class="ol-badge ol-badge-danger">{{$.L.Critical}}</span>{{end}}</td>
+    <td class="ol-num" data-label="{{$.L.Sessions24h}}">{{.Sessions}}</td>
+    <td data-label="{{$.L.LastSession}}">{{if .LastHref}}<a href="{{.LastHref}}">{{.Last}}</a>{{end}}</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{template "pager" .}}
+{{else}}{{template "empty" .L.NoMachines}}{{end}}
+</div>{{end}}

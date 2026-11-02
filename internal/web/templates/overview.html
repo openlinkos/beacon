@@ -1,0 +1,68 @@
+{{define "stat"}}<a class="ol-stat" href="{{.Href}}">
+  <span class="ol-stat-label"><span class="ol-stat-icon{{if .Tone}} ol-tone-{{.Tone}}{{end}}">{{iconSm .Icon}}</span>{{.Label}}</span>
+  <span class="ol-stat-value">{{.Value}}</span>
+  <span class="ol-stat-meta">{{.Meta}}</span>
+</a>{{end}}
+
+{{define "content"}}
+<section class="ol-stats" aria-label="{{.Heading}}">
+  {{range .Stats}}{{template "stat" .}}{{end}}
+</section>
+
+<div class="ol-layout-dashboard">
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Firing}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="/alerts">{{.L.AllAlerts}}</a></div>
+      <div class="ol-panel-body">
+        <ul class="ol-list">
+          {{range .Severities}}<li><span class="ol-list-row"><a class="ol-list-title" href="{{.Href}}">{{.Label}}</a><span class="ol-badge ol-badge-{{.Tone}}">{{.Count}}</span></span></li>{{end}}
+        </ul>
+      </div>
+      {{if .Firing}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <tbody>
+        {{range .Firing}}<tr>
+          <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}</td>
+          <td><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span>{{if .Acked}} <span class="ol-badge">{{$.L.Acked}}</span>{{end}}{{if .Silenced}} <span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</td>
+          <td class="ol-num">{{.Since}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneFiring}}</p></div>{{end}}
+    </section>
+
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="/agents">{{.L.AllCalls}}</a></div>
+      {{if .Calls}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <tbody>
+        {{range .Calls}}<tr>
+          <td><span class="ol-cell-title">{{.Hook}}</span><a class="ol-cell-sub" href="{{.AlertHref}}">{{.Alert}}</a></td>
+          <td><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></td>
+          <td class="ol-num">{{.At}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneWoken}}</p></div>{{end}}
+    </section>
+  </div>
+
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "power"}} {{.L.Channel}}</h2></div>
+      <div class="ol-panel-body">
+        <a class="ol-status{{if .Channel.Tone}} ol-status-{{.Channel.Tone}}{{end}}" href="{{.Channel.Href}}"><span class="ol-dot"></span>{{.Channel.Value}}</a>
+        <p class="ol-hint">{{.Channel.Meta}}</p>
+      </div>
+    </section>
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "settings"}} {{.L.Beacon}}</h2></div>
+      <div class="ol-panel-body">
+        <dl class="ol-dl ol-dl-stack">
+          {{range .Facts}}<dt>{{.K}}</dt><dd>{{if .Href}}<a href="{{.Href}}">{{.V}}</a>{{else}}{{.V}}{{end}}</dd>{{end}}
+        </dl>
+      </div>
+    </section>
+  </div>
+</div>
+{{end}}

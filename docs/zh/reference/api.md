@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-644794d5
+sourceHash: sha256-9d97f4cb
 ---
 
 # REST API
@@ -121,6 +121,7 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | --- | --- | --- |
 | `GET /api/v1/token` | 任意 | 调用者自己的令牌：名字、作用域、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否以及何时可以续期；从不包括密钥本身 |
 | `POST /api/v1/token/renew` | 任意 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期 |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一把能到达机器的令牌（`machines:ssh`）：针对单个 Agent 的暂停开关。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在主机上吊销（`token.not_revocable`） |
 | `GET /api/v1/openapi.yaml` | 无需 | OpenAPI 文档 |
 
 ## 网关 {#the-gateway}
@@ -185,6 +186,8 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `config.conflict` | 409 | 已有更新的版本生效，或之后的修改动过同一项；重新读取，再做决定 |
 | `token.too_soon` | 429 | 令牌不到 24 小时前刚续过期，仍然有效 |
 | `token.not_renewable` | 403 | 登记的机器的令牌；用 `linkos-beacon enroll … -rotate` 换新 |
+| `token.not_found` | 404 | 没有这个名字的令牌可吊销 |
+| `token.not_revocable` | 403 | 这把令牌不能到达机器；机器和服务的令牌要在主机上用 `linkos-beacon token revoke` 吊销 |
 | `probe.busy` | 429 | 这个目标不到 15 秒前刚按需检测过，或这个令牌已有三个请求在进行 |
 | `probe.not_found` | 404 | 没有正在工作的检测点检测这个目标 |
 | `probe.unavailable` | 503 | 这个 Beacon 没有可用来检测的网关 |

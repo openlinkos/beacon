@@ -1,0 +1,6 @@
+{{define "content"}}<div class="ol-empty">
+  <span class="ol-empty-icon">{{icon "circle-alert"}}</span>
+  <p class="ol-empty-title">{{.Heading}}</p>
+  <p class="ol-empty-text">{{.Text}}</p>
+  {{if .SignedIn}}<a class="ol-btn ol-btn-secondary" href="{{.BackHref}}">{{icon "layout-dashboard"}}{{.Back}}</a>{{end}}
+</div>{{end}}

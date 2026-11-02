@@ -1,0 +1,83 @@
+{{define "content"}}<div class="ol-stack">
+<section class="ol-section" id="locations">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Locations}}</h2></div>
+  {{if .Locations}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.ID}}</th><th>{{.L.Name}}</th><th>{{.L.Region}}</th><th>{{.L.Network}}</th><th>{{.L.Standby}}</th><th>{{.L.Expected}}</th><th>{{.L.Reporting}}</th></tr></thead>
+    <tbody>{{range .Locations}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.ID}}</span></td>
+      <td data-label="{{$.L.Name}}">{{.Name}}</td>
+      <td data-label="{{$.L.Region}}">{{.Region}}</td>
+      <td data-label="{{$.L.Network}}">{{.Network}}</td>
+      <td data-label="{{$.L.Standby}}">{{if .Standby}}{{$.L.Yes}}{{else}}{{$.L.No}}{{end}}</td>
+      <td data-label="{{$.L.Expected}}">{{if .Expected}}{{$.L.Yes}}{{else}}<span class="ol-badge ol-badge-warning">{{$.L.No}}</span>{{end}}</td>
+      <td data-label="{{$.L.Reporting}}">{{.Reporting}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="heartbeats">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Heartbeats}}</h2></div>
+  {{if .Heartbeats}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.MaxAge}}</th><th>{{.L.Severity}}</th><th>{{.L.Description}}</th></tr></thead>
+    <tbody>{{range .Heartbeats}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.Name}}</span></td>
+      <td data-label="{{$.L.MaxAge}}">{{.MaxAge}}</td>
+      <td data-label="{{$.L.Severity}}">{{.Severity}}</td>
+      <td data-label="{{$.L.Description}}" class="ol-cell-wrap">{{.Description}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="resources">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Resources}}</h2></div>
+  {{if .Resources}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.Kind}}</th><th>{{.L.Expires}}</th><th>{{.L.Note}}</th></tr></thead>
+    <tbody>{{range .Resources}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.Name}}</span></td>
+      <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
+      <td data-label="{{$.L.Expires}}">{{.Expires}}</td>
+      <td data-label="{{$.L.Note}}" class="ol-cell-wrap">{{.Note}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="targets">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Targets}}</h2></div>
+  {{if .Targets}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.ProbedBy}}</th><th class="ol-num">{{.L.Groups}}</th><th class="ol-num">{{.L.TargetsN}}</th><th>{{.L.Modules}}</th><th>{{.L.Services}}</th></tr></thead>
+    <tbody>{{range .Targets}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.Name}}</span></td>
+      <td data-label="{{$.L.ProbedBy}}">{{.ProbedBy}}</td>
+      <td class="ol-num" data-label="{{$.L.Groups}}">{{.Groups}}</td>
+      <td class="ol-num" data-label="{{$.L.TargetsN}}">{{.Targets}}</td>
+      <td data-label="{{$.L.Modules}}">{{.Modules}}</td>
+      <td data-label="{{$.L.Services}}" class="ol-cell-wrap">{{.Services}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="modules">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Modules}}</h2></div>
+  {{if .Modules}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.Prober}}</th></tr></thead>
+    <tbody>{{range .Modules}}<tr><td><span class="ol-cell-title ol-mono">{{.Name}}</span></td><td data-label="{{$.L.Prober}}">{{.Prober}}</td></tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="history">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.History}}</h2></div>
+  {{if .History}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th class="ol-num">{{.L.Version}}</th><th>{{.L.Time}}</th><th>{{.L.Who}}</th><th>{{.L.Action}}</th><th>{{.L.Items}}</th><th>{{.L.Note}}</th></tr></thead>
+    <tbody>{{range .History}}<tr>
+      <td class="ol-num"><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Version}}</a></td>
+      <td>{{.Time}}</td>
+      <td><span class="ol-cell-title">{{.Who}}</span><span class="ol-cell-sub">{{.Via}}</span></td>
+      <td data-label="{{$.L.Action}}"><span class="ol-badge ol-badge-mono">{{.Action}}</span></td>
+      <td data-label="{{$.L.Items}}" class="ol-cell-wrap"><span class="ol-mono">{{.Items}}</span></td>
+      <td data-label="{{$.L.Note}}" class="ol-cell-wrap">{{.Note}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{if .Older}}<p><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Older}}">{{iconSm "chevron-right"}}{{.L.Older}}</a></p>{{end}}
+  {{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+</section>
+</div>{{end}}

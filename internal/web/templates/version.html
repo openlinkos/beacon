@@ -1,0 +1,31 @@
+{{define "content"}}<div class="ol-layout-supporting">
+  <div class="ol-stack">
+    {{range .Items}}<section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title"><span class="ol-mono">{{.Kind}} {{.Key}}</span></h2><span class="ol-badge ol-badge-mono">{{.Op}}</span></div>
+      <div class="ol-panel-body"><div class="ol-code"><pre class="bc-diff"><code>{{range .Lines}}<span class="bc-diff-line"{{if eq .Op "+"}} data-op="add"{{else if eq .Op "-"}} data-op="del"{{end}}>{{.Op}} {{.Text}}</span>{{end}}</code></pre></div></div>
+    </section>{{else}}<p class="ol-hint">{{.L.Empty}}</p>{{end}}
+  </div>
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "file-cog"}} {{.L.Changed}}</h2></div>
+      <div class="ol-panel-body">
+        <dl class="ol-dl ol-dl-stack">
+          <dt>{{.L.Time}}</dt><dd>{{.Change.Time}}</dd>
+          <dt>{{.L.Who}}</dt><dd>{{.Change.Who}}</dd>
+          <dt>{{.L.Via}}</dt><dd>{{.Change.Via}}</dd>
+          {{if .Change.Note}}<dt>{{.L.Note}}</dt><dd>{{.Change.Note}}</dd>{{end}}
+          {{if .Reverts}}<dt>{{.L.Action}}</dt><dd>{{.Reverts}}</dd>{{end}}
+        </dl>
+      </div>
+    </section>
+    {{if .Revert}}<form class="ol-panel" method="post" action="{{.Revert}}">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "rotate-ccw"}} {{.L.Revert}}</h2></div>
+      <div class="ol-panel-body ol-stack">
+        <p class="ol-hint">{{.L.RevertHint}}</p>
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="ol-field"><label class="ol-label" for="revert-note">{{.L.RevertNote}}</label><input class="ol-input" id="revert-note" name="note" maxlength="500"></div>
+      </div>
+      <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm">{{iconSm "rotate-ccw"}}{{.L.Revert}}</button></div>
+    </form>{{end}}
+  </div>
+</div>{{end}}

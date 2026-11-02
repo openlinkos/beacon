@@ -81,6 +81,7 @@ Pass the version you read as `if_version`: a change made on top of a later versi
 | --- | --- | --- |
 | `whoami` | any | The token itself: name, scopes, the machines it reaches, expiry, lifetime, and whether and when it may renew |
 | `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token |
+| `revoke_token` | `machines:write` | Revoke a token that reaches machines: its sessions end and its requests are refused from now on. The pause switch for one agent; machines' and services' tokens are revoked on the host only |
 
 ## Results
 

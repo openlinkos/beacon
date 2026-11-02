@@ -725,6 +725,8 @@ func (b *Bridge) viaName(via string) string {
 		return "MCP"
 	case "cli":
 		return b.t("the command line")
+	case "console":
+		return b.t("the console")
 	}
 	return "API"
 }

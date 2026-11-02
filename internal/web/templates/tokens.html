@@ -1,0 +1,19 @@
+{{define "content"}}<div class="ol-stack">
+<p class="ol-hint">{{.Note}}</p>
+<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+  <thead><tr><th>{{.L.Name}}</th><th>{{.L.Scopes}}</th><th>{{.L.Machines}}</th><th>{{.L.Keys}}</th><th>{{.L.Created}}</th><th>{{.L.Expires}}</th><th>{{.L.Renewed}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Revoke}}</span></th></tr></thead>
+  <tbody>
+  {{range .Rows}}<tr>
+    <td><span class="ol-cell-title ol-mono">{{.Name}}</span>{{if .Subject}}<span class="ol-cell-sub">{{$.L.Subject}} {{.Subject}}</span>{{end}}</td>
+    <td data-label="{{$.L.Scopes}}"><span class="ol-cluster">{{range .Scopes}}<span class="ol-badge ol-badge-mono">{{.}}</span>{{end}}</span></td>
+    <td data-label="{{$.L.Machines}}">{{.Machines}}</td>
+    <td data-label="{{$.L.Keys}}">{{range .Keys}}<span class="ol-mono ol-break">{{.}}</span><br>{{end}}</td>
+    <td data-label="{{$.L.Created}}">{{.Created}}{{if .CreatedBy}}<span class="ol-cell-sub">{{.CreatedBy}}</span>{{end}}</td>
+    <td data-label="{{$.L.Expires}}">{{if .Expired}}<span class="ol-badge ol-badge-danger">{{.Expires}}</span>{{else}}{{.Expires}}{{end}}</td>
+    <td data-label="{{$.L.Renewed}}">{{.Renewed}}</td>
+    <td class="ol-actions">{{if .Revoke}}<form method="post" action="{{.Revoke}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm" title="{{$.L.RevokeHint}}">{{iconSm "ban"}}{{$.L.Revoke}}<span class="ol-sr-only"> {{.Name}}</span></button></form>{{end}}</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{template "pager" .}}
+</div>{{end}}

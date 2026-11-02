@@ -29,7 +29,7 @@
       preload: true,
       idleTimeLimit: 2,
       controls: true,
-      terminalFontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
+      terminalFontFamily: "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
     });
   } catch (e) {
     say(el.getAttribute("data-error") || "");

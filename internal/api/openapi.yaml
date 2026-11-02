@@ -38,7 +38,7 @@ components:
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict,
-            token.too_soon, token.not_renewable, machine.disconnected,
+            token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable]
     Ack:
       type: object
@@ -1347,6 +1347,28 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Renewed"}
+  /tokens/{name}:
+    delete:
+      summary: Revoke a token that reaches machines
+      description: >-
+        Scope: machines:write. The pause switch for one agent: its sessions on machines end and its
+        requests are refused from now on. Only a token with machines:ssh may be revoked here
+        (token.not_revocable, 403): the tokens of probes, hosts, heartbeats, the rule engine, change
+        senders and metrics readers stay with `linkos-beacon token revoke` on the host, so that no alert
+        is lost by a click. Audited (revoke_token) and echoed to the alert chat.
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  name: {type: string}
+        default: {$ref: "#/components/responses/Error"}
   /probe-now:
     post:
       summary: Have every location probe a target again, now

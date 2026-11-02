@@ -304,6 +304,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 		})
 	addEvidenceTools(s, b)
 	addTokenTools(s, b)
+	addRevokeTool(s, b)
 	addProbeNowTools(s, b)
 	addMachineTools(s, g)
 	if o.config != nil {

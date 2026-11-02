@@ -70,7 +70,9 @@ func Handler(d Deps) http.Handler {
 	if d.Web != nil {
 		d.Web.Register(mux) // the pages set their own Content-Security-Policy over the one below
 	}
-	mux.HandleFunc("GET /{$}", placeholder)
+	if !d.Web.Console() { // with the console, / is its overview
+		mux.HandleFunc("GET /{$}", placeholder)
+	}
 	return headers(mux)
 }
 

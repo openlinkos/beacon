@@ -117,6 +117,7 @@ What Beacon monitors, each item in the shape of its file ([Catalogue, targets an
 | --- | --- | --- |
 | `GET /api/v1/token` | any | The caller's own token: name, scopes, machines, SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
 | `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`): the pause switch for one agent. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the host only (`token.not_revocable`) |
 | `GET /api/v1/openapi.yaml` | none | The OpenAPI document |
 
 ## The gateway
@@ -181,6 +182,8 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |
 | `token.too_soon` | 429 | The token renewed itself less than 24 hours ago, and is still good |
 | `token.not_renewable` | 403 | An enrolled machine's token; `linkos-beacon enroll … -rotate` replaces it |
+| `token.not_found` | 404 | No token of that name to revoke |
+| `token.not_revocable` | 403 | The token does not reach machines; machines' and services' tokens are revoked with `linkos-beacon token revoke` on the host |
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |
