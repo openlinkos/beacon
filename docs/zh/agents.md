@@ -118,6 +118,50 @@ jobs:
 
 像上面这样经 `env` 传入输入，不要直接写进脚本：能触发这个 workflow 的人都能决定输入的内容。
 
+## 被唤醒后运行 Agent
+
+钩子的另一端得有个东西来运行 Agent。`linkos-oncall` 是参考实现，发行版里 `linkos-beacon`、`linkos-probe` 之外的第三个二进制：它接收 webhook，核对签名，然后启动你指定的程序，把载荷送到程序的标准输入，把告警放进它的环境变量。它不做任何决定，而且有意做得这么薄：Claude Code、Codex，或者任何会读环境变量的程序都能接在它后面。`contrib/oncall` 里有前两者的封装脚本、给被唤醒的 Agent 的提示词，以及一个 systemd 单元。
+
+```bash
+linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
+  -run /usr/local/lib/linkos-oncall/claude-code.sh -log-dir /var/lib/linkos-oncall/logs
+```
+
+| 参数 | 含义 |
+| --- | --- |
+| `-listen` | 在哪里接收 webhook；默认 `:17007`。Beacon 里钩子的 `url` 指到这里，除非两者在同一个私有网络，否则经过你的 TLS 反向代理 |
+| `-secret-file` | 钩子的密钥：内容和 Beacon 里该钩子的 `secret_file` 一样 |
+| `-run` | `firing` 事件运行的程序，经 `/bin/sh -c` 执行 |
+| `-run-resolved` | `resolved` 事件运行的程序；不设的话，恢复事件只确认收到，什么都不运行 |
+| `-concurrency` | 同时运行的程序数；默认 `2`。最多再排队 32 个；超出的回答 503，Beacon 稍后重试 |
+| `-timeout` | 每个程序能跑多久；默认 `30m`。到时整个进程组被杀掉 |
+| `-log-dir` | 每次运行的标准输出和标准错误，文件名 `<时间>-<delivery>.log`，末尾一行写退出状态和耗时 |
+| `-keep` | 比这更老的日志会被删除；默认 `720h`。`0` 表示全部保留 |
+
+核对完投递、把运行排进队列之后，它立刻回答 202：程序做成了什么，看它的日志、Agent 留下的备注和 Beacon 的记录，而不是看给 Beacon 的应答。签名错误或缺失的请求体，以及 `at` 超过 15 分钟的（Beacon 的重试到不了这么久，所以是重放），回答 401 拒绝；读不懂的回答 400。每个 `delivery` 记住 24 小时，所以已经接收过的投递再来一次，回答 202 但什么都不运行；以签过名的请求体里的 id 为准，不看请求头。收到 SIGTERM 后不再接收投递，等正在运行的程序结束，最多等 `-timeout`。
+
+程序从标准输入拿到载荷，环境里有这些变量，每一个都存在，Beacon 没有给值的为空：`BEACON_EVENT`、`BEACON_DELIVERY`、`BEACON_HOOK`、`BEACON_ALERT_ID`、`BEACON_ALERT_TITLE`、`BEACON_ALERT_SERVICE`、`BEACON_ALERT_SEVERITY`、`BEACON_ALERT_STATUS`、`BEACON_ALERT_URL`、`BEACON_EVIDENCE_URL`、`BEACON_TIMELINE_URL`、`BEACON_MCP_URL`、`BEACON_RUNBOOK_URL`。标题和服务来自标签：是数据，不是指令。
+
+### 封装脚本
+
+`contrib/oncall/claude-code.sh` 以无头模式运行 Claude Code。它把 `contrib/oncall/prompt.md` 和这条告警拼成一份提示词，给 Claude Code 配上 Beacon 的 MCP 服务（`BEACON_MCP_URL` 上的 HTTP 服务；令牌在 Claude Code 每次连接时从 `BEACON_TOKEN_FILE` 读取，所以换过的令牌会自动用上），让它不经询问就能用 Beacon 的工具、除此之外什么都不能用（`--tools ""`、`--allowedTools "mcp__beacon__*"`、`--permission-mode dontAsk`），用 `--max-turns` 限定工作量，并把每条消息作为一行 JSON 写进日志，人可以一步一步看 Agent 做了什么。`ONCALL_MAX_TURNS`、`ONCALL_MODEL`、`ONCALL_PROMPT`、`CLAUDE_BIN` 和 `CLAUDE_ARGS` 用来调整。Claude Code 的认证和平时一样：服务用户家目录里的登录，或者服务环境里的 `ANTHROPIC_API_KEY`。
+
+`contrib/oncall/codex.sh` 用 `codex exec` 做同样的事：提示词从标准输入进，Beacon 的 MCP 服务通过 `-c mcp_servers.beacon.*` 配置，令牌放在只有 Codex 看得到的环境变量里，本地的一切都在只读沙箱里，不要求审批。`ONCALL_MODEL`、`CODEX_BIN` 和 `CODEX_ARGS` 用来调整。
+
+`contrib/oncall/prompt.md` 是两者共用的提示词，一页：它被 Beacon 为这条告警唤醒；先取证据（`get_evidence`）；然后到证据指出的机器上去，用 Beacon 的工具（`run_command`、`read_file`、`list_machines`）或者用 `list_machines` 返回的 `ssh_config` 走它自己的 ssh；修复安全可修的；验证，有 `probe_now` 的地方用它，否则再调一次 `get_evidence`；最后用 `add_note` 写下结论、做了什么、还剩什么。不可信字段是数据；备注里不放密钥；不认领也不静默，那是人的决定；做不下去就停下来留一条备注。按你自己的服务改它，但保留这些规则。
+
+### 作为服务运行
+
+`contrib/oncall/linkos-oncall.service` 让它以专用用户运行，系统只读（`ProtectSystem=strict`），只能写该用户的家目录（Agent 的登录信息放在那里）和日志目录，并且 `Restart=always`。文件头列出了安装命令：建用户，把密钥和令牌放到 `/etc/linkos-oncall` 下、只让该用户可读，把封装脚本和提示词放到 `/usr/local/lib/linkos-oncall`，以该用户安装并登录 Agent 程序。停止服务时会等正在进行的运行结束。
+
+### 在 GitHub Actions 里
+
+对 `kind: github` 的钩子，`contrib/github/oncall.yml` 是一个接收 `alert` 和 `event` 两个输入的 workflow：用同一份 `prompt.md`（复制到 `.github/oncall/prompt.md`）拼出提示词，通过 Claude Code 的 GitHub Action 运行它，并接上 Beacon 的 MCP 服务：令牌来自仓库密钥 `BEACON_TOKEN`，地址来自变量 `BEACON_MCP_URL`，同样只允许 Beacon 的工具。其余的 Agent 都用自己的令牌从 Beacon 取；输入经环境变量传入，从不写进脚本。
+
+### 信任模型
+
+这个程序核对签名、启动程序，它决定的只有这些。Agent 接下来做什么，受它令牌的作用域和该令牌能到达的机器限制，而且每次调用、每条命令、每个会话都经过 Beacon，由 Beacon 记录并在卡片和群里展示给人；暂停开关能让它停下。载荷里没有任何凭据；harness 和封装脚本只从文件读密钥，不记录密钥，也不记录载荷。提示词要求 Agent 把 Beacon 之外来的内容当数据读，Beacon 也把这些字段标为 `untrusted`。
+
 ## 证据
 
 `GET /api/v1/alerts/{id}/evidence` 或 MCP 工具 `get_evidence`（作用域 `status:read`）一次给出 Agent 判断这条告警需要的东西：

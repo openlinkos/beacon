@@ -1,6 +1,7 @@
 # Release process (.github/workflows/release.yml runs it when a v* tag is pushed):
 #   - binaries and archives for linux/amd64 and arm64 (the Feishu SDK does not build for 32-bit platforms):
-#     linkos-beacon (the service) and linkos-probe (the probe agent, its own archive, also in the image),
+#     linkos-beacon (the service), linkos-probe (the probe agent, its own archive, also in the image) and
+#     linkos-oncall (the harness that runs an agent when Beacon wakes it; its own archive, not in the image),
 #     reproducible builds (-trimpath, timestamps taken from the commit time);
 #   - SHA256SUMS, signed with cosign keyless (Sigstore, bundle SHA256SUMS.sigstore.json);
 #   - one SPDX SBOM per archive (syft);
@@ -45,6 +46,21 @@ builds:
       - -X github.com/openlinkos/beacon/internal/version.Commit={{ .FullCommit }}
       - -X github.com/openlinkos/beacon/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: oncall
+    main: ./cmd/linkos-oncall
+    binary: linkos-oncall
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/openlinkos/beacon/internal/version.Version={{ .Version }}
+      - -X github.com/openlinkos/beacon/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/openlinkos/beacon/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: beacon
@@ -62,6 +78,14 @@ archives:
     name_template: "linkos-probe_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
     files:
       - LICENSE
+  - id: oncall
+    ids: [oncall]
+    formats: [tar.gz]
+    name_template: "linkos-oncall_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    files:
+      - LICENSE
+      - contrib/oncall/*
+      - contrib/github/oncall.yml
 
 checksum:
   name_template: SHA256SUMS

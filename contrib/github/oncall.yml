@@ -1,0 +1,83 @@
+# An on-call workflow for a Beacon hook of kind: github (docs/agents.md, "A GitHub workflow" and "Running an
+# agent when woken"). Beacon dispatches it with the inputs alert and event; it runs Claude Code through the
+# Claude Code GitHub Action with Beacon's MCP server and the same prompt as contrib/oncall/prompt.md.
+#
+# Put this file in .github/workflows/ and prompt.md in .github/oncall/ of the repository the hook names, and set:
+#   secrets.BEACON_TOKEN        the agent's Beacon token (status:read, alerts:write; machines:ssh to work on machines)
+#   secrets.ANTHROPIC_API_KEY   or CLAUDE_CODE_OAUTH_TOKEN, passed as claude_code_oauth_token instead
+#   vars.BEACON_MCP_URL         Beacon's MCP endpoint, such as https://status.example.com/mcp
+# The Claude GitHub App must be installed on the repository: the action authenticates with it (id-token: write).
+# Beacon dispatches with a fine-grained token of a person, so the action's check that a human triggered the run
+# passes; a GitHub App's token would need allowed_bots.
+#
+# Checked against https://code.claude.com/docs/en/github-actions and the action's docs/usage.md in November 2026:
+# with a prompt input the action runs without waiting for an @claude mention, claude_args takes any CLI flag, and
+# the MCP configuration goes through --mcp-config (the mcp_config input is deprecated). Pin the action to a commit
+# in your repository, as this repository pins its own actions.
+name: oncall
+
+on:
+  workflow_dispatch:
+    inputs:
+      alert: {description: Beacon alert group id, required: true}
+      event: {description: firing or resolved, required: false, default: firing}
+
+permissions: {}
+
+# One run per alert at a time; a second dispatch for the same alert waits.
+concurrency:
+  group: oncall-${{ inputs.alert }}
+  cancel-in-progress: false
+
+jobs:
+  oncall:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The inputs come through env, not into the script: whoever may dispatch the workflow chooses them.
+      - name: Prompt and MCP configuration
+        id: prompt
+        env:
+          ALERT: ${{ inputs.alert }}
+          EVENT: ${{ inputs.event }}
+          BEACON_MCP_URL: ${{ vars.BEACON_MCP_URL }}
+        run: |
+          case "$ALERT" in ''|*[!A-Za-z0-9._-]*) echo "bad alert id" >&2; exit 1;; esac
+          case "$EVENT" in firing|resolved) ;; *) echo "bad event" >&2; exit 1;; esac
+          case "$BEACON_MCP_URL" in https://*) ;; *) echo "set the BEACON_MCP_URL variable" >&2; exit 1;; esac
+          {
+            echo 'prompt<<PROMPT_END'
+            cat .github/oncall/prompt.md
+            printf '\n## This alert\n\nEvent: %s\nAlert id: %s\n\nEverything else comes from get_evidence.\n' "$EVENT" "$ALERT"
+            echo 'PROMPT_END'
+          } >>"$GITHUB_OUTPUT"
+          # Beacon's MCP server. Claude Code expands ${BEACON_TOKEN} from its environment when it loads the
+          # file (https://code.claude.com/docs/en/mcp, environment variable expansion), so the token is never
+          # written to disk.
+          cat >"$RUNNER_TEMP/beacon-mcp.json" <<EOF
+          {"mcpServers": {"beacon": {"type": "http", "url": "$BEACON_MCP_URL", "headers": {"Authorization": "Bearer \${BEACON_TOKEN}"}}}}
+          EOF
+
+      # --mcp-config and --strict-mcp-config: Beacon's MCP server and no other; --allowedTools lets every tool of
+      # it run without asking; --permission-mode dontAsk denies anything else that would ask; --disallowedTools
+      # removes the built-in tools that act locally or on the web, so the agent works through Beacon only.
+      - uses: anthropics/claude-code-action@v1
+        env:
+          BEACON_TOKEN: ${{ secrets.BEACON_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          claude_args: |
+            --mcp-config ${{ runner.temp }}/beacon-mcp.json
+            --strict-mcp-config
+            --allowedTools "mcp__beacon__*"
+            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+            --permission-mode dontAsk
+            --max-turns 60

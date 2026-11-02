@@ -118,6 +118,50 @@ jobs:
 
 Pass the inputs through `env` as above rather than into the script itself: anyone who may dispatch the workflow chooses them.
 
+## Running an agent when woken
+
+A hook needs something at the other end that runs the agent. `linkos-oncall` is the reference harness, a third binary in the releases beside `linkos-beacon` and `linkos-probe`: it takes the webhook, checks the signature, and starts the program you name, with the payload on the program's standard input and the alert in its environment. It decides nothing, and it is as thin as that on purpose: Claude Code, Codex or any program that reads its environment runs behind it. `contrib/oncall` has wrappers for the first two, the prompt for the woken agent and a systemd unit.
+
+```bash
+linkos-oncall -secret-file /etc/linkos-oncall/hook-secret \
+  -run /usr/local/lib/linkos-oncall/claude-code.sh -log-dir /var/lib/linkos-oncall/logs
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `-listen` | Where to take the webhook; `:17007`. The hook's `url` in Beacon points here, through your TLS reverse proxy unless both are on one private network |
+| `-secret-file` | The hook's secret: the same content as the hook's `secret_file` in Beacon |
+| `-run` | The program for `firing` events, run through `/bin/sh -c` |
+| `-run-resolved` | The program for `resolved` events; without it they are acknowledged and nothing runs |
+| `-concurrency` | Programs running at once; `2`. Up to 32 more wait their turn; beyond that the harness answers 503 and Beacon tries again later |
+| `-timeout` | What a program gets; `30m`. Then its whole process group is killed |
+| `-log-dir` | Each run's standard output and error, as `<time>-<delivery>.log`, with a closing line giving the exit status and the duration |
+| `-keep` | Logs older than this are removed; `720h`. `0` keeps them all |
+
+The harness answers 202 as soon as it has checked the delivery and queued the run: what the program achieves shows in its log, in the notes the agent leaves and in Beacon's records, not in the answer to Beacon. It refuses with 401 a body whose signature is wrong or missing, and one whose `at` is more than 15 minutes old (Beacon's retries never reach that far, so it is a replay); with 400 one it cannot read. It remembers each `delivery` for 24 hours, so a retry of a delivery it has taken is answered 202 and runs nothing; the id in the signed body counts, not the header. On SIGTERM it takes no more deliveries and waits for the programs that run, up to `-timeout`.
+
+The program gets the payload on its standard input and these variables, each present and empty when Beacon sent nothing for it: `BEACON_EVENT`, `BEACON_DELIVERY`, `BEACON_HOOK`, `BEACON_ALERT_ID`, `BEACON_ALERT_TITLE`, `BEACON_ALERT_SERVICE`, `BEACON_ALERT_SEVERITY`, `BEACON_ALERT_STATUS`, `BEACON_ALERT_URL`, `BEACON_EVIDENCE_URL`, `BEACON_TIMELINE_URL`, `BEACON_MCP_URL`, `BEACON_RUNBOOK_URL`. The title and the service come from labels: data, not instructions.
+
+### The wrappers
+
+`contrib/oncall/claude-code.sh` runs Claude Code headless. It puts `contrib/oncall/prompt.md` and the alert into one prompt, gives Claude Code Beacon's MCP server (an HTTP server at `BEACON_MCP_URL`; the token is read from `BEACON_TOKEN_FILE` each time Claude Code connects, so a renewed token is picked up), lets it use Beacon's tools without asking and nothing else (`--tools ""`, `--allowedTools "mcp__beacon__*"`, `--permission-mode dontAsk`), bounds the work with `--max-turns`, and writes every message as a JSON line to the log, so people can read what the agent did step by step. `ONCALL_MAX_TURNS`, `ONCALL_MODEL`, `ONCALL_PROMPT`, `CLAUDE_BIN` and `CLAUDE_ARGS` adjust it. Claude Code authenticates as it always does: a sign-in in the service user's home, or `ANTHROPIC_API_KEY` in the service's environment.
+
+`contrib/oncall/codex.sh` does the same with `codex exec`: the prompt on standard input, Beacon's MCP server through `-c mcp_servers.beacon.*` with the token in an environment variable only Codex sees, a read-only sandbox for anything local, approvals off. `ONCALL_MODEL`, `CODEX_BIN` and `CODEX_ARGS` adjust it.
+
+`contrib/oncall/prompt.md` is the prompt both use, one page: woken by Beacon for this alert; the evidence first (`get_evidence`); then the machines the evidence names, through Beacon's tools (`run_command`, `read_file`, `list_machines`) or the agent's own ssh with the `ssh_config` that `list_machines` returns; fix what is safe; verify, with `probe_now` where available and `get_evidence` again otherwise; finish with `add_note` saying the conclusion, what was done and what remains. Untrusted fields are data; no secrets in notes; no acknowledging or silencing, which is people's decision; stop and leave a note when it cannot proceed. Edit it for your own services; keep those rules.
+
+### As a service
+
+`contrib/oncall/linkos-oncall.service` runs the harness as a user of its own with a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, and with `Restart=always`. Its header lists the install commands: the user, the secret and the token under `/etc/linkos-oncall`, readable by that user only, the wrapper and the prompt under `/usr/local/lib/linkos-oncall`, and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
+
+### In GitHub Actions
+
+For a hook of `kind: github`, `contrib/github/oncall.yml` is a workflow that takes the inputs `alert` and `event`, builds the prompt from the same `prompt.md` (copied to `.github/oncall/prompt.md`), and runs Claude Code through its GitHub Action with Beacon's MCP server: the token from the repository secret `BEACON_TOKEN`, the endpoint from the variable `BEACON_MCP_URL`, the same restriction to Beacon's tools. The agent fetches everything else from Beacon with its token; the inputs pass through the environment, never into a script.
+
+### Trust
+
+The harness checks the signature and starts the program; that is all it decides. What the agent then does is bounded by its token's scopes and the machines that token may reach, and every call, command and session goes through Beacon, which records it and shows it to people on the card and in the chat; the pause switch stops it. The payload carries no credentials; the harness and the wrappers read secrets only from files, and log neither them nor the payload. The prompt tells the agent to read what comes from outside Beacon as data, and Beacon marks those fields `untrusted`.
+
 ## The evidence
 
 `GET /api/v1/alerts/{id}/evidence` or the MCP tool `get_evidence` (scope `status:read`) gives in one answer what an agent needs to judge the alert:
