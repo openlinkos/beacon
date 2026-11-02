@@ -66,6 +66,11 @@ func build(entries map[string][]byte) *State {
 			if err = json.Unmarshal(v, &gs); err == nil {
 				sets[key+".yaml"] = gs
 			}
+		case KindStatus:
+			var p catalog.StatusPage
+			if err = json.Unmarshal(v, &p); err == nil {
+				st.Catalog.StatusPages = append(st.Catalog.StatusPages, p)
+			}
 		default:
 			err = errors.New("not a kind of item Beacon knows")
 		}
@@ -263,6 +268,12 @@ func set(entries map[string][]byte, kind, key string, raw json.RawMessage) error
 			gs = []targets.Group{}
 		}
 		v = gs
+	case KindStatus:
+		p, err := statusPage(raw, key)
+		if err != nil {
+			return err
+		}
+		v = p
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrBadInput, kind)
 	}
@@ -297,12 +308,13 @@ type TargetSet struct {
 
 // View is the configuration, or a part of it, in the shapes of its files, with the version in force.
 type View struct {
-	Version    int64               `json:"version"`
-	Locations  []catalog.Location  `json:"locations,omitzero"`
-	Heartbeats []catalog.Heartbeat `json:"heartbeats,omitzero"`
-	Resources  []catalog.Resource  `json:"resources,omitzero"`
-	Targets    []TargetSet         `json:"targets,omitzero"`
-	Modules    map[string]any      `json:"modules,omitzero"`
+	Version     int64                `json:"version"`
+	Locations   []catalog.Location   `json:"locations,omitzero"`
+	Heartbeats  []catalog.Heartbeat  `json:"heartbeats,omitzero"`
+	Resources   []catalog.Resource   `json:"resources,omitzero"`
+	Targets     []TargetSet          `json:"targets,omitzero"`
+	Modules     map[string]any       `json:"modules,omitzero"`
+	StatusPages []catalog.StatusPage `json:"status_pages,omitzero"`
 }
 
 // Get returns the configuration (kind ""), the list of one kind, or one item (kind and key) in its list.
@@ -310,7 +322,7 @@ func (s *Service) Get(kind, key string) (View, error) {
 	if kind != "" {
 		k, ok := Kind(kind)
 		if !ok {
-			return View{}, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
+			return View{}, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
 		}
 		kind, key = k, normalKey(k, key)
 	} else if key != "" {
@@ -340,6 +352,9 @@ func (s *Service) Get(kind, key string) (View, error) {
 	if want(KindTargets) {
 		v.Targets = []TargetSet{}
 	}
+	if want(KindStatus) {
+		v.StatusPages = []catalog.StatusPage{}
+	}
 	ids := locationIDs(st.Catalog)
 	for _, e := range sortedKeys(st.entries) {
 		k, name, _ := strings.Cut(e, "/")
@@ -367,6 +382,11 @@ func (s *Service) Get(kind, key string) (View, error) {
 			if decode(e, &gs) {
 				v.Targets = append(v.Targets, TargetSet{Name: name, ProbedBy: targets.Scope(name+".yaml", ids), Groups: gs})
 			}
+		case KindStatus:
+			var p catalog.StatusPage
+			if decode(e, &p) {
+				v.StatusPages = append(v.StatusPages, p)
+			}
 		}
 	}
 	if want(KindModule) {
@@ -389,7 +409,7 @@ func (s *Service) Get(kind, key string) (View, error) {
 func (s *Service) Item(kind, key string) (json.RawMessage, error) {
 	k, ok := Kind(kind)
 	if !ok {
-		return nil, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
+		return nil, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
 	}
 	key = normalKey(k, key)
 	if v, ok := items(s.state.Load().entries)[itemKey{k, key}]; ok {
@@ -410,7 +430,7 @@ func (s *Service) Put(ctx context.Context, who Actor, kind, key string, value js
 func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value json.RawMessage, note string, version int64) (store.ConfigChange, error) {
 	k, ok := Kind(kind)
 	if !ok {
-		return store.ConfigChange{}, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
+		return store.ConfigChange{}, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
 	}
 	if len(bytes.TrimSpace(value)) == 0 || string(bytes.TrimSpace(value)) == "null" {
 		return store.ConfigChange{}, fmt.Errorf("%w: give the %s's value; delete removes it", ErrBadInput, k)
@@ -445,7 +465,7 @@ func (s *Service) Delete(ctx context.Context, who Actor, kind, key, note string)
 func (s *Service) DeleteIf(ctx context.Context, who Actor, kind, key, note string, version int64) (store.ConfigChange, error) {
 	k, ok := Kind(kind)
 	if !ok {
-		return store.ConfigChange{}, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
+		return store.ConfigChange{}, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
 	}
 	key = normalKey(k, key)
 	s.mu.Lock()
@@ -531,7 +551,7 @@ func (s *Service) History(f HistoryFilter) ([]store.ConfigChange, error) {
 	if f.Kind != "" {
 		k, ok := Kind(f.Kind)
 		if !ok {
-			return nil, fmt.Errorf("%w: kind is one of locations, heartbeats, resources, targets, modules", ErrBadInput)
+			return nil, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
 		}
 		f.Kind, f.Key = k, normalKey(k, f.Key)
 	} else if f.Key != "" {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cf0969b3
+sourceHash: sha256-5d2a51bf
 ---
 
 # REST API
@@ -26,13 +26,14 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 | 作用域 | 允许做什么 |
 | --- | --- |
-| `status:read` | 读取：告警、证据和时间线、变更事件、静默、审计日志、机器和会话、配置 |
+| `status:read` | 读取：告警、证据和时间线、变更事件、静默、审计日志、机器和会话、配置、状态页和维护窗口 |
 | `alerts:write` | 处理告警：认领、静默和结束静默、备注、按需检测 |
 | `machines:ssh` | 用令牌上的密钥登录 SSH 通道，机器工具（执行、读、写、改），它能到达的机器和这些机器上的会话 |
 | `machines:write` | 添加和删除机器、连接密钥，暂停和恢复 Agent 到达机器 |
 | `sessions:read` | 会话的文字记录和录制 |
-| `config:write` | 修改 Beacon 监控的内容（目录、检测目标组和检测模块），也能读取 |
-| `incidents:write`、`maintenance:write` | 为将来的状态页预留；目前没有路径用到 |
+| `config:write` | 修改 Beacon 监控的内容（目录、检测目标组和检测模块）和状态页，也能读取 |
+| `maintenance:write` | 安排和结束维护窗口：状态页提前公告，窗口内静默相关服务的告警 |
+| `incidents:write` | 为在状态页上手写事件预留；目前没有路径用到（事件来自告警组） |
 | `probe:write` | 检测点：推送结果，取它的检测目标、检测模块和设置，按需检测。只能以它自己的检测点写入 |
 | `host:write` | 主机：推送它的指标。只能以它自己的主机写入 |
 | `heartbeat:write` | 推送心跳 |
@@ -111,9 +112,24 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `GET /api/v1/config/modules/{name}` | `status:read` 或 `config:write` | 一个检测模块 |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | 添加或替换一个检测模块；模块文件里的其他模块和注释保持不变 |
 | `DELETE /api/v1/config/modules/{name}` | `config:write` | 删除一个检测模块 |
+| `GET /api/v1/config/status_pages` | `status:read` 或 `config:write` | 公开的状态页，按名称（[状态页](../status.md)） |
+| `GET /api/v1/config/status_pages/{name}` | `status:read` 或 `config:write` | 一个状态页的定义 |
+| `PUT /api/v1/config/status_pages/{name}` | `config:write` | 添加或替换一个状态页；组件的服务还没有检测目标时照样接受，并给出警告 |
+| `DELETE /api/v1/config/status_pages/{name}` | `config:write` | 删除一个状态页 |
 | `GET /api/v1/config/history` | `status:read` 或 `config:write` | 修改记录，新的在前，不带值（`kind`、`key`、`before`、`limit`）；保留最近 10,000 次 |
 | `GET /api/v1/config/history/{version}` | `status:read` 或 `config:write` | 一次修改，带每一项改前和改后的值 |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | 把一次修改作为一次新的修改撤销；之后的修改动过其中某项时返回 `config.conflict` |
+
+## 状态页与维护 {#status-pages-and-maintenance}
+
+公开的页面本身不需要令牌（[见下](#other-routes-on-port-17001)）；这些路径给 Agent 同样的内容，并让它们安排维护（[状态页](../status.md)）。
+
+| 路径 | 作用域 | 内容 |
+| --- | --- | --- |
+| `GET /api/v1/status/{name}` | `status:read` | 状态页的公开 JSON：每个组件现在和 90 天来的状态、事件及其公开进展、维护窗口；`?lang=` |
+| `GET /api/v1/maintenance` | `status:read` | 维护窗口，开始得越晚越靠前；结束的保留 91 天 |
+| `POST /api/v1/maintenance` | `maintenance:write` | 安排一个窗口：`services`、`starts_at`（不填就是现在）、`ends_at`（最长 7 天）、`title`、`description`。状态页会公告它，每个服务一个静默，窗口内告警不会叫醒人 |
+| `DELETE /api/v1/maintenance/{id}` | `maintenance:write` | 立即结束一个窗口，或在开始前取消 |
 
 ## 令牌 {#the-token}
 
@@ -148,6 +164,9 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | --- | --- |
 | `/mcp` | MCP server，streamable HTTP，用同样的 bearer 令牌（[MCP 工具](mcp.md)） |
 | `GET /alerts/{id}`、`GET /sessions/{id}` | 人从卡片点开的页面，凭签名链接或令牌打开（[页面](../pages.md)） |
+| `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开的状态页和其中的事件，不需要令牌（[状态页](../status.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
+| `GET /status.json`、`GET /status/{name}.json`、`GET /status/{name}/feed.atom`、`GET /status/{name}/badge.svg`、`GET /status/{name}/components/{component}/badge.svg` | 状态页的 JSON、Atom 订阅和徽章，公开、可缓存 |
+| `GET /robots.txt` | 只让搜索引擎读取 `/status` |
 | `GET /healthz` | 存活检查：`ok` |
 | `GET /readyz` | 就绪检查：收到过 Watchdog、飞书连接正常、额度未用完 |
 | `GET /metrics` | Beacon 自己的 Prometheus 指标，只回答直连 |
@@ -184,6 +203,9 @@ Beacon 监控的内容，每一项都按它在文件里的样子读写（[目录
 | `config.not_found` | 404 | 没有这个配置项或这次修改 |
 | `config.invalid` | 422 | 修改通不过校验；消息说明原因，什么都没有改 |
 | `config.conflict` | 409 | 已有更新的版本生效，或之后的修改动过同一项；重新读取，再做决定 |
+| `status.not_found` | 404 | 没有这个名称的状态页 |
+| `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
+| `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |
 | `token.too_soon` | 429 | 令牌不到 24 小时前刚续过期，仍然有效 |
 | `token.not_renewable` | 403 | 登记的机器的令牌；用 `beacon enroll … -rotate` 换新 |
 | `token.not_found` | 404 | 没有这个名字的令牌可吊销 |

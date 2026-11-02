@@ -1,0 +1,60 @@
+{{define "layout"}}<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>{{.Title}}</title>
+{{if .Description}}<meta name="description" content="{{.Description}}">{{end}}
+<link rel="canonical" href="{{.Canonical}}">
+<link rel="alternate" type="application/atom+xml" title="{{.P.Title}}" href="{{.Feed}}">
+<link rel="alternate" type="application/json" href="{{.JSON}}">
+{{range .Langs}}<link rel="alternate" hreflang="{{.HrefLang}}" href="{{.Href}}">
+{{end}}<link rel="stylesheet" href="/static/ol/ui.css?v={{.Version}}">
+<link rel="stylesheet" href="/static/status.css?v={{.Version}}">
+</head>
+<body data-brand="{{.Brand}}">
+{{.Icons}}
+<a class="ol-skip-link" href="#main">{{.L.Skip}}</a>
+<header class="ol-site-header">
+  <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.P.Title}}</span></a>
+  <nav class="ol-site-nav" aria-label="{{.L.OnThisPage}}">{{block "nav" .}}{{end}}</nav>
+  <div class="ol-site-tools">
+    {{if .Langs}}<button class="ol-btn ol-btn-ghost ol-btn-sm" type="button" popovertarget="language" aria-label="{{.L.Language}}: {{.LangName}}">{{iconSm "languages"}}{{.LangName}}{{iconSm "chevron-down"}}</button>
+    <div class="ol-menu ol-menu-end" id="language" popover>
+      {{range .Langs}}<a class="ol-menu-item" href="{{.Href}}" lang="{{.Code}}" hreflang="{{.HrefLang}}"{{if .Current}} aria-current="true"{{end}}>{{.Name}}</a>
+      {{end}}
+    </div>{{end}}
+    {{with .Menu}}<button class="ol-btn ol-btn-ghost ol-btn-sm" type="button" popovertarget="family">{{.Title}}{{iconSm "chevron-down"}}</button>
+    <div class="ol-menu ol-menu-end" id="family" popover>
+      {{range $i, $g := .Groups}}{{if $i}}<hr class="ol-menu-separator">{{end}}{{if $g.Title}}<div class="ol-menu-label">{{$g.Title}}</div>{{end}}
+      {{range $g.Links}}<a class="ol-menu-item" href="{{.URL}}">{{.Title}}</a>
+      {{end}}{{end}}
+    </div>{{end}}
+  </div>
+</header>
+<main id="main" tabindex="-1">
+{{template "content" .}}
+</main>
+<footer class="ol-site-footer">
+  <div>
+    <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.P.Title}}</span></a>
+    {{if .P.Description}}<p class="ol-site-footer-note">{{.P.Description}}</p>{{end}}
+    <p class="ol-site-footer-note"><a href="https://github.com/openlinkos/beacon">{{.L.PoweredBy}}</a> · <a href="{{.Feed}}">{{.L.Subscribe}}</a> · <a href="{{.JSON}}">{{.L.JSONLink}}</a></p>
+  </div>
+  {{with .Menu}}{{range .Groups}}{{if .Title}}<div class="bc-footer-col" role="group" aria-label="{{.Title}}"><span class="bc-footer-title">{{.Title}}</span>{{range .Links}}<a href="{{.URL}}">{{.Title}}</a>{{end}}</div>{{end}}{{end}}{{end}}
+  {{if .FooterLinks}}<div class="ol-site-footer-links">{{range .FooterLinks}}<a href="{{.URL}}">{{.Title}}</a>{{end}}</div>{{end}}
+</footer>
+</body>
+</html>
+{{end}}
+
+{{define "state"}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}"><span class="ol-dot"></span>{{.State}}</span>{{end}}
+
+{{define "updates"}}<ol class="bc-updates">
+  {{range .}}<li class="bc-update">
+    <div class="bc-update-head"><span class="bc-update-kind">{{.Kind}}</span>{{if .By}} <span class="ol-badge{{if .Agent}} ol-badge-accent{{end}}">{{if .Agent}}{{iconSm "bot"}}{{else}}{{iconSm "user"}}{{end}}{{.By}}</span>{{end}} <time class="ol-muted ol-text-sm" datetime="{{.WhenISO}}">{{.When}}</time></div>
+    <p class="ol-text-pre bc-update-text">{{.Text}}</p>
+  </li>{{end}}
+</ol>{{end}}

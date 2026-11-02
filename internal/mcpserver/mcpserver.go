@@ -191,6 +191,9 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	if o.config != nil {
 		instructions += "\n\n" + ConfigInstructions
 	}
+	if o.status != nil {
+		instructions += "\n\n" + StatusInstructions
+	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "beacon", Title: "Beacon", Version: version.Version},
 		&mcp.ServerOptions{Instructions: instructions})
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
@@ -306,6 +309,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	addTokenTools(s, b)
 	addRevokeTool(s, b)
 	addProbeNowTools(s, b)
+	addStatusTools(s, b, o.status)
 	addMachineTools(s, g)
 	if o.config != nil {
 		addConfigTools(s, o.config)

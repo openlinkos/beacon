@@ -73,7 +73,7 @@ func Handler(d Deps) http.Handler {
 	if !d.Web.Console() { // with the console, / is its overview
 		mux.HandleFunc("GET /{$}", placeholder)
 	}
-	return headers(mux)
+	return headers(d.Web.Hosts(mux)) // a status page on a host name of its own answers there, and nothing else does
 }
 
 // directOnly answers only requests that did not come through a proxy (the edge adds X-Forwarded-For).

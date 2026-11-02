@@ -33,6 +33,7 @@ import (
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -87,6 +88,9 @@ type Server struct {
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string
+
+	// Status computes the public status pages (status.go); nil leaves them out.
+	Status *status.Service
 }
 
 // Register adds the pages' routes to mux; with the console, GET / is its overview.
@@ -97,6 +101,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /static/{file}", s.static)
 	mux.HandleFunc("GET /static/ol/{file}", s.static)
 	mux.HandleFunc("GET /static/ol/fonts/{file}", s.static)
+	s.registerStatus(mux)
 	if s.Console() {
 		s.registerConsole(mux)
 	}
@@ -270,6 +275,7 @@ var staticFiles = map[string]string{
 	"asciinema-player.css":              "text/css; charset=utf-8",
 	"beacon-player.js":                  "text/javascript; charset=utf-8",
 	"beacon.css":                        "text/css; charset=utf-8",
+	"status.css":                        "text/css; charset=utf-8",
 	"ol/ui.css":                         "text/css; charset=utf-8",
 	"ol/fonts/Geist-Variable.woff2":     "font/woff2",
 	"ol/fonts/GeistMono-Variable.woff2": "font/woff2",

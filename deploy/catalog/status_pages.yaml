@@ -1,0 +1,24 @@
+# The public status page (docs/status.md), served without signing in at https://<STATUS_HOST>/status with its JSON
+# (/status.json), Atom feed and badges. Each component is backed by the probe targets of the services it names, by
+# their service label (targets/all-web.yaml); the page shows their state now and over 90 days, as the probes agree
+# on it. Incidents are the availability alerts on those services; a note on one that begins with "public:" is an
+# update for the public. Planned work is announced with POST /api/v1/maintenance (MCP schedule_maintenance).
+# Replace the components with your own services, or remove this file for no public page.
+status_pages:
+  - name: status
+    title: Example Status
+    description: Whether our public services work, checked every minute from where their users are.
+    default: true
+    languages: [en]               # [en, zh] for a language menu; texts then take {en: …, zh: …}
+    # host: uptime.example.com    # a host name of its own, served at /: uncomment the block in Caddyfile too
+    components:
+      - name: website
+        title: Website
+        description: example.com
+        services: [example.com]
+      - name: beacon
+        title: Status and alerts
+        description: This Beacon itself
+        services: [beacon]
+    links:
+      home: https://example.com/

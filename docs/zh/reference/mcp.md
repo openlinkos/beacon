@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e0e2d2c0
+sourceHash: sha256-a437a672
 ---
 
 # MCP 工具
@@ -66,7 +66,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，按文件里的样子读写（[目录、检测目标和检测模块](../catalog.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets` 或 `modules`；`key` 指定其中一项。
+Beacon 监控的内容，按文件里的样子读写（[目录、检测目标和检测模块](../catalog.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../status.md)）；`key` 指定其中一项。
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -78,6 +78,17 @@ Beacon 监控的内容，按文件里的样子读写（[目录、检测目标和
 | `revert_config_change` | `config:write` | 把一次修改作为一次新的修改撤销（`version`、`note`）；之后的修改动过其中某项时拒绝 |
 
 把读到的版本作为 `if_version` 传回：在更新的版本之上做的修改会被拒绝，返回 `config.conflict`，所以 Agent 不会覆盖期间别人做的修改。
+
+## 状态页与维护 {#status-pages-and-maintenance}
+
+公开的状态页由告警组和维护窗口生成（[状态页](../status.md)）。用 `add_note` 留下的备注以 `public:` 开头时，就是事件对外的进展。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `get_status_page` | `status:read` | 一个状态页，和它的公开 JSON 一样（`name`、`language`）：整体状态，每个组件现在和 90 天来的状态，事件（进行中的，然后是最近 30 天的）和对外的进展，维护窗口 |
+| `list_maintenance` | `status:read` | 维护窗口，开始得越晚越靠前，结束的保留 91 天：服务、时间、标题、谁安排的、对应的静默 |
+| `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内静默这些服务的告警。最长 7 天，在 90 天内开始，不能从过去开始 |
+| `end_maintenance` | `maintenance:write` | 立即结束一个维护窗口，或在开始前取消（`id`）：它的静默随之结束，状态页上也会显示 |
 
 ## 你的令牌 {#your-token}
 

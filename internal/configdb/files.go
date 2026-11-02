@@ -102,6 +102,9 @@ func (f Files) entries() (map[string][]byte, error) {
 	for _, r := range c.Resources {
 		put(entryKey(KindResource, r.Name), r)
 	}
+	for _, p := range c.StatusPages {
+		put(entryKey(KindStatus, p.Name), p)
+	}
 	for _, file := range set.Files() {
 		gs := set.Groups(file)
 		if gs == nil {
@@ -189,6 +192,9 @@ func (s *Service) Export() (Files, int64, error) {
 	}
 	if len(v.Resources) > 0 {
 		errs = append(errs, write("catalog/resources.yaml", catalog.Catalog{Resources: v.Resources}))
+	}
+	if len(v.StatusPages) > 0 {
+		errs = append(errs, write("catalog/status_pages.yaml", catalog.Catalog{StatusPages: v.StatusPages}))
 	}
 	for _, t := range v.Targets {
 		errs = append(errs, write("targets/"+t.Name+".yaml", t.Groups))

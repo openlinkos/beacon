@@ -20,6 +20,7 @@ import (
 	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -111,6 +112,7 @@ type Server struct {
 	Auth       *Auth
 	Log        *slog.Logger
 	Config     *configdb.Service
+	Status     *status.Service // the public status pages (status.go); nil: none
 }
 
 // Register adds the API's routes to mux.
@@ -149,6 +151,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	s.registerToken(mux)
 	mux.Handle("PUT /api/v1/machines/{name}/connector", s.with("machines:write", s.setConnector))
 	mux.Handle("POST /api/v1/probe-now", s.with("alerts:write", s.probeNow))
+	s.registerStatus(mux)
 }
 
 // Routes lists the authenticated routes, for the test that keeps the OpenAPI description in step.

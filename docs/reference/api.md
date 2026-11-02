@@ -22,13 +22,14 @@ A token carries one or more scopes. The first eight are for people and agents, o
 
 | Scope | What it allows |
 | --- | --- |
-| `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration |
+| `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration, the status pages and maintenance windows |
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
 | `machines:ssh` | The SSH channel with the keys on the token, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
 | `machines:write` | Adding and removing machines, connector keys, pausing and resuming agents' access |
 | `sessions:read` | Sessions' transcripts and recordings |
-| `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules), and reading it |
-| `incidents:write`, `maintenance:write` | Reserved for the status pages to come; no route takes them yet |
+| `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
+| `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
+| `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
 | `probe:write` | A probe location: pushing results, fetching its targets, modules and settings, probing on demand. Writes only as its own location |
 | `host:write` | A host: pushing its metrics. Writes only as its own host |
 | `heartbeat:write` | Pushing heartbeats |
@@ -107,9 +108,24 @@ What Beacon monitors, each item in the shape of its file ([Catalogue, targets an
 | `GET /api/v1/config/modules/{name}` | `status:read` or `config:write` | One module |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | Add or replace a module; the module file keeps its other modules and their comments |
 | `DELETE /api/v1/config/modules/{name}` | `config:write` | Remove a module |
+| `GET /api/v1/config/status_pages` | `status:read` or `config:write` | The public status pages, by name ([Status pages](../status.md)) |
+| `GET /api/v1/config/status_pages/{name}` | `status:read` or `config:write` | One status page's definition |
+| `PUT /api/v1/config/status_pages/{name}` | `config:write` | Add or replace a status page; components whose services no target has are taken, with a warning |
+| `DELETE /api/v1/config/status_pages/{name}` | `config:write` | Remove a status page |
 | `GET /api/v1/config/history` | `status:read` or `config:write` | Changes, newest first, without their values (`kind`, `key`, `before`, `limit`); the latest 10,000 are kept |
 | `GET /api/v1/config/history/{version}` | `status:read` or `config:write` | One change, with every item's value before and after |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | Undo one change as a new change; `config.conflict` when a later change touched one of its items |
+
+## Status pages and maintenance
+
+The public pages themselves need no token ([below](#other-routes-on-port-17001)); these routes give agents the same and let them plan work ([Status pages](../status.md)).
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/status/{name}` | `status:read` | A status page as its public JSON has it: each component's state now and over 90 days, the incidents and their public updates, the maintenance windows; `?lang=` |
+| `GET /api/v1/maintenance` | `status:read` | The maintenance windows, the latest to start first, ended ones kept for 91 days |
+| `POST /api/v1/maintenance` | `maintenance:write` | Plan a window: `services`, `starts_at` (now when left out), `ends_at` (at most 7 days later), `title`, `description`. The pages announce it, and a silence per service keeps its alerts from paging people |
+| `DELETE /api/v1/maintenance/{id}` | `maintenance:write` | End a window now, or call it off before it begins |
 
 ## The token
 
@@ -144,6 +160,9 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | --- | --- |
 | `/mcp` | The MCP server, streamable HTTP, with the same bearer tokens ([MCP tools](mcp.md)) |
 | `GET /alerts/{id}`, `GET /sessions/{id}` | The pages people open from a card, with a signed link or a token ([The pages](../pages.md)) |
+| `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../status.md)); on a page's own host name, `/` and `/incidents/{id}` |
+| `GET /status.json`, `GET /status/{name}.json`, `GET /status/{name}/feed.atom`, `GET /status/{name}/badge.svg`, `GET /status/{name}/components/{component}/badge.svg` | A page's JSON, Atom feed and badges, public and cacheable |
+| `GET /robots.txt` | Lets search engines read `/status` and nothing else |
 | `GET /healthz` | Liveness: `ok` |
 | `GET /readyz` | Readiness: the Watchdog seen, the Feishu connection up, budget left |
 | `GET /metrics` | Beacon's own metrics in the Prometheus format, for direct connections only |
@@ -180,6 +199,9 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | `config.not_found` | 404 | No such configuration item or change |
 | `config.invalid` | 422 | The change would not pass the checks; the message says why, and nothing changed |
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |
+| `status.not_found` | 404 | No status page of that name |
+| `maintenance.not_found` | 404 | No maintenance window with this id |
+| `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |
 | `token.too_soon` | 429 | The token renewed itself less than 24 hours ago, and is still good |
 | `token.not_renewable` | 403 | An enrolled machine's token; `beacon enroll … -rotate` replaces it |
 | `token.not_found` | 404 | No token of that name to revoke |
