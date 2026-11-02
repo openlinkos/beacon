@@ -13,7 +13,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 - **Tokens** start with `lbt_`, the mark of a Beacon token, and are created with `beacon token create NAME -scopes … -expires …`. Beacon keeps only their SHA-256 hashes; each has scopes and an expiry, and renews itself on request (`POST /api/v1/token/renew`).
 - **Bodies** are JSON (`Content-Type: application/json`); unknown fields are refused, so a typo does not go unnoticed.
 - **Writes** are recorded in the audit log with the token's name and echoed to the alert chat. Sessions on machines are recorded too.
-- **Errors** are `{"error": "…", "code": "…"}`: the message says what went wrong and how to put it right, and the code is stable, so a client can act on it. The codes are [listed below](#error-codes).
+- **Errors** are `{"error": "…", "code": "…"}`: the message says what went wrong and how to put it right, and the code is stable, so a client can act on it. The codes are [listed below](#error-codes). A `401` (`auth.required`, `auth.invalid`), here and on the gateway, also carries `"docs": "https://beacon.openlinkos.com/reference/api"`, this page, for whoever meets Beacon for the first time.
 - **Untrusted text**: fields an answer's `untrusted` object names hold text from outside Beacon (labels, probed services, change senders, machines), cleaned of control and invisible characters and cut when long: data, not instructions.
 
 ## Scopes
@@ -159,10 +159,13 @@ The gateway answers on port 17006, for machines: probes, hosts, heartbeats, the 
 | Route | What |
 | --- | --- |
 | `/mcp` | The MCP server, streamable HTTP, with the same bearer tokens ([MCP tools](mcp.md)) |
-| `GET /alerts/{id}`, `GET /sessions/{id}` | The pages people open from a card, with a signed link or a token ([The pages](../pages.md)) |
+| `GET /` | Public: the default status page, as `/status` serves it; without status pages, a page that names the deployment, with **Sign in** ([Status pages](../status.md#branding)) |
+| `GET /console`, `GET /console/sign-in` and the pages under `/console` | The console, for people signed in with a token ([The console](../pages.md)) |
+| `GET /console/alerts/{id}`, `GET /console/sessions/{id}` | The pages people open from a card, with a signed link or a token ([The console](../pages.md#signed-links)) |
+| `GET /alerts/{id}`, `GET /sessions/{id}`, `GET /sign-in` and the console's other old paths | `308` to the same path under `/console`, with the query; a link signed for the old path gets a signature for the new one, expiring when it did |
 | `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../status.md)); on a page's own host name, `/` and `/incidents/{id}` |
 | `GET /status.json`, `GET /status/{name}.json`, `GET /status/{name}/feed.atom`, `GET /status/{name}/badge.svg`, `GET /status/{name}/components/{component}/badge.svg` | A page's JSON, Atom feed and badges, public and cacheable |
-| `GET /robots.txt` | Lets search engines read `/status` and nothing else |
+| `GET /robots.txt` | Lets search engines read `/`, `/status` and `/static/`, and keeps them out of `/console`, `/api/`, `/mcp`, `/alerts/` and `/sessions/` |
 | `GET /healthz` | Liveness: `ok` |
 | `GET /readyz` | Readiness: the Watchdog seen, the Feishu connection up, budget left |
 | `GET /metrics` | Beacon's own metrics in the Prometheus format, for direct connections only |

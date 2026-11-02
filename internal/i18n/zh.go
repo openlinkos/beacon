@@ -6,8 +6,11 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
-	// the status page
-	"The status page is on its way.": "状态页正在建设中。",
+	// what every page says of Beacon and where the project is
+	"Powered by Beacon, open source": "由开源的 Beacon 驱动",
+	"Beacon is open source.":         "Beacon 是开源软件。",
+	"GitHub":                         "GitHub",
+	"Report an issue":                "反馈问题",
 	// alert cards, the group bot and Pushover
 	"%s: %s":  "%s：%s",
 	"Runbook": "处理手册",
@@ -203,7 +206,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Tokens":                        "令牌",
 	"Your token":                    "你的令牌",
 	"Scopes":                        "权限范围",
-	"Where agents run operations, and people watch.":                                                                                         "Agent 在这里做运维，人在这里看着。",
+	"Sign in to see your services, alerts and servers, and everything your agents did on them.":                                              "登录后可以看到服务、告警和服务器，以及 Agent 在上面做过的每一件事。",
+	"Self-hosted monitoring and SSH access for the AI agents that run your servers.":                                                         "为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。",
 	"Paste a Beacon token. What you may do here is what its scopes allow; status:read at least.":                                             "粘贴一个 Beacon 令牌。在这里能做什么取决于它的权限范围，至少要有 status:read。",
 	"Beacon keeps only a session bound to the token, for 12 hours or until the token expires or is revoked; the token itself is not stored.": "Beacon 只保存与令牌绑定的会话，有效 12 小时，令牌过期或被吊销时随之结束；令牌本身不会被保存。",
 	"On the host, make a token for yourself with":                                                                                            "在主机上为自己创建令牌：",
@@ -434,7 +438,6 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Documentation":                                                    "文档",
 	"Report abuse":                                                     "举报滥用",
 	"Privacy":                                                          "隐私说明",
-	"Status by Beacon":                                                 "状态页由 Beacon 提供",
 	"Legend":                                                           "图例",
 	"All updates":                                                      "全部进展",
 	"Today":                                                            "今天",

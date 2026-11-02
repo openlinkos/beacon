@@ -7,6 +7,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // The machines the SSH channel reaches, with the channel's pause switch, and each machine's page: what
@@ -106,12 +107,12 @@ func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 	})
 	p := machinesPage{shell: s.shellFor(r, v, "machines", s.t("Machines")), L: s.machineLabels(), Channel: s.channelSwitch(v)}
 	p.Count = num(len(ms))
-	_, from, to := s.page(len(ms), r.URL.Query(), "/machines", &p.List)
+	_, from, to := s.page(len(ms), r.URL.Query(), consolePath("/machines"), &p.List)
 	for _, m := range ms[from:to] {
-		row := machineRow{Name: m.Name, Href: "/machines/" + url.PathEscape(m.Name), Critical: m.Critical, Sessions: num(counts[m.Name])}
+		row := machineRow{Name: m.Name, Href: consolePath("/machines/") + url.PathEscape(m.Name), Critical: m.Critical, Sessions: num(counts[m.Name])}
 		row.Address, row.ConnectorTone = s.connector(m)
 		if rec, ok := last[m.Name]; ok {
-			row.Last, row.LastHref = s.t("%s by %s", s.ago(rec.Started), rec.Agent), "/sessions/"+rec.ID
+			row.Last, row.LastHref = s.t("%s by %s", s.ago(rec.Started), rec.Agent), link.SessionPath(rec.ID)
 		}
 		p.Rows = append(p.Rows, row)
 	}
@@ -154,7 +155,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	l := s.machineLabels()
-	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: "/machines"}), L: l, LL: s.listLabels(), Note: m.Note}
+	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: consolePath("/machines")}), L: l, LL: s.listLabels(), Note: m.Note}
 	address, _ := s.connector(*m)
 	if m.Critical {
 		p.Badges = append(p.Badges, badge{Text: l.Critical, Tone: "danger"})
@@ -180,7 +181,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return walked < maxScan
 	})
 	p.Count = num(len(recs))
-	_, from, to := s.page(len(recs), r.URL.Query(), "/machines/"+url.PathEscape(name), &p.List)
+	_, from, to := s.page(len(recs), r.URL.Query(), consolePath("/machines/")+url.PathEscape(name), &p.List)
 	for i, rec := range recs[from:to] {
 		p.Sessions = append(p.Sessions, s.sessionItem(rec))
 		if i >= 20 { // the commands of the page's 20 newest sessions
@@ -189,7 +190,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 		switch rec.Kind {
 		case "exec", "file":
 			p.Commands = append(p.Commands, commandItem{At: s.clock(rec.Started), Agent: rec.Agent, Command: rec.Command, Exit: s.exit(rec.Exit),
-				Failed: rec.Exit != nil && *rec.Exit != 0, Href: "/sessions/" + rec.ID})
+				Failed: rec.Exit != nil && *rec.Exit != 0, Href: link.SessionPath(rec.ID)})
 		case "shell":
 			tr, err := s.SSH.Session(rec.ID)
 			if err != nil {
@@ -198,7 +199,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 			for j := len(tr.Commands) - 1; j >= 0; j-- { // the newest first, as the sessions
 				c := tr.Commands[j]
 				p.Commands = append(p.Commands, commandItem{At: s.clock(c.Started), Agent: rec.Agent, Command: c.Command, Exit: s.exit(c.Exit),
-					Took: s.took(c.Ms), Failed: c.Exit != nil && *c.Exit != 0, Href: "/sessions/" + rec.ID})
+					Took: s.took(c.Ms), Failed: c.Exit != nil && *c.Exit != 0, Href: link.SessionPath(rec.ID)})
 			}
 		}
 	}

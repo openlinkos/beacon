@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -72,6 +74,7 @@ type Config struct {
 	Pages struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
+	Branding Branding `yaml:"branding"`
 
 	Feishu       Feishu              `yaml:"feishu"`
 	Pushover     Pushover            `yaml:"pushover"`
@@ -85,6 +88,26 @@ type Config struct {
 	Location     *time.Location      `yaml:"-"`
 	Proxies      []netip.Prefix      `yaml:"-"`
 	OnCallByID   map[string]OnCaller `yaml:"-"`
+}
+
+// Branding is what Beacon's public pages say of the deployment and of Beacon (docs/status.md). Title
+// names the deployment on the page at / when there is no status page (Beacon when empty). PoweredBy, on
+// unless set to false, puts "Powered by Beacon, open source" in the public pages' footer; a team may
+// leave it out of its status pages. The console always says what it runs on.
+type Branding struct {
+	Title     string `yaml:"title"`
+	PoweredBy *bool  `yaml:"powered_by"`
+}
+
+// Powered reports whether the public pages say they are powered by Beacon.
+func (b Branding) Powered() bool { return b.PoweredBy == nil || *b.PoweredBy }
+
+// Name is the deployment's title, Beacon unless the configuration names it.
+func (b Branding) Name() string {
+	if t := strings.TrimSpace(b.Title); t != "" {
+		return t
+	}
+	return "Beacon"
 }
 
 // Routing groups and inhibits alerts (what Alertmanager's route and inhibit_rules did). Label values in
@@ -349,6 +372,9 @@ func (c *Config) validate() error {
 	}
 	if c.Language != "zh" && c.Language != "en" {
 		bad("language must be zh or en, not %q", c.Language)
+	}
+	if t := c.Branding.Title; utf8.RuneCountInString(t) > 80 || strings.ContainsFunc(t, unicode.IsControl) {
+		bad("branding.title must be one line of at most 80 characters")
 	}
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {

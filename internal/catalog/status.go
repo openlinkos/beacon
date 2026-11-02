@@ -140,7 +140,7 @@ func (c *Catalog) StatusPage(name string) (StatusPage, bool) {
 	return StatusPage{}, false
 }
 
-// DefaultStatusPage is the page served at /status: the one marked default, else the first by name.
+// DefaultStatusPage is the page served at / and /status: the one marked default, else the first by name.
 func (c *Catalog) DefaultStatusPage() (StatusPage, bool) {
 	if len(c.StatusPages) == 0 {
 		return StatusPage{}, false

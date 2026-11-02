@@ -45,7 +45,7 @@ func (s *Server) tokens(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}}
 	p.Note = s.t("Tokens are made with beacon token create on the host. A token that reaches machines can be revoked here with machines:write, to stop one agent; the others are revoked with beacon token revoke on the host, since they keep monitoring running.")
 	p.Count = num(len(all))
-	_, from, to := s.page(len(all), r.URL.Query(), "/tokens", &p.List)
+	_, from, to := s.page(len(all), r.URL.Query(), consolePath("/tokens"), &p.List)
 	for _, t := range all[from:to] {
 		p.Rows = append(p.Rows, s.tokenRow(t, v))
 	}
@@ -69,7 +69,7 @@ func (s *Server) tokenRow(t store.Token, v *viewer) tokenRow {
 		row.Keys = append(row.Keys, k.Fingerprint)
 	}
 	if bridge.Revocable(t) && v.has("machines:write") {
-		row.Revoke = "/tokens/" + url.PathEscape(t.Name) + "/revoke"
+		row.Revoke = consolePath("/tokens/") + url.PathEscape(t.Name) + "/revoke"
 	}
 	return row
 }

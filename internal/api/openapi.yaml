@@ -45,6 +45,10 @@ components:
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable]
+        docs:
+          type: string
+          format: uri
+          description: "On a 401 (auth.required, auth.invalid): the API's reference, which says how to get a token"
     Ack:
       type: object
       properties:
@@ -498,7 +502,7 @@ components:
         title: {$ref: "#/components/schemas/Text"}
         description: {$ref: "#/components/schemas/Text"}
         host: {type: string, description: "A host name of its own, such as uptime.example.com, where the page is served at / and nothing else of Beacon"}
-        default: {type: boolean, description: "The page served at /status; else the first by name"}
+        default: {type: boolean, description: "The page served at / and /status; else the first by name"}
         brand: {type: string, enum: [beacon, linkos, linkos-status, linkos-mirrors, openlinkos], description: "The design system's brand it wears; beacon by default"}
         languages: {type: array, items: {type: string, enum: [en, zh]}, maxItems: 2, description: "The languages it is shown in, the default first; en when left out"}
         components:

@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-f93069be
+sourceHash: sha256-693935e2
 ---
 
 # 状态页
 
 Beacon 自己提供公开的状态页，内容来自它已有的东西：检测结果、告警组和维护窗口。一个状态页说明每个组件现在是否正常、过去 90 天每天的情况、正在出什么问题、在怎么处理，以及计划了哪些维护。不需要手工填写，也不需要再维护一个第三方状态页：检测点一致认为某个服务不可用时，状态页就这样显示；告警恢复时，事件也随之结束。
 
-状态页用的是家族网站的设计（`@openlinkos/ui`），可以是英文、中文或两种语言，手机上也好读，跟随读者系统的浅色或深色模式，不需要脚本。它们在 17001 端口上与控制台一起提供，不需要登录，地址是 `/status` 和 `/status/<name>`，也可以放在自己的域名的 `/` 上。
+状态页用的是家族网站的设计（`@openlinkos/ui`），可以是英文、中文或两种语言，手机上也好读，跟随读者系统的浅色或深色模式，不需要脚本。它们在 17001 端口上与控制台一起提供，不需要登录：默认状态页在站点根路径 `/` 和 `/status` 上，每个状态页在 `/status/<name>` 上，也可以放在自己的域名的 `/` 上。
 
 ## 状态页显示什么 {#what-a-page-shows}
 
@@ -16,6 +16,7 @@ Beacon 自己提供公开的状态页，内容来自它已有的东西：检测�
 - **组件**：每个组件现在的状态，以及过去 90 天的状态条，每格一天：正常、部分中断、中断、维护或无数据；每一格的提示写明日期和当天的可用率，状态条下方是 90 天的可用率。手机上状态条只显示最近 30 天。
 - **最近 30 天**：已经结束的事件和维护，每个事件都链接到它自己的页面（`/status/<name>/incidents/<id>`）。
 - **检测点**，用它们的公开名称（目录里的 `name` 和 `network`），以及状态页列出的链接：主页、文档、举报滥用、隐私说明；页眉和页脚里有家族菜单。
+- 页眉右侧的**登录**，通往 `/console` 的控制台（已登录时是**控制台**）；页脚里的一行**由开源的 Beacon 驱动**（[品牌与署名](#branding)）。
 
 ## 定义状态页 {#defining-a-page}
 
@@ -26,7 +27,7 @@ status_pages:
   - name: public                     # 小写字母、数字和连字符：/status/public
     title: {en: Example Status, zh: 示例服务状态}   # 文字可以是一个字符串，也可以每种语言一个
     description: {en: "Whether Example's public services work, from where their users are.", zh: 从用户所在的地方看，示例的公共服务是否正常。}
-    default: true                    # 放在 /status 的状态页（否则按名称排第一的那个）
+    default: true                    # 放在 / 和 /status 的状态页（否则按名称排第一的那个）
     host: uptime.example.com         # 可选：同时放在这个域名的 / 上
     brand: beacon                    # 采用设计系统里的哪个品牌：beacon、linkos、linkos-status、linkos-mirrors、openlinkos
     languages: [en, zh]              # 第一个是默认语言；不写就是 en
@@ -128,7 +129,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 自己的域名 {#a-host-of-its-own}
 
-设了 `host` 的状态页，也放在那个域名的 `/` 上：事件在 `/incidents/<id>`，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg` 和 `/components/<name>/badge.svg`。在这个域名上，Beacon 的其他东西都不应答：控制台、API 和 MCP 都不行。把域名指向反向代理，并原样转发 Host；参考部署里是 `deploy/Caddyfile` 中的一段：
+设了 `host` 的状态页，也放在那个域名的 `/` 上：事件在 `/incidents/<id>`，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg` 和 `/components/<name>/badge.svg`。在这个域名上，Beacon 的其他东西都不应答：控制台、API 和 MCP 都不行，所以页面上也没有**登录**。把域名指向反向代理，并原样转发 Host；参考部署里是 `deploy/Caddyfile` 中的一段：
 
 ```
 uptime.example.com {
@@ -153,6 +154,20 @@ Caddy 像为其他域名一样为它申请证书。Beacon 按请求的 `Host` �
 
 它们和状态页一样接受 `?lang=`，可以被其他网站嵌入和读取（`Access-Control-Allow-Origin: *`）。Agent 用 `GET /api/v1/status/<name>`（`status:read`）或 MCP 工具 `get_status_page` 拿到同样的 JSON。其中不含任何 service 标签和令牌：公开的只有状态页自己的文字。
 
+## 品牌与署名 {#branding}
+
+每个公开页面都写明自己运行在什么上：页脚有一行**由开源的 Beacon 驱动**，带 Beacon 的标志，链接到 [beacon.openlinkos.com](https://beacon.openlinkos.com/)（中文页面链接到它的中文文档）和 [GitHub](https://github.com/openlinkos/beacon) 上的代码。希望状态页只出现自己名字的团队，可以去掉这一行：
+
+```yaml
+branding:
+  title: Example Operations   # 没有状态页时 / 上那个页面的标题（不写就是 Beacon）
+  powered_by: false           # 公开页面上不写「由开源的 Beacon 驱动」（默认 true）
+```
+
+`powered_by` 只管公开页面；控制台总是显示 Beacon 的版本和项目的链接（[控制台](pages.md)）。
+
+一个状态页都没有时，`/` 是同样设计的一个小页面：这套部署的标题（`branding.title`）、一句话说明 Beacon 是什么、**登录**，以及页脚的那一行。
+
 ## 缓存与搜索引擎 {#caching-and-search-engines}
 
-一个状态页最多每 30 秒计算一次，每个应答都是公开、可缓存的：`Cache-Control: public, max-age=30` 和 `ETag`，浏览器或边缘缓存再次请求时代价很小，会得到 `304 Not Modified`。和控制台的页面不同，状态页不标 `noindex`；`/robots.txt` 只让搜索引擎读取 `/status`，不读 Beacon 的其他部分（状态页自己的域名上全部可读）。它们使用控制台的 `Content-Security-Policy`，但不允许任何脚本，不发送 referrer，也不能被嵌入框架。
+一个状态页最多每 30 秒计算一次，每个应答都是公开、可缓存的：`Cache-Control: public, max-age=30` 和 `ETag`，浏览器或边缘缓存再次请求时代价很小，会得到 `304 Not Modified`。已登录控制台的人请求的页面，页头写的是**控制台**而不是**登录**，这样的应答是 `private, max-age=30`，共享缓存不会保存它；两者都通往 `/console`，所以缓存里写着**登录**的页面也无妨。和控制台的页面不同，状态页不标 `noindex`；`/robots.txt` 让搜索引擎读取 `/`、`/status` 和它们加载的文件，不进 `/console`、`/api/`、`/mcp` 以及控制台链接的旧路径（`/alerts/`、`/sessions/`）；状态页自己的域名上全部可读。它们使用控制台的 `Content-Security-Policy`，但不允许任何脚本，不发送 referrer，也不能被嵌入框架。

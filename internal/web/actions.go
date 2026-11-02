@@ -123,14 +123,14 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, v *viewer) {
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *viewer) {
 	return func(w http.ResponseWriter, r *http.Request, v *viewer) {
 		if err := s.SSH.SetPaused(r.Context(), sshgate.Actor{Name: v.Token.Name, Via: "console"}, paused); err != nil {
-			s.failed(w, r, "/machines", "pause", err)
+			s.failed(w, r, consolePath("/machines"), "pause", err)
 			return
 		}
 		done := "resumed"
 		if paused {
 			done = "paused"
 		}
-		back(w, r, "/machines", "done", done)
+		back(w, r, consolePath("/machines"), "done", done)
 	}
 }
 
@@ -141,14 +141,14 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request, v *viewer) {
 	case errors.Is(err, store.ErrNotFound):
 		s.missing(w, r, v)
 	case errors.Is(err, bridge.ErrBadInput):
-		back(w, r, "/tokens", "error", "not_revocable")
+		back(w, r, consolePath("/tokens"), "error", "not_revocable")
 	case err != nil:
-		s.failed(w, r, "/tokens", "revoke", err)
+		s.failed(w, r, consolePath("/tokens"), "revoke", err)
 	case name == v.Token.Name: // its own token: the sign-in ended with it
 		http.SetCookie(w, s.cookie(sessionCookie, "", time.Time{}))
-		http.Redirect(w, r, "/sign-in", http.StatusSeeOther)
+		http.Redirect(w, r, consolePath("/sign-in"), http.StatusSeeOther)
 	default:
-		back(w, r, "/tokens", "done", "revoked")
+		back(w, r, consolePath("/tokens"), "done", "revoked")
 	}
 }
 
@@ -158,7 +158,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.missing(w, r, v)
 		return
 	}
-	page := "/config/history/" + strconv.FormatInt(n, 10)
+	page := consolePath("/config/history/") + strconv.FormatInt(n, 10)
 	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.Token.Name, Via: "console"}, n, r.PostForm.Get("note"))
 	switch {
 	case errors.Is(err, configdb.ErrNotFound):
@@ -166,6 +166,6 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request, v *viewer) {
 	case err != nil:
 		s.failed(w, r, page, "revert", err)
 	default:
-		back(w, r, "/config/history/"+strconv.FormatInt(ch.Version, 10), "done", "reverted")
+		back(w, r, consolePath("/config/history/")+strconv.FormatInt(ch.Version, 10), "done", "reverted")
 	}
 }

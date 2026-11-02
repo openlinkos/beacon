@@ -46,7 +46,7 @@
 	handle /readyz {
 		respond 404
 	}
-	# the rest: the pages, /api/v1/*, /mcp, /healthz, /drill/healthz
+	# the rest: the public pages at /, the console at /console, /api/v1/*, /mcp, /healthz, /drill/healthz
 	handle {
 		reverse_proxy beacon:17001 {
 			header_up X-Forwarded-For {client_ip}

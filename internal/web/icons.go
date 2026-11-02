@@ -63,7 +63,9 @@ func icon(name, size string) (template.HTML, error) {
 	return template.HTML(`<svg class="` + cls + `" aria-hidden="true"><use href="#i-` + name + `"/></svg>`), nil //nolint:gosec // G203: a known name and class
 }
 
+// funcs are the console templates' functions: icons, and console, the path of a page of the console.
 var funcs = template.FuncMap{
-	"icon":   func(name string) (template.HTML, error) { return icon(name, "") },
-	"iconSm": func(name string) (template.HTML, error) { return icon(name, "sm") },
+	"icon":    func(name string) (template.HTML, error) { return icon(name, "") },
+	"iconSm":  func(name string) (template.HTML, error) { return icon(name, "sm") },
+	"console": consolePath,
 }

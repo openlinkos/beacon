@@ -2,7 +2,7 @@
 
 Beacon serves public status pages itself, from what it already has: the probes' results, the alert groups and the maintenance windows. A page says whether each of its components works now, how it did on each of the last 90 days, what is going wrong and what is being done about it, and what work is planned. There is nothing to feed by hand and no third-party status page to keep in step: when the probes agree a service is down, the page says so, and when the alert resolves, the incident does too.
 
-The pages are on the family's site design (`@openlinkos/ui`), in English, Chinese or both, readable on a phone, light or dark as the reader's system is, and need no script. They are served on port 17001 beside the console, without signing in, at `/status` and `/status/<name>`, or at `/` on a host name of their own.
+The pages are on the family's site design (`@openlinkos/ui`), in English, Chinese or both, readable on a phone, light or dark as the reader's system is, and need no script. They are served on port 17001 beside the console, without signing in: the default page at the site's root `/` and at `/status`, every page at `/status/<name>`, and a page at `/` on a host name of its own.
 
 ## What a page shows
 
@@ -12,6 +12,7 @@ The pages are on the family's site design (`@openlinkos/ui`), in English, Chines
 - **Components**, each with its state now and a bar of the last 90 days, one cell a day: operational, partial outage, outage, maintenance or no data; each cell's title gives the date and the share of the day it was available, and the bar its availability over the 90 days. On a phone the bar shows the last 30 days.
 - **The last 30 days**: the incidents and maintenance that ended, each linking to its own page (`/status/<name>/incidents/<id>`).
 - **The probe locations**, by their public names (the catalogue's `name` and `network`), and the links the page names: home, documentation, where to report abuse, the privacy notice; the family menu in the header and the footer.
+- **Sign in** at the right of the header, to the console at `/console` (**Console** for someone signed in), and in the footer the line **Powered by Beacon, open source** ([Branding](#branding)).
 
 ## Defining a page
 
@@ -22,7 +23,7 @@ status_pages:
   - name: public                     # lower-case letters, digits and dashes: /status/public
     title: Example Status            # a text is one string, or one per language: {en: …, zh: …}
     description: Whether Example's public services work, from where their users are.
-    default: true                    # the page at /status (else the first by name)
+    default: true                    # the page at / and /status (else the first by name)
     host: uptime.example.com         # optional: served at / on this host name too
     brand: beacon                    # the design system's brand it wears: beacon, linkos, linkos-status, linkos-mirrors, openlinkos
     languages: [en, zh]              # the first is the default; en when left out
@@ -124,7 +125,7 @@ A silence made another way (`POST /api/v1/silences`, `beacon silence create`) wh
 
 ## A host of its own
 
-A page with `host` is also served at `/` on that host name, with its incidents at `/incidents/<id>`, its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg` and `/components/<name>/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP. Point the name at the reverse proxy and pass the host through; in the reference deployment, a block in `deploy/Caddyfile`:
+A page with `host` is also served at `/` on that host name, with its incidents at `/incidents/<id>`, its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg` and `/components/<name>/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP, so the page has no **Sign in** there. Point the name at the reverse proxy and pass the host through; in the reference deployment, a block in `deploy/Caddyfile`:
 
 ```
 uptime.example.com {
@@ -149,6 +150,20 @@ Caddy gets the name's certificate as for the other hosts. Beacon serves the page
 
 They take `?lang=` as the page does, and may be embedded and fetched from other sites (`Access-Control-Allow-Origin: *`). An agent gets the same JSON with `GET /api/v1/status/<name>` (`status:read`) or the MCP tool `get_status_page`. It names no service label and no token: what is public is the page's own text.
 
+## Branding
+
+Every public page says what it runs on: the footer has the line **Powered by Beacon, open source**, with Beacon's mark, linking to [beacon.openlinkos.com](https://beacon.openlinkos.com/) (its Chinese pages for a page in Chinese) and to the code on [GitHub](https://github.com/openlinkos/beacon). A team that wants its status pages to carry only its own name may leave the line out:
+
+```yaml
+branding:
+  title: Example Operations   # the page at / when there is no status page (Beacon when left out)
+  powered_by: false           # no "Powered by Beacon" on the public pages (true by default)
+```
+
+`powered_by` is for the public pages only; the console always shows Beacon's version and the project's links ([The console](pages.md)).
+
+Without any status page, `/` is a small page on the same design: the deployment's title (`branding.title`), one line on what Beacon is, **Sign in**, and the footer's line.
+
 ## Caching and search engines
 
-A page is computed at most every 30 seconds, and every answer is public and cacheable: `Cache-Control: public, max-age=30` and an `ETag`, so a browser or an edge cache asks again cheaply and gets `304 Not Modified`. Unlike the console's pages, status pages are not marked `noindex`; `/robots.txt` lets search engines read `/status` and nothing else of Beacon (and everything on a page's own host). They have the console's `Content-Security-Policy` without any script, send no referrer, and cannot be framed.
+A page is computed at most every 30 seconds, and every answer is public and cacheable: `Cache-Control: public, max-age=30` and an `ETag`, so a browser or an edge cache asks again cheaply and gets `304 Not Modified`. A page asked for by someone signed in to the console, whose header says **Console** rather than **Sign in**, is `private, max-age=30`, so that no shared cache keeps it; both lead to `/console`, so a cached page that says **Sign in** does no harm. Unlike the console's pages, status pages are not marked `noindex`; `/robots.txt` lets search engines read `/`, `/status` and the files they load, and keeps them out of `/console`, `/api/`, `/mcp` and the old paths of the console's links (`/alerts/`, `/sessions/`); on a page's own host it allows everything. They have the console's `Content-Security-Policy` without any script, send no referrer, and cannot be framed.

@@ -1,22 +1,22 @@
 ---
-sourceHash: sha256-ef33cb9c
+sourceHash: sha256-adaa3fea
 ---
 
 # 控制台
 
-控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `beacon` 自己提供，在 17001 端口的 `/` 上，与 API 和 MCP 在一起，地址在 `public_url` 下。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
+控制台是 Beacon 自己的工作台：人看 Agent 和告警在做什么，都在这一个地方。它由 `beacon` 自己提供，在 17001 端口的 `/console` 上，与 API 和 MCP 在一起，地址在 `public_url` 下；站点根路径 `/` 是公开的，放默认的[状态页](status.md)，没有状态页时是一个写明这套部署是什么的页面。从群里的卡片点一个链接，不用登录就能打开这条告警的页面（检测看到了什么、时间线、备注、唤醒了哪些 Agent、告警相关机器上的每一次会话，带命令和回放）；登录以后，同一个页面就在其他页面之间，暂停开关点一下就到。
 
 Beacon 没有自己的登录系统：人用一个 Beacon 令牌登录，控制台能做什么，取决于这个令牌的权限范围。
 
 ## 登录 {#signing-in}
 
-`/sign-in` 要一个 Beacon 令牌，像密码一样粘贴进去。至少有 `status:read` 的令牌才能登录；没有它的、不存在的、已过期的都不行。在主机上为自己创建一个：
+`/console/sign-in` 要一个 Beacon 令牌，像密码一样粘贴进去；未登录的人打开控制台的任何页面都会被带到这里，登录后再回到原来的页面。`/` 上的公开页面在页头右侧有**登录**（已登录时是**控制台**），通往 `/console`；放在自己域名上的状态页两者都没有，因为控制台在那个域名上不应答。至少有 `status:read` 的令牌才能登录；没有它的、不存在的、已过期的都不行。在主机上为自己创建一个：
 
 ```bash
 beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d
 ```
 
-- 登录就是 Beacon 数据库里的一个会话，有效 12 小时，令牌更早到期的话随令牌到期。浏览器只拿着会话的 ID，放在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 cookie 里（`__Host-beacon-console`）；数据库只保存它的 SHA-256，令牌本身不保存。
+- 登录就是 Beacon 数据库里的一个会话，有效 12 小时，令牌更早到期的话随令牌到期。浏览器只拿着会话的 ID，放在 `HttpOnly`、`Secure`、`SameSite=Strict` 的 cookie 里（`__Host-beacon-console`，路径是 `/`，`__Host-` cookie 必须如此）；数据库只保存它的 SHA-256，令牌本身不保存。
 - 会话与这个令牌绑定：吊销令牌，或者用同名的另一个令牌替换它（吊销后重新创建），会话立即结束。权限范围在每次请求时重新读取。
 - 登录失败与 API 共用同一个限额：同一客户端地址 10 分钟内失败 20 次，就会在这 10 分钟剩下的时间里被拒绝。
 - 登录表单带着自己的密钥，其他网站无法用它选的令牌替人登录。登录记入审计日志（`console_sign_in`）。
@@ -25,23 +25,23 @@ beacon token create you -scopes status:read,sessions:read,alerts:write -expires 
 
 ## 页面 {#the-pages}
 
-所有页面共用设计系统的工作台：窄侧栏列出各栏目和数量，顶栏就是页头（导航路径、标题、数量），列表的筛选在左边。列表按时间倒序，每页 50 条；每个筛选都是链接，所以每个视图都有自己的 URL。
+所有页面共用设计系统的工作台：窄侧栏列出各栏目和数量，顶栏就是页头（导航路径、标题、数量），列表的筛选在左边，页脚是 Beacon 的版本，以及文档、GitHub 上的代码和反馈问题的链接。列表按时间倒序，每页 50 条；每个筛选都是链接，所以每个视图都有自己的 URL。
 
 | 页面 | 显示什么 | 需要 |
 | --- | --- | --- |
-| `/` 概览 | 按严重级别统计的触发中告警；应上报的检测点和最近 5 分钟内经网关上报的检测点；机器（多少台关键、NAT 后的有多少已连接）；SSH 通道（运行中，或自何时起暂停）；今天唤醒了哪些 Agent、结果如何；今天的会话；配置版本和修改人；Beacon 版本。每个数字都链接到对应的列表 | `status:read` |
-| `/alerts` | Beacon 保存的所有告警组（已恢复的保留 7 天），可按状态、严重级别、服务、是否认领、是否静默筛选，可搜索标题、服务和标签 | `status:read` |
-| `/alerts/{id}` | 告警页面（见下文），附表单：带备注认领、静默 1、4 或 24 小时、添加备注 | `status:read`；表单要 `alerts:write` |
-| `/machines` | SSH 通道能访问的机器：地址，或 NAT 后的机器是否已连接；是否关键；24 小时内的会话；最近一次会话。上方是整个通道的暂停开关 | `status:read` 或 `machines:ssh`；开关要 `machines:write` |
-| `/machines/{name}` | 一台机器：地址、账户、主机密钥和备注，最近的会话，以及在上面执行过的命令 | `status:read` 或 `machines:ssh` |
-| `/sessions` | 所有会话，可按 Agent、机器、类型、途径、退出码和日期筛选，可搜索命令 | `status:read` 或 `machines:ssh` |
-| `/sessions/{id}` | 会话页面（见下文），带回放 | `sessions:read` 或 `machines:ssh` |
-| `/tokens` | 所有令牌：名称、权限范围、能访问的机器、SSH 密钥指纹、何时由谁创建、何时到期、最近一次自行续期。从不显示密钥本身 | `status:read`；吊销要 `machines:write` |
-| `/config` | Beacon 保存的配置，只读：检测点（是否应上报、是否在上报）、心跳、资源、检测目标组和检测模块；然后是版本历史：谁、何时、经什么途径、为什么 | `status:read` 或 `config:write` |
-| `/config/history/{version}` | 一个版本逐条改了什么，以差异显示，附撤销表单 | `status:read` 或 `config:write`；撤销要 `config:write` |
-| `/agents` | 配置的 Agent Hook（只显示地址的主机名，不显示路径和查询参数）和发出的每次调用：Hook、事件、状态、HTTP 状态码、尝试次数、时间、对应的告警 | `status:read` |
-| `/audit` | 审计日志，可按操作者、操作和途径筛选，可搜索 | `status:read` |
-| `/changes` | 来自 CI、Flux 等的变更事件，可按来源、类型、服务和机器筛选 | `status:read` |
+| `/console` 概览 | 按严重级别统计的触发中告警；应上报的检测点和最近 5 分钟内经网关上报的检测点；机器（多少台关键、NAT 后的有多少已连接）；SSH 通道（运行中，或自何时起暂停）；今天唤醒了哪些 Agent、结果如何；今天的会话；配置版本和修改人；Beacon 版本。每个数字都链接到对应的列表 | `status:read` |
+| `/console/alerts` | Beacon 保存的所有告警组（已恢复的保留 7 天），可按状态、严重级别、服务、是否认领、是否静默筛选，可搜索标题、服务和标签 | `status:read` |
+| `/console/alerts/{id}` | 告警页面（见下文），附表单：带备注认领、静默 1、4 或 24 小时、添加备注 | `status:read`；表单要 `alerts:write` |
+| `/console/machines` | SSH 通道能访问的机器：地址，或 NAT 后的机器是否已连接；是否关键；24 小时内的会话；最近一次会话。上方是整个通道的暂停开关 | `status:read` 或 `machines:ssh`；开关要 `machines:write` |
+| `/console/machines/{name}` | 一台机器：地址、账户、主机密钥和备注，最近的会话，以及在上面执行过的命令 | `status:read` 或 `machines:ssh` |
+| `/console/sessions` | 所有会话，可按 Agent、机器、类型、途径、退出码和日期筛选，可搜索命令 | `status:read` 或 `machines:ssh` |
+| `/console/sessions/{id}` | 会话页面（见下文），带回放 | `sessions:read` 或 `machines:ssh` |
+| `/console/tokens` | 所有令牌：名称、权限范围、能访问的机器、SSH 密钥指纹、何时由谁创建、何时到期、最近一次自行续期。从不显示密钥本身 | `status:read`；吊销要 `machines:write` |
+| `/console/config` | Beacon 保存的配置，只读：检测点（是否应上报、是否在上报）、心跳、资源、检测目标组和检测模块；然后是版本历史：谁、何时、经什么途径、为什么 | `status:read` 或 `config:write` |
+| `/console/config/history/{version}` | 一个版本逐条改了什么，以差异显示，附撤销表单 | `status:read` 或 `config:write`；撤销要 `config:write` |
+| `/console/agents` | 配置的 Agent Hook（只显示地址的主机名，不显示路径和查询参数）和发出的每次调用：Hook、事件、状态、HTTP 状态码、尝试次数、时间、对应的告警 | `status:read` |
+| `/console/audit` | 审计日志，可按操作者、操作和途径筛选，可搜索 | `status:read` |
+| `/console/changes` | 来自 CI、Flux 等的变更事件，可按来源、类型、服务和机器筛选 | `status:read` |
 
 ## 控制台能做什么 {#what-the-console-may-do}
 
@@ -60,7 +60,7 @@ beacon token create you -scopes status:read,sessions:read,alerts:write -expires 
 
 **在控制台吊销令牌。**令牌在主机上经管理套接字创建，大多也在那里吊销。控制台只吊销能经 SSH 通道访问机器的令牌（`machines:ssh`）：这相当于针对单个 Agent 的暂停开关，立即停下它在机器上做的事，而不影响其他 Agent，所以它用暂停开关的权限范围 `machines:write`。吊销同时结束这个令牌在控制台的登录。机器和服务的令牌（检测点、主机、心跳、规则引擎、变更发送方、指标读取方）不能在页面上吊销：它们维持着监控，而告警一条都不能丢。
 
-## 告警页面：`/alerts/{id}` {#the-alerts-page-alertsid}
+## 告警页面：`/console/alerts/{id}` {#the-alerts-page-consolealertsid}
 
 卡片上的**时间线**按钮打开它。页面显示：
 
@@ -75,7 +75,7 @@ beacon token create you -scopes status:read,sessions:read,alerts:write -expires 
 
 时间范围从告警开始前 30 分钟起，到现在，或到恢复后 30 分钟，与证据一致。
 
-## 会话页面：`/sessions/{id}` {#the-sessions-page-sessionsid}
+## 会话页面：`/console/sessions/{id}` {#the-sessions-page-consolesessionsid}
 
 谁、在哪台机器、经什么途径（ssh、MCP 或 API）、什么类型的会话、何时开始、持续多久、退出码，以及用 [asciinema-player](https://github.com/asciinema/asciinema-player) 在页面里回放的录像（asciicast v3，正是 SSH 通道录下的格式：输出、输入、窗口大小、每条命令处的标记、退出码）。播放器下面是交互 shell 的各条命令及退出码，或者一条命令的输出。录像也可以下载。仍在进行的会话只显示记录，结束后才能回放。
 
@@ -93,6 +93,8 @@ pages:
 
 用链接打开的页面只显示这一页，侧栏里有**登录**，登录后能看其余页面。已登录时，同一个链接会在控制台里打开这个页面，并显示令牌权限范围允许的表单。
 
+**0.3.0 之前发出的链接。**在那之前控制台在站点根路径上，群里已有的链接写的是 `/alerts/{id}` 和 `/sessions/{id}`（以及 `/sessions/{id}/recording`），而且路径就在签名里。这些路径仍然应答：签名对旧路径校验通过的链接，会被转到（`308`）页面在 `/console` 下的路径，并换上对新路径的签名，到期时间与原来的相同。伪造的或过期的链接转过去时不带签名，于是和以前一样得到 404；已登录的话，照旧能打开页面。控制台的其他旧路径（`/sign-in`、`/alerts`、`/machines`、`/sessions`、`/tokens`、`/config`、`/agents`、`/audit`、`/changes` 及其下的页面）都带着查询参数转到 `/console` 下的对应位置，所以书签还能用。表单只提交到 `/console`。
+
 Beacon 在人可能拿到链接的每个地方都给出链接：
 
 - 卡片：**时间线**按钮和 Agent 区块；
@@ -107,7 +109,8 @@ Bearer 令牌打开告警页面和会话页面的规则与对应的 API 路由�
 
 - 基于 OpenLinkOS 设计系统 [`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui) 0.6.1 的工作台外框和布局，与 Origin 的管理工作台一样，让这一系列产品看起来是一家。它的样式表、图标和 Geist 字体放在 `internal/web/static/ol` 下，许可证和哈希在 `NOTICE` 里；`scripts/update-ui.sh` 从 npm 更新它们。Beacon 的主题色（`data-brand="beacon"`，一种温暖的烽火橙）是暂定的，写在 `static/beacon-brand.css` 里，等设计系统发布这个品牌后删掉。
 - 所有屏幕用同一个页面：1200px 以上是完整侧栏，860px 起是图标栏，再窄就是抽屉；手机宽度下列表重排成卡片，全靠 CSS。服务器从不过问屏幕有多宽。
-- 不从 Beacon 之外加载任何东西：样式表、字体、播放器的 JavaScript 和 CSS 都嵌在二进制里，图标是页面内的 sprite，唯一的脚本是播放器的，没有内联脚本或样式。`Content-Security-Policy` 只允许来自 Beacon 自己的脚本、样式、字体、请求和表单（`'wasm-unsafe-eval'` 是因为播放器的终端是 WebAssembly）。页面标为 `noindex`，不发送 referrer，因为链接带着签名。
+- 不从 Beacon 之外加载任何东西：样式表、字体、播放器的 JavaScript 和 CSS 都嵌在二进制里，图标是页面内的 sprite，唯一的脚本是播放器的，没有内联脚本或样式。`Content-Security-Policy` 只允许来自 Beacon 自己的脚本、样式、字体、请求和表单（`'wasm-unsafe-eval'` 是因为播放器的终端是 WebAssembly）。页面标为 `noindex`（`/robots.txt` 也让搜索引擎不进 `/console`），不发送 referrer，因为链接带着签名。
+- Beacon 是开源软件，控制台也这样写明：每个页面的页脚都有 Beacon 的版本，以及文档（[beacon.openlinkos.com](https://beacon.openlinkos.com/zh/)，按控制台的语言）、[GitHub](https://github.com/openlinkos/beacon) 上的代码和[反馈问题](https://github.com/openlinkos/beacon/issues/new/choose)的链接；登录页在表单下方也写着。只有这几个链接会自己通往 Beacon 之外。`branding.powered_by`（[状态页](status.md#branding)）不影响它们。
 - 来自 Beacon 之外的文字（告警注释、备注、命令、变更事件）经桥接层清理，输出时再转义。
 - 控制台用配置的 `language` 显示，中文或英文，跟随系统的浅色或深色模式。
 

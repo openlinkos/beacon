@@ -28,7 +28,7 @@ Three binaries, all in Go with no cgo:
 
 | Port | For | What answers |
 | --- | --- | --- |
-| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`), the pages (`/alerts/{id}`, `/sessions/{id}`), `/healthz`, `/readyz`, `/metrics` (direct connections only) and the drill target |
+| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`), the public pages (`/`, `/status`), the console (`/console`, with the pages a card links to: `/console/alerts/{id}`, `/console/sessions/{id}`), `/healthz`, `/readyz`, `/metrics` (direct connections only) and the drill target |
 | 17002 | Agents, and machines behind NAT | The SSH channel: plain SSH, published directly rather than through the HTTP proxy |
 | 17006 | Machines | The gateway: probes, hosts, heartbeats, the rule engine's alerts, change events, metric queries |
 

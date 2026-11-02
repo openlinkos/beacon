@@ -93,22 +93,22 @@ func (b *browser) post(path string, form url.Values) answer {
 // signIn pastes secret into the sign-in form and sends it.
 func (b *browser) signIn(secret, next string) answer {
 	b.e.t.Helper()
-	page := b.get("/sign-in?next=" + url.QueryEscape(next))
+	page := b.get("/console/sign-in?next=" + url.QueryEscape(next))
 	m := formRe.FindStringSubmatch(page.body)
 	if page.code != 200 || m == nil {
 		b.e.t.Fatalf("sign-in page: %d %s", page.code, page.body)
 	}
-	return b.do(http.MethodPost, "/sign-in", url.Values{"token": {secret}, "next": {next}, "form": {m[1]}})
+	return b.do(http.MethodPost, "/console/sign-in", url.Values{"token": {secret}, "next": {next}, "form": {m[1]}})
 }
 
 // signedIn is a browser signed in with a token of these scopes.
 func (e *env) signedIn(name string, scopes ...string) *browser {
 	e.t.Helper()
 	b := e.browser()
-	if a := b.signIn(e.token(name, scopes...), "/"); a.code != http.StatusSeeOther {
+	if a := b.signIn(e.token(name, scopes...), "/console"); a.code != http.StatusSeeOther {
 		e.t.Fatalf("signing in as %s: %d %s", name, a.code, a.body)
 	}
-	b.get("/") // for the CSRF secret
+	b.get("/console") // for the CSRF secret
 	return b
 }
 
@@ -117,12 +117,12 @@ func TestSignIn(t *testing.T) {
 	b := e.browser()
 
 	// signed out, the console sends people to sign in, and back
-	if a := b.get("/alerts?state=firing"); a.code != http.StatusSeeOther || a.header.Get("Location") != "/sign-in?next="+url.QueryEscape("/alerts?state=firing") {
+	if a := b.get("/console/alerts?state=firing"); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/sign-in?next="+url.QueryEscape("/console/alerts?state=firing") {
 		t.Fatalf("signed out: %d %q", a.code, a.header.Get("Location"))
 	}
-	page := b.get("/sign-in")
+	page := b.get("/console/sign-in")
 	checkHeaders(t, page.header)
-	if page.code != 200 || !strings.Contains(page.body, `type="password"`) || !strings.Contains(page.body, `action="/sign-in"`) {
+	if page.code != 200 || !strings.Contains(page.body, `type="password"`) || !strings.Contains(page.body, `action="/console/sign-in"`) {
 		t.Fatalf("sign-in page: %d", page.code)
 	}
 	fc := b.cookies[signInCookie]
@@ -131,22 +131,22 @@ func TestSignIn(t *testing.T) {
 	}
 
 	// a wrong token: the form again, no session, the failure counted
-	if a := b.signIn("lbt_wrong", "/"); a.code != http.StatusUnauthorized || !strings.Contains(a.body, "The token is unknown or has expired.") || b.cookies[sessionCookie] != nil {
+	if a := b.signIn("lbt_wrong", "/console"); a.code != http.StatusUnauthorized || !strings.Contains(a.body, "The token is unknown or has expired.") || b.cookies[sessionCookie] != nil {
 		t.Errorf("a wrong token: %d %v", a.code, b.cookies)
 	}
 	// a token without status:read cannot sign in
-	if a := b.signIn(e.token("probe-only", "machines:ssh"), "/"); a.code != http.StatusForbidden || !strings.Contains(a.body, "lacks status:read") || b.cookies[sessionCookie] != nil {
+	if a := b.signIn(e.token("probe-only", "machines:ssh"), "/console"); a.code != http.StatusForbidden || !strings.Contains(a.body, "lacks status:read") || b.cookies[sessionCookie] != nil {
 		t.Errorf("a token without status:read: %d", a.code)
 	}
 	// a form posted without its own secret (from another site, say) does nothing
 	secret := e.token("alice", "status:read", "alerts:write")
-	if a := b.do(http.MethodPost, "/sign-in", url.Values{"token": {secret}, "next": {"/"}}); a.code != http.StatusForbidden || b.cookies[sessionCookie] != nil {
+	if a := b.do(http.MethodPost, "/console/sign-in", url.Values{"token": {secret}, "next": {"/"}}); a.code != http.StatusForbidden || b.cookies[sessionCookie] != nil {
 		t.Errorf("a sign-in without the form's secret: %d", a.code)
 	}
 
 	// the right token: a session in an HttpOnly, Secure, SameSite=Strict cookie, for 12 hours at most
-	a := b.signIn(secret, "/alerts/"+e.id)
-	if a.code != http.StatusSeeOther || a.header.Get("Location") != "/alerts/"+e.id {
+	a := b.signIn(secret, "/console/alerts/"+e.id)
+	if a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/alerts/"+e.id {
 		t.Fatalf("signing in: %d %q %s", a.code, a.header.Get("Location"), a.body)
 	}
 	c := b.cookies[sessionCookie]
@@ -160,40 +160,40 @@ func TestSignIn(t *testing.T) {
 	if b.cookies[signInCookie] != nil {
 		t.Error("the sign-in form's cookie outlives the sign-in")
 	}
-	home := b.get("/")
-	if home.code != 200 || !strings.Contains(home.body, "alice") || !strings.Contains(home.body, `action="/sign-out"`) {
+	home := b.get("/console")
+	if home.code != 200 || !strings.Contains(home.body, "alice") || !strings.Contains(home.body, `action="/console/sign-out"`) {
 		t.Fatalf("signed in: %d", home.code)
 	}
 	if e.st.AuditLog(1)[0].Action != "console_sign_in" {
 		t.Error("the sign-in is not in the audit log")
 	}
 	// signed in, the sign-in page sends people on
-	if a := b.get("/sign-in?next=/tokens"); a.code != http.StatusSeeOther || a.header.Get("Location") != "/tokens" {
+	if a := b.get("/console/sign-in?next=/console/tokens"); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/tokens" {
 		t.Errorf("the sign-in page when signed in: %d %q", a.code, a.header.Get("Location"))
 	}
 	// next never leads off the site
 	for _, next := range []string{"//evil.example.com/x", "https://evil.example.com", "/\\evil.example.com", "javascript:alert(1)", "/\t/evil.example.com", "/ /evil.example.com"} {
-		if a := b.get("/sign-in?next=" + url.QueryEscape(next)); a.header.Get("Location") != "/" {
+		if a := b.get("/console/sign-in?next=" + url.QueryEscape(next)); a.header.Get("Location") != "/console" {
 			t.Errorf("next %q leads to %q", next, a.header.Get("Location"))
 		}
 	}
 
 	// what the sign-in page reflects is escaped
-	if a := e.browser().get("/sign-in?next=" + url.QueryEscape(`/x"><script>alert(1)</script>`)); a.code != 200 || strings.Contains(a.body, hostile) ||
+	if a := e.browser().get("/console/sign-in?next=" + url.QueryEscape(`/x"><script>alert(1)</script>`)); a.code != 200 || strings.Contains(a.body, hostile) ||
 		len(h1Re.FindAllString(a.body, -1)) != 1 || strings.Contains(a.body, " style=") || strings.Contains(a.body, "<script") {
 		t.Errorf("the sign-in page: %d", a.code)
 	}
 
 	// signing out needs the form's CSRF secret, then ends the session
-	if a := b.post("/sign-out", url.Values{"csrf": {"wrong"}}); a.code != http.StatusForbidden {
+	if a := b.post("/console/sign-out", url.Values{"csrf": {"wrong"}}); a.code != http.StatusForbidden {
 		t.Errorf("signing out without the CSRF secret: %d", a.code)
 	}
 	old := b.cookies[sessionCookie].Value
-	if a := b.post("/sign-out", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/sign-in" || b.cookies[sessionCookie] != nil {
+	if a := b.post("/console/sign-out", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/sign-in" || b.cookies[sessionCookie] != nil {
 		t.Errorf("signing out: %d %v", a.code, b.cookies)
 	}
 	b.cookies[sessionCookie] = &http.Cookie{Name: sessionCookie, Value: old}
-	if a := b.get("/"); a.code != http.StatusSeeOther {
+	if a := b.get("/console"); a.code != http.StatusSeeOther {
 		t.Errorf("the session outlives signing out: %d", a.code)
 	}
 }
@@ -203,14 +203,14 @@ func TestSignInRateLimit(t *testing.T) {
 	b := e.browser()
 	secret := e.token("alice", "status:read")
 	for range 20 {
-		b.signIn("lbt_wrong", "/")
+		b.signIn("lbt_wrong", "/console")
 	}
-	a := b.signIn(secret, "/")
+	a := b.signIn(secret, "/console")
 	if a.code != http.StatusTooManyRequests || b.cookies[sessionCookie] != nil || !strings.Contains(a.body, "Too many failed sign-ins") {
 		t.Errorf("after 20 failures: %d", a.code)
 	}
 	// the API's limit and the console's are one
-	req := httptest.NewRequest(http.MethodGet, "/alerts/"+e.id, nil)
+	req := httptest.NewRequest(http.MethodGet, "/console/alerts/"+e.id, nil)
 	req.Header.Set("Authorization", "Bearer "+secret)
 	rec := httptest.NewRecorder()
 	e.mux.ServeHTTP(rec, req)
@@ -222,20 +222,20 @@ func TestSignInRateLimit(t *testing.T) {
 func TestRevokedTokenEndsSession(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	b := e.signedIn("bob", "status:read")
-	if a := b.get("/"); a.code != 200 {
+	if a := b.get("/console"); a.code != 200 {
 		t.Fatalf("signed in: %d", a.code)
 	}
 	if err := e.st.RevokeToken("bob"); err != nil {
 		t.Fatal(err)
 	}
-	if a := b.get("/"); a.code != http.StatusSeeOther {
+	if a := b.get("/console"); a.code != http.StatusSeeOther {
 		t.Errorf("a revoked token's session: %d", a.code)
 	}
 	// nor does a new token of the same name take the old session over
 	b = e.signedIn("carol", "status:read")
 	_ = e.st.RevokeToken("carol")
 	e.token("carol", "status:read")
-	if a := b.get("/"); a.code != http.StatusSeeOther {
+	if a := b.get("/console"); a.code != http.StatusSeeOther {
 		t.Errorf("a replaced token's session: %d", a.code)
 	}
 }
@@ -243,14 +243,14 @@ func TestRevokedTokenEndsSession(t *testing.T) {
 // writes are every form the console posts, with what it sends.
 func (e *env) writes() map[string]url.Values {
 	return map[string]url.Values{
-		"/alerts/" + e.id + "/ack":     {"note": {"on it"}},
-		"/alerts/" + e.id + "/silence": {"duration": {"4h"}, "comment": {"maintenance"}},
-		"/alerts/" + e.id + "/notes":   {"text": {"restarted the relay"}},
-		"/machines/pause":              {},
-		"/machines/resume":             {},
-		"/tokens/agent-1/revoke":       {},
-		"/config/history/1/revert":     {"note": {"undo"}},
-		"/sign-out":                    {},
+		"/console/alerts/" + e.id + "/ack":     {"note": {"on it"}},
+		"/console/alerts/" + e.id + "/silence": {"duration": {"4h"}, "comment": {"maintenance"}},
+		"/console/alerts/" + e.id + "/notes":   {"text": {"restarted the relay"}},
+		"/console/machines/pause":              {},
+		"/console/machines/resume":             {},
+		"/console/tokens/agent-1/revoke":       {},
+		"/console/config/history/1/revert":     {"note": {"undo"}},
+		"/console/sign-out":                    {},
 	}
 }
 
@@ -274,7 +274,7 @@ func TestCSRF(t *testing.T) {
 			}
 		}
 		// signed out, a form does nothing either
-		if a := e.browser().do(http.MethodPost, path, clone(form)); a.code != http.StatusSeeOther || !strings.HasPrefix(a.header.Get("Location"), "/sign-in") {
+		if a := e.browser().do(http.MethodPost, path, clone(form)); a.code != http.StatusSeeOther || !strings.HasPrefix(a.header.Get("Location"), "/console/sign-in") {
 			t.Errorf("%s signed out: %d", path, a.code)
 		}
 	}
@@ -303,7 +303,7 @@ func TestScopes(t *testing.T) {
 	_, _, _ = e.st.CreateSubjectToken("probe-edge-1", "edge-1", []string{"probe:write"}, time.Hour, "test")
 	reader := e.signedIn("reader", "status:read")
 	for path, form := range e.writes() {
-		if path == "/sign-out" {
+		if path == "/console/sign-out" {
 			continue
 		}
 		if a := reader.post(path, clone(form)); a.code != http.StatusForbidden || !strings.Contains(a.body, "This needs a token with") {
@@ -321,34 +321,34 @@ func TestScopes(t *testing.T) {
 	if a := reader.get(link.AlertPath(e.id)); strings.Contains(a.body, "/ack\"") || strings.Contains(a.body, "/silence\"") {
 		t.Error("the alert's page offers a reader its forms")
 	}
-	if a := reader.get("/machines"); strings.Contains(a.body, `action="/machines/pause"`) {
+	if a := reader.get("/console/machines"); strings.Contains(a.body, `action="/console/machines/pause"`) {
 		t.Error("the machines' page offers a reader the pause switch")
 	}
-	if a := reader.get("/tokens"); strings.Contains(a.body, "/revoke") {
+	if a := reader.get("/console/tokens"); strings.Contains(a.body, "/revoke") {
 		t.Error("the tokens' page offers a reader to revoke")
 	}
 
 	// with alerts:write: acknowledge, silence, add a note, each audited and echoed as the console's
 	w := e.signedIn("writer", "status:read", "alerts:write")
 	page := w.get(link.AlertPath(e.id))
-	for _, form := range []string{`action="/alerts/` + e.id + `/ack"`, `action="/alerts/` + e.id + `/silence"`, `action="/alerts/` + e.id + `/notes"`, `value="24h"`} {
+	for _, form := range []string{`action="/console/alerts/` + e.id + `/ack"`, `action="/console/alerts/` + e.id + `/silence"`, `action="/console/alerts/` + e.id + `/notes"`, `value="24h"`} {
 		if !strings.Contains(page.body, form) {
 			t.Errorf("the alert's page lacks %s", form)
 		}
 	}
-	if a := w.post("/alerts/"+e.id+"/notes", url.Values{"text": {"restarted the relay " + hostile}}); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=note" {
+	if a := w.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"restarted the relay " + hostile}}); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=note" {
 		t.Errorf("a note: %d %q", a.code, a.header.Get("Location"))
 	}
-	if a := w.post("/alerts/"+e.id+"/notes", url.Values{"text": {"  "}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
+	if a := w.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"  "}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
 		t.Errorf("an empty note: %q", a.header.Get("Location"))
 	}
-	if a := w.post("/alerts/"+e.id+"/ack", url.Values{"note": {"on it"}}); a.code != http.StatusSeeOther {
+	if a := w.post("/console/alerts/"+e.id+"/ack", url.Values{"note": {"on it"}}); a.code != http.StatusSeeOther {
 		t.Errorf("acknowledging: %d", a.code)
 	}
-	if a := w.post("/alerts/"+e.id+"/silence", url.Values{"duration": {"7d"}, "comment": {"x"}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
+	if a := w.post("/console/alerts/"+e.id+"/silence", url.Values{"duration": {"7d"}, "comment": {"x"}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
 		t.Errorf("a silence the console does not offer: %q", a.header.Get("Location"))
 	}
-	if a := w.post("/alerts/"+e.id+"/silence", url.Values{"duration": {"4h"}, "comment": {"maintenance"}}); a.code != http.StatusSeeOther {
+	if a := w.post("/console/alerts/"+e.id+"/silence", url.Values{"duration": {"4h"}, "comment": {"maintenance"}}); a.code != http.StatusSeeOther {
 		t.Errorf("silencing: %d", a.code)
 	}
 	g, _ := e.st.Group(e.id)
@@ -373,26 +373,26 @@ func TestScopes(t *testing.T) {
 
 	// with machines:write: the pause switch, and revoking an agent's token, not a probe's
 	m := e.signedIn("operator", "status:read", "machines:write")
-	if page := m.get("/machines"); !strings.Contains(page.body, `action="/machines/pause"`) {
+	if page := m.get("/console/machines"); !strings.Contains(page.body, `action="/console/machines/pause"`) {
 		t.Error("the machines' page lacks the pause switch")
 	}
-	if a := m.post("/machines/pause", nil); a.code != http.StatusSeeOther || !e.srv.SSH.Paused() || !audited(e.st, "operator", "ssh_pause") {
+	if a := m.post("/console/machines/pause", nil); a.code != http.StatusSeeOther || !e.srv.SSH.Paused() || !audited(e.st, "operator", "ssh_pause") {
 		t.Errorf("pausing: %d %v", a.code, e.srv.SSH.Paused())
 	}
-	if page := m.get("/machines?done=paused"); !strings.Contains(page.body, `action="/machines/resume"`) || !strings.Contains(page.body, "Paused") {
+	if page := m.get("/console/machines?done=paused"); !strings.Contains(page.body, `action="/console/machines/resume"`) || !strings.Contains(page.body, "Paused") {
 		t.Error("the paused channel does not offer to resume")
 	}
-	if a := m.post("/machines/resume", nil); a.code != http.StatusSeeOther || e.srv.SSH.Paused() || !audited(e.st, "operator", "ssh_resume") {
+	if a := m.post("/console/machines/resume", nil); a.code != http.StatusSeeOther || e.srv.SSH.Paused() || !audited(e.st, "operator", "ssh_resume") {
 		t.Errorf("resuming: %d", a.code)
 	}
-	tokens := m.get("/tokens")
-	if !strings.Contains(tokens.body, `action="/tokens/agent-1/revoke"`) || strings.Contains(tokens.body, `action="/tokens/probe-edge-1/revoke"`) {
+	tokens := m.get("/console/tokens")
+	if !strings.Contains(tokens.body, `action="/console/tokens/agent-1/revoke"`) || strings.Contains(tokens.body, `action="/console/tokens/probe-edge-1/revoke"`) {
 		t.Error("the tokens' page offers the wrong tokens to revoke")
 	}
-	if a := m.post("/tokens/probe-edge-1/revoke", nil); a.header.Get("Location") != "/tokens?error=not_revocable" {
+	if a := m.post("/console/tokens/probe-edge-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=not_revocable" {
 		t.Errorf("revoking a probe's token: %q", a.header.Get("Location"))
 	}
-	if a := m.post("/tokens/agent-1/revoke", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/tokens?done=revoked" {
+	if a := m.post("/console/tokens/agent-1/revoke", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/tokens?done=revoked" {
 		t.Errorf("revoking: %d %q", a.code, a.header.Get("Location"))
 	}
 	names := map[string]bool{}
@@ -405,17 +405,17 @@ func TestScopes(t *testing.T) {
 
 	// with config:write: revert a version
 	c := e.signedIn("configurer", "status:read", "config:write")
-	if page := c.get("/config/history/2"); !strings.Contains(page.body, `action="/config/history/2/revert"`) {
+	if page := c.get("/console/config/history/2"); !strings.Contains(page.body, `action="/console/config/history/2/revert"`) {
 		t.Error("the version's page lacks the revert form")
 	}
 	before := e.cdb.Version()
-	if a := c.post("/config/history/2/revert", url.Values{"note": {"not yet"}}); a.code != http.StatusSeeOther || e.cdb.Version() != before+1 {
+	if a := c.post("/console/config/history/2/revert", url.Values{"note": {"not yet"}}); a.code != http.StatusSeeOther || e.cdb.Version() != before+1 {
 		t.Errorf("reverting: %d %q, version %d", a.code, a.header.Get("Location"), e.cdb.Version())
 	}
 	if h, _ := e.cdb.History(configHistoryFilter(1)); h[0].Via != "console" || h[0].Actor != "configurer" || h[0].Reverts != 2 {
 		t.Errorf("the revert: %+v", h[0])
 	}
-	if a := c.post("/config/history/2/revert", nil); a.header.Get("Location") != "/config/history/2?error=conflict" {
+	if a := c.post("/console/config/history/2/revert", nil); a.header.Get("Location") != "/console/config/history/2?error=conflict" {
 		t.Errorf("reverting twice: %q", a.header.Get("Location"))
 	}
 }
@@ -432,21 +432,21 @@ func audited(st *store.Store, actor, action string) bool {
 // consolePages are every page of the console, with what each must show of the test's data.
 func (e *env) consolePages() map[string][]string {
 	return map[string][]string{
-		"/":                         {"Firing alerts", "Probe locations", "1 of 2", "Agents woken today", "Sessions today", "v0.3.0-test", "git.example.com is down"},
-		"/alerts":                   {"git.example.com is down &lt;script&gt;", "Firing", "Critical", "git-example-com", `ol-facet`},
-		"/alerts?severity=warning":  {"Nothing matches."},
-		link.AlertPath(e.id):        {"git.example.com is down &lt;script&gt;", "restarting the relay &lt;script&gt;", "Timeline", "relay 1.2.3 &lt;script&gt;"},
-		"/machines":                 {"edge-1", "edge-2", "192.0.2.10:22", "Behind NAT, not connected", "Running"},
-		"/machines/edge-1":          {"edge-1", "beacon", "systemctl restart relay", "false &lt;script&gt;", "the relay &lt;script&gt;"},
-		"/sessions":                 {"claude-code", "codex", "uptime", "interactive shell", "2026-11-02"},
-		"/sessions?agent=codex":     {"uptime", "Agent: codex"},
-		link.SessionPath(sessionID): {"claude-code on edge-1", "systemctl restart relay", `id="player"`},
-		"/tokens":                   {"root", "status:read", "All machines"},
-		"/config":                   {"edge-1", "Europe - Frankfurt", "Asia - Shanghai", "alice", "new location &lt;script&gt;"},
-		"/config/history/1":         {"location edge-1", "Europe - Frankfurt", `data-op="add"`},
-		"/agents":                   {"oncall", "hooks.example.com", "202", "Done"},
-		"/audit":                    {"add_note", "claude-code", "console_sign_in"},
-		"/changes":                  {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
+		"/console":                         {"Firing alerts", "Probe locations", "1 of 2", "Agents woken today", "Sessions today", "v0.3.0-test", "git.example.com is down"},
+		"/console/alerts":                  {"git.example.com is down &lt;script&gt;", "Firing", "Critical", "git-example-com", `ol-facet`},
+		"/console/alerts?severity=warning": {"Nothing matches."},
+		link.AlertPath(e.id):               {"git.example.com is down &lt;script&gt;", "restarting the relay &lt;script&gt;", "Timeline", "relay 1.2.3 &lt;script&gt;"},
+		"/console/machines":                {"edge-1", "edge-2", "192.0.2.10:22", "Behind NAT, not connected", "Running"},
+		"/console/machines/edge-1":         {"edge-1", "beacon", "systemctl restart relay", "false &lt;script&gt;", "the relay &lt;script&gt;"},
+		"/console/sessions":                {"claude-code", "codex", "uptime", "interactive shell", "2026-11-02"},
+		"/console/sessions?agent=codex":    {"uptime", "Agent: codex"},
+		link.SessionPath(sessionID):        {"claude-code on edge-1", "systemctl restart relay", `id="player"`},
+		"/console/tokens":                  {"root", "status:read", "All machines"},
+		"/console/config":                  {"edge-1", "Europe - Frankfurt", "Asia - Shanghai", "alice", "new location &lt;script&gt;"},
+		"/console/config/history/1":        {"location edge-1", "Europe - Frankfurt", `data-op="add"`},
+		"/console/agents":                  {"oncall", "hooks.example.com", "202", "Done"},
+		"/console/audit":                   {"add_note", "claude-code", "console_sign_in"},
+		"/console/changes":                 {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
 	}
 }
 
@@ -476,14 +476,14 @@ func TestConsolePages(t *testing.T) {
 			}
 		}
 		// the hook's secret never shows
-		if a := b.get("/agents"); strings.Contains(a.body, "hook-secret") {
+		if a := b.get("/console/agents"); strings.Contains(a.body, "hook-secret") {
 			t.Error("the agents' page shows a hook's URL with its query")
 		}
 		// a page that is not there, signed in: said so in the shell
-		if a := b.get("/machines/nowhere"); a.code != http.StatusNotFound || !strings.Contains(a.body, "ol-app-workbench") {
+		if a := b.get("/console/machines/nowhere"); a.code != http.StatusNotFound || !strings.Contains(a.body, "ol-app-workbench") {
 			t.Errorf("a machine that does not exist: %d", a.code)
 		}
-		if a := b.get("/config/history/99"); a.code != http.StatusNotFound {
+		if a := b.get("/console/config/history/99"); a.code != http.StatusNotFound {
 			t.Errorf("a version that does not exist: %d", a.code)
 		}
 	}
@@ -570,11 +570,11 @@ func TestOverviewFigures(t *testing.T) {
 		f.Woken != want.Woken || f.WokenOK != want.WokenOK || f.SessionsToday != want.SessionsToday || f.ConfigVersion != want.ConfigVersion || today != 2 {
 		t.Errorf("figures %+v, want %+v", f, want)
 	}
-	page := b.get("/").body
+	page := b.get("/console").body
 	for _, want := range []string{
-		`href="/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
-		`href="/config#locations"`, "1 of 2", `href="/machines"`, "1 critical, 0 of 1 behind NAT connected",
-		`href="/agents"`, "1 woken, 0 failed, 0 waiting", `href="/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
+		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
+		`href="/console/agents"`, "1 woken, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
 		if !strings.Contains(page, want) {
@@ -583,7 +583,7 @@ func TestOverviewFigures(t *testing.T) {
 	}
 	// pausing shows on the overview at once
 	_ = e.srv.SSH.SetPaused(context.Background(), sshActor("root"), true)
-	if page := b.get("/").body; !strings.Contains(page, "Paused") || !strings.Contains(page, "ol-status-danger") {
+	if page := b.get("/console").body; !strings.Contains(page, "Paused") || !strings.Contains(page, "ol-status-danger") {
 		t.Error("the overview does not say the channel is paused")
 	}
 }
@@ -607,13 +607,13 @@ func TestViewOnlyLinks(t *testing.T) {
 			t.Fatalf("%s by link: %d", path, a.code)
 		}
 		checkPage(t, path, a.body)
-		if strings.Contains(a.body, `method="post"`) || strings.Contains(a.body, `href="/tokens"`) || !strings.Contains(a.body, `href="/sign-in"`) {
+		if strings.Contains(a.body, `method="post"`) || strings.Contains(a.body, `href="/console/tokens"`) || !strings.Contains(a.body, `href="/console/sign-in"`) {
 			t.Errorf("%s by link is not view-only", path)
 		}
 	}
 	// signed in, the same link shows the console's page with its forms
 	b := e.signedIn("writer", "status:read", "alerts:write")
-	if a := b.get(e.link(link.AlertPath(e.id))); !strings.Contains(a.body, `/ack"`) || !strings.Contains(a.body, `href="/tokens"`) {
+	if a := b.get(e.link(link.AlertPath(e.id))); !strings.Contains(a.body, `/ack"`) || !strings.Contains(a.body, `href="/console/tokens"`) {
 		t.Error("signed in, the link does not open the console's page")
 	}
 }

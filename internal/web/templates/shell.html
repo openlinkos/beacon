@@ -25,7 +25,7 @@
 {{define "app"}}<a class="ol-skip-link" href="#main">{{.S.Skip}}</a>
 <div class="ol-app ol-app-workbench">
   <aside class="ol-sidebar" id="nav" popover aria-label="{{.S.Sections}}">
-    <div class="ol-sidebar-head"><a class="ol-brand" href="/" aria-label="Beacon">{{template "mark" .}}<span>Beacon</span></a></div>
+    <div class="ol-sidebar-head"><a class="ol-brand" href="{{.Home}}" aria-label="Beacon">{{template "mark" .}}<span>Beacon</span></a></div>
     <nav class="ol-nav" aria-label="{{.S.Sections}}">
       {{range .Nav}}<div class="ol-nav-group">{{if .Label}}<div class="ol-nav-label">{{.Label}}</div>{{end}}
         {{range .Items}}<a class="ol-nav-item" href="{{.Href}}" title="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="ol-nav-text">{{.Label}}</span>{{if .Count}}<span class="ol-nav-count">{{.Count}}</span>{{end}}</a>
@@ -43,7 +43,7 @@
       <div class="ol-menu ol-menu-above" id="account" popover>
         <div class="ol-menu-header"><span class="ol-entity"><span class="ol-entity-text"><span class="ol-entity-title">{{.Who}}</span><span class="ol-entity-sub" title="{{.S.Scopes}}: {{.WhoScopes}}">{{.WhoScopes}}</span></span></span></div>
         <hr class="ol-menu-separator">
-        <form method="post" action="/sign-out"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-menu-item">{{iconSm "log-out"}}{{.S.SignOut}}</button></form>
+        <form method="post" action="{{.SignOut}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-menu-item">{{iconSm "log-out"}}{{.S.SignOut}}</button></form>
       </div>
       {{else if .Access}}
       <div class="ol-sidebar-status" title="{{.Access}}"><span class="ol-dot"></span><span>{{.Access}}</span></div>
@@ -61,6 +61,7 @@
 {{if .Problem}}<div class="ol-notices"><div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Problem}}</p></div></div></div>{{end}}
 {{template "content" .}}
     </main>
+    {{template "project" .Project}}
   </div>
 </div>
 {{if .Toast}}<div class="ol-toaster" role="status"><div class="ol-toast ol-toast-{{.ToastTone}} ol-toast-auto">{{iconSm "circle-check"}} {{.Toast}}</div></div>{{end}}
@@ -77,7 +78,15 @@
     <div class="ol-auth-card">
 {{template "content" .}}
     </div>
-    <div class="ol-auth-foot"><span>Beacon {{.Version}}</span></div>
+    <div class="ol-auth-foot"><span>{{.Project.Version}}</span><span>{{.Project.OpenSource}}</span><a href="{{.Project.Docs}}">{{.Project.DocsLabel}}</a><a href="{{.Project.Repo}}">{{.Project.RepoLabel}}</a></div>
   </div>
 </main>
 {{end}}
+
+{{/* The foot of every page of the console: what it runs on, and where the project is. */}}
+{{define "project"}}<footer class="ol-footer">
+  <span>{{.Version}}</span>
+  <a href="{{.Docs}}">{{.DocsLabel}}</a>
+  <a href="{{.Repo}}">{{.RepoLabel}}</a>
+  <a href="{{.Issues}}">{{.IssuesLabel}}</a>
+</footer>{{end}}

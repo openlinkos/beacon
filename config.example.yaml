@@ -71,11 +71,17 @@ links:
   grafana_service: "https://grafana.example.com/d/beacon-service/service?var-service={service}"
   runbook: "https://github.com/example/ops/blob/main/runbooks/{alertname}.md"
 
-# The pages people open from the chat: an alert's timeline and each session's replay, at public_url
-# above, reached by signed links (no login). Anyone holding a link sees that page until it expires, so
-# the chat the links go to must be private. See docs/pages.md.
+# The pages people open from the chat: an alert's timeline and each session's replay, under /console at
+# public_url above, reached by signed links (no login). Anyone holding a link sees that page until it
+# expires, so the chat the links go to must be private. See docs/pages.md.
 pages:
   link_ttl: 720h                            # links are valid 30 days
+
+# The public pages: / is the default status page, or without one a page that names the deployment and
+# offers the console's sign-in. See docs/status.md.
+branding:
+  title: Example Operations                 # that page's title (Beacon when left out)
+  powered_by: true                          # false leaves "Powered by Beacon, open source" out of the public pages' footer
 
 feishu:
   # The self-built app (cards, button callbacks, buzz). See docs/feishu.md.

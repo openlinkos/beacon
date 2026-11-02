@@ -11,9 +11,10 @@ import (
 )
 
 // The shell every page shares: the design system's workbench (.ol-app-workbench), with the sections in
-// a narrow sidebar with counts, and the top bar as the page's header (the breadcrumb, the one h1, a
-// count, the actions). It adapts to the width by CSS alone (a full sidebar from 1200px, a rail of icons
-// from 860px, a sheet below), so the server renders one page for every screen.
+// a narrow sidebar with counts, the top bar as the page's header (the breadcrumb, the one h1, a count,
+// the actions), and a footer with Beacon's version and the project's links. It adapts to the width by
+// CSS alone (a full sidebar from 1200px, a rail of icons from 860px, a sheet below), so the server
+// renders one page for every screen.
 
 type crumb struct{ Label, Href string }
 
@@ -54,6 +55,8 @@ type shell struct {
 	Icons                       template.HTML
 	Bare                        bool // the sign-in page: the form beside the brand panel
 	Statement, Host             string
+	Home, SignOut               string  // the console's overview, and where the sign-out form posts
+	Project                     project // Beacon's version and the project's links, at the foot of every page
 }
 
 func (s *Server) shellLabels() shellLabels {
@@ -73,13 +76,14 @@ func (s *Server) version() string {
 }
 
 func (s *Server) baseShell(title string) shell {
-	return shell{Lang: s.Lang.HTML(), Title: title + " – Beacon", Heading: title, S: s.shellLabels(), Icons: sprite, Version: s.version()}
+	return shell{Lang: s.Lang.HTML(), Title: title + " – Beacon", Heading: title, S: s.shellLabels(), Icons: sprite, Version: s.version(),
+		Home: consolePath(""), SignOut: consolePath("/sign-out"), Project: s.project()}
 }
 
 // shellFor is the shell of a console page for v, in the section nav, under the pages crumbs names.
 func (s *Server) shellFor(r *http.Request, v *viewer, nav, title string, crumbs ...crumb) shell {
 	sh := s.baseShell(title)
-	sh.Crumbs = append([]crumb{{Label: s.t("Console"), Href: "/"}}, crumbs...)
+	sh.Crumbs = append([]crumb{{Label: s.t("Console"), Href: consolePath("")}}, crumbs...)
 	if v == nil {
 		return sh
 	}
@@ -105,7 +109,7 @@ func (s *Server) viewOnly(kind, title string, a access) shell {
 		sh.Access = s.t("This link is valid until %s", s.clock(a.Until))
 	}
 	if s.Console() {
-		sh.Nav = []navGroup{{Items: []navItem{{Key: "sign-in", Label: s.t("Sign in"), Href: "/sign-in", Icon: "log-in"}}}}
+		sh.Nav = []navGroup{{Items: []navItem{{Key: "sign-in", Label: s.t("Sign in"), Href: consolePath("/sign-in"), Icon: "log-in"}}}}
 	}
 	return sh
 }
@@ -114,7 +118,7 @@ func (s *Server) viewOnly(kind, title string, a access) shell {
 func (s *Server) bare(r *http.Request, title string) shell {
 	sh := s.baseShell(title)
 	sh.Bare = true
-	sh.Statement = s.t("Where agents run operations, and people watch.")
+	sh.Statement = s.t("Sign in to see your services, alerts and servers, and everything your agents did on them.")
 	if s.Pages != nil && s.Pages.PublicURL != "" {
 		sh.Host = strings.TrimPrefix(strings.TrimPrefix(s.Pages.PublicURL, "https://"), "http://")
 	} else {
@@ -131,19 +135,19 @@ func (s *Server) nav(current string) []navGroup {
 	machines, tokens := len(s.Store.Machines()), len(s.Store.Tokens())
 	groups := []navGroup{
 		{Items: []navItem{
-			{Key: "overview", Label: s.t("Overview"), Href: "/", Icon: "layout-dashboard"},
-			{Key: "alerts", Label: s.t("Alerts"), Href: "/alerts", Icon: "triangle-alert", Count: count(firing)},
-			{Key: "machines", Label: s.t("Machines"), Href: "/machines", Icon: "server", Count: count(machines)},
-			{Key: "sessions", Label: s.t("Sessions"), Href: "/sessions", Icon: "terminal"},
+			{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"},
+			{Key: "alerts", Label: s.t("Alerts"), Href: consolePath("/alerts"), Icon: "triangle-alert", Count: count(firing)},
+			{Key: "machines", Label: s.t("Machines"), Href: consolePath("/machines"), Icon: "server", Count: count(machines)},
+			{Key: "sessions", Label: s.t("Sessions"), Href: consolePath("/sessions"), Icon: "terminal"},
 		}},
 		{Label: s.t("Records"), Items: []navItem{
-			{Key: "agents", Label: s.t("Agents"), Href: "/agents", Icon: "bot"},
-			{Key: "changes", Label: s.t("Changes"), Href: "/changes", Icon: "history"},
-			{Key: "audit", Label: s.t("Audit log"), Href: "/audit", Icon: "scroll-text"},
+			{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot"},
+			{Key: "changes", Label: s.t("Changes"), Href: consolePath("/changes"), Icon: "history"},
+			{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"},
 		}},
 		{Label: s.t("Settings"), Items: []navItem{
-			{Key: "config", Label: s.t("Configuration"), Href: "/config", Icon: "file-cog"},
-			{Key: "tokens", Label: s.t("Tokens"), Href: "/tokens", Icon: "key-round", Count: count(tokens)},
+			{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"},
+			{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)},
 		}},
 	}
 	for i := range groups {
@@ -164,13 +168,14 @@ func count(n int) string {
 
 // channelStatus says how the SSH channel stands.
 func (s *Server) channelStatus() sideStatus {
+	machines := consolePath("/machines")
 	switch {
 	case s.SSH == nil:
-		return sideStatus{Text: s.t("The SSH channel is off"), Href: "/machines"}
+		return sideStatus{Text: s.t("The SSH channel is off"), Href: machines}
 	case s.SSH.Paused():
-		return sideStatus{Text: s.t("Agents paused since %s", s.short(s.SSH.PausedSince())), Tone: "danger", Href: "/machines"}
+		return sideStatus{Text: s.t("Agents paused since %s", s.short(s.SSH.PausedSince())), Tone: "danger", Href: machines}
 	}
-	return sideStatus{Text: s.t("Agents reach machines"), Tone: "success", Href: "/machines"}
+	return sideStatus{Text: s.t("Agents reach machines"), Tone: "success", Href: machines}
 }
 
 // toast is the confirmation shown after a form did what it said.
@@ -223,7 +228,7 @@ var messageTmpl = parse("message.html")
 
 // message is a page in the shell that says what went wrong and offers the way back.
 func (s *Server) message(w http.ResponseWriter, r *http.Request, v *viewer, status int, title, text string) {
-	p := messagePage{shell: s.shellFor(r, v, "", title), Text: text, Back: s.t("Back to the overview"), BackHref: "/"}
+	p := messagePage{shell: s.shellFor(r, v, "", title), Text: text, Back: s.t("Back to the overview"), BackHref: consolePath("")}
 	s.renderStatus(w, status, messageTmpl, p)
 }
 

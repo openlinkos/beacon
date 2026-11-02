@@ -324,8 +324,13 @@ func (s *status) Flush() {
 	}
 }
 
+// fail answers with an error and its stable code; a 401 also carries docs, as the API's do.
 func fail(w http.ResponseWriter, code int, errCode, msg string) {
+	body := map[string]string{"error": msg, "code": errCode}
+	if code == http.StatusUnauthorized {
+		body["docs"] = api.DocsURL
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg, "code": errCode})
+	_ = json.NewEncoder(w).Encode(body)
 }
