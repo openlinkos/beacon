@@ -52,7 +52,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
   },
   locales: {
     root: {
-      description: 'Infrastructure for AI agents that run operations.',
+      description: 'Self-hosted monitoring and SSH access for the AI agents that run your servers.',
       themeConfig: {
         nav: [
           { text: 'Guide', link: '/install' },
@@ -108,7 +108,7 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
       },
     },
     zh: {
-      description: '给做运维的 AI Agent 用的基础设施。',
+      description: '为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。',
       themeConfig: {
         nav: [
           { text: '指南', link: '/zh/install' },

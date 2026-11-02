@@ -1,6 +1,6 @@
 # Contributing
 
-Beacon is infrastructure for AI agents that run operations. [docs/goals.md](docs/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
+Beacon is self-hosted monitoring and SSH access for the AI agents that run your servers. [docs/goals.md](docs/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
 
 Before you plan a change, say which goal it serves. A change that moves neither coverage nor closure and holds no guardrail waits.
 
