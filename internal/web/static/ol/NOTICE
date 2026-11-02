@@ -1,0 +1,24 @@
+@openlinkos/ui 0.6.1, the OpenLinkOS design system, vendored for the console (internal/web).
+Nothing here is fetched from the network at run time; the files are embedded in the linkos-beacon
+binary. Refresh them with scripts/update-ui.sh; do not edit them by hand.
+
+  Licence: MIT (LICENSE); the Lucide icons ISC (LICENSE-lucide.txt); Geist and Geist Mono
+  SIL Open Font License 1.1 (fonts/LICENSE-geist.txt).
+  Source: https://github.com/openlinkos/design/tree/master/packages/ui
+  Package: https://registry.npmjs.org/@openlinkos/ui/-/ui-0.6.1.tgz
+    SHA-256 2daec139d249b939ee1fa856b797fca1a26773b0ad4d205b8a8eb27df4150499
+  Files, as they are in the package (dist/, and LICENSE at its root):
+    ui.css
+      SHA-256 0a3815ecc7cc545557f4bc5b5c26be710eff16fffbbe56e0239a3c0170e0fa40
+    icons.json
+      SHA-256 4e2d84fb9c5dc0deef8ce25a95beb389e59fc885a1e355bd82be3e2e6bfab9b1
+    fonts/Geist-Variable.woff2
+      SHA-256 9ce2d97863cab59a0c7522534112d6c42a4e25c0e6b2ab37766761b0f82cfbd6
+    fonts/GeistMono-Variable.woff2
+      SHA-256 119f3e159fc15dd77311e929d3a657a193b57a3e625234666bc43c6e2b1127f7
+    fonts/LICENSE-geist.txt
+      SHA-256 930853ee1daa68554d9e35c8a9175affb74f699fad9a5da6ee5ebe76379d9137
+    LICENSE-lucide.txt
+      SHA-256 b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57
+    LICENSE
+      SHA-256 612c0773ec88713f332d86fcb3431a4e7671ba6425e62843995c0170043663a6
