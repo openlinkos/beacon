@@ -1,7 +1,5 @@
 # The pages
 
-English | [简体中文](zh/pages.md)
-
 From the card in the chat, one link opens the alert's page: what the probes see, the timeline, the notes, the agents woken, and every session on the alert's machines, each with its commands and a replay. Beacon serves these pages itself, beside the API on port 17001, at `public_url`. There is no login system: a page opens with a signed link, or with a bearer token.
 
 ## The alert's page: `/alerts/{id}`

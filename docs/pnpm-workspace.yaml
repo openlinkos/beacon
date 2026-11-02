@@ -1,0 +1,6 @@
+# The site is one project, not a workspace of packages: this file only holds pnpm's settings.
+allowBuilds:
+  esbuild: true
+# Our own packages are published by our CI with provenance; they need not wait out the release age.
+minimumReleaseAgeExclude:
+  - '@openlinkos/*'

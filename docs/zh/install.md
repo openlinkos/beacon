@@ -1,22 +1,24 @@
-# 30 分钟上线
+---
+sourceHash: sha256-5149637b
+---
 
-[English](../install.md) | 简体中文
+# 30 分钟上线
 
 读完这一页，Beacon 就跑在你的一台机器上：第二台机器上的检测点在上报，你已经在用的 Agent（这里以 Claude Code 为例，Codex 等同理）经 Beacon 到达一台机器而不拿任何密钥，你还看着一次演练的故障从告警走到恢复。每一步都写了要花多久；下面的预算说清了哪些算在内、哪些不算。
 
 | 步骤 | 时间 |
 | --- | --- |
-| [0. 需要准备什么](#0-需要准备什么) | 不计：一台机器、两个域名、Agent 的 SSH 公钥 |
-| [1. 安装中心](#1-安装中心) | 3 分钟，其中脚本跑 1 到 2 分钟 |
-| [2. 第一个检测点](#2-第一个检测点) | 两个检测点共 5 分钟 |
-| [3. 第一台机器](#3-第一台机器) | 4 分钟 |
-| [4. 第一个 Agent](#4-第一个-agent) | 5 分钟 |
-| [5. 第一次演练](#5-第一次演练) | 10 分钟，大半在等规则 |
-| [6. 告警群](#6-告警群) | 不计：建飞书应用要等管理员审批 |
+| [0. 需要准备什么](#0-what-you-need) | 不计：一台机器、两个域名、Agent 的 SSH 公钥 |
+| [1. 安装中心](#1-install-the-centre) | 3 分钟，其中脚本跑 1 到 2 分钟 |
+| [2. 第一个检测点](#2-the-first-probe) | 两个检测点共 5 分钟 |
+| [3. 第一台机器](#3-the-first-machine) | 4 分钟 |
+| [4. 第一个 Agent](#4-the-first-agent) | 5 分钟 |
+| [5. 第一次演练](#5-the-first-drill) | 10 分钟，大半在等规则 |
+| [6. 告警群](#6-the-chat) | 不计：建飞书应用要等管理员审批 |
 
 第 0 步做完后，第 1 到 5 步合计不到 30 分钟。DNS 生效和聊天应用的审批不在你手里，也不在计时里。
 
-## 0. 需要准备什么
+## 0. 需要准备什么 {#0-what-you-need}
 
 - **中心**：一台 Linux 机器，2 核 CPU、4 GB 内存、40 GB 磁盘，装好 [Docker Engine](https://docs.docker.com/engine/install/) 和 Docker Compose v2，以及 OpenSSH 客户端（`ssh-keygen`）。整套安装空闲时约占 200 MB 内存。
 - **两个域名**指向它：一个给人和 Agent（下文的 `status.example.com`：API、MCP、页面，以及 17002 端口的 SSH 通道），一个给机器（`metrics.example.com`：网关）。80 和 443 端口要能从公网访问，签证书和走流量都靠它们；17002 端口要能从 Agent 所在的地方访问。
@@ -25,7 +27,7 @@
 - **一台给 Agent 干活的机器**，中心能 SSH 到它；用检测点那台机器也行。
 - **你的 Agent 程序**，带一把 SSH 公钥（`~/.ssh/id_ed25519.pub`）；用 MCP 的话，Claude Code 或任何能走 HTTP MCP 的程序都可以。
 
-## 1. 安装中心
+## 1. 安装中心 {#1-install-the-centre}
 
 在中心上，3 分钟：
 
@@ -39,9 +41,9 @@ sudo ./install.sh
 
 检查：`curl https://status.example.com/healthz` 返回 `ok`（启动后第一张证书最多要等一分钟），`curl https://metrics.example.com/api/v1/targets` 返回 401，不带令牌本该如此。此时还不会通知任何人：没配置聊天工具时，告警只记录下来、在 API 和 MCP 里能看到，这对下面几步已经够用。
 
-其余操作都经 `docker exec linkos-beacon linkos-beacon …` 完成；[deploy/README.md](../../deploy/README.md) 说明了每个文件在哪里。
+其余操作都经 `docker exec linkos-beacon linkos-beacon …` 完成；[deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) 说明了每个文件在哪里。
 
-## 2. 第一个检测点
+## 2. 第一个检测点 {#2-the-first-probe}
 
 Beacon 靠多地点的一致判断来区分故障和抖动：至少两个检测点、并且至少一半有数据的检测点失败，才算服务故障。所以第一个检测点给你数据，第二个才给你告警。两个共 5 分钟。
 
@@ -71,9 +73,9 @@ sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file centre.toke
 docker exec linkos-beacon linkos-beacon token revoke setup
 ```
 
-检测点的名字按地点和网络写，不写厂商：这个名字是公开的。看看数据到了没有：VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（从工作站经 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）；`probe_success` 每个检测点、每个目标各一条序列。随附的两个检测目标是 Beacon 自己的状态域名和 `https://example.com/`；把后者换成你自己的服务：改 `targets/all-web.yaml` 再 `linkos-beacon config import /etc/linkos-beacon`，或者按 [docs/zh/catalog.md](catalog.md) 用 `PUT /api/v1/config/targets/all-web`。
+检测点的名字按地点和网络写，不写厂商：这个名字是公开的。看看数据到了没有：VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（从工作站经 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）；`probe_success` 每个检测点、每个目标各一条序列。随附的两个检测目标是 Beacon 自己的状态域名和 `https://example.com/`；把后者换成你自己的服务：改 `targets/all-web.yaml` 再 `linkos-beacon config import /etc/linkos-beacon`，或者按[目录、检测目标和检测模块](catalog.md)用 `PUT /api/v1/config/targets/all-web`。
 
-## 3. 第一台机器
+## 3. 第一台机器 {#3-the-first-machine}
 
 一台给 Agent 干活的机器，4 分钟。在中心上：
 
@@ -90,9 +92,9 @@ useradd -m -s /bin/bash -p '*' beacon
 systemctl reload ssh
 ```
 
-还有两行值得现在就加上：`beacon` 账户能做什么才是真正的边界，只给它工作所需的权限（`/etc/sudoers.d/beacon`：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`）；并把中心的地址排除在 OpenSSH 对连接失败的惩罚之外（`beacon.conf` 里加 `PerSourcePenaltyExemptList 203.0.113.7`），因为所有 Agent 都从那里来。其余见 [docs/zh/ssh.md](ssh.md)。
+还有两行值得现在就加上：`beacon` 账户能做什么才是真正的边界，只给它工作所需的权限（`/etc/sudoers.d/beacon`：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`）；并把中心的地址排除在 OpenSSH 对连接失败的惩罚之外（`beacon.conf` 里加 `PerSourcePenaltyExemptList 203.0.113.7`），因为所有 Agent 都从那里来。其余见 [SSH 通道](ssh.md)。
 
-## 4. 第一个 Agent
+## 4. 第一个 Agent {#4-the-first-agent}
 
 5 分钟。一个令牌同时用于 API、MCP 和 SSH 通道；把 Agent 的公钥给它，它自己的 `ssh` 也就能用了：
 
@@ -112,7 +114,7 @@ claude mcp add --transport http linkos-beacon https://status.example.com/mcp --h
 
 每次会话都有记录：`docker exec linkos-beacon linkos-beacon token list` 看到令牌，`list_sessions`（或 `GET /api/v1/sessions`）看到会话，每条命令和它的退出码都在。`linkos-beacon ssh pause` 关闭全部会话，直到 `ssh resume`。
 
-## 5. 第一次演练
+## 5. 第一次演练 {#5-the-first-drill}
 
 10 分钟，大半在等。Beacon 内置了一个用来演练的服务：`/drill/healthz` 平时返回 200，直到你让它失败；每个检测点都检测它（`targets/all-drill.yaml`，服务名 `drill`，级别严重）。
 
@@ -129,20 +131,20 @@ docker exec linkos-beacon linkos-beacon drill fail 15m
 
 只有一个检测点时什么都不会触发，这是故意的：一个检测点的话永远不算故障。配置了告警群（第 6 步）后，卡片会在命令后约 4 分钟出现在群里，按钮可以认领和静默，恢复后变绿；配置了 Pushover，没人认领的严重告警 15 分钟后会打到手机上。
 
-## 6. 告警群
+## 6. 告警群 {#6-the-chat}
 
-不算在 30 分钟里：飞书（或 Lark）自建应用要等管理员审批，多久取决于你的组织。[docs/zh/feishu.md](feishu.md) 一步步讲了应用、权限、长连接、群和自定义机器人。然后在中心上：
+不算在 30 分钟里：飞书（或 Lark）自建应用要等管理员审批，多久取决于你的组织。[配置飞书应用](feishu.md)一步步讲了应用、权限、长连接、群和自定义机器人。然后在中心上：
 
 1. 把每个密钥放进 `/opt/beacon/secrets/` 下对应的文件（`feishu-app-id`、`feishu-app-secret`、`feishu-webhook-url`；手机用 `pushover-user-key` 和 `pushover-app-token`；看门狗用 `healthchecks-bridge-url`）。
 2. 在 `config.yaml` 里取消 `feishu:` 段（以及 `pushover:`、`healthchecks:`）的注释，填上你的 `chat_id` 和值班的人。
 3. 再跑一次 `sudo ./install.sh`：它会修正文件的属主和权限，校验并重启。
 
-然后再做一次演练，看卡片。要让新告警主动叫醒 Agent、而不是等人去问它，按 [docs/zh/agents.md](agents.md) 加一个 `agents:` 钩子。
+然后再做一次演练，看卡片。要让新告警主动叫醒 Agent、而不是等人去问它，按 [Agent 与告警](agents.md)加一个 `agents:` 钩子。
 
-## 接下来读什么
+## 接下来读什么 {#what-to-read-next}
 
-- [docs/zh/agents.md](agents.md)：唤醒 Agent、证据、备注和时间线。
-- [docs/zh/ssh.md](ssh.md)：SSH 通道的全貌：账户、录制、暂停、它不做什么。
-- [docs/zh/catalog.md](catalog.md)：目录、检测目标和模块，以及怎样经 Beacon 修改它们。
-- [deploy/README.md](../../deploy/README.md) 和 [deploy/runbooks/](../../deploy/runbooks/)：各个文件，以及每条告警一页的处理手册。
-- [docs/zh/goals.md](goals.md)：Beacon 为什么而做，以及它不做什么。
+- [Agent 与告警](agents.md)：唤醒 Agent、证据、备注和时间线。
+- [SSH 通道](ssh.md)：SSH 通道的全貌：账户、录制、暂停、它不做什么。
+- [目录、检测目标和检测模块](catalog.md)：目录、检测目标和模块，以及怎样经 Beacon 修改它们。
+- [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) 和 [deploy/runbooks/](https://github.com/openlinkos/beacon/tree/main/deploy/runbooks)：各个文件，以及每条告警一页的处理手册。
+- [目标](goals.md)：Beacon 为什么而做，以及它不做什么。

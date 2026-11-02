@@ -1,10 +1,12 @@
-# 页面
+---
+sourceHash: sha256-7b8e5d11
+---
 
-[English](../pages.md) | 简体中文
+# 页面
 
 从群里的卡片点一个链接，就打开这条告警的页面：检测看到了什么、时间线、备注、唤醒了哪些 Agent，以及这条告警相关机器上的每一次会话，带命令和回放。这些页面由 Beacon 自己提供，和 API 一起在 17001 端口上，地址在 `public_url` 下。没有登录系统：页面用带签名的链接打开，或者用 Bearer 令牌。
 
-## 告警页面：`/alerts/{id}`
+## 告警页面：`/alerts/{id}` {#the-alerts-page-alertsid}
 
 卡片上的**时间线**按钮打开它。页面显示：
 
@@ -19,11 +21,11 @@
 
 时间范围从告警开始前 30 分钟起，到现在，或到恢复后 30 分钟，与证据一致。
 
-## 会话页面：`/sessions/{id}`
+## 会话页面：`/sessions/{id}` {#the-sessions-page-sessionsid}
 
 谁、在哪台机器、经什么途径（ssh、MCP 或 API）、什么类型的会话、何时开始、持续多久、退出码，以及用 [asciinema-player](https://github.com/asciinema/asciinema-player) 在页面里回放的录像（asciicast v3，正是 SSH 通道录下的格式：输出、输入、窗口大小、每条命令处的标记、退出码）。播放器下面是交互 shell 的各条命令及退出码，或者一条命令的输出。录像也可以下载。仍在进行的会话只显示记录，结束后才能回放。
 
-## 带签名的链接
+## 带签名的链接 {#signed-links}
 
 页面链接以 `?s=<到期时间>.<签名>` 结尾：到期时间是 Unix 秒数，签名是对方法、路径和到期时间（各自后跟一个换行）做的 HMAC-SHA256，base64url 编码，密钥是 32 字节，Beacon 第一次启动时生成并保存在数据库里。链接的有效期是 `pages.link_ttl`（默认 30 天）：
 
@@ -41,11 +43,11 @@ Beacon 在人可能拿到链接的每个地方都给出链接：
 - 群里回显 Agent 在机器上做了什么的消息：每次会话一个**回放**链接；
 - API 和 MCP 的结果，让 Agent 能把链接交给人：告警上的 `page`（`GET /api/v1/alerts/{id}`、`get_alert`）、证据里的 `links.page`、时间线里会话事件的 `url`、会话上的 `page`（`list_sessions`、`get_session`、证据里的 `done.sessions[]`）。
 
-## 用令牌代替
+## 用令牌代替 {#tokens-instead}
 
 Bearer 令牌打开页面的规则与对应的 API 路由一致：告警页面要 `status:read`，会话页面和录像要 `sessions:read` 或 `machines:ssh`。以 `Authorization: Bearer lbt_…` 发送；这样打开的页面，里面到会话和录像的链接有效一小时。缺少权限的令牌、未知的令牌、没有令牌，得到的都是同样的 404。
 
-## 页面不做什么
+## 页面不做什么 {#what-the-pages-do-not-do}
 
 - 没有登录、没有账号、没有自己的会话状态：只有链接和令牌。
 - 没有操作：认领、静默、暂停都在卡片上、API 和 MCP 里或命令行完成。人看，Agent 做。

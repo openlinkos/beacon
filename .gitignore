@@ -9,3 +9,8 @@
 /.claude/
 /deploy/.env
 /deploy/secrets/
+
+# docs site
+/docs/node_modules/
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/

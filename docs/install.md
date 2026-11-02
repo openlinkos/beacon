@@ -1,7 +1,5 @@
 # Up in 30 minutes
 
-English | [简体中文](zh/install.md)
-
 At the end of this page Beacon runs on one machine of yours, a probe reports from a second one, an agent you already use (Claude Code here; Codex or another works the same) reaches a machine through Beacon without holding a key, and you have watched one rehearsed outage go from alert to recovery. Each step says how long it takes; the budget below is honest about what is in it and what is not.
 
 | Step | Time |
@@ -39,7 +37,7 @@ The script asks for the two host names and the address (or takes them from the e
 
 Check: `curl https://status.example.com/healthz` answers `ok` (the first certificate takes up to a minute after the start), and `curl https://metrics.example.com/api/v1/targets` answers 401, as it should without a token. Nothing notifies anyone yet: without a chat configured, alerts are recorded and shown in the API and MCP, which is enough for the steps below.
 
-Everything else happens through `docker exec linkos-beacon linkos-beacon …`; [deploy/README.md](../deploy/README.md) says where each file is.
+Everything else happens through `docker exec linkos-beacon linkos-beacon …`; [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) says where each file is.
 
 ## 2. The first probe
 
@@ -71,7 +69,7 @@ sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file centre.toke
 docker exec linkos-beacon linkos-beacon token revoke setup
 ```
 
-Name locations by place and network, never by vendor: the name is public. Check what arrives: VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`); `probe_success` has one series per location and target. The two targets shipped are Beacon's own status host and `https://example.com/`; replace the latter with a service of yours in `targets/all-web.yaml` and `linkos-beacon config import /etc/linkos-beacon`, or `PUT /api/v1/config/targets/all-web` as in [docs/catalog.md](catalog.md).
+Name locations by place and network, never by vendor: the name is public. Check what arrives: VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`); `probe_success` has one series per location and target. The two targets shipped are Beacon's own status host and `https://example.com/`; replace the latter with a service of yours in `targets/all-web.yaml` and `linkos-beacon config import /etc/linkos-beacon`, or `PUT /api/v1/config/targets/all-web` as in [Catalogue, targets and modules](catalog.md).
 
 ## 3. The first machine
 
@@ -90,7 +88,7 @@ useradd -m -s /bin/bash -p '*' beacon
 systemctl reload ssh
 ```
 
-Two more lines are worth it now rather than later: what the `beacon` account may do is the real boundary, so give it only what the work needs (`/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`), and exempt the centre's address from OpenSSH's penalties for failed connections (`PerSourcePenaltyExemptList 203.0.113.7` in `beacon.conf`), since every agent arrives from it. [docs/ssh.md](ssh.md) has the rest.
+Two more lines are worth it now rather than later: what the `beacon` account may do is the real boundary, so give it only what the work needs (`/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart linkos-probe, /usr/bin/journalctl`), and exempt the centre's address from OpenSSH's penalties for failed connections (`PerSourcePenaltyExemptList 203.0.113.7` in `beacon.conf`), since every agent arrives from it. [The SSH channel](ssh.md) has the rest.
 
 ## 4. The first agent
 
@@ -131,18 +129,18 @@ With one location nothing fires, by design: one location's word is never an outa
 
 ## 6. The chat
 
-Not counted in the 30 minutes: a Feishu (or Lark) self-built app needs an administrator's approval, which takes as long as your organisation does. [docs/feishu.md](feishu.md) walks through the app, its permissions, the long connection, the group and the custom bot. Then, on the centre:
+Not counted in the 30 minutes: a Feishu (or Lark) self-built app needs an administrator's approval, which takes as long as your organisation does. [Setting up the Feishu app](feishu.md) walks through the app, its permissions, the long connection, the group and the custom bot. Then, on the centre:
 
 1. Put each secret in its file under `/opt/beacon/secrets/` (`feishu-app-id`, `feishu-app-secret`, `feishu-webhook-url`; `pushover-user-key` and `pushover-app-token` for phones; `healthchecks-bridge-url` for the dead man's switch).
 2. Uncomment the `feishu:` section (and `pushover:`, `healthchecks:`) in `config.yaml`, with your `chat_id` and the people on call.
 3. `sudo ./install.sh` again: it fixes the files' owner and mode, validates and restarts.
 
-Then run the drill once more and watch the card. To wake an agent on a new alert rather than wait for someone to ask it, add an `agents:` hook as [docs/agents.md](agents.md) describes.
+Then run the drill once more and watch the card. To wake an agent on a new alert rather than wait for someone to ask it, add an `agents:` hook as [Agents and alerts](agents.md) describes.
 
 ## What to read next
 
-- [docs/agents.md](agents.md): waking agents, the evidence, notes and the timeline.
-- [docs/ssh.md](ssh.md): the SSH channel in full: accounts, recordings, pausing, what it does not do.
-- [docs/catalog.md](catalog.md): the catalogue, targets and modules, and how to change them through Beacon.
-- [deploy/README.md](../deploy/README.md) and [deploy/runbooks/](../deploy/runbooks/): the files, and one page per alert.
-- [docs/goals.md](goals.md): what Beacon is for, and what it will not do.
+- [Agents and alerts](agents.md): waking agents, the evidence, notes and the timeline.
+- [The SSH channel](ssh.md): the SSH channel in full: accounts, recordings, pausing, what it does not do.
+- [Catalogue, targets and modules](catalog.md): the catalogue, targets and modules, and how to change them through Beacon.
+- [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) and [deploy/runbooks/](https://github.com/openlinkos/beacon/tree/main/deploy/runbooks): the files, and one page per alert.
+- [Goals](goals.md): what Beacon is for, and what it will not do.
