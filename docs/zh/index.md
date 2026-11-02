@@ -1,18 +1,18 @@
 ---
-sourceHash: sha256-3e772f60
+sourceHash: sha256-e52f71b0
 layout: home
 
 hero:
   name: Beacon
-  text: 给做运维的 AI Agent 用的基础设施
-  tagline: 看得见服务对用户是否正常，够得着每一台机器而不把密钥交给 Agent，把值班的人和他们的 Agent 连在同一个平台上；一切按 Agent 已有的习惯来用。
+  text: 让 AI Agent 来值班
+  tagline: 服务出问题时，Beacon 叫醒你的 Agent，把证据交到它手上，让它不拿一把密钥就能上机器处理，整个过程有录像可以回放。人只需要看着，不用爬起来。
   image:
     light: /logo.svg
     dark: /logo-dark.svg
     alt: Beacon
   actions:
     - theme: brand
-      text: 30 分钟上线
+      text: 30 分钟装好
       link: /zh/install
     - theme: alt
       text: 目标
@@ -22,23 +22,29 @@ hero:
       link: https://github.com/openlinkos/beacon
 
 features:
-  - title: 看得见
-    details: 从用户所在的地方检测你的服务，并说清每次失败的原因。几个检测点都说坏了才算故障，一个点的抖动不会叫醒任何人；一次调用就把证据交到 Agent 手里。
-    link: /zh/catalog
-    linkText: 监控什么
-  - title: 够得着
-    details: Agent 用自己的 ssh、scp、rsync 和端口转发，或者 MCP 工具，到达每一台登记过的机器，NAT 后面的也行。Beacon 为每次连接签一张五分钟有效的证书，每次会话都有录制；没有一个 Agent 拿着密钥。
-    link: /zh/ssh
-    linkText: SSH 通道
-  - title: 连得上
-    details: 一个令牌通用 SSH、REST 和 MCP。新告警会唤醒 Agent，一条时间线串起告警、会话、命令和备注；人在告警群里看到这一切，能回放，也能一键暂停 Agent。
+  - title: 叫醒 Agent，证据一次给齐
+    details: 严重告警触发时 Beacon 调用一个 webhook。Agent 问一句，就拿到每个检测点看到的结果和失败原因、同一故障域里的其他告警、故障前刚做的变更、已经做过的事。没有面板要盯。
     link: /zh/agents
     linkText: Agent 与告警
+  - title: 密钥从不离开 Beacon
+    details: Agent 用自己的 ssh、scp、rsync，或者 MCP 工具，经 Beacon 的通道到机器上。每次连接签一张五分钟有效的证书，机器只信任 Beacon 的 CA。Agent 手里没有任何值得偷的东西。
+    link: /zh/ssh
+    linkText: SSH 通道
+  - title: 每条命令都有记录
+    details: 会话录下来，在浏览器里回放；交互 shell 拆成一条条命令和退出码；Agent 的备注写回告警卡片。Agent 做错了什么你看得见，一个开关能让所有 Agent 立刻停下。
+    link: /zh/pages
+    linkText: 控制台
 ---
+
+## 为什么做它 {#why-we-built-it}
+
+运维工具默认键盘前坐着一个人：有面板给人看，密钥放在人的电脑上，有按钮等人来批准。把 Agent 放到第一线，这三样每一样都是漏洞。Agent 不看面板，得有东西叫醒它、把需要的东西一并交给它。不能把密钥交给它，它读到什么就可能泄露什么。凌晨三点它也等不到谁来批准，审核只能事后做，前提是全程有记录。
+
+Beacon 就是为此而做的那一环：把 Agent 当作操作者来设计的基础设施，人负责看着，随时能停。我们自己的服务器就跑在它上面。第一次真实演练，一个停掉的作业从告警触发到验证恢复用了不到四分钟，没有人碰键盘。
 
 ## 工作原理 {#how-it-works}
 
-一个服务 `linkos-beacon`，站在上报数据的机器、值班的人和干活的 Agent 之间。指标和规则仍在 VictoriaMetrics 和 vmalert 里；Beacon 不调用任何模型。
+一个服务 `linkos-beacon`，站在上报的机器、值班的人和干活的 Agent 之间。指标和规则交给 VictoriaMetrics 和 vmalert；Beacon 不调用任何模型。
 
 <div class="bd-wrap">
 <svg class="bd" viewBox="0 0 960 400" role="img" aria-labelledby="bd-title">
@@ -107,11 +113,11 @@ features:
 </svg>
 </div>
 
-网关给每台机器发各自的令牌，并给它写入的数据打标签，谁也冒充不了别人；它还给每个检测点下发检测目标。路由像 Alertmanager 一样给告警分组、抑制、静默。告警桥把告警组变成告警群里的一张卡片，没人认领就升级到手机，并用带签名的钩子唤醒 Agent。Agent 经 REST 或 MCP 取证据、留备注，经 SSH 通道到达机器。各部分怎样拼在一起，见[架构](/zh/architecture)。
+网关给每台机器各自的令牌，并给它写入的数据打标签，谁也冒充不了谁；检测目标也由网关下发。路由做 Alertmanager 做的事：分组、抑制、静默。桥把告警组变成群里的卡片，没人认领就升级到手机，并用签名的 hook 叫醒 Agent。Agent 经 REST 或 MCP 拿证据、留备注，经 SSH 通道上机器。各部分怎么拼见[架构](/zh/architecture)。
 
 ## 安装 {#install}
 
-在一台装了 Docker 的 Linux 机器上，三条命令就能启动中心：Beacon、VictoriaMetrics、vmalert 和 Caddy。
+一台装了 Docker 的 Linux 机器，三条命令起中心：Beacon、VictoriaMetrics、vmalert 和 Caddy。
 
 ```bash
 git clone https://github.com/openlinkos/beacon.git
@@ -119,22 +125,22 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh
 ```
 
-然后登记一个检测点、一台机器和你的 Agent。[30 分钟上线](/zh/install)一步步讲了怎么做，最后演练一次故障，从告警一直走到恢复。
+然后登记一个检测点、一台机器和你的 Agent。[30 分钟装好](/zh/install)一步步带你做完，最后演练一次故障从告警到恢复。
 
 ## 接入 Agent {#connect-an-agent}
 
-一个令牌通用 API、MCP 和 SSH 通道，Agent 也不需要任何专门为 Beacon 写的东西：HTTP 上的 MCP、它自己的 ssh、shell。
+一个令牌通用 API、MCP 和 SSH 通道，Agent 不需要读任何为 Beacon 写的东西：HTTP 上的 MCP、它自己的 ssh、shell。
 
 ```bash
 claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
 ```
 
-`list_machines` 会给它一段 `ssh_config`，之后它自己的 `ssh edge-1`、`scp` 和 `rsync` 都经通道走。被告警唤醒后，它先调 `get_evidence`，再到机器上处理，用 `probe_now` 验证，最后给值班的人留一条备注。见 [Agent 与告警](/zh/agents)和 [MCP 工具](/zh/reference/mcp)。
+`list_machines` 给它一段 `ssh_config`，之后它自己的 `ssh edge-1`、`scp`、`rsync` 都走通道。被告警叫醒后，它从 `get_evidence` 开始，在机器上处理，用 `probe_now` 验证，给值班的人留一条备注。见[Agent 与告警](/zh/agents)和 [MCP 工具](/zh/reference/mcp)。
 
 ## Beacon 不是什么 {#what-beacon-is-not}
 
-- **不是 Agent。**它不调用任何模型。它唤醒 Agent、回答它们、记录它们做了什么；拿主意是 Agent 的事。
-- **没有审批流程。**每次会话人都看得到，也能回放；暂停开关可以一下子停住所有 Agent。
-- **不做日志平台，也没有自己的时序数据库。**Agent 按它最熟悉的方式经 SSH 读日志；存储和查询交给 VictoriaMetrics。
+- **不是 Agent。**不调用模型。它叫醒 Agent、回答它的问题、记录它做的事；拿主意的是 Agent。
+- **没有审批流程。**人看得见每次会话、能回放；暂停开关能立刻停下所有 Agent。
+- **不做日志平台，也不写自己的时序数据库。**Agent 用它最熟的方式经 SSH 读日志；VictoriaMetrics 负责存储和查询。
 
-[目标](/zh/goals)说明了 Beacon 为什么而做、不做什么，以及目标冲突时怎么取舍。Beacon 以 Apache License 2.0 开源，代码在 [GitHub](https://github.com/openlinkos/beacon)。
+[目标](/zh/goals)写了 Beacon 为什么而做、不做什么、目标冲突时怎么取舍。Beacon 以 Apache License 2.0 开源，在 [GitHub](https://github.com/openlinkos/beacon)。

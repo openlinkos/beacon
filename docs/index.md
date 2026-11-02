@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Beacon
-  text: Infrastructure for AI agents that run operations
-  tagline: It sees whether your services work for their users, reaches every machine without handing an agent a key, and puts the people on call and their agents on one platform, all in the ways agents already work.
+  text: Let your AI agent be on call
+  tagline: When a service breaks, Beacon wakes your agent, hands it the evidence, lets it reach the machine without ever holding a key, and keeps a recording you can replay. People watch. They do not have to get up.
   image:
     light: /logo.svg
     dark: /logo-dark.svg
@@ -21,19 +21,25 @@ hero:
       link: https://github.com/openlinkos/beacon
 
 features:
-  - title: Sees
-    details: Probes check your services from where your users are and say why each check fails. An outage is what several locations agree on, so one location's hiccup pages nobody, and one call hands an agent the evidence.
-    link: /catalog
-    linkText: What is monitored
-  - title: Reaches
-    details: Agents reach every enrolled machine, behind NAT too, with their own ssh, scp, rsync and port forwarding, or with MCP tools. Beacon signs a certificate valid for five minutes for each connection and records every session; no agent holds a key.
-    link: /ssh
-    linkText: The SSH channel
-  - title: Connects
-    details: One token works for SSH, REST and MCP. A new alert wakes an agent, one timeline joins alerts, sessions, commands and notes, and people see all of it in the chat, replay it, and can pause agents at once.
+  - title: The agent is woken with the evidence in hand
+    details: A critical alert calls a webhook. The agent asks one question and gets what every probe location sees and why it fails, the other alerts in the same failure domain, what changed just before, and what has already been done. There is no dashboard to read.
     link: /agents
     linkText: Agents and alerts
+  - title: No key ever leaves Beacon
+    details: The agent uses its own ssh, scp and rsync, or MCP tools, through Beacon's channel. Each connection gets a certificate that lives five minutes, and machines trust only Beacon's CA. The agent holds nothing worth stealing.
+    link: /ssh
+    linkText: The SSH channel
+  - title: Every command is on record
+    details: Sessions are recorded and replay in the browser. Interactive shells are broken into commands with their exit codes, and the agent's notes land on the alert's card. If an agent does something wrong, you see it, and one switch stops every agent at once.
+    link: /pages
+    linkText: The console
 ---
+
+## Why we built it
+
+Operations tooling assumes a person at the keyboard: a dashboard to watch, a key on a laptop, a button to approve. Put an agent on the first line and each of those is a hole. An agent does not watch dashboards, so something has to wake it and hand it what it needs. It cannot be given a key, because whatever it reads it may leak. At three in the morning it cannot wait for someone to approve, so review has to happen afterwards, which only works if everything was recorded.
+
+Beacon is the piece of infrastructure built for that: the agent as the operator, people as the ones who see and can stop it. We run our own servers on it. In the first real drill, a broken job went from alert to verified recovery in under four minutes with nobody touching a keyboard.
 
 ## How it works
 
@@ -106,7 +112,7 @@ One service, `linkos-beacon`, stands between the machines that report, the peopl
 </svg>
 </div>
 
-The gateway gives each machine its own token and labels what it writes, so no machine speaks for another, and hands every probe its targets. The router groups, inhibits and silences alerts as Alertmanager does. The bridge turns an alert group into a card in the chat, escalates to phones when nobody acknowledges it, and wakes agents with a signed hook. Agents gather the evidence and leave notes over REST or MCP, and reach machines through the SSH channel. [Architecture](/architecture) has the parts and how they fit.
+The gateway gives each machine its own token and labels what it writes, so no machine can speak for another, and it hands every probe its targets. The router groups, inhibits and silences alerts as Alertmanager does. The bridge turns an alert group into a card in the chat, escalates to phones when nobody acknowledges it, and wakes agents with a signed hook. Agents gather the evidence and leave notes over REST or MCP, and reach machines through the SSH channel. [Architecture](/architecture) has the parts and how they fit.
 
 ## Install
 
@@ -118,7 +124,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh
 ```
 
-Then enrol a probe, a machine and your agent. [Up in 30 minutes](/install) walks through it, and ends with a rehearsed outage going from alert to recovery.
+Then enrol a probe, a machine and your agent. [Up in 30 minutes](/install) walks through it and ends with a rehearsed outage going from alert to recovery.
 
 ## Connect an agent
 
