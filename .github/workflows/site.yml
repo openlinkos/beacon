@@ -64,28 +64,29 @@ jobs:
       - name: smoke test
         run: |
           set -euo pipefail
+          # grep reads the whole page (no -q): with pipefail, -q would stop early and fail curl with SIGPIPE on a long page
           docker run -d --name site -p 8080:8080 beacon-site:test
           s=http://localhost:8080
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
-          curl -fsS "$s/" | grep -q 'Put your AI agent on call'
-          curl -fsS "$s/zh/" | grep -q 'lang="zh-CN"'
-          curl -fsS "$s/install" | grep -q 'Up in 30 minutes'
-          curl -fsS "$s/reference/api" | grep -q 'auth.scope'
-          curl -fsS "$s/reference/mcp" | grep -q 'probe_now'
-          curl -fsS "$s/changelog" | grep -q 'Changelog'
-          curl -fsS "$s/zh/changelog" | grep -q 'lang="zh-CN"'
-          curl -fsS "$s/zh/architecture" | grep -q 'lang="zh-CN"'
+          curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
+          curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/install" | grep 'Up in 30 minutes' >/dev/null
+          curl -fsS "$s/reference/api" | grep 'auth.scope' >/dev/null
+          curl -fsS "$s/reference/mcp" | grep 'probe_now' >/dev/null
+          curl -fsS "$s/changelog" | grep 'Changelog' >/dev/null
+          curl -fsS "$s/zh/changelog" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/zh/architecture" | grep 'lang="zh-CN"' >/dev/null
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/no-such-page")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/zh/no-such-page")" = 404
-          curl -fsSI "$s/" | grep -qi '^cache-control: no-cache'
+          curl -fsSI "$s/" | grep -i '^cache-control: no-cache' >/dev/null
           # brand assets, metadata and language detection from @openlinkos/vitepress-theme
           curl -fsS -o /dev/null "$s/favicon.ico"
-          curl -fsS "$s/site.webmanifest" | grep -q '"icons"'
-          curl -fsS "$s/robots.txt" | grep -q 'Sitemap: https://beacon.openlinkos.com/sitemap.xml'
-          curl -fsS "$s/sitemap.xml" | grep -q 'hreflang="x-default"'
-          curl -fsS "$s/.well-known/security.txt" | grep -q '^Contact:'
-          curl -fsS "$s/" | grep -q 'hreflang="zh-CN"'
-          curl -fsS "$s/" | grep -q 'id="openlinkos-lang"'
+          curl -fsS "$s/site.webmanifest" | grep '"icons"' >/dev/null
+          curl -fsS "$s/robots.txt" | grep 'Sitemap: https://beacon.openlinkos.com/sitemap.xml' >/dev/null
+          curl -fsS "$s/sitemap.xml" | grep 'hreflang="x-default"' >/dev/null
+          curl -fsS "$s/.well-known/security.txt" | grep '^Contact:' >/dev/null
+          curl -fsS "$s/" | grep 'hreflang="zh-CN"' >/dev/null
+          curl -fsS "$s/" | grep 'id="openlinkos-lang"' >/dev/null
           docker rm -f site
 
       - name: build and push
