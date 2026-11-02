@@ -68,7 +68,10 @@ func TestSIGHUPImportsTheFiles(t *testing.T) {
 	if err != nil || cdb.Version() != 1 {
 		t.Fatalf("start: %v %v", cdb.Version(), err)
 	}
-	go reloadOnHUP(ctx, cfg, cdb, log)
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	go reloadOnHUP(ctx, hup, cfg, cdb, log)
 
 	// hang up until want is in the log, as reloadOnHUP may not be listening yet
 	hangUp := func(want string) {

@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.8 (2026-11-02)
+
+- A `SIGHUP` that arrives while the service is still starting no longer ends it: the signal is taken from the first instant and acted on once the service is up. A deployment that reloads right after starting the service used to kill it, the more so as start-up grew with the console.
+
 ### rc.7 (2026-11-02)
 
 - `DELETE /api/v1/tokens/{name}` and the MCP tool `revoke_token` (`machines:write`): revoke a token that reaches machines, the pause switch for one agent, as the console does; machines' and services' tokens stay with `linkos-beacon token revoke` on the host. New error codes `token.not_found`, `token.not_revocable`.

@@ -9,11 +9,9 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -74,10 +72,7 @@ func openConfig(ctx context.Context, cfg *config.Config, st *store.Store, bot *n
 // reloadOnHUP imports the configuration files when the process gets SIGHUP, as long as nothing was
 // changed through Beacon since the last import. Otherwise, or when the files fail their checks, it
 // says why and keeps the configuration in force.
-func reloadOnHUP(ctx context.Context, cfg *config.Config, cdb *configdb.Service, log *slog.Logger) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGHUP)
-	defer signal.Stop(ch)
+func reloadOnHUP(ctx context.Context, ch <-chan os.Signal, cfg *config.Config, cdb *configdb.Service, log *slog.Logger) {
 	for {
 		select {
 		case <-ctx.Done():

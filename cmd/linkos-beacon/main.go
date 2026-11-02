@@ -197,6 +197,11 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 
 func serve(args []string, stderr io.Writer) int {
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
+	// Take SIGHUP from the first instant: a deployment that reloads right after starting the service
+	// must not end it (the default action), so the signal waits in the channel until reloadOnHUP runs.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
 	path, _, ok := configFlag("serve", args, stderr)
 	if !ok {
 		return 2
@@ -316,7 +321,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go reloadOnHUP(ctx, cfg, cdb, log)
+	go reloadOnHUP(ctx, hup, cfg, cdb, log)
 	if listener != nil {
 		go func() {
 			if err := listener.Run(ctx); err != nil {
