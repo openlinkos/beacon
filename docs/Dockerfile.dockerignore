@@ -1,0 +1,12 @@
+# The build context of the site image (docs/Dockerfile) is the repository root; only what the site reads
+# goes in.
+*
+!docs/
+!CHANGELOG.md
+!internal/api/
+!internal/gateway/
+!internal/mcpserver/
+!internal/store/store.go
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
