@@ -1,13 +1,10 @@
 package store
 
 import (
-	"crypto/rand"
-	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -85,11 +82,10 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 	if t.Lifetime <= 0 {
 		t.Lifetime = t.Expires.Sub(t.Created)
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	secret, err := newSecret()
+	if err != nil {
 		return "", Token{}, err
 	}
-	secret := TokenPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw))
 	old := t.Hash
 	t.OldHash, t.OldUntil = old, now.Add(RenewGrace)
 	t.Hash, t.Expires, t.Renewed = hashToken(secret), now.Add(t.Lifetime), now

@@ -290,6 +290,20 @@ var (
 // TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
 const TokenPrefix = "lbt_"
 
+// secretBytes is the random part of a secret: 17 bytes (136 bits), 28 base32 characters after the
+// prefix, 32 in all. Short enough for the secret fields of bot platforms, which cut long values;
+// long enough for anyone (a UUID has 122 bits).
+const secretBytes = 17
+
+// newSecret makes a secret: the prefix, then the random bytes in lower-case base32 without padding.
+func newSecret() (string, error) {
+	raw := make([]byte, secretBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return TokenPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw)), nil
+}
+
 func hashToken(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
@@ -322,17 +336,16 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	if ttl < time.Hour || ttl > 2*366*24*time.Hour {
 		return "", Token{}, errors.New("a token must expire between 1 hour and 2 years from now")
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	secret, err := newSecret()
+	if err != nil {
 		return "", Token{}, err
 	}
-	secret := TokenPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw))
 	now := s.now().UTC()
 	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 	b, _ := json.Marshal(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx *bolt.Tx) error {
 		bk := tx.Bucket(bucketTokens)
 		if bk.Get([]byte(name)) != nil {
 			return fmt.Errorf("a token named %q exists; revoke it first", name)

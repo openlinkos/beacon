@@ -6,6 +6,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.5 (2026-11-02)
+
+- Tokens are 32 characters (`lbt_` and 17 random bytes in base32, 136 bits), down from 56: bot platforms' secret fields cut long values. Tokens issued before keep working.
+
+
 ### rc.4 (2026-11-02)
 
 - **Hooks for receivers with a secret of their own** (`docs/agents.md`): a `kind: webhook` hook takes `headers_file`, a file of `Name: value` lines sent with every call (`Authorization: Bearer …`, `X-Webhook-Secret: …`), for bot platforms that check their own secret rather than Beacon's signature. One of `secret_file` and `headers_file` is required; with both, the call is signed and carries the headers. `X-Beacon-Event` and `X-Beacon-Delivery` are always sent.
