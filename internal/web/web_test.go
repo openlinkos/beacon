@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
@@ -38,7 +40,36 @@ func (fakeAM) CreateSilence(context.Context, map[string]string, time.Time, time.
 }
 func (fakeAM) ExpireSilence(context.Context, string) error              { return nil }
 func (fakeAM) Silences(context.Context) ([]alertmanager.Silence, error) { return nil, nil }
-func (fakeBot) Send(context.Context, string) error                      { return nil }
+
+// fakeBot keeps what the chat would have been told.
+type fakeBot struct {
+	mu   sync.Mutex
+	sent []string
+}
+
+func (b *fakeBot) Send(_ context.Context, text string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sent = append(b.sent, text)
+	return nil
+}
+
+// told reports whether the chat was told something containing all of parts.
+func (b *fakeBot) told(parts ...string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, s := range b.sent {
+		all := true
+		for _, p := range parts {
+			all = all && strings.Contains(s, p)
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
 func keySigner(t *testing.T) ssh.Signer {
 	t.Helper()
 	_, k, err := ed25519.GenerateKey(rand.Reader)
@@ -51,8 +82,6 @@ func keySigner(t *testing.T) ssh.Signer {
 	}
 	return s
 }
-
-type fakeBot struct{}
 
 const (
 	groupKey  = `{}:{alertname="ServiceDown",service="git-example-com"}`
@@ -72,12 +101,14 @@ type env struct {
 	mux    *http.ServeMux
 	now    time.Time
 	id     string
+	bot    *fakeBot
+	cdb    *configdb.Service
 }
 
 func newEnv(t *testing.T, lang i18n.Lang) *env {
 	t.Helper()
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	e := &env{t: t, now: now}
+	e := &env{t: t, now: now, bot: &fakeBot{}}
 	cfg := &config.Config{Language: string(lang), Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),
 		Feishu: config.Feishu{MonthlyBudget: 1000}, OnCallByID: map[string]config.OnCaller{},
 		Escalation: map[string]config.Policy{"critical": {Channel: "webhook"}, "warning": {Channel: "webhook"}, "info": {Channel: "webhook"}}}
@@ -92,7 +123,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 		t.Fatal(err)
 	}
 	pages := &link.Pages{Signer: e.signer, PublicURL: publicURL}
-	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: fakeBot{}, Pages: pages, Now: func() time.Time { return e.now }})
+	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: e.bot, Pages: pages, Now: func() time.Time { return e.now }})
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: groupKey, Status: "firing",
 		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "git-example-com"},
 		CommonLabels:      map[string]string{"alertname": "ServiceDown", "service": "git-example-com", "severity": "critical", "host": "edge-1", "note": hostile},
@@ -107,7 +138,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 	}
 
 	dir := t.TempDir()
-	gate, err := sshgate.New(sshgate.Deps{Store: st, HostKey: keySigner(t), CA: keySigner(t), Dir: dir, Lang: lang, Pages: pages,
+	gate, err := sshgate.New(sshgate.Deps{Store: st, HostKey: keySigner(t), CA: keySigner(t), Dir: dir, Lang: lang, Pages: pages, Bot: e.bot,
 		Now: func() time.Time { return e.now }})
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +181,38 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 		Started: now.Add(-4 * time.Minute), Ended: now.Add(-4 * time.Minute), Exit: &zero}
 	_ = st.PutSession(other)
 
-	e.srv = &Server{Bridge: e.b, SSH: gate, Auth: &api.Auth{Store: st}, Pages: pages, Lang: lang, Location: time.UTC, Now: func() time.Time { return e.now }}
+	// the console's: the configuration, machines, an agent's call, the hooks, the gateway's last writes
+	e.cdb = configdb.Open(configdb.Deps{Store: st, Lang: lang, Now: func() time.Time { return e.now }})
+	alice := configdb.Actor{Name: "alice", Via: "api"}
+	for _, loc := range []kv{{"edge-1", `{"name": "Europe - Frankfurt", "region": "overseas"}`}, {"edge-2", `{"name": "Asia - Shanghai", "region": "mainland"}`}} {
+		if _, err := e.cdb.Put(context.Background(), alice, "locations", loc.K, json.RawMessage(loc.V), "new location "+hostile); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, m := range []store.Machine{
+		{Name: "edge-1", Address: "192.0.2.10:22", User: "beacon", Critical: true, Note: "the relay " + hostile, Added: now.Add(-48 * time.Hour), AddedBy: "alice"},
+		{Name: "edge-2", Address: store.ConnectorAddress, User: "beacon", Added: now.Add(-24 * time.Hour)},
+	} {
+		if err := st.PutMachine(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, _ := st.Group(e.id)
+	g.Agents = append(g.Agents, store.AgentCall{Hook: "oncall", Kind: "webhook", Event: "firing", Delivery: "d1", Status: "ok", Attempts: 1, Code: 202,
+		At: now.Add(-9 * time.Minute), Done: now.Add(-9 * time.Minute)})
+	if err := st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutChange(store.Change{Time: now.Add(-20 * time.Minute), Source: "flux", Kind: "deploy", Service: "git-example-com",
+		Summary: "relay 1.2.3 " + hostile, PostedBy: "ci"}, now.Add(-30*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	e.srv = &Server{Bridge: e.b, SSH: gate, Auth: &api.Auth{Store: st}, Pages: pages, Lang: lang, Location: time.UTC, Now: func() time.Time { return e.now },
+		Store: st, Config: e.cdb, Version: "v0.3.0-test",
+		Hooks: []config.Agent{{Name: "oncall", Kind: "webhook", URL: "https://hooks.example.com/beacon?key=hook-secret", Severities: []string{"critical"}}},
+		Reporting: func() map[string]time.Time {
+			return map[string]time.Time{"edge-1": e.now.Add(-time.Minute), "edge-2": e.now.Add(-time.Hour)}
+		}}
 	e.mux = http.NewServeMux()
 	e.srv.Register(e.mux)
 	return e
@@ -249,8 +311,8 @@ func TestAlertPage(t *testing.T) {
 		"No answer from 2 locations", "edge-1", "claude-code", "restarting the relay &lt;script&gt;", // the note
 		"systemctl restart relay", "false &lt;script&gt;", "exit 1", // the shell's commands, with exit statuses
 		"1 sessions on 1 machines, 2 commands", "Timeline", "Alert started", "left a note via MCP", "Replay",
-		"Agents reach machines through the SSH channel", "This link is valid until 2026-11-02 11:00:00", "Bea<span>con</span>",
-		"No probe results in the window", `<dt>note</dt><dd class="mono">&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
+		"Agents reach machines through the SSH channel", "This link is valid until 2026-11-02 11:00:00", `data-brand="beacon"`,
+		"No probe results in the window", `<dt>note</dt><dd class="ol-mono ol-break">&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page lacks %q", want)

@@ -90,6 +90,8 @@ func (s *Service) via(v string) string {
 		return i18n.T(s.d.Lang, "the command line")
 	case "mcp":
 		return "MCP"
+	case "console":
+		return i18n.T(s.d.Lang, "the console")
 	}
 	return "API"
 }

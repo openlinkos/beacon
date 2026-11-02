@@ -301,7 +301,11 @@ func serve(args []string, stderr io.Writer) int {
 		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb},
 		MCP:     mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
-		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log},
+		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
+			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version}, // the console, served at /
+	}
+	if cfg.Gateway.Listen != "" {
+		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway
 	}
 	if deps.Feishu != nil && cfg.Feishu.Callback == "http" {
 		sd.Feishu = feishu.HTTPHandler(sec.FeishuVerificationToken, sec.FeishuEncryptKey, br.HandleAction)

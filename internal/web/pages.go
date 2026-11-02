@@ -1,7 +1,7 @@
 package web
 
 import (
-	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"sort"
@@ -13,14 +13,17 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// What the templates render. Every text people read is made here, through t, so that the catalogue test
-// sees it; the templates hold no words of their own besides the Beacon name.
+// What the templates render. Every text people read is made here and in the console's files, through
+// t, so that the catalogue test sees it; the templates hold no words of their own besides the Beacon
+// name.
 
-// labels are the texts that take no arguments.
+// labels are the texts of the alert's and the session's pages that take no arguments.
 type labels struct {
 	Alert, Session, Service, Services, Labels, Probes, Related, Changes, Agents, Notes, Sessions, Commands, Output, Timeline string
 	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
+	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
+	SessionsOn                                                                                                               string
 }
 
 func (s *Server) labels() labels {
@@ -34,26 +37,11 @@ func (s *Server) labels() labels {
 		None: s.t("None"), Runbook: s.t("Runbook"), Dashboard: s.t("Dashboard"), NoProbes: s.t("No probe results in the window"),
 		NoRecording: s.t("No recording"), RecordingOpen: s.t("The session is still open; the recording plays once it ends"),
 		RecordingCut: s.t("The recording was cut at 16 MiB"), RecordingError: s.t("The recording could not be loaded"),
+		Details: s.t("Details"), Status: s.t("Status"), Severity: s.t("Severity"), Kind: s.t("Kind"), Ended: s.t("Ended"),
+		ID: s.t("Id"), Time: s.t("Time"), What: s.t("What happened"), Acknowledge: s.t("Acknowledge"), AckNote: s.t("A note for the others (optional)"),
+		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
+		SessionsOn: s.t("Sessions on the alert's machines"),
 	}
-}
-
-// page is what every page has.
-type page struct {
-	Lang   string // the html lang attribute
-	Title  string // the window title
-	Kind   string // Alert or Session, over the heading
-	L      labels
-	Access string // how long the link lasts, or that a token opened the page
-}
-
-func (s *Server) page(kind, title string, a access) page {
-	p := page{Lang: s.Lang.HTML(), Title: title + " · Beacon", Kind: kind, L: s.labels()}
-	if a.Token != "" {
-		p.Access = s.t("Opened with API access")
-	} else {
-		p.Access = s.t("This link is valid until %s", s.clock(a.Until))
-	}
-	return p
 }
 
 // ---- helpers
@@ -109,6 +97,21 @@ func (s *Server) severity(sev string) string {
 	return s.t("Warning")
 }
 
+// tone is the design system's tone for a severity or a state.
+func tone(v string) string {
+	switch v {
+	case "critical", "firing", "failed", "paused":
+		return "danger"
+	case "warning", "pending":
+		return "warning"
+	case "info":
+		return "info"
+	case "resolved", "ok", "running":
+		return "success"
+	}
+	return ""
+}
+
 func (s *Server) via(via string) string {
 	switch via {
 	case "feishu":
@@ -121,6 +124,10 @@ func (s *Server) via(via string) string {
 		return "SSH"
 	case "api":
 		return "API"
+	case "cli":
+		return s.t("the command line")
+	case "console":
+		return s.t("the console")
 	}
 	return via
 }
@@ -170,6 +177,15 @@ func external(u string) string {
 	return p.String()
 }
 
+// pageShell is the shell of an alert's or a session's page: the console's for someone signed in, the
+// page alone for a signed link or a token.
+func (s *Server) pageShell(r *http.Request, a access, nav, kind, title string, parent crumb) shell {
+	if a.Viewer != nil {
+		return s.shellFor(r, a.Viewer, nav, title, parent)
+	}
+	return s.viewOnly(kind, title, a)
+}
+
 // ---- the alert page
 
 type kv struct{ K, V string }
@@ -207,8 +223,15 @@ type changeRow struct {
 	At, Source, Kind, Summary, About, Href string
 }
 
+// alertActions are the forms the alert's page offers someone signed in with alerts:write.
+type alertActions struct {
+	CSRF, Ack, Silence, Note string // where the forms post; "" leaves a form out
+	Durations                []kv   // the silence's choices: value, label
+}
+
 type alertPage struct {
-	page
+	shell
+	L                                                                            labels
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
 	Services                                                                     []string
@@ -226,24 +249,27 @@ type alertPage struct {
 	Changes                                                                      []changeRow
 	Channel                                                                      string
 	Paused                                                                       bool
+	Actions                                                                      *alertActions
 }
 
-func (s *Server) alertPage(ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
+func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
 	now := s.now()
 	al := ev.Alert
-	p := alertPage{page: s.page(s.t("Alert"), al.Title, a), ID: al.ID, Heading: al.Title, Description: al.Description,
-		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: al.Severity,
+	p := alertPage{shell: s.pageShell(r, a, "alerts", s.t("Alert"), al.Title, crumb{Label: s.t("Alerts"), Href: "/alerts"}),
+		L: s.labels(), ID: al.ID, Heading: al.Title, Description: al.Description,
+		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window: s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To))}
 	if al.Status == "firing" {
-		p.Status, p.StatusClass = s.t("Firing"), "firing"
+		p.Status, p.StatusClass = s.t("Firing"), "danger"
 		p.When = s.t("Since %s (%s)", s.clock(al.StartsAt), s.dur(now.Sub(al.StartsAt)))
 	} else {
-		p.Status, p.StatusClass = s.t("Resolved"), "resolved"
+		p.Status, p.StatusClass = s.t("Resolved"), "success"
 		if al.ResolvedAt != nil {
 			p.When = s.t("Resolved at %s after %s", s.clock(*al.ResolvedAt), s.dur(al.ResolvedAt.Sub(al.StartsAt)))
 		}
 	}
+	p.Badges = []badge{{Text: p.Status, Tone: p.StatusClass}, {Text: p.Severity, Tone: p.SeverityClass}}
 	keys := make([]string, 0, len(al.Labels))
 	for k := range al.Labels {
 		keys = append(keys, k)
@@ -270,7 +296,7 @@ func (s *Server) alertPage(ev bridge.Evidence, tl bridge.Timeline, g bridge.Grou
 	}
 	p.ProbesError = ev.Probes.Error
 	for _, r := range ev.Related {
-		p.Related = append(p.Related, relatedRow{Title: r.Title, Severity: s.severity(r.Severity), SeverityClass: r.Severity, Why: r.Why,
+		p.Related = append(p.Related, relatedRow{Title: r.Title, Severity: s.severity(r.Severity), SeverityClass: tone(r.Severity), Why: r.Why,
 			Acked: r.Acked, Href: s.signed(link.AlertPath(r.ID), a.Until)})
 	}
 	p.Events = s.events(tl, a, p.L)
@@ -290,14 +316,17 @@ func (s *Server) alertPage(ev bridge.Evidence, tl bridge.Timeline, g bridge.Grou
 	for _, n := range ev.Done.Notes {
 		p.Notes = append(p.Notes, noteRow{By: n.By, Via: s.via(n.Via), At: s.clock(n.At), Text: n.Text})
 	}
+	slices.Reverse(p.Notes) // the latest first
 	p.Sessions = s.sessions(ev.Done.Sessions, a)
 	if n := len(p.Sessions); n > 0 {
 		machines, commands := map[string]bool{}, 0
-		for i, v := range ev.Done.Sessions {
+		for _, v := range ev.Done.Sessions {
 			machines[v.Machine] = true
+		}
+		for i, v := range ev.Done.Sessions {
 			switch v.Kind {
 			case "shell":
-				commands += max(v.Commands, len(p.Sessions[i].Commands))
+				commands += max(v.Commands, len(p.Sessions[len(p.Sessions)-1-i].Commands))
 			case "exec", "file":
 				commands++
 			}
@@ -316,6 +345,17 @@ func (s *Server) alertPage(ev bridge.Evidence, tl bridge.Timeline, g bridge.Grou
 			p.Channel, p.Paused = s.t("Agents' access to machines is paused since %s", s.clock(t)), true
 		} else {
 			p.Channel = s.t("Agents reach machines through the SSH channel")
+		}
+	}
+	if v := a.Viewer; v != nil && v.has("alerts:write") {
+		base := link.AlertPath(al.ID)
+		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
+		if al.Status == "firing" {
+			p.Actions.Silence = base + "/silence"
+			p.Actions.Durations = []kv{{"1h", s.t("1 hour")}, {"4h", s.t("4 hours")}, {"24h", s.t("24 hours")}}
+			if ev.Done.Ack == nil {
+				p.Actions.Ack = base + "/ack"
+			}
 		}
 	}
 	return p
@@ -354,7 +394,7 @@ func (s *Server) probes(ev bridge.Evidence, l labels) []probeRow {
 		if r.CertExpires != nil {
 			parts = append(parts, s.t("certificate expires %s", s.clock(*r.CertExpires)))
 		}
-		row.Detail = strings.Join(parts, " · ")
+		row.Detail = strings.Join(parts, ", ")
 		out = append(out, row)
 	}
 	return out
@@ -469,22 +509,36 @@ func (s *Server) commands(cs []sshgate.Command) []commandRow {
 // ---- the session page
 
 type sessionPage struct {
-	page
+	shell
+	L                                                                      labels
 	ID, Agent, Via, Machine, Kind, Command, Started, Ended, Duration, Exit string
 	Failed, Open, Truncated                                                bool
 	Commands                                                               []commandRow
 	Outputs                                                                []kv // stdout and stderr of a command
-	Recording, RecordingNote                                               string
+	Recording, RecordingNote, MachineHref                                  string
 }
 
-func (s *Server) sessionPage(tr sshgate.Transcript, a access) sessionPage {
-	r := tr.SessionRecord
-	heading := fmt.Sprintf("%s · %s", r.Agent, r.Machine)
-	p := sessionPage{page: s.page(s.t("Session"), heading, a), ID: r.ID, Agent: r.Agent, Via: s.via(r.Via), Machine: r.Machine,
-		Kind: s.kind(r.Kind), Command: r.Command, Started: s.clock(r.Started), Exit: s.exit(r.Exit),
-		Failed: r.Exit != nil && *r.Exit != 0, Open: r.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
-	if !r.Ended.IsZero() {
-		p.Ended, p.Duration = s.clock(r.Ended), s.dur(r.Ended.Sub(r.Started))
+func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
+	rec := tr.SessionRecord
+	heading := s.t("%s on %s", rec.Agent, rec.Machine)
+	p := sessionPage{shell: s.pageShell(r, a, "sessions", s.t("Session"), heading, crumb{Label: s.t("Sessions"), Href: "/sessions"}),
+		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
+		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
+		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
+	p.Badges = []badge{{Text: p.Kind}}
+	switch {
+	case p.Open:
+		p.Badges = append(p.Badges, badge{Text: p.L.Open, Tone: "info"})
+	case p.Exit != "" && p.Failed:
+		p.Badges = append(p.Badges, badge{Text: p.Exit, Tone: "danger"})
+	case p.Exit != "":
+		p.Badges = append(p.Badges, badge{Text: p.Exit, Tone: "success"})
+	}
+	if a.Viewer != nil {
+		p.MachineHref = "/machines/" + url.PathEscape(rec.Machine)
+	}
+	if !rec.Ended.IsZero() {
+		p.Ended, p.Duration = s.clock(rec.Ended), s.dur(rec.Ended.Sub(rec.Started))
 	}
 	if tr.Stdout != "" {
 		p.Outputs = append(p.Outputs, kv{"stdout", tr.Stdout})
@@ -493,12 +547,12 @@ func (s *Server) sessionPage(tr sshgate.Transcript, a access) sessionPage {
 		p.Outputs = append(p.Outputs, kv{"stderr", tr.Stderr})
 	}
 	switch {
-	case r.Recording == "":
-		p.RecordingNote = s.labels().NoRecording
+	case rec.Recording == "":
+		p.RecordingNote = p.L.NoRecording
 	case p.Open:
-		p.RecordingNote = s.labels().RecordingOpen
+		p.RecordingNote = p.L.RecordingOpen
 	default:
-		p.Recording = s.signed(link.RecordingPath(r.ID), a.Until)
+		p.Recording = s.signed(link.RecordingPath(rec.ID), a.Until)
 	}
 	return p
 }

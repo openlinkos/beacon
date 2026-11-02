@@ -1,0 +1,47 @@
+/* PROVISIONAL: Beacon's accent for the design system's data-brand="beacon", until @openlinkos/ui
+   ships the brand itself. Delete this file then (and its link in templates/shell.html and its entry in
+   staticFiles), and run scripts/update-ui.sh.
+
+   The values are the design system's own scale generator (packages/ui/src/color.ts in
+   github.com/openlinkos/design, 0.6.1) run on one provisional solid, a warm beacon-fire orange,
+   #c2410c, in the shape of the brand blocks ui.css declares. White on the solid reaches 5.18:1. Known
+   gap, for the design system to settle when it adds the brand: as chart series 1, this accent stands
+   too close to series 8 (red) and series 2 (orange) for the palette's separation tests, so the
+   console draws no chart in series 1. */
+@layer ol.tokens {
+  [data-brand="beacon"] {
+    --ol-palette-accent-1: light-dark(#fefdfd, #1d100d);
+    --ol-palette-accent-2: light-dark(#fef8f6, #23140f);
+    --ol-palette-accent-3: light-dark(#fcefeb, #401a0d);
+    --ol-palette-accent-4: light-dark(#fbe3dc, #551f0d);
+    --ol-palette-accent-5: light-dark(#f9d6ca, #662813);
+    --ol-palette-accent-6: light-dark(#f6c5b5, #75311b);
+    --ol-palette-accent-7: light-dark(#eeae9a, #863b23);
+    --ol-palette-accent-8: light-dark(#e09178, #9d4629);
+    --ol-palette-accent-9: #c2410c;
+    --ol-palette-accent-10: light-dark(#b53800, #cc562e);
+    --ol-palette-accent-11: light-dark(#ac3b0e, #f09f85);
+    --ol-palette-accent-12: light-dark(#512010, #fad9cf);
+    --ol-palette-accent-text-subtle: light-dark(#b53800, #df6840);
+    --ol-palette-accent-border-input: light-dark(#c4775f, #ae5538);
+    --ol-palette-accent-border-input-hover: light-dark(#b56a52, #bd6345);
+    --ol-palette-accent-on-solid: #ffffff;
+    --ol-palette-accent-mark: light-dark(#c2410c, #f09f85);
+    --ol-palette-accent-mark-inverse: #f09f85;
+    --ol-color-focus-ring: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-11));
+    --ol-color-selection: var(--ol-palette-accent-5);
+    --ol-color-mark: var(--ol-palette-accent-mark);
+    --ol-color-mark-inverse: var(--ol-palette-accent-mark-inverse);
+    --ol-color-accent-bg: var(--ol-palette-accent-3);
+    --ol-color-accent-bg-hover: var(--ol-palette-accent-4);
+    --ol-color-accent-bg-active: var(--ol-palette-accent-5);
+    --ol-color-accent-border: var(--ol-palette-accent-7);
+    --ol-color-accent-border-hover: var(--ol-palette-accent-8);
+    --ol-color-accent-solid: var(--ol-palette-accent-9);
+    --ol-color-accent-solid-hover: var(--ol-palette-accent-10);
+    --ol-color-accent-text: var(--ol-palette-accent-11);
+    --ol-color-accent-text-strong: var(--ol-palette-accent-12);
+    --ol-color-accent-on-solid: var(--ol-palette-accent-on-solid);
+    --ol-color-series-1: light-dark(var(--ol-palette-accent-9), var(--ol-palette-accent-10));
+  }
+}

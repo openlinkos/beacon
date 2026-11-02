@@ -1,0 +1,42 @@
+{{define "facets"}}<aside class="ol-sheet ol-facets" id="filters" popover aria-label="{{.S.Filters}}">
+  <div class="ol-sheet-head"><h2 class="ol-sheet-title">{{.S.Filters}}</h2><button type="button" class="ol-btn ol-btn-ghost ol-btn-icon ol-btn-sm" popovertarget="filters" popovertargetaction="hide" aria-label="{{.S.Close}}">{{iconSm "x"}}</button></div>
+  {{range .List.Facets}}<section class="ol-facet-group">
+    <h2 class="ol-facet-head">{{.Title}}{{if .Clear}} <a href="{{.Clear}}">{{$.S.Clear}}</a>{{end}}</h2>
+    <ul class="ol-facet-list">{{range .Values}}<li><a class="ol-facet" href="{{.Href}}"{{if .On}} aria-current="true"{{end}}><span class="ol-facet-check" aria-hidden="true">{{iconSm "check"}}</span><span class="ol-facet-label">{{.Label}}</span><span class="ol-facet-count">{{.Count}}</span></a></li>{{end}}</ul>
+    {{if .More}}<span class="ol-facet-more">{{.More}}</span>{{end}}
+  </section>
+  {{end}}
+</aside>{{end}}
+
+{{define "filterbar"}}<div class="ol-filterbar">
+  <form class="ol-search" role="search" method="get" action="{{.List.Path}}">
+    {{iconSm "search"}}{{range .List.Hidden}}<input type="hidden" name="{{.K}}" value="{{.V}}">{{end}}
+    <input class="ol-input ol-input-sm" type="search" name="q" value="{{.List.Query}}" placeholder="{{.List.SearchHint}}" aria-label="{{.List.SearchLabel}}">
+  </form>
+  {{range .List.Tags}}<a class="ol-filter-tag" href="{{.Href}}" title="{{$.S.Clear}}"><span>{{.Label}}</span>{{iconSm "x"}}</a>{{end}}
+  <div class="ol-filterbar-end"><button type="button" class="ol-btn ol-btn-secondary ol-btn-sm ol-sheet-open" popovertarget="filters">{{iconSm "list-filter"}}{{.S.Filters}}{{if .List.On}} <span class="ol-count">{{.List.On}}</span>{{end}}</button></div>
+</div>{{end}}
+
+{{define "pager"}}{{if .List.Pager.Summary}}<nav class="ol-pager" aria-label="{{.S.Pages}}"><span>{{.List.Pager.Summary}}</span><span class="ol-pager-links">
+  {{if .List.Pager.Prev}}<a class="ol-btn ol-btn-secondary ol-btn-icon ol-btn-sm" href="{{.List.Pager.Prev}}">{{iconSm "chevron-left"}}<span class="ol-sr-only">{{.S.Previous}}</span></a>{{else}}<span class="ol-btn ol-btn-secondary ol-btn-icon ol-btn-sm" aria-disabled="true">{{iconSm "chevron-left"}}<span class="ol-sr-only">{{.S.Previous}}</span></span>{{end}}
+  {{if .List.Pager.Next}}<a class="ol-btn ol-btn-secondary ol-btn-icon ol-btn-sm" href="{{.List.Pager.Next}}">{{iconSm "chevron-right"}}<span class="ol-sr-only">{{.S.Next}}</span></a>{{else}}<span class="ol-btn ol-btn-secondary ol-btn-icon ol-btn-sm" aria-disabled="true">{{iconSm "chevron-right"}}<span class="ol-sr-only">{{.S.Next}}</span></span>{{end}}
+</span></nav>{{end}}{{end}}
+
+{{define "sessionrows"}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+  <thead><tr><th>{{.L.Started}}</th><th>{{.L.Agent}}</th><th>{{.L.Machine}}</th><th>{{.L.Kind}}</th><th>{{.L.Command}}</th><th class="ol-num">{{.L.Duration}}</th><th>{{.L.Exit}}</th></tr></thead>
+  <tbody>
+  {{range .Rows}}<tr>
+    <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Started}}</a></td>
+    <td><span class="ol-cell-title">{{.Agent}}</span><span class="ol-cell-sub">{{.Via}}</span></td>
+    <td><a href="{{.MachineHref}}">{{.Machine}}</a></td>
+    <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
+    <td data-label="{{$.L.Command}}">{{if .Command}}<code class="ol-mono">{{.Command}}</code>{{end}}</td>
+    <td class="ol-num" data-label="{{$.L.Duration}}">{{if .Open}}<span class="ol-badge ol-badge-info">{{$.L.Open}}</span>{{else}}{{.Duration}}{{end}}</td>
+    <td data-label="{{$.L.Exit}}">{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>{{end}}
+
+{{define "empty"}}<div class="ol-empty"><p class="ol-empty-title">{{.}}</p></div>{{end}}
+
+{{define "csrf"}}<input type="hidden" name="csrf" value="{{.CSRF}}">{{end}}

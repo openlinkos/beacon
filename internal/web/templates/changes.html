@@ -1,0 +1,22 @@
+{{define "content"}}<div class="ol-layout-filters">
+  {{template "facets" .}}
+  <section class="ol-layout-main">
+    {{template "filterbar" .}}
+    {{if .Rows}}
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.Time}}</th><th>{{.L.Summary}}</th><th>{{.L.Source}}</th><th>{{.L.Kind}}</th><th>{{.L.Service}}</th><th>{{.L.Machine}}</th></tr></thead>
+      <tbody>
+      {{range .Rows}}<tr>
+        <td>{{.Time}}</td>
+        <td class="ol-cell-wrap">{{if .Href}}<a href="{{.Href}}" rel="noopener noreferrer">{{.Summary}}</a>{{else}}{{.Summary}}{{end}}</td>
+        <td data-label="{{$.L.Source}}">{{.Source}}</td>
+        <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
+        <td data-label="{{$.L.Service}}">{{.Service}}</td>
+        <td data-label="{{$.L.Machine}}">{{.Machine}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table></div>
+    {{template "pager" .}}
+    {{else}}{{template "empty" .List.Empty}}{{end}}
+  </section>
+</div>{{end}}

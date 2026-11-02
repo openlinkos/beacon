@@ -1,0 +1,18 @@
+{{define "content"}}<h1 class="ol-auth-title">{{.L.Title}}</h1>
+      <p>{{.L.Help}}</p>
+      {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
+      <form method="post" action="/sign-in" class="ol-stack">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <input type="hidden" name="form" value="{{.Form}}">
+        <input type="text" name="username" value="beacon-token" autocomplete="username" hidden>
+        <div class="ol-field">
+          <label class="ol-label" for="token">{{.L.Token}}</label>
+          <input class="ol-input ol-input-lg ol-input-mono" id="token" name="token" type="password" autocomplete="current-password" spellcheck="false" placeholder="lbt_…" required autofocus aria-describedby="token-hint">
+          <p class="ol-hint" id="token-hint">{{.L.Hint}}</p>
+        </div>
+        <button class="ol-btn ol-btn-primary ol-btn-lg ol-btn-block" type="submit">{{icon "log-in"}}{{.L.Submit}}</button>
+      </form>
+      <details class="ol-details">
+        <summary>{{.L.HowTo}}</summary>
+        <div class="ol-code"><pre><code>linkos-beacon token create you -scopes status:read,sessions:read,alerts:write -expires 30d</code></pre></div>
+      </details>{{end}}
