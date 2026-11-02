@@ -12,7 +12,9 @@ import (
 
 // The SSH channel's routes: machines, the tools that work on them, sessions, the pause switch.
 
-func gateActor(who bridge.Actor) sshgate.Actor { return sshgate.Actor{Name: who.Name, Via: who.Via} }
+func gateActor(who bridge.Actor) sshgate.Actor {
+	return sshgate.Actor{Name: who.Name, Via: who.Via, Key: who.Key, Cred: who.Cred}
+}
 
 // gateError maps the channel's errors to HTTP answers.
 func (s *Server) gateError(w http.ResponseWriter, err error) {

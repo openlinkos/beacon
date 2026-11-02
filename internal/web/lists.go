@@ -231,14 +231,15 @@ type callRow struct {
 	Hook, Event, Status, StatusTone, Code, Attempts, When, Alert, AlertHref, Error string
 }
 
-type agentsPage struct {
+type hooksPage struct {
 	listPage[callRow]
 	Hooks []hookRow
 }
 
-var agentsTmpl = parse("agents.html")
+var hooksTmpl = parse("hooks.html")
 
-func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
+// hooks is the agent hooks configured and the calls made to wake agents.
+func (s *Server) hooks(w http.ResponseWriter, r *http.Request, v *viewer) {
 	all := s.calls()
 	byHook := map[string]int{}
 	for _, c := range all {
@@ -256,9 +257,9 @@ func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
 		{Param: "status", Title: s.t("Status"), Value: func(c call) string { return c.Status }, Order: []string{"ok", "failed", "pending"}, Label: s.callStatus},
 	}
 	match := func(c call, q string) bool { return contains(q, c.Hook, c.title, c.alert, c.Error) }
-	kept, l := filter(s, consolePath("/agents"), r.URL.Query(), all, facets, match)
+	kept, l := filter(s, consolePath("/hooks"), r.URL.Query(), all, facets, match)
 	l.SearchHint = s.t("Hook or alert")
-	p := agentsPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "agents", s.t("Agents")), L: s.listLabels(), List: l}}
+	p := hooksPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "hooks", s.t("Hooks")), L: s.listLabels(), List: l}}
 	p.Count = l.Total
 	for _, h := range s.Hooks {
 		row := hookRow{Name: h.Name, Kind: h.Kind, Severities: strings.Join(h.Severities, ", "), Service: h.Service, Resolved: h.Resolved, Calls: num(byHook[h.Name])}
@@ -280,7 +281,7 @@ func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		p.Rows = append(p.Rows, row)
 	}
-	s.render(w, agentsTmpl, p)
+	s.render(w, hooksTmpl, p)
 }
 
 // ---- the audit log

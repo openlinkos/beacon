@@ -37,6 +37,10 @@ func problemCode(err error) string {
 		return "invalid"
 	case errors.Is(err, sshgate.ErrDisabled):
 		return "ssh_off"
+	case errors.Is(err, bridge.ErrForbidden):
+		return "forbidden"
+	case errors.Is(err, store.ErrLastOwner):
+		return "last_owner"
 	}
 	return "failed"
 }
@@ -57,7 +61,39 @@ func (s *Server) problem(code string) string {
 	case "ssh_off":
 		return s.t("The SSH channel is off.")
 	case "not_revocable":
-		return s.t("Only tokens that reach machines are revoked here; revoke the others with beacon token revoke on the host.")
+		return s.t("Only tokens that reach machines, and agents' tokens, are revoked here; revoke the others with beacon token revoke on the host.")
+	case "forbidden":
+		return s.t("That is not yours to change: people manage their own agents, owners everyone's.")
+	case "taken":
+		return s.t("That name is taken; choose another.")
+	case "not_found":
+		return s.t("There is no such thing, or no longer.")
+	case "bad_agent":
+		return s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
+	case "key_taken":
+		return s.t("That key belongs to another agent or token, or to a machine; a key belongs to one.")
+	case "bad_key":
+		return s.t("That is not a public key in the authorized_keys form (ssh-ed25519 AAAA…).")
+	case "last_owner":
+		return s.t("Beacon would be left without an owner; make someone else owner first.")
+	case "self":
+		return s.t("You cannot disable your own account.")
+	case "differ":
+		return s.t("The passwords differ.")
+	case "blocked":
+		return s.t("Too many failed sign-ins from here; try again in a few minutes.")
+	case "password_short":
+		return s.t("The password is shorter than 10 characters.")
+	case "password_long":
+		return s.t("The password is too long.")
+	case "password_username":
+		return s.t("The password may not be the username.")
+	case "password_common":
+		return s.t("That password is one of the commonest; choose another.")
+	case "password_wrong":
+		return s.t("The current password is wrong.")
+	case "not_legacy":
+		return s.t("Only a legacy token, with people's scopes and no agent yet, is claimed.")
 	}
 	return s.t("That did not work; the log says why.")
 }
@@ -122,7 +158,7 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *viewer) {
 	return func(w http.ResponseWriter, r *http.Request, v *viewer) {
-		if err := s.SSH.SetPaused(r.Context(), sshgate.Actor{Name: v.Token.Name, Via: "console"}, paused); err != nil {
+		if err := s.SSH.SetPaused(r.Context(), v.gate(), paused); err != nil {
 			s.failed(w, r, consolePath("/machines"), "pause", err)
 			return
 		}
@@ -144,7 +180,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request, v *viewer) {
 		back(w, r, consolePath("/tokens"), "error", "not_revocable")
 	case err != nil:
 		s.failed(w, r, consolePath("/tokens"), "revoke", err)
-	case name == v.Token.Name: // its own token: the sign-in ended with it
+	case v.Token != nil && name == v.Token.Name: // its own token: the sign-in ended with it
 		http.SetCookie(w, s.cookie(sessionCookie, "", time.Time{}))
 		http.Redirect(w, r, consolePath("/sign-in"), http.StatusSeeOther)
 	default:
@@ -159,7 +195,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	page := consolePath("/config/history/") + strconv.FormatInt(n, 10)
-	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.Token.Name, Via: "console"}, n, r.PostForm.Get("note"))
+	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, n, r.PostForm.Get("note"))
 	switch {
 	case errors.Is(err, configdb.ErrNotFound):
 		s.missing(w, r, v)

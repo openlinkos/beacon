@@ -134,11 +134,14 @@ func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
 // machine says: a token's key can never register a forward, a connector key can never open a session.
 func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 	fp := ssh.FingerprintSHA256(k)
-	if t, ok := g.d.Store.TokenBySSHKey(fp); ok {
-		if !t.Has("machines:ssh") {
+	if p, ok := g.d.Store.PrincipalBySSHKey(fp); ok {
+		if !p.Has("machines:ssh") {
 			return nil, errors.New("unknown key")
 		}
-		return &ssh.Permissions{Extensions: map[string]string{"token": t.Name}}, nil
+		return &ssh.Permissions{Extensions: map[string]string{"principal": p.Key(), "name": p.Name(), "cred": "key:" + fp}}, nil
+	}
+	if g.d.Store.KeyHolder(fp) != "" { // an agent's or a token's key that does not sign in now: never a connector's
+		return nil, errors.New("unknown key")
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {
 		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name}}, nil
@@ -393,8 +396,8 @@ func (g *Gate) parseConnectorKey(line string) (key, fingerprint string, err erro
 		return "", "", fmt.Errorf("%w: connector_key is a certificate; give the public key itself", ErrBadInput)
 	}
 	fp := ssh.FingerprintSHA256(k)
-	if t, held := g.d.Store.TokenBySSHKey(fp); held {
-		return "", "", fmt.Errorf("%w: the key %s belongs to token %s; a machine's connector key is its own", ErrBadInput, fp, t.Name)
+	if holder := g.d.Store.KeyHolder(fp); holder != "" {
+		return "", "", fmt.Errorf("%w: the key %s belongs to %s; a machine's connector key is its own", ErrBadInput, fp, holder)
 	}
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))), fp, nil
 }
@@ -455,7 +458,7 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: strings.TrimSpace(detail)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, store.ConnectorAddress))
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey(), Connector: g.connectorSetup(m)}, nil
 }
 
@@ -486,7 +489,7 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_connector", Target: name, Detail: fp})
 	g.post(ctx, i18n.T(g.d.Lang, "%s set the connector key of machine %s", who.Name, name))
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	return g.view(m, t), nil
 }
 

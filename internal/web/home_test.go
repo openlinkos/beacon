@@ -164,7 +164,11 @@ func TestOldPathsMove(t *testing.T) {
 	} {
 		for _, br := range []*browser{e.browser(), b} {
 			a := br.get(old)
-			if a.code != http.StatusPermanentRedirect || a.header.Get("Location") != "/console"+old || a.header.Get("Cache-Control") != "no-store" {
+			want := "/console" + old
+			if rest, ok := strings.CutPrefix(old, "/agents"); ok { // the hooks' page was called Agents
+				want = "/console/hooks" + rest
+			}
+			if a.code != http.StatusPermanentRedirect || a.header.Get("Location") != want || a.header.Get("Cache-Control") != "no-store" {
 				t.Errorf("%s: %d %q", old, a.code, a.header.Get("Location"))
 			}
 		}

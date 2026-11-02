@@ -36,13 +36,14 @@
       {{if .SignedIn}}
       <a class="ol-sidebar-status{{if .Side.Tone}} ol-status-{{.Side.Tone}}{{end}}" href="{{.Side.Href}}" title="{{.Side.Text}}"><span class="ol-dot"></span><span>{{.Side.Text}}</span></a>
       <button class="ol-sidebar-account" type="button" popovertarget="account" title="{{.S.Account}}">
-        {{icon "key-round"}}
+        {{icon "user"}}
         <span class="ol-sidebar-account-text"><span class="ol-sidebar-account-name">{{.Who}}</span><span class="ol-sidebar-account-meta">{{.WhoMeta}}</span></span>
         {{iconSm "chevrons-up-down"}}
       </button>
       <div class="ol-menu ol-menu-above" id="account" popover>
         <div class="ol-menu-header"><span class="ol-entity"><span class="ol-entity-text"><span class="ol-entity-title">{{.Who}}</span><span class="ol-entity-sub" title="{{.S.Scopes}}: {{.WhoScopes}}">{{.WhoScopes}}</span></span></span></div>
         <hr class="ol-menu-separator">
+        <a class="ol-menu-item" href="{{.AccountHref}}">{{iconSm "user"}}{{.S.YourAccount}}</a>
         <form method="post" action="{{.SignOut}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-menu-item">{{iconSm "log-out"}}{{.S.SignOut}}</button></form>
       </div>
       {{else if .Access}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -27,8 +28,15 @@ password_file is the name of a file in the probe's secrets directory, never a pa
 type Option func(*options)
 
 type options struct {
-	config *configdb.Service
-	status *status.Service
+	config   *configdb.Service
+	status   *status.Service
+	metadata func(*http.Request) string
+}
+
+// WithResourceMetadata names, for a request, the protected resource metadata (RFC 9728) that a 401
+// points to, so that an MCP client can find where to sign in (package oauth).
+func WithResourceMetadata(url func(*http.Request) string) Option {
+	return func(o *options) { o.metadata = url }
 }
 
 // WithConfig adds the tools that read and change the configuration Beacon holds.

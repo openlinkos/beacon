@@ -4,6 +4,7 @@
 //	beacon serve [-config path]                 run the service
 //	beacon check-config [-config path]          validate the configuration, its files and the database
 //	beacon config import DIR [-dry-run] | config export DIR | config history | config revert VERSION
+//	beacon setup | user list|invite|disable|enable|role|reset | agent add|list|remove
 //	beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
 //	beacon token list | token revoke NAME
 //	beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
@@ -50,6 +51,7 @@ import (
 	"github.com/openlinkos/beacon/internal/mcpserver"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/notify"
+	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/server"
@@ -74,6 +76,15 @@ func usage(w io.Writer) {
                                               the catalogue, probe targets and modules, as one change
   beacon config export DIR                    write them there in the same layout
   beacon config history [-limit 20] | config revert VERSION [-note TEXT]
+  beacon setup                                print the one-time link that makes the first account, an owner
+  beacon user list | user invite -role oncall [-note TEXT]
+                                              people, and a one-time link that invites someone
+  beacon user disable NAME | user enable NAME | user role NAME ROLE | user reset NAME
+  beacon agent add NAME -owner USER [-preset oncall] [-machines a,b] [-expires 365d] [-ssh-key KEY|@FILE]
+                                              an agent of USER and its token, with the commands that use it
+  beacon agent list | agent remove NAME
+  beacon token claim NAME -owner USER [-agent NAME] [-preset P]
+                                              make a legacy token an agent of USER
   beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
          [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
   beacon token list
@@ -97,7 +108,8 @@ func usage(w io.Writer) {
   beacon drill fail 15m | drill off | drill status
   beacon healthcheck [-url URL]               exit 0 when the service answers (the image's health check)
   beacon version
-Scopes: `+strings.Join(store.Scopes, ", ")+`
+Roles: `+strings.Join(store.Roles, ", ")+`; agents' presets: `+strings.Join(store.Presets, ", ")+`
+Scopes (for machines' tokens and experts): `+strings.Join(store.Scopes, ", ")+`
 `)
 }
 
@@ -115,6 +127,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return configCmd(args[1:], stdout, stderr)
 	case "token":
 		return token(args[1:], stdout, stderr)
+	case "setup":
+		return setupCmd(args[1:], stdout, stderr)
+	case "user":
+		return userCmd(args[1:], stdout, stderr)
+	case "agent":
+		return agentCmd(args[1:], stdout, stderr)
 	case "drill":
 		return drill(args[1:], stdout, stderr)
 	case "enroll":
@@ -301,10 +319,15 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	if gate != nil {
 		deps.ShellCommands = shellCommands(gate)
+		deps.SSHConfig = sshConfig(gate, cfg.SSH.PublicAddress)
+		deps.Recheck = gate.Recheck
 	}
 	br = bridge.New(deps)
+	announceSetup(br, st, log) // before the admin socket opens, so that beacon setup comes after it
 
 	auth := &api.Auth{Store: st, IP: clientip.New(cfg.Proxies, false)}
+	// Beacon's own authorization server, with which MCP clients sign in through the console (OAuth)
+	oa := &oauth.Server{Store: st, Bridge: br, Auth: auth, PublicURL: cfg.PublicURL, Log: log, NoDocuments: !cfg.OAuth.Documents()}
 	lang, _ := i18n.Parse(cfg.Language)
 	// the public status pages, from the catalogue's status_pages, the probes, the incidents and maintenance
 	sdeps := status.Deps{Config: cdb, Bridge: br, Store: st, PublicURL: cfg.PublicURL, Location: cfg.Location, Log: log}
@@ -315,10 +338,10 @@ func serve(args []string, stderr io.Writer) int {
 	sd := server.Deps{
 		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Status: pagesOut},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
-			mcpserver.WithStatus(pagesOut)),
-		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log,
+			mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
+		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway
@@ -370,6 +393,10 @@ func serve(args []string, stderr io.Writer) int {
 		silences := ctl.SilenceHandler(br)
 		socket.Handle("/v1/silences", silences)
 		socket.Handle("/v1/silences/", silences)
+		people := ctl.PeopleHandler(br)
+		for _, p := range []string{"/v1/setup", "/v1/users", "/v1/users/", "/v1/agents", "/v1/agents/", "/v1/claims"} {
+			socket.Handle(p, people)
+		}
 		socket.Handle("/", ctl.Handler(st, active, machines))
 		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()
@@ -581,12 +608,18 @@ func token(args []string, stdout, stderr io.Writer) int {
 			if !t.Renewed.IsZero() {
 				renewed = t.Renewed.Local().Format(time.DateOnly)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, strings.Join(t.Scopes, ","), t.Expires.Format(time.DateOnly), t.Lifetime, renewed, t.CreatedBy)
+			scopes := strings.Join(t.Scopes, ",")
+			if t.Agent != "" { // what it may do is its agent's: beacon agent list
+				scopes = "agent " + t.Agent + "'s"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, scopes, t.Expires.Format(time.DateOnly), t.Lifetime, renewed, t.CreatedBy)
 		}
 		_ = tw.Flush()
 		return 0
 	case "ssh-key", "machines":
 		return tokenSSH(args, stdout, stderr)
+	case "claim":
+		return tokenClaim(args[1:], stdout, stderr)
 	case "revoke":
 		if len(args) != 2 {
 			fmt.Fprintln(stderr, "token revoke NAME")

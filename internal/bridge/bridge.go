@@ -91,6 +91,12 @@ type Deps struct {
 	// ShellCommands reads, from a finished session's transcript, the commands run at an interactive
 	// shell's prompt with their exit statuses; nil without the SSH channel.
 	ShellCommands func(sessionID string) []ShellCommand
+	// SSHConfig is the ssh configuration (ssh_config blocks and the known_hosts line) for the principal with
+	// this key (store.Principal.Key); nil without the SSH channel.
+	SSHConfig func(key string) string
+	// Recheck closes what is open on the SSH channel for whoever may no longer reach it, after a
+	// credential, an agent or an account changed (sshgate.Gate.Recheck); nil without the channel.
+	Recheck func() int
 }
 
 // Bridge is the alert bridge.
@@ -604,10 +610,19 @@ var (
 	ErrBadInput  = errors.New("bad input")
 )
 
-// Actor is who performs an operation through the API or MCP.
+// Actor is who performs an operation: Name as the audit log and the chat name it (a person, "person /
+// agent" for an agent, or a token's name), Via how (api, mcp, console, cli), and Key the principal
+// (store.Principal.Key), for checks made later; none for the command line.
 type Actor struct {
-	Name string // token name
-	Via  string // api or mcp
+	Name string
+	Via  string
+	Key  string
+	Cred string // the credential it came with (store.Principal.Cred), for the SSH channel's later checks
+}
+
+// ActorOf is the actor a principal is when it comes through via.
+func ActorOf(p store.Principal, via string) Actor {
+	return Actor{Name: p.Name(), Via: via, Key: p.Key(), Cred: p.Cred()}
 }
 
 // GroupView is an alert group as the API shows it.
