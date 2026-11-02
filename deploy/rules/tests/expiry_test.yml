@@ -89,7 +89,7 @@ tests:
     input_series:
       - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="drill-1"}'
         values: '946684800'
-      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="develop-1"}'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="db-1"}'
         values: '3600x20'
     alert_rule_test:
       - eval_time: 50m
