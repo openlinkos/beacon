@@ -346,8 +346,8 @@ func TestSessionPage(t *testing.T) {
 	for _, want := range []string{
 		"claude-code", "edge-1", sessionID, "interactive shell", "SSH", "2 min", "exit 0",
 		"systemctl restart relay", "false &lt;script&gt;", "exit 1", "1.2 s", "5 ms",
-		`<script src="/static/asciinema-player.min.js"></script>`, `<script src="/static/beacon-player.js"></script>`,
-		`<link rel="stylesheet" href="/static/asciinema-player.css">`, `id="player"`, `data-src="/sessions/` + sessionID + `/recording?s=`,
+		`<script src="/static/asciinema-player.min.js?v=`, `<script src="/static/beacon-player.js?v=`,
+		`<link rel="stylesheet" href="/static/asciinema-player.css?v=`, `id="player"`, `data-src="/sessions/` + sessionID + `/recording?s=`,
 		`data-error="The recording could not be loaded"`, "Download the recording",
 	} {
 		if !strings.Contains(body, want) {
