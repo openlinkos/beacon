@@ -39,11 +39,11 @@ Create a version and publish it; an administrator approves it in the admin conso
 
 ## 5. The alert chat
 
-1. Create a group (for example "LinkOS Alerts") and add the people on call.
+1. Create a group (for example "Alerts") and add the people on call.
 2. Add the app's bot to the group (group settings → Bots → Add bot).
 3. Find the group's `chat_id` (`oc_…`), for example with the API explorer's "get chat list" as the app, and set `feishu.chat_id`.
 4. Find each on-call person's `open_id` (`ou_…`) for this app and list them under `feishu.on_call` with the name shown on cards. Only they can act on cards, and they are the ones buzzed.
-5. Add a **custom bot** to the same group. Under its security settings, choose a keyword (set `feishu.webhook_keyword`, `LinkOS` by default) and/or a signature (put the secret in `feishu.webhook_secret_file`). Put its webhook URL in `feishu.webhook_url_file`.
+5. Add a **custom bot** to the same group. Under its security settings, choose a keyword (set `feishu.webhook_keyword`, `Beacon` by default) and/or a signature (put the secret in `feishu.webhook_secret_file`). Put its webhook URL in `feishu.webhook_url_file`.
 
 ## 6. Check it
 

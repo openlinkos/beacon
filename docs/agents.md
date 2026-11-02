@@ -62,9 +62,9 @@ Beacon POSTs JSON with these headers:
   "hook": "claude-oncall",
   "alert": {
     "id": "0cdfbada62dd", "status": "firing", "severity": "critical",
-    "title": "git.linkos.io is down", "description": "No answer from 2 locations",
-    "service": "git-linkos-io",
-    "labels": {"alertname": "ServiceDown", "service": "git-linkos-io", "severity": "critical", "failure_domain": "pve-us1"},
+    "title": "git.example.com is down", "description": "No answer from 2 locations",
+    "service": "git-example-com",
+    "labels": {"alertname": "ServiceDown", "service": "git-example-com", "severity": "critical", "failure_domain": "site-a"},
     "alerts": 1, "starts_at": "2026-11-02T01:58:00Z"
   },
   "links": {
@@ -152,7 +152,7 @@ docker exec linkos-beacon linkos-beacon token create ci-deploy -scopes changes:w
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"source": "github-actions", "kind": "deploy", "service": "hub-linkos-io", "summary": "hub v2.1",
+  -d '{"source": "github-actions", "kind": "deploy", "service": "hub-example-com", "summary": "hub v2.1",
        "url": "https://github.com/example/hub/actions/runs/1"}' \
   https://metrics.example.com/api/v1/changes
 ```
@@ -198,7 +198,7 @@ spec:
     - {kind: Kustomization, name: "*"}
     - {kind: HelmRelease, name: "*"}
   eventMetadata:
-    service: hub-linkos-io    # what these objects run
+    service: hub-example-com    # what these objects run
 ```
 
 | Flux event | Change |

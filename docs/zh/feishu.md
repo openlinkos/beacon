@@ -39,11 +39,11 @@ Beacon 通过飞书（或 Lark）的**企业自建应用**发告警卡片，并�
 
 ## 5. 告警群
 
-1. 建一个群（例如「LinkOS 告警」），拉入值班的人。
+1. 建一个群（例如「告警」），拉入值班的人。
 2. 把应用的机器人加进群（群设置 → 群机器人 → 添加机器人）。
 3. 找到群的 `chat_id`（`oc_…`），例如在 API 调试台以应用身份调用「获取用户或机器人所在的群列表」，填进 `feishu.chat_id`。
 4. 找到每个值班的人在这个应用下的 `open_id`（`ou_…`），写进 `feishu.on_call`，附上卡片上显示的名字。只有他们能操作卡片，加急也只发给他们。
-5. 在同一个群里再加一个**自定义机器人**。安全设置选关键词（对应 `feishu.webhook_keyword`，默认 `LinkOS`）和/或签名校验（密钥写进 `feishu.webhook_secret_file`），把它的 webhook 地址写进 `feishu.webhook_url_file`。
+5. 在同一个群里再加一个**自定义机器人**。安全设置选关键词（对应 `feishu.webhook_keyword`，默认 `Beacon`）和/或签名校验（密钥写进 `feishu.webhook_secret_file`），把它的 webhook 地址写进 `feishu.webhook_url_file`。
 
 ## 6. 检查
 

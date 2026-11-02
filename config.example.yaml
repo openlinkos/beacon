@@ -75,7 +75,7 @@ feishu:
   # The group's custom bot: plain messages, no API quota. Used for info alerts, over budget, and echoes.
   webhook_url_file: /etc/linkos-beacon/secrets/feishu-webhook-url
   # webhook_secret_file: …                  # when the bot signs requests
-  webhook_keyword: LinkOS                   # when the bot's security setting is a keyword
+  webhook_keyword: Beacon                   # when the bot's security setting is a keyword
 
 pushover:
   user_key_file: /etc/linkos-beacon/secrets/pushover-user-key

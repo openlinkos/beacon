@@ -6,9 +6,11 @@ What Beacon is for, what it will not do, and how to choose when goals pull apart
 
 ## North star
 
-**Operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
+Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to take away what gets in the way of AI and agents while they work, so that using them is smooth. Other pieces, memory that lasts across sessions for one, are other projects; Beacon stays in its lane.
 
-It is read two ways, measured on LinkOS first:
+For Beacon that means: **operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
+
+It is read two ways:
 
 - **Coverage**: of everything agents do on machines and alerts, how much goes through Beacon. Target: all of it, with no key in any agent's hands.
 - **Closure**: of the critical alerts, how many an agent takes from being woken to a verified recovery with nobody stepping in. Target: most of them.
@@ -22,7 +24,7 @@ Beacon is the infrastructure an AI agent finds handiest when it runs operations:
 Two tests:
 
 - An agent connecting for the first time, without reading anything written for Beacon and using only ssh, the shell, HTTP and MCP, can find out what is wrong in a real outage, fix it on the machine, and leave people able to see what it did.
-- On LinkOS, everything agents do in operations goes through Beacon, and nobody ever hands a key to an agent.
+- Wherever Beacon runs, everything agents do in operations goes through it, and nobody ever hands a key to an agent.
 
 ## The problem
 
@@ -30,8 +32,8 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 
 ## Who it is for
 
-- **LinkOS first**: one person and several agents (Claude Code, Codex, OpenClaw) running about a dozen machines (CDN nodes, VPSs, a Kubernetes cluster), with Feishu.
-- **Small teams** that run their own servers and services with AI agents, self-hosted.
+- **People who run their own machines and services with AI agents** (Claude Code, Codex and the like): from one person with a few agents and a dozen machines to a small team, self-hosted.
+- **Beacon's makers first**: they run their own operations on it before anyone else does.
 
 ## Product goals: three pillars
 
@@ -60,13 +62,13 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 - **No log platform, tracing, APM or custom dashboards.** An agent reads logs over the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.
-- **No code that only LinkOS needs.** What is particular to LinkOS is configuration.
+- **No code that only one deployment needs.** What is particular to a deployment is configuration, kept outside this repository.
 
 ## What landed means
 
 The project has landed (1.0) when all three hold:
 
-1. **On LinkOS**, every critical alert wakes an agent; most are closed by it, people are paged for the rest, and every operation agents do goes through Beacon.
+1. **Where it runs**, every critical alert wakes an agent; most are closed by it, people are paged for the rest, and every operation agents do goes through Beacon.
 2. **A team elsewhere** installs Beacon in 30 minutes from the README with the reference deployment, enrols a probe, a machine and the agent program it already uses (Claude Code, Codex or another), and has the same loop running with its own chat.
 3. **People have one place to look**: from the card in the chat, one link opens the alert's timeline, each session's replay and the pause switch; Beacon has no login system of its own.
 

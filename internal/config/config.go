@@ -277,7 +277,7 @@ func (c *Config) defaults() {
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
 	set(&c.Feishu.Callback, "websocket")
-	set(&c.Feishu.WebhookKeyword, "LinkOS")
+	set(&c.Feishu.WebhookKeyword, "Beacon")
 	set(&c.Pushover.API, "https://api.pushover.net")
 	if c.Feishu.MonthlyBudget == 0 {
 		c.Feishu.MonthlyBudget = 10000
