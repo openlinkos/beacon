@@ -71,14 +71,14 @@ go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs th
 
 ## Where it stands
 
-`v0.3.0-rc.2` runs in production for its makers: monitoring from several locations, the SSH channel with enrolled machines, agents on the MCP; alert delivery and agent hooks are in the code and wait on each deployment's accounts. The north star and what "landed" means are in `docs/goals.md`. What remains runs as tracks side by side, each a loop that can be exercised on its own:
+`v0.3.0-rc.3` has everything the north star's first loop needs: monitoring from several locations, the SSH channel (machines behind NAT included), agents on the MCP, hooks that wake an agent and `linkos-oncall` to catch them, evidence in one call, probing on demand to verify a fix, the pages people open from a card, tokens that renew themselves, configuration safe to delegate, and a reference deployment for other teams. The north star and what "landed" means are in `docs/goals.md`. What remains, each a loop that can be exercised on its own:
 
-1. **The agent on call** (closure; goals 1, 3): `linkos-oncall` (`cmd/linkos-oncall`), a reference harness that verifies a hook's signature and starts the agent program you name, with examples for Claude Code and a GitHub workflow; `probe_now`, so an agent can have every location probe a target again at once and see each location's result (the probe protocol gains a route, nothing changes); then the first end-to-end drill on LinkOS, and alert delivery turned on once the accounts exist.
-2. **People's pages** (goal 3): the alert's timeline and each session's replay as HTML served by Beacon, opened from the card through signed links; the card's agent block. No login system: signed links and tokens.
-3. **Machines behind NAT** (goal 2): a machine connects out to the channel (plain `ssh -R` with a key enrolled for it) and Beacon reaches its sshd through that connection.
-4. **Agents' credentials and safe configuration** (goals 6, 7): tokens renew themselves before they expire, so nobody hands out long-lived ones; `config:write` made safe to give agents (probe modules read password files only under one directory; a version as precondition on a change); change events limited per token.
-5. **Release for others** (goals 8, 9): a reference deployment under `deploy/`, generic rules, an install guide, `CONTRIBUTING.md`, `SECURITY.md`, a `silence` CLI.
-6. Later: status pages; more chat channels (Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook); search and background jobs as MCP tools; machines' changes versioned; rule evaluation inside Beacon; optional built-in TLS.
+1. **The first drills** (closure): a real agent woken by a hook, fixing a drill target through the channel, verifying with `probe_now`, leaving its note; what the drills show missing comes first. Alert delivery to people turned on once a deployment's accounts exist, then `v0.3.0`.
+2. **Status pages** (goals 3, 9): components from the catalogue and targets, 90-day history, incidents and maintenance, an Atom feed, badges, public JSON.
+3. **More chat channels** (goal 9): Slack, Telegram, DingTalk, WeCom, ntfy, a generic webhook, with the card's actions where the channel allows them.
+4. **Closer to agents' tools** (goal 4): search across files and background jobs as MCP tools; the card re-patched when a session ends; links revocable before they expire.
+5. **Versioned machines** (goal 7): machines' changes as versions like the rest of the configuration.
+6. Later, to be decided: rule evaluation inside Beacon; optional built-in TLS.
 
 ## Git
 
