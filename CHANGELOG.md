@@ -4,6 +4,9 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Release for others**: a reference deployment under `deploy/` (Compose with `linkos-beacon`, VictoriaMetrics, vmalert and Caddy, images pinned by digest; `install.sh` makes the secrets, puts your host names in, validates every file with its own image and starts it; generic alert rules with unit tests and a runbook per alert; the probe's systemd unit and installer), `docs/install.md` ("Up in 30 minutes"), `CONTRIBUTING.md` and `SECURITY.md`. A `deploy` workflow validates the deployment on every change.
+  - CLI: `silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT` (or `-alert GROUP_ID`), `silence list`, `silence expire ID`, through the admin socket and the bridge's own methods: audited as `cli` and echoed to the alert chat like a silence made through the API or MCP; a firing group every alert of which matches is marked silenced and acknowledged.
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)
