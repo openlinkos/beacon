@@ -329,12 +329,12 @@ func TestPutAndDelete(t *testing.T) {
 
 func TestModules(t *testing.T) {
 	e := imported(t)
-	ch, err := e.s.Put(ctx, api, "modules", "git_repo", json.RawMessage(`{"prober": "git", "timeout": "15s", "git": {"username": "probe", "password_file": "/etc/linkos-agent/git"}}`), "")
+	ch, err := e.s.Put(ctx, api, "modules", "git_repo", json.RawMessage(`{"prober": "git", "timeout": "15s", "git": {"username": "probe", "password_file": "git-password"}}`), "")
 	if err != nil || ch.Items[0].Kind != KindModule || ch.Items[0].Op != "added" {
 		t.Fatalf("put a module: %+v %v", ch, err)
 	}
 	text := string(e.s.Modules())
-	for _, want := range []string{"# how probes check", "# slow sites", "git_repo:\n    prober: git\n    timeout: 15s\n", "password_file: /etc/linkos-agent/git"} {
+	for _, want := range []string{"# how probes check", "# slow sites", "git_repo:\n    prober: git\n    timeout: 15s\n", "password_file: git-password"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the module file lacks %q:\n%s", want, text)
 		}

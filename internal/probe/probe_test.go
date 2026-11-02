@@ -301,15 +301,69 @@ func TestHandlerAndWrite(t *testing.T) {
 	}
 }
 
-func TestPasswordFile(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "pw")
-	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+// TestSecretsDir: a module's password_file is a file name in the probe's secrets directory; a path, an
+// absolute one most of all, is refused before anything is read, with the reason config.
+func TestSecretsDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "git-password"), []byte("s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if pw, err := readPassword(f); err != nil || pw != "s3cret" {
-		t.Fatalf("%q %v", pw, err)
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("leak"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if pw, err := readPassword(""); err != nil || pw != "" {
+	p := &Prober{SecretsDir: dir}
+	if pw, err := p.secret("git.password_file", "git-password"); err != nil || pw != "s3cret" {
+		t.Fatalf("a name in the directory: %q %v", pw, err)
+	}
+	if pw, err := p.secret("git.password_file", ""); err != nil || pw != "" {
 		t.Fatalf("no file: %q %v", pw, err)
+	}
+	if _, err := p.secret("git.password_file", "missing"); err == nil || !strings.Contains(err.Error(), "git.password_file") {
+		t.Errorf("a missing file: %v", err)
+	}
+	for _, bad := range []string{outside, "/etc/passwd", `C:\secrets\x`, "../" + filepath.Base(outside), "..", "a/b", `a\b`, ".", "x\ny"} {
+		_, err := p.secret("git.password_file", bad)
+		if err == nil || !strings.Contains(err.Error(), "secrets directory") || !strings.Contains(err.Error(), "-secrets-dir") {
+			t.Errorf("%q: %v", bad, err)
+		}
+		if err := SecretName("registry.password_file", bad); err == nil {
+			t.Errorf("SecretName(%q) accepted", bad)
+		}
+	}
+	if (&Prober{}).SecretsDir != "" || DefaultSecretsDir != "/etc/linkos-agent/secrets" {
+		t.Error("the default directory")
+	}
+
+	// the module file's checks for the centre: every module's file fields
+	ms, err := ParseModules([]byte("modules:\n  a: {prober: git, git: {username: u, password_file: /etc/passwd}}\n  b: {prober: registry, registry: {repository: r, password_file: ../x}}\n  c: {prober: git, git: {password_file: fine}}\n"))
+	if err != nil {
+		t.Fatalf("an older gateway's file still parses: %v", err)
+	}
+	err = CheckSecretFiles(ms)
+	if err == nil || !strings.Contains(err.Error(), "module a: git.password_file") || !strings.Contains(err.Error(), "module b: registry.password_file") || strings.Contains(err.Error(), "module c") {
+		t.Fatalf("CheckSecretFiles: %v", err)
+	}
+
+	// at probe time: the git prober sends the password from the directory, and refuses a path
+	srv, tp := tlsEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		if u, pw, ok := r.BasicAuth(); !ok || u != "u" || pw != "s3cret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement")
+	})
+	tp.SecretsDir = dir
+	m := &Module{Prober: "git", Timeout: Duration(5 * time.Second), Git: GitModule{Username: "u", PasswordFile: "git-password"}}
+	if r := tp.Run(context.Background(), m, srv.URL+"/repo.git"); !r.Success {
+		t.Errorf("with the password from the secrets directory: %+v", r)
+	}
+	m.Git.PasswordFile = outside
+	if r := tp.Run(context.Background(), m, srv.URL+"/repo.git"); r.Success || r.Reason != ReasonConfig || !strings.Contains(r.Detail, "secrets directory") {
+		t.Errorf("a path is refused before anything is read: %+v", r)
+	}
+	reg := &Module{Prober: "registry", Timeout: Duration(5 * time.Second), Registry: RegistryModule{Repository: "r", PasswordFile: "/etc/passwd"}}
+	if r := tp.Run(context.Background(), reg, srv.URL); r.Success || r.Reason != ReasonConfig || !strings.Contains(r.Detail, "registry.password_file") {
+		t.Errorf("the registry prober too: %+v", r)
 	}
 }

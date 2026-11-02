@@ -82,7 +82,11 @@ func build(entries map[string][]byte) *State {
 		errs = append(errs, err)
 	}
 	if st.Modules != nil {
-		if _, err := probe.ParseModules(st.Modules); err != nil {
+		ms, err := probe.ParseModules(st.Modules)
+		if err == nil {
+			err = probe.CheckSecretFiles(ms) // a module reads files only from the probe's secrets directory
+		}
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}

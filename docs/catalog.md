@@ -30,7 +30,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), described in [internal/api/openapi.yaml](../internal/api/openapi.yaml). The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes: a location cannot go while a target set is named after it alone, and a set must start with a known prefix. Every change is in the audit log and echoed to the alert chat, with the note if one was given. `config:write` decides what every probe checks and how, down to the file on the probe's machine that a module sends as a password (`password_file`): give it to those you would let change these files.
+The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), described in [internal/api/openapi.yaml](../internal/api/openapi.yaml). The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes: a location cannot go while a target set is named after it alone, and a set must start with a known prefix. Every change is in the audit log and echoed to the alert chat, with the note if one was given. `config:write` decides what every probe checks and how, including which file a module sends as a password (`password_file`); a probe reads such files only from its secrets directory (`/etc/linkos-agent/secrets`, `linkos-probe -secrets-dir`), by name, so that a holder of `config:write` can have a probe send what someone put there and nothing else. Give it to those you would let change these files.
 
 ### History and revert
 
@@ -151,7 +151,9 @@ The format of the [Blackbox Exporter's module file](https://github.com/prometheu
 | `git` | Git over HTTP: `info/refs?service=git-upload-pack`. `username`, `password_file` |
 | `rdap` | A domain's expiry from RDAP: `server` (default `https://rdap.org`) |
 
-Every module has a `timeout` (default 10s), which a location's `probe.timeout` can lengthen. `password_file` is a path on the probe's machine.
+Every module has a `timeout` (default 10s), which a location's `probe.timeout` can lengthen.
+
+`password_file` names a file in the probe's secrets directory, `/etc/linkos-agent/secrets` unless `linkos-probe` is started with `-secrets-dir`: `git-password`, never a path. A value with a path separator or `..`, or an absolute path, is refused with `config.invalid` when the module is put or imported, so that `config:write` cannot have a probe read any file on its machine; a probe handed such a module by an older Beacon refuses each probe that would read it (`probe_failure_info{reason="config"}`, one log line) and reads nothing. The probe never reads outside that directory for a module. Probes from before this release read the name relative to their working directory: upgrade them before adding a module with `password_file`.
 
 ```yaml
 modules:

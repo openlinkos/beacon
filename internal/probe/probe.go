@@ -49,11 +49,13 @@ type Result struct {
 }
 
 // Prober runs probes. RootCAs is nil for the system's roots and Resolver nil for the system's resolver
-// (tests set their own).
+// (tests set their own). SecretsDir is the one directory the files modules name (password_file) are read
+// from (secrets.go); empty for DefaultSecretsDir.
 type Prober struct {
-	RootCAs   *x509.CertPool
-	Resolver  *net.Resolver
-	UserAgent string
+	RootCAs    *x509.CertPool
+	Resolver   *net.Resolver
+	UserAgent  string
+	SecretsDir string
 }
 
 // Run probes target with module m, within the module's timeout and ctx.
@@ -227,15 +229,6 @@ func fail(reason string, err error) Result {
 		r.Detail = err.Error()
 	}
 	return r
-}
-
-// readPassword reads a password file; an empty name is no password.
-func readPassword(name string) (string, error) {
-	if name == "" {
-		return "", nil
-	}
-	b, err := os.ReadFile(name) //nolint:gosec // the operator names the file
-	return strings.TrimSpace(string(b)), err
 }
 
 // drain reads at most n bytes of a body and closes it.

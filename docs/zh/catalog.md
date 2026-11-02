@@ -30,7 +30,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），说明见 [internal/api/openapi.yaml](../../internal/api/openapi.yaml)。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，连模块把检测点机器上的哪个文件当密码发出去（`password_file`）也由它决定：只给你愿意让他改这些文件的人和 Agent。
+路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），说明见 [internal/api/openapi.yaml](../../internal/api/openapi.yaml)。MCP 工具是 `get_config`、`put_config`、`delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回版本号，以及每一项改前和改后的值；写入和现有一样的值不算修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不变：还有检测目标组只以某个检测点命名时，这个检测点不能删；组名必须以已知的前缀开头。每次修改都记审计，并回显到告警群，附上备注（如果给了）。`config:write` 决定每个检测点检测什么、怎么检测，包括模块把哪个文件当密码发出去（`password_file`）；检测点只按文件名从它的密钥目录（`/etc/linkos-agent/secrets`，`linkos-probe -secrets-dir`）读这类文件，所以拿着 `config:write` 的人只能让检测点发出别人放在那里的东西，别的拿不到。只给你愿意让他改这些文件的人和 Agent。
 
 ### 历史与撤销
 
@@ -151,7 +151,9 @@ resources:
 | `git` | Git over HTTP：`info/refs?service=git-upload-pack`。`username`、`password_file` |
 | `rdap` | 从 RDAP 查域名到期：`server`（默认 `https://rdap.org`） |
 
-每个模块都有 `timeout`（默认 10s），检测点的 `probe.timeout` 可以把它延长。`password_file` 是检测点机器上的路径。
+每个模块都有 `timeout`（默认 10s），检测点的 `probe.timeout` 可以把它延长。
+
+`password_file` 是检测点密钥目录里的一个文件名，目录默认是 `/etc/linkos-agent/secrets`，`linkos-probe` 启动时可用 `-secrets-dir` 改：写 `git-password`，不写路径。含路径分隔符或 `..` 的值、绝对路径，在写入或导入模块时就被拒绝，返回 `config.invalid`，这样 `config:write` 不能让检测点读它机器上的任意文件；旧版 Beacon 发来这样的模块时，检测点拒绝每一次要读它的检测（`probe_failure_info{reason="config"}`，记一行日志），什么都不读。检测点为模块读文件从不越出这个目录。本版之前的检测点把这个名字当作相对于工作目录的路径：先升级检测点，再添加带 `password_file` 的模块。
 
 ```yaml
 modules:

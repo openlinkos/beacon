@@ -77,7 +77,11 @@ func (f Files) entries() (map[string][]byte, error) {
 		errs = append(errs, fmt.Errorf("targets: %w", err))
 	}
 	if hasMods {
-		if _, err := probe.ParseModules(mods); err != nil {
+		ms, err := probe.ParseModules(mods)
+		if err == nil {
+			err = probe.CheckSecretFiles(ms)
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", ModulesFile, err))
 		}
 	}

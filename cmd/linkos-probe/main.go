@@ -4,11 +4,14 @@
 // fetches its targets and modules from the status service's gateway, probes every minute, and pushes
 // the results with a queue on disk for when the gateway cannot be reached.
 //
-//	linkos-probe agent -gateway URL -token-file FILE [-state DIR] [-interval 1m] [-listen 127.0.0.1:17009]
-//	linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc]
+//	linkos-probe agent -gateway URL -token-file FILE [-state DIR] [-interval 1m] [-listen 127.0.0.1:17009] [-secrets-dir DIR]
+//	linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
 //	linkos-probe check [-modules FILE]                 validate the module file
 //	linkos-probe run [-modules FILE] MODULE TARGET     probe once and print the result
 //	linkos-probe version
+//
+// The files modules name (password_file) are read from the secrets directory only, by name; a module
+// that names a path is refused (reason config) and nothing outside the directory is ever read.
 package main
 
 import (
@@ -38,13 +41,15 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   linkos-probe agent -gateway URL -token-file FILE [-state /var/lib/linkos-agent] [-interval 1m]
-                     [-textfile DIR] [-proc /proc] [-listen 127.0.0.1:17009]
+                     [-textfile DIR] [-proc /proc] [-listen 127.0.0.1:17009] [-secrets-dir `+probe.DefaultSecretsDir+`]
                                                      probe, collect and push to the gateway (the agent)
-  linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc]
+  linkos-probe serve [-listen 127.0.0.1:17009] [-modules FILE] [-textfile DIR] [-proc /proc] [-secrets-dir DIR]
                                                      only answer /probe and /metrics (for a scraper)
   linkos-probe check [-modules FILE]                 validate the module file
-  linkos-probe run [-modules FILE] MODULE TARGET     probe once and print the result
+  linkos-probe run [-modules FILE] [-secrets-dir DIR] MODULE TARGET
+                                                     probe once and print the result
   linkos-probe version
+The files modules name (password_file) are read from the secrets directory only, by file name.
 `)
 }
 
@@ -76,6 +81,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func userAgent() string { return "linkos-probe/" + version.Version }
 
+// secretsDirFlag is the one directory the files modules name are read from.
+func secretsDirFlag(fs *flag.FlagSet) *string {
+	return fs.String("secrets-dir", probe.DefaultSecretsDir, "directory of the files modules name in password_file; they are named without a path, and nothing outside it is read")
+}
+
 func serve(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -83,6 +93,7 @@ func serve(args []string, stderr io.Writer) int {
 	modules := fs.String("modules", defaultModules, "module file")
 	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")
 	proc := fs.String("proc", "/proc", "proc filesystem")
+	secrets := secretsDirFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -94,7 +105,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	var mods probe.Reloadable
 	mods.Store(ms)
-	p := &probe.Prober{UserAgent: userAgent()}
+	p := &probe.Prober{UserAgent: userAgent(), SecretsDir: *secrets}
 	host := &hostmetrics.Collector{ProcRoot: *proc, TextfileDir: *textfile}
 
 	mux := http.NewServeMux()
@@ -163,6 +174,7 @@ func runAgent(args []string, stderr io.Writer) int {
 	textfile := fs.String("textfile", "/var/lib/linkos-agent/textfile", "directory of *.prom files (heartbeats); empty for none")
 	proc := fs.String("proc", "/proc", "proc filesystem")
 	listen := fs.String("listen", "127.0.0.1:17009", "address for /healthz and /metrics (for a look by hand); empty for none")
+	secrets := secretsDirFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -174,7 +186,7 @@ func runAgent(args []string, stderr io.Writer) int {
 	}
 	host := &hostmetrics.Collector{ProcRoot: *proc, TextfileDir: *textfile}
 	a := agent.New(agent.Config{Gateway: *gateway, Token: strings.TrimSpace(string(b)), StateDir: *state, Interval: *interval,
-		Prober: &probe.Prober{UserAgent: userAgent()}, Host: host, Log: log})
+		Prober: &probe.Prober{UserAgent: userAgent(), SecretsDir: *secrets}, Host: host, Log: log})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *listen != "" {
@@ -188,7 +200,7 @@ func runAgent(args []string, stderr io.Writer) int {
 		go func() { _ = srv.ListenAndServe() }()
 		defer func() { _ = srv.Close() }()
 	}
-	log.Info("linkos-probe agent started", "version", version.Version, "gateway", *gateway, "interval", *interval)
+	log.Info("linkos-probe agent started", "version", version.Version, "gateway", *gateway, "interval", *interval, "secrets_dir", *secrets)
 	a.Run(ctx)
 	return 0
 }
@@ -201,6 +213,9 @@ func check(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ms, err := probe.LoadModules(*modules)
+	if err == nil {
+		err = probe.CheckSecretFiles(ms) // as the centre checks it: a path in password_file is refused
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -213,6 +228,7 @@ func once(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	modules := fs.String("modules", defaultModules, "module file")
+	secrets := secretsDirFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -230,7 +246,7 @@ func once(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "no module %q\n", fs.Arg(0))
 		return 2
 	}
-	r := (&probe.Prober{UserAgent: userAgent()}).Run(context.Background(), m, fs.Arg(1))
+	r := (&probe.Prober{UserAgent: userAgent(), SecretsDir: *secrets}).Run(context.Background(), m, fs.Arg(1))
 	_ = probe.Write(stdout, r)
 	if !r.Success {
 		fmt.Fprintf(stderr, "failed: %s: %s\n", r.Reason, r.Detail)

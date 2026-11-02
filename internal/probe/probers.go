@@ -124,7 +124,7 @@ var challengeRe = regexp.MustCompile(`(\w+)="([^"]*)"`)
 
 func (p *Prober) registry(ctx context.Context, m RegistryModule, target string) Result {
 	base := strings.TrimSuffix(target, "/")
-	password, err := readPassword(m.PasswordFile)
+	password, err := p.secret("registry.password_file", m.PasswordFile)
 	if err != nil {
 		return fail(ReasonConfig, err)
 	}
@@ -247,7 +247,7 @@ func (p *Prober) registryToken(ctx context.Context, c *http.Client, params strin
 // ---- git
 
 func (p *Prober) git(ctx context.Context, m GitModule, target string) Result {
-	password, err := readPassword(m.PasswordFile)
+	password, err := p.secret("git.password_file", m.PasswordFile)
 	if err != nil {
 		return fail(ReasonConfig, err)
 	}
