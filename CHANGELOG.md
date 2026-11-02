@@ -4,6 +4,9 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The agent on call: `linkos-oncall`** (`docs/agents.md`, "Running an agent when woken"): a reference harness, a third binary in the releases, that runs an agent program when a hook wakes it. It takes the signed webhook, checks the signature, refuses replays and deliveries older than 15 minutes, remembers each delivery for a day, answers at once, and starts the program named with `-run` (`-run-resolved` for resolved events) with the payload on its standard input and the alert in `BEACON_*` variables. `-concurrency` programs run at once, up to 32 wait, beyond that Beacon is told to try later; each run's output is kept under `-log-dir` for `-keep`; a run is killed with its whole process group after `-timeout`; stopping waits for the runs in progress.
+  - `contrib/oncall`: wrappers for Claude Code (headless, Beacon's MCP server with the token read from a file at each connection, Beacon's tools and nothing else, nobody to ask) and Codex (`codex exec`), the one-page prompt for the woken agent, and a systemd unit with its own user and a read-only system. `contrib/github/oncall.yml`: the same for a hook of `kind: github`, through the Claude Code GitHub Action. Beacon still calls no model: the harness decides nothing, the agent does, and Beacon records it.
+
 ## 0.3.0
 
 ### rc.2 (2026-11-02)
