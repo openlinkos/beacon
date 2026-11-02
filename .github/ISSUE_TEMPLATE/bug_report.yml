@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in Beacon does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Do not paste secrets, tokens, real host names or addresses, or the content of real alerts and sessions**: describe the problem with `example.com` names and made-up values. Security issues go to security@linkos.io as [SECURITY.md](https://github.com/openlinkos/beacon/blob/main/SECURITY.md) describes, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The commands, requests or tool calls, the relevant part of the configuration with secrets removed, and what Beacon answered (the error and its `code`, if any).
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      multiple: true
+      options:
+        - REST API or MCP
+        - Alert routing and delivery (cards, escalation, hooks)
+        - The SSH channel
+        - The gateway (probes, hosts, heartbeats, change events)
+        - The probe agent (linkos-probe)
+        - The on-call harness (linkos-oncall)
+        - The pages people open from a card
+        - Configuration (catalogue, targets, modules)
+        - The reference deployment (deploy/)
+        - The documentation site
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: What `linkos-beacon version` prints, and `linkos-probe version` if a probe is involved.
+      placeholder: e.g. v0.3.0-rc.6 or a1b2c3d
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: How Beacon runs (the reference deployment, a container of your own, the binary), the OS and architecture, and the agent involved with its version, if any.
+      placeholder: e.g. the reference deployment on Debian 13 (arm64), Claude Code 2.1
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Optional. The service's log around the problem, with secrets and names removed.
+      render: text

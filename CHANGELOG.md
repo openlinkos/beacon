@@ -4,6 +4,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The site, beacon.openlinkos.com** (`docs/`): Beacon's home page and documentation, in English and Simplified Chinese, on the shared OpenLinkOS theme. The home page shows the three pillars and how Beacon fits; the guide keeps its pages (`docs/goals.md` and the rest stay where they were) and gains an architecture page, a reference for the REST API (routes, scopes, error codes) and the MCP tools, a page on the sources Beacon takes in, and this changelog. Headings take GitHub's ids, so links to them work on GitHub and on the site alike.
+  - The build fails when a Chinese page falls behind its English page, or when the reference misses a route, an error code, a scope or an MCP tool that the code has. CI builds the site on every pull request; the `site` workflow publishes the image `ghcr.io/openlinkos/beacon-site` (nginx, port 8080, `linux/amd64` and `linux/arm64`) from `main`, tagged `<UTC time>-<commit>`.
+  - A code of conduct (Contributor Covenant 2.1), issue forms, a pull request template, Dependabot for the site, and how to work on the site in `CONTRIBUTING.md`.
+
 ## 0.3.0
 
 ### rc.6 (2026-11-02)

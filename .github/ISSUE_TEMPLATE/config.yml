@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/openlinkos/beacon/blob/main/SECURITY.md
+    about: Please report security issues privately, by email, not as public issues.
+  - name: Ask a question
+    url: https://github.com/openlinkos/beacon/discussions
+    about: Questions, ideas still taking shape, and how others run Beacon.
+  - name: Documentation
+    url: https://beacon.openlinkos.com
+    about: The guide and the reference, in English and Simplified Chinese.
