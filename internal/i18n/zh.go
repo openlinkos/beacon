@@ -330,9 +330,9 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"A note for the others (optional)": "给其他人的备注（可不填）",
 	"Silence":                          "静默",
 	"Why silence it":                   "静默原因",
-	"1 hour":                           "1 小时",
-	"4 hours":                          "4 小时",
-	"24 hours":                         "24 小时",
+	"Silence for 1 hour":               "静默 1 小时",
+	"Silence for 4 hours":              "静默 4 小时",
+	"Silence for 24 hours":             "静默 24 小时",
 	"Add a note":                       "添加备注",
 	"Note":                             "备注",
 	// machines and the pause switch

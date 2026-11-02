@@ -352,7 +352,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
 		if al.Status == "firing" {
 			p.Actions.Silence = base + "/silence"
-			p.Actions.Durations = []kv{{"1h", s.t("1 hour")}, {"4h", s.t("4 hours")}, {"24h", s.t("24 hours")}}
+			p.Actions.Durations = []kv{{"1h", s.t("Silence for 1 hour")}, {"4h", s.t("Silence for 4 hours")}, {"24h", s.t("Silence for 24 hours")}}
 			if ev.Done.Ack == nil {
 				p.Actions.Ack = base + "/ack"
 			}

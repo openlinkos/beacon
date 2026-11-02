@@ -73,7 +73,7 @@ func (s *Server) version() string {
 }
 
 func (s *Server) baseShell(title string) shell {
-	return shell{Lang: s.Lang.HTML(), Title: title + " · Beacon", Heading: title, S: s.shellLabels(), Icons: sprite, Version: s.version()}
+	return shell{Lang: s.Lang.HTML(), Title: title + " – Beacon", Heading: title, S: s.shellLabels(), Icons: sprite, Version: s.version()}
 }
 
 // shellFor is the shell of a console page for v, in the section nav, under the pages crumbs names.
