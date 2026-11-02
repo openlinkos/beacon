@@ -80,12 +80,13 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
             text: 'Guide',
             items: [
               { text: 'Up in 30 minutes', link: '/install' },
-              { text: 'Agents and alerts', link: '/agents' },
+              { text: 'Put an agent on call', link: '/agents' },
               { text: 'The SSH channel', link: '/ssh' },
-              { text: 'Catalogue, targets and modules', link: '/catalog' },
-              { text: 'The console', link: '/pages' },
+              { text: 'What is checked', link: '/catalog' },
               { text: 'Status pages', link: '/status' },
-              { text: 'Setting up the Feishu app', link: '/feishu' },
+              { text: 'The console', link: '/pages' },
+              { text: 'Set up the Feishu app', link: '/feishu' },
+              { text: 'Troubleshooting', link: '/troubleshooting' },
             ],
           },
           {
@@ -135,13 +136,14 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
           {
             text: '指南',
             items: [
-              { text: '30 分钟上线', link: '/zh/install' },
-              { text: 'Agent 与告警', link: '/zh/agents' },
+              { text: '30 分钟装好', link: '/zh/install' },
+              { text: '让 Agent 值班', link: '/zh/agents' },
               { text: 'SSH 通道', link: '/zh/ssh' },
-              { text: '目录、检测目标和检测模块', link: '/zh/catalog' },
-              { text: '控制台', link: '/zh/pages' },
+              { text: '检测什么', link: '/zh/catalog' },
               { text: '状态页', link: '/zh/status' },
+              { text: '控制台', link: '/zh/pages' },
               { text: '配置飞书应用', link: '/zh/feishu' },
+              { text: '常见问题', link: '/zh/troubleshooting' },
             ],
           },
           {
