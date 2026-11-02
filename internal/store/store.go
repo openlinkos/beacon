@@ -501,18 +501,23 @@ func (s *Store) SilenceRecords() []SilenceRecord {
 
 // ---- Machines
 
-// Machine is a machine the SSH channel reaches. Address is host:port; User is the account there, which
-// is also the principal of the certificates Beacon signs; HostKey is the key pinned when the machine
-// was added, in the authorized_keys form.
+// Machine is a machine the SSH channel reaches. Address is host:port, or ConnectorAddress for a machine
+// that connects out to the channel itself (see connector.go); User is the account there, which is also
+// the principal of the certificates Beacon signs; HostKey is the key pinned when the machine was added,
+// in the authorized_keys form (empty for a connector machine whose key is not learned yet).
+// ConnectorKey is the public key a connector machine signs in with, and ConnectorFingerprint its SHA256
+// fingerprint.
 type Machine struct {
-	Name     string    `json:"name"`
-	Address  string    `json:"address"`
-	User     string    `json:"user"`
-	HostKey  string    `json:"host_key"`
-	Critical bool      `json:"critical,omitempty"`
-	Note     string    `json:"note,omitempty"`
-	Added    time.Time `json:"added"`
-	AddedBy  string    `json:"added_by,omitempty"`
+	Name                 string    `json:"name"`
+	Address              string    `json:"address"`
+	User                 string    `json:"user"`
+	HostKey              string    `json:"host_key"`
+	Critical             bool      `json:"critical,omitempty"`
+	Note                 string    `json:"note,omitempty"`
+	Added                time.Time `json:"added"`
+	AddedBy              string    `json:"added_by,omitempty"`
+	ConnectorKey         string    `json:"connector_key,omitempty"`
+	ConnectorFingerprint string    `json:"connector_fingerprint,omitempty"`
 }
 
 // MachineName is what a machine may be called: its host name, as probe locations are.

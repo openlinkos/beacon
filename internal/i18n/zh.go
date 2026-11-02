@@ -96,4 +96,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"the command line":                                                   "命令行",
 	// tokens that renew themselves, echoed to the alert chat
 	"Token %s renewed itself; expires %s": "令牌 %s 自行续期了，到期日 %s",
+	// machines behind NAT, connected out to the SSH channel
+	"%s set the connector key of machine %s":                             "%s 设置了机器 %s 的连接器密钥",
+	"Beacon pinned the host key of machine %s through its connector: %s": "Beacon 经机器 %s 的连接器固定了它的主机密钥：%s",
 }

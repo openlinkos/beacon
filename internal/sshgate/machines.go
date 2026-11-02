@@ -38,6 +38,27 @@ type MachineView struct {
 	AddedBy  string    `json:"added_by,omitempty"`
 	// Reachable says whether the caller's token reaches it through the channel.
 	Reachable bool `json:"reachable"`
+	// Connector says the machine connects out to the channel itself (behind NAT); Connected and
+	// ConnectedSince say whether and since when it is connected right now. Both are left out for
+	// machines Beacon dials.
+	Connector      bool      `json:"connector,omitempty"`
+	Connected      *bool     `json:"connected,omitempty"`
+	ConnectedSince time.Time `json:"connected_since,omitzero"`
+}
+
+// view is a machine as the API shows it to the holder of t.
+func (g *Gate) view(m store.Machine, t store.Token) MachineView {
+	v := MachineView{Name: m.Name, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
+		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name)}
+	if m.Connector() {
+		v.Connector = true
+		connected := false
+		if c := g.connectors.get(m.Name); c != nil {
+			connected, v.ConnectedSince = true, c.since
+		}
+		v.Connected = &connected
+	}
+	return v
 }
 
 // Machines is the list of machines, and how the caller connects to them with its own ssh.
@@ -70,8 +91,7 @@ func (g *Gate) List(who Actor, address string) (Machines, error) {
 	var cfg strings.Builder
 	host, port, _ := net.SplitHostPort(address)
 	for _, m := range ms {
-		v := MachineView{Name: m.Name, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
-			Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name)}
+		v := g.view(m, t)
 		out.Machines = append(out.Machines, v)
 		if v.Reachable && host != "" {
 			fmt.Fprintf(&cfg, "Host %s\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias beacon\n\n", m.Name, host, port, m.Name)
@@ -84,15 +104,20 @@ func (g *Gate) List(who Actor, address string) (Machines, error) {
 	return out, nil
 }
 
-// MachineInput adds a machine. Address is host or host:port (22 by default); User defaults to beacon.
-// Replace pins the machine's host key again, after it was reinstalled, say.
+// MachineInput adds a machine. Address is host or host:port (22 by default), or "connector" for a
+// machine behind NAT that connects out to the channel itself; User defaults to beacon. Replace pins the
+// machine's host key again, after it was reinstalled, say. ConnectorKey is the public key a connector
+// machine signs in with, and HostKey its sshd's host key, which Beacon otherwise learns the first time
+// the machine connects; both are for connector machines only.
 type MachineInput struct {
-	Name     string `json:"name"`
-	Address  string `json:"address"`
-	User     string `json:"user,omitempty"`
-	Critical bool   `json:"critical,omitempty"`
-	Note     string `json:"note,omitempty"`
-	Replace  bool   `json:"replace,omitempty"`
+	Name         string `json:"name"`
+	Address      string `json:"address"`
+	User         string `json:"user,omitempty"`
+	Critical     bool   `json:"critical,omitempty"`
+	Note         string `json:"note,omitempty"`
+	Replace      bool   `json:"replace,omitempty"`
+	ConnectorKey string `json:"connector_key,omitempty"`
+	HostKey      string `json:"host_key,omitempty"`
 }
 
 var userRe = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
@@ -102,6 +127,8 @@ type Added struct {
 	Machine MachineView `json:"machine"`
 	// TrustedUserCAKey is the line for the machine's TrustedUserCAKeys file.
 	TrustedUserCAKey string `json:"trusted_user_ca_key"`
+	// Connector is the machine-side setup of a machine behind NAT; nil for a machine Beacon dials.
+	Connector *ConnectorSetup `json:"connector,omitempty"`
 }
 
 // Add pins a machine's host key and adds it.
@@ -119,6 +146,12 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 		return Added{}, fmt.Errorf("%w: user %q is not an account name", ErrBadInput, in.User)
 	}
 	addr := strings.TrimSpace(in.Address)
+	if addr == store.ConnectorAddress {
+		return g.addConnector(ctx, who, in)
+	}
+	if in.ConnectorKey != "" || in.HostKey != "" {
+		return Added{}, fmt.Errorf("%w: connector_key and host_key are for a machine behind NAT, added with the address %s; Beacon pins the host key of a machine it dials itself", ErrBadInput, store.ConnectorAddress)
+	}
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		addr = net.JoinHostPort(addr, "22")
 	}
@@ -140,11 +173,10 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
 	t, _ := g.token(who.Name)
-	return Added{Machine: MachineView{Name: m.Name, Address: m.Address, User: m.User, HostKey: ssh.FingerprintSHA256(k), Critical: m.Critical,
-		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name)}, TrustedUserCAKey: g.CAPublicKey()}, nil
+	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey()}, nil
 }
 
-// Remove forgets a machine; its sessions stay on record.
+// Remove forgets a machine; its sessions stay on record. A connector machine's connection is closed.
 func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 	if g == nil {
 		return ErrDisabled
@@ -155,6 +187,7 @@ func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 		}
 		return err
 	}
+	g.connectors.close(name)
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_remove", Target: name})
 	g.post(ctx, i18n.T(g.d.Lang, "%s removed machine %s", who.Name, name))
 	return nil
@@ -174,12 +207,17 @@ func (g *Gate) hostKey(ctx context.Context, addr string) (ssh.PublicKey, error) 
 	if dl, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(dl)
 	}
+	return probeHostKey(nc, addr)
+}
+
+// probeHostKey starts a handshake on nc and stops it as soon as the server's host key arrives.
+func probeHostKey(nc net.Conn, addr string) (ssh.PublicKey, error) {
 	var got ssh.PublicKey
 	cfg := &ssh.ClientConfig{User: "beacon",
 		HostKeyCallback: func(_ string, _ net.Addr, k ssh.PublicKey) error { got = k; return errGotKey },
 		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
 			ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}}
-	_, _, _, err = ssh.NewClientConn(nc, addr, cfg)
+	_, _, _, err := ssh.NewClientConn(nc, addr, cfg)
 	if got != nil {
 		return got, nil
 	}

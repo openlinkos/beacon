@@ -51,6 +51,9 @@ type Deps struct {
 	Now             func() time.Time
 	// Dial connects to machines; nil uses a net.Dialer. Tests replace it.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// PublicAddress (host:port) is where agents and connector machines reach the channel; it goes into
+	// the setup machine add prints for a machine behind NAT. May be empty.
+	PublicAddress string
 }
 
 // Gate is the SSH channel.
@@ -63,6 +66,8 @@ type Gate struct {
 	seq   atomic.Uint64
 	fails map[string]*window
 	echo  *echoer
+
+	connectors *connectorSet // machines behind NAT connected out to the channel (connector.go)
 }
 
 type window struct {
@@ -120,9 +125,10 @@ func New(d Deps) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gate{d: d, key: k, open: map[uint64]func(){}, fails: map[string]*window{}}
+	g := &Gate{d: d, key: k, open: map[uint64]func(){}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}}
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
+		g.registerConnectorMetrics(m)
 		m.Register("linkos_beacon_ssh_open", "Agent connections and tool calls open on the SSH channel", "gauge", func() []metrics.Sample {
 			g.mu.Lock()
 			defer g.mu.Unlock()
@@ -287,7 +293,11 @@ func (g *Gate) cert(m store.Machine, who Actor, conn string) (ssh.Signer, error)
 		Permissions:     ssh.Permissions{Extensions: map[string]string{"permit-pty": "", "permit-port-forwarding": ""}},
 	}
 	if len(g.d.SourceAddresses) > 0 {
-		c.CriticalOptions = map[string]string{"source-address": strings.Join(g.d.SourceAddresses, ",")}
+		src := g.d.SourceAddresses
+		if m.Connector() { // its sshd sees the connection come from the connector on the machine itself
+			src = append(slices.Clone(src), "127.0.0.1/32", "::1/128")
+		}
+		c.CriticalOptions = map[string]string{"source-address": strings.Join(src, ",")}
 	}
 	if err := c.SignCert(rand.Reader, g.d.CA); err != nil {
 		return nil, err
@@ -303,21 +313,32 @@ func algorithms(k ssh.PublicKey) []string {
 	return []string{k.Type()}
 }
 
-// dial connects to a machine as who.
+// dial connects to a machine as who: to its address, or through its connector for a machine behind NAT.
 func (g *Gate) dial(ctx context.Context, m store.Machine, who Actor, conn string) (*ssh.Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var nc net.Conn
+	var err error
+	if m.Connector() {
+		nc, err = g.connect(ctx, &m) // fails fast when the connector is not connected
+	} else {
+		nc, err = g.d.Dial(ctx, "tcp", m.Address)
+		if err != nil {
+			err = fmt.Errorf("%w: %s: %v", ErrUnreachable, m.Name, err) //nolint:errorlint // one wrapped error is enough
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
 	hk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(m.HostKey))
 	if err != nil {
+		_ = nc.Close()
 		return nil, fmt.Errorf("%w: the pinned host key of %s does not parse: %v", ErrUnreachable, m.Name, err) //nolint:errorlint // one wrapped error is enough
 	}
 	signer, err := g.cert(m, who, conn)
 	if err != nil {
+		_ = nc.Close()
 		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	nc, err := g.d.Dial(ctx, "tcp", m.Address)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrUnreachable, m.Name, err) //nolint:errorlint // one wrapped error is enough
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(dl)
@@ -364,16 +385,11 @@ func remoteIP(c net.Conn) string {
 	return host
 }
 
-// Serve answers agents' SSH connections on ln until it is closed. The user name is the machine.
+// Serve answers SSH connections on ln until it is closed: agents', whose user name is the machine they
+// want, and connector machines', which sign in as themselves (connector.go).
 func (g *Gate) Serve(ln net.Listener) error {
 	cfg := &ssh.ServerConfig{
-		PublicKeyCallback: func(_ ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
-			t, ok := g.d.Store.TokenBySSHKey(ssh.FingerprintSHA256(k))
-			if !ok || !t.Has("machines:ssh") {
-				return nil, errors.New("unknown key")
-			}
-			return &ssh.Permissions{Extensions: map[string]string{"token": t.Name}}, nil
-		},
+		PublicKeyCallback: g.publicKey,
 		VerifiedPublicKeyCallback: func(_ ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
 			return p, nil
 		},
@@ -409,12 +425,16 @@ func (g *Gate) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 	_ = nc.SetDeadline(time.Time{})
 	defer func() { _ = sc.Close() }()
+	if name := sc.Permissions.Extensions["connector"]; name != "" {
+		g.serveConnector(sc, chans, reqs, name) // a machine's own connection: not an agent's, so not tracked for the pause switch
+		return
+	}
 	untrack := g.track(func() { _ = sc.Close() })
 	defer untrack()
 
 	who := Actor{Name: sc.Permissions.Extensions["token"], Via: "ssh"}
 	go func() {
-		for r := range reqs { // global requests: keepalives yes, remote forwarding not (yet)
+		for r := range reqs { // global requests: keepalives yes, remote forwarding never for agents (a token's key registers no forward)
 			if r.WantReply {
 				_ = r.Reply(r.Type == "keepalive@openssh.com", nil)
 			}

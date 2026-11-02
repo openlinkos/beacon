@@ -24,6 +24,12 @@ type Machines interface {
 	PausedSince() time.Time
 	CAPublicKey() string
 	HostKey() string
+	SetConnector(ctx context.Context, who sshgate.Actor, name, key string) (sshgate.MachineView, error)
+}
+
+// ConnectorKeyRequest sets the key a machine behind NAT connects out with (an authorized_keys line).
+type ConnectorKeyRequest struct {
+	Key string `json:"key"`
 }
 
 // SSHKeyRequest gives a token a public key for the SSH channel (an authorized_keys line).
@@ -193,6 +199,21 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("PUT /v1/machines/{name}/connector", func(w http.ResponseWriter, r *http.Request) {
+		if off(w) {
+			return
+		}
+		var in ConnectorKeyRequest
+		if !decode(w, r, &in) {
+			return
+		}
+		v, err := m.SetConnector(r.Context(), who(r), r.PathValue("name"), in.Key)
+		if err != nil {
+			gateFail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	})
 	state := func(w http.ResponseWriter) {
 		if m == nil {
 			writeJSON(w, http.StatusOK, SSHState{})
@@ -265,6 +286,13 @@ func (c *Client) AddMachine(ctx context.Context, in sshgate.MachineInput) (sshga
 // RemoveMachine forgets a machine.
 func (c *Client) RemoveMachine(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/machines/"+name, nil, nil)
+}
+
+// SetMachineConnector sets or changes the key a machine behind NAT connects out with.
+func (c *Client) SetMachineConnector(ctx context.Context, name, key string) (sshgate.MachineView, error) {
+	var out sshgate.MachineView
+	err := c.do(ctx, http.MethodPut, "/v1/machines/"+name+"/connector", ConnectorKeyRequest{Key: key}, &out)
+	return out, err
 }
 
 // SSH reports the channel's state.

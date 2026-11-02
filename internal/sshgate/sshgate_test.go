@@ -42,44 +42,49 @@ func signer(t *testing.T) ssh.Signer {
 type target struct {
 	addr    string
 	hostKey ssh.Signer
+	cfg     *ssh.ServerConfig
+	home    string
 	mu      sync.Mutex
 	keyIDs  []string
+	sources []string // the source-address option of each certificate accepted
 }
 
 func newTarget(t *testing.T, ca ssh.PublicKey) *target {
 	t.Helper()
-	tg := &target{hostKey: signer(t)}
+	tg := &target{hostKey: signer(t), home: t.TempDir()}
 	checker := &ssh.CertChecker{IsUserAuthority: func(k ssh.PublicKey) bool { return bytes.Equal(k.Marshal(), ca.Marshal()) }}
-	cfg := &ssh.ServerConfig{PublicKeyCallback: func(c ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
+	tg.cfg = &ssh.ServerConfig{PublicKeyCallback: func(c ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 		p, err := checker.Authenticate(c, k)
 		if err == nil {
 			tg.mu.Lock()
 			tg.keyIDs = append(tg.keyIDs, k.(*ssh.Certificate).KeyId)
+			tg.sources = append(tg.sources, k.(*ssh.Certificate).CriticalOptions["source-address"])
 			tg.mu.Unlock()
 		}
 		return p, err
 	}}
-	cfg.AddHostKey(tg.hostKey)
+	tg.cfg.AddHostKey(tg.hostKey)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	tg.addr = ln.Addr().String()
-	home := t.TempDir()
 	go func() {
 		for {
 			nc, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go tg.serve(nc, cfg, home)
+			go tg.serve(nc)
 		}
 	}()
 	return tg
 }
 
-func (tg *target) serve(nc net.Conn, cfg *ssh.ServerConfig, home string) {
+// serve answers one connection to the machine's sshd: dialled, or handed over by a connector.
+func (tg *target) serve(nc net.Conn) {
+	cfg, home := tg.cfg, tg.home
 	_, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
 		return

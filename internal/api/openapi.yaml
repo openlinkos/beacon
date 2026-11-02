@@ -38,7 +38,7 @@ components:
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict,
-            token.too_soon, token.not_renewable]
+            token.too_soon, token.not_renewable, machine.disconnected]
     Ack:
       type: object
       properties:
@@ -269,14 +269,17 @@ components:
       type: object
       properties:
         name: {type: string, description: The machine's host name; also the user name agents give the SSH channel}
-        address: {type: string, description: host:port Beacon connects to}
+        address: {type: string, description: "host:port Beacon connects to, or connector for a machine behind NAT that connects out to the channel itself"}
         user: {type: string, description: The account on the machine}
-        host_key_fingerprint: {type: string, description: SHA256 fingerprint of the host key pinned when the machine was added}
+        host_key_fingerprint: {type: string, description: "SHA256 fingerprint of the host key pinned when the machine was added; empty for a connector machine whose key is learned when it first connects"}
         critical: {type: boolean}
         note: {type: string}
         added: {type: string, format: date-time}
         added_by: {type: string}
         reachable: {type: boolean, description: Whether the caller's token reaches it}
+        connector: {type: boolean, description: The machine connects out to the channel (ssh -R) rather than being dialled; only on such machines}
+        connected: {type: boolean, description: Whether the connector is connected right now; only on connector machines}
+        connected_since: {type: string, format: date-time}
     Machines:
       type: object
       properties:
@@ -795,7 +798,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
     post:
       summary: Add a machine, pinning its host key
-      description: "Scope: machines:write. The machine then needs the returned key in its TrustedUserCAKeys file."
+      description: "Scope: machines:write. The machine then needs the returned key in its TrustedUserCAKeys file. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
       requestBody:
         required: true
         content:
@@ -806,14 +809,16 @@ paths:
               required: [name, address]
               properties:
                 name: {type: string}
-                address: {type: string, description: "host or host:port (22 by default)"}
+                address: {type: string, description: "host or host:port (22 by default), or connector for a machine behind NAT"}
                 user: {type: string, default: beacon}
                 critical: {type: boolean}
                 note: {type: string}
-                replace: {type: boolean, description: Pin the host key again}
+                replace: {type: boolean, description: Pin the host key again (and, for a connector machine, change its keys)}
+                connector_key: {type: string, description: "Connector machines: the public key the machine signs in with (an authorized_keys line); it may be set later with PUT /machines/{name}/connector"}
+                host_key: {type: string, description: "Connector machines: the machine's sshd host key (its /etc/ssh/ssh_host_ed25519_key.pub); left out, Beacon learns it when the connector first connects"}
       responses:
         "201":
-          description: The machine and the line for its TrustedUserCAKeys file
+          description: The machine, the line for its TrustedUserCAKeys file and, for a connector machine, its setup
           content:
             application/json:
               schema:
@@ -821,6 +826,15 @@ paths:
                 properties:
                   machine: {$ref: "#/components/schemas/Machine"}
                   trusted_user_ca_key: {type: string}
+                  connector:
+                    type: object
+                    description: What a machine behind NAT needs on its side; only for connector machines
+                    properties:
+                      known_hosts: {type: string, description: The channel's host key at its public address, for the machine's known_hosts file}
+                      command: {type: string, description: The ssh -R command that connects out}
+                      unit: {type: string, description: A systemd unit that keeps it running}
+                      script: {type: string, description: "The whole machine-side setup, as root: CA, account, known_hosts, key, user, unit"}
+                      host_key_pending: {type: boolean, description: The host key is not pinned yet; it is learned when the connector first connects}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}:
     delete:
@@ -1187,6 +1201,29 @@ paths:
       parameters: [{$ref: "#/components/parameters/Version"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/connector:
+    put:
+      summary: Set or change the key a machine behind NAT connects out with
+      description: "Scope: machines:write. The machine must have been added with the address connector. A connection made with the old key is closed; the machine reconnects with the new one. Audited and echoed to the chat."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [key]
+              properties:
+                key: {type: string, description: The public key, an authorized_keys line (ssh-ed25519 AAAA…); never one a token holds}
+      responses:
+        "200":
+          description: The machine
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Machine"}
         default: {$ref: "#/components/responses/Error"}
   /config/history/{version}/revert:
     post:
