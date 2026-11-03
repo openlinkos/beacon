@@ -120,6 +120,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	e.st = st
+	st.SetClock(func() time.Time { return e.now }) // the store's clock held still with the rest of the env
 	e.signer, err = link.NewSigner(bytes.Repeat([]byte{1}, link.KeySize), time.Hour, func() time.Time { return e.now })
 	if err != nil {
 		t.Fatal(err)

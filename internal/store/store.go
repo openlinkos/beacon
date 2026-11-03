@@ -212,6 +212,16 @@ func Open(path string) (*Store, error) {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// SetClock sets the store's clock, which stamps what it writes; a nil clock is the real one.
+// Tests that hold an environment's time still give the store that environment's clock, so what
+// it stamps matches the rest.
+func (s *Store) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	s.now = now
+}
+
 // ---- Groups
 
 // Group returns the group with id.
