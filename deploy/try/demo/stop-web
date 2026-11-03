@@ -1,0 +1,12 @@
+#!/bin/sh
+# Stops the demo web server: every probe of it then fails, and the ServiceDown alert follows within
+# about a minute and a half (the try environment's rules wait less than the reference ones). Run from
+# the host with: docker compose exec demo stop-web
+set -eu
+if pgrep -f 'httpd -p 8080' >/dev/null 2>&1; then
+  pkill -f 'httpd -p 8080'
+  echo "the demo web server is stopped"
+else
+  echo "the demo web server is not running"
+  exit 1
+fi
