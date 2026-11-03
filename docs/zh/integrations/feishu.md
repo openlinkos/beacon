@@ -1,10 +1,26 @@
 ---
-sourceHash: sha256-d81958b9
+sourceHash: sha256-d20444dc
 ---
 
 # 配置飞书应用
 
-做完这一页，告警会以卡片的形式发到飞书（或 Lark）群里。卡片写明什么坏了、从什么时候开始、哪些检测点失败及原因、Agent 留了什么备注；告警有变化，卡片就原地更新，恢复后变绿。值班的人用卡片上的按钮认领和静默；严重告警 10 分钟没人认领，就在应用内给他们加急。同一个群里再放一个自定义机器人，发不占 API 额度的普通消息。你需要在自己的组织里建一个自建应用，并由管理员审批：操作本身大约一刻钟，审批要多久取决于你的组织。
+做完这一页，告警会以卡片的形式发到飞书（或 Lark）群里。配置如下：
+
+```yaml
+feishu:
+  app_id_file: /etc/beacon/secrets/feishu-app-id
+  app_secret_file: /etc/beacon/secrets/feishu-app-secret
+  domain: feishu                       # 或 lark
+  callback: websocket                  # 或 http，同时要 verification_token_file（以及 encrypt_key_file）
+  chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  on_call:                             # 只有他们能操作卡片，加急也只发给他们
+    - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # name 显示在卡片上
+  monthly_budget: 10000                # 应用每月的 API 调用次数（见「额度」）
+  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # 自定义机器人
+  webhook_keyword: Beacon
+```
+
+卡片写明什么坏了、从什么时候开始、哪些检测点失败及原因、Agent 留了什么备注；告警有变化，卡片就原地更新，恢复后变绿。值班的人用卡片上的按钮认领和静默；严重告警 10 分钟没人认领，就在应用内给他们加急。同一个群里再放一个自定义机器人，发不占 API 额度的普通消息。你需要在自己的组织里建一个自建应用，并由管理员审批：操作本身大约一刻钟，审批要多久取决于你的组织。
 
 Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击。只用群自定义机器人做不到：它发的消息没有回调，也不能更新。不过它和应用搭配仍然有用，负责发普通消息：`info` 级别的告警、应用当月额度快用完之后的告警，以及人和 Agent 操作的回显。
 
@@ -49,21 +65,7 @@ Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击
 4. 找到每个值班的人在这个应用下的 `open_id`（`ou_…`）。只有这些人能操作卡片，加急也只发给他们。
 5. 在同一个群里再加一个**自定义机器人**。安全设置选关键词（默认 `Beacon`，可用 `feishu.webhook_keyword` 修改）和/或签名校验（密钥写进 `feishu.webhook_secret_file` 指向的文件）。复制它的 webhook 地址。
 
-每个密钥写进各自的文件（参考部署放在 `/opt/beacon/secrets/` 下，`install.sh` 会把它们的属主设为 65532、权限设为 0400），其余写进 Beacon 的配置：
-
-```yaml
-feishu:
-  app_id_file: /etc/beacon/secrets/feishu-app-id
-  app_secret_file: /etc/beacon/secrets/feishu-app-secret
-  domain: feishu                       # 或 lark
-  callback: websocket                  # 或 http，同时要 verification_token_file（以及 encrypt_key_file）
-  chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-  on_call:                             # 只有他们能操作卡片，加急也只发给他们
-    - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # name 显示在卡片上
-  monthly_budget: 10000                # 应用每月的 API 调用次数（见「额度」）
-  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # 自定义机器人
-  webhook_keyword: Beacon
-```
+每个密钥写进各自的文件（参考部署放在 `/opt/beacon/secrets/` 下，`install.sh` 会把它们的属主设为 65532、权限设为 0400），其余写进 Beacon 的配置：就是本页开头的那段，填上第 3 步的 `chat_id` 和第 4 步的 `open_id`。
 
 以下情况 `beacon check-config` 会拒绝：配了应用却没有 `chat_id`，或 `on_call` 里一个人都没有；`open_id` 不以 `ou_` 开头；HTTP 回调没有 Verification Token。
 

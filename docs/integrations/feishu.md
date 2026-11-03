@@ -1,6 +1,22 @@
 # Set up the Feishu app
 
-At the end of this page, alerts arrive as cards in a Feishu (or Lark) group. A card says what is wrong, since when, which locations fail and why, and what agents have noted, and it changes in place as the alert does, turning green when it resolves. The people on call acknowledge and silence it with its buttons; a critical alert nobody acknowledges buzzes them in the app after 10 minutes. A custom bot in the same group carries plain messages that cost no API quota. You need to create a self-built app in your organisation, which an administrator approves; the steps take a quarter of an hour, the approval as long as your organisation takes.
+At the end of this page, alerts arrive as cards in a Feishu (or Lark) group. The configuration:
+
+```yaml
+feishu:
+  app_id_file: /etc/beacon/secrets/feishu-app-id
+  app_secret_file: /etc/beacon/secrets/feishu-app-secret
+  domain: feishu                       # or lark
+  callback: websocket                  # or http, with verification_token_file (and encrypt_key_file)
+  chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  on_call:                             # only they may act on cards; they are buzzed
+    - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # the name is shown on cards
+  monthly_budget: 10000                # the app's API calls per month (see Quota)
+  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # the custom bot
+  webhook_keyword: Beacon
+```
+
+A card says what is wrong, since when, which locations fail and why, and what agents have noted, and it changes in place as the alert does, turning green when it resolves. The people on call acknowledge and silence it with its buttons; a critical alert nobody acknowledges buzzes them in the app after 10 minutes. A custom bot in the same group carries plain messages that cost no API quota. You need to create a self-built app in your organisation, which an administrator approves; the steps take a quarter of an hour, the approval as long as your organisation takes.
 
 Beacon sends cards through a **self-built app** and receives its button clicks. A group's custom bot alone cannot do this: its messages have no callbacks and cannot be updated. It is still useful beside the app, for plain messages: alerts of severity `info`, alerts once the app's monthly budget runs low, and the echoes of what people and agents do.
 
@@ -45,21 +61,7 @@ Create a version and publish it; an administrator approves it in the admin conso
 4. Find each on-call person's `open_id` (`ou_…`) for this app. Only these people can act on cards, and they are the ones buzzed.
 5. Add a **custom bot** to the same group. Under its security settings, choose a keyword (`Beacon` unless you set `feishu.webhook_keyword`) and/or a signature (its secret goes in the file `feishu.webhook_secret_file` names). Copy its webhook URL.
 
-Put each secret in its file (in the reference deployment, under `/opt/beacon/secrets/`, which `install.sh` gives owner 65532 and mode 0400), and the rest in Beacon's configuration:
-
-```yaml
-feishu:
-  app_id_file: /etc/beacon/secrets/feishu-app-id
-  app_secret_file: /etc/beacon/secrets/feishu-app-secret
-  domain: feishu                       # or lark
-  callback: websocket                  # or http, with verification_token_file (and encrypt_key_file)
-  chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-  on_call:                             # only they may act on cards; they are buzzed
-    - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # the name is shown on cards
-  monthly_budget: 10000                # the app's API calls per month (see Quota)
-  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # the custom bot
-  webhook_keyword: Beacon
-```
+Put each secret in its file (in the reference deployment, under `/opt/beacon/secrets/`, which `install.sh` gives owner 65532 and mode 0400), and the rest in Beacon's configuration: the block at the top of this page, with the `chat_id` from step 3 and the `open_id`s from step 4.
 
 `beacon check-config` refuses an app without `chat_id` or without at least one person in `on_call`, an `open_id` that does not start with `ou_`, and an HTTP callback without its verification token.
 
