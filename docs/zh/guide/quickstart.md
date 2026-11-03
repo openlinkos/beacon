@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-982dbc69
+sourceHash: sha256-6d3be833
 ---
 # 在本机试一试
 
@@ -67,7 +67,7 @@ Agent 会调用 `status_summary`，用它返回的结果回答：没有 firing �
 docker compose exec demo stop-web
 ```
 
-你会看到 `the demo web server is stopped`。检测点下一轮（每 30 秒）就会发现；停止服务大约一分半钟后，规则引擎判定它宕机，告警组出现，标题是 **demo-web is down**——试用环境没有配置聊天，所以没有人被通知；告警在 Beacon 里，Agent 正是去那里看的。
+你会看到 `the demo web server is stopped`。检测点下一轮（每 30 秒）就会发现；停止服务后大约两分钟内，规则引擎判定它宕机，告警组出现，标题是 **demo-web is down**——试用环境没有配置聊天，所以没有人被通知；告警在 Beacon 里，Agent 正是去那里看的。
 
 在 Claude Code 里对 Agent 说：
 
@@ -103,7 +103,7 @@ docker compose down -v
 
 - 建账号的链接打开的是 **Set Beacon up**，控制台总览显示一个检测点在汇报。
 - Claude Code 的 `/mcp` 里 `beacon` 是已连接，Agent 用 Beacon 自己的摘要回答了告警问题。
-- `stop-web` 之后约 90 秒内出现告警；Agent 修复后，告警组经检测点确认恢复。
+- `stop-web` 之后大约两分钟内出现告警；Agent 修复后，告警组经检测点确认恢复。
 
 ## 下一步 {#next}
 

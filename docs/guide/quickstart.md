@@ -64,7 +64,7 @@ The agent calls `status_summary` and answers with what it returns: nothing firin
 docker compose exec demo stop-web
 ```
 
-You will see `the demo web server is stopped`. The probe finds out on its next round (every 30 seconds); about a minute and a half after you stop the service, the rule engine has it down and the alert group exists, titled **demo-web is down** — no chat is configured in the try environment, so nobody is notified; the alert is in Beacon, which is where the agent looks.
+You will see `the demo web server is stopped`. The probe finds out on its next round (every 30 seconds); within about two minutes of stopping the service, the rule engine has it down and the alert group exists, titled **demo-web is down** — no chat is configured in the try environment, so nobody is notified; the alert is in Beacon, which is where the agent looks.
 
 Ask the agent, in Claude Code:
 
@@ -100,7 +100,7 @@ The containers, the volumes (Beacon's database, the metrics, the recordings) and
 
 - The setup link opened **Set Beacon up**, and the console's overview shows one probe location reporting.
 - `/mcp` in Claude Code lists `beacon` as connected, and the agent answered the alerting question with Beacon's own summary.
-- After `stop-web`, the alert appeared within about 90 seconds, and after the agent's repair the group was resolved with the probes' agreement.
+- After `stop-web`, the alert appeared within about two minutes, and after the agent's repair the group was resolved with the probes' agreement.
 
 ## Next {#next}
 
