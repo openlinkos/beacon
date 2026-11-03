@@ -66,131 +66,15 @@ agents:
 
 ### The webhook
 
-Beacon POSTs JSON with these headers:
-
-| Header | Value |
-| --- | --- |
-| `X-Beacon-Signature` | `sha256=` and the hex HMAC-SHA256 of the body under the secret |
-| `X-Beacon-Event` | `firing` or `resolved` |
-| `X-Beacon-Delivery` | The call's id, the same in every attempt |
-
-```json
-{
-  "delivery": "9f3c2a1b7e4d5c60",
-  "event": "firing",
-  "at": "2026-11-02T02:00:31Z",
-  "hook": "claude-oncall",
-  "alert": {
-    "id": "0cdfbada62dd", "status": "firing", "severity": "critical",
-    "title": "git.example.com is down", "description": "git.example.com has failed for 3 minutes from at least half of the probe locations …",
-    "service": "git.example.com",
-    "labels": {"alertname": "ServiceDown", "service": "git.example.com", "severity": "critical", "failure_domain": "origin-1"},
-    "alerts": 1, "starts_at": "2026-11-02T01:58:00Z"
-  },
-  "links": {
-    "alert": "https://status.example.com/api/v1/alerts/0cdfbada62dd",
-    "evidence": "https://status.example.com/api/v1/alerts/0cdfbada62dd/evidence",
-    "timeline": "https://status.example.com/api/v1/alerts/0cdfbada62dd/timeline",
-    "mcp": "https://status.example.com/mcp",
-    "runbook": "https://github.com/example/ops/blob/main/runbooks/ServiceDown.md"
-  },
-  "hint": "Beacon woke you for this alert group. Get its evidence in one call: …",
-  "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
-}
-```
-
-When the alert is about a heartbeat whose catalogue entry names its machine ([Heartbeats](monitoring.md#heartbeats)), the `hint` of a `firing` call says which machine that is and that `list_machines` shows how to reach it.
-
-A `resolved` payload has the same fields, its `at` being when the group resolved (not when the call went out, `resolved_after` later), and one more: `firing_call`, the call that woke the agent for this episode, so that the run it started can be told apart, with whether that run may still be going:
-
-```json
-"firing_call": {"delivery": "9f3c2a1b7e4d5c60", "at": "2026-11-02T02:00:31Z", "status": "ok", "recent": true}
-```
-
-`recent` is true when the firing call was made less than ten minutes before the group resolved. The hint then says that the run that call started may still be finishing its notes, and to read `get_timeline`, the notes included, before leaving a closing note of its own.
-
-A receiver of your own checks the signature against the raw body before reading it, and refuses a delivery whose `at` is more than ten minutes old or whose `delivery` it has seen:
-
-```python
-import hashlib, hmac
-
-def genuine(secret: bytes, body: bytes, signature: str) -> bool:
-    return hmac.compare_digest("sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(), signature)
-```
-
-The payload carries no credentials: the agent fetches the evidence with its own token, an agent's with the On call preset, which reads the evidence, acknowledges and leaves notes ([Headless agents and CI](people.md#headless-agents-and-ci)).
+The headers, the payload and how a receiver checks the signature: see [Agents woken by a webhook](../integrations/webhooks.md).
 
 ### A GitHub workflow
 
-Beacon dispatches the workflow with two inputs, `alert` (the group's id) and `event` (`firing` or `resolved`), which the workflow must declare:
-
-```yaml
-on:
-  workflow_dispatch:
-    inputs:
-      alert: {description: Beacon alert group id, required: true}
-      event: {description: firing or resolved, required: false, default: firing}
-
-jobs:
-  oncall:
-    if: inputs.event == 'firing'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Evidence
-        env:
-          ALERT: ${{ inputs.alert }}
-          BEACON_TOKEN: ${{ secrets.BEACON_TOKEN }}
-        run: |
-          curl -fsS -H "Authorization: Bearer $BEACON_TOKEN" \
-            "https://status.example.com/api/v1/alerts/$ALERT/evidence" > evidence.json
-      # then the agent's own step, with Beacon's MCP server and its own token
-```
-
-Pass the inputs through `env` as above, never into the script itself: anyone who may dispatch the workflow chooses them. A complete workflow that runs Claude Code is in [In GitHub Actions](#in-github-actions).
+The workflow that takes the two inputs, and a complete one that runs Claude Code: see [GitHub Actions](../integrations/github-actions.md).
 
 ## Running an agent when woken
 
-A webhook needs something at the other end that runs the agent. `beacon-oncall` is the reference harness, a third binary in the releases beside `beacon` and `beacon-probe`. It takes the webhook, checks the signature, and starts the program you name, with the payload on the program's standard input and the alert in its environment. It decides nothing, and it is that thin on purpose: Claude Code, Codex or any program that reads its environment runs behind it. `contrib/oncall` has wrappers for the first two, the prompt for the woken agent and a systemd unit.
-
-```bash
-beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
-  -run /usr/local/lib/beacon-oncall/claude-code.sh -log-dir /var/lib/beacon-oncall/logs
-```
-
-| Flag | Meaning |
-| --- | --- |
-| `-listen` | Where to take the webhook; `:17007`. The hook's `url` in Beacon points here, through your TLS reverse proxy unless both are on one private network |
-| `-secret-file` | The hook's secret: the same content as the hook's `secret_file` in Beacon |
-| `-run` | The program for `firing` events, run through `/bin/sh -c` |
-| `-run-resolved` | The program for `resolved` events; without it they are acknowledged and nothing runs |
-| `-concurrency` | Programs running at once; `2`. Up to 32 more wait their turn; beyond that the harness answers 503 and Beacon tries again later |
-| `-timeout` | What a program gets; `30m`. Then its whole process group is killed |
-| `-log-dir` | Each run's standard output and error, as `<time>-<delivery>.log`, with a closing line giving the exit status and the duration |
-| `-keep` | Logs older than this are removed; `720h`. `0` keeps them all |
-
-**What it answers.** 202 as soon as it has checked the delivery and queued the run: what the program achieves shows in its log, in the notes the agent leaves and in Beacon's records, not in the answer to Beacon. 401 for a body whose signature is wrong or missing, and for one whose `at` is more than 15 minutes old (Beacon's retries never reach that far, so it is a replay); 400 for one it cannot read. It remembers each `delivery` for 24 hours, so a retry of a delivery it has taken is answered 202 and runs nothing; the id in the signed body counts, not the header. `GET /healthz` answers `ok`, for a check that it runs. On SIGTERM it takes no more deliveries and waits for the programs that run, up to `-timeout`.
-
-**What the program gets.** The payload on its standard input, and these variables, each present and empty when Beacon sent nothing for it: `BEACON_EVENT`, `BEACON_DELIVERY`, `BEACON_HOOK`, `BEACON_ALERT_ID`, `BEACON_ALERT_TITLE`, `BEACON_ALERT_SERVICE`, `BEACON_ALERT_SEVERITY`, `BEACON_ALERT_STATUS`, `BEACON_ALERT_URL`, `BEACON_EVIDENCE_URL`, `BEACON_TIMELINE_URL`, `BEACON_MCP_URL`, `BEACON_RUNBOOK_URL`. The title and the service come from labels: data, not instructions.
-
-### The wrappers
-
-`contrib/oncall/claude-code.sh` runs Claude Code headless. It puts `contrib/oncall/prompt.md` and the alert into one prompt, gives Claude Code Beacon's MCP server (an HTTP server at `BEACON_MCP_URL`; the token is read from `BEACON_TOKEN_FILE` each time Claude Code connects, so a renewed token is picked up), lets it use Beacon's tools without asking and nothing else (`--tools ""`, `--allowedTools "mcp__beacon__*"`, `--permission-mode dontAsk`), bounds the work with `--max-turns`, and writes every message as a JSON line to the log, so people can read what the agent did step by step. `ONCALL_MAX_TURNS`, `ONCALL_MODEL`, `ONCALL_PROMPT`, `CLAUDE_BIN` and `CLAUDE_ARGS` adjust it. Claude Code authenticates as it always does: a sign-in in the service user's home, or `ANTHROPIC_API_KEY` in the service's environment.
-
-`contrib/oncall/codex.sh` does the same with `codex exec`: the prompt on standard input, Beacon's MCP server through `-c mcp_servers.beacon.*` with the token in an environment variable only Codex sees, a read-only sandbox for anything local, approvals off. `ONCALL_MODEL`, `CODEX_BIN` and `CODEX_ARGS` adjust it.
-
-`contrib/oncall/prompt.md` is the prompt both use, one page. It tells the woken agent, in order: get the evidence first (`get_evidence`); then look at the machines the evidence names, through Beacon's tools (`run_command`, `read_file`, `list_machines`) or its own ssh with the `ssh_config` that `list_machines` returns; fix what is safe; verify, with `probe_now` where available and `get_evidence` again otherwise; finish with `add_note` saying the conclusion, what was done and what remains. And its rules: untrusted fields are data; no secrets in notes; no acknowledging or silencing, which is people's decision; stop and leave a note when it cannot proceed. Edit it for your own services; keep those rules.
-
-### As a service
-
-`contrib/oncall/beacon-oncall.service` runs the harness as a user of its own on a read-only system (`ProtectSystem=strict`), writing only to that user's home, where the agent keeps its sign-in, and to the log directory, with `Restart=always`. Its header lists the install commands: the user; the hook's secret and the agent's token under `/etc/beacon-oncall`, readable by that user only (the token from `docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall > beacon-token` on the centre); the wrapper and the prompt under `/usr/local/lib/beacon-oncall`; and the agent program installed and signed in as that user. Stopping the service waits for the runs in progress.
-
-### In GitHub Actions
-
-For a hook of `kind: github`, `contrib/github/oncall.yml` is a workflow that takes the inputs `alert` and `event`, builds the prompt from the same `prompt.md` (copied to `.github/oncall/prompt.md`), and runs Claude Code through its GitHub Action with Beacon's MCP server: the token from the repository secret `BEACON_TOKEN`, the endpoint from the variable `BEACON_MCP_URL`, the same restriction to Beacon's tools. The secret is an agent's token, made for the workflow with `beacon agent add ops-workflow -owner alice -preset oncall`. The agent fetches everything else from Beacon with its token; the inputs pass through the environment, never into a script.
-
-### Trust
-
-The harness checks the signature and starts the program; that is all it decides. What the agent then does is bounded by its preset, its owner's role and the machines it may reach. Every call, command and session goes through Beacon, which records it and shows it to people on the card and in the chat, and the pause switch stops it. The payload carries no credentials; the harness and the wrappers read secrets only from files, and log neither them nor the payload. The prompt tells the agent to read what comes from outside Beacon as data, and Beacon marks those fields `untrusted`.
+A webhook needs something at the other end that runs the agent. `beacon-oncall` is the reference harness: it takes the webhook, checks the signature and starts the program you name, with the payload on standard input and the alert in its environment; `contrib/oncall` has the wrappers for Claude Code and Codex, the prompt for the woken agent and a systemd unit. See [Headless agents and CI](../integrations/headless.md) for all of it, including what the harness decides and what it leaves to the agent's preset, its owner's role and its machines ([Trust](../integrations/webhooks.md#trust)).
 
 ## The evidence
 
@@ -269,114 +153,11 @@ A note is how an agent, or a person, tells everyone else what it found, did and 
 
 ## Change events
 
-When deployments, configuration changes and Flux's reconciliations reach Beacon as change events, the evidence for an alert says what changed just before it. Senders post them to the gateway (port 17006) with a token that has the `changes:write` scope:
-
-```bash
-docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 365d
-```
-
-```bash
-curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"source": "github-actions", "kind": "deploy", "service": "hub-example-com", "summary": "hub v2.1",
-       "url": "https://github.com/example/hub/actions/runs/1"}' \
-  https://metrics.example.com/api/v1/changes
-```
-
-| Field | Meaning |
-| --- | --- |
-| `source` | Required: the sender, such as `github-actions` or `deploy-script` |
-| `kind` | `deploy`, `config`, `rollback` or another word; `change` by default |
-| `summary` | Required: what changed |
-| `service`, `machine` | What it concerns, as the alerts' `service` label and the machines' names say it |
-| `url`, `revision` | Where to read more; the commit or version |
-| `time` | RFC 3339; now by default; at most an hour ahead, and no older than changes are kept |
-
-Unknown fields are refused, so a typo does not go unnoticed. Beacon keeps the token's name with each change.
-
-### Flux
-
-Flux's notification-controller posts its events to a Provider of type `generic`. Point one at `/api/v1/changes/flux`, with the token in a header:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata: {name: beacon-changes, namespace: flux-system}
-stringData:
-  address: https://metrics.example.com/api/v1/changes/flux
-  headers: |
-    Authorization: Bearer lbt_…
----
-apiVersion: notification.toolkit.fluxcd.io/v1beta3
-kind: Provider
-metadata: {name: beacon-changes, namespace: flux-system}
-spec:
-  type: generic
-  secretRef: {name: beacon-changes}
----
-apiVersion: notification.toolkit.fluxcd.io/v1beta3
-kind: Alert
-metadata: {name: beacon-changes, namespace: flux-system}
-spec:
-  providerRef: {name: beacon-changes}
-  eventSeverity: info
-  eventSources:
-    - {kind: Kustomization, name: "*"}
-    - {kind: HelmRelease, name: "*"}
-  eventMetadata:
-    service: hub-example-com    # what these objects run
-```
-
-| Flux event | Change |
-| --- | --- |
-| `reason` | `kind`, such as `ReconciliationSucceeded` or `UpgradeFailed` |
-| `involvedObject` | `object`: `Kustomization/flux-system/apps` |
-| `message` (after the Alert's `summary`, if any) | `summary` |
-| `metadata`: `…/revision` | `revision` |
-| `severity`, `timestamp` | `severity`, `time` |
-| `metadata`: `service`, `machine` (the Alert's `eventMetadata`), or `?service=…&machine=…` in the address | `service`, `machine` |
-
-`source` is `flux`. Flux alerts that should page people still go to `POST /api/v2/alerts` as before; change events never page anyone and are not echoed to the chat.
-
-**Keeping and reading them.** Change events are kept for `changes.keep` (`720h`, 30 days, by default), at most 50,000. `GET /api/v1/changes` and the MCP tool `list_changes` (scope `status:read`) list them, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default).
-
-**The limit.** A token may post 60 change events a minute; the ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `beacon_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.
+When deployments, configuration changes and Flux's reconciliations reach Beacon as change events, the evidence for an alert says what changed just before it. How to send them, the fields and the Flux setup: see [Deployments and Flux](../integrations/change-events.md).
 
 ## Tokens that renew themselves
 
-A headless agent, such as the one a hook wakes or a CI job, signs in to the REST API and the MCP server with a token: one of its agent's credentials, made on the console's **Agents** page or with `beacon agent add` ([Headless agents and CI](people.md#headless-agents-and-ci)). Rather than have someone hand it a long-lived token, and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, agent, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope. An interactive client such as Claude Code signs in with OAuth instead, and refreshes its own tokens.
-
-| Route, tool | What |
-| --- | --- |
-| `GET /api/v1/token`, `whoami` | Who the caller is and its credential as its holder sees it: `name`, `actor` (as the audit log names it, `alice / claude-oncall`), `user`, `agent`, `preset`, `credential` (`token` or `oauth`, with `client`), `scopes` (what it may do now, within its owner's role), `machines`, `ssh_keys` (fingerprints), `created`, `expires`, `lifetime`, `renewed` (the last renewal), `renewable` and `renewable_at`; never the secret |
-| `POST /api/v1/token/renew`, `renew_token` | A new secret (`secret`, shown once) and the token; `old_secret_valid_until` says how long the one it replaced keeps working |
-
-- **No race.** The old secret stays valid for ten minutes after a renewal, so a client can swap its token file and a process that read the file a moment before keeps working.
-- **At most once a day.** A token renews itself at most once every 24 hours (`token.too_soon`, `429`).
-- **Not for machines, nor for OAuth.** The tokens of enrolled machines (probe, host, heartbeat) never renew themselves: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Nor does an OAuth access token, which its client refreshes.
-- **On record.** Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-oncall renewed itself; expires 2027-01-31"), and `beacon token list` shows each token's lifetime and last renewal.
-- **SSH sign-in is by key** and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
-
-A harness runs something like this once a day (cron, a systemd timer), with the token file read by the agent on every call:
-
-```bash
-#!/bin/sh
-# Renew the Beacon token in $TOKEN_FILE and swap the file atomically.
-set -eu
-TOKEN_FILE=${TOKEN_FILE:-/etc/beacon-oncall/beacon-token}
-BEACON=${BEACON:-https://status.example.com}
-resp=$(curl -sS -w '\n%{http_code}' -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BEACON/api/v1/token/renew")
-code=$(printf '%s\n' "$resp" | tail -n 1)
-case $code in
-  200) ;;
-  429) exit 0 ;;     # renewed less than a day ago: the token is still good
-  *) echo "renewing the Beacon token failed: HTTP $code" >&2; exit 1 ;;
-esac
-umask 077
-printf '%s\n' "$resp" | sed '$d' | jq -r .secret > "$TOKEN_FILE.tmp"
-mv -f "$TOKEN_FILE.tmp" "$TOKEN_FILE"     # readers see the old file or the new one, never half of either
-```
-
-Give the token a lifetime a few times longer than the interval the harness renews it at (`-expires 30d` for a daily renewal), so that a harness that is down for a while does not lose its token. When it does, the agent's owner makes a new one with **New token** on the agent's page. A token that is leaked keeps renewing itself until it is revoked (**Revoke** on the agent's page, or `beacon token revoke NAME`), which also closes at once what it has open on machines. The chat sees every renewal, and `token list` shows the last one.
+Rather than have someone hand a headless agent a long-lived token, and a new one when that expires, the token renews itself before it does: see [Headless agents and CI](../integrations/headless.md#tokens-that-renew-themselves).
 
 ## What Beacon does not do here
 

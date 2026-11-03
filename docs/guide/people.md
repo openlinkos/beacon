@@ -120,48 +120,11 @@ The console's **Agents** page lists your agents; an owner sees everyone's. Each 
 
 ## Connect Claude Code
 
-An interactive client signs in through the browser, with MCP's OAuth: you add Beacon's `/mcp` without a token, sign in from the client, and allow it on Beacon's consent page. On the workstation where Claude Code runs:
-
-```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp
-```
-
-Then run `/mcp` in Claude Code, choose `beacon` and authenticate; or, from the shell, `claude mcp login beacon`. The browser opens Beacon's consent page, **Claude Code wants to use Beacon as you**, after you sign in to the console if you were not signed in. It asks four things:
-
-- **Agent name**: `claude-code`, or your existing agent for Claude Code. The same name later reuses that agent. Another person's agent's name is refused, so when someone else already has a `claude-code`, the form offers `claude-code-alice`.
-- **What it may do**: the presets within your role, the strongest chosen, or the strongest the client asked for; for an agent you reuse, none stronger than the agent's own. You may choose less.
-- **Machines**: all of them, or only the ones you tick; for an agent you reuse, only among its own.
-- **For how long**: 1 day, 30 days or 90 days; 30 by default.
-
-The foot of the page says where Beacon sends you back to: a `localhost` port on your machine, where Claude Code is listening. **Allow** makes the agent, or reuses yours as it is, and sends Claude Code a one-time code, which it exchanges for its tokens; `/mcp` then shows `beacon` connected. **Deny** tells Claude Code you said no. Both are in the audit log (`oauth_allow`, `oauth_deny`), and allowing is echoed to the chat.
-
-From then on Claude Code holds an access token valid for an hour and a refresh token valid for as long as you allowed, and refreshes by itself; when the time you allowed is up, it asks you to sign in again. No token is copied, stored by hand or pasted into a chat.
-
-- **No browser at hand**, as over ssh: `claude mcp login beacon --no-browser`, in an interactive terminal, prints the address to open elsewhere and asks for the address you are sent back to, pasted in.
-- **Signing out**: `claude mcp logout beacon` ends the sign-in on Beacon's side too. `claude mcp remove beacon` alone forgets Claude Code's tokens without revoking them, so log out first, or revoke the sign-in on the agent's page.
-- **A header wins**: a server added with `--header "Authorization: Bearer …"` uses that token and never signs in with OAuth.
-
-Claude Code names itself with its client ID metadata document, `https://claude.ai/oauth/claude-code-client-metadata`, which Beacon fetches, so it registers nothing; it listens for the answer on `http://localhost:<port>/callback`.
+Claude Code signs in through the browser, with MCP's OAuth, and reaches machines with its own ssh, scp and rsync as well as Beacon's tools: see [Claude Code](../integrations/claude-code.md).
 
 ## Connect Codex
 
-```bash
-codex mcp add beacon --url https://status.example.com/mcp
-codex mcp login beacon
-```
-
-The browser opens the same consent page, and the agent is named after the client unless you name it otherwise. Codex names itself with its own client ID metadata document (`https://chatgpt.com/oauth/codex/client.json`), so it registers nothing either; it listens on `http://127.0.0.1:<port>/callback`. A client without a metadata document registers itself first (dynamic client registration), then signs in the same way.
-
-### Without the internet
-
-Beacon fetches the metadata documents of Claude Code and Codex from the internet (`https://claude.ai/…`, `https://chatgpt.com/…`). A Beacon that cannot reach the internet turns that off in `config.yaml`, and restarts:
-
-```yaml
-oauth:
-  client_id_documents: false     # true by default
-```
-
-Its metadata then says `client_id_metadata_document_supported: false`, it refuses a `client_id` that is a URL, and the clients register themselves instead (`codex mcp login beacon --oauth-client-registration dcr` makes Codex do so).
+Codex signs in the same way, and a Beacon without the internet can take both: see [Codex](../integrations/codex.md).
 
 ## What a sign-in may do
 
@@ -171,34 +134,7 @@ The agent's page lists each sign-in under **OAuth sign-ins**: the client, what i
 
 ## Headless agents and CI
 
-A program that runs alone, such as the agent `beacon-oncall` starts or a CI job, has no browser to sign in with: it gets a token. On the console, **Agents**, then **A headless agent or a CI job**: the name, the owner (for an owner), the preset, the machines, and how long its token lasts (30, 90 or 365 days; 365 by default). Or on the centre:
-
-```bash
-docker exec beacon beacon agent add ci-runner -owner alice -preset oncall -machines edge-1,edge-2 > ci-runner.token
-```
-
-The token alone goes to standard output, so `> ci-runner.token` keeps it in a file; the rest goes to standard error:
-
-```
-agent alice / ci-runner (oncall, may do status:read,sessions:read,alerts:write,machines:ssh) made; its token ci-runner expires 2027-11-02. The secret is shown only now:
-
-Claude Code:
-claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
-
-Codex:
-export BEACON_TOKEN=lbt_…
-codex mcp add beacon --url https://status.example.com/mcp --bearer-token-env-var BEACON_TOKEN
-
-curl:
-curl -H "Authorization: Bearer lbt_…" https://status.example.com/api/v1/token
-```
-
-The console shows the token once, with the same commands ready to paste. Beacon keeps only its SHA-256.
-
-- `-preset` is the strongest the owner's role allows when left out; `-expires` is `365d` when left out, at most two years.
-- `-ssh-key KEY`, or `-ssh-key @FILE` to read it from a file, gives the agent a key at once; the `~/.ssh/config` block for its own ssh then follows the commands.
-- The token renews itself before it expires ([Tokens that renew themselves](on-call.md#tokens-that-renew-themselves)), so nobody hands the agent a new one. When one is needed after all, **New token** on the agent's page makes it.
-- `beacon agent list` shows every agent with its owner, preset, what it may do now, machines, and how many tokens, OAuth sign-ins and keys it has; `beacon agent remove NAME` deletes one with all its credentials.
+A program that runs alone gets a token, made on the console's **Agents** page or with `beacon agent add`, and renews it by itself; `beacon-oncall` is the reference harness for the agent a hook wakes: see [Headless agents and CI](../integrations/headless.md).
 
 ## SSH keys
 
@@ -210,7 +146,7 @@ The SSH channel signs an agent in by its public key. An agent registers its own 
 | `list_ssh_keys` | `GET /api/v1/ssh-keys` | The agent's keys |
 | `remove_ssh_key` | `DELETE /api/v1/ssh-keys` | Remove one, by its fingerprint; connections signed in with it are closed |
 
-They take `machines:ssh`. Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`; `list_machines` then gives the `ssh_config` block for its own ssh ([The SSH channel](machines.md#connect-with-your-own-ssh-scp-and-rsync)).
+They take `machines:ssh`. Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`; `list_machines` then gives the `ssh_config` block for its own ssh ([Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)).
 
 - **A key the agent registers itself** belongs to the credential it came with, a token or an OAuth sign-in (`via`: `token:NAME` or `grant:ID`). It signs in only while that credential works, with what that credential may do, and it goes when the credential is revoked or the agent is deleted.
 - **A key the owner adds**, with **Add an SSH key** on the agent's page or `-ssh-key` on `beacon agent add`, stays with the agent, and signs in while the agent has a credential that has not expired.

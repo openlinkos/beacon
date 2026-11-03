@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2e22d0b9
+sourceHash: sha256-289d3faf
 ---
 
 # 成员和 Agent
@@ -124,48 +124,11 @@ Agent 能做的，是它的预设申请的、**并且**它的所有者的角色�
 
 ## 接入 Claude Code {#connect-claude-code}
 
-交互式客户端通过浏览器、用 MCP 的 OAuth 登录：你不带令牌添加 Beacon 的 `/mcp`，从客户端登录，再在 Beacon 的授权页面上允许它。在运行 Claude Code 的工作站上：
-
-```bash
-claude mcp add --scope user --transport http beacon https://status.example.com/mcp
-```
-
-然后在 Claude Code 里执行 `/mcp`，选中 `beacon` 完成认证；也可以在 shell 里执行 `claude mcp login beacon`。浏览器会打开 Beacon 的授权页面「Claude Code 想以你的身份使用 Beacon」，没登录控制台的话先登录。页面问四件事：
-
-- **Agent 名称**：`claude-code`，或者你已有的那个 Claude Code 的 Agent。以后用同一个名字会沿用这个 Agent。别人 Agent 的名字会被拒绝，所以别人已经有一个 `claude-code` 时，表单给出的是 `claude-code-alice`。
-- **可以做什么**：你的角色范围内的预设，默认选最强的那个，或客户端申请的预设中最强的那个；沿用已有的 Agent 时，不会比这个 Agent 自己的预设更强。你可以选更弱的。
-- **机器**：全部，或只限你勾选的；沿用已有的 Agent 时，只能在它自己的机器里选。
-- **有效多久**：1 天、30 天或 90 天，默认 30 天。
-
-页面底部写着 Beacon 会把你送回哪里：你这台机器上 `localhost` 的一个端口，Claude Code 在那里等着。点**允许**，Beacon 创建这个 Agent，或原样沿用你已有的那个，并把一个一次性授权码交给 Claude Code，Claude Code 用它换取令牌；之后 `/mcp` 里会显示 `beacon` 已连接。点**拒绝**，Claude Code 会知道你不同意。两者都记入审计日志（`oauth_allow`、`oauth_deny`），允许还会回显到告警群。
-
-此后 Claude Code 手里有一个有效一小时的访问令牌，和一个在你允许的时长内有效的刷新令牌，它自己刷新；你允许的时间到了，它会请你重新登录。整个过程没有令牌要复制、手动保存或贴进聊天里。
-
-- **手边没有浏览器**，比如在 ssh 里：在交互式终端里执行 `claude mcp login beacon --no-browser`，它会打印要在别处打开的地址，再请你把被送回的地址粘贴回来。
-- **退出登录**：`claude mcp logout beacon` 也会在 Beacon 这边结束这次登录。只执行 `claude mcp remove beacon` 会丢掉 Claude Code 手里的令牌，却不吊销它们，所以先退出登录，或在 Agent 页面上吊销这次登录。
-- **请求头优先**：添加时带了 `--header "Authorization: Bearer …"` 的 server 会用那个令牌，不走 OAuth 登录。
-
-Claude Code 用它的客户端 ID 元数据文档 `https://claude.ai/oauth/claude-code-client-metadata` 表明身份，Beacon 会去取，所以它什么都不用注册；它在 `http://localhost:<port>/callback` 等待回答。
+Claude Code 通过浏览器、用 MCP 的 OAuth 登录，既能用 Beacon 的工具，也能用它自己的 ssh、scp 和 rsync 访问机器：见[接入 Claude Code](../integrations/claude-code.md)。
 
 ## 接入 Codex {#connect-codex}
 
-```bash
-codex mcp add beacon --url https://status.example.com/mcp
-codex mcp login beacon
-```
-
-浏览器打开的是同一个授权页面；除非你另起名字，Agent 以客户端的名字命名。Codex 用它自己的客户端 ID 元数据文档（`https://chatgpt.com/oauth/codex/client.json`）表明身份，所以它也什么都不用注册；它在 `http://127.0.0.1:<port>/callback` 等待回答。没有元数据文档的客户端先自己注册（动态客户端注册），然后以同样的方式登录。
-
-### 不连互联网时 {#without-the-internet}
-
-Claude Code 和 Codex 的元数据文档，Beacon 要从互联网上取（`https://claude.ai/…`、`https://chatgpt.com/…`）。访问不了互联网的 Beacon 在 `config.yaml` 里把它关掉，然后重启：
-
-```yaml
-oauth:
-  client_id_documents: false     # true by default
-```
-
-这样它的元数据会写明 `client_id_metadata_document_supported: false`，它拒绝 URL 形式的 `client_id`，客户端改为自己注册（`codex mcp login beacon --oauth-client-registration dcr` 让 Codex 这样做）。
+Codex 的登录方式相同，不连互联网的 Beacon 也能收下两者：见[接入 Codex](../integrations/codex.md)。
 
 ## 一次登录能做什么 {#what-a-sign-in-may-do}
 
@@ -175,34 +138,7 @@ Agent 页面的 **OAuth 登录**下列出每次登录：客户端、当初允许
 
 ## 无界面的 Agent 和 CI {#headless-agents-and-ci}
 
-独自运行的程序，比如 `beacon-oncall` 启动的 Agent 或一个 CI 任务，没有浏览器可以登录：它拿一个令牌。在控制台上，打开 **Agent**，再到**无界面的 Agent 或 CI 任务**：填名称、所有者（所有者才有这一项）、预设、机器，以及令牌的有效期（30、90 或 365 天，默认 365 天）。也可以在中心上：
-
-```bash
-docker exec beacon beacon agent add ci-runner -owner alice -preset oncall -machines edge-1,edge-2 > ci-runner.token
-```
-
-标准输出上只有令牌本身，所以 `> ci-runner.token` 把它存进文件；其余内容打印到标准错误：
-
-```
-agent alice / ci-runner (oncall, may do status:read,sessions:read,alerts:write,machines:ssh) made; its token ci-runner expires 2027-11-02. The secret is shown only now:
-
-Claude Code:
-claude mcp add --transport http beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
-
-Codex:
-export BEACON_TOKEN=lbt_…
-codex mcp add beacon --url https://status.example.com/mcp --bearer-token-env-var BEACON_TOKEN
-
-curl:
-curl -H "Authorization: Bearer lbt_…" https://status.example.com/api/v1/token
-```
-
-控制台上令牌也只显示一次，同样附上可直接粘贴的命令。Beacon 只保存它的 SHA-256。
-
-- 不写 `-preset` 时，取所有者角色允许的最强预设；不写 `-expires` 时为 `365d`，最长两年。
-- `-ssh-key KEY`，或用 `-ssh-key @FILE` 从文件读取，立即给 Agent 一把密钥；命令之后还会给出它自己的 ssh 用的 `~/.ssh/config` 片段。
-- 令牌会在到期前自行续期（[自行续期的令牌](on-call.md#tokens-that-renew-themselves)），所以不用有人再发新的。真要一个新的，在 Agent 页面上点**新令牌**。
-- `beacon agent list` 列出每个 Agent，带所有者、预设、现在能做什么、机器，以及它有几个令牌、几次 OAuth 登录、几把密钥；`beacon agent remove NAME` 连同全部凭据删除一个。
+独自运行的程序拿一个令牌，在控制台的 **Agent** 页面或用 `beacon agent add` 创建，令牌还会自行续期；被钩子唤醒的 Agent 用 `beacon-oncall` 这个参考接收程序：见[无头 Agent 与 CI](../integrations/headless.md)。
 
 ## SSH 密钥 {#ssh-keys}
 
@@ -214,7 +150,7 @@ SSH 通道凭公钥让 Agent 登录。Agent 用它已有的凭据，经 MCP 或 
 | `list_ssh_keys` | `GET /api/v1/ssh-keys` | 这个 Agent 的公钥 |
 | `remove_ssh_key` | `DELETE /api/v1/ssh-keys` | 按指纹移除一把；凭它登录的连接随即关闭 |
 
-它们需要 `machines:ssh`。对 Claude Code 说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`；之后 `list_machines` 会给出它自己的 ssh 用的 `ssh_config` 片段（[SSH 通道](machines.md#connect-with-your-own-ssh-scp-and-rsync)）。
+它们需要 `machines:ssh`。对 Claude Code 说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`；之后 `list_machines` 会给出它自己的 ssh 用的 `ssh_config` 片段（[接入 Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)）。
 
 - **Agent 自己登记的密钥**属于它登记时所用的凭据，一个令牌或一次 OAuth 登录（`via`：`token:NAME` 或 `grant:ID`）。只有那个凭据有效时它才能登录，能做的也以那个凭据为限；凭据被吊销或 Agent 被删除时，它随之移除。
 - **所有者添加的密钥**，在 Agent 页面上点**添加 SSH 密钥**，或在 `beacon agent add` 时用 `-ssh-key`，留在 Agent 上，只要 Agent 还有未过期的凭据就能登录。
