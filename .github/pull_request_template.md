@@ -1,6 +1,6 @@
 ## What and why
 
-<!-- Which goal in docs/goals.md this serves, what it changes, and the problem it solves. Link related issues. -->
+<!-- Which goal in docs/about/goals.md this serves, what it changes, and the problem it solves. Link related issues. -->
 
 ## Checklist
 
