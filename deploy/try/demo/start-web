@@ -1,12 +1,12 @@
 #!/bin/sh
-# Starts the demo web server (busybox httpd, port 8080, the pages in /home/beacon/www) unless it runs
-# already, then shows what the probe asks for. This is the command an agent runs on the machine to
+# Starts the demo web server (busybox-extras httpd, port 8080, the pages in /home/beacon/www) unless it
+# runs already, then shows what the probe asks for. This is the command an agent runs on the machine to
 # repair the service after stop-web.
 set -eu
 if pgrep -f 'httpd -p 8080' >/dev/null 2>&1; then
   echo "the demo web server runs already"
 else
-  busybox httpd -p 8080 -h /home/beacon/www
+  busybox-extras httpd -p 8080 -h /home/beacon/www
   echo "the demo web server is started"
 fi
 exec wget -q -O - http://127.0.0.1:8080/healthz
