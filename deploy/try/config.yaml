@@ -1,7 +1,7 @@
 # Beacon's configuration for the try environment: one machine, no domain, no certificate, everything on
 # the loopback interface. Every field is explained in config.example.yaml at the repository's root; the
-# differences from deploy/config.yaml are the waits (shortened, so a broken service alerts within about a
-# minute and a half) and public_url, which is plain http on localhost — the console's cookie is Secure,
+# differences from deploy/config.yaml are the waits (shortened, so a broken service alerts within about
+# two minutes) and public_url, which is plain http on localhost — the console's cookie is Secure,
 # which localhost is allowed to carry, and MCP clients such as Claude Code accept a token endpoint on
 # localhost over http.
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-6d3be833
+sourceHash: sha256-83b5f761
 ---
 # 在本机试一试
 
@@ -89,7 +89,11 @@ demo-web 宕了。用 Beacon：取证据，通过 SSH 通道在机器上修复�
 - **Alerts** → *demo-web is down* 告警组：修复后片刻就恢复了，时间线上是 Agent 留下的备注。
 - **Sessions** → `demo` 上的会话：回放一条一条命令地展示整个过程。
 
-这些页面的截图和整个闭环的录像将会补充到本页。
+![修复后的告警组：带 Agent 备注的时间线、恢复的检测、动过这台机器的会话](/media/console-alert-light.png)
+
+![会话回放：Agent 跑了什么、返回了什么](/media/console-replay-light.png)
+
+一段这样的修复录像——Agent 会话的 asciicast，在 `/media/agent-repairs-demo-web.cast`——就是控制台回放逐条播放的东西。
 
 ## 清理 {#clean}
 

@@ -86,7 +86,11 @@ In the console at `http://localhost:17001/console`, signed in since step 2:
 - **Alerts** → the *demo-web is down* group: resolved a few moments after the repair, its timeline showing the agent's notes.
 - **Sessions** → the sessions on `demo`: the replay shows the work, command by command, as it happened.
 
-Screenshots of these pages and a recording of the loop are being added to this page.
+![The alert group after the repair: the timeline with the agent's notes, the probe recovered, the sessions that touched the machine](/media/console-alert-light.png)
+
+![The session's replay: what the agent ran, and what came back](/media/console-replay-light.png)
+
+The recording of a repair like this one — the agent's session as an asciicast at `/media/agent-repairs-demo-web.cast` — is what the console's replay plays, command by command.
 
 ## Clean up {#clean}
 
