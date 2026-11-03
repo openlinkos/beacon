@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-66e59e6b
+sourceHash: sha256-2e22d0b9
 ---
 
 # 成员和 Agent
 
-这一页写给 Beacon 的所有者。读完之后：团队里每个人都用自己的账号登录，角色决定他能做什么；每个人的 Agent 代表这个人行事，能做的事绝不超出这个人的角色；Claude Code 和 Codex 通过浏览器登录，谁都不用复制令牌；无界面的 Agent 或 CI 任务拿一个会自行续期的令牌。第一个账号你已经在[30 分钟装好](install.md#4-the-first-agent)的第 4 步建好了，这一页从那里接着讲。
+这一页写给 Beacon 的所有者。读完之后：团队里每个人都用自己的账号登录，角色决定他能做什么；每个人的 Agent 代表这个人行事，能做的事绝不超出这个人的角色；Claude Code 和 Codex 通过浏览器登录，谁都不用复制令牌；无界面的 Agent 或 CI 任务拿一个会自行续期的令牌。第一个账号你已经在[30 分钟装好](../self-hosting/install.md#4-the-first-agent)的第 4 步建好了，这一页从那里接着讲。
 
 下面的内容建立在两个想法上。**人有角色，Agent 有预设**，所以谁都不用一个个敲作用域。**一切都记在某个人名下**：审计日志、告警群和会话记录里，Alice 在控制台做的事记为 `alice`，她的 Agent 做的事记为 `alice / claude-code`。人只能用 Beacon 自己的账号登录：不经 GitHub、飞书、OIDC、LDAP 或其他任何地方。
 
@@ -19,7 +19,7 @@ sourceHash: sha256-66e59e6b
 | 运维 | 还能添加和移除机器、暂停 Agent、安排维护 | + `maintenance:write`、`incidents:write`、`machines:write` |
 | 所有者 | 还能修改配置、邀请成员、设置角色、管理所有 Agent | + `config:write`、`accounts:write` |
 
-控制台、命令行和 API 说的都是角色；作用域留在底下，[REST API](reference/api.md#scopes) 里列着它们。角色在每次请求时重新读取，所以改动对这个人和他的 Agent 都立即生效。Beacon 始终保留至少一个启用的所有者，会让它一个都不剩的改动一律拒绝。
+控制台、命令行和 API 说的都是角色；作用域留在底下，[REST API](../reference/api.md#scopes) 里列着它们。角色在每次请求时重新读取，所以改动对这个人和他的 Agent 都立即生效。Beacon 始终保留至少一个启用的所有者，会让它一个都不剩的改动一律拒绝。
 
 ## 第一位所有者 {#the-first-owner}
 
@@ -63,7 +63,7 @@ https://status.example.com/console/join?code=…
 
 ## 登录 {#sign-in}
 
-`/console/sign-in` 要用户名和密码。没登录的人打开控制台的任何页面都会被带到这里，登录后再回到原来那一页。一次登录有效 12 小时；cookie 的细节和表单上每条提示的含义见[控制台](pages.md#signing-in)。
+`/console/sign-in` 要用户名和密码。没登录的人打开控制台的任何页面都会被带到这里，登录后再回到原来那一页。一次登录有效 12 小时；cookie 的细节和表单上每条提示的含义见[控制台](console.md#signing-in)。
 
 - 同一地址 10 分钟内登录失败 20 次，这个地址在这 10 分钟剩下的时间里都会被拒绝，和 API 的令牌一样。同一用户名 10 分钟内密码错 10 次，不论来自哪里，这个用户名在剩下的时间里都会被拒绝，连正确的密码也不例外。
 - 用户名错和密码错得到同样的回答，「用户名或密码不对。」，耗时也一样。
@@ -201,7 +201,7 @@ curl -H "Authorization: Bearer lbt_…" https://status.example.com/api/v1/token
 
 - 不写 `-preset` 时，取所有者角色允许的最强预设；不写 `-expires` 时为 `365d`，最长两年。
 - `-ssh-key KEY`，或用 `-ssh-key @FILE` 从文件读取，立即给 Agent 一把密钥；命令之后还会给出它自己的 ssh 用的 `~/.ssh/config` 片段。
-- 令牌会在到期前自行续期（[自行续期的令牌](agents.md#tokens-that-renew-themselves)），所以不用有人再发新的。真要一个新的，在 Agent 页面上点**新令牌**。
+- 令牌会在到期前自行续期（[自行续期的令牌](on-call.md#tokens-that-renew-themselves)），所以不用有人再发新的。真要一个新的，在 Agent 页面上点**新令牌**。
 - `beacon agent list` 列出每个 Agent，带所有者、预设、现在能做什么、机器，以及它有几个令牌、几次 OAuth 登录、几把密钥；`beacon agent remove NAME` 连同全部凭据删除一个。
 
 ## SSH 密钥 {#ssh-keys}
@@ -214,7 +214,7 @@ SSH 通道凭公钥让 Agent 登录。Agent 用它已有的凭据，经 MCP 或 
 | `list_ssh_keys` | `GET /api/v1/ssh-keys` | 这个 Agent 的公钥 |
 | `remove_ssh_key` | `DELETE /api/v1/ssh-keys` | 按指纹移除一把；凭它登录的连接随即关闭 |
 
-它们需要 `machines:ssh`。对 Claude Code 说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`；之后 `list_machines` 会给出它自己的 ssh 用的 `ssh_config` 片段（[SSH 通道](ssh.md#connect-with-your-own-ssh-scp-and-rsync)）。
+它们需要 `machines:ssh`。对 Claude Code 说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`；之后 `list_machines` 会给出它自己的 ssh 用的 `ssh_config` 片段（[SSH 通道](machines.md#connect-with-your-own-ssh-scp-and-rsync)）。
 
 - **Agent 自己登记的密钥**属于它登记时所用的凭据，一个令牌或一次 OAuth 登录（`via`：`token:NAME` 或 `grant:ID`）。只有那个凭据有效时它才能登录，能做的也以那个凭据为限；凭据被吊销或 Agent 被删除时，它随之移除。
 - **所有者添加的密钥**，在 Agent 页面上点**添加 SSH 密钥**，或在 `beacon agent add` 时用 `-ssh-key`，留在 Agent 上，只要 Agent 还有未过期的凭据就能登录。
@@ -231,7 +231,7 @@ SSH 通道凭公钥让 Agent 登录。Agent 用它已有的凭据，经 MCP 或 
 - 停用它的所有者，或把所有者降到值班以下；
 - 移除会话登录时用的那把密钥。
 
-Beacon 还会每分钟检查一次，处理这期间过期的凭据。要一下子停下所有 Agent，就暂停通道（[暂停](ssh.md#pausing)）。
+Beacon 还会每分钟检查一次，处理这期间过期的凭据。要一下子停下所有 Agent，就暂停通道（[暂停](machines.md#pausing)）。
 
 ## 审计日志怎么称呼 {#who-the-audit-log-names}
 
@@ -284,7 +284,7 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 | `beacon agent list`、`beacon agent remove NAME` | 列出 Agent；连同凭据删除一个 |
 | `beacon token claim NAME -owner USER [-agent NAME] [-preset P]` | 把旧令牌归为某个 Agent 的 |
 
-`ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`；预设是 `readonly`、`oncall` 或 `operator`。`beacon token create` 仍然保留，给机器的令牌和熟手用。同样的操作也在 REST API 的 `/api/v1/users` 和 `/api/v1/ssh-keys` 下，以及 MCP 工具 `list_users` 和 `invite_user`（[REST API](reference/api.md#people-and-ssh-keys)、[MCP 工具](reference/mcp.md#people-and-ssh-keys)）。它们需要 `accounts:write`，而没有哪个预设给它：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。修改角色、停用成员和重设密码都不经 MCP 提供。
+`ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`；预设是 `readonly`、`oncall` 或 `operator`。`beacon token create` 仍然保留，给机器的令牌和熟手用。同样的操作也在 REST API 的 `/api/v1/users` 和 `/api/v1/ssh-keys` 下，以及 MCP 工具 `list_users` 和 `invite_user`（[REST API](../reference/api.md#people-and-ssh-keys)、[MCP 工具](../reference/mcp.md#people-and-ssh-keys)）。它们需要 `accounts:write`，而没有哪个预设给它：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。修改角色、停用成员和重设密码都不经 MCP 提供。
 
 ## 安全 {#security}
 

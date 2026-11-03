@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f863fd69
+sourceHash: sha256-a6fad347
 ---
 
 # 状态页
@@ -10,7 +10,7 @@ sourceHash: sha256-f863fd69
 
 ## 你已经有的状态页 {#the-page-you-already-have}
 
-参考部署自带一个状态页，定义在 `deploy/catalog/status_pages.yaml`：名字是 `status`，是默认状态页，标题「Example Status」，有两个组件：**Website**（服务 `example.com`）和 **Status and alerts**（`beacon`，也就是 Beacon 自己的状态域名）。按[30 分钟装好](install.md)装完后打开 `https://status.example.com/`：第一个检测点上报之前，页面显示 **No data yet**（中文页面上是「暂无数据」）；有了第一批结果，一两分钟后各组件显示各自的状态，两个都正常时整页显示 **All systems operational**（「所有服务运行正常」）。
+参考部署自带一个状态页，定义在 `deploy/catalog/status_pages.yaml`：名字是 `status`，是默认状态页，标题「Example Status」，有两个组件：**Website**（服务 `example.com`）和 **Status and alerts**（`beacon`，也就是 Beacon 自己的状态域名）。按[30 分钟装好](../self-hosting/install.md)装完后打开 `https://status.example.com/`：第一个检测点上报之前，页面显示 **No data yet**（中文页面上是「暂无数据」）；有了第一批结果，一两分钟后各组件显示各自的状态，两个都正常时整页显示 **All systems operational**（「所有服务运行正常」）。
 
 一个状态页从上到下显示：
 
@@ -26,7 +26,7 @@ sourceHash: sha256-f863fd69
 
 ## 定义自己的状态页 {#define-your-own-page}
 
-状态页是目录的一部分，写在 `status_pages` 下，和检测点、心跳、到期资源并列（[检测什么，从哪里检测](catalog.md)）。和它们一样，状态页在第一次启动时和执行 `beacon config import` 时从目录文件导入，通过 API、MCP 和命令行修改，和其余配置一起校验，每次修改都是历史里一个可以撤销的版本：
+状态页是目录的一部分，写在 `status_pages` 下，和检测点、心跳、到期资源并列（[检测什么，从哪里检测](monitoring.md)）。和它们一样，状态页在第一次启动时和执行 `beacon config import` 时从目录文件导入，通过 API、MCP 和命令行修改，和其余配置一起校验，每次修改都是历史里一个可以撤销的版本：
 
 ```yaml
 status_pages:
@@ -75,7 +75,7 @@ MCP 工具是 `get_config`、`put_config` 和 `delete_config`，`kind` 用 `stat
 
 ### 组件与标签 {#components-and-labels}
 
-组件背后是某些服务的检测目标。`services` 用检测目标的 `service` 标签指定服务，每个检测目标都有这个标签（[检测目标](catalog.md#targets)）。`page` 用检测目标上的另一个标签来指定：`page: mirrors` 的组件，背后是所有带 `page: mirrors` 标签的检测目标所属的服务，所以在检测目标里加一个镜像，状态页上也就有了它。带 `visibility: internal` 标签的检测目标，不会通过 `page` 进入任何组件。
+组件背后是某些服务的检测目标。`services` 用检测目标的 `service` 标签指定服务，每个检测目标都有这个标签（[检测目标](monitoring.md#targets)）。`page` 用检测目标上的另一个标签来指定：`page: mirrors` 的组件，背后是所有带 `page: mirrors` 标签的检测目标所属的服务，所以在检测目标里加一个镜像，状态页上也就有了它。带 `visibility: internal` 标签的检测目标，不会通过 `page` 进入任何组件。
 
 组件里的服务还没有任何检测目标时，照样接受，但会给出警告（在这次修改的 `warnings` 里，`check-config` 也会列出），比如 `status page "public": component "website" names service "www.example.com", which no probe target has; it shows no data until one does`：检测目标常常比展示它的状态页加得晚。在有检测目标之前，这个组件显示无数据。
 
@@ -93,7 +93,7 @@ MCP 工具是 `get_config`、`put_config` 和 `delete_config`，`kind` 用 `stat
 
 所以，只要还有关于某个服务的告警在触发，状态页就不会说它正常；检测点一致认定的故障，状态页会比告警早一两分钟显示出来，因为告警还要再等一分钟确认。由几个服务组成的组件，取其中最坏的状态。
 
-**无数据**是指没有任何上报：最近几分钟里，这个组件的服务没有收到任何检测结果。常见原因有三个：没有检测目标带这个服务名；组件的 `page` 标签只出现在内部检测目标上；检测点连不上网关。[常见问题](troubleshooting.md#a-status-page-shows-no-data)里逐一讲了怎么排查。
+**无数据**是指没有任何上报：最近几分钟里，这个组件的服务没有收到任何检测结果。常见原因有三个：没有检测目标带这个服务名；组件的 `page` 标签只出现在内部检测目标上；检测点连不上网关。[常见问题](../self-hosting/troubleshooting.md#a-status-page-shows-no-data)里逐一讲了怎么排查。
 
 ## 历史 {#history}
 
@@ -182,7 +182,7 @@ branding:
   powered_by: false           # 公开页面上不显示「由开源的 Beacon 驱动」（默认 true）
 ```
 
-`powered_by` 只管公开页面；控制台总是显示 Beacon 的版本和项目的链接（[控制台](pages.md)）。
+`powered_by` 只管公开页面；控制台总是显示 Beacon 的版本和项目的链接（[控制台](console.md)）。
 
 一个状态页都没有时，`/` 是同样设计的一个小页面：这套部署的标题（`branding.title`）、一句话说明 Beacon 是什么、**登录**，以及页脚那一行。
 

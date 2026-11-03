@@ -62,7 +62,7 @@ systemctl reload ssh
 
 ## Give an agent access
 
-An agent reaches machines when its preset is On call or Operator, which give `machines:ssh`, and its owner's role allows it ([People and their agents](accounts.md)). For its own ssh, Beacon also needs the agent's public key, from the machine where the agent runs.
+An agent reaches machines when its preset is On call or Operator, which give `machines:ssh`, and its owner's role allows it ([People and their agents](people.md)). For its own ssh, Beacon also needs the agent's public key, from the machine where the agent runs.
 
 An interactive agent such as Claude Code, signed in with OAuth, registers its own key: ask it to *"register my SSH key ~/.ssh/id_ed25519.pub with Beacon"*, and it calls `add_ssh_key`. It reaches the machines you allowed when it signed in. A headless agent is made with its key, on the console's **Agents** page or on the centre:
 
@@ -89,7 +89,7 @@ Host edge-1
 
 Then `ssh edge-1 'systemctl status relay'`, `scp`, `sftp`, `rsync -e ssh` and `ssh -L` work as usual. The user name tells Beacon which machine; on the machine, the session runs as `beacon`. `HostKeyAlias beacon` makes ssh check Beacon's own host key, the same for every machine; Beacon checks each machine's pinned key itself.
 
-When the channel refuses, the agent's ssh prints why and exits with 1, such as `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`. [Troubleshooting](troubleshooting.md#the-agent-cannot-reach-a-machine) lists the messages and what to do about each.
+When the channel refuses, the agent's ssh prints why and exits with 1, such as `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`. [Troubleshooting](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists the messages and what to do about each.
 
 ## The MCP tools
 
@@ -105,7 +105,7 @@ An agent without a shell, or one that prefers structured results, uses Beacon's 
 | `list_sessions`, `get_session` | Who did what where; a session's transcript |
 | `add_machine`, `set_machine_connector`, `remove_machine`, `pause_ssh`, `resume_ssh` | With `machines:write` |
 
-Each tool call is a session of its own, recorded like any other. The REST API has the same operations under `/api/v1/machines`, `/api/v1/sessions` and `/api/v1/ssh`; [MCP tools](reference/mcp.md) has every parameter.
+Each tool call is a session of its own, recorded like any other. The REST API has the same operations under `/api/v1/machines`, `/api/v1/sessions` and `/api/v1/ssh`; [MCP tools](../reference/mcp.md) has every parameter.
 
 ## What is recorded
 
@@ -122,7 +122,7 @@ Every session: a command, an interactive shell, a file transfer, a forwarded por
 
 `beacon ssh pause` (or `pause_ssh`, `POST /api/v1/ssh/pause`, or the switch on the console's Machines page) closes every open session at once and refuses new ones until `ssh resume`. `ssh status` says which: `agents' access to machines is paused since …`. While paused, an agent's ssh gets `beacon: agents' access to machines is paused since …; a person resumes it with beacon ssh resume`.
 
-To stop one agent rather than all, revoke its credentials or delete it on its page in the console, or revoke a token with `beacon token revoke NAME` (on the console's **Tokens** page, `machines:write` revokes any token that reaches machines). What the agent has open on machines closes at once, and its new connections and tool calls are refused. [Stop an agent](accounts.md#stop-an-agent) lists what else does the same: disabling or demoting its owner, narrowing its machines or its preset, removing a key.
+To stop one agent rather than all, revoke its credentials or delete it on its page in the console, or revoke a token with `beacon token revoke NAME` (on the console's **Tokens** page, `machines:write` revokes any token that reaches machines). What the agent has open on machines closes at once, and its new connections and tool calls are refused. [Stop an agent](people.md#stop-an-agent) lists what else does the same: disabling or demoting its owner, narrowing its machines or its preset, removing a key.
 
 ## Machines behind NAT
 

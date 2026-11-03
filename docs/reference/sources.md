@@ -1,6 +1,6 @@
 # Sources
 
-Beacon judges with what is sent to it. This page lists each source: who sends, where to, with which token and in what format. Machines and tools send to the gateway on port 17006, each with a token of its own, so that nothing can speak for anything else; people and agents use port 17001. The routes are listed in the [REST API](reference/api.md#the-gateway) reference.
+Beacon judges with what is sent to it. This page lists each source: who sends, where to, with which token and in what format. Machines and tools send to the gateway on port 17006, each with a token of its own, so that nothing can speak for anything else; people and agents use port 17001. The routes are listed in the [REST API](api.md#the-gateway) reference.
 
 | Source | Route | Token | Format |
 | --- | --- | --- | --- |
@@ -15,7 +15,7 @@ Beacon judges with what is sent to it. This page lists each source: who sends, w
 
 ## Probes
 
-`beacon-probe agent` runs at each probe location with a token from `beacon enroll probe <location>`. Every minute it fetches what to do from the gateway (`GET /api/v1/targets`, `GET /api/v1/modules` and `GET /api/v1/agent`, the location's settings), probes, and pushes the results in the Prometheus text format, gzipped, keeping a queue on disk for when the network is down. It keeps one long-poll open beside its cycle for [probing on demand](agents.md#probe-again-now).
+`beacon-probe agent` runs at each probe location with a token from `beacon enroll probe <location>`. Every minute it fetches what to do from the gateway (`GET /api/v1/targets`, `GET /api/v1/modules` and `GET /api/v1/agent`, the location's settings), probes, and pushes the results in the Prometheus text format, gzipped, keeping a queue on disk for when the network is down. It keeps one long-poll open beside its cycle for [probing on demand](../guide/on-call.md#probe-again-now).
 
 The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself; a location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`. The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …), with `probe_failure_info{reason}` for why a check failed and `beacon_probe_attempts` for how many tries it took. A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
 
@@ -35,7 +35,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
   https://metrics.example.com/api/v1/import/prometheus
 ```
 
-On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalog.md#heartbeats)).
+On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](../guide/monitoring.md#heartbeats)).
 
 ## The rule engine
 
@@ -49,12 +49,12 @@ Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service
 
 ## Change events
 
-Deployments and configuration changes reach Beacon as change events, so the evidence for an alert says what changed just before it. A CI job or a script posts Beacon's own JSON event to `POST /api/v1/changes`; Flux's notification-controller posts its events through a Provider of type `generic` to `POST /api/v1/changes/flux`. Both need a `changes:write` token, at most 60 events a minute. The fields and the Flux setup are in [Change events](agents.md#change-events). Change events never page anyone.
+Deployments and configuration changes reach Beacon as change events, so the evidence for an alert says what changed just before it. A CI job or a script posts Beacon's own JSON event to `POST /api/v1/changes`; Flux's notification-controller posts its events through a Provider of type `generic` to `POST /api/v1/changes/flux`. Both need a `changes:write` token, at most 60 events a minute. The fields and the Flux setup are in [Change events](../guide/on-call.md#change-events). Change events never page anyone.
 
 ## The chat
 
-People act on the cards in the alert chat: acknowledge with a note, silence for 1, 4 or 24 hours. Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`), or by `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), verified with the app's token. Only the people listed in `feishu.on_call` may act. An emergency notification acknowledged in Pushover acknowledges the alert in Beacon too: Beacon follows the notification's receipt. [Set up the Feishu app](feishu.md) has the app's side.
+People act on the cards in the alert chat: acknowledge with a note, silence for 1, 4 or 24 hours. Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`), or by `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), verified with the app's token. Only the people listed in `feishu.on_call` may act. An emergency notification acknowledged in Pushover acknowledges the alert in Beacon too: Beacon follows the notification's receipt. [Set up the Feishu app](../integrations/feishu.md) has the app's side.
 
 ## People and agents
 
-Notes, acknowledgements, silences, configuration changes and sessions on machines come in through the REST API, MCP and the SSH channel, each with the token of whoever acts. Every write is in the audit log and echoed to the alert chat. See the [REST API](reference/api.md), the [MCP tools](reference/mcp.md) and [The SSH channel](ssh.md).
+Notes, acknowledgements, silences, configuration changes and sessions on machines come in through the REST API, MCP and the SSH channel, each with the token of whoever acts. Every write is in the audit log and echoed to the alert chat. See the [REST API](api.md), the [MCP tools](mcp.md) and [The SSH channel](../guide/machines.md).

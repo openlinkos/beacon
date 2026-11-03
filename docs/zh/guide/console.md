@@ -1,16 +1,16 @@
 ---
-sourceHash: sha256-642caa71
+sourceHash: sha256-a5dc59b6
 ---
 
 # 控制台
 
-控制台是团队里的人查看 Beacon 和 Agent 在做什么的地方：哪些告警在触发、每条告警已经做了什么，Agent 在机器上开过的每一次会话及其回放，成员和他们的 Agent（连同令牌、OAuth 登录和密钥），配置及其历史，还有让 Agent 立即停止访问机器的开关。它给值班的人和对机器负责的人用；Agent 自己用的是 [API](reference/api.md) 和 [MCP 工具](reference/mcp.md)。告警卡片上的链接不用登录就能打开这条告警的页面；登录后能看到其余一切。
+控制台是团队里的人查看 Beacon 和 Agent 在做什么的地方：哪些告警在触发、每条告警已经做了什么，Agent 在机器上开过的每一次会话及其回放，成员和他们的 Agent（连同令牌、OAuth 登录和密钥），配置及其历史，还有让 Agent 立即停止访问机器的开关。它给值班的人和对机器负责的人用；Agent 自己用的是 [API](../reference/api.md) 和 [MCP 工具](../reference/mcp.md)。告警卡片上的链接不用登录就能打开这条告警的页面；登录后能看到其余一切。
 
-控制台由 Beacon 自己提供，在 17001 端口的 `/console`，和 API、MCP 在一起，地址在 `public_url` 下。站点根路径 `/` 是公开的：放默认的[状态页](status.md)；没有状态页时，是一个写明这套部署名称的页面。
+控制台由 Beacon 自己提供，在 17001 端口的 `/console`，和 API、MCP 在一起，地址在 `public_url` 下。站点根路径 `/` 是公开的：放默认的[状态页](status-pages.md)；没有状态页时，是一个写明这套部署名称的页面。
 
 ## 登录 {#signing-in}
 
-每个人用自己的 Beacon 账号登录，控制台显示什么、允许做什么，都由他的角色决定（[成员和 Agent](accounts.md)）。第一个账号是所有者，来自 Beacon 写进日志的一次性初始化链接（[30 分钟装好](install.md#4-the-first-agent)第 4 步）；其他人都凭邀请加入。
+每个人用自己的 Beacon 账号登录，控制台显示什么、允许做什么，都由他的角色决定（[成员和 Agent](people.md)）。第一个账号是所有者，来自 Beacon 写进日志的一次性初始化链接（[30 分钟装好](../self-hosting/install.md#4-the-first-agent)第 4 步）；其他人都凭邀请加入。
 
 打开 `https://status.example.com/console`，会先跳到 `/console/sign-in`，输入用户名和密码后，再回到你要的页面。`/` 上的公开页面在页头右侧有**登录**（登录后显示**控制台**）；放在独立域名上的状态页两者都没有，因为控制台不在那个域名上应答。
 
@@ -18,7 +18,7 @@ sourceHash: sha256-642caa71
 
 | 提示 | 怎么办 |
 | --- | --- |
-| 「用户名或密码不对。」 | 两个都检查一遍。用户名不存在时也是这句话，所以它不会泄露任何信息。忘了密码，找所有者要一个重设链接（[密码](accounts.md#passwords)） |
+| 「用户名或密码不对。」 | 两个都检查一遍。用户名不存在时也是这句话，所以它不会泄露任何信息。忘了密码，找所有者要一个重设链接（[密码](people.md#passwords)） |
 | 「这个账号已停用；所有者可以重新启用。」 | 找所有者：在**成员**页面上，或用 `beacon user enable NAME` |
 | 「登录失败的次数太多，请过几分钟再试。」 | 同一个用户名 10 分钟内密码错 10 次，不论来自哪里，这个用户名在这 10 分钟剩下的时间里都会被拒绝 |
 | 「这里登录失败的次数太多，请过几分钟再试。」 | 同一个客户端地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拒绝，和 API 的规则一样 |
@@ -53,8 +53,8 @@ sourceHash: sha256-642caa71
 | `/console/hooks` | 配置的 Agent Hook（只显示地址的主机名，不显示路径和查询参数）和发出的每次调用：Hook、事件、状态、HTTP 状态码、尝试次数、时间、对应的告警 | `status:read` |
 | `/console/people` | 成员：角色、最近登录、Agent、是否启用；邀请成员（链接只显示一次）、尚未使用的邀请、修改角色、停用和启用、重设密码链接 | `accounts:write`（所有者） |
 | `/console/account` | 你的账号，以及修改密码 | 已登录 |
-| `/console/setup`、`/console/join`、`/console/reset` | 一次性链接打开的页面：第一位所有者、邀请、设置新密码（[成员和 Agent](accounts.md)） | 链接里的代码 |
-| `/oauth/authorize` | MCP 客户端把人送去的授权页面（[接入 Claude Code](accounts.md#connect-claude-code)） | 用账号登录 |
+| `/console/setup`、`/console/join`、`/console/reset` | 一次性链接打开的页面：第一位所有者、邀请、设置新密码（[成员和 Agent](people.md)） | 链接里的代码 |
+| `/oauth/authorize` | MCP 客户端把人送去的授权页面（[接入 Claude Code](people.md#connect-claude-code)） | 用账号登录 |
 | `/console/audit` | 审计日志，可按操作者、操作和途径筛选，可搜索 | `status:read` |
 | `/console/changes` | 来自 CI、Flux 等的变更事件，可按来源、类型、服务和机器筛选 | `status:read` |
 
@@ -98,7 +98,7 @@ sourceHash: sha256-642caa71
 - **备注**、**变更**（告警前后的变更事件）、**标签**；
 - **时间线**：以上一切按时间排列，和 `get_timeline` 返回的一致。
 
-时间范围从告警开始前 30 分钟起，到现在为止；告警已恢复的，到恢复后 30 分钟为止，和[证据](agents.md#the-evidence)一致。
+时间范围从告警开始前 30 分钟起，到现在为止；告警已恢复的，到恢复后 30 分钟为止，和[证据](on-call.md#the-evidence)一致。
 
 ## 会话页面：`/console/sessions/{id}` {#the-sessions-page-consolesessionsid}
 
@@ -137,7 +137,7 @@ pages:
 - 基于 OpenLinkOS 设计系统 [`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui) 0.7.0，用它的工作台框架、布局和 Beacon 的品牌（`data-brand="beacon"`），和 Origin 的管理工作台一样，让同一系列的产品看起来是一家。样式表、图标和 Geist 字体放在 `internal/web/static/ol` 下，许可证和哈希写在那里的 `NOTICE` 里；`scripts/update-ui.sh` 从 npm 更新它们。
 - 所有屏幕共用一个页面：1200px 以上是完整侧栏，860px 起是图标栏，再窄是抽屉；手机宽度下列表改排成卡片，全由 CSS 完成。服务器从不过问屏幕多宽。
 - 除了 Beacon 自己，不从任何地方加载东西：样式表、字体、播放器的 JavaScript 和 CSS 都嵌在二进制里，图标是页面内的 sprite，唯一的脚本是播放器，没有内联脚本和内联样式。`Content-Security-Policy` 只允许来自 Beacon 的脚本、样式、字体、请求和表单（有 `'wasm-unsafe-eval'` 是因为播放器的终端是 WebAssembly）。页面标记为 `noindex`（`/robots.txt` 也不让搜索引擎进 `/console`），并且不发送 referrer，因为链接里带着签名。
-- Beacon 是开源软件，控制台也这样写明：每个页面的页脚都有 Beacon 的版本，以及文档（[beacon.openlinkos.com](https://beacon.openlinkos.com/zh/)，随控制台的语言）、[GitHub](https://github.com/openlinkos/beacon) 上的代码和[反馈问题](https://github.com/openlinkos/beacon/issues/new/choose)的链接；登录页也在表单下方写明。只有这几个链接会主动通往 Beacon 之外。`branding.powered_by`（[状态页](status.md#branding)）不影响它们。
+- Beacon 是开源软件，控制台也这样写明：每个页面的页脚都有 Beacon 的版本，以及文档（[beacon.openlinkos.com](https://beacon.openlinkos.com/zh/)，随控制台的语言）、[GitHub](https://github.com/openlinkos/beacon) 上的代码和[反馈问题](https://github.com/openlinkos/beacon/issues/new/choose)的链接；登录页也在表单下方写明。只有这几个链接会主动通往 Beacon 之外。`branding.powered_by`（[状态页](status-pages.md#branding)）不影响它们。
 - 来自 Beacon 之外的文字（告警注释、备注、命令、变更事件）先由桥清理，输出时再转义。
 - 控制台使用配置的 `language`，中文或英文，跟随系统的浅色或深色模式。
 

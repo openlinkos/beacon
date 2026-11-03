@@ -37,13 +37,13 @@ The location has no `probe_success` series in vmui, the console's overview count
 | In the log | Why | What to do |
 | --- | --- | --- |
 | `401`, `auth.invalid` | The token file is not the one `beacon enroll probe` printed, or it was replaced with `-rotate` | Enrol again with `-rotate` and run `probe/install.sh -token-file FILE` with the new token |
-| `403`, `location.inactive`, `location edge-2 is not in the catalogue` | The location's id is not in the catalogue, or was removed by an import of files that lack it | Add it to the catalogue and import, or put it through the API ([What is checked, and from where](catalog.md)) |
+| `403`, `location.inactive`, `location edge-2 is not in the catalogue` | The location's id is not in the catalogue, or was removed by an import of files that lack it | Add it to the catalogue and import, or put it through the API ([What is checked, and from where](../guide/monitoring.md)) |
 | `403`, `the machine of location edge-2 has expired` | A resource of kind `vps` with the location's name has a date in the past | Renew the resource with a new date |
 | `cannot fetch from the gateway; using the cached copy` with a connection error | The machine cannot reach `metrics.example.com` on 443 (or the gateway's own port) | Check DNS, the firewall and the address in `/etc/beacon-probe/agent.env` |
 
 Enrolling also checks the catalogue: `beacon enroll probe edge-2` fails with `location edge-2 is not in the catalogue` until it is there, and with `probe-edge-2 is enrolled already; enroll it with -rotate to replace its token` the second time.
 
-A location reports but one of your targets is missing from it: the target set's name decides who probes it. `all-…` is every location, `overseas-…` and `mainland-…` those of that region, `<location id>-…` that location only ([Targets](catalog.md#targets)). A probe picks up a change within a minute.
+A location reports but one of your targets is missing from it: the target set's name decides who probes it. `all-…` is every location, `overseas-…` and `mainland-…` those of that region, `<location id>-…` that location only ([Targets](../guide/monitoring.md#targets)). A probe picks up a change within a minute.
 
 If results arrive late or in bursts, check the probe machine's clock: results carry timestamps, and `probe/install.sh` warns when the clock is not synchronised with NTP.
 
@@ -76,7 +76,7 @@ For the drill, `curl -i https://status.example.com/drill/healthz` must answer `5
 
 The alert is in `list_alerts`, but no card, no message and no phone call came.
 
-- **No channel configured.** Without a `feishu:` section or `pushover:`, alerts are recorded and shown, and nothing else: the log says `alert recorded; no notification channel is configured`. [Set up the Feishu app](feishu.md), then restart Beacon.
+- **No channel configured.** Without a `feishu:` section or `pushover:`, alerts are recorded and shown, and nothing else: the log says `alert recorded; no notification channel is configured`. [Set up the Feishu app](../integrations/feishu.md), then restart Beacon.
 - **A channel failed.** The log says `feishu card failed; falling back` or `alert could not be delivered by any channel`, and `GET /api/v1/bridge` lists `the Feishu long connection is down`, `a Feishu API call failed in the last 10 minutes` or `the Feishu API budget for this month is used up`.
 - **It went to the custom bot.** `info` alerts go to the group's custom bot, as plain messages, not cards; so do warnings once the app has used 70% of `feishu.monthly_budget`.
 - **No phone call yet.** A critical alert reaches Pushover after 15 minutes without an acknowledgement, and buzzes the people on call in the Feishu app after 10. An acknowledgement stops both for `ack_ttl` (4 hours by default).
@@ -107,18 +107,18 @@ The agent's ssh fails, or a tool such as `run_command` returns an error. The cha
 | `… ssh: handshake failed: ssh: unable to authenticate …` (`machine.unreachable`) | The machine's sshd does not accept Beacon's certificate | Run the lines `machine add` printed: `/etc/ssh/beacon_ca.pub`, `TrustedUserCAKeys`, the `beacon` account, `systemctl reload ssh` |
 | `… ssh: handshake failed: ssh: host key mismatch` (`machine.unreachable`) | The machine's host key is not the one Beacon pinned, after a reinstall for instance | Check why it changed, then `beacon machine add NAME HOST -replace` |
 | `beacon: the machine's connector is not connected; …` (`machine.disconnected`) | A machine behind NAT is not connected to the channel | On the machine, `systemctl status beacon-connector`; `beacon machine list` shows `disconnected` |
-| `beacon: the SSH channel is not configured` (`ssh.disabled`) | `ssh.ca_key_file` is not set | [Turn it on](ssh.md#turn-it-on) |
+| `beacon: the SSH channel is not configured` (`ssh.disabled`) | `ssh.ca_key_file` is not set | [Turn it on](../guide/machines.md#turn-it-on) |
 
-Two more cases. When connections to one machine start failing for every agent at once after a run of failed attempts, OpenSSH's penalties (9.8 and later) may have caught the centre's address, from which every agent arrives: add `PerSourcePenaltyExemptList` with the centre's address to the machine's `beacon.conf` ([Add a machine](ssh.md#add-a-machine)). And after 20 failed sign-ins within 10 minutes from one address, the channel closes that address's connections without an answer for the rest of those 10 minutes.
+Two more cases. When connections to one machine start failing for every agent at once after a run of failed attempts, OpenSSH's penalties (9.8 and later) may have caught the centre's address, from which every agent arrives: add `PerSourcePenaltyExemptList` with the centre's address to the machine's `beacon.conf` ([Add a machine](../guide/machines.md#add-a-machine)). And after 20 failed sign-ins within 10 minutes from one address, the channel closes that address's connections without an answer for the rest of those 10 minutes.
 
 ### The agent's credential is refused
 
 The API or MCP answers 401 or 403, or the MCP client says it cannot connect, or asks to sign in again.
 
-- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped; or the agent was deleted, or its owner disabled. `beacon token list` shows each token's expiry and last renewal, and the agent's page its credentials. Make a new token with **New token** on the agent's page (`beacon token create` for a token of its own), and give the agent a way to renew it ([Tokens that renew themselves](agents.md#tokens-that-renew-themselves)).
+- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped; or the agent was deleted, or its owner disabled. `beacon token list` shows each token's expiry and last renewal, and the agent's page its credentials. Make a new token with **New token** on the agent's page (`beacon token create` for a token of its own), and give the agent a way to renew it ([Tokens that renew themselves](../guide/on-call.md#tokens-that-renew-themselves)).
 - **An OAuth client asks to sign in again.** Its sign-in was revoked, or the time allowed on the consent page is up: sign in again from the client (`/mcp` in Claude Code, `codex mcp login beacon`).
 - **A renewed token that the client no longer has.** A client registered with a fixed header, as `claude mcp add --header` does, keeps the old secret, which stops working ten minutes after a renewal: add it again with the new secret. The wrappers in `contrib/oncall` read the token file on every connection instead.
-- **`auth.scope`.** The route or tool needs a scope the credential does not have. The message names it: `the token lacks the … scope` for a token of its own, and for an agent what its preset within its owner's role allows. Change the agent's preset on its page, or ask an owner for a role that allows it ([Scopes](reference/api.md#scopes)).
+- **`auth.scope`.** The route or tool needs a scope the credential does not have. The message names it: `the token lacks the … scope` for a token of its own, and for an agent what its preset within its owner's role allows. Change the agent's preset on its page, or ask an owner for a role that allows it ([Scopes](../reference/api.md#scopes)).
 - **`auth.too_many_failures`.** 20 failed attempts from one address within 10 minutes block it for the rest of those 10 minutes; a client retrying with a wrong token causes it.
 - **`token.too_soon` (429) on a renewal.** The token renewed itself less than 24 hours ago and is still good.
 
@@ -139,7 +139,7 @@ The sign-in form at `/console/sign-in` says why:
 - `The form has expired; try again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
 - With a token instead: `The token is unknown or has expired.` (the token is mistyped, expired or revoked), or `Token NAME lacks status:read, which the console needs to show anything.` (make a token with `status:read`).
 
-Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](accounts.md#the-first-owner)). A setup, invitation or reset link that says `This link does not work: it was used already, it expired, or it is wrong.` needs a new one from an owner. [The console](pages.md#signing-in) has the details.
+Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](../guide/people.md#the-first-owner)). A setup, invitation or reset link that says `This link does not work: it was used already, it expired, or it is wrong.` needs a new one from an owner. [The console](../guide/console.md#signing-in) has the details.
 
 ### The console says 404 on an old link
 
@@ -151,7 +151,7 @@ A link from the chat, a card or an agent's note opens a page that says it was no
 - **It was opened on a status page's own host name.** Only the status page answers there; the console is at `public_url`.
 - **The database was replaced.** Links are signed with a key Beacon keeps in its database; a new database signs with a new key, and older links fail.
 
-Links from before 0.3.0, which name `/alerts/{id}` or `/sessions/{id}` at the site's root, still work until they expire: they are sent on (`308`) to the same page under `/console` ([Signed links](pages.md#signed-links)).
+Links from before 0.3.0, which name `/alerts/{id}` or `/sessions/{id}` at the site's root, still work until they expire: they are sent on (`308`) to the same page under `/console` ([Signed links](../guide/console.md#signed-links)).
 
 ### A status page shows no data
 
@@ -162,7 +162,7 @@ A component, or the whole page, says **No data yet**, and its bar has grey days.
 - **No location reports.** The probes are down, or cannot reach the gateway: see [A probe location shows no data](#a-probe-location-shows-no-data).
 - **VictoriaMetrics does not answer.** The log says `status pages: reading the probes failed`.
 
-Days before the probes started reporting stay grey; a past day is computed again until six hours after it ended, for results that probes queued while their path was down. [Status pages](status.md) has the rules.
+Days before the probes started reporting stay grey; a past day is computed again until six hours after it ended, for results that probes queued while their path was down. [Status pages](../guide/status-pages.md) has the rules.
 
 ## Configuration
 
@@ -178,4 +178,4 @@ You edited the catalogue or target files and the change is not in force.
 
 ### A change is refused with config.conflict or config.invalid
 
-`config.conflict` (409): the change was based on an older version (`if_version`) and a later one is in force, or a revert touches an item a later change touched. Read the item again (`GET /api/v1/config`, `get_config`) and decide afresh. `config.invalid` (422): the change would not pass the checks, and the message says which; nothing changed. A common one: a location cannot go while a target set is named after it alone. [What is checked, and from where](catalog.md) has the rules.
+`config.conflict` (409): the change was based on an older version (`if_version`) and a later one is in force, or a revert touches an item a later change touched. Read the item again (`GET /api/v1/config`, `get_config`) and decide afresh. `config.invalid` (422): the change would not pass the checks, and the message says which; nothing changed. A common one: a location cannot go while a target set is named after it alone. [What is checked, and from where](../guide/monitoring.md) has the rules.

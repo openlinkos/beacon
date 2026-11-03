@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-949c7776
+sourceHash: sha256-49969d65
 ---
 
 # 检测什么，从哪里检测
 
-这一页写给决定 Beacon 监控什么的人，也写给拿着相应令牌的 Agent。它说明哪些机器在检测、检测什么、怎么检测，哪些定时任务必须按时报到，哪些东西快到期了；然后说明怎样通过 Beacon 修改这些内容，又不会覆盖别人刚做的修改。示例以[30 分钟装好](install.md)里的参考部署为准，命令都通过 `docker exec beacon beacon …` 执行。
+这一页写给决定 Beacon 监控什么的人，也写给拿着相应令牌的 Agent。它说明哪些机器在检测、检测什么、怎么检测，哪些定时任务必须按时报到，哪些东西快到期了；然后说明怎样通过 Beacon 修改这些内容，又不会覆盖别人刚做的修改。示例以[30 分钟装好](../self-hosting/install.md)里的参考部署为准，命令都通过 `docker exec beacon beacon …` 执行。
 
 ## 整体关系 {#how-it-fits-together}
 
@@ -21,7 +21,7 @@ sourceHash: sha256-949c7776
 | 目录：检测点、心跳、到期资源 | `locations`、`heartbeats`、`resources` | `catalog/*.yaml`（配置项 `catalog_dir`） | Beacon：导出成指标给规则用，并据此给检测点写入的数据打标签 |
 | 检测目标，按目标集分组 | `targets` | `targets/*.yaml`，每个目标集一个文件（`gateway.targets_dir`） | 网关：给每个检测点发它自己的清单 |
 | 检测模块 | `modules` | `targets/modules.yml`（`gateway.modules_file`） | 网关：发给所有检测点 |
-| 公开状态页 | `status_pages` | `catalog/*.yaml`，写在 `status_pages` 下 | Beacon：提供这些页面（[状态页](status.md)） |
+| 公开状态页 | `status_pages` | `catalog/*.yaml`，写在 `status_pages` 下 | Beacon：提供这些页面（[状态页](status-pages.md)） |
 
 下面各节用 YAML 写出每一项的结构，和文件里一样；API 和 MCP 收发的是同样结构的 JSON。目录可以拆成多个文件，各文件里的列表会合并。
 
@@ -145,7 +145,7 @@ heartbeats:
     machine: nas-1            # 可选：任务所在的机器，用 SSH 通道里的名字
 ```
 
-只要任务跑在 [SSH 通道](ssh.md)能到达的机器上，就写上 `machine`。名字和 `beacon machine list`、`list_machines` 显示的一致。有了它，心跳超时才成为 Agent 能处理的事：这个心跳的告警，证据和时间线里会写明是哪台机器，并列出这台机器上的会话和变更，告警之前刚发生的也在内。被 `HeartbeatStale` 叫醒的 Agent 因此知道该去哪里看，比如能看到三分钟前停掉这个任务定时器的那次会话（[证据](agents.md#the-evidence)）。
+只要任务跑在 [SSH 通道](machines.md)能到达的机器上，就写上 `machine`。名字和 `beacon machine list`、`list_machines` 显示的一致。有了它，心跳超时才成为 Agent 能处理的事：这个心跳的告警，证据和时间线里会写明是哪台机器，并列出这台机器上的会话和变更，告警之前刚发生的也在内。被 `HeartbeatStale` 叫醒的 Agent 因此知道该去哪里看，比如能看到三分钟前停掉这个任务定时器的那次会话（[证据](on-call.md#the-evidence)）。
 
 通过 API、MCP 写入时，SSH 通道里没有的机器会被拒绝，返回 `config.invalid`，并说明怎么改；这个心跳原来就写着这台机器的除外。导入和撤销则照样接受，因为文件常常在机器登记之前就导入了；这时会在这次修改的 `warnings`、日志和 `config import` 的输出里提醒。`check-config` 也会列出这样的心跳，但不算校验失败。
 
@@ -185,7 +185,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules,status_pages}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），列在 [API 参考](reference/api.md)里，完整定义见 `internal/api/openapi.yaml`。MCP 工具是 `get_config`、`put_config` 和 `delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回新的版本号，以及每一项改前、改后的值；写入和现有内容相同的值不算修改。
+路径是 `/api/v1/config/{locations,heartbeats,resources,targets,modules,status_pages}`（列表）和 `…/{id 或名字}`（对单项 `GET`、`PUT`、`DELETE`），列在 [API 参考](../reference/api.md)里，完整定义见 `internal/api/openapi.yaml`。MCP 工具是 `get_config`、`put_config` 和 `delete_config`，参数是 `kind`（`locations` 等）和 `key`。每次修改返回新的版本号，以及每一项改前、改后的值；写入和现有内容相同的值不算修改。
 
 修改可以注明它基于哪个版本：`PUT` 和 `DELETE` 加 `?if_version=12`，`put_config` 和 `delete_config` 传 `if_version`，值就是 `GET /api/v1/config`（`get_config`）返回的版本号。如果生效的已经是更新的版本，修改会被拒绝，返回 `config.conflict`（`the configuration changed: version 13 is in force, not 12 as you last saw; read it again and retry`），什么都不改：重新读一遍，再做决定。Agent 先读配置、想好、再写入时，应当带上它，这样永远不会覆盖别人在这期间做的修改。
 

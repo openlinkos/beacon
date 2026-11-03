@@ -123,7 +123,7 @@ The dry run should list one line, `+ locations edge-2`, under `would change 1 it
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
-An import makes the files the whole configuration: anything changed through the API or MCP that the files do not hold is removed, which is why `-dry-run` comes first. [What is checked, and from where](catalog.md) explains the two ways of changing the configuration and how to keep them in step.
+An import makes the files the whole configuration: anything changed through the API or MCP that the files do not hold is removed, which is why `-dry-run` comes first. [What is checked, and from where](../guide/monitoring.md) explains the two ways of changing the configuration and how to keep them in step.
 
 **Check what arrives.** VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`). `probe_success` has one series per location and target, 1 for success. The public page at `https://status.example.com/` now shows its components' state. The targets shipped are Beacon's own status host, the drill (step 5) and `https://example.com/`; replace the last with a service of yours in `/opt/beacon/targets/all-web.yaml` and import again.
 
@@ -147,14 +147,14 @@ On the machine, as root, if not done yet:
 (see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
-Run those four lines on the machine, as root. They make sshd trust Beacon's certificate authority (CA), the key that signs a short-lived certificate for each connection, and create the account those certificates name. If `machine add` fails with `the machine cannot be reached`, the centre cannot open a connection to the machine's SSH port: allow it in the machine's firewall, or, for a machine behind NAT, add it the other way round as [Machines behind NAT](ssh.md#machines-behind-nat) describes.
+Run those four lines on the machine, as root. They make sshd trust Beacon's certificate authority (CA), the key that signs a short-lived certificate for each connection, and create the account those certificates name. If `machine add` fails with `the machine cannot be reached`, the centre cannot open a connection to the machine's SSH port: allow it in the machine's firewall, or, for a machine behind NAT, add it the other way round as [Machines behind NAT](../guide/machines.md#machines-behind-nat) describes.
 
 Two more settings are worth making now rather than later:
 
 - **What the `beacon` account may do is the real boundary.** Give it only what the work needs, for example in `/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`.
 - **Exempt the centre from OpenSSH's penalties** for failed connections: every agent arrives from the centre's address, so add `PerSourcePenaltyExemptList 203.0.113.7` (the centre's address) to `beacon.conf`.
 
-[The SSH channel](ssh.md) has the rest.
+[The SSH channel](../guide/machines.md) has the rest.
 
 ## 4. The first agent
 
@@ -171,7 +171,7 @@ Open this link within 30 minutes (until …) to make the first account, an owner
 https://status.example.com/console/setup?code=…
 ```
 
-Open the link in a browser and choose a username (`alice` below), a display name and a password of at least 10 characters. You are the first owner, signed in to the console at `https://status.example.com/console`. The link works once; everyone else joins with an invitation ([People and their agents](accounts.md#invite-people)).
+Open the link in a browser and choose a username (`alice` below), a display name and a password of at least 10 characters. You are the first owner, signed in to the console at `https://status.example.com/console`. The link works once; everyone else joins with an invitation ([People and their agents](../guide/people.md#invite-people)).
 
 **Claude Code.** On the workstation, add Beacon's MCP server, without a token:
 
@@ -197,7 +197,7 @@ Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts` on the wor
 
 Every session is on record. The console's **Agents** page shows `claude-code` with its sign-in and its key; `list_sessions` (or `GET /api/v1/sessions`) lists the sessions with each command and its exit status; and `docker exec beacon beacon ssh pause` closes them all and refuses new ones until `ssh resume`.
 
-**An agent without a browser**, such as a CI job or the agent a hook wakes, gets a token instead: on the console under **Agents**, or on the centre with `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`, which prints the token once with the commands that use it ([Headless agents and CI](accounts.md#headless-agents-and-ci)).
+**An agent without a browser**, such as a CI job or the agent a hook wakes, gets a token instead: on the console under **Agents**, or on the centre with `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`, which prints the token once with the commands that use it ([Headless agents and CI](../guide/people.md#headless-agents-and-ci)).
 
 ## 5. The first drill
 
@@ -216,7 +216,7 @@ What happens, with two locations:
 
 With one location nothing fires, by design: one location's word is never an outage.
 
-**Watch it in the console** while you wait: open `https://status.example.com/console`, where you signed in at step 4 (a sign-in lasts 12 hours). The alert's page shows what each location sees, the timeline, the notes and every session on the alert's machines with a replay. [The console](pages.md) has the details.
+**Watch it in the console** while you wait: open `https://status.example.com/console`, where you signed in at step 4 (a sign-in lasts 12 hours). The alert's page shows what each location sees, the timeline, the notes and every session on the alert's machines with a replay. [The console](../guide/console.md) has the details.
 
 On the centre, `beacon silence list` shows the agent's silence, and `beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` makes one from the command line, recorded in the audit log as such.
 
@@ -226,20 +226,20 @@ If no alert fires after 6 minutes, check that both locations report (`probe_succ
 
 ## 6. The chat
 
-Not counted in the 30 minutes: a Feishu (or Lark) self-built app needs an administrator's approval, which takes as long as your organisation does. [Set up the Feishu app](feishu.md) walks through the app, its permissions, the long connection, the group and the custom bot. Then, on the centre:
+Not counted in the 30 minutes: a Feishu (or Lark) self-built app needs an administrator's approval, which takes as long as your organisation does. [Set up the Feishu app](../integrations/feishu.md) walks through the app, its permissions, the long connection, the group and the custom bot. Then, on the centre:
 
 1. Put each secret in its file under `/opt/beacon/secrets/`: `feishu-app-id`, `feishu-app-secret` and `feishu-webhook-url`; `pushover-user-key` and `pushover-app-token` for phones; `healthchecks-bridge-url` for the dead man's switch: Beacon pings healthchecks.io every minute while alerts can reach people, so healthchecks.io tells you when the centre itself goes quiet.
 2. Uncomment the `feishu:` section (and `pushover:`, `healthchecks:`) in `/opt/beacon/config.yaml`, with your `chat_id` and the people on call.
 3. Run `sudo ./install.sh` again: it gives the secret files Beacon's owner and mode and validates everything. Then restart Beacon so that it reads the new configuration: `docker compose restart beacon`. The log then says `feishu long connection ready` (`docker compose logs beacon`).
 
-Run the drill once more and watch the card. To have a new alert wake an agent by itself, rather than wait for someone to ask it, add an `agents:` hook as [Put an agent on call](agents.md) describes.
+Run the drill once more and watch the card. To have a new alert wake an agent by itself, rather than wait for someone to ask it, add an `agents:` hook as [Put an agent on call](../guide/on-call.md) describes.
 
 ## What to read next
 
-- [People and their agents](accounts.md): inviting your team, roles, Codex, headless agents and their tokens, moving from tokens.
-- [Put an agent on call](agents.md): waking an agent, the evidence, notes, the timeline, probing again after a fix.
-- [The SSH channel](ssh.md): accounts on machines, recordings, pausing, machines behind NAT, what the channel does not do.
-- [What is checked, and from where](catalog.md): locations, targets and modules, and how to change them through Beacon.
+- [People and their agents](../guide/people.md): inviting your team, roles, Codex, headless agents and their tokens, moving from tokens.
+- [Put an agent on call](../guide/on-call.md): waking an agent, the evidence, notes, the timeline, probing again after a fix.
+- [The SSH channel](../guide/machines.md): accounts on machines, recordings, pausing, machines behind NAT, what the channel does not do.
+- [What is checked, and from where](../guide/monitoring.md): locations, targets and modules, and how to change them through Beacon.
 - [Troubleshooting](troubleshooting.md): what to do when something above does not happen.
 - [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) and [deploy/runbooks/](https://github.com/openlinkos/beacon/tree/main/deploy/runbooks): the files, and one page per alert.
-- [Goals](goals.md): what Beacon is for, and what it will not do.
+- [Goals](../about/goals.md): what Beacon is for, and what it will not do.

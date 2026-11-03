@@ -1,12 +1,12 @@
 # The console
 
-The console is where the people on your team look at what Beacon and the agents are doing: the alerts firing and what has been done about each, every session an agent opened on a machine with its replay, the people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, and the switch that stops agents' access to machines. It is for whoever is on call or answers for the machines; the agents themselves use the [API](reference/api.md) and the [MCP tools](reference/mcp.md). A link on an alert's card opens that alert's page without signing in; signing in shows the rest.
+The console is where the people on your team look at what Beacon and the agents are doing: the alerts firing and what has been done about each, every session an agent opened on a machine with its replay, the people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, and the switch that stops agents' access to machines. It is for whoever is on call or answers for the machines; the agents themselves use the [API](../reference/api.md) and the [MCP tools](../reference/mcp.md). A link on an alert's card opens that alert's page without signing in; signing in shows the rest.
 
-Beacon serves the console itself, at `/console` on port 17001 beside the API and MCP, under `public_url`. The site's root `/` is public: the default [status page](status.md), or, without one, a page that names the deployment.
+Beacon serves the console itself, at `/console` on port 17001 beside the API and MCP, under `public_url`. The site's root `/` is public: the default [status page](status-pages.md), or, without one, a page that names the deployment.
 
 ## Signing in
 
-People sign in with their own Beacon account, and what the console shows and allows is what their role allows ([People and their agents](accounts.md)). The first account, an owner, comes from the one-time setup link Beacon writes to its log ([Up in 30 minutes](install.md#4-the-first-agent), step 4); everyone else joins with an invitation.
+People sign in with their own Beacon account, and what the console shows and allows is what their role allows ([People and their agents](people.md)). The first account, an owner, comes from the one-time setup link Beacon writes to its log ([Up in 30 minutes](../self-hosting/install.md#4-the-first-agent), step 4); everyone else joins with an invitation.
 
 Open `https://status.example.com/console`: you are sent to `/console/sign-in`, asked for your username and password, and sent back to the page you asked for. The public pages at `/` have **Sign in** at the right of their header (**Console** once you are signed in); a status page on a host name of its own has neither, since the console does not answer there.
 
@@ -14,7 +14,7 @@ When the sign-in fails, the form says why:
 
 | Message | What to do |
 | --- | --- |
-| "Wrong username or password." | Check both. The answer is the same for a username that does not exist, so it gives nothing away. A lost password takes a reset link from an owner ([Passwords](accounts.md#passwords)) |
+| "Wrong username or password." | Check both. The answer is the same for a username that does not exist, so it gives nothing away. A lost password takes a reset link from an owner ([Passwords](people.md#passwords)) |
 | "This account is disabled; an owner can enable it." | Ask an owner: **People**, or `beacon user enable NAME` |
 | "Too many failed sign-ins; try again in a few minutes." | 10 wrong passwords for one username within 10 minutes, from anywhere, block that username for the rest of those 10 minutes |
 | "Too many failed sign-ins from here; try again in a few minutes." | 20 failures from one client address within 10 minutes block it for the rest of those 10 minutes, as on the API |
@@ -49,8 +49,8 @@ Every page has the same frame: the sections in a narrow sidebar, with counts; a 
 | `/console/hooks` | The agent hooks configured (the address's host, never its path or query) and every call made: hook, event, status, HTTP status, attempts, when, for which alert | `status:read` |
 | `/console/people` | The people: role, last sign-in, agents, whether enabled; inviting someone (the link shown once), the invitations not yet used, changing a role, disabling and enabling, password reset links | `accounts:write` (owners) |
 | `/console/account` | Your account, and changing your password | signed in |
-| `/console/setup`, `/console/join`, `/console/reset` | The pages a one-time link opens: the first owner, an invitation, a new password ([People and their agents](accounts.md)) | the link's code |
-| `/oauth/authorize` | The consent page an MCP client sends a person to ([Connect Claude Code](accounts.md#connect-claude-code)) | signed in with an account |
+| `/console/setup`, `/console/join`, `/console/reset` | The pages a one-time link opens: the first owner, an invitation, a new password ([People and their agents](people.md)) | the link's code |
+| `/oauth/authorize` | The consent page an MCP client sends a person to ([Connect Claude Code](people.md#connect-claude-code)) | signed in with an account |
 | `/console/audit` | The audit log, with facets for who, action and via, and search | `status:read` |
 | `/console/changes` | Change events from CI, Flux and the like, with facets for source, kind, service and machine | `status:read` |
 
@@ -94,7 +94,7 @@ The card's **Timeline** button opens it. From top to bottom:
 - **Notes**, **Changes** (the change events around the alert), **Labels**;
 - **Timeline**: everything above in time order, as `get_timeline` returns it.
 
-The window opens 30 minutes before the alert started and closes now, or 30 minutes after it resolved, as for the [evidence](agents.md#the-evidence).
+The window opens 30 minutes before the alert started and closes now, or 30 minutes after it resolved, as for the [evidence](on-call.md#the-evidence).
 
 ## The session's page: `/console/sessions/{id}`
 
@@ -133,7 +133,7 @@ Any credential with the scope opens the alert's and the session's pages as it op
 - On the OpenLinkOS design system, [`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui) 0.7.0, with its workbench shell and layouts and Beacon's brand (`data-brand="beacon"`), as Origin's admin workbench is, so the family looks alike. Its stylesheet, icons and the Geist fonts are vendored under `internal/web/static/ol`, with their licences and hashes in its `NOTICE`; `scripts/update-ui.sh` refreshes them from npm.
 - One page for every screen: a full sidebar from 1200px, a rail of icons from 860px, a sheet below that, and lists restacked as cards at phone widths, all by CSS. The server never asks how wide the screen is.
 - Nothing is fetched from anywhere but Beacon: the stylesheet, the fonts, the player's JavaScript and CSS are embedded in the binary, the icons are a sprite in the page, the only script is the player's, and there is no inline script or style. The `Content-Security-Policy` allows scripts, styles, fonts, fetches and forms from Beacon only (`'wasm-unsafe-eval'` because the player's terminal is WebAssembly). Pages are marked `noindex` (and `/robots.txt` keeps search engines out of `/console`) and send no referrer, since their links carry signatures.
-- Beacon is open source, and the console says so: the foot of every page has Beacon's version and links to the documentation ([beacon.openlinkos.com](https://beacon.openlinkos.com/), in the console's language), the code on [GitHub](https://github.com/openlinkos/beacon) and where to [report an issue](https://github.com/openlinkos/beacon/issues/new/choose); the sign-in page says it under its form. These are the only links that leave Beacon by themselves. `branding.powered_by` ([Status pages](status.md#branding)) does not touch them.
+- Beacon is open source, and the console says so: the foot of every page has Beacon's version and links to the documentation ([beacon.openlinkos.com](https://beacon.openlinkos.com/), in the console's language), the code on [GitHub](https://github.com/openlinkos/beacon) and where to [report an issue](https://github.com/openlinkos/beacon/issues/new/choose); the sign-in page says it under its form. These are the only links that leave Beacon by themselves. `branding.powered_by` ([Status pages](status-pages.md#branding)) does not touch them.
 - Text from outside Beacon (alert annotations, notes, commands, change events) is cleaned by the bridge and escaped on the way out.
 - The console is in the configured `language`, English or Chinese, and follows the system's light or dark scheme.
 

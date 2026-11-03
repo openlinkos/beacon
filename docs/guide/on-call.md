@@ -1,6 +1,6 @@
 # Put an agent on call
 
-When a service breaks, Beacon can wake the agent you choose, hand it the evidence in one call, let it reach the machine, have every probe location check its fix, and keep one timeline of everything that happened where people can read it. This page is for the person who sets that up: you have Beacon running and an agent connected over MCP, as in [Up in 30 minutes](install.md), steps 1 to 4. It covers how the agent hears of an alert, what it is given, how it works the alert, and how its token stays valid without anyone handing it a new one.
+When a service breaks, Beacon can wake the agent you choose, hand it the evidence in one call, let it reach the machine, have every probe location check its fix, and keep one timeline of everything that happened where people can read it. This page is for the person who sets that up: you have Beacon running and an agent connected over MCP, as in [Up in 30 minutes](../self-hosting/install.md), steps 1 to 4. It covers how the agent hears of an alert, what it is given, how it works the alert, and how its token stays valid without anyone handing it a new one.
 
 Beacon calls no model and decides nothing for the agent. It wakes the agent, answers its questions and records what it does. What to do about an alert is the agent's decision, made inside its **harness**: the program that runs it, such as `beacon-oncall` below, a GitHub workflow, or one of your own. The harness is not part of Beacon.
 
@@ -10,7 +10,7 @@ Beacon calls no model and decides nothing for the agent. It wakes the agent, ans
 2. **Beacon calls your hooks.** A hook is a signed webhook or a GitHub workflow dispatch, listed in the configuration. The call says which alert group and where its evidence is; it carries no credentials.
 3. **The harness starts the agent** with the call's payload.
 4. **The agent asks for the evidence** (`get_evidence`) with its own credentials: what each location sees and why it fails, the other alerts in the same failure domain, what changed just before, what has been done.
-5. **It works on the machines** the evidence names, through the [SSH channel](ssh.md) with its own `ssh` or with Beacon's tools (`run_command`, `read_file`, `edit_file`). Every command is recorded.
+5. **It works on the machines** the evidence names, through the [SSH channel](machines.md) with its own `ssh` or with Beacon's tools (`run_command`, `read_file`, `edit_file`). Every command is recorded.
 6. **It has the fix checked** (`probe_now`): every location probes the target again at once. The alert resolves on what the probes see, not on what the agent says.
 7. **It leaves a note** (`add_note`) saying what was wrong, what it did and what remains. People see it on the card, in the chat and in the console.
 8. **When the group resolves**, Beacon can call the hook once more, so that the agent can write a closing note.
@@ -99,7 +99,7 @@ Beacon POSTs JSON with these headers:
 }
 ```
 
-When the alert is about a heartbeat whose catalogue entry names its machine ([Heartbeats](catalog.md#heartbeats)), the `hint` of a `firing` call says which machine that is and that `list_machines` shows how to reach it.
+When the alert is about a heartbeat whose catalogue entry names its machine ([Heartbeats](monitoring.md#heartbeats)), the `hint` of a `firing` call says which machine that is and that `list_machines` shows how to reach it.
 
 A `resolved` payload has the same fields, its `at` being when the group resolved (not when the call went out, `resolved_after` later), and one more: `firing_call`, the call that woke the agent for this episode, so that the run it started can be told apart, with whether that run may still be going:
 
@@ -118,7 +118,7 @@ def genuine(secret: bytes, body: bytes, signature: str) -> bool:
     return hmac.compare_digest("sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(), signature)
 ```
 
-The payload carries no credentials: the agent fetches the evidence with its own token, an agent's with the On call preset, which reads the evidence, acknowledges and leaves notes ([Headless agents and CI](accounts.md#headless-agents-and-ci)).
+The payload carries no credentials: the agent fetches the evidence with its own token, an agent's with the On call preset, which reads the evidence, acknowledges and leaves notes ([Headless agents and CI](people.md#headless-agents-and-ci)).
 
 ### A GitHub workflow
 
@@ -261,7 +261,7 @@ For the probes, the protocol gains two gateway routes and nothing changes for ol
 
 ## Notes
 
-A note is how an agent, or a person, tells everyone else what it found, did and will do next. `POST /api/v1/alerts/{id}/notes` with `{"text": "…"}`, or the MCP tool `add_note` (scope `alerts:write`), leaves one on an alert group, firing or resolved. The card shows the latest three, the chat hears each one, and the audit log keeps them all. A note does not acknowledge the alert; `ack_alert` does. Notes are at most 2000 characters; a group keeps its latest 100. A note that begins with `public:` is also an update of the incident on the [status pages](status.md), without the prefix.
+A note is how an agent, or a person, tells everyone else what it found, did and will do next. `POST /api/v1/alerts/{id}/notes` with `{"text": "…"}`, or the MCP tool `add_note` (scope `alerts:write`), leaves one on an alert group, firing or resolved. The card shows the latest three, the chat hears each one, and the audit log keeps them all. A note does not acknowledge the alert; `ack_alert` does. Notes are at most 2000 characters; a group keeps its latest 100. A note that begins with `public:` is also an update of the incident on the [status pages](status-pages.md), without the prefix.
 
 ## The timeline
 
@@ -343,7 +343,7 @@ spec:
 
 ## Tokens that renew themselves
 
-A headless agent, such as the one a hook wakes or a CI job, signs in to the REST API and the MCP server with a token: one of its agent's credentials, made on the console's **Agents** page or with `beacon agent add` ([Headless agents and CI](accounts.md#headless-agents-and-ci)). Rather than have someone hand it a long-lived token, and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, agent, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope. An interactive client such as Claude Code signs in with OAuth instead, and refreshes its own tokens.
+A headless agent, such as the one a hook wakes or a CI job, signs in to the REST API and the MCP server with a token: one of its agent's credentials, made on the console's **Agents** page or with `beacon agent add` ([Headless agents and CI](people.md#headless-agents-and-ci)). Rather than have someone hand it a long-lived token, and a new one when that expires, the token renews itself: before it expires, its holder asks for a new secret and gets one with the same name, agent, scopes, subject, machines and SSH keys, expiring its lifetime from now (a token created with `-expires 90d` always gets another 90 days). Nothing but the token itself is needed: both routes take any scope. An interactive client such as Claude Code signs in with OAuth instead, and refreshes its own tokens.
 
 | Route, tool | What |
 | --- | --- |

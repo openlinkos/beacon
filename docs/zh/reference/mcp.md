@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2495509f
+sourceHash: sha256-da5d0da7
 ---
 
 # MCP 工具
@@ -10,7 +10,7 @@ sourceHash: sha256-2495509f
 
 ## 接入 {#connecting}
 
-Claude Code 和 Codex 通过浏览器、用 MCP 的 OAuth 登录：添加 Beacon 时不带令牌，从客户端登录，再在 Beacon 的授权页面上把它允许为你的一个 Agent（[接入 Claude Code](../accounts.md#connect-claude-code)）。在 Claude Code 里：
+Claude Code 和 Codex 通过浏览器、用 MCP 的 OAuth 登录：添加 Beacon 时不带令牌，从客户端登录，再在 Beacon 的授权页面上把它允许为你的一个 Agent（[接入 Claude Code](../guide/people.md#connect-claude-code)）。在 Claude Code 里：
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
@@ -70,7 +70,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里检测](../catalog.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../status.md)）；`key` 指定其中一项。
+Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../guide/status-pages.md)）；`key` 指定其中一项。
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
-公开状态页由告警组和维护窗口生成（[状态页](../status.md)）。用 `add_note` 留下、以 `public:` 开头的备注，就是这个事件对外公布的进展。
+公开状态页由告警组和维护窗口生成（[状态页](../guide/status-pages.md)）。用 `add_note` 留下、以 `public:` 开头的备注，就是这个事件对外公布的进展。
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-255c4e76
+sourceHash: sha256-554981d0
 ---
 
 # 30 分钟装好
@@ -127,7 +127,7 @@ docker exec beacon beacon enroll probe edge-2 > edge-2.token
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
-导入会让这些文件成为全部配置：通过 API 或 MCP 改过、而文件里没有的内容会被删掉，所以要先预演。两种修改配置的方式以及怎样让它们保持一致，见[检测什么，从哪里检测](catalog.md)。
+导入会让这些文件成为全部配置：通过 API 或 MCP 改过、而文件里没有的内容会被删掉，所以要先预演。两种修改配置的方式以及怎样让它们保持一致，见[检测什么，从哪里检测](../guide/monitoring.md)。
 
 **看看数据到了没有。** VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（在工作站上用 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）。`probe_success` 每个检测点、每个目标各有一条序列，成功为 1。`https://status.example.com/` 上的公开页面现在也显示出各组件的状态了。随附的检测目标有三个：Beacon 自己的状态域名、演练服务（第 5 步）和 `https://example.com/`；把最后一个换成你自己的服务，改的是 `/opt/beacon/targets/all-web.yaml`，改完再导入一次。
 
@@ -151,14 +151,14 @@ On the machine, as root, if not done yet:
 (see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
-在机器上以 root 执行中间这四行。它们让 sshd 信任 Beacon 的 CA（为每次连接签发短期证书的那把密钥），并创建证书里指定的账户。如果 `machine add` 报 `the machine cannot be reached`，说明中心连不上这台机器的 SSH 端口：在机器的防火墙里放行；如果机器在 NAT 后面，就按 [NAT 后面的机器](ssh.md#machines-behind-nat)反过来添加。
+在机器上以 root 执行中间这四行。它们让 sshd 信任 Beacon 的 CA（为每次连接签发短期证书的那把密钥），并创建证书里指定的账户。如果 `machine add` 报 `the machine cannot be reached`，说明中心连不上这台机器的 SSH 端口：在机器的防火墙里放行；如果机器在 NAT 后面，就按 [NAT 后面的机器](../guide/machines.md#machines-behind-nat)反过来添加。
 
 还有两项配置最好现在就做：
 
 - **`beacon` 账户能做什么，才是真正的边界。** 只给它干活需要的权限，比如在 `/etc/sudoers.d/beacon` 里写：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`。
 - **别让 OpenSSH 惩罚中心的地址。** 所有 Agent 都从中心的地址连过来，连接失败多了会被 OpenSSH 按来源地址限制，所以在 `beacon.conf` 里加上 `PerSourcePenaltyExemptList 203.0.113.7`（中心的地址）。
 
-其余内容见 [SSH 通道](ssh.md)。
+其余内容见 [SSH 通道](../guide/machines.md)。
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
@@ -175,7 +175,7 @@ Open this link within 30 minutes (until …) to make the first account, an owner
 https://status.example.com/console/setup?code=…
 ```
 
-在浏览器里打开链接，设置用户名（下文用 `alice`）、显示名和至少 10 个字符的密码。你就是第一位所有者，已经登录了 `https://status.example.com/console` 上的控制台。这个链接只能用一次；其他人都通过邀请加入（[成员和 Agent](accounts.md#invite-people)）。
+在浏览器里打开链接，设置用户名（下文用 `alice`）、显示名和至少 10 个字符的密码。你就是第一位所有者，已经登录了 `https://status.example.com/console` 上的控制台。这个链接只能用一次；其他人都通过邀请加入（[成员和 Agent](../guide/people.md#invite-people)）。
 
 **Claude Code。** 在工作站上添加 Beacon 的 MCP 服务器，不带令牌：
 
@@ -201,7 +201,7 @@ Host edge-1
 
 每次会话都有记录。控制台的 **Agent** 页面上能看到 `claude-code`、它的登录和它的密钥；`list_sessions`（或 `GET /api/v1/sessions`）列出所有会话，每条命令和它的退出码都在里面；`docker exec beacon beacon ssh pause` 会关闭全部会话并拒绝新的会话，直到执行 `ssh resume`。
 
-**没有浏览器的 Agent**，比如 CI 任务或被 Hook 唤醒的 Agent，改用令牌：在控制台的 **Agent** 页面上创建，或在中心上执行 `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`，令牌只打印这一次，同时给出使用它的命令（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。
+**没有浏览器的 Agent**，比如 CI 任务或被 Hook 唤醒的 Agent，改用令牌：在控制台的 **Agent** 页面上创建，或在中心上执行 `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`，令牌只打印这一次，同时给出使用它的命令（[无界面的 Agent 和 CI](../guide/people.md#headless-agents-and-ci)）。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
@@ -220,7 +220,7 @@ docker exec beacon beacon drill fail 15m    # drill until …: /drill/healthz an
 
 只有一个检测点时什么都不会触发，这是有意设计的：单个检测点说坏了，永远不算故障。
 
-**等待的时候，在控制台里看着它**：打开 `https://status.example.com/console`，你在第 4 步已经登录过（一次登录有效 12 小时）。告警页面上能看到每个检测点看到了什么、时间线、备注，以及告警涉及的机器上的每次会话和回放。详见[控制台](pages.md)。
+**等待的时候，在控制台里看着它**：打开 `https://status.example.com/console`，你在第 4 步已经登录过（一次登录有效 12 小时）。告警页面上能看到每个检测点看到了什么、时间线、备注，以及告警涉及的机器上的每次会话和回放。详见[控制台](../guide/console.md)。
 
 在中心上，`beacon silence list` 能看到 Agent 设的静默；`beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` 则从命令行创建一条静默，审计日志里会记下它来自命令行。
 
@@ -230,20 +230,20 @@ docker exec beacon beacon drill fail 15m    # drill until …: /drill/healthz an
 
 ## 6. 告警群 {#6-the-chat}
 
-不算在 30 分钟里：飞书（或 Lark）的自建应用要等管理员审批，多久取决于你的组织。[配置飞书应用](feishu.md)一步步讲了应用、权限、长连接、群和自定义机器人。准备好之后，在中心上：
+不算在 30 分钟里：飞书（或 Lark）的自建应用要等管理员审批，多久取决于你的组织。[配置飞书应用](../integrations/feishu.md)一步步讲了应用、权限、长连接、群和自定义机器人。准备好之后，在中心上：
 
 1. 把每个密钥放进 `/opt/beacon/secrets/` 下对应的文件：`feishu-app-id`、`feishu-app-secret` 和 `feishu-webhook-url`；手机通知用 `pushover-user-key` 和 `pushover-app-token`；`healthchecks-bridge-url` 用于失联报警：告警能送达时，Beacon 每分钟 ping 一次 healthchecks.io，中心自己失联时，由 healthchecks.io 通知你。
 2. 在 `/opt/beacon/config.yaml` 里取消 `feishu:` 段（以及 `pushover:`、`healthchecks:`）的注释，填上你的 `chat_id` 和值班的人。
 3. 再运行一次 `sudo ./install.sh`：它会把密钥文件的属主和权限改成 Beacon 需要的样子，并校验所有文件。然后重启 Beacon，让它读到新配置：`docker compose restart beacon`。之后日志里会出现 `feishu long connection ready`（`docker compose logs beacon`）。
 
-再做一次演练，看卡片怎么出现。如果想让新告警自动叫醒 Agent，而不是等人去问它，按[让 Agent 值班](agents.md)加一个 `agents:` 钩子。
+再做一次演练，看卡片怎么出现。如果想让新告警自动叫醒 Agent，而不是等人去问它，按[让 Agent 值班](../guide/on-call.md)加一个 `agents:` 钩子。
 
 ## 接下来读什么 {#what-to-read-next}
 
-- [成员和 Agent](accounts.md)：邀请团队成员、角色、Codex、无界面的 Agent 和它们的令牌，以及从令牌迁移过来。
-- [让 Agent 值班](agents.md)：叫醒 Agent、证据、备注、时间线，以及修完之后立刻重测。
-- [SSH 通道](ssh.md)：机器上的账户、录像、暂停、NAT 后面的机器，以及通道不做什么。
-- [检测什么，从哪里检测](catalog.md)：检测点、检测目标和检测模块，以及怎样通过 Beacon 修改它们。
+- [成员和 Agent](../guide/people.md)：邀请团队成员、角色、Codex、无界面的 Agent 和它们的令牌，以及从令牌迁移过来。
+- [让 Agent 值班](../guide/on-call.md)：叫醒 Agent、证据、备注、时间线，以及修完之后立刻重测。
+- [SSH 通道](../guide/machines.md)：机器上的账户、录像、暂停、NAT 后面的机器，以及通道不做什么。
+- [检测什么，从哪里检测](../guide/monitoring.md)：检测点、检测目标和检测模块，以及怎样通过 Beacon 修改它们。
 - [常见问题](troubleshooting.md)：上面某一步没有按预期发生时怎么办。
 - [deploy/README.md](https://github.com/openlinkos/beacon/blob/main/deploy/README.md) 和 [deploy/runbooks/](https://github.com/openlinkos/beacon/tree/main/deploy/runbooks)：各个文件，以及每种告警一页的处理手册。
-- [目标](goals.md)：Beacon 为什么而做，以及它不做什么。
+- [目标](../about/goals.md)：Beacon 为什么而做，以及它不做什么。

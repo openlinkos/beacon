@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9a37cbcd
+sourceHash: sha256-b859213c
 ---
 
 # SSH 通道
@@ -66,7 +66,7 @@ systemctl reload ssh
 
 ## 给 Agent 权限 {#give-an-agent-access}
 
-Agent 的预设是**值班**或**运维**（它们给 `machines:ssh`），并且它所有者的角色允许，Agent 才能连机器（[成员和 Agent](accounts.md)）。如果它要用自己的 ssh，Beacon 还需要它的公钥，也就是运行 Agent 的那台机器上的公钥。
+Agent 的预设是**值班**或**运维**（它们给 `machines:ssh`），并且它所有者的角色允许，Agent 才能连机器（[成员和 Agent](people.md)）。如果它要用自己的 ssh，Beacon 还需要它的公钥，也就是运行 Agent 的那台机器上的公钥。
 
 Claude Code 这样用 OAuth 登录的交互式 Agent 会自己登记公钥：对它说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`。它能连的机器，就是你在它登录时允许的那些。无界面的 Agent 在创建时带上公钥，可以在控制台的 **Agent** 页面创建，也可以在中心上：
 
@@ -93,7 +93,7 @@ Host edge-1
 
 之后 `ssh edge-1 'systemctl status relay'`、`scp`、`sftp`、`rsync -e ssh` 和 `ssh -L` 都和平常一样用。用户名告诉 Beacon 要去哪台机器；会话在机器上以 `beacon` 账户运行。`HostKeyAlias beacon` 让 ssh 校验 Beacon 自己的主机密钥，所有机器都是同一把；每台机器固定下来的主机密钥，由 Beacon 自己校验。
 
-通道拒绝连接时，Agent 的 ssh 会打印原因并以 1 退出，比如 `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`。各种提示及处理方法见[常见问题](troubleshooting.md#the-agent-cannot-reach-a-machine)。
+通道拒绝连接时，Agent 的 ssh 会打印原因并以 1 退出，比如 `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`。各种提示及处理方法见[常见问题](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)。
 
 ## MCP 工具 {#the-mcp-tools}
 
@@ -109,7 +109,7 @@ Host edge-1
 | `list_sessions`、`get_session` | 谁在哪里做了什么；某次会话的文字记录 |
 | `add_machine`、`set_machine_connector`、`remove_machine`、`pause_ssh`、`resume_ssh` | 需要 `machines:write` |
 
-每次工具调用都单独算一次会话，和其他会话一样录下来。REST API 在 `/api/v1/machines`、`/api/v1/sessions` 和 `/api/v1/ssh` 下提供同样的操作；每个参数见 [MCP 工具](reference/mcp.md)。
+每次工具调用都单独算一次会话，和其他会话一样录下来。REST API 在 `/api/v1/machines`、`/api/v1/sessions` 和 `/api/v1/ssh` 下提供同样的操作；每个参数见 [MCP 工具](../reference/mcp.md)。
 
 ## 记录了什么 {#what-is-recorded}
 
@@ -126,7 +126,7 @@ Host edge-1
 
 `beacon ssh pause`（或者 `pause_ssh`、`POST /api/v1/ssh/pause`，或者控制台「机器」页面上的开关）立刻关闭所有正在进行的会话，并拒绝新的会话，直到 `ssh resume`。`ssh status` 显示当前状态：`agents' access to machines is paused since …`。暂停期间，Agent 的 ssh 会收到 `beacon: agents' access to machines is paused since …; a person resumes it with beacon ssh resume`。
 
-只想停下某一个 Agent 而不是全部，就在控制台上它的页面里吊销它的凭据或者删除它，或者用 `beacon token revoke NAME` 吊销一个令牌（在控制台的**令牌**页面上，有 `machines:write` 就能吊销任何能连机器的令牌）。它在机器上打开着的一切立即关闭，新连接和工具调用都会被拒绝。还有哪些操作有同样的效果，见[停下一个 Agent](accounts.md#stop-an-agent)：停用它的所有者或降低其角色、收窄它的机器或预设、移除一把公钥。
+只想停下某一个 Agent 而不是全部，就在控制台上它的页面里吊销它的凭据或者删除它，或者用 `beacon token revoke NAME` 吊销一个令牌（在控制台的**令牌**页面上，有 `machines:write` 就能吊销任何能连机器的令牌）。它在机器上打开着的一切立即关闭，新连接和工具调用都会被拒绝。还有哪些操作有同样的效果，见[停下一个 Agent](people.md#stop-an-agent)：停用它的所有者或降低其角色、收窄它的机器或预设、移除一把公钥。
 
 ## NAT 后面的机器 {#machines-behind-nat}
 

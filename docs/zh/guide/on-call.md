@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-24db1f6e
+sourceHash: sha256-c0254f58
 ---
 
 # 让 Agent 值班
 
-服务出问题时，Beacon 可以叫醒你指定的 Agent，一次调用就把证据交给它，让它登上机器处理，修完让每个检测点重新检测，并把发生的一切记在一条时间线上，人随时可以看。这一页写给负责搭建这套流程的人：你已经装好 Beacon，Agent 也已经通过 MCP 接入，也就是做完了[30 分钟装好](install.md)的第 1 到 4 步。下面依次讲 Agent 怎样得知告警、拿到什么、怎样处理告警，以及它的令牌怎样一直有效、不用人再发新的。
+服务出问题时，Beacon 可以叫醒你指定的 Agent，一次调用就把证据交给它，让它登上机器处理，修完让每个检测点重新检测，并把发生的一切记在一条时间线上，人随时可以看。这一页写给负责搭建这套流程的人：你已经装好 Beacon，Agent 也已经通过 MCP 接入，也就是做完了[30 分钟装好](../self-hosting/install.md)的第 1 到 4 步。下面依次讲 Agent 怎样得知告警、拿到什么、怎样处理告警，以及它的令牌怎样一直有效、不用人再发新的。
 
 Beacon 不调用任何模型，也不替 Agent 做决定。它只负责叫醒 Agent、回答 Agent 的查询、记下 Agent 做了什么。告警怎么处理由 Agent 决定，决定发生在运行 Agent 的程序里（下文称为 **harness**），比如下面的 `beacon-oncall`、一个 GitHub workflow，或者你自己写的程序。harness 不属于 Beacon。
 
@@ -14,7 +14,7 @@ Beacon 不调用任何模型，也不替 Agent 做决定。它只负责叫醒 Ag
 2. **Beacon 调用你配置的钩子。** 钩子是配置里列出的一个带签名的 webhook，或一次 GitHub workflow 触发。调用里写明是哪个告警组、证据在哪里，不带任何凭据。
 3. **harness 启动 Agent**，把调用的内容交给它。
 4. **Agent 用自己的凭据查询证据**（`get_evidence`）：每个检测点看到了什么、为什么失败，同一故障域里还有哪些告警，故障前刚改了什么，已经有人做了什么。
-5. **它到证据指向的机器上排查**：通过 [SSH 通道](ssh.md)，用它自己的 `ssh`，或者用 Beacon 的工具（`run_command`、`read_file`、`edit_file`）。每条命令都有记录。
+5. **它到证据指向的机器上排查**：通过 [SSH 通道](machines.md)，用它自己的 `ssh`，或者用 Beacon 的工具（`run_command`、`read_file`、`edit_file`）。每条命令都有记录。
 6. **修完让检测点验证**（`probe_now`）：每个检测点立刻重新检测这个目标。告警是否恢复，看检测结果，不看 Agent 怎么说。
 7. **它留下一条备注**（`add_note`），写明出了什么问题、做了什么、还剩什么。人在卡片、告警群和控制台里都能看到。
 8. **告警组恢复时**，Beacon 可以再调用一次钩子，让 Agent 写一条收尾备注。
@@ -103,7 +103,7 @@ Beacon POST 一段 JSON，带这些请求头：
 }
 ```
 
-如果告警是关于一个心跳的，而目录里这个心跳写明了它所在的机器（见[心跳](catalog.md#heartbeats)），`firing` 调用的 `hint` 会说出是哪台机器，并提示用 `list_machines` 查看怎么连上去。
+如果告警是关于一个心跳的，而目录里这个心跳写明了它所在的机器（见[心跳](monitoring.md#heartbeats)），`firing` 调用的 `hint` 会说出是哪台机器，并提示用 `list_machines` 查看怎么连上去。
 
 `resolved` 的载荷字段相同，其中 `at` 是告警组恢复的时间（不是 `resolved_after` 之后调用发出的时间），另外多一个字段 `firing_call`：这一轮里叫醒 Agent 的那次调用，用来认出那次调用启动的运行，并说明那次运行是否可能还没结束：
 
@@ -122,7 +122,7 @@ def genuine(secret: bytes, body: bytes, signature: str) -> bool:
     return hmac.compare_digest("sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(), signature)
 ```
 
-载荷里没有任何凭据：Agent 用自己的令牌查询证据。这个令牌属于一个预设为**值班**的 Agent，能读证据、认领告警、写备注（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。
+载荷里没有任何凭据：Agent 用自己的令牌查询证据。这个令牌属于一个预设为**值班**的 Agent，能读证据、认领告警、写备注（[无界面的 Agent 和 CI](people.md#headless-agents-and-ci)）。
 
 ### GitHub workflow {#a-github-workflow}
 
@@ -265,7 +265,7 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 
 ## 备注 {#notes}
 
-备注是 Agent 或人告诉其他人「发现了什么、做了什么、接下来做什么」的方式。`POST /api/v1/alerts/{id}/notes`（请求体 `{"text": "…"}`），或者 MCP 工具 `add_note`（作用域 `alerts:write`），在告警组上留一条备注，告警组正在触发或已经恢复都可以。卡片上显示最新的三条，告警群里每条都会出现，审计日志里全部保留。写备注不等于认领告警，认领要用 `ack_alert`。每条备注最多 2000 个字符，每个告警组保留最新的 100 条。以 `public:` 开头的备注，还会去掉前缀，作为事件的进展显示在[状态页](status.md)上。
+备注是 Agent 或人告诉其他人「发现了什么、做了什么、接下来做什么」的方式。`POST /api/v1/alerts/{id}/notes`（请求体 `{"text": "…"}`），或者 MCP 工具 `add_note`（作用域 `alerts:write`），在告警组上留一条备注，告警组正在触发或已经恢复都可以。卡片上显示最新的三条，告警群里每条都会出现，审计日志里全部保留。写备注不等于认领告警，认领要用 `ack_alert`。每条备注最多 2000 个字符，每个告警组保留最新的 100 条。以 `public:` 开头的备注，还会去掉前缀，作为事件的进展显示在[状态页](status-pages.md)上。
 
 ## 时间线 {#the-timeline}
 
@@ -347,7 +347,7 @@ spec:
 
 ## 自动续期的令牌 {#tokens-that-renew-themselves}
 
-无界面的 Agent，比如被 Hook 唤醒的 Agent 或 CI 任务，用令牌登录 REST API 和 MCP server：令牌是它所属 Agent 的一个凭据，在控制台的 **Agent** 页面或用 `beacon agent add` 创建（[无界面的 Agent 和 CI](accounts.md#headless-agents-and-ci)）。与其让人给它一个长期令牌、过期了再发一个新的，不如让令牌自己续期：快到期前，持有者申请一个新的密钥，拿到的令牌名称、所属 Agent、作用域、主体、机器和 SSH 密钥都不变，有效期从现在起重新计算（用 `-expires 90d` 创建的令牌，每次都再得到 90 天）。除了令牌本身，什么都不需要：两个接口接受任何作用域。Claude Code 这样的交互式客户端改用 OAuth 登录，由它自己刷新令牌。
+无界面的 Agent，比如被 Hook 唤醒的 Agent 或 CI 任务，用令牌登录 REST API 和 MCP server：令牌是它所属 Agent 的一个凭据，在控制台的 **Agent** 页面或用 `beacon agent add` 创建（[无界面的 Agent 和 CI](people.md#headless-agents-and-ci)）。与其让人给它一个长期令牌、过期了再发一个新的，不如让令牌自己续期：快到期前，持有者申请一个新的密钥，拿到的令牌名称、所属 Agent、作用域、主体、机器和 SSH 密钥都不变，有效期从现在起重新计算（用 `-expires 90d` 创建的令牌，每次都再得到 90 天）。除了令牌本身，什么都不需要：两个接口接受任何作用域。Claude Code 这样的交互式客户端改用 OAuth 登录，由它自己刷新令牌。
 
 | 接口、工具 | 内容 |
 | --- | --- |

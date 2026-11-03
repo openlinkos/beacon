@@ -1,6 +1,6 @@
 # People and their agents
 
-This page is for whoever owns a Beacon. At the end of it, everyone on your team signs in with an account of their own and a role that says what they may do; each person's agents act for that person and never do more than that person's role allows; Claude Code and Codex sign in through the browser, without anyone copying a token; and a headless agent or a CI job has a token that renews itself. You made the first account in [Up in 30 minutes](install.md#4-the-first-agent), step 4; this page goes on from there.
+This page is for whoever owns a Beacon. At the end of it, everyone on your team signs in with an account of their own and a role that says what they may do; each person's agents act for that person and never do more than that person's role allows; Claude Code and Codex sign in through the browser, without anyone copying a token; and a headless agent or a CI job has a token that renews itself. You made the first account in [Up in 30 minutes](../self-hosting/install.md#4-the-first-agent), step 4; this page goes on from there.
 
 Two ideas carry the rest. **People have roles, agents have presets**, so nobody types a list of scopes. And **everything is named after a person**: the audit log, the chat and the records of sessions say `alice` for what Alice did on the console and `alice / claude-code` for what her agent did. People sign in only with Beacon's own accounts: there is no sign-in through GitHub, Feishu, OIDC, LDAP or anything else.
 
@@ -15,7 +15,7 @@ Each role may do what the one above it may, and more:
 | Operator | Also add and remove machines, pause agents, schedule maintenance | + `maintenance:write`, `incidents:write`, `machines:write` |
 | Owner | Also change the configuration, invite people, set roles, manage every agent | + `config:write`, `accounts:write` |
 
-The console, the command line and the API speak of roles; the scopes stay underneath, as the [REST API](reference/api.md#scopes) lists them. A role is read again on every request, so a change takes effect at once, for the person and for their agents. Beacon always keeps at least one enabled owner, and refuses the change that would leave it without one.
+The console, the command line and the API speak of roles; the scopes stay underneath, as the [REST API](../reference/api.md#scopes) lists them. A role is read again on every request, so a change takes effect at once, for the person and for their agents. Beacon always keeps at least one enabled owner, and refuses the change that would leave it without one.
 
 ## The first owner
 
@@ -59,7 +59,7 @@ A username is 2 to 32 lower-case letters, digits, dots, dashes and underscores, 
 
 ## Sign in
 
-`/console/sign-in` asks for a username and a password. Every page of the console sends whoever is not signed in there, and back to that page afterwards. A sign-in lasts 12 hours; [The console](pages.md#signing-in) has the cookie and what each message on the form means.
+`/console/sign-in` asks for a username and a password. Every page of the console sends whoever is not signed in there, and back to that page afterwards. A sign-in lasts 12 hours; [The console](console.md#signing-in) has the cookie and what each message on the form means.
 
 - 20 failed sign-ins from one address within 10 minutes block that address for the rest of those minutes, as for the API's tokens. 10 wrong passwords for one username within 10 minutes, from anywhere, block that username for the rest of them, the right password included.
 - A wrong username and a wrong password get the same answer, `Wrong username or password.`, and take as long.
@@ -197,7 +197,7 @@ The console shows the token once, with the same commands ready to paste. Beacon 
 
 - `-preset` is the strongest the owner's role allows when left out; `-expires` is `365d` when left out, at most two years.
 - `-ssh-key KEY`, or `-ssh-key @FILE` to read it from a file, gives the agent a key at once; the `~/.ssh/config` block for its own ssh then follows the commands.
-- The token renews itself before it expires ([Tokens that renew themselves](agents.md#tokens-that-renew-themselves)), so nobody hands the agent a new one. When one is needed after all, **New token** on the agent's page makes it.
+- The token renews itself before it expires ([Tokens that renew themselves](on-call.md#tokens-that-renew-themselves)), so nobody hands the agent a new one. When one is needed after all, **New token** on the agent's page makes it.
 - `beacon agent list` shows every agent with its owner, preset, what it may do now, machines, and how many tokens, OAuth sign-ins and keys it has; `beacon agent remove NAME` deletes one with all its credentials.
 
 ## SSH keys
@@ -210,7 +210,7 @@ The SSH channel signs an agent in by its public key. An agent registers its own 
 | `list_ssh_keys` | `GET /api/v1/ssh-keys` | The agent's keys |
 | `remove_ssh_key` | `DELETE /api/v1/ssh-keys` | Remove one, by its fingerprint; connections signed in with it are closed |
 
-They take `machines:ssh`. Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`; `list_machines` then gives the `ssh_config` block for its own ssh ([The SSH channel](ssh.md#connect-with-your-own-ssh-scp-and-rsync)).
+They take `machines:ssh`. Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`; `list_machines` then gives the `ssh_config` block for its own ssh ([The SSH channel](machines.md#connect-with-your-own-ssh-scp-and-rsync)).
 
 - **A key the agent registers itself** belongs to the credential it came with, a token or an OAuth sign-in (`via`: `token:NAME` or `grant:ID`). It signs in only while that credential works, with what that credential may do, and it goes when the credential is revoked or the agent is deleted.
 - **A key the owner adds**, with **Add an SSH key** on the agent's page or `-ssh-key` on `beacon agent add`, stays with the agent, and signs in while the agent has a credential that has not expired.
@@ -227,7 +227,7 @@ A revoked or narrowed credential is refused from its next request on, and what t
 - its owner is disabled, or demoted below on call;
 - the key a session signed in with is removed.
 
-Beacon also checks every minute, for credentials that expired meanwhile. To stop every agent at once, pause the channel ([Pausing](ssh.md#pausing)).
+Beacon also checks every minute, for credentials that expired meanwhile. To stop every agent at once, pause the channel ([Pausing](machines.md#pausing)).
 
 ## Who the audit log names
 
@@ -280,7 +280,7 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 | `beacon agent list`, `beacon agent remove NAME` | List agents; delete one with its credentials |
 | `beacon token claim NAME -owner USER [-agent NAME] [-preset P]` | Make a legacy token an agent's |
 
-`ROLE` is `viewer`, `oncall`, `operator` or `owner`; a preset is `readonly`, `oncall` or `operator`. `beacon token create` stays, for machines' tokens and for experts. The same operations are on the REST API under `/api/v1/users` and `/api/v1/ssh-keys`, and the MCP tools `list_users` and `invite_user` ([REST API](reference/api.md#people-and-ssh-keys), [MCP tools](reference/mcp.md#people-and-ssh-keys)). They need `accounts:write`, which no preset gives: an agent manages people only when an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not offered through MCP.
+`ROLE` is `viewer`, `oncall`, `operator` or `owner`; a preset is `readonly`, `oncall` or `operator`. `beacon token create` stays, for machines' tokens and for experts. The same operations are on the REST API under `/api/v1/users` and `/api/v1/ssh-keys`, and the MCP tools `list_users` and `invite_user` ([REST API](../reference/api.md#people-and-ssh-keys), [MCP tools](../reference/mcp.md#people-and-ssh-keys)). They need `accounts:write`, which no preset gives: an agent manages people only when an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not offered through MCP.
 
 ## Security
 

@@ -6,7 +6,7 @@ The pages are served by Beacon itself, on port 17001 beside the console, without
 
 ## The page you already have
 
-The reference deployment ships one page, in `deploy/catalog/status_pages.yaml`: `status`, the default, titled "Example Status", with two components, **Website** (the service `example.com`) and **Status and alerts** (`beacon`, Beacon's own status host). Open `https://status.example.com/` after [Up in 30 minutes](install.md): until the first probe has reported it says **No data yet**; a minute or two after the first results, each component shows its state, and the page **All systems operational** when both work.
+The reference deployment ships one page, in `deploy/catalog/status_pages.yaml`: `status`, the default, titled "Example Status", with two components, **Website** (the service `example.com`) and **Status and alerts** (`beacon`, Beacon's own status host). Open `https://status.example.com/` after [Up in 30 minutes](../self-hosting/install.md): until the first probe has reported it says **No data yet**; a minute or two after the first results, each component shows its state, and the page **All systems operational** when both work.
 
 From top to bottom, a page shows:
 
@@ -22,7 +22,7 @@ Replace the two example components with your own services, or remove the file fo
 
 ## Define your own page
 
-A page is part of the catalogue, under `status_pages`, beside the locations, heartbeats and resources ([What is checked, and from where](catalog.md)). Like them it is imported from the catalogue's files at the first start and with `beacon config import`, changed through the API, MCP and the command line, checked with the rest of the configuration, and a version in the history that can be reverted:
+A page is part of the catalogue, under `status_pages`, beside the locations, heartbeats and resources ([What is checked, and from where](monitoring.md)). Like them it is imported from the catalogue's files at the first start and with `beacon config import`, changed through the API, MCP and the command line, checked with the rest of the configuration, and a version in the history that can be reverted:
 
 ```yaml
 status_pages:
@@ -71,7 +71,7 @@ The MCP tools are `get_config`, `put_config` and `delete_config` with `kind: sta
 
 ### Components and labels
 
-A component is backed by the probe targets of some services. `services` names them by the targets' `service` label, the one every target has ([Targets](catalog.md#targets)). `page` names them by another label on the targets: a component with `page: mirrors` is backed by every service with a target labelled `page: mirrors`, so that adding a mirror to the targets adds it to the page. A target labelled `visibility: internal` never backs a component through `page`.
+A component is backed by the probe targets of some services. `services` names them by the targets' `service` label, the one every target has ([Targets](monitoring.md#targets)). `page` names them by another label on the targets: a component with `page: mirrors` is backed by every service with a target labelled `page: mirrors`, so that adding a mirror to the targets adds it to the page. A target labelled `visibility: internal` never backs a component through `page`.
 
 A component whose services no target has is taken, with a warning (in the change's `warnings` and from `check-config`), such as `status page "public": component "website" names service "www.example.com", which no probe target has; it shows no data until one does`: targets are often added after the page that shows them. Until one is, it shows no data.
 
@@ -89,7 +89,7 @@ A component's state now is the worst of:
 
 So a page never says a service works while an alert about it fires, and it shows a failure the probes agree on a minute or two before the alert does, since the alert waits a minute to be sure. A component of several services takes the worst of them.
 
-Nothing reporting is **no data**: no probe has sent a result for the component's services in the last minutes. The usual causes are a service name that no target carries, a component whose `page` label only internal targets carry, and probes that do not reach the gateway; [Troubleshooting](troubleshooting.md#a-status-page-shows-no-data) goes through them.
+Nothing reporting is **no data**: no probe has sent a result for the component's services in the last minutes. The usual causes are a service name that no target carries, a component whose `page` label only internal targets carry, and probes that do not reach the gateway; [Troubleshooting](../self-hosting/troubleshooting.md#a-status-page-shows-no-data) goes through them.
 
 ## History
 
@@ -178,7 +178,7 @@ branding:
   powered_by: false           # no "Powered by Beacon" on the public pages (true by default)
 ```
 
-`powered_by` is for the public pages only; the console always shows Beacon's version and the project's links ([The console](pages.md)).
+`powered_by` is for the public pages only; the console always shows Beacon's version and the project's links ([The console](console.md)).
 
 Without any status page, `/` is a small page on the same design: the deployment's title (`branding.title`), one line on what Beacon is, **Sign in**, and the footer's line.
 

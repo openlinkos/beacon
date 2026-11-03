@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0a41da86
+sourceHash: sha256-c82ee89e
 ---
 
 # REST API
@@ -14,8 +14,8 @@ REST API 面向通过 HTTP 使用 Beacon 的脚本、机器人和 Agent：它们
 
 | 谁来调用 | 凭据 | 从哪里来 |
 | --- | --- | --- |
-| 独自运行的 Agent、脚本、CI 任务 | Agent 的令牌，`lbt_…` | 控制台的 **Agent** 页面，或在中心上用 `beacon agent add`（[无界面的 Agent 和 CI](../accounts.md#headless-agents-and-ci)） |
-| 由人登录的 MCP 客户端，比如 Claude Code | OAuth 访问令牌，`lba_…`，有效一小时，由客户端刷新 | 通过浏览器登录（[接入 Claude Code](../accounts.md#connect-claude-code)） |
+| 独自运行的 Agent、脚本、CI 任务 | Agent 的令牌，`lbt_…` | 控制台的 **Agent** 页面，或在中心上用 `beacon agent add`（[无界面的 Agent 和 CI](../guide/people.md#headless-agents-and-ci)） |
+| 由人登录的 MCP 客户端，比如 Claude Code | OAuth 访问令牌，`lba_…`，有效一小时，由客户端刷新 | 通过浏览器登录（[接入 Claude Code](../guide/people.md#connect-claude-code)） |
 | 机器或服务（检测点、主机、心跳、变更发送方、指标读取方），或者熟手 | 按名字指定作用域的令牌，`lbt_…` | 在中心上用 `beacon enroll`，或 `beacon token create NAME -scopes … -expires …` |
 
 比如一个处理告警的脚本：
@@ -62,7 +62,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `alerts:send` | 像规则引擎一样发送告警 |
 | `changes:write` | 发送变更事件 |
 
-人和 Agent 不用一个个挑作用域：人的作用域来自角色，Agent 的由预设申请，且不超出所有者的角色（[成员和 Agent](../accounts.md#roles)）。
+人和 Agent 不用一个个挑作用域：人的作用域来自角色，Agent 的由预设申请，且不超出所有者的角色（[成员和 Agent](../guide/people.md#roles)）。
 
 | 角色 | Agent 预设 | 作用域 |
 | --- | --- | --- |
@@ -92,7 +92,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../agents.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
+| `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
@@ -119,7 +119,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测什么，从哪里检测](../catalog.md)）。读取需要 `status:read` 或 `config:write`；修改需要 `config:write`。`PUT` 和 `DELETE` 接受 `?note=`（随修改保存，并显示在告警群里）和 `?if_version=`（已有更新的版本生效时拒绝，返回 `config.conflict`）。通不过校验的修改会被拒绝，返回 `config.invalid`，什么都不会改。
+Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。读取需要 `status:read` 或 `config:write`；修改需要 `config:write`。`PUT` 和 `DELETE` 接受 `?note=`（随修改保存，并显示在告警群里）和 `?if_version=`（已有更新的版本生效时拒绝，返回 `config.conflict`）。通不过校验的修改会被拒绝，返回 `config.invalid`，什么都不会改。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/modules/{name}` | `status:read` 或 `config:write` | 一个检测模块 |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | 添加或替换一个检测模块；模块文件里的其他模块和注释保持不变 |
 | `DELETE /api/v1/config/modules/{name}` | `config:write` | 删除一个检测模块 |
-| `GET /api/v1/config/status_pages` | `status:read` 或 `config:write` | 公开状态页，按名字（[状态页](../status.md)） |
+| `GET /api/v1/config/status_pages` | `status:read` 或 `config:write` | 公开状态页，按名字（[状态页](../guide/status-pages.md)） |
 | `GET /api/v1/config/status_pages/{name}` | `status:read` 或 `config:write` | 一个状态页的定义 |
 | `PUT /api/v1/config/status_pages/{name}` | `config:write` | 添加或替换一个状态页；组件对应的服务还没有检测目标时照样接受，并给出警告 |
 | `DELETE /api/v1/config/status_pages/{name}` | `config:write` | 删除一个状态页 |
@@ -154,7 +154,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
-公开页面本身不需要令牌（[见下文](#other-routes-on-port-17001)）；这些接口把同样的内容给 Agent，并让它安排维护（[状态页](../status.md)）。
+公开页面本身不需要令牌（[见下文](#other-routes-on-port-17001)）；这些接口把同样的内容给 Agent，并让它安排维护（[状态页](../guide/status-pages.md)）。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -165,7 +165,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 成员与 SSH 密钥 {#people-and-ssh-keys}
 
-登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[成员和 Agent](../accounts.md)）。没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。重设密码没有 MCP 工具。
+登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[成员和 Agent](../guide/people.md)）。没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。重设密码没有 MCP 工具。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -188,7 +188,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 网关 {#the-gateway}
 
-网关在 17006 端口（参考部署里是 `https://metrics.example.com`），给机器用：检测点、主机、心跳、规则引擎和变更事件的发送方。它们各用自己的令牌：检测点、主机和心跳的令牌由 `beacon enroll` 创建，变更发送方和指标读取方的令牌由 `beacon token create` 创建，规则引擎用规则令牌（`rules.token_file`）。各自发送什么，见[数据来源](../sources.md)。
+网关在 17006 端口（参考部署里是 `https://metrics.example.com`），给机器用：检测点、主机、心跳、规则引擎和变更事件的发送方。它们各用自己的令牌：检测点、主机和心跳的令牌由 `beacon enroll` 创建，变更发送方和指标读取方的令牌由 `beacon token create` 创建，规则引擎用规则令牌（`rules.token_file`）。各自发送什么，见[数据来源](sources.md)。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -209,13 +209,13 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | 路径 | 做什么 |
 | --- | --- |
 | `/mcp` | MCP server，streamable HTTP，用同样的 bearer 令牌或 OAuth 访问令牌；`401` 会指明去哪里登录（`WWW-Authenticate: Bearer resource_metadata="…"`）（[MCP 工具](mcp.md)） |
-| `GET /` | 公开：默认状态页，和 `/status` 的内容相同；没有状态页时，是一个写明这套部署、带**登录**按钮的页面（[状态页](../status.md#branding)） |
-| `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，给用自己账号登录的人用；再保留一个版本，也可以用令牌登录（[控制台](../pages.md)） |
+| `GET /` | 公开：默认状态页，和 `/status` 的内容相同；没有状态页时，是一个写明这套部署、带**登录**按钮的页面（[状态页](../guide/status-pages.md#branding)） |
+| `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，给用自己账号登录的人用；再保留一个版本，也可以用令牌登录（[控制台](../guide/console.md)） |
 | `GET /.well-known/oauth-protected-resource/mcp`、`GET /.well-known/oauth-protected-resource`、`GET /.well-known/oauth-authorization-server` | MCP 客户端用来找到 Beacon 登录方式的 OAuth 元数据（RFC 9728、RFC 8414） |
-| `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token`、`POST /oauth/revoke` | Beacon 作为 MCP 客户端的授权服务器：注册、授权页面、令牌和吊销（[成员和 Agent](../accounts.md#the-oauth-endpoints)） |
-| `GET /console/alerts/{id}`、`GET /console/sessions/{id}` | 人从卡片上打开的页面，凭签名链接或令牌打开（[控制台](../pages.md#signed-links)） |
+| `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token`、`POST /oauth/revoke` | Beacon 作为 MCP 客户端的授权服务器：注册、授权页面、令牌和吊销（[成员和 Agent](../guide/people.md#the-oauth-endpoints)） |
+| `GET /console/alerts/{id}`、`GET /console/sessions/{id}` | 人从卡片上打开的页面，凭签名链接或令牌打开（[控制台](../guide/console.md#signed-links)） |
 | `GET /alerts/{id}`、`GET /sessions/{id}`、`GET /sign-in` 以及控制台的其他旧路径 | `308` 转到 `/console` 下的同一路径，带着查询参数；为旧路径签名的链接换成新路径的签名，到期时间不变 |
-| `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开状态页和其中的事件，不需要令牌（[状态页](../status.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
+| `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开状态页和其中的事件，不需要令牌（[状态页](../guide/status-pages.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
 | `GET /status.json`、`GET /status/{name}.json`、`GET /status/{name}/feed.atom`、`GET /status/{name}/badge.svg`、`GET /status/{name}/components/{component}/badge.svg` | 状态页的 JSON、Atom 订阅和徽章，公开，可以缓存 |
 | `GET /robots.txt` | 允许搜索引擎读取 `/`、`/status` 和 `/static/`，不让它们进 `/console`、`/api/`、`/mcp`、`/alerts/` 和 `/sessions/` |
 | `GET /healthz` | 存活检查：`ok` |

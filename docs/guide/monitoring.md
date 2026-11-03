@@ -1,6 +1,6 @@
 # What is checked, and from where
 
-This page is for whoever decides what a Beacon watches, a person or an agent with the right token. It says which machines probe, what they probe and how, which scheduled jobs must report in, and which things are about to expire; then how to change any of it through Beacon without undoing someone else's change. The examples assume the reference deployment from [Up in 30 minutes](install.md), where commands run through `docker exec beacon beacon …`.
+This page is for whoever decides what a Beacon watches, a person or an agent with the right token. It says which machines probe, what they probe and how, which scheduled jobs must report in, and which things are about to expire; then how to change any of it through Beacon without undoing someone else's change. The examples assume the reference deployment from [Up in 30 minutes](../self-hosting/install.md), where commands run through `docker exec beacon beacon …`.
 
 ## How it fits together
 
@@ -17,7 +17,7 @@ All of this lives in Beacon's database, not in files. People and agents change i
 | Catalogue: probe locations, heartbeats, expiring resources | `locations`, `heartbeats`, `resources` | `catalog/*.yaml` (configuration key `catalog_dir`) | Beacon, which exports it as metrics for the rules and uses it to label what probes write |
 | Probe targets, in named sets | `targets` | `targets/*.yaml`, one file per set (`gateway.targets_dir`) | The gateway, which hands each probe its own list |
 | Probe modules | `modules` | `targets/modules.yml` (`gateway.modules_file`) | The gateway, which hands it to every probe |
-| Public status pages | `status_pages` | `catalog/*.yaml`, under `status_pages` | Beacon, which serves them ([Status pages](status.md)) |
+| Public status pages | `status_pages` | `catalog/*.yaml`, under `status_pages` | Beacon, which serves them ([Status pages](status-pages.md)) |
 
 The sections below give each item's shape in YAML, as in the files; the API and MCP take and return the same shapes in JSON. A catalogue may be split over several files; their lists are joined.
 
@@ -141,7 +141,7 @@ heartbeats:
     machine: nas-1            # optional: the machine the job runs on, as the SSH channel names it
 ```
 
-Give `machine` whenever the job runs on a machine the [SSH channel](ssh.md) reaches. It names the machine as `beacon machine list` and `list_machines` show it, and it is what turns a stale heartbeat into something an agent can act on: the evidence and the timeline for the heartbeat's alerts then name that machine and list the sessions and changes on it, those just before the alert included, so an agent woken by `HeartbeatStale` knows where to look and sees, say, the session that stopped the job's timer three minutes earlier ([The evidence](agents.md#the-evidence)).
+Give `machine` whenever the job runs on a machine the [SSH channel](machines.md) reaches. It names the machine as `beacon machine list` and `list_machines` show it, and it is what turns a stale heartbeat into something an agent can act on: the evidence and the timeline for the heartbeat's alerts then name that machine and list the sessions and changes on it, those just before the alert included, so an agent woken by `HeartbeatStale` knows where to look and sees, say, the session that stopped the job's timer three minutes earlier ([The evidence](on-call.md#the-evidence)).
 
 A put (API, MCP) refuses a machine the SSH channel does not have, with `config.invalid` and how to put it right, unless the heartbeat named that machine already. An import and a revert take one, since files are often imported before the machines are enrolled, and say so in the change's `warnings`, in the log and in `config import`'s output; `check-config` lists such heartbeats too, without failing.
 
@@ -181,7 +181,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X DELETE -H "Authorization: Bearer $TOKEN" https://status.example.com/api/v1/config/heartbeats/nas-backup
 ```
 
-The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules,status_pages}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), listed in the [API reference](reference/api.md) and described in full in `internal/api/openapi.yaml`. The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing.
+The routes are `/api/v1/config/{locations,heartbeats,resources,targets,modules,status_pages}` (the list) and `…/{id or name}` (`GET`, `PUT`, `DELETE` one item), listed in the [API reference](../reference/api.md) and described in full in `internal/api/openapi.yaml`. The MCP tools are `get_config`, `put_config` and `delete_config`, which take a `kind` (`locations`, …) and a `key`. A change returns its version and every item's value before and after; putting what is already there changes nothing.
 
 A change may say which version it is based on: `?if_version=12` on `PUT` and `DELETE`, `if_version` in `put_config` and `delete_config`, the version `GET /api/v1/config` (`get_config`) returned. When a later version is in force, the change is refused with `config.conflict` (`the configuration changed: version 13 is in force, not 12 as you last saw; read it again and retry`), and nothing changes: read the item again and decide afresh. An agent that reads the configuration, thinks, and then writes should pass it, so that it never overwrites what someone changed meanwhile.
 

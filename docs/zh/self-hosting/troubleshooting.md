@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1b227a8f
+sourceHash: sha256-a1ee42ac
 ---
 
 # 常见问题
@@ -41,13 +41,13 @@ vmui 里这个检测点没有 `probe_success` 序列，控制台总览里它算�
 | 日志里看到 | 原因 | 怎么办 |
 | --- | --- | --- |
 | `401`、`auth.invalid` | 令牌文件不是 `beacon enroll probe` 打印的那个，或者已经被 `-rotate` 换掉 | 用 `-rotate` 重新登记，再用新令牌运行 `probe/install.sh -token-file FILE` |
-| `403`、`location.inactive`、`location edge-2 is not in the catalogue` | 目录里没有这个检测点的 id，或者导入的文件里没有它，它被删掉了 | 把它加进目录再导入，或者通过 API 添加（见[检测什么，从哪里检测](catalog.md)） |
+| `403`、`location.inactive`、`location edge-2 is not in the catalogue` | 目录里没有这个检测点的 id，或者导入的文件里没有它，它被删掉了 | 把它加进目录再导入，或者通过 API 添加（见[检测什么，从哪里检测](../guide/monitoring.md)） |
 | `403`、`the machine of location edge-2 has expired` | 有一个和检测点同名、类型为 `vps` 的资源，日期已经过了 | 给这个资源续一个新日期 |
 | `cannot fetch from the gateway; using the cached copy` 加连接错误 | 这台机器连不上 `metrics.example.com` 的 443 端口（或网关自己的端口） | 检查 DNS、防火墙，以及 `/etc/beacon-probe/agent.env` 里的地址 |
 
 登记时也会检查目录：目录里还没有 `edge-2` 时，`beacon enroll probe edge-2` 会报 `location edge-2 is not in the catalogue`；第二次登记会报 `probe-edge-2 is enrolled already; enroll it with -rotate to replace its token`。
 
-检测点在上报，但你的某个目标不在其中：由谁检测，取决于目标集的名字。`all-…` 是所有检测点，`overseas-…` 和 `mainland-…` 是对应地区的检测点，`<location id>-…` 只有那一个检测点（见[检测目标](catalog.md#targets)）。改动在一分钟内生效。
+检测点在上报，但你的某个目标不在其中：由谁检测，取决于目标集的名字。`all-…` 是所有检测点，`overseas-…` 和 `mainland-…` 是对应地区的检测点，`<location id>-…` 只有那一个检测点（见[检测目标](../guide/monitoring.md#targets)）。改动在一分钟内生效。
 
 如果数据来得晚或者一阵一阵地来，检查检测点机器的时钟：检测结果带时间戳，时钟没有和 NTP 同步时，`probe/install.sh` 会给出警告。
 
@@ -80,7 +80,7 @@ sudo -u beacon-probe /opt/beacon-probe/bin/beacon-probe run -modules /var/lib/be
 
 `list_alerts` 里有这条告警，但没有卡片、没有消息、手机也没响。
 
-- **没有配置通知渠道。** 没有 `feishu:` 段，也没有 `pushover:` 时，告警只记录、只显示，日志里写着 `alert recorded; no notification channel is configured`。按[配置飞书应用](feishu.md)配好，再重启 Beacon。
+- **没有配置通知渠道。** 没有 `feishu:` 段，也没有 `pushover:` 时，告警只记录、只显示，日志里写着 `alert recorded; no notification channel is configured`。按[配置飞书应用](../integrations/feishu.md)配好，再重启 Beacon。
 - **通知渠道出错了。** 日志里有 `feishu card failed; falling back` 或 `alert could not be delivered by any channel`，`GET /api/v1/bridge` 会列出 `the Feishu long connection is down`、`a Feishu API call failed in the last 10 minutes` 或 `the Feishu API budget for this month is used up`。
 - **发给了自定义机器人。** `info` 级别的告警发给群里的自定义机器人，是纯文本消息，不是卡片；应用用掉 `feishu.monthly_budget` 的 70% 之后，警告级别的告警也是这样。
 - **还没到打电话的时候。** 严重告警没人认领时，10 分钟后在飞书应用里加急值班的人，15 分钟后发 Pushover。认领之后，两者都停 `ack_ttl`（默认 4 小时）。
@@ -111,18 +111,18 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `… ssh: handshake failed: ssh: unable to authenticate …`（`machine.unreachable`） | 机器的 sshd 不接受 Beacon 的证书 | 执行 `machine add` 打印的那几行：`/etc/ssh/beacon_ca.pub`、`TrustedUserCAKeys`、`beacon` 账户、`systemctl reload ssh` |
 | `… ssh: handshake failed: ssh: host key mismatch`（`machine.unreachable`） | 机器的主机密钥和 Beacon 固定的不一样，比如重装过系统 | 先弄清楚为什么变了，再执行 `beacon machine add NAME HOST -replace` |
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
-| `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](ssh.md#turn-it-on) |
+| `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |
 
-还有两种情况。如果连续失败几次之后，所有 Agent 连同一台机器都开始失败，可能是 OpenSSH 的惩罚机制（9.8 及以后的版本）限制了中心的地址，而所有 Agent 都从这个地址连过来：在机器的 `beacon.conf` 里加上带中心地址的 `PerSourcePenaltyExemptList`（见[添加机器](ssh.md#add-a-machine)）。另外，同一个地址 10 分钟内登录失败 20 次后，通道在这 10 分钟剩下的时间里，对这个地址的连接一律不应答、直接关闭。
+还有两种情况。如果连续失败几次之后，所有 Agent 连同一台机器都开始失败，可能是 OpenSSH 的惩罚机制（9.8 及以后的版本）限制了中心的地址，而所有 Agent 都从这个地址连过来：在机器的 `beacon.conf` 里加上带中心地址的 `PerSourcePenaltyExemptList`（见[添加机器](../guide/machines.md#add-a-machine)）。另外，同一个地址 10 分钟内登录失败 20 次后，通道在这 10 分钟剩下的时间里，对这个地址的连接一律不应答、直接关闭。
 
 ### Agent 的凭据被拒绝 {#the-agents-credential-is-refused}
 
 API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求重新登录。
 
-- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了；也可能是 Agent 被删除了，或者它的所有者被停用了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间，Agent 页面上能看到它的各个凭据。在 Agent 页面上点**新令牌**新建一个（独立令牌用 `beacon token create`），并让 Agent 能自己续期（见[自动续期的令牌](agents.md#tokens-that-renew-themselves)）。
+- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了；也可能是 Agent 被删除了，或者它的所有者被停用了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间，Agent 页面上能看到它的各个凭据。在 Agent 页面上点**新令牌**新建一个（独立令牌用 `beacon token create`），并让 Agent 能自己续期（见[自动续期的令牌](../guide/on-call.md#tokens-that-renew-themselves)）。
 - **OAuth 客户端要求重新登录。** 它的登录被吊销了，或者授权页面上允许的期限到了：从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的。** 像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥，而旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
-- **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](reference/api.md#scopes)）。
+- **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](../reference/api.md#scopes)）。
 - **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住；常见于客户端拿着错误的令牌不停重试。
 - **续期时返回 `token.too_soon`（429）。** 令牌不到 24 小时前刚续过期，仍然有效。
 
@@ -143,7 +143,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 
-还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](accounts.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link does not work: it was used already, it expired, or it is wrong.`（「这个链接不能用：已用过、已过期或不正确。」）时，请所有者重新给一个。详见[控制台](pages.md#signing-in)。
+还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link does not work: it was used already, it expired, or it is wrong.`（「这个链接不能用：已用过、已过期或不正确。」）时，请所有者重新给一个。详见[控制台](../guide/console.md#signing-in)。
 
 ### 打开旧链接，控制台显示 404 {#the-console-says-404-on-an-old-link}
 
@@ -155,7 +155,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - **在状态页自己的域名上打开。** 那个域名上只有状态页；控制台在 `public_url` 上。
 - **数据库换过了。** 链接用 Beacon 存在数据库里的一把密钥签名；换了新数据库，就是一把新密钥，之前的链接都会失败。
 
-0.3.0 之前的链接指向站点根路径下的 `/alerts/{id}` 或 `/sessions/{id}`，在过期之前仍然能用：它们会被转到（`308`）`/console` 下的同一个页面（见[签名链接](pages.md#signed-links)）。
+0.3.0 之前的链接指向站点根路径下的 `/alerts/{id}` 或 `/sessions/{id}`，在过期之前仍然能用：它们会被转到（`308`）`/console` 下的同一个页面（见[签名链接](../guide/console.md#signed-links)）。
 
 ### 状态页显示无数据 {#a-status-page-shows-no-data}
 
@@ -166,7 +166,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - **没有检测点在上报。** 检测程序挂了，或者连不上网关：见[检测点没有数据](#a-probe-location-shows-no-data)。
 - **VictoriaMetrics 没有应答。** 日志里会有 `status pages: reading the probes failed`。
 
-检测点开始上报之前的日子会一直是灰色；过去的某一天，在它结束后的六小时内还会重新计算，好把线路中断期间检测点暂存的结果算进去。规则详见[状态页](status.md)。
+检测点开始上报之前的日子会一直是灰色；过去的某一天，在它结束后的六小时内还会重新计算，好把线路中断期间检测点暂存的结果算进去。规则详见[状态页](../guide/status-pages.md)。
 
 ## 配置 {#configuration}
 
@@ -182,4 +182,4 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 
 ### 修改被拒绝：config.conflict 或 config.invalid {#a-change-is-refused-with-configconflict-or-configinvalid}
 
-`config.conflict`（409）：这次修改基于一个旧版本（`if_version`），而现在生效的是更新的版本；或者要撤销的修改所涉及的条目，后来又被别的修改动过。重新读一遍（`GET /api/v1/config`、`get_config`），再重新决定。`config.invalid`（422）：这次修改通不过校验，提示会写明哪一条，配置没有任何改变。常见的一种：只要还有目标集以某个检测点命名，这个检测点就不能删除。规则详见[检测什么，从哪里检测](catalog.md)。
+`config.conflict`（409）：这次修改基于一个旧版本（`if_version`），而现在生效的是更新的版本；或者要撤销的修改所涉及的条目，后来又被别的修改动过。重新读一遍（`GET /api/v1/config`、`get_config`），再重新决定。`config.invalid`（422）：这次修改通不过校验，提示会写明哪一条，配置没有任何改变。常见的一种：只要还有目标集以某个检测点命名，这个检测点就不能删除。规则详见[检测什么，从哪里检测](../guide/monitoring.md)。
