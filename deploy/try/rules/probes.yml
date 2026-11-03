@@ -59,3 +59,19 @@ groups:
           summary: "Probe location {{ $labels.location }} has sent no results for 2 minutes"
           description: "No probe results from {{ $labels.location }} ({{ $labels.network }}). In the try environment the probe is the container beacon-try-probe; the agent queues results on disk and fills the gap when it is back."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md
+
+  # The Watchdog, after deploy/rules/meta.yml: always firing while the rule engine delivers, and Beacon
+  # counts it towards its readiness — without it the console tells an agent the alerting pipeline has
+  # not been seen yet. A laptop trial has no healthchecks.io dead man's switch to ping on it; the
+  # reference deployment has both.
+  - name: meta
+    interval: 30s
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Watchdog - always firing while the alerting pipeline works
+          description: "Beacon counts this towards its readiness. The try environment has no dead man's switch; the Watchdog only marks that the rule engine and the metrics store are delivering."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/Watchdog.md
