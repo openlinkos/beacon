@@ -1,144 +1,67 @@
-# The console
+# Review what agents did
 
-The console is where the people on your team look at what Beacon and the agents are doing: the alerts firing and what has been done about each, every session an agent opened on a machine with its replay, the people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, and the switch that stops agents' access to machines. It is for whoever is on call or answers for the machines; the agents themselves use the [API](../reference/api.md) and the [MCP tools](../reference/mcp.md). A link on an alert's card opens that alert's page without signing in; signing in shows the rest.
+By the end of this page you can find, in one place, what Beacon and the agents are doing: the alerts firing and what has been done about each, every session an agent opened on a machine with its replay, the people and their agents with their credentials, the configuration and its history — and the switch that stops agents' access to machines. The console is for whoever is on call or answers for the machines; the agents themselves use the [REST API](../reference/api.md) and the [MCP tools](../reference/mcp.md). A link on an alert's card opens that alert's page without signing in; signing in shows the rest.
 
-Beacon serves the console itself, at `/console` on port 17001 beside the API and MCP, under `public_url`. The site's root `/` is public: the default [status page](status-pages.md), or, without one, a page that names the deployment.
+You need an account ([Invite your team](people.md)); a viewer sees everything, and acting on what you see takes the role for it. The console is served by Beacon itself, at `/console` on port 17001 beside the API and MCP, under `public_url`; the site's root `/` is public ([Publish a status page](status-pages.md)).
 
-## Signing in
+## Sign in {#signing-in}
 
-People sign in with their own Beacon account, and what the console shows and allows is what their role allows ([People and their agents](people.md)). The first account, an owner, comes from the one-time setup link Beacon writes to its log ([Up in 30 minutes](../self-hosting/install.md#4-the-first-agent), step 4); everyone else joins with an invitation.
+Open `https://status.example.com/console`: you are sent to `/console/sign-in`, asked for your username and password, and sent back to the page you asked for. A sign-in lasts 12 hours; the browser holds only the session's id, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict`, and Beacon keeps only its SHA-256. What the session may do is what the person's role allows, read again on every request: a lower role takes effect at once, and disabling the account or a new password ends its sessions. The cookie is `Secure`, so the console needs HTTPS (or `localhost`); when the sign-in fails, the form says why — [Signing in to the console fails](../self-hosting/troubleshooting.md#signing-in-to-the-console-fails) lists every message and what to do about it.
 
-Open `https://status.example.com/console`: you are sent to `/console/sign-in`, asked for your username and password, and sent back to the page you asked for. The public pages at `/` have **Sign in** at the right of their header (**Console** once you are signed in); a status page on a host name of its own has neither, since the console does not answer there.
+**Sign in with a token instead**, below the form, still takes a pasted Beacon token, for one more release: for scripts, and on a Beacon that has no account yet, where it is the only form. The token needs `status:read` at least; the session lasts 12 hours and is bound to the token, so revoking the token ends it. A token's sign-in cannot allow an MCP client: an OAuth client always acts for a person.
 
-When the sign-in fails, the form says why:
+## The pages {#the-pages}
 
-| Message | What to do |
+Every page has the same frame: the sections in a narrow sidebar with counts, the filters (facets) on the left of lists, and at the foot Beacon's version with links to the documentation, the code and where to report an issue. Lists show the newest first, 50 to a page, and every filter is a link, so every view has a URL you can share.
+
+| Page | What it shows |
 | --- | --- |
-| "Wrong username or password." | Check both. The answer is the same for a username that does not exist, so it gives nothing away. A lost password takes a reset link from an owner ([Passwords](people.md#passwords)) |
-| "This account is disabled; an owner can enable it." | Ask an owner: **People**, or `beacon user enable NAME` |
-| "Too many failed sign-ins; try again in a few minutes." | 10 wrong passwords for one username within 10 minutes, from anywhere, block that username for the rest of those 10 minutes |
-| "Too many failed sign-ins from here; try again in a few minutes." | 20 failures from one client address within 10 minutes block it for the rest of those 10 minutes, as on the API |
-| "The form has expired; try again." | Reload the page. If it keeps saying so, the browser is not keeping the form's cookie: the console needs HTTPS (or `localhost`), as below |
+| `/console` overview | Firing alerts by severity; locations expected and reporting; machines, the channel and whether it is paused; agents woken today; sessions today; the configuration's version. Each figure links to its list |
+| `/console/alerts`, `/console/alerts/{id}` | Every alert group (resolved ones for 7 days) with facets for state, severity, service, acknowledged and silenced; the alert's page (below) with the forms to acknowledge, silence and add a note |
+| `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, sessions in the last 24 hours; one machine's address, host key, recent sessions and the commands run on it. Above them the pause switch for the whole channel |
+| `/console/sessions`, `/console/sessions/{id}` | Every session with facets for agent, machine, kind, via, exit status and day, and search over commands; the session's page with its replay (below) |
+| `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys; the commands to connect a client by OAuth, the form for a headless agent's token, and each agent's page to change and revoke |
+| `/console/tokens` | Every token: scopes, machines, keys, expiry, whose agent it is, and **Legacy** for those from before accounts, with the form to claim one. Never a secret |
+| `/console/config`, `/console/config/history/{version}` | The configuration read-only (locations, heartbeats, resources, target sets, modules) and its history: who, when, through what and why, each version item by item as a diff, with the form to revert it |
+| `/console/hooks` | The agent hooks configured and every call made: hook, event, status, attempts, when, for which alert |
+| `/console/people`, `/console/account` | The people and their roles; inviting, changing a role, disabling, password resets ([Invite your team](people.md)); your account and your password |
+| `/console/audit`, `/console/changes` | The audit log with facets for who, action and via; the change events from CI and Flux |
+| `/console/setup`, `/console/join`, `/console/reset`, `/oauth/authorize` | The pages a one-time link opens, and the consent page an MCP client sends a person to |
 
-- A sign-in is a session kept in Beacon's database for 12 hours. The browser holds only the session's id, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict` (`__Host-beacon-console`, on the path `/` as a `__Host-` cookie must be); the database keeps only its SHA-256.
-- What the session may do is what the person's role allows, read again on every request: a lower role takes effect at once, and disabling the account ends its sessions. A new password ends the person's other sessions; a reset ends all of them.
-- The sign-in, setup, invitation and reset forms carry a secret of their own, so no other site can sign a person in to an account of its choosing. Signing in is recorded in the audit log (`console_sign_in`).
-- **Your account**, to change your password, and **Sign out** are in the menu at the foot of the sidebar.
-- The cookie is `Secure`, so the console needs HTTPS (or `localhost`): put it behind the TLS proxy that serves `public_url`, as the reference deployment does.
+The console's forms are the API's and the command line's operations, on the same scopes, done as the signed-in person with `via` `console`: recorded in the audit log and echoed to the alert chat like every other write. A form the person's role does not allow is not offered, and is refused if sent anyway. A page your role does not allow says "Not with your role", with the scope it needs and your role.
 
-**With a token instead.** **Sign in with a token instead**, below the form, still takes a pasted Beacon token, for one more release: for scripts, and on a Beacon that has no account yet, where it is the only form. The token needs `status:read` at least, and the session may do what the token's scopes allow. It lasts 12 hours, or until the token expires if that comes sooner, and it is bound to the token: revoking the token, or replacing it with another of the same name, ends it at once. The token itself is not stored. The form answers "The token is unknown or has expired." (make a new one, or check that you pasted all of it: it starts with `lbt_`) or "Token … lacks status:read, which the console needs to show anything." A token's sign-in cannot allow an MCP client: an OAuth client always acts for a person.
+## The alert's page {#the-alerts-page}
 
-## The pages
+The card's **Timeline** button opens it. From top to bottom: the alert itself (title, status, severity, since when, labels, runbook); what people were told and did (acknowledged, silenced, paged); **Probes** — for the alert's service, each location's latest result and reason, as `get_evidence` returns it; **Related alerts** in the same failure domain; **Agents** — whether they reach machines, which hooks were woken, one line "N sessions on M machines, K commands"; **Sessions** — every session in the alert's window on the machines its labels name, each with a **Replay** link; and **Notes**, **Changes** and the **Timeline**, everything in time order as `get_timeline` returns it. The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence).
 
-Every page has the same frame: the sections in a narrow sidebar, with counts; a top bar with the breadcrumb, the heading and a count; on lists, the filters (facets) on the left; and at the foot Beacon's version with links to the documentation, the code on GitHub and where to report an issue. Lists show the newest first, 50 to a page, and every filter is a link, so every view has a URL you can share.
+## The session's page and its replay {#the-sessions-page-and-its-replay}
 
-| Page | What it shows | Needs |
-| --- | --- | --- |
-| `/console` overview | Firing alerts by severity; probe locations expected and reporting through the gateway in the last 5 minutes; machines (how many are critical, how many of those behind NAT are connected); the SSH channel (running, or paused since when); agents woken today and how that went; sessions today; the configuration's version and who made it; Beacon's version. Each figure links to its list | `status:read` |
-| `/console/alerts` | Every alert group Beacon holds (resolved ones for 7 days), with facets for state, severity, service, acknowledged and silenced, and search over titles, services and labels | `status:read` |
-| `/console/alerts/{id}` | The alert's page (below), with the forms to acknowledge it with a note, silence it for 1, 4 or 24 hours, and add a note | `status:read`; the forms `alerts:write` |
-| `/console/machines` | The machines the SSH channel reaches: address, or whether a machine behind NAT is connected; critical; sessions in the last 24 hours; the last session. Above them, the pause switch for the whole channel | `status:read` or `machines:ssh`; the switch `machines:write` |
-| `/console/machines/{name}` | One machine: its address, account, host key and note, its recent sessions, and the commands run on it | `status:read` or `machines:ssh` |
-| `/console/sessions` | Every session, with facets for agent, machine, kind, via, exit status and day, and search over commands | `status:read` or `machines:ssh` |
-| `/console/sessions/{id}` | The session's page (below), with its replay | `sessions:read` or `machines:ssh` |
-| `/console/agents` | Your agents (an owner sees everyone's): preset, what each may do now, machines, credentials, keys; the commands to connect Claude Code or Codex by OAuth, and the form for a headless agent's token, shown once with the commands that use it | signed in: people make their own agents, an owner anyone's |
-| `/console/agents/{name}` | One agent: what it may do now, its preset and machines (changed here), its OAuth sign-ins (each with what it was allowed), tokens and SSH keys, each revoked or removed here, a new token, deleting the agent | its owner, or `accounts:write` |
-| `/console/tokens` | Every token: name, scopes, the machines it reaches, the fingerprints of its SSH keys, when it was made and by whom, when it expires, when it last renewed itself, and whose agent it is. Tokens from before accounts are marked **Legacy**, with the form to claim one as an agent of a person. Never a secret | `status:read`; revoking `machines:write`; claiming `accounts:write` |
-| `/console/config` | The configuration Beacon holds, read-only: probe locations (expected, reporting), heartbeats, resources, target sets and modules; then the history of versions: who, when, through what and why | `status:read` or `config:write` |
-| `/console/config/history/{version}` | What a version changed, item by item, as a diff, with the form to revert it | `status:read` or `config:write`; reverting `config:write` |
-| `/console/hooks` | The agent hooks configured (the address's host, never its path or query) and every call made: hook, event, status, HTTP status, attempts, when, for which alert | `status:read` |
-| `/console/people` | The people: role, last sign-in, agents, whether enabled; inviting someone (the link shown once), the invitations not yet used, changing a role, disabling and enabling, password reset links | `accounts:write` (owners) |
-| `/console/account` | Your account, and changing your password | signed in |
-| `/console/setup`, `/console/join`, `/console/reset` | The pages a one-time link opens: the first owner, an invitation, a new password ([People and their agents](people.md)) | the link's code |
-| `/oauth/authorize` | The consent page an MCP client sends a person to ([Connect Claude Code](people.md#connect-claude-code)) | signed in with an account |
-| `/console/audit` | The audit log, with facets for who, action and via, and search | `status:read` |
-| `/console/changes` | Change events from CI, Flux and the like, with facets for source, kind, service and machine | `status:read` |
+Who, on which machine, through what (ssh, MCP or the API), when it started and how long it took, the exit status — and the recording replayed in the page with [asciinema-player](https://github.com/asciinema/asciinema-player). The recording is asciicast v3, as the SSH channel records it: output, input, resizes, a marker at each command, the exit status. Below the player come an interactive shell's commands with their exit statuses, or a command's output; the recording can also be downloaded. A session still open shows its record; the recording plays once it ends.
 
-A page your role does not allow says "Not with your role", with the scope it needs and your role; signed in with a token, "Not with this token", with the scope it needs and the scopes the token has. A page that does not exist, or no longer does (an alert group resolved more than 7 days ago), says "Not found" to someone signed in and is a plain 404 for anyone else.
+## Signed links {#signed-links}
 
-## What the console may do
+The links Beacon puts in the chat open one page without signing in. Such a link ends in `?s=<expiry>.<signature>`: the expiry as Unix seconds, and the base64url HMAC-SHA256 of the method, the path and the expiry, under a key Beacon keeps in its database. Links are valid for `pages.link_ttl`, 30 days by default, and grant exactly one page, view-only: the alert's page, or the session's page with its recording. A link for another path, a changed expiry or expired fails, and every failure is a plain 404, the same as for a page that does not exist, so a wrong link reveals nothing.
 
-The console's forms are the API's and the command line's operations, on the same scopes, done as the signed-in person (`alice`; a token's sign-in, as that token) with `via` `console`: recorded in the audit log and echoed to the alert chat like every other write.
+**Anyone holding a link can see that page, recording included, without signing in anywhere.** The chat the links go to must be private, and a link should not be forwarded further than the recording may travel; keep `link_ttl` as short as the chat's habits allow. Beacon hands them out wherever a person might pick one up: the card's **Timeline** button, the chat's echoes with a **Replay** link per session, and the API and MCP answers, so that an agent can hand a person a link.
 
-| Form | Scope | The same as |
-| --- | --- | --- |
-| Acknowledge an alert, with a note | `alerts:write` | `POST /api/v1/alerts/{id}/ack` |
-| Silence an alert for 1, 4 or 24 hours, saying why | `alerts:write` | `POST /api/v1/silences` |
-| Add a note to an alert | `alerts:write` | `POST /api/v1/alerts/{id}/notes` |
-| Pause or resume agents' access to machines | `machines:write` | `POST /api/v1/ssh/pause`, `/resume` |
-| Revoke a token that reaches machines, or any agent's | `machines:write` | `beacon token revoke` |
-| Revert a configuration change | `config:write` | `POST /api/v1/config/history/{version}/revert` |
-| Invite someone, withdraw an invitation | `accounts:write` | `POST /api/v1/users/invitations`, `beacon user invite` |
-| Change a role, disable or enable someone | `accounts:write` | `PATCH /api/v1/users/{name}`, `beacon user role`, `disable`, `enable` |
-| Make a password reset link | `accounts:write` | `POST /api/v1/users/{name}/reset`, `beacon user reset` |
-| Claim a legacy token as an agent of a person | `accounts:write` | `beacon token claim` |
-| Make an agent with a token, change its preset and machines, give it a new token, delete it | its owner, or `accounts:write` | `beacon agent add`, `beacon agent remove` |
-| Add or remove an agent's SSH key | its owner, or `accounts:write` | `POST /api/v1/ssh-keys`, `DELETE /api/v1/ssh-keys`, by the agent itself |
-| Revoke an agent's token or OAuth sign-in | its owner, or `accounts:write` | `beacon token revoke`, `POST /oauth/revoke` |
-| Change your own password, with the current one | signed in with an account | |
+Links made before 0.3.0 named `/alerts/{id}` and `/sessions/{id}` at the site's root; those paths still answer, sent on (`308`) to the page's path under `/console`. Every other old path of the console is sent on to its place under `/console` with its query, so bookmarks keep working ([The console says 404 on an old link](../self-hosting/troubleshooting.md#the-console-says-404-on-an-old-link)).
 
-Every form carries the session's CSRF secret, and one the browser says came from another site is refused. A form the person's role (or the token's scopes) does not allow is not offered, and is refused if sent anyway; an agent's preset may not exceed its owner's role.
+## Tokens instead {#tokens-instead}
 
-**Revoking from the console.** An agent's owner revokes its tokens and OAuth sign-ins, and deletes the agent, on the agent's page. On the **Tokens** page, `machines:write` revokes any token that reaches machines through the SSH channel (`machines:ssh`), and any agent's: that is the pause switch for one agent, which stops it without stopping the others, so it takes the pause switch's scope. Whatever the agent has open on machines with what was revoked (connections, forwarded ports, tool calls) closes at once, and the token's console sign-ins end; revoking your own token signs you out. The tokens of machines and services (probes, hosts, heartbeats, the rule engine, change senders, metrics readers) are not revoked from a page: they are made and revoked on the centre, through the admin socket, since they keep monitoring running and no alert may be lost.
+Any credential with the scope opens the alert's and the session's pages as it opens the matching API routes, view-only: a token (`lbt_…`) or an OAuth access token (`lba_…`), with `status:read` for an alert's page, `sessions:read` or `machines:ssh` for a session's page and its recording. Send it as `Authorization: Bearer …`; a credential without the scope, an unknown one and none all get the same 404.
 
-## The alert's page: `/console/alerts/{id}`
+## How it is built, what it does not do {#how-it-is-built-what-it-does-not-do}
 
-The card's **Timeline** button opens it. From top to bottom:
+The console is on the OpenLinkOS design system ([`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui)), with its workbench shell and Beacon's brand, so the family's tools look alike; its stylesheet, fonts and the player's code are embedded in Beacon's binary and nothing is fetched from anywhere else — the `Content-Security-Policy` allows scripts, styles, fonts and forms from Beacon only. One page for every screen: a full sidebar from 1200px, a rail of icons from 860px, and lists restacked as cards at phone widths, all by CSS. Text from outside Beacon (alert annotations, notes, commands) is cleaned by the bridge and escaped on the way out. The console is in the configured language, English or Chinese, follows the system's light or dark scheme, and its pages are marked `noindex`, since their links carry signatures.
 
-- the alert: title, status, severity, since when (or when it resolved and after how long), description, service, labels, the runbook and the dashboard;
-- what people were told and did: acknowledged, silenced, buzzed, paged;
-- **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it: OK, failing since when, stale, the failure reason, the duration, the HTTP status, the attempts, the certificate's expiry;
-- **Related alerts**: others firing in the same failure domain or for the same service, each linking to its own page;
-- **Agents**: whether agents reach machines or the channel is paused and since when; which hooks were woken and when; one line "N sessions on M machines, K commands";
-- **Sessions**: every session in the alert's window on the machines its labels name, or by the agents that acknowledged it or left notes: who, how, where, what, the exit status, and for an interactive shell each command with its exit status and duration; each session with a **Replay** link;
-- **Notes**, **Changes** (the change events around the alert), **Labels**;
-- **Timeline**: everything above in time order, as `get_timeline` returns it.
+Three things it does not do: no sign-in from anywhere else — Beacon's own accounts are the only way in; no approval workflow — the forms are what the person's role already allows through the API, and the pause switch is the brake; and it does not edit the configuration beyond reverting a change, which goes through the same checks as the files.
 
-The window opens 30 minutes before the alert started and closes now, or 30 minutes after it resolved, as for the [evidence](on-call.md#the-evidence).
+## Check it
 
-## The session's page: `/console/sessions/{id}`
+Run the loop once as a person: from the card or `/console/alerts`, open an alert, read its probes and its timeline, and open one session's replay from it. Then check the record is complete: `get_timeline` (or the API's `GET /api/v1/alerts/{id}/timeline`) next to the alert's page should show the same events — the hook's call, the sessions, the `probe_now` result and the notes.
 
-Who, on which machine, through what (ssh, MCP or the API), what kind of session, when it started and how long it took, the exit status, and the recording replayed in the page with [asciinema-player](https://github.com/asciinema/asciinema-player). The recording is asciicast v3, as the SSH channel records it: output, input, resizes, a marker at each command, the exit status. Below the player come an interactive shell's commands with their exit statuses, or a command's output. The recording can also be downloaded. A session still open shows its record; the recording plays once it ends.
+## Next
 
-## Signed links
-
-The links Beacon puts in the chat open one page without signing in. Such a link ends in `?s=<expiry>.<signature>`: the expiry as Unix seconds, and the base64url HMAC-SHA256 of the method, the path and the expiry (each followed by a newline), under a 32-byte key Beacon makes at its first start and keeps in its database. Links are valid for `pages.link_ttl`, 30 days by default:
-
-```yaml
-public_url: https://beacon.example.com   # where the console is; without it there are no links
-pages:
-  link_ttl: 720h
-```
-
-A link grants exactly one page, view-only, until it expires: the alert's page, or the session's page with its recording. The links inside a page (to sessions, to the recording) last as long as the link that opened it. A link for another path, another method or a changed expiry fails, and so does an expired one. Every failure is a plain 404, the same as for a page that does not exist, so a wrong link reveals nothing.
-
-**Anyone holding a link can see that page, recording included, without signing in anywhere.** The chat the links go to must be private, and a link should not be forwarded further than the recording may travel. There is no command yet to revoke links before they expire (that would mean replacing the key); keep `link_ttl` as short as the chat's habits allow.
-
-A page opened by a link shows that page alone, with **Sign in** in the sidebar for the rest. Signed in, the same link opens the page among the console's others, with the forms your role allows.
-
-**Links made before 0.3.0.** Until then the console was at the site's root, and the links already in the chat name `/alerts/{id}` and `/sessions/{id}` (and `/sessions/{id}/recording`), inside their signatures. Those paths still answer: a link whose signature verifies for its old path is sent on (`308`) to the page's path under `/console`, with a signature for that path which expires when the old one would have. A forged or expired link is sent on without its signature, and then gets the same 404 as before; signed in, it opens the page as it always did. Every other old path of the console (`/sign-in`, `/alerts`, `/machines`, `/sessions`, `/tokens`, `/config`, `/agents`, `/audit`, `/changes` and the pages under them) is sent on to its place under `/console` with its query (`/agents`, which showed the hooks, to `/console/hooks`), so bookmarks keep working. The forms post to `/console` only.
-
-Beacon hands out links wherever a person might pick one up:
-
-- the card: the **Timeline** button and the agents' block;
-- the chat's echoes of what agents did on machines: a **Replay** link per session;
-- the API and MCP answers, so that an agent can hand a person a link: `page` on an alert (`GET /api/v1/alerts/{id}`, `get_alert`), `links.page` in the evidence, `url` on a timeline's session events, `page` on a session (`list_sessions`, `get_session`, `done.sessions[]` in the evidence).
-
-## Tokens instead
-
-Any credential with the scope opens the alert's and the session's pages as it opens the matching API routes, view-only: a token (`lbt_…`, an agent's or one of its own) or an OAuth access token (`lba_…`), with `status:read` for an alert's page, `sessions:read` or `machines:ssh` for a session's page and its recording; an agent's is what its preset allows within its owner's role. Send it as `Authorization: Bearer …`; a page opened this way links to its sessions and recording for an hour. A credential without the scope, an unknown one and none all get the same 404.
-
-## How it is built
-
-- On the OpenLinkOS design system, [`@openlinkos/ui`](https://github.com/openlinkos/design/tree/master/packages/ui) 0.7.0, with its workbench shell and layouts and Beacon's brand (`data-brand="beacon"`), as Origin's admin workbench is, so the family looks alike. Its stylesheet, icons and the Geist fonts are vendored under `internal/web/static/ol`, with their licences and hashes in its `NOTICE`; `scripts/update-ui.sh` refreshes them from npm.
-- One page for every screen: a full sidebar from 1200px, a rail of icons from 860px, a sheet below that, and lists restacked as cards at phone widths, all by CSS. The server never asks how wide the screen is.
-- Nothing is fetched from anywhere but Beacon: the stylesheet, the fonts, the player's JavaScript and CSS are embedded in the binary, the icons are a sprite in the page, the only script is the player's, and there is no inline script or style. The `Content-Security-Policy` allows scripts, styles, fonts, fetches and forms from Beacon only (`'wasm-unsafe-eval'` because the player's terminal is WebAssembly). Pages are marked `noindex` (and `/robots.txt` keeps search engines out of `/console`) and send no referrer, since their links carry signatures.
-- Beacon is open source, and the console says so: the foot of every page has Beacon's version and links to the documentation ([beacon.openlinkos.com](https://beacon.openlinkos.com/), in the console's language), the code on [GitHub](https://github.com/openlinkos/beacon) and where to [report an issue](https://github.com/openlinkos/beacon/issues/new/choose); the sign-in page says it under its form. These are the only links that leave Beacon by themselves. `branding.powered_by` ([Status pages](status-pages.md#branding)) does not touch them.
-- Text from outside Beacon (alert annotations, notes, commands, change events) is cleaned by the bridge and escaped on the way out.
-- The console is in the configured `language`, English or Chinese, and follows the system's light or dark scheme.
-
-## What the console does not do
-
-- No sign-in from anywhere else: Beacon's own accounts are the only way in. There is no sign-in through GitHub, Feishu, OIDC, LDAP or any other.
-- No approval workflow: the forms are what the person's role already allows through the API. The console makes them visible and quick, not gated. People see, agents act, and the pause switch stops them.
-- It does not edit the configuration, beyond reverting a change: changes go through the API, MCP and the command line, which check each one as the files are checked. It makes agents' tokens, but not machines', which the centre's admin socket makes.
+- [Put an agent on call](on-call.md): where the records the console shows come from.
+- [Publish a status page](status-pages.md): the same story, public and one service at a time.
+- [Stop an agent, pause everything](stop.md): the pause switch on the Machines page, and the rest of the brakes.
