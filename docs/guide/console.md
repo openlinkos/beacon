@@ -58,7 +58,7 @@ Three things it does not do: no sign-in from anywhere else — Beacon's own acco
 
 ## Check it
 
-Run the loop once as a person: from the card or `/console/alerts`, open an alert, read its probes and its timeline, and open one session's replay from it. Then check the record is complete: `get_timeline` (or the API's `GET /api/v1/alerts/{id}/timeline`) next to the alert's page should show the same events — the hook's call, the sessions, the `probe_now` result and the notes.
+Run the loop once as a person: from the card or `/console/alerts`, open an alert, read its probes and its timeline, and open one session's replay from it. You will see each location's latest result with its reason, every session on the alert's machines with a **Replay** link, and the events in time order. Then check the record is complete: `get_timeline` (or the API's `GET /api/v1/alerts/{id}/timeline`) next to the alert's page should show the same events — the hook's call, the sessions, the `probe_now` result and the notes.
 
 ## Next
 

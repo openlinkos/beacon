@@ -57,7 +57,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
   -d '{"title": "Example Status", "components": [{"name": "website", "title": "Website", "services": ["example.com"]}]}'
 ```
 
-A page is refused unless it passes these checks: names in the right form and unique; a title (at most 120 characters, a description at most 1000); at least one component; every component backed by `services` or a `page` label; groups naming the page's own components, each in one group at most; links that are `https`, `http` or `mailto`; a host name no other page has; at most one default page.
+You will see the new version and the page's entry, and the change echoed to the alert chat. A page is refused unless it passes these checks: names in the right form and unique; a title (at most 120 characters, a description at most 1000); at least one component; every component backed by `services` or a `page` label; groups naming the page's own components, each in one group at most; links that are `https`, `http` or `mailto`; a host name no other page has; at most one default page.
 
 ### Components and labels
 
@@ -73,9 +73,7 @@ A component's state now is the worst of:
 - the **incidents** firing on its services: `ServiceDown` is an outage, the other alerts a partial outage;
 - the **probes' agreement** in the last minutes, by the reference rules' logic (`deploy/rules/probes.yml`): a location fails a service once it has failed it for 3 minutes; the service is down when at least two locations fail it and they are at least half of those reporting, and partly down when at least two fail but fewer than half. One location's hiccup is never shown.
 
-So a page never says a service works while an alert about it fires, and it shows a failure the probes agree on a minute or two before the alert does, since the alert waits a minute to be sure. A component of several services takes the worst of them. Nothing reporting is **no data**: no probe has sent a result for the component's services in the last minutes — the causes and what to do are in [A status page shows no data](../self-hosting/troubleshooting.md#a-status-page-shows-no-data).
-
-Each day of the bar is the same agreement minute by minute, with the incidents and the maintenance windows laid over it; availability is the share of the minutes with results, outside maintenance, that were not down. Days begin at midnight in the configuration's `timezone`; Beacon computes the last 90 days at the start, today again every minute, and a past day every 10 minutes until six hours after it ended, for results that probes queued while their path was down.
+So a page never says a service works while an alert about it fires, and it shows a failure the probes agree on a minute or two before the alert does, since the alert waits a minute to be sure. A component of several services takes the worst of them. Nothing reporting is **no data**: no probe has sent a result for the component's services in the last minutes — the causes and what to do are in [A status page shows no data](../self-hosting/troubleshooting.md#a-status-page-shows-no-data). Each day of the bar is the same agreement minute by minute, with the incidents and the maintenance windows laid over it; availability is the share of the minutes with results, outside maintenance, that were not down. Days begin at midnight in the configuration's `timezone`; Beacon computes the last 90 days at the start, today again every minute, and a past day every 10 minutes until six hours after it ended, for results that probes queued while their path was down.
 
 ## Incidents and updates
 

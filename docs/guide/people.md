@@ -1,8 +1,6 @@
 # Invite your team
 
-By the end of this page everyone on your team signs in with an account of their own and a role that says what they may do, and each person's agents act for that person and never do more than that person's role allows. Everything is named after a person: the audit log, the chat and the sessions on machines say `alice` for what Alice did on the console and `alice / claude-code` for what her agent did. People sign in only with Beacon's own accounts: there is no sign-in through GitHub, Feishu, OIDC, LDAP or anything else.
-
-You made the first account, an owner, in [Up in 30 minutes](../self-hosting/install.md), step 4; this page goes on from there. You need that owner account; the commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
+By the end of this page everyone on your team signs in with an account of their own and a role that says what they may do, and each person's agents act for that person and never do more than that person's role allows. Everything is named after a person: the audit log, the chat and the sessions on machines say `alice` for what Alice did on the console and `alice / claude-code` for what her agent did. People sign in only with Beacon's own accounts: there is no sign-in through GitHub, Feishu, OIDC, LDAP or anything else. You made the first account, an owner, in [Up in 30 minutes](../self-hosting/install.md), step 4; this page goes on from there. You need that owner account; the commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
 
 ## Roles {#roles}
 
@@ -35,6 +33,8 @@ An owner invites each person with the role they need: on the console's **People*
 docker exec beacon beacon user invite -role oncall -note "Bob, on call from Monday"
 ```
 
+You will see:
+
 ```
 An invitation to join as oncall, until 2026-11-03 09:00:00. Send the link to that person only; it works once:
 https://status.example.com/console/join?code=…
@@ -46,9 +46,7 @@ A username is 2 to 32 lower-case letters, digits, dots, dashes and underscores, 
 
 ## Passwords {#passwords}
 
-A password has at least 10 characters, is not the username, and is not one of the commonest passwords; there are no other rules. Beacon keeps only its argon2id hash, compared in constant time.
-
-**To change your own**, open **Your account** in the menu at the foot of the console's sidebar and give the current password with the new one; your other sign-ins end. **A forgotten password** is reset by an owner, with **Password reset link** on the **People** page, or on the centre with `beacon user reset bob`, which prints a link that is shown once, works once and lasts 30 minutes: with it the person chooses a new password, and every sign-in of theirs ends.
+A password has at least 10 characters, is not the username, and is not one of the commonest passwords; there are no other rules. Beacon keeps only its argon2id hash, compared in constant time. **To change your own**, open **Your account** in the menu at the foot of the console's sidebar and give the current password with the new one; your other sign-ins end. **A forgotten password** is reset by an owner, with **Password reset link** on the **People** page, or on the centre with `beacon user reset bob`, which prints a link that is shown once, works once and lasts 30 minutes: with it the person chooses a new password, and every sign-in of theirs ends.
 
 ## Change a role, disable someone {#change-a-role-disable-someone}
 
@@ -92,7 +90,7 @@ A program that runs alone gets a token, made on the console's **Agents** page or
 
 The SSH channel signs an agent in by its public key. An agent registers its own key through MCP or the API, with the credential it already has, so nobody copies a key anywhere: `add_ssh_key` (`POST /api/v1/ssh-keys`), `list_ssh_keys`, `remove_ssh_key` — all `machines:ssh`. Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`; `list_machines` then gives the `ssh_config` block for its own ssh ([Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)).
 
-A key the agent registers itself belongs to the credential it came with (`via`: `token:NAME` or `grant:ID`): it signs in only while that credential works, and it goes when the credential is revoked or the agent is deleted. A key the owner adds, with **Add an SSH key** on the agent's page or `-ssh-key` on `beacon agent add`, stays with the agent. An agent holds at most 20 keys, and a key reaches only the machines its holder may reach. The chat hears of every key added or removed.
+A key the agent registers itself belongs to the credential it came with (`via`: `token:NAME` or `grant:ID`): it signs in only while that credential works, and it goes when the credential is revoked or the agent is deleted. A key the owner adds, with **Add an SSH key** on the agent's page or `-ssh-key` on `beacon agent add`, stays with the agent. An agent holds at most 20 keys, and a key reaches only the machines its holder may reach; the chat hears of every key added or removed.
 
 ## Stop an agent {#stop-an-agent}
 

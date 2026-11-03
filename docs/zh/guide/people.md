@@ -1,12 +1,10 @@
 ---
-sourceHash: sha256-16b6a1a7
+sourceHash: sha256-e24407dc
 ---
 
 # 邀请你的团队
 
-读完这一页，团队里的每个人都在 Beacon 里有自己的账号和角色，角色说明他能做什么；每个人的 Agent 以他的名义行事，且永远不会超出他的角色允许的范围。一切都以人为名：审计日志、告警群和机器上的会话，Alice 在控制台上做的事记作 `alice`，她的 Agent 做的事记作 `alice / claude-code`。成员只能用 Beacon 自己的账号登录：不支持 GitHub、飞书、OIDC、LDAP 或任何其他登录方式。
-
-你在[三十分钟上线](../self-hosting/install.md)第 4 步里建了第一个账号（所有者）；这一页从那里继续。你需要那个所有者账号；命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
+读完这一页，团队里的每个人都在 Beacon 里有自己的账号和角色，角色说明他能做什么；每个人的 Agent 以他的名义行事，且永远不会超出他的角色允许的范围。一切都以人为名：审计日志、告警群和机器上的会话，Alice 在控制台上做的事记作 `alice`，她的 Agent 做的事记作 `alice / claude-code`。成员只能用 Beacon 自己的账号登录：不支持 GitHub、飞书、OIDC、LDAP 或任何其他登录方式。你在[三十分钟上线](../self-hosting/install.md)第 4 步里建了第一个账号（所有者）；这一页从那里继续。你需要那个所有者账号；命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
 
 ## 角色 {#roles}
 
@@ -39,6 +37,8 @@ docker exec beacon beacon setup
 docker exec beacon beacon user invite -role oncall -note "Bob, on call from Monday"
 ```
 
+你会看到：
+
 ```
 An invitation to join as oncall, until 2026-11-03 09:00:00. Send the link to that person only; it works once:
 https://status.example.com/console/join?code=…
@@ -50,9 +50,7 @@ https://status.example.com/console/join?code=…
 
 ## 密码 {#passwords}
 
-密码至少 10 个字符，不能是用户名，也不能是最常见的那批密码；没有别的规则。Beacon 只保存它的 argon2id 哈希，比较在常数时间内完成。
-
-**改自己的密码**，在控制台侧栏底部菜单的**Your account**里输入当前密码和新密码；你的其他登录会全部结束。**忘记密码**由所有者重置：**People**页上的**Password reset link**，或在中心上 `beacon user reset bob`，它打印一条只显示一次、只生效一次、有效期 30 分钟的链接：对方用它设置新密码，其所有登录随之结束。
+密码至少 10 个字符，不能是用户名，也不能是最常见的那批密码；没有别的规则。Beacon 只保存它的 argon2id 哈希，比较在常数时间内完成。**改自己的密码**，在控制台侧栏底部菜单的**Your account**里输入当前密码和新密码；你的其他登录会全部结束。**忘记密码**由所有者重置：**People**页上的**Password reset link**，或在中心上 `beacon user reset bob`，它打印一条只显示一次、只生效一次、有效期 30 分钟的链接：对方用它设置新密码，其所有登录随之结束。
 
 ## 改角色、停用某个成员 {#change-a-role-disable-someone}
 

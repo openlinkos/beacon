@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2ee1d97a
+sourceHash: sha256-564c3115
 ---
 
 # 复查 Agent 做了什么
@@ -62,7 +62,7 @@ Beacon 放进告警群里的链接，不用登录就能打开一个页面。这�
 
 ## 检查一下 {#check-it}
 
-以人的身份走一遍循环：从卡片或 `/console/alerts` 打开一条告警，读它的检测点和时间线，再从那里打开一次会话的回放。然后确认记录完整：把 `get_timeline`（或 API 的 `GET /api/v1/alerts/{id}/timeline`）与告警页对照，两边应是同样的事件——钩子的调用、会话、`probe_now` 的结果和备注。
+以人的身份走一遍循环：从卡片或 `/console/alerts` 打开一条告警，读它的检测点和时间线，再从那里打开一次会话的回放。你会看到每个检测点的最新结果及其原因、告警机器上的每一次会话及其**Replay**链接，以及按时间排好的各事件。然后确认记录完整：把 `get_timeline`（或 API 的 `GET /api/v1/alerts/{id}/timeline`）与告警页对照，两边应是同样的事件——钩子的调用、会话、`probe_now` 的结果和备注。
 
 ## 下一步 {#next}
 
