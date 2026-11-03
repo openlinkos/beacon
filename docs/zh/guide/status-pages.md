@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4b285d0a
+sourceHash: sha256-eb10b1d5
 ---
 
 # 发布状态页
@@ -53,7 +53,7 @@ status_pages:
       privacy: https://example.com/privacy
 ```
 
-也可以走 API，用一个带 `config:write` 的令牌：
+也可以走 API，用一个带 `config:write` 的令牌（MCP 工具是 `kind: status_pages` 的 `get_config`、`put_config` 和 `delete_config`）：
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -61,7 +61,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
   -d '{"title": "Example Status", "components": [{"name": "website", "title": "Website", "services": ["example.com"]}]}'
 ```
 
-MCP 工具是 `kind: status_pages` 的 `get_config`、`put_config` 和 `delete_config`。一个页面要通过这些检查才会被接受：名字形式正确且不重复；有标题（至多 120 字符，描述至多 1000）；至少一个组件；每个组件由 `services` 或 `page` 标签支撑；分组引用本页自己的组件、每个组件至多属于一组；链接是 `https`、`http` 或 `mailto`；域名不与其他页面重复；默认页至多一个。
+一个页面要通过这些检查才会被接受：名字形式正确且不重复；有标题（至多 120 字符，描述至多 1000）；至少一个组件；每个组件由 `services` 或 `page` 标签支撑；分组引用本页自己的组件、每个组件至多属于一组；链接是 `https`、`http` 或 `mailto`；域名不与其他页面重复；默认页至多一个。
 
 ### 组件与标签 {#components-and-labels}
 
@@ -83,7 +83,7 @@ MCP 工具是 `kind: status_pages` 的 `get_config`、`put_config` 和 `delete_c
 
 ## 事件与进展 {#incidents-and-updates}
 
-事件是页面服务上的一个告警组（critical 或 warning），其告警在页面计入之列（`alerts`；默认 `ServiceDown`、`ServiceDegraded` 和 `MainlandPathDegraded`，即参考规则里的可用性告警，这样一张快过期的证书不会变成公开事件）。标题由 Beacon 按页面语言、从影响和涉及的组件生成，例如「服务中断：Website」；告警自己的文字可能提到内部事物，永远不会显示。
+事件是页面服务上的一个告警组（critical 或 warning），其告警在页面计入之列（`alerts`；默认 `ServiceDown`、`ServiceDegraded` 和 `MainlandPathDegraded`，即参考规则里的可用性告警，这样一张快过期的证书不会变成公开事件）。标题由 Beacon 按页面语言、从影响和涉及的组件生成，例如「服务中断：Website」；告警自己的文字可能提到内部事物，永远不会显示。每个事件 Beacon 保留一份副本 91 天，所以事件和它的页面比告警组活得久（已恢复的告警组只留 7 天）。
 
 事件的进展，最新的在前：**发现**，开始时间；**处理中**，有人确认（ack）时；成员和 Agent 留在告警组上的**备注**；**已恢复**，告警恢复时。备注是写给处理告警的人看的，所以默认只发布以 `public:` 开头的、去掉前缀之后的正文；`notes: all` 的页面发布所有备注。要告诉用户进展，从控制台、用 `add_note`，或用一个带 `alerts:write` 的令牌留这样一条备注：
 
@@ -92,8 +92,6 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes \
   -d '{"text": "public: The site is back for most users; we are watching the last region."}'
 ```
-
-每个事件 Beacon 保留一份副本 91 天，所以事件和它的页面比告警组活得久（已恢复的告警组只留 7 天）。
 
 ## 维护 {#maintenance}
 
@@ -110,7 +108,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 独立域名 {#a-host-of-its-own}
 
-带 `host` 的页面还在该域名的 `/` 上提供，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg`。Beacon 的其他一切都不在这个域名上应答：控制台、API、MCP 都不是，所以页面上没有**登录**。参考部署里，把 `deploy/Caddyfile` 末尾那段注释打开，`uptime.example.com` 换成你的域名，再让 Caddy 重读配置（`docker compose restart caddy`，在 `/opt/beacon` 下）：
+带 `host` 的页面还在该域名的 `/` 上提供，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg`。Beacon 的其他一切都不在这个域名上应答：控制台、API、MCP 都不是，所以页面上没有**登录**。参考部署里，把 `deploy/Caddyfile` 末尾那段注释打开，`uptime.example.com` 换成你的域名，再让 Caddy 重读配置（`docker compose restart caddy`，在 `/opt/beacon` 下）；Caddy 会像其他域名一样自动取得证书，Beacon 按请求的 `Host` 头决定提供哪一页，所以反向代理不能改写它：
 
 ```
 uptime.example.com {
@@ -122,15 +120,13 @@ uptime.example.com {
 }
 ```
 
-Caddy 会像其他域名一样自动取得证书。Beacon 按请求的 `Host` 头决定提供哪一页，所以反向代理不能改写它。
-
 ## JSON、订阅与徽章 {#json-feed-and-badges}
 
 | 路径 | 内容 |
 | --- | --- |
 | `/status/<name>.json`（默认页是 `/status.json`） | 页面的状态：各组件的当前状态和 90 天历史、事件及其进展、维护窗口、链接。格式是稳定的：只加字段，不改不删 |
 | `/status/<name>/feed.atom` | 事件和维护窗口的 Atom 订阅 |
-| `/status/<name>/badge.svg`、`/status/<name>/components/<component>/badge.svg` | 一枚小徽章，页面或单个组件的状态，用设计系统的配色 |
+| `/status/<name>/badge.svg` 和 `/status/<name>/components/<component>/badge.svg` | 一枚徽章，页面或单个组件的状态，用设计系统的配色 |
 
 它们与页面一样接受 `?lang=`，可以嵌入、可以从其他站点取用（`Access-Control-Allow-Origin: *`）。Agent 拿同一份 JSON 走 `GET /api/v1/status/<name>`（`status:read`）或 MCP 工具 `get_status_page`；里面没有服务标签也没有令牌：公开的只有页面自己的文字。
 

@@ -49,7 +49,7 @@ status_pages:
       privacy: https://example.com/privacy
 ```
 
-Or through the API, with a `config:write` token:
+Or through the API, with a `config:write` token (the MCP tools are `get_config`, `put_config` and `delete_config` with `kind: status_pages`):
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -57,7 +57,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
   -d '{"title": "Example Status", "components": [{"name": "website", "title": "Website", "services": ["example.com"]}]}'
 ```
 
-The MCP tools are `get_config`, `put_config` and `delete_config` with `kind: status_pages`. A page is refused unless it passes these checks: names in the right form and unique; a title (at most 120 characters, a description at most 1000); at least one component; every component backed by `services` or a `page` label; groups naming the page's own components, each in one group at most; links that are `https`, `http` or `mailto`; a host name no other page has; at most one default page.
+A page is refused unless it passes these checks: names in the right form and unique; a title (at most 120 characters, a description at most 1000); at least one component; every component backed by `services` or a `page` label; groups naming the page's own components, each in one group at most; links that are `https`, `http` or `mailto`; a host name no other page has; at most one default page.
 
 ### Components and labels
 
@@ -79,7 +79,7 @@ Each day of the bar is the same agreement minute by minute, with the incidents a
 
 ## Incidents and updates
 
-An incident is an alert group, critical or warning, on the page's services, whose alert is one the page counts (`alerts`; by default `ServiceDown`, `ServiceDegraded` and `MainlandPathDegraded`, the availability alerts of the reference rules, so that an expiring certificate is not a public incident). Its title is made by Beacon in the page's language from its impact and the components it touches, such as "Outage: Website"; the alert's own text, which may name internal things, is never shown.
+An incident is an alert group, critical or warning, on the page's services, whose alert is one the page counts (`alerts`; by default `ServiceDown`, `ServiceDegraded` and `MainlandPathDegraded`, the availability alerts of the reference rules, so that an expiring certificate is not a public incident). Its title is made by Beacon in the page's language from its impact and the components it touches, such as "Outage: Website"; the alert's own text, which may name internal things, is never shown. Beacon keeps a copy of each incident for 91 days, so an incident and its page outlive the alert group (resolved groups go after 7 days).
 
 Its updates, the newest first: **Detected**, when it started; **Investigating**, when someone acknowledged it; the **notes** that people and agents leave on the alert group; **Resolved**, when the alert resolved. Notes are written for the people working the alert, so by default only those that begin with `public:` are published, without the prefix; a page with `notes: all` publishes every note. To tell your users what is happening, leave such a note from the console, with `add_note`, or with an `alerts:write` token:
 
@@ -88,8 +88,6 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
   https://status.example.com/api/v1/alerts/0cdfbada62dd/notes \
   -d '{"text": "public: The site is back for most users; we are watching the last region."}'
 ```
-
-Beacon keeps a copy of each incident for 91 days, so an incident and its page outlive the alert group (resolved groups go after 7 days).
 
 ## Maintenance
 
@@ -106,7 +104,7 @@ A window lasts at most 7 days and starts within 90; a start in the past is now, 
 
 ## A host of its own
 
-A page with `host` is also served at `/` on that host name, with its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP, so the page has no **Sign in** there. In the reference deployment, uncomment the block at the end of `deploy/Caddyfile`, with your name in place of `uptime.example.com`, and restart Caddy so that it reads the file again (`docker compose restart caddy`, in `/opt/beacon`):
+A page with `host` is also served at `/` on that host name, with its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP, so the page has no **Sign in** there. In the reference deployment, uncomment the block at the end of `deploy/Caddyfile`, with your name in place of `uptime.example.com`, and restart Caddy so that it reads the file again (`docker compose restart caddy`, in `/opt/beacon`); Caddy gets the name's certificate as for the other hosts, and Beacon serves the page by the request's `Host` header, so the proxy must not rewrite it:
 
 ```
 uptime.example.com {
@@ -118,15 +116,13 @@ uptime.example.com {
 }
 ```
 
-Caddy gets the name's certificate as for the other hosts. Beacon serves the page by the request's `Host` header, so the proxy must not rewrite it.
-
 ## JSON, feed and badges
 
 | Path | What |
 | --- | --- |
 | `/status/<name>.json` (`/status.json` for the default page) | The page's state: components with their state and 90 days of history, the incidents with their updates, the maintenance windows, the links. Its shape is stable: fields are added, never changed or removed |
 | `/status/<name>/feed.atom` | The incidents and maintenance windows as an Atom feed |
-| `/status/<name>/badge.svg`, `/status/<name>/components/<component>/badge.svg` | A small badge with the page's, or one component's, state, in the design system's colours |
+| `/status/<name>/badge.svg` and `/status/<name>/components/<component>/badge.svg` | A badge with the page's, or one component's, state, in the design system's colours |
 
 They take `?lang=` as the page does, and may be embedded and fetched from other sites (`Access-Control-Allow-Origin: *`). An agent gets the same JSON with `GET /api/v1/status/<name>` (`status:read`) or the MCP tool `get_status_page`; it names no service label and no token: what is public is the page's own text.
 
