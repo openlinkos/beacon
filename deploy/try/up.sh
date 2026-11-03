@@ -71,11 +71,12 @@ say ""
 say "Beacon's try environment is up (${took}s):"
 say "  http://localhost:17001          the API (/api/v1), MCP (/mcp) and the console (/console)"
 say "  http://localhost:18080          the demo service this environment watches"
-if link=$(docker compose exec -T beacon beacon setup 2>/dev/null); then
+if link=$(docker compose exec -T beacon beacon setup 2>/dev/null) && [ -n "$link" ]; then
   say ""
   say "Make the first account (an owner): open this one-time link within 30 minutes:"
   printf '  %s\n' "$link"
 else
   say ""
-  say "An account exists already; sign in at http://localhost:17001/console/sign-in"
+  say "An account exists already (or 'beacon setup' failed; run it by hand to see why)."
+  say "Sign in at http://localhost:17001/console/sign-in"
 fi
