@@ -126,6 +126,14 @@ services:
       - -state=/var/lib/beacon-probe
       - -interval=30s
       - -listen=127.0.0.1:17009
+    # the image's own HEALTHCHECK (beacon healthcheck) probes a beacon centre, which this container is
+    # not: it would be unhealthy for ever. The agent serves /healthz on its -listen address instead.
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:17009/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     volumes:
       - ./secrets/probe-edge-1.token:/etc/beacon-probe/token:ro
       - probe-state:/var/lib/beacon-probe
