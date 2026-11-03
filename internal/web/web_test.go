@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,7 +121,11 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	e.st = st
-	st.SetClock(func() time.Time { return e.now }) // the store's clock held still with the rest of the env
+	// the store's clock held still with the rest of the env, but ticked a nanosecond a call: what it
+	// stamps must never collide, for the console tells a token replaced by another of the same name
+	// from the moment it was made (console.go: t.Created.Equal(cs.TokenCreated))
+	tick := new(atomic.Uint64)
+	st.SetClock(func() time.Time { return e.now.Add(time.Duration(tick.Add(1))) })
 	e.signer, err = link.NewSigner(bytes.Repeat([]byte{1}, link.KeySize), time.Hour, func() time.Time { return e.now })
 	if err != nil {
 		t.Fatal(err)
