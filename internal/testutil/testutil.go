@@ -62,6 +62,9 @@ type Env struct {
 	Store  *store.Store
 	AM     *AM
 	Bot    *Bot
+	// Location is the configured zone, the one the bridge formats times with; tests that check
+	// formatted dates read it rather than the process's own zone (CI runs UTC, the config does not).
+	Location *time.Location
 }
 
 // New creates an Env with one critical alert group firing; its id is GroupID.
@@ -85,7 +88,7 @@ func NewWith(t *testing.T, tweak func(*bridge.Deps)) *Env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	e := &Env{Store: st, AM: &AM{}, Bot: &Bot{}}
+	e := &Env{Store: st, AM: &AM{}, Bot: &Bot{}, Location: loc}
 	deps := bridge.Deps{Config: cfg, Store: st, AM: e.AM, Bot: e.Bot}
 	if tweak != nil {
 		tweak(&deps)
