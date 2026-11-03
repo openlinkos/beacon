@@ -17,7 +17,7 @@ Beacon judges with what is sent to it. This page lists each source: who sends, w
 
 `beacon-probe agent` runs at each probe location with a token from `beacon enroll probe <location>`. Every minute it fetches what to do from the gateway (`GET /api/v1/targets`, `GET /api/v1/modules` and `GET /api/v1/agent`, the location's settings), probes, and pushes the results in the Prometheus text format, gzipped, keeping a queue on disk for when the network is down. It keeps one long-poll open beside its cycle for [probing on demand](../guide/on-call.md#probe-again-now).
 
-The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself; a location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`. The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …), with `probe_failure_info{reason}` for why a check failed and `beacon_probe_attempts` for how many tries it took. A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
+The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself; a location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`. The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …), with `probe_failure_info{reason}` for why a check failed and `beacon_probe_attempts` for how many tries it took ([Metrics](metrics.md#the-probes-results)). A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
 
 `beacon-probe serve` answers `/probe` and `/metrics` instead, like the Blackbox Exporter, for a scraper of your own.
 
@@ -35,7 +35,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
   https://metrics.example.com/api/v1/import/prometheus
 ```
 
-On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](../guide/monitoring.md#heartbeats)).
+On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalogue.md#heartbeats)).
 
 ## The rule engine
 
@@ -45,7 +45,7 @@ vmalert evaluates the rules over VictoriaMetrics and posts what fires to the gat
 vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert/rules-token   # the file rules.token_file names
 ```
 
-Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`; `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown. Another sender may post alerts the same way with an `alerts:send` token.
+Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`; `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown. Another sender may post alerts the same way with an `alerts:send` token. The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
 
 ## Change events
 
