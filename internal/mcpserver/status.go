@@ -14,7 +14,7 @@ import (
 )
 
 // StatusInstructions follow Instructions when the server has the status pages.
-const StatusInstructions = `Beacon serves public status pages (docs/status.md): get_status_page returns one as its public JSON
+const StatusInstructions = `Beacon serves public status pages (docs/guide/status-pages.md): get_status_page returns one as its public JSON
 does, the state of each component now and over 90 days, its incidents and its maintenance windows. An
 incident is an alert group on a page's services; its updates for the public are the notes you leave with
 add_note that begin with "public:" (or every note, on a page with notes: all), so write those for people

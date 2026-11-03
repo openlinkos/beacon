@@ -68,7 +68,7 @@
 	}
 }
 
-# A status page on a host name of its own (host: in catalog/status_pages.yaml, docs/status.md): Beacon serves that
+# A status page on a host name of its own (host: in catalog/status_pages.yaml, docs/guide/status-pages.md): Beacon serves that
 # page at / by the Host header, and nothing else of Beacon answers there. Point the name at this machine, then
 # uncomment the block with the name in place of uptime.example.com, and reload Caddy.
 # uptime.example.com {

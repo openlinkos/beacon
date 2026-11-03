@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/install.md walks
+# Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/self-hosting/install.md walks
 # through the first half hour).
 #   sudo ./install.sh                                              asks for the host names and the ACME address
 #   STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh    unattended
@@ -147,7 +147,7 @@ say "  https://$STATUS_HOST          the API (/api/v1), MCP (/mcp) and pages; th
 say "  https://$METRICS_HOST         the gateway for machines"
 say "  $STATUS_HOST:17002            the SSH channel"
 say ""
-say "Next (docs/install.md has the details and how long each takes); run these from this directory:"
+say "Next (docs/self-hosting/install.md has the details and how long each takes); run these from this directory:"
 say "  1. A probe location (edge-1 is in catalog/locations.yaml; add yours there or through the API):"
 say "       docker exec beacon beacon enroll probe edge-1 > /tmp/edge-1.token"
 say "     then on that machine, with probe/ and the token copied over:"
@@ -160,4 +160,4 @@ say "       claude mcp add --scope user --transport http beacon https://$STATUS_
 say "     and /mcp in Claude Code to sign it in through the browser; a headless agent gets a token with"
 say "       docker exec beacon beacon agent add NAME -owner YOU -preset oncall"
 say "  4. A drill, to see the whole chain once: docker exec beacon beacon drill fail 15m"
-say "  The chat: uncomment feishu: in config.yaml (docs/feishu.md), put its secrets under secrets/, run ./install.sh again."
+say "  The chat: uncomment feishu: in config.yaml (docs/integrations/feishu.md), put its secrets under secrets/, run ./install.sh again."

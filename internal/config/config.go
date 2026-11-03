@@ -69,13 +69,13 @@ type Config struct {
 		GrafanaService string `yaml:"grafana_service"`
 		Runbook        string `yaml:"runbook"`
 	} `yaml:"links"`
-	// Pages are the HTML pages people open from the chat (docs/pages.md): an alert's timeline and a
+	// Pages are the HTML pages people open from the chat (docs/guide/console.md): an alert's timeline and a
 	// session's replay, reached by signed links built from PublicURL. LinkTTL is how long a link is valid.
 	Pages struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
 	Branding Branding `yaml:"branding"`
-	// OAuth is how MCP clients sign in to Beacon (docs/accounts.md).
+	// OAuth is how MCP clients sign in to Beacon (docs/guide/people.md).
 	OAuth OAuth `yaml:"oauth"`
 
 	Feishu       Feishu              `yaml:"feishu"`
@@ -92,7 +92,7 @@ type Config struct {
 	OnCallByID   map[string]OnCaller `yaml:"-"`
 }
 
-// Branding is what Beacon's public pages say of the deployment and of Beacon (docs/status.md). Title
+// Branding is what Beacon's public pages say of the deployment and of Beacon (docs/guide/status-pages.md). Title
 // names the deployment on the page at / when there is no status page (Beacon when empty). PoweredBy, on
 // unless set to false, puts "Powered by Beacon, open source" in the public pages' footer; a team may
 // leave it out of its status pages. The console always says what it runs on.

@@ -526,7 +526,7 @@ func (g *Gate) connectorSetup(m store.Machine) *ConnectorSetup {
 		port, connectorKeyPath, connectorHostsPath, m.Name, host)
 	unit := "[Unit]\n" +
 		"Description=Beacon connector: connects out to the SSH channel so agents can reach this machine\n" +
-		"Documentation=https://github.com/openlinkos/beacon/blob/main/docs/ssh.md\n" +
+		"Documentation=https://github.com/openlinkos/beacon/blob/main/docs/guide/machines.md\n" +
 		"After=network-online.target\nWants=network-online.target\nStartLimitIntervalSec=0\n\n" +
 		"[Service]\nUser=" + connectorUser + "\nExecStart=" + cmd + "\nRestart=always\nRestartSec=5\n" +
 		"NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n\n" +

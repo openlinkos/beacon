@@ -144,7 +144,7 @@ On the machine, as root, if not done yet:
   echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
   id beacon >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' beacon
   systemctl reload ssh
-(see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)
+(see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
 Run those four lines on the machine, as root. They make sshd trust Beacon's certificate authority (CA), the key that signs a short-lived certificate for each connection, and create the account those certificates name. If `machine add` fails with `the machine cannot be reached`, the centre cannot open a connection to the machine's SSH port: allow it in the machine's firewall, or, for a machine behind NAT, add it the other way round as [Machines behind NAT](../guide/machines.md#machines-behind-nat) describes.

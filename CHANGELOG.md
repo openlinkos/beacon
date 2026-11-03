@@ -4,6 +4,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The documentation takes the site's new structure** (`docs/`, English and Chinese). The twelve guides move to the sections they belong to: `guide/` (people and their agents, putting an agent on call, the SSH channel as *machines*, what is checked as *monitoring*, status pages, the console), `self-hosting/` (install, troubleshooting), `integrations/` (the Feishu app), `reference/` (sources beside the API and MCP pages) and `about/` (goals, architecture); their text is unchanged, only their links. The new structure's other pages (the guide's openings, the integrations section, the rest of self-hosting, the reference pages beyond the API and MCP) are placeholders while later changes write them. The old addresses answer with a 301 to the new ones, in English and under `/zh/`, and everything in the program and the deployment that names a guide now names its new path: the OAuth metadata's documentation URL, what `machine add` and the machine connector print, the MCP tools' descriptions, the example configuration and the deployment's comments.
 ## 0.3.0
 
 ### rc.15 (2026-11-02)

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-554981d0
+sourceHash: sha256-d51ab961
 ---
 
 # 30 分钟装好
@@ -148,7 +148,7 @@ On the machine, as root, if not done yet:
   echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
   id beacon >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' beacon
   systemctl reload ssh
-(see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)
+(see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
 在机器上以 root 执行中间这四行。它们让 sshd 信任 Beacon 的 CA（为每次连接签发短期证书的那把密钥），并创建证书里指定的账户。如果 `machine add` 报 `the machine cannot be reached`，说明中心连不上这台机器的 SSH 端口：在机器的防火墙里放行；如果机器在 NAT 后面，就按 [NAT 后面的机器](../guide/machines.md#machines-behind-nat)反过来添加。
