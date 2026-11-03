@@ -189,13 +189,9 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 				port = defaultForwardPort
 			}
 			c.setForward(p.Addr, port)
-			if r.WantReply {
-				var reply []byte
-				if p.Port == 0 { // RFC 4254, 7.1: the reply names the port bound, only when 0 was asked
-					reply = ssh.Marshal(struct{ Port uint32 }{port})
-				}
-				_ = r.Reply(true, reply)
-			}
+			// Register before answering: the reply is what tells the machine its forward is up, and
+			// whoever saw it — the ssh -R unit, an agent listing machines, a dial right after — must
+			// find the machine connected, not turned away with ErrDisconnected.
 			if old := g.connectors.put(name, c); old != nil {
 				g.d.Log.Info("connector replaced by a newer connection", "machine", name, "old", old.from, "new", c.from)
 				_ = old.sc.Close()
@@ -203,6 +199,13 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 			registered = true
 			g.d.Log.Info("connector connected", "machine", name, "from", c.from, "forward", fmt.Sprintf("%s:%d", p.Addr, p.Port))
 			go c.keepalive()
+			if r.WantReply {
+				var reply []byte
+				if p.Port == 0 { // RFC 4254, 7.1: the reply names the port bound, only when 0 was asked
+					reply = ssh.Marshal(struct{ Port uint32 }{port})
+				}
+				_ = r.Reply(true, reply)
+			}
 			if m, ok := g.d.Store.Machine(name); ok && m.HostKey == "" {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
