@@ -1,0 +1,61 @@
+# Service availability for the try environment, after deploy/rules/probes.yml with the waits shortened
+# for a laptop: one location, a failing window of 45 seconds (the probe pushes every 30 seconds) and
+# `for: 20s`, so a broken service reaches the alert about a minute and a half after it breaks. A real
+# deployment keeps the reference rules, where a service is down only when at least two locations fail it
+# and they are at least half of those reporting, and one location's hiccup is never an outage.
+groups:
+  - name: probes
+    interval: 15s
+    rules:
+      - record: beacon:probe_failing
+        expr: |
+          max by (service, severity, failure_domain, location, region) (
+            max_over_time(probe_success{job="probe"}[45s])
+          ) == bool 0
+
+      - record: beacon:service_reporting
+        expr: count by (service, severity, failure_domain) (beacon:probe_failing)
+      - record: beacon:service_failing_locations
+        expr: sum by (service, severity, failure_domain) (beacon:probe_failing)
+
+      # 1 = down: every location that reports the service fails it (here: the one)
+      - record: beacon:service_down
+        expr: |
+          (beacon:service_failing_locations >= bool 1)
+          * (beacon:service_failing_locations >= bool beacon:service_reporting)
+
+      - record: beacon:service_up
+        expr: 1 - beacon:service_down
+
+      - alert: ServiceDown
+        expr: beacon:service_down{severity!=""} == 1
+        for: 20s
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "{{ $labels.service }} has failed from every probe location that reports it (the try environment has one, edge-1, and its waits are shortened). The card lists the location's result and why it failed."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+      - alert: ServiceDown
+        expr: beacon:service_down{severity=""} == 1
+        for: 20s
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "{{ $labels.service }} has failed from every probe location that reports it (the try environment has one, edge-1, and its waits are shortened). The card lists the location's result and why it failed."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
+      # The location itself: nothing from it for 2 minutes and it is down (the reference waits 10).
+      - alert: ProbeLocationDown
+        expr: |
+          max by (location, region, network) (beacon_expected_location == 1)
+          unless on (location)
+          count by (location) (count_over_time(probe_success{job="probe"}[2m]))
+        for: 30s
+        labels:
+          severity: warning
+          service: "probe-{{ $labels.location }}"
+          failure_domain: "probe-{{ $labels.location }}"
+        annotations:
+          summary: "Probe location {{ $labels.location }} has sent no results for 2 minutes"
+          description: "No probe results from {{ $labels.location }} ({{ $labels.network }}). In the try environment the probe is the container beacon-try-probe; the agent queues results on disk and fills the gap when it is back."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md
