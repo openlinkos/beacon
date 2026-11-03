@@ -1,6 +1,6 @@
 # Publish a status page
 
-By the end of this page your users have a page that says whether your services work, how they did over the last 90 days, what is going wrong and what is being done about it, and what work is planned. Beacon makes it from what it already has — the probes' results, the alert groups, the maintenance windows — so there is nothing to update by hand: when the probes agree a service is down, the page says so, and when the alert resolves, the incident does too. Beacon serves the pages itself, without signing in: the default page at `/` and `/status`, every page at `/status/<name>`, and a page at `/` on a host name of its own if you give it one.
+By the end of this page your users have a page that says if your services work, how they did over the last 90 days, what is going wrong and what is being done about it, and what work is planned. Beacon makes it from what it already has — the probes' results, the alert groups, the maintenance windows — so there is nothing to update by hand: when the probes agree a service is down, the page says so, and when the alert resolves, the incident does too. Beacon serves the pages itself, without signing in: the default page at `/` and `/status`, every page at `/status/<name>`, and a page at `/` on a host name of its own if you give it one.
 
 You need Beacon running with at least two probe locations reporting ([Monitor a service](monitoring.md)), because a page shows what the probes agree on, and a credential with `config:write`.
 
