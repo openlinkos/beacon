@@ -98,15 +98,7 @@ A revoked or narrowed credential is refused from its next request on, and what t
 
 ## Who the audit log names {#who-the-audit-log-names}
 
-| Who acted | Named |
-| --- | --- |
-| A person on the console | `alice` |
-| An agent, through any of its credentials or its SSH key | `alice / claude-code` |
-| A legacy token, or a machine's | the token's name, as before |
-| The command line on the centre | `cli:` and the operating system's user |
-| Beacon itself | `beacon` |
-
-The chat's echoes and the sessions on machines use the same names; entries made before keep the names they had.
+The audit log, the chat's echoes and the sessions on machines name a person `alice`, an agent of theirs `alice / claude-code` (whatever credential it used), a legacy or machine token by its name, the command line on the centre `cli:` and the operating system's user, and Beacon itself `beacon`. Entries made before keep the names they had; the full table is in the permissions reference ([Roles, presets and scopes](../reference/permissions.md)).
 
 ## Moving from tokens {#moving-from-tokens}
 
@@ -141,6 +133,10 @@ How the accounts, the tokens and the OAuth sign-ins are kept — argon2id and SH
 ### The OAuth endpoints {#the-oauth-endpoints}
 
 The OAuth routes an MCP client uses — the metadata documents, registration, the consent page, the token and revocation endpoints — are listed in the [REST API](../reference/api.md#other-routes-on-port-17001).
+
+## Check it
+
+With the person you invited signed in, `beacon user list` shows them, their role and their last sign-in, and the audit log names them (`alice`) on whatever they do. Then make one of their agents and ask it for `GET /api/v1/token`: the answer names `alice / name`, its preset and what it may do now. Demote the person to viewer and ask again: the agent may do less at once, on the token it already holds.
 
 ## Next
 

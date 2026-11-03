@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e24407dc
+sourceHash: sha256-81766222
 ---
 
 # 邀请你的团队
@@ -102,15 +102,7 @@ Agent 自己登记的密钥属于它登记时所用的凭据（`via`：`token:NA
 
 ## 审计日志里写谁 {#who-the-audit-log-names}
 
-| 谁在操作 | 记作 |
-| --- | --- |
-| 成员在控制台上 | `alice` |
-| Agent，无论经哪份凭据或哪把 SSH 密钥 | `alice / claude-code` |
-| 遗留令牌，或机器的令牌 | 令牌名，与从前一样 |
-| 中心上的命令行 | `cli:` 加操作系统用户 |
-| Beacon 自己 | `beacon` |
-
-告警群的回显和机器上的会话用同样的名字；之前的记录保持原来的名字。
+审计日志、告警群的回显和机器上的会话，把成员记作 `alice`，把其 Agent 记作 `alice / claude-code`（无论它用哪份凭据），遗留令牌和机器令牌按令牌名，中心上的命令行记作 `cli:` 加操作系统用户，Beacon 自己记作 `beacon`。之前的记录保持原来的名字；完整的对照表在权限参考里（[角色、预设与权限](../reference/permissions.md)）。
 
 ## 从只有令牌的时代迁移 {#moving-from-tokens}
 
@@ -145,6 +137,10 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 ### OAuth 端点 {#the-oauth-endpoints}
 
 MCP 客户端用到的 OAuth 路由——元数据文档、注册、授权页、令牌与吊销端点——列在[REST API](../reference/api.md#other-routes-on-port-17001)里。
+
+## 检查一下 {#check-it}
+
+你邀请的人登录后，`beacon user list` 里有他、他的角色和最近登录，他做的每件事在审计日志里都记作 `alice`。再给他建一个 Agent，让 Agent 调 `GET /api/v1/token`：应答里写着 `alice / name`、它的预设和它现在能做什么。把这个人的角色降为查看者再问一次：Agent 用手里已有的令牌，能做的事也立刻变少。
 
 ## 下一步 {#next}
 
