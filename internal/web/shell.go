@@ -97,7 +97,7 @@ func (s *Server) shellFor(r *http.Request, v *viewer, nav, title string, crumbs 
 	sh.Side = s.channelStatus()
 	sh.Nav = s.nav(nav, v)
 	sh.Toast, sh.ToastTone = s.toast(r.URL.Query().Get("done"))
-	sh.Problem = s.problem(r.URL.Query().Get("error"))
+	sh.Problem = s.problem(r, r.URL.Query().Get("error"))
 	return sh
 }
 

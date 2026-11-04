@@ -233,6 +233,33 @@ func TestAddressLockoutOnTheForms(t *testing.T) {
 	check("reset", b.fill(reset, url.Values{"password": {password}, "again": {password}}))
 }
 
+// TestPasswordChangeNamesTheWait checks that changing a password, while the address is locked, says how
+// long is left. The account page used to say "a few minutes" for that one redirect.
+func TestPasswordChangeNamesTheWait(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	alice := e.owner()
+	b := e.browser()
+	for range 20 {
+		if a := b.signIn("not-a-token", "/console"); a.code != http.StatusUnauthorized {
+			t.Fatalf("a bad token before the lockout: %d %s", a.code, a.body)
+		}
+	}
+	r := alice.post("/console/account/password", url.Values{
+		"current": {password}, "password": {"alice new password"}, "again": {"alice new password"},
+	})
+	if r.code != http.StatusSeeOther || !strings.Contains(r.header.Get("Location"), "error=blocked") {
+		t.Fatalf("locked password change: %d %q", r.code, r.header.Get("Location"))
+	}
+	page := alice.get(r.header.Get("Location"))
+	const want = "Too many failed sign-ins from here; try again in 10 minutes."
+	if page.code != http.StatusOK || !strings.Contains(page.body, want) || strings.Contains(page.body, "a few") {
+		t.Errorf("the account page: %d %s", page.code, page.body)
+	}
+	if _, err := e.st.SignIn("alice", password); err != nil {
+		t.Error("the lockout changed the password")
+	}
+}
+
 // TestOneTimeLinks checks what a setup, invitation or reset link survives — the page loading twice,
 // a form that fails — and what spends it: one successful submission. A link that merely expired says
 // so, not "used already".

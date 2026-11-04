@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-73e129a1
+sourceHash: sha256-21d5f5b6
 ---
 
 # 常见问题
@@ -143,7 +143,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 
-还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化链接提示 `This link has expired. Run beacon setup to make a new one.`（「这个链接已过期。请运行 beacon setup 生成一个新的。」）是 30 分钟到了：再运行一次 `beacon setup`。这时还没有所有者可以找。邀请或重设链接提示 `This link has expired; ask an owner for a new one.`（「这个链接已过期；请找所有者要一个新的。」）是时间到了（邀请 24 小时，重设 30 分钟），请所有者重新给一个。提示 `This link does not work: it was used already, or it is wrong.`（「这个链接不能用：已用过或者不正确。请找所有者要一个新的。」）是已经用掉或抄错了。过期的链接在新建一个之后仍会这样说明，保留 7 天；过了 7 天就忘掉，再打开会显示已用过或不正确。详见[控制台](../guide/console.md#signing-in)。
+还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化链接提示 `This link has expired. Run beacon setup to make a new one.`（「这个链接已过期。请运行 beacon setup 生成一个新的。」）是 30 分钟到了：再运行一次 `beacon setup`。这时还没有所有者可以找。邀请或重设链接提示 `This link has expired; ask an owner for a new one.`（「这个链接已过期；请找所有者要一个新的。」）是时间到了（邀请 24 小时，重设 30 分钟），请所有者重新给一个。提示 `This link does not work: it was used already, or it is wrong.`（「这个链接不能用：已用过或者不正确。请找所有者要一个新的。」）是已经用掉或抄错了。过期的链接自过期起保留 7 天，只有再生成一个新链接、并且这 7 天已经过去时才会删掉。在那之前，旧页面仍说明它已过期；删掉之后再打开，会显示已用过或不正确。详见[控制台](../guide/console.md#signing-in)。
 
 ### 打开旧链接，控制台显示 404 {#the-console-says-404-on-an-old-link}
 
