@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -471,4 +472,37 @@ func ServiceRunning(dbPath string) bool {
 	}
 	release()
 	return false
+}
+
+// ---- the recovery material, as the console shows it
+
+// RecoveryMaterial returns the one-time recovery material while it is still waiting to be
+// collected; ok is false once the operator has taken it off (or none was ever written, because
+// the configuration named its own recipients).
+func (m *Manager) RecoveryMaterial() (b []byte, ok bool) {
+	b, err := os.ReadFile(m.RecoveryFile())
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// RemoveRecoveryMaterial deletes the recovery material: from then on the server holds only the
+// public key, and the page cannot show what it no longer has.
+func (m *Manager) RemoveRecoveryMaterial() error {
+	err := os.Remove(m.RecoveryFile())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// PublicKey is the public half the server keeps (empty when the configuration named its own
+// recipients and none was generated here).
+func (m *Manager) PublicKey() string {
+	b, err := os.ReadFile(m.publicFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
