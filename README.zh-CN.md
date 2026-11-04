@@ -43,6 +43,8 @@ Beacon 的设计是让 Agent 干活，让人看得见全部：
 - **公开状态页**由 Beacon 自己提供：组件来自检测目标，90 天历史，事件来自告警，维护窗口，JSON、Atom 订阅和徽章。
 - **控制台**（`/console`；站点根路径是公开状态页）：告警及其证据和时间线、机器、每次会话及回放、成员和他们的 Agent（连同令牌、OAuth 登录和密钥）、配置及历史、审计日志。
 - **在 Beacon 里配置**：检测点、检测目标、模块和状态页存在它的数据库里，经 API、MCP 或命令行修改，每次修改都是一个能撤销的版本；文件只用于导入导出，所以仍然可以放在 git 里。
+- **给 Agent 保管密钥**：一个由库和条目组成的密钥库，从 1Password 或 Chrome 导入，每条条目有一个级别（`auto`、`review`、`person`、`never`）；Agent 申请一次，由规则、审核 Agent 或人批准，此后在授权范围内随时取值，每次取用都带原因、有记录。值也可以不见面地使用——注入进程、命令、HTTP 请求，或需要它的那台机器上的文件。
+- **存储与备份**：状态默认放在 SQLite，也可以用 PostgreSQL 加一台备机；按计划备份，用 age 加密给你自己的公钥，上传前校验、上传后回读，由心跳盯着，并在另一台机器上演练恢复。
 
 ## 支持哪些 Agent
 
@@ -94,6 +96,7 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 - [成员和 Agent](docs/zh/guide/people.md)：账号和角色、Claude Code 和 Codex 通过浏览器接入、无界面 Agent 和它的令牌
 - [让 Agent 值班](docs/zh/guide/on-call.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
 - [SSH 通道](docs/zh/guide/machines.md)：Agent 不拿密钥怎么上机器、录像、NAT 后面的机器
+- [管理 Agent 的密钥](docs/zh/guide/secrets.md)：密钥库、级别、资格与授权，从 1Password 和 Chrome 导入；背后的[设计](docs/zh/about/secrets.md)
 - [目录、检测目标和模块](docs/zh/guide/monitoring.md)：检测什么、从哪里检测、怎么配置
 - [状态页](docs/zh/guide/status-pages.md)：公开页、事件、维护、徽章
 - [控制台](docs/zh/guide/console.md)：人看到什么，以及卡片打开的链接
@@ -113,7 +116,7 @@ Agent ──▶ MCP 和 REST（证据、备注、probe_now）──▶ beacon
 Agent ──▶ ssh、scp、rsync（17002 端口）──▶ SSH 通道 ──▶ 你的服务器（五分钟证书，每次会话都录像）
 ```
 
-一个服务 `beacon` 包括给机器用的网关、告警路由、通往人和 Agent 的桥、API 和 MCP、控制台和状态页，以及 SSH 通道；状态存在一个 bbolt 文件里，会话录像放在旁边。指标和规则交给 VictoriaMetrics 和 vmalert。各部分见[架构](docs/zh/about/architecture.md)。
+一个服务 `beacon` 包括给机器用的网关、告警路由、通往人和 Agent 的桥、API 和 MCP、控制台和状态页、SSH 通道和密钥库；状态默认存在一个 SQLite 数据库里（可选 PostgreSQL，主机旁边加备机），会话录像放在旁边，备份由它自己加密去做。指标和规则交给 VictoriaMetrics 和 vmalert。各部分见[架构](docs/zh/about/architecture.md)。
 
 ## 安全
 

@@ -43,6 +43,8 @@ Beacon is built for the agent to do the work and for people to see all of it:
 - **Public status pages** served by Beacon itself: components from the probe targets, 90 days of history, incidents from the alerts, maintenance windows, JSON, an Atom feed and badges.
 - **The console** at `/console` (the site's root is the public status page): alerts with their evidence and timeline, machines, every session with its replay, people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, the audit log.
 - **Configuration through Beacon**: probe locations, targets, modules and status pages live in its database, changed through the API, MCP or the command line, every change a version that can be reverted; files are for import and export, so they can stay in git.
+- **Secrets for agents**: a vault of collections and items, imported from 1Password or Chrome, each item at a level (`auto`, `review`, `person`, `never`); an agent asks once, a rule, a review agent or a person grants, and from then on it takes the value as often as the grant allows, every use on record with a reason. Values can also be used without being seen — injected into a process, a command, an HTTP request or a file on the machine that needs them.
+- **Storage and backups**: state in SQLite by default, or PostgreSQL with a standby beside the primary; scheduled backups encrypted with age to your own public keys, verified before upload and read back after, watched by a heartbeat, and rehearsed with a drill on another machine.
 
 ## Works with
 
@@ -94,6 +96,7 @@ The documentation lives in [`docs/`](docs/) and is published at [beacon.openlink
 - [People and their agents](docs/guide/people.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
 - [Put an agent on call](docs/guide/on-call.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
 - [The SSH channel](docs/guide/machines.md): how agents reach machines without keys, recordings, machines behind NAT
+- [Secrets for agents](docs/guide/secrets.md): the vault, levels, entitlements and grants, importing from 1Password and Chrome; [the design](docs/about/secrets.md) behind it
 - [Catalogue, targets and modules](docs/guide/monitoring.md): what is probed, from where, and how it is configured
 - [Status pages](docs/guide/status-pages.md): the public page, incidents, maintenance, badges
 - [The console](docs/guide/console.md): what people see, and the links cards open
@@ -113,7 +116,7 @@ agents ──▶ MCP and REST (evidence, notes, probe_now) ──▶ beacon
 agents ──▶ ssh, scp, rsync (port 17002) ──▶ SSH channel ──▶ your servers (5-minute certificates, every session recorded)
 ```
 
-One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one bbolt file, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
+One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, the SSH channel, and the secrets vault; its state is one SQLite database — PostgreSQL optional, with a standby beside the primary — with the session recordings beside it, and it takes its own encrypted backups. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
 
 ## Security
 
