@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/api"
@@ -36,6 +37,7 @@ import (
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/oauth"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
@@ -74,6 +76,39 @@ const tokenTTL = time.Hour
 // bearer tokens (nil: only signed links open pages); Pages checks the links' signatures and signs the
 // links inside pages (nil: only tokens open pages, and pages link nowhere).
 //
+// vaultUI is what the console's vault page needs of the vault (vaultpage.go), an interface so the
+// page can be tested against a stub.
+type vaultUI interface {
+	Sealed() bool
+	SealModeName() string
+	Bad() []string
+	Unseal(passphrase string) error
+	Collections() []secrets.Collection
+	Collection(nameOrID string) (secrets.Collection, bool)
+	Permissions(collection string) []secrets.Permission
+	SetPermission(who secrets.Actor, collection, subject, perm, reason string) error
+	CreateCollection(who secrets.Actor, name, description, level string) (secrets.Collection, error)
+	UpdateCollection(who secrets.Actor, id, description, level string) (secrets.Collection, error)
+	Items(collection, state string) []secrets.Item
+	Item(ref string) (secrets.Item, secrets.Collection, bool)
+	Versions(item string) []secrets.ItemVersion
+	SetItem(who secrets.Actor, in secrets.ItemIn) (secrets.Item, error)
+	ArchiveItem(who secrets.Actor, item string) (secrets.Item, error)
+	TrashItem(who secrets.Actor, item string) (secrets.Item, error)
+	RestoreItem(who secrets.Actor, item string) (secrets.Item, error)
+	RollbackItem(who secrets.Actor, item string, version int64, reason string) (secrets.Item, error)
+	Generate(who secrets.Actor, item, section, field, reason string, spec secrets.GenSpec) (secrets.Item, error)
+	Reveal(who secrets.Actor, item string, fields []string, password string) (map[string]string, []secrets.Field, error)
+	Tags() []secrets.Tag
+	SetTag(who secrets.Actor, name, level, description string) (secrets.Tag, error)
+	DeleteTag(who secrets.Actor, name string) error
+	EffectiveLevel(item secrets.Item) string
+	WhoCanGet(collection string) []string
+	May(who secrets.Actor, collection, perm string) bool
+	ActorForUser(name string) (secrets.Actor, bool)
+	Search(who secrets.Actor, query, collection string, tags []string) []secrets.SearchResult
+}
+
 // The console needs Store, where its sign-ins are kept: nil leaves it out, and only the pages opened
 // from the chat are served. Config is the configuration Beacon holds (nil: the console's configuration
 // page is empty), Hooks the agent hooks configured, Reporting when each probe location last wrote
@@ -92,6 +127,7 @@ type Server struct {
 	Store     *store.Store
 	Config    *configdb.Service
 	Settings  *settings.Service // the secrets work's settings (settingspage.go); nil: the console's settings page is empty
+	Vault     vaultUI           // the secrets vault (vaultpage.go); nil: the console's vault page is away
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string
@@ -102,6 +138,11 @@ type Server struct {
 
 	// OAuth is Beacon's authorization server for MCP clients (package oauth); nil leaves /oauth/authorize out.
 	OAuth *oauth.Server
+
+	// reveals holds one-time slots carrying a reveal's answer from the form to the page it opens,
+	// so values never travel in a URL.
+	revealMu sync.Mutex
+	reveals  map[string]revealSlot
 }
 
 // Register adds the pages' routes to mux: GET / is public (home.go), the console is under /console, and
