@@ -57,7 +57,7 @@ func (e *env) addConnector(t *testing.T, name string, key ssh.Signer, hostKey st
 
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testWait)
 	for !ok() {
 		if time.Now().After(deadline) {
 			t.Fatalf("waited in vain for %s", what)

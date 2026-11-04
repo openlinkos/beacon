@@ -105,7 +105,7 @@ func TestWakeAgentRetries(t *testing.T) {
 	if err := json.Unmarshal(hs.bodies[0], &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.Alert.ID != id || p.Alert.Severity != "critical" || p.Alert.Service != "git-linkos-io" || p.Alert.Title != "git.linkos.io is down" ||
+	if p.Alert.ID != id || p.Alert.Severity != "critical" || p.Alert.Service != "git-example-com" || p.Alert.Title != "git.example.com is down" ||
 		p.Links.Evidence != "https://status.example.com/api/v1/alerts/"+id+"/evidence" || p.Links.MCP != "https://status.example.com/mcp" ||
 		p.Hook != "claude-oncall" || !strings.Contains(p.Hint, "get_evidence") || len(p.Untrusted.Fields) == 0 || p.Alert.StartsAt.IsZero() {
 		t.Fatalf("payload: %+v", p)
@@ -113,7 +113,7 @@ func TestWakeAgentRetries(t *testing.T) {
 	if c := cardText(e.fs.patches[len(e.fs.patches)-1]); !strings.Contains(c, "Agent claude-oncall woken at") {
 		t.Errorf("the card shows the agent was woken: %s", c)
 	}
-	if last := e.bot.texts[len(e.bot.texts)-1]; last != `Woke agent claude-oncall for "git.linkos.io is down"` {
+	if last := e.bot.texts[len(e.bot.texts)-1]; last != `Woke agent claude-oncall for "git.example.com is down"` {
 		t.Errorf("echo: %q", last)
 	}
 	if a := e.st.AuditLog(1); a[0].Action != "wake_agent" || a[0].Target != id || !strings.Contains(a[0].Detail, "claude-oncall (webhook, firing): ok, 3 attempts") {
@@ -218,7 +218,7 @@ func TestWhichHooksWake(t *testing.T) {
 		p.FiringCall == nil || !p.FiringCall.Recent || p.FiringCall.Delivery != hs.reqs[0].Header.Get("X-Beacon-Delivery") {
 		t.Fatalf("resolved payload: %+v", p)
 	}
-	if !strings.Contains(e.bot.texts[len(e.bot.texts)-1], `Told agent claude-oncall that "git.linkos.io is down" resolved`) {
+	if !strings.Contains(e.bot.texts[len(e.bot.texts)-1], `Told agent claude-oncall that "git.example.com is down" resolved`) {
 		t.Errorf("echo: %v", e.bot.texts)
 	}
 	// firing again is a new episode: the old calls and notes go, the hook is woken again

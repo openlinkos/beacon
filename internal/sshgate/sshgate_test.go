@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -221,7 +223,48 @@ func setup(t *testing.T, scopes ...string) *env {
 	t.Cleanup(func() { _ = ln.Close() })
 	e.addr = ln.Addr().String()
 	go func() { _ = g.Serve(ln) }()
+	// Registered last, so it runs before the recordings' TempDir is removed: a session finishing as
+	// its connection closes during the test's own cleanup may still be writing its cast, and removing
+	// the directory under it fails ("directory not empty").
+	t.Cleanup(func() { e.quiesce(t) })
 	return e
+}
+
+// quiesce waits for the recordings to stop changing: two snapshots of every file's size and mod time,
+// alike, a quiet interval apart.
+func (e *env) quiesce(t *testing.T) {
+	t.Helper()
+	seen := ""
+	deadline := time.Now().Add(testWait)
+	for {
+		state := e.recordings()
+		if state == seen {
+			return
+		}
+		seen = state
+		if time.Now().After(deadline) {
+			return // bounded: a stuck writer is the next cleanup's to name
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// recordings is a snapshot of the recordings tree: every file's path, size and mod time.
+func (e *env) recordings() string {
+	var b strings.Builder
+	_ = filepath.WalkDir(e.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // a file vanishing under the walk only makes the snapshot quieter
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			fmt.Fprintf(&b, "%s %d %d\n", path, info.Size(), info.ModTime().UnixNano())
+		}
+		return nil
+	})
+	return b.String()
 }
 
 func (e *env) giveKey(t *testing.T, token string, k ssh.Signer) {

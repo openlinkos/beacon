@@ -215,7 +215,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 		Summary: "relay 1.2.3 " + hostile, PostedBy: "ci"}, now.Add(-30*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	e.srv = &Server{Bridge: e.b, SSH: gate, Auth: &api.Auth{Store: st}, Pages: pages, Lang: lang, Location: time.UTC, Now: func() time.Time { return e.now },
+	e.srv = &Server{Bridge: e.b, SSH: gate, Auth: &api.Auth{Store: st, Now: func() time.Time { return e.now }}, Pages: pages, Lang: lang, Location: time.UTC, Now: func() time.Time { return e.now },
 		Store: st, Config: e.cdb, Version: "v0.3.0-test",
 		Hooks: []config.Agent{{Name: "oncall", Kind: "webhook", URL: "https://hooks.example.com/beacon?key=hook-secret", Severities: []string{"critical"}}},
 		Reporting: func() map[string]time.Time {

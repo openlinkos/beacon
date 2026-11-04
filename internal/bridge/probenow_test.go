@@ -13,7 +13,7 @@ import (
 	"github.com/openlinkos/beacon/internal/targets"
 )
 
-// probeBoard has the env's location and a mainland one, both probing git.linkos.io (the hook's service)
+// probeBoard has the env's location and a mainland one, both probing git.example.com (the hook's service)
 // and a second target of the same service.
 func probeBoard(t *testing.T) *probenow.Board {
 	t.Helper()
@@ -22,7 +22,7 @@ func probeBoard(t *testing.T) *probenow.Board {
 		{ID: "cn-shanghai-bgp", Name: "Mainland China - Shanghai", Region: "mainland"},
 	}}
 	set, err := targets.Build(map[string][]targets.Group{
-		"all-git.yaml": {{Targets: []string{"https://git.linkos.io/", "https://git.linkos.io/api/healthz"}, Labels: map[string]string{"module": "http_head", "service": "git-linkos-io"}}},
+		"all-git.yaml": {{Targets: []string{"https://git.example.com/", "https://git.example.com/api/healthz"}, Labels: map[string]string{"module": "http_head", "service": "git-example-com"}}},
 	}, []string{"us-los-angeles", "cn-shanghai-bgp"})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestProbeNowInputs(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	who := Actor{Name: "claude-code", Via: "mcp"}
-	if _, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.linkos.io/"}); !errors.Is(err, ErrProbeUnavailable) {
+	if _, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.example.com/"}); !errors.Is(err, ErrProbeUnavailable) {
 		t.Fatalf("without a board: %v", err)
 	}
 	e.b.d.ProbeNow = probeBoard(t)
@@ -69,10 +69,10 @@ func TestProbeNowInputs(t *testing.T) {
 		msg  string
 	}{
 		{ProbeNowInput{}, ErrBadInput, "one of alert_id, target or service"},
-		{ProbeNowInput{Target: "https://git.linkos.io/", Service: "git-linkos-io"}, ErrBadInput, "one of"},
-		{ProbeNowInput{Service: "git-linkos-io", Module: "http_head"}, ErrBadInput, "module goes with target"},
-		{ProbeNowInput{Target: "https://git.linkos.io/", Wait: 91}, ErrBadInput, "wait is 1 to 90 seconds"},
-		{ProbeNowInput{Target: "https://git.linkos.io/", Wait: -1}, ErrBadInput, "wait is 1 to 90 seconds"},
+		{ProbeNowInput{Target: "https://git.example.com/", Service: "git-example-com"}, ErrBadInput, "one of"},
+		{ProbeNowInput{Service: "git-example-com", Module: "http_head"}, ErrBadInput, "module goes with target"},
+		{ProbeNowInput{Target: "https://git.example.com/", Wait: 91}, ErrBadInput, "wait is 1 to 90 seconds"},
+		{ProbeNowInput{Target: "https://git.example.com/", Wait: -1}, ErrBadInput, "wait is 1 to 90 seconds"},
 		{ProbeNowInput{AlertID: "nope", Wait: 1}, ErrNotFound, ""},
 		{ProbeNowInput{Target: "https://nope.example.com/", Wait: 1}, ErrProbeNotFound, "no target set has target"},
 		{ProbeNowInput{Service: "nope", Wait: 1}, ErrProbeNotFound, "service nope"},
@@ -95,7 +95,7 @@ func TestProbeNowAnswersAndSummary(t *testing.T) {
 	// one location fine, the other failing
 	answerAs(t, e.b.d.ProbeNow, "us-los-angeles", true)
 	answerAs(t, e.b.d.ProbeNow, "cn-shanghai-bgp", false)
-	out, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.linkos.io/", Wait: 5})
+	out, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.example.com/", Wait: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,15 +115,15 @@ func TestProbeNowAnswersAndSummary(t *testing.T) {
 	if !strings.Contains(strings.Join(out.Untrusted.Fields, " "), "results[].reason") {
 		t.Errorf("untrusted: %v", out.Untrusted.Fields)
 	}
-	if last := e.bot.texts[len(e.bot.texts)-1]; last != "claude-code had 2 locations probe https://git.linkos.io/ again via MCP: 1 OK, 1 failing (http_status)" {
+	if last := e.bot.texts[len(e.bot.texts)-1]; last != "claude-code had 2 locations probe https://git.example.com/ again via MCP: 1 OK, 1 failing (http_status)" {
 		t.Errorf("echo %q", last)
 	}
 	if a := e.st.AuditLog(1); len(a) != 1 || a[0].Action != "probe_now" || a[0].Actor != "claude-code" || a[0].Via != "mcp" ||
-		a[0].Target != "https://git.linkos.io/" || a[0].Detail != "1 OK, 1 failing (http_status)" {
+		a[0].Target != "https://git.example.com/" || a[0].Detail != "1 OK, 1 failing (http_status)" {
 		t.Errorf("audit %+v", a)
 	}
 	// the same target at once is busy
-	if _, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.linkos.io/", Wait: 1}); !errors.Is(err, ErrProbeBusy) {
+	if _, err := e.b.ProbeNow(ctx, who, ProbeNowInput{Target: "https://git.example.com/", Wait: 1}); !errors.Is(err, ErrProbeBusy) {
 		t.Errorf("busy: %v", err)
 	}
 }
@@ -146,7 +146,7 @@ func TestProbeNowByAlertService(t *testing.T) {
 	if out.Complete || strings.Join(out.Missing, ",") != "cn-shanghai-bgp" || len(out.Targets) != 2 || len(out.Results) != 2 || out.Summary != "1 OK, 1 did not answer" {
 		t.Fatalf("by alert: %+v", out)
 	}
-	if last := e.bot.texts[len(e.bot.texts)-1]; last != "codex had 2 locations probe 2 targets of git-linkos-io again via API: 1 OK, 1 did not answer" {
+	if last := e.bot.texts[len(e.bot.texts)-1]; last != "codex had 2 locations probe 2 targets of git-example-com again via API: 1 OK, 1 did not answer" {
 		t.Errorf("echo %q", last)
 	}
 }
@@ -157,7 +157,7 @@ func TestProbeNowByAlertInstance(t *testing.T) {
 	e.b.d.ProbeNow = probeBoard(t)
 	ctx := context.Background()
 	w := hook("firing", "critical")
-	labels := map[string]string{"alertname": "ServiceDown", "service": "git-linkos-io", "severity": "critical", "instance": "https://git.linkos.io/api/healthz", "module": "http_head"}
+	labels := map[string]string{"alertname": "ServiceDown", "service": "git-example-com", "severity": "critical", "instance": "https://git.example.com/api/healthz", "module": "http_head"}
 	w.Alerts = []alertmanager.Alert{{Status: "firing", Fingerprint: "f1", Labels: labels, StartsAt: e.now}, {Status: "firing", Fingerprint: "f2", Labels: labels, StartsAt: e.now}}
 	if err := e.b.HandleWebhook(ctx, w); err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestProbeNowByAlertInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Targets) != 1 || out.Targets[0].Instance != "https://git.linkos.io/api/healthz" || !out.Complete || out.Summary != "2 OK" {
+	if len(out.Targets) != 1 || out.Targets[0].Instance != "https://git.example.com/api/healthz" || !out.Complete || out.Summary != "2 OK" {
 		t.Fatalf("by instance: %+v", out)
 	}
 }
