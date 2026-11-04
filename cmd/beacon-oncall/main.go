@@ -1,7 +1,7 @@
 // Command beacon-oncall is the reference harness that runs an agent when Beacon wakes it. It takes
 // Beacon's signed webhook, answers at once, and starts the program named with -run (through /bin/sh -c)
 // with the payload on its standard input and the alert in BEACON_* variables. Each run's output goes to
-// a file under -log-dir. The harness decides nothing: the program does. See docs/agents.md, "Running an
+// a file under -log-dir. The harness decides nothing: the program does. See docs/guide/on-call.md, "Running an
 // agent when woken", and contrib/oncall for wrappers around Claude Code and Codex.
 //
 //	beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]

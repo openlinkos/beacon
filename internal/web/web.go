@@ -1,15 +1,18 @@
-// Package web serves what people look at: the console, Beacon's own workbench, and the pages people
-// open from the chat (an alert's page, with its timeline and the sessions on its machines, and a
-// session's page, with its replay). They are HTML from embedded templates on the design system
-// @openlinkos/ui (vendored under static/ol), without a build step or a framework, served by
-// beacon beside the API on the same port, in the configured language, readable on a phone.
+// Package web serves what people look at: the public pages at the site's root (the status pages, or a
+// page that names the deployment), and under /console the console, Beacon's own workbench, with the
+// pages people open from the chat (an alert's page, with its timeline and the sessions on its
+// machines, and a session's page, with its replay). They are HTML from embedded templates on the
+// design system @openlinkos/ui (vendored under static/ol), without a build step or a framework,
+// served by beacon beside the API on the same port, in the configured language, readable on a phone.
+// Every page says it runs on Beacon and links to the project (brand.go).
 //
-// There is no login system of Beacon's own. The console signs a person in with a Beacon token they
-// paste (console.go): the token is the identity, and its scopes are what the console may do. An
-// alert's or a session's page also opens without signing in, view-only, with a signed link (package
-// link), which the card, the chat echoes and the API hand out, or with a bearer token carrying the
-// scope the matching API route needs; anything else is 404, so that a wrong or expired link reveals
-// nothing, not even that the page exists. Text from outside Beacon reaches the pages cleaned by the
+// People sign in to the console with their Beacon account, a username and a password (console.go,
+// accounts.go), and what the console may do is what their role allows; signing in with a pasted token
+// is kept for one release. People manage their agents there (agentpages.go), owners manage people, and
+// MCP clients are allowed at /oauth/authorize (oauth.go). An alert's or a session's page also opens
+// without signing in, view-only, with a signed link (package link), which the card, the chat echoes and
+// the API hand out, or with a bearer credential carrying the scope the matching API route needs;
+// anything else is 404, so that a wrong or expired link reveals nothing, not even that the page exists. Text from outside Beacon reaches the pages cleaned by the
 // bridge and is escaped by html/template on the way out; the pages carry no inline script or style,
 // and their Content-Security-Policy allows nothing from elsewhere.
 package web
@@ -32,7 +35,9 @@ import (
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -71,7 +76,8 @@ const tokenTTL = time.Hour
 // The console needs Store, where its sign-ins are kept: nil leaves it out, and only the pages opened
 // from the chat are served. Config is the configuration Beacon holds (nil: the console's configuration
 // page is empty), Hooks the agent hooks configured, Reporting when each probe location last wrote
-// through the gateway (nil without a gateway), and Version Beacon's own.
+// through the gateway (nil without a gateway), and Version Beacon's own. Branding is what the public
+// pages say of the deployment and of Beacon.
 type Server struct {
 	Bridge   *bridge.Bridge
 	SSH      *sshgate.Gate
@@ -87,20 +93,34 @@ type Server struct {
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string
+
+	// Status computes the public status pages (status.go); nil leaves them out.
+	Status   *status.Service
+	Branding config.Branding
+
+	// OAuth is Beacon's authorization server for MCP clients (package oauth); nil leaves /oauth/authorize out.
+	OAuth *oauth.Server
 }
 
-// Register adds the pages' routes to mux; with the console, GET / is its overview.
+// Register adds the pages' routes to mux: GET / is public (home.go), the console is under /console, and
+// the paths the console had before it moved there send people on to their new place.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /alerts/{id}", s.alert)
-	mux.HandleFunc("GET /sessions/{id}", s.session)
-	mux.HandleFunc("GET /sessions/{id}/recording", s.recording)
+	mux.HandleFunc("GET /{$}", s.home)
+	mux.HandleFunc("GET "+link.AlertPath("{id}"), s.alert)
+	mux.HandleFunc("GET "+link.SessionPath("{id}"), s.session)
+	mux.HandleFunc("GET "+link.RecordingPath("{id}"), s.recording)
 	mux.HandleFunc("GET /static/{file}", s.static)
 	mux.HandleFunc("GET /static/ol/{file}", s.static)
 	mux.HandleFunc("GET /static/ol/fonts/{file}", s.static)
+	s.registerMoved(mux)
+	s.registerStatus(mux)
 	if s.Console() {
 		s.registerConsole(mux)
 	}
 }
+
+// consolePath is the path of a page of the console: p under /console ("" for the overview).
+func consolePath(p string) string { return link.Root + p }
 
 // Console reports whether the console is served (it needs the store for its sign-ins).
 func (s *Server) Console() bool { return s != nil && s.Store != nil && s.Bridge != nil }
@@ -164,8 +184,8 @@ func (s *Server) access(r *http.Request, scopes string) access {
 		}
 	}
 	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
-		if t, ok := s.Auth.Verify(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), t.Has) {
-			return access{OK: true, Token: t.Name, Until: s.now().Add(tokenTTL)}
+		if p, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), p.Has) {
+			return access{OK: true, Token: p.Name(), Until: s.now().Add(tokenTTL)}
 		}
 	}
 	return access{Viewer: v}
@@ -270,6 +290,7 @@ var staticFiles = map[string]string{
 	"asciinema-player.css":              "text/css; charset=utf-8",
 	"beacon-player.js":                  "text/javascript; charset=utf-8",
 	"beacon.css":                        "text/css; charset=utf-8",
+	"status.css":                        "text/css; charset=utf-8",
 	"ol/ui.css":                         "text/css; charset=utf-8",
 	"ol/fonts/Geist-Variable.woff2":     "font/woff2",
 	"ol/fonts/GeistMono-Variable.woff2": "font/woff2",

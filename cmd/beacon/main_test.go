@@ -15,6 +15,12 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
+// TestMain makes password hashing cheap for the tests: the parameters are recorded in each hash.
+func TestMain(m *testing.M) {
+	store.PasswordParams = store.Argon2Params{Time: 1, Memory: 64, Threads: 1}
+	os.Exit(m.Run())
+}
+
 func TestCheckConfig(t *testing.T) {
 	d := t.TempDir()
 	tok := filepath.Join(d, "tok")

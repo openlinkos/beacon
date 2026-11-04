@@ -1,0 +1,5 @@
+# The demo service: a small web server on the demo machine (the container beacon-try-demo), checked by
+# every location. `docker compose exec demo stop-web` breaks it and `start-web` (which the agent runs
+# through the SSH channel) repairs it; healthz is what the probe asks for.
+- targets: [http://demo:8080/healthz]
+  labels: {module: http_get_200, service: demo-web, severity: critical, failure_domain: try}

@@ -125,6 +125,32 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+func TestBranding(t *testing.T) {
+	d := t.TempDir()
+	am := "rules:\n  token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\nvictoriametrics: {url: http://vm:8428}\n"
+	c, err := Parse([]byte(am))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Branding.Powered() || c.Branding.Name() != "Beacon" {
+		t.Errorf("by default the public pages say they run on Beacon, titled Beacon: %+v", c.Branding)
+	}
+	if c, err = Parse([]byte(am + "branding: {title: Example Operations, powered_by: false}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if c.Branding.Powered() || c.Branding.Name() != "Example Operations" {
+		t.Errorf("branding: %+v", c.Branding)
+	}
+	if c, err = Parse([]byte(am + "branding: {powered_by: true}\n")); err != nil || !c.Branding.Powered() {
+		t.Errorf("powered_by: true: %v %+v", err, c)
+	}
+	for _, title := range []string{strings.Repeat("x", 81), `"a\nb"`} {
+		if _, err := Parse([]byte(am + "branding: {title: " + title + "}\n")); err == nil || !strings.Contains(err.Error(), "branding.title") {
+			t.Errorf("title %s: %v", title, err)
+		}
+	}
+}
+
 func TestRecordOnlyAndDefaults(t *testing.T) {
 	d := t.TempDir()
 	am := "rules:\n  token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\nvictoriametrics: {url: http://vm:8428}\n"

@@ -80,6 +80,8 @@ func (s *Service) kind(k string) string {
 		return i18n.T(s.d.Lang, "resource")
 	case KindTargets:
 		return i18n.T(s.d.Lang, "target set")
+	case KindStatus:
+		return i18n.T(s.d.Lang, "status page")
 	}
 	return i18n.T(s.d.Lang, "module")
 }

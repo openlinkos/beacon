@@ -1,0 +1,33 @@
+{{define "content"}}<h1 class="ol-auth-title">{{.Heading}}</h1>
+      {{if .Broken}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Broken}}</p></div></div>
+      {{else}}
+      <p>{{.Intro}}</p>
+      {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
+      <form method="post" action="/oauth/authorize" class="ol-stack">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        {{range .Fields}}<input type="hidden" name="{{.K}}" value="{{.V}}">
+        {{end}}
+        <div class="ol-field">
+          <label class="ol-label" for="agent">{{.L.Agent}}</label>
+          <input class="ol-input ol-input-mono" id="agent" name="agent" value="{{.AgentName}}" required minlength="2" maxlength="40" pattern="[a-z0-9][a-z0-9._\-]{1,39}" autocapitalize="none" spellcheck="false" aria-describedby="agent-hint">
+          <p class="ol-hint" id="agent-hint">{{.L.AgentHint}}</p>
+        </div>
+        <fieldset class="ol-fieldset"><legend class="ol-label">{{.L.Preset}}</legend>
+          {{range .Presets}}<label class="ol-check"><input class="ol-radio" type="radio" name="preset" value="{{.Value}}"{{if .Selected}} checked{{end}}><span><strong>{{.Label}}</strong> <span class="ol-hint">{{.Help}}</span></span></label>
+          {{end}}</fieldset>
+        <fieldset class="ol-fieldset"><legend class="ol-label">{{.L.Machines}}</legend>
+          <label class="ol-check"><input class="ol-radio" type="radio" name="machines" value="all"{{if .AllMachines}} checked{{end}}><span>{{.L.All}}</span></label>
+          {{if .Machines}}<label class="ol-check"><input class="ol-radio" type="radio" name="machines" value="some"{{if not .AllMachines}} checked{{end}}><span>{{.L.Some}}</span></label>
+          <div class="ol-cluster">{{range .Machines}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="machine" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-mono">{{.Label}}</span></label>{{end}}</div>{{end}}
+        </fieldset>
+        <fieldset class="ol-fieldset"><legend class="ol-label">{{.L.Duration}}</legend>
+          <div class="ol-cluster">{{range .Durations}}<label class="ol-check"><input class="ol-radio" type="radio" name="duration" value="{{.Value}}"{{if .Selected}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+        </fieldset>
+        <p class="ol-hint">{{.Return}}</p>
+        <div class="ol-cluster">
+          <button class="ol-btn ol-btn-primary ol-btn-lg" type="submit" name="decision" value="allow">{{icon "shield-check"}}{{.L.Allow}}</button>
+          <button class="ol-btn ol-btn-secondary ol-btn-lg" type="submit" name="decision" value="deny" formnovalidate>{{icon "x"}}{{.L.Deny}}</button>
+        </div>
+      </form>
+      <p class="ol-hint">{{.SignedInAs}}</p>
+      {{end}}{{end}}

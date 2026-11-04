@@ -1,4 +1,4 @@
-# beacon-oncall: runs an agent when Beacon wakes it. See docs/agents.md, "Running an agent when woken".
+# beacon-oncall: runs an agent when Beacon wakes it. See docs/guide/on-call.md, "Running an agent when woken".
 #
 # Install, as root:
 #   useradd --system --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
@@ -21,7 +21,7 @@
 
 [Unit]
 Description=beacon-oncall: runs an agent when Beacon wakes it
-Documentation=https://github.com/openlinkos/beacon/blob/main/docs/agents.md
+Documentation=https://github.com/openlinkos/beacon/blob/main/docs/guide/on-call.md
 After=network-online.target
 Wants=network-online.target
 

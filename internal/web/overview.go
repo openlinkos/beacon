@@ -9,7 +9,6 @@ import (
 
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/metrics"
-	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -127,7 +126,7 @@ func (s *Server) figures(v *viewer) overviewFigures {
 	}
 	if s.SSH != nil {
 		f.ChannelOn, f.Paused = true, s.SSH.PausedSince()
-		if l, err := s.SSH.List(sshgate.Actor{Name: v.Token.Name, Via: "console"}, ""); err == nil {
+		if l, err := s.SSH.List(v.gate(), ""); err == nil {
 			for _, m := range l.Machines {
 				f.Machines++
 				if m.Critical {
@@ -170,8 +169,8 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		firingTone = "warning"
 	}
 	p.Stats = append(p.Stats, stat{Label: s.t("Firing alerts"), Value: num(f.FiringTotal), Icon: "triangle-alert", Tone: firingTone,
-		Meta: s.t("%d critical, %d warning, %d info", f.Firing["critical"], f.Firing["warning"], f.Firing["info"]), Href: "/alerts?state=firing"})
-	loc := stat{Label: s.t("Probe locations"), Icon: "activity", Href: "/config#locations"}
+		Meta: s.t("%d critical, %d warning, %d info", f.Firing["critical"], f.Firing["warning"], f.Firing["info"]), Href: consolePath("/alerts?state=firing")})
+	loc := stat{Label: s.t("Probe locations"), Icon: "activity", Href: consolePath("/config#locations")}
 	if f.ReportingKnown {
 		loc.Value = s.t("%d of %d", f.Reporting, f.Expected)
 		loc.Meta = s.t("reporting in the last 5 minutes")
@@ -182,33 +181,33 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		loc.Value, loc.Meta = num(f.Expected), s.t("expected; the gateway is off here")
 	}
 	p.Stats = append(p.Stats, loc)
-	mach := stat{Label: s.t("Machines"), Value: num(f.Machines), Icon: "server", Href: "/machines",
+	mach := stat{Label: s.t("Machines"), Value: num(f.Machines), Icon: "server", Href: consolePath("/machines"),
 		Meta: s.t("%d critical, %d of %d behind NAT connected", f.Critical, f.Connected, f.Connectors)}
 	if f.Connected < f.Connectors {
 		mach.Tone = "warning"
 	}
 	p.Stats = append(p.Stats, mach)
-	woken := stat{Label: s.t("Agents woken today"), Value: num(f.Woken), Icon: "bot", Href: "/agents",
+	woken := stat{Label: s.t("Agents woken today"), Value: num(f.Woken), Icon: "bot", Href: consolePath("/hooks"),
 		Meta: s.t("%d woken, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
 	if f.WokenFailed > 0 {
 		woken.Tone = "danger"
 	}
 	p.Stats = append(p.Stats, woken)
 	p.Stats = append(p.Stats, stat{Label: s.t("Sessions today"), Value: num(f.SessionsToday), Icon: "terminal",
-		Href: "/sessions?day=" + url.QueryEscape(s.day(s.now())), Meta: s.t("since %s", s.today().Format("15:04"))})
+		Href: consolePath("/sessions?day=") + url.QueryEscape(s.day(s.now())), Meta: s.t("since %s", s.today().Format("15:04"))})
 
 	switch {
 	case !f.ChannelOn:
-		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Off"), Meta: s.t("ssh.listen is not set"), Href: "/machines"}
+		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Off"), Meta: s.t("ssh.listen is not set"), Href: consolePath("/machines")}
 	case !f.Paused.IsZero():
-		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Paused"), Tone: "danger", Href: "/machines",
+		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Paused"), Tone: "danger", Href: consolePath("/machines"),
 			Meta: s.t("since %s (%s)", s.clock(f.Paused), s.dur(s.now().Sub(f.Paused)))}
 	default:
-		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Running"), Tone: "success", Href: "/machines", Meta: s.t("Agents reach machines")}
+		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Running"), Tone: "success", Href: consolePath("/machines"), Meta: s.t("Agents reach machines")}
 	}
 	for _, sev := range config.Severities {
 		p.Severities = append(p.Severities, severityRow{Label: s.severity(sev), Tone: tone(sev), Count: num(f.Firing[sev]),
-			Href: "/alerts?severity=" + sev + "&state=firing"})
+			Href: consolePath("/alerts?severity=") + sev + "&state=firing"})
 	}
 	for _, g := range s.Bridge.Groups(true) {
 		if len(p.Firing) == 10 {
@@ -223,11 +222,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		p.Calls = append(p.Calls, c.item)
 	}
-	cv := kvLink{K: s.t("Configuration version"), V: strconv.FormatInt(f.ConfigVersion, 10), Href: "/config"}
+	cv := kvLink{K: s.t("Configuration version"), V: strconv.FormatInt(f.ConfigVersion, 10), Href: consolePath("/config")}
 	if f.ConfigBy != "" {
 		cv.V = s.t("%d, by %s via %s, %s", f.ConfigVersion, f.ConfigBy, f.ConfigVia, f.ConfigAt)
 	}
-	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}, {K: s.t("Signed in as"), V: v.Token.Name, Href: "/tokens"}}
+	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}, {K: s.t("Signed in as"), V: v.name(), Href: consolePath("/account")}}
 	s.render(w, overviewTmpl, p)
 }
 

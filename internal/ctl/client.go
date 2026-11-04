@@ -86,6 +86,7 @@ type TokenInfo struct {
 	Machines  []string  `json:"machines,omitempty"`
 	Lifetime  string    `json:"lifetime,omitempty"`
 	Renewed   time.Time `json:"renewed,omitzero"`
+	Agent     string    `json:"agent,omitempty"` // the agent whose token it is; its scopes are the agent's
 }
 
 func urlQuery(s string) string { return url.QueryEscape(s) }

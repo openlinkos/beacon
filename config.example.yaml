@@ -3,10 +3,23 @@
 
 listen: ":17001"
 data_dir: /var/lib/beacon                   # bbolt state: alert groups, tokens, audit log, the configuration below
-# The catalogue, probe targets and modules live in the database (docs/catalog.md). These files are
+# The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.
-catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expiring resources (*.yaml)
+catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expiring resources, status pages (*.yaml)
+# The public status pages are in the catalogue too, under status_pages (docs/guide/status-pages.md); for example, in
+# /etc/beacon/catalog/status_pages.yaml:
+#   status_pages:
+#     - name: public                        # served at /status/public; default: true also at /status
+#       title: Example Status
+#       host: uptime.example.com            # optional: at / on this host name, behind the same proxy
+#       components:
+#         - {name: website, title: Website, services: [example.com]}   # the probe targets' service labels
+#         - {name: mirrors, title: Mirrors, page: mirrors}            # every service with a target labelled page: mirrors
+#       links: {home: "https://example.com/", privacy: "https://example.com/privacy"}
+# The days of their 90-day history begin at midnight in the timezone below.
+# Beacon's own address, behind the TLS proxy: the links it hands out (the console, its one-time setup,
+# invitation and reset links, the alerts' pages) and the issuer MCP clients sign in with (docs/guide/people.md).
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
 trusted_proxies: [172.16.0.0/12]
@@ -46,7 +59,7 @@ gateway:
   # modules_file: /etc/beacon/targets/modules.yml   # the probe modules (this is the default); imported as above
 
 # The SSH channel: agents reach machines with their own ssh, scp, sftp or rsync, or with the MCP tools,
-# and never hold a key. On when ca_key_file is set; see docs/ssh.md. Both keys: ssh-keygen -t ed25519.
+# and never hold a key. On when ca_key_file is set; see docs/guide/machines.md. Both keys: ssh-keygen -t ed25519.
 ssh:
   listen: ":17002"
   public_address: ssh.example.com:17002     # where agents connect, for the ssh_config Beacon hands out
@@ -60,14 +73,24 @@ links:
   grafana_service: "https://grafana.example.com/d/beacon-service/service?var-service={service}"
   runbook: "https://github.com/example/ops/blob/main/runbooks/{alertname}.md"
 
-# The pages people open from the chat: an alert's timeline and each session's replay, at public_url
-# above, reached by signed links (no login). Anyone holding a link sees that page until it expires, so
-# the chat the links go to must be private. See docs/pages.md.
+# The pages people open from the chat: an alert's timeline and each session's replay, under /console at
+# public_url above, reached by signed links (no login). Anyone holding a link sees that page until it
+# expires, so the chat the links go to must be private. See docs/guide/console.md.
 pages:
   link_ttl: 720h                            # links are valid 30 days
 
+# The public pages: / is the default status page, or without one a page that names the deployment and
+# offers the console's sign-in. See docs/guide/status-pages.md.
+branding:
+  title: Example Operations                 # that page's title (Beacon when left out)
+  powered_by: true                          # false leaves "Powered by Beacon, open source" out of the public pages' footer
+
+# How MCP clients (Claude Code, Codex) sign in to Beacon. See docs/guide/people.md.
+oauth:
+  client_id_documents: true                 # false when Beacon cannot reach the internet: clients then register themselves
+
 feishu:
-  # The self-built app (cards, button callbacks, buzz). See docs/feishu.md.
+  # The self-built app (cards, button callbacks, buzz). See docs/integrations/feishu.md.
   app_id_file: /etc/beacon/secrets/feishu-app-id
   app_secret_file: /etc/beacon/secrets/feishu-app-secret
   domain: feishu                            # feishu (open.feishu.cn) or lark (open.larksuite.com)
@@ -104,7 +127,7 @@ escalation:
 ack_ttl: 4h                                 # an acknowledgement lapses after this; escalation starts again
 
 # Hooks that wake agents when a new alert group is first notified, telling them where the evidence is
-# (public_url above). Beacon calls no model: what to do is the agent's call. See docs/agents.md.
+# (public_url above). Beacon calls no model: what to do is the agent's call. See docs/guide/on-call.md.
 agents:
   - name: claude-oncall
     kind: webhook                           # a JSON POST, signed: X-Beacon-Signature: sha256=<HMAC of the body>

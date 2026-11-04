@@ -1,0 +1,54 @@
+{{define "content"}}<div class="ol-stack">
+<form class="ol-panel" method="post" action="{{console "/people/invite"}}">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "user-plus"}} {{.L.Invite}}</h2></div>
+  <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <p class="ol-hint">{{.L.InviteHelp}}</p>
+    <fieldset class="ol-fieldset"><legend class="ol-label">{{.L.Role}}</legend>
+      {{range .Roles}}<label class="ol-check"><input class="ol-radio" type="radio" name="role" value="{{.Value}}"{{if .Selected}} checked{{end}}><span><strong>{{.Label}}</strong> <span class="ol-hint">{{.Help}}</span></span></label>
+      {{end}}</fieldset>
+    <div class="ol-field"><label class="ol-label" for="note">{{.L.Note}}</label><input class="ol-input" id="note" name="note" maxlength="200" aria-describedby="note-hint"><p class="ol-hint" id="note-hint">{{.L.NoteHint}}</p></div>
+  </div>
+  <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "link"}}{{.L.Send}}</button></div>
+</form>
+
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.Heading}}</h2></div>
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Person}}</th><th>{{.L.Role}}</th><th>{{.L.LastSignIn}}</th><th class="ol-num">{{.L.Agents}}</th><th>{{.L.Status}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Change}}</span></th></tr></thead>
+    <tbody>
+    {{range .Rows}}<tr>
+      <td><span class="ol-cell-title">{{.DisplayName}}</span><span class="ol-cell-sub ol-mono">{{.Username}}{{if .Self}} · {{$.L.You}}{{end}}</span></td>
+      <td data-label="{{$.L.Role}}"><form class="ol-cluster" method="post" action="{{.RoleAction}}"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <select class="ol-select ol-input-sm" name="role" aria-label="{{$.L.Role}} {{.Username}}">{{range .Roles}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <button type="submit" class="ol-btn ol-btn-secondary ol-btn-xs">{{$.L.Change}}</button></form></td>
+      <td data-label="{{$.L.LastSignIn}}">{{if .LastSignIn}}{{.LastSignIn}}{{else}}<span class="ol-muted">{{$.L.Never}}</span>{{end}}</td>
+      <td class="ol-num" data-label="{{$.L.Agents}}"><a href="{{.AgentsHref}}">{{.Agents}}</a></td>
+      <td data-label="{{$.L.Status}}">{{if .Disabled}}<span class="ol-badge ol-badge-danger">{{$.L.Disabled}}</span>{{else}}<span class="ol-badge ol-badge-success">{{$.L.Enabled}}</span>{{end}}</td>
+      <td class="ol-actions"><span class="ol-cluster">
+        <form method="post" action="{{.ResetAction}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "key-round"}}{{$.L.Reset}}</button></form>
+        {{if .Disabled}}<form method="post" action="{{.EnableAction}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "user-check"}}{{$.L.Enable}}</button></form>
+        {{else if not .Self}}<form method="post" action="{{.DisableAction}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm">{{iconSm "user-x"}}{{$.L.Disable}}</button></form>{{end}}
+      </span></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Pending}}</h2></div>
+  {{if .Invitations}}
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Role}}</th><th>{{.L.Note}}</th><th>{{.L.By}}</th><th>{{.L.Expires}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Withdraw}}</span></th></tr></thead>
+    <tbody>
+    {{range .Invitations}}<tr>
+      <td><span class="ol-cell-title">{{.Role}}</span></td>
+      <td data-label="{{$.L.Note}}">{{.Note}}</td>
+      <td data-label="{{$.L.By}}">{{.By}}</td>
+      <td data-label="{{$.L.Expires}}">{{.Expires}}</td>
+      <td class="ol-actions"><form method="post" action="{{.Withdraw}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm">{{iconSm "x"}}{{$.L.Withdraw}}</button></form></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}{{template "empty" .L.NoInvitations}}{{end}}
+</section>
+</div>{{end}}

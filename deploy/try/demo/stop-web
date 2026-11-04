@@ -1,0 +1,24 @@
+#!/bin/sh
+# Stops the demo web server: every probe of it then fails, and the ServiceDown alert follows within
+# about a minute and a half (the try environment's rules wait less than the reference ones). Run from
+# the host with: docker compose exec demo stop-web — or by an agent through Beacon's SSH channel: the
+# server runs as the account beacon (start-web starts it as beacon), so an agent can stop it too.
+# The kill is verified: pkill alone can fail silently (a server running as another user, say), and a
+# walkthrough that says "stopped" while the server serves would lie to whoever reads it.
+set -eu
+if pgrep -f 'httpd -p 8080' >/dev/null 2>&1; then
+  pkill -f 'httpd -p 8080'
+  i=0
+  while pgrep -f 'httpd -p 8080' >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ $i -gt 20 ]; then
+      echo "the demo web server did not stop (it may run as another user)" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo "the demo web server is stopped"
+else
+  echo "the demo web server is not running"
+  exit 1
+fi

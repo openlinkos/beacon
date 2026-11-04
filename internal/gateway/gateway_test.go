@@ -278,7 +278,13 @@ func TestAlertsToTheRouter(t *testing.T) {
 func TestAuth(t *testing.T) {
 	e := newEnv(t, false)
 	code(t, e.do("POST", "/api/v1/write", "", "x"), http.StatusUnauthorized, "auth.required")
+	if rec := e.do("POST", "/api/v1/write", "lbt_nope", "x"); !strings.Contains(rec.Body.String(), `"docs":"https://beacon.openlinkos.com/reference/api"`) {
+		t.Errorf("a 401 does not point at the reference: %s", rec.Body)
+	}
 	code(t, e.do("POST", "/api/v1/write", "lbt_nope", "x"), http.StatusUnauthorized, "auth.invalid")
+	if rec := e.do("POST", "/api/v1/write", e.human, "x"); strings.Contains(rec.Body.String(), `"docs"`) {
+		t.Errorf("a 403 carries docs: %s", rec.Body)
+	}
 	code(t, e.do("POST", "/api/v1/write", e.human, "x"), http.StatusForbidden, "auth.scope")
 	code(t, e.do("GET", "/api/v1/nothing", e.probe, ""), http.StatusNotFound, "not_found")
 	code(t, e.do("DELETE", "/api/v1/admin/tsdb/delete_series", e.reader, ""), http.StatusNotFound, "not_found")

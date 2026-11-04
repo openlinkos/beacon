@@ -319,10 +319,16 @@ func TestExec(t *testing.T) {
 	if !strings.Contains(ids, "for claude-code via ssh") {
 		t.Errorf("certificate key ids %q", ids)
 	}
+	// finish writes the record, then the audit entry, then queues the echo, and waitSessions above
+	// returns at the record; flushing once races the echo. Flush until the chat has heard the
+	// session, which by that order also means the audit entry is in.
+	waitFor(t, "the echo of the session", func() bool {
+		e.g.echo.flush(context.Background(), true)
+		return strings.Contains(e.bot.all(), "(exit 3)")
+	})
 	if a := e.st.AuditLog(5); len(a) == 0 || a[0].Action != "ssh_exec" || a[0].Target != "box" {
 		t.Errorf("audit %+v", a)
 	}
-	e.g.echo.flush(context.Background(), true)
 	if got := e.bot.all(); !strings.Contains(got, "claude-code on box:") || !strings.Contains(got, "(exit 3)") {
 		t.Errorf("echo %q", got)
 	}
@@ -458,7 +464,7 @@ func TestRefusals(t *testing.T) {
 	if _, errOut, code := e.run(t, "box", "true"); code != 1 || !strings.Contains(errOut, "paused") {
 		t.Errorf("paused: %q %d", errOut, code)
 	}
-	if _, err := e.g.Run(context.Background(), Actor{Name: "claude-code", Via: "mcp"}, "box", RunInput{Command: "true"}); !errors.Is(err, ErrPaused) {
+	if _, err := e.g.Run(context.Background(), Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}, "box", RunInput{Command: "true"}); !errors.Is(err, ErrPaused) {
 		t.Errorf("paused tool: %v", err)
 	}
 	_ = e.g.SetPaused(context.Background(), Actor{Name: "root", Via: "cli"}, false)
@@ -481,7 +487,7 @@ func TestTools(t *testing.T) {
 	needShell(t)
 	e := setup(t)
 	ctx := context.Background()
-	who := Actor{Name: "claude-code", Via: "mcp"}
+	who := Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}
 
 	r, err := e.g.Run(ctx, who, "box", RunInput{Command: "pwd; cat; exit 4", Cwd: "/", Stdin: "from stdin\n"})
 	if err != nil || r.ExitCode != 4 || r.Stdout != "/\nfrom stdin\n" || r.Session == "" {
@@ -547,7 +553,7 @@ func TestAdd(t *testing.T) {
 	if _, _, code := e.run(t, "edge-1", "true"); code != 0 {
 		t.Errorf("the new machine: exit %d", code)
 	}
-	l, _ := e.g.List(Actor{Name: "claude-code"}, "beacon.example.com:17002")
+	l, _ := e.g.List(Actor{Name: "claude-code", Key: "token:claude-code"}, "beacon.example.com:17002")
 	if len(l.Machines) != 2 || !l.Machines[1].Reachable || !strings.Contains(l.SSHConfig, "Host edge-1\n  HostName beacon.example.com\n  Port 17002\n  User edge-1") {
 		t.Errorf("list %+v", l)
 	}

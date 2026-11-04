@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<title>Demo service</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font-family:sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem}code{background:#f2f2f2;padding:0 .3rem}</style>
+
+<h1>It works</h1>
+<p>This is the demo service of Beacon's try environment: a small web server in the container
+<code>beacon-try-demo</code>, checked by the probe location <code>edge-1</code> every 30 seconds.</p>
+<p>Break it from the host with <code>docker compose exec demo stop-web</code>, watch the alert arrive,
+and let your agent repair it through Beacon's SSH channel.</p>

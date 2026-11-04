@@ -79,6 +79,7 @@ type Service interface {
 	CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
 	Tokens() []store.Token
 	UpdateToken(name string, change func(*store.Token) error) (store.Token, error)
+	AddTokenSSHKey(name string, k store.SSHKey) (store.Token, error)
 	RevokeToken(name string) error
 	Audit(e store.AuditEntry) error
 	SetTime(key string, t time.Time) error
@@ -177,14 +178,17 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if len(keys) > 0 || len(machines) > 0 {
-			tok, err = s.UpdateToken(tok.Name, func(t *store.Token) error {
-				for _, k := range keys {
-					addSSHKey(t, k)
-				}
-				t.Machines = machines
-				return nil
-			})
+		for _, k := range keys {
+			with, err := s.AddTokenSSHKey(tok.Name, k)
+			if err != nil {
+				_ = s.RevokeToken(tok.Name) // made with a key it may not have: not at all
+				fail(w, http.StatusConflict, err)
+				return
+			}
+			tok = with
+		}
+		if len(machines) > 0 {
+			tok, err = s.UpdateToken(tok.Name, func(t *store.Token) error { t.Machines = machines; return nil })
 			if err != nil {
 				fail(w, http.StatusInternalServerError, err)
 				return
@@ -247,6 +251,9 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 			return
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "revoke_token", Target: name})
+		if m != nil { // its sessions on machines end with it
+			m.Recheck()
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	machineRoutes(mux, s, m, actor, decode)

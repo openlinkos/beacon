@@ -41,7 +41,7 @@ func TestTokenRoutes(t *testing.T) {
 	if a := e.Store.AuditLog(1); a[0].Action != "token_renew" || a[0].Actor != "claude-code" || a[0].Via != "api" || strings.Contains(a[0].Detail, renewed) {
 		t.Errorf("audit: %+v", a[0])
 	}
-	expires := time.Now().Add(time.Hour).Format(time.DateOnly)
+	expires := time.Now().Add(time.Hour).In(e.Location).Format(time.DateOnly)
 	if !slices.ContainsFunc(e.Bot.Texts, func(s string) bool { return s == "Token claude-code renewed itself; expires "+expires }) {
 		t.Errorf("echo: %v", e.Bot.Texts)
 	}

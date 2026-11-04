@@ -18,12 +18,14 @@ import (
 type fakeMachines struct {
 	name, key string
 	who       sshgate.Actor
+	rechecks  int
 }
 
 func (f *fakeMachines) Add(context.Context, sshgate.Actor, sshgate.MachineInput) (sshgate.Added, error) {
 	return sshgate.Added{}, nil
 }
 func (f *fakeMachines) Remove(context.Context, sshgate.Actor, string) error { return nil }
+func (f *fakeMachines) Recheck() int                                        { f.rechecks++; return 0 }
 func (f *fakeMachines) List(sshgate.Actor, string) (sshgate.Machines, error) {
 	return sshgate.Machines{}, nil
 }

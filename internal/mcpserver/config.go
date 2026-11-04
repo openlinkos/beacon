@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
 // ConfigInstructions follow Instructions when the server has the configuration tools.
 const ConfigInstructions = `Beacon also holds what it monitors: the catalogue (probe locations, heartbeats, expiring resources),
-the probe target sets and the probe modules, in the shapes of their files (docs/catalog.md). get_config
-shows them with the version in force. With the config:write scope, put_config and delete_config change
+the probe target sets, the probe modules and the public status pages, in the shapes of their files
+(docs/guide/monitoring.md). get_config shows them with the version in force. With the config:write scope, put_config and delete_config change
 one item at a time; the whole configuration is checked as the files always were, and the gateway hands
 probes the result at once, so a mistake reaches every probe within a minute: change only what you were
 asked to, and say why in the note. Every change is a version with who made it and the values before and
@@ -26,7 +28,15 @@ password_file is the name of a file in the probe's secrets directory, never a pa
 type Option func(*options)
 
 type options struct {
-	config *configdb.Service
+	config   *configdb.Service
+	status   *status.Service
+	metadata func(*http.Request) string
+}
+
+// WithResourceMetadata names, for a request, the protected resource metadata (RFC 9728) that a 401
+// points to, so that an MCP client can find where to sign in (package oauth).
+func WithResourceMetadata(url func(*http.Request) string) Option {
+	return func(o *options) { o.metadata = url }
 }
 
 // WithConfig adds the tools that read and change the configuration Beacon holds.
@@ -38,18 +48,18 @@ var object = map[string]any{"type": "object"}
 
 type (
 	configIn struct {
-		Kind string `json:"kind,omitempty" jsonschema:"locations, heartbeats, resources, targets or modules; everything when empty"`
+		Kind string `json:"kind,omitempty" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages; everything when empty"`
 		Key  string `json:"key,omitempty" jsonschema:"with kind, one item: a location id, a heartbeat or resource name, a target set's name (all-web for the file all-web.yaml) or a module name"`
 	}
 	putConfigIn struct {
-		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
+		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages"`
 		Key       string `json:"key" jsonschema:"the item's id or name; a target set's name starts with all-, overseas-, mainland- or a location id and a dash, which says who probes it"`
-		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}"`
+		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}; a status page {title, languages, components: [{name, title, services or page}], groups, links, menu} (docs/guide/status-pages.md)"`
 		Note      string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
 		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw (get_config returns it): the change is refused with config.conflict when a later one is in force, so you never overwrite what changed meanwhile"`
 	}
 	deleteConfigIn struct {
-		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets or modules"`
+		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages"`
 		Key       string `json:"key" jsonschema:"the item's id or name"`
 		Note      string `json:"note,omitempty" jsonschema:"why"`
 		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw; refused with config.conflict when a later one is in force"`
@@ -81,7 +91,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_config", Title: "Get the configuration", Annotations: read, OutputSchema: object,
-		Description: "What Beacon monitors, in the shapes of its files: probe locations, heartbeats, expiring resources, probe target sets (with who probes each) and probe modules, with the version in force. kind narrows it to one list, kind and key to one item."},
+		Description: "What Beacon monitors, in the shapes of its files: probe locations, heartbeats, expiring resources, probe target sets (with who probes each), probe modules and the public status pages, with the version in force. kind narrows it to one list, kind and key to one item."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in configIn) (*mcp.CallToolResult, configdb.View, error) {
 			if _, err := need(ctx, "status:read", "config:write"); err != nil {
 				return nil, configdb.View{}, err
@@ -92,7 +102,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "put_config", Title: "Add or replace a configuration item", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Add or replace one location, heartbeat, resource, target set or module. The whole configuration is checked as its files always were and the change takes effect at once; the result is the change, with its version and the values before and after."},
+		Description: "Add or replace one location, heartbeat, resource, target set, module or status page. The whole configuration is checked as its files always were and the change takes effect at once; the result is the change, with its version and the values before and after."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in putConfigIn) (*mcp.CallToolResult, store.ConfigChange, error) {
 			who, err := configActor(ctx)
 			if err != nil {
@@ -108,7 +118,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_config", Title: "Remove a configuration item", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Remove one location, heartbeat, resource, target set or module. A location cannot go while a target set is named after it alone."},
+		Description: "Remove one location, heartbeat, resource, target set, module or status page. A location cannot go while a target set is named after it alone."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in deleteConfigIn) (*mcp.CallToolResult, store.ConfigChange, error) {
 			who, err := configActor(ctx)
 			if err != nil {

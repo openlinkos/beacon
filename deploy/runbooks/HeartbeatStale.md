@@ -7,7 +7,7 @@ A heartbeat in the catalogue (`catalog/heartbeats.yaml`) has not reported succes
 ## What to check
 
 1. On the machine that runs the job: its own log (cron's mail, `systemctl status <timer>`, `journalctl`), and whether it ran at all.
-2. If the job succeeded but nothing arrived: does it end with `beacon-heartbeat <name>` (a machine with the probe agent), or push one sample with its own token (`beacon enroll heartbeat <name>`, `docs/catalog.md`)? Is the name the same as in the catalogue?
+2. If the job succeeded but nothing arrived: does it end with `beacon-heartbeat <name>` (a machine with the probe agent), or push one sample with its own token (`beacon enroll heartbeat <name>`, `docs/guide/monitoring.md`)? Is the name the same as in the catalogue?
 3. For a pushed heartbeat: the token's expiry (`beacon token list`), and the gateway's log for a 401.
 
 ## How to fix
