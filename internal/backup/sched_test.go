@@ -111,9 +111,7 @@ func TestStartRunsWhenDue(t *testing.T) {
 	}
 	// the first run happens at start; then the schedule's turn is remembered, and the next
 	// database-only run waits for its own hour, not a restart
-	oldTick := schedTick
-	schedTick = 20 * time.Millisecond
-	t.Cleanup(func() { schedTick = oldTick })
+	schedTickNs.Store(int64(20 * time.Millisecond))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go mgr.Start(ctx)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"filippo.io/age"
@@ -55,7 +56,7 @@ func (m *Manager) Start(ctx context.Context) {
 		run("upgrade", true)
 	}
 
-	tick := time.NewTicker(schedTick)
+	tick := time.NewTicker(time.Duration(schedTickNs.Load()))
 	defer tick.Stop()
 	for {
 		select {
@@ -119,8 +120,11 @@ const (
 	ResourceDrill = "recovery-drill"
 )
 
-// schedTick is how often the schedules are looked at; a var so a test can hurry it.
-var schedTick = 20 * time.Second
+// schedTickNs is how often the schedules are looked at, in nanoseconds (an atomic so a test can
+// hurry it while a scheduler runs); twenty seconds by default.
+var schedTickNs atomic.Int64
+
+func init() { schedTickNs.Store(int64(20 * time.Second)) }
 
 // Builtins returns the catalogue with the backup's built-ins added, without touching the one
 // the caller holds: the beacon-backup heartbeat (max_age from the options) and the
