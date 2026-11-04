@@ -56,7 +56,7 @@ const (
 	registerLimit    = 10
 	registerWindow   = 10 * time.Minute
 	maxPendingCodes  = 10000
-	documentationURL = "https://beacon.openlinkos.com/accounts"
+	documentationURL = "https://beacon.openlinkos.com/guide/people"
 )
 
 // Durations are how long a person may allow a client, as the consent page offers them.

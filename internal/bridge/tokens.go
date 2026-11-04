@@ -11,7 +11,7 @@ import (
 
 // The caller's own credential: what it may do (whoami), and renewing a token before it expires, so that
 // agents' credentials are handled by Beacon and nobody hands out long-lived tokens by hand
-// (docs/agents.md). An OAuth access token is not renewed: the client that holds it refreshes it.
+// (docs/guide/on-call.md). An OAuth access token is not renewed: the client that holds it refreshes it.
 
 // Token errors the API and MCP turn into answers.
 var (

@@ -10,8 +10,8 @@ Every route but `GET /api/v1/openapi.yaml` needs a bearer credential, sent as `A
 
 | Who calls | Credential | Where it comes from |
 | --- | --- | --- |
-| An agent that runs alone, a script, a CI job | An agent's token, `lbt_…` | The console's **Agents** page, or `beacon agent add` on the centre ([Headless agents and CI](../accounts.md#headless-agents-and-ci)) |
-| An MCP client a person signed in, such as Claude Code | An OAuth access token, `lba_…`, valid for an hour; the client refreshes it | Signing in through the browser ([Connect Claude Code](../accounts.md#connect-claude-code)) |
+| An agent that runs alone, a script, a CI job | An agent's token, `lbt_…` | The console's **Agents** page, or `beacon agent add` on the centre ([Headless agents and CI](../guide/people.md#headless-agents-and-ci)) |
+| An MCP client a person signed in, such as Claude Code | An OAuth access token, `lba_…`, valid for an hour; the client refreshes it | Signing in through the browser ([Connect Claude Code](../guide/people.md#connect-claude-code)) |
 | A machine or a service (probes, hosts, heartbeats, change senders, metrics readers), or an expert | A token with scopes by name, `lbt_…` | `beacon enroll`, or `beacon token create NAME -scopes … -expires …` on the centre |
 
 For a script that works alerts:
@@ -58,7 +58,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `alerts:send` | Posting alerts as the rule engine does |
 | `changes:write` | Posting change events |
 
-People and agents do not choose scopes one by one: a person's role gives them, and an agent's preset asks for them within its owner's role ([People and their agents](../accounts.md#roles)).
+People and agents do not choose scopes one by one: a person's role gives them, and an agent's preset asks for them within its owner's role ([People and their agents](../guide/people.md#roles)).
 
 | Role | Agent preset | Scopes |
 | --- | --- | --- |
@@ -88,7 +88,7 @@ An agent may use a scope when its preset gives it and its owner's role does too,
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../agents.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
+| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
@@ -115,7 +115,7 @@ An agent may use a scope when its preset gives it and its owner's role does too,
 
 ## Configuration
 
-What Beacon monitors, each item in the shape of its file ([What is checked, and from where](../catalog.md)). Reads take `status:read` or `config:write`; changes take `config:write`. `PUT` and `DELETE` take `?note=` (kept with the change and shown in the chat) and `?if_version=` (refused with `config.conflict` when a later version is in force). A change that would not pass the checks is refused with `config.invalid`, and nothing changes.
+What Beacon monitors, each item in the shape of its file ([What is checked, and from where](../guide/monitoring.md)). Reads take `status:read` or `config:write`; changes take `config:write`. `PUT` and `DELETE` take `?note=` (kept with the change and shown in the chat) and `?if_version=` (refused with `config.conflict` when a later version is in force). A change that would not pass the checks is refused with `config.invalid`, and nothing changes.
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -140,7 +140,7 @@ What Beacon monitors, each item in the shape of its file ([What is checked, and 
 | `GET /api/v1/config/modules/{name}` | `status:read` or `config:write` | One module |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | Add or replace a module; the module file keeps its other modules and their comments |
 | `DELETE /api/v1/config/modules/{name}` | `config:write` | Remove a module |
-| `GET /api/v1/config/status_pages` | `status:read` or `config:write` | The public status pages, by name ([Status pages](../status.md)) |
+| `GET /api/v1/config/status_pages` | `status:read` or `config:write` | The public status pages, by name ([Status pages](../guide/status-pages.md)) |
 | `GET /api/v1/config/status_pages/{name}` | `status:read` or `config:write` | One status page's definition |
 | `PUT /api/v1/config/status_pages/{name}` | `config:write` | Add or replace a status page; components whose services no target has are taken, with a warning |
 | `DELETE /api/v1/config/status_pages/{name}` | `config:write` | Remove a status page |
@@ -150,7 +150,7 @@ What Beacon monitors, each item in the shape of its file ([What is checked, and 
 
 ## Status pages and maintenance
 
-The public pages themselves need no token ([below](#other-routes-on-port-17001)); these routes give agents the same and let them plan work ([Status pages](../status.md)).
+The public pages themselves need no token ([below](#other-routes-on-port-17001)); these routes give agents the same and let them plan work ([Status pages](../guide/status-pages.md)).
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -161,7 +161,7 @@ The public pages themselves need no token ([below](#other-routes-on-port-17001))
 
 ## People and SSH keys
 
-The people who sign in to Beacon, for an owner's credential, and the caller's own SSH keys for the SSH channel ([People and their agents](../accounts.md)). No agent preset gives `accounts:write`: an agent manages people only when an owner gave it that scope on the command line. Password resets have no MCP tool.
+The people who sign in to Beacon, for an owner's credential, and the caller's own SSH keys for the SSH channel ([People and their agents](../guide/people.md)). No agent preset gives `accounts:write`: an agent manages people only when an owner gave it that scope on the command line. Password resets have no MCP tool.
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -184,7 +184,7 @@ The people who sign in to Beacon, for an owner's credential, and the caller's ow
 
 ## The gateway
 
-The gateway answers on port 17006 (`https://metrics.example.com` in the reference deployment), for machines: probes, hosts, heartbeats, the rule engine and senders of change events. Each sends with a token of its own: `beacon enroll` makes those of probes, hosts and heartbeats, `beacon token create` those of change senders and metrics readers, and the rule engine uses the rules token (`rules.token_file`). [Sources](../sources.md) describes what each sends.
+The gateway answers on port 17006 (`https://metrics.example.com` in the reference deployment), for machines: probes, hosts, heartbeats, the rule engine and senders of change events. Each sends with a token of its own: `beacon enroll` makes those of probes, hosts and heartbeats, `beacon token create` those of change senders and metrics readers, and the rule engine uses the rules token (`rules.token_file`). [Sources](sources.md) describes what each sends.
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -205,13 +205,13 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | Route | What |
 | --- | --- |
 | `/mcp` | The MCP server, streamable HTTP, with the same bearer tokens or OAuth access tokens; a `401` names where to sign in (`WWW-Authenticate: Bearer resource_metadata="…"`) ([MCP tools](mcp.md)) |
-| `GET /` | Public: the default status page, as `/status` serves it; without status pages, a page that names the deployment, with **Sign in** ([Status pages](../status.md#branding)) |
-| `GET /console`, `GET /console/sign-in` and the pages under `/console` | The console, for people signed in with their account, or for one more release with a token ([The console](../pages.md)) |
+| `GET /` | Public: the default status page, as `/status` serves it; without status pages, a page that names the deployment, with **Sign in** ([Status pages](../guide/status-pages.md#branding)) |
+| `GET /console`, `GET /console/sign-in` and the pages under `/console` | The console, for people signed in with their account, or for one more release with a token ([The console](../guide/console.md)) |
 | `GET /.well-known/oauth-protected-resource/mcp`, `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-authorization-server` | The OAuth metadata MCP clients discover Beacon by (RFC 9728, RFC 8414) |
-| `POST /oauth/register`, `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` | Beacon as the authorization server for MCP clients: registration, the consent page, tokens and revocation ([People and their agents](../accounts.md#the-oauth-endpoints)) |
-| `GET /console/alerts/{id}`, `GET /console/sessions/{id}` | The pages people open from a card, with a signed link or a token ([The console](../pages.md#signed-links)) |
+| `POST /oauth/register`, `GET /oauth/authorize`, `POST /oauth/token`, `POST /oauth/revoke` | Beacon as the authorization server for MCP clients: registration, the consent page, tokens and revocation ([People and their agents](../guide/people.md#the-oauth-endpoints)) |
+| `GET /console/alerts/{id}`, `GET /console/sessions/{id}` | The pages people open from a card, with a signed link or a token ([The console](../guide/console.md#signed-links)) |
 | `GET /alerts/{id}`, `GET /sessions/{id}`, `GET /sign-in` and the console's other old paths | `308` to the same path under `/console`, with the query; a link signed for the old path gets a signature for the new one, expiring when it did |
-| `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../status.md)); on a page's own host name, `/` and `/incidents/{id}` |
+| `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../guide/status-pages.md)); on a page's own host name, `/` and `/incidents/{id}` |
 | `GET /status.json`, `GET /status/{name}.json`, `GET /status/{name}/feed.atom`, `GET /status/{name}/badge.svg`, `GET /status/{name}/components/{component}/badge.svg` | A page's JSON, Atom feed and badges, public and cacheable |
 | `GET /robots.txt` | Lets search engines read `/`, `/status` and `/static/`, and keeps them out of `/console`, `/api/`, `/mcp`, `/alerts/` and `/sessions/` |
 | `GET /healthz` | Liveness: `ok` |

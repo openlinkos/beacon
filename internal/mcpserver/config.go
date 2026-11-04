@@ -16,7 +16,7 @@ import (
 // ConfigInstructions follow Instructions when the server has the configuration tools.
 const ConfigInstructions = `Beacon also holds what it monitors: the catalogue (probe locations, heartbeats, expiring resources),
 the probe target sets, the probe modules and the public status pages, in the shapes of their files
-(docs/catalog.md). get_config shows them with the version in force. With the config:write scope, put_config and delete_config change
+(docs/guide/monitoring.md). get_config shows them with the version in force. With the config:write scope, put_config and delete_config change
 one item at a time; the whole configuration is checked as the files always were, and the gateway hands
 probes the result at once, so a mistake reaches every probe within a minute: change only what you were
 asked to, and say why in the note. Every change is a version with who made it and the values before and
@@ -54,7 +54,7 @@ type (
 	putConfigIn struct {
 		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages"`
 		Key       string `json:"key" jsonschema:"the item's id or name; a target set's name starts with all-, overseas-, mainland- or a location id and a dash, which says who probes it"`
-		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}; a status page {title, languages, components: [{name, title, services or page}], groups, links, menu} (docs/status.md)"`
+		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}; a status page {title, languages, components: [{name, title, services or page}], groups, links, menu} (docs/guide/status-pages.md)"`
 		Note      string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
 		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw (get_config returns it): the change is refused with config.conflict when a later one is in force, so you never overwrite what changed meanwhile"`
 	}

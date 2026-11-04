@@ -1,4 +1,4 @@
-# The public status page (docs/status.md), served without signing in at https://<STATUS_HOST>/status with its JSON
+# The public status page (docs/guide/status-pages.md), served without signing in at https://<STATUS_HOST>/status with its JSON
 # (/status.json), Atom feed and badges. Each component is backed by the probe targets of the services it names, by
 # their service label (targets/all-web.yaml); the page shows their state now and over 90 days, as the probes agree
 # on it. Incidents are the availability alerts on those services; a note on one that begins with "public:" is an

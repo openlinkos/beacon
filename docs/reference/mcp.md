@@ -6,7 +6,7 @@ The machine tools take the names and the behaviour of an agent's own tools (run 
 
 ## Connecting
 
-Claude Code and Codex sign in through the browser, with MCP's OAuth: you add Beacon without a token, sign in from the client, and allow it on Beacon's consent page as one of your agents ([Connect Claude Code](../accounts.md#connect-claude-code)). In Claude Code:
+Claude Code and Codex sign in through the browser, with MCP's OAuth: you add Beacon without a token, sign in from the client, and allow it on Beacon's consent page as one of your agents ([Connect Claude Code](../guide/people.md#connect-claude-code)). In Claude Code:
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
@@ -66,7 +66,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. A 
 
 ## Configuration
 
-What Beacon monitors, in the shapes of its files ([What is checked, and from where](../catalog.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../status.md)); `key` names one item.
+What Beacon monitors, in the shapes of its files ([What is checked, and from where](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)); `key` names one item.
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Pass the version you read as `if_version`: a change made on top of a later versi
 
 ## Status pages and maintenance
 
-The public status pages are made from the alert groups and the maintenance windows ([Status pages](../status.md)). A note left with `add_note` that begins with `public:` is an update of the incident for the public.
+The public status pages are made from the alert groups and the maintenance windows ([Status pages](../guide/status-pages.md)). A note left with `add_note` that begins with `public:` is an update of the incident for the public.
 
 | Tool | Scope | What it does |
 | --- | --- | --- |

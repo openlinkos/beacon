@@ -53,7 +53,7 @@ Beacon is built for the agent to do the work and for people to see all of it:
 | Any MCP client | MCP over HTTP | ✅ with a webhook |
 | Bots and scripts | REST and `ssh` | ✅ with a webhook |
 
-Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Put an agent on call](https://beacon.openlinkos.com/agents).
+Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Put an agent on call](https://beacon.openlinkos.com/guide/on-call).
 
 ## Getting started
 
@@ -65,7 +65,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh        # asks for the two host names and an e-mail address for the certificates
 ```
 
-`install.sh` generates the secrets, validates every file, starts Beacon, VictoriaMetrics, vmalert and Caddy, and prints what to do next. [Up in 30 minutes](https://beacon.openlinkos.com/install) walks through the rest: the first probe, the first machine, the first agent, and a rehearsed outage from alert to recovery.
+`install.sh` generates the secrets, validates every file, starts Beacon, VictoriaMetrics, vmalert and Caddy, and prints what to do next. [Up in 30 minutes](https://beacon.openlinkos.com/self-hosting/install) walks through the rest: the first probe, the first machine, the first agent, and a rehearsed outage from alert to recovery.
 
 ### Connect Claude Code
 
@@ -80,16 +80,16 @@ Then run `/mcp` in Claude Code and sign in through the browser: Beacon asks you 
 
 The documentation lives in [`docs/`](docs/) and is published at [beacon.openlinkos.com](https://beacon.openlinkos.com):
 
-- [Up in 30 minutes](docs/install.md): from a bare machine to the first probe, machine, agent and drill
-- [People and their agents](docs/accounts.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
-- [Put an agent on call](docs/agents.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
-- [The SSH channel](docs/ssh.md): how agents reach machines without keys, recordings, machines behind NAT
-- [Catalogue, targets and modules](docs/catalog.md): what is probed, from where, and how it is configured
-- [Status pages](docs/status.md): the public page, incidents, maintenance, badges
-- [The console](docs/pages.md): what people see, and the links cards open
-- [Feishu](docs/feishu.md): the app, the cards, the group bot
+- [Up in 30 minutes](docs/self-hosting/install.md): from a bare machine to the first probe, machine, agent and drill
+- [People and their agents](docs/guide/people.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
+- [Put an agent on call](docs/guide/on-call.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
+- [The SSH channel](docs/guide/machines.md): how agents reach machines without keys, recordings, machines behind NAT
+- [Catalogue, targets and modules](docs/guide/monitoring.md): what is probed, from where, and how it is configured
+- [Status pages](docs/guide/status-pages.md): the public page, incidents, maintenance, badges
+- [The console](docs/guide/console.md): what people see, and the links cards open
+- [Feishu](docs/integrations/feishu.md): the app, the cards, the group bot
 - [API](docs/reference/api.md) and [MCP tools](docs/reference/mcp.md): every route and tool, with scopes and error codes
-- [Architecture](docs/architecture.md) and [goals](docs/goals.md): how it fits together, what it is for and what it leaves out
+- [Architecture](docs/about/architecture.md) and [goals](docs/about/goals.md): how it fits together, what it is for and what it leaves out
 - [Changelog](CHANGELOG.md)
 
 ## How it works
@@ -103,7 +103,7 @@ agents ──▶ MCP and REST (evidence, notes, probe_now) ──▶ beacon
 agents ──▶ ssh, scp, rsync (port 17002) ──▶ SSH channel ──▶ your servers (5-minute certificates, every session recorded)
 ```
 
-One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one bbolt file, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/architecture.md) has the parts.
+One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one bbolt file, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
 
 ## Security
 

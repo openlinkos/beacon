@@ -16,13 +16,13 @@ info:
 
     Under /config is what Beacon monitors: the catalogue (probe locations, heartbeats, expiring
     resources, and the public status pages), the probe target sets and the probe modules, each read and
-    written in the shape of its file (docs/catalog.md). Every change is checked as the files were, takes
+    written in the shape of its file (docs/guide/monitoring.md). Every change is checked as the files were, takes
     effect at once, and is a version in the history, with who made it and the values before and after,
     which can be reverted.
 
     /status/{name} is a public status page as its public JSON (/status/<name>.json, no token) has it,
     and /maintenance the maintenance windows the pages announce, each a silence per service for its
-    time (docs/status.md).
+    time (docs/guide/status-pages.md).
   license:
     name: Apache-2.0
 servers:
@@ -86,7 +86,7 @@ components:
         dashboard: {type: string, format: uri}
         notes: {type: array, items: {$ref: "#/components/schemas/Note"}}
         agents: {type: array, items: {$ref: "#/components/schemas/AgentCall"}, description: The hooks called to wake agents, and how that went}
-        page: {type: string, format: uri, description: "The alert's page for people (its timeline, the sessions on its machines, each with its replay): a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/pages.md"}
+        page: {type: string, format: uri, description: "The alert's page for people (its timeline, the sessions on its machines, each with its replay): a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/guide/console.md"}
     Note:
       type: object
       properties:
@@ -396,7 +396,7 @@ components:
         bytes_in: {type: integer}
         bytes_out: {type: integer}
         recording: {type: string}
-        page: {type: string, format: uri, description: "The session's page for people, with its replay: a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/pages.md"}
+        page: {type: string, format: uri, description: "The session's page for people, with its replay: a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/guide/console.md"}
     Transcript:
       allOf:
         - {$ref: "#/components/schemas/Session"}
@@ -418,7 +418,7 @@ components:
                   ms: {type: integer}
     Location:
       type: object
-      description: A probe location, as in the catalogue's locations list (docs/catalog.md)
+      description: A probe location, as in the catalogue's locations list (docs/guide/monitoring.md)
       additionalProperties: false
       required: [name, region]
       properties:
@@ -480,7 +480,7 @@ components:
         groups: {type: array, items: {$ref: "#/components/schemas/TargetGroup"}}
     Module:
       type: object
-      description: "A probe module in the Blackbox Exporter's form (prober, timeout, http, tcp, ...) or one of Beacon's own (registry, git, rdap); see docs/catalog.md"
+      description: "A probe module in the Blackbox Exporter's form (prober, timeout, http, tcp, ...) or one of Beacon's own (registry, git, rdap); see docs/guide/monitoring.md"
       additionalProperties: true
       properties:
         prober: {type: string, enum: [http, tcp, registry, git, rdap]}
@@ -496,7 +496,7 @@ components:
             zh: {type: string}
     StatusPageDefinition:
       type: object
-      description: A public status page, as in the catalogue's status_pages list (docs/status.md)
+      description: A public status page, as in the catalogue's status_pages list (docs/guide/status-pages.md)
       additionalProperties: false
       required: [title, components]
       properties:
@@ -568,7 +568,7 @@ components:
       enum: [operational, degraded, down, maintenance, no_data]
     StatusPage:
       type: object
-      description: "A status page as its public JSON has it; fields are added, never changed or removed (docs/status.md)"
+      description: "A status page as its public JSON has it; fields are added, never changed or removed (docs/guide/status-pages.md)"
       properties:
         name: {type: string}
         title: {type: string}

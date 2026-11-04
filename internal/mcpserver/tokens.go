@@ -11,7 +11,7 @@ import (
 )
 
 // The caller's own token: whoami and renew_token, open to any token, as the REST routes under
-// /api/v1/token are (docs/agents.md, "Tokens that renew themselves"); and revoke_token, the pause
+// /api/v1/token are (docs/guide/on-call.md, "Tokens that renew themselves"); and revoke_token, the pause
 // switch for one agent (machines:write).
 
 // caller is who is calling, whatever it may do.

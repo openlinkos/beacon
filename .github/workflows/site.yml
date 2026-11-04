@@ -70,12 +70,46 @@ jobs:
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
           curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
           curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
-          curl -fsS "$s/install" | grep 'Up in 30 minutes' >/dev/null
+          curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
+          curl -fsS "$s/self-hosting/install" | grep 'Up in 30 minutes' >/dev/null
           curl -fsS "$s/reference/api" | grep 'auth.scope' >/dev/null
           curl -fsS "$s/reference/mcp" | grep 'probe_now' >/dev/null
           curl -fsS "$s/changelog" | grep 'Changelog' >/dev/null
           curl -fsS "$s/zh/changelog" | grep 'lang="zh-CN"' >/dev/null
-          curl -fsS "$s/zh/architecture" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/zh/guide/people" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/zh/about/architecture" | grep 'lang="zh-CN"' >/dev/null
+          # The pages the site structure moved answer on their old addresses with a 301 to their new homes.
+          while read -r old new; do
+            case "$old" in ''|'#'*) continue ;; esac
+            headers=$(curl -sI "$s$old" | tr -d '\r')
+            echo "$headers" | grep -E '^HTTP/[0-9.]+ 301' >/dev/null
+            echo "$headers" | grep "^Location: $new\$" >/dev/null
+          done <<'EOF'
+          /install /self-hosting/install
+          /accounts /guide/people
+          /agents /guide/on-call
+          /ssh /guide/machines
+          /catalog /guide/monitoring
+          /status /guide/status-pages
+          /pages /guide/console
+          /feishu /integrations/feishu
+          /troubleshooting /self-hosting/troubleshooting
+          /sources /reference/sources
+          /goals /about/goals
+          /architecture /about/architecture
+          /zh/install /zh/self-hosting/install
+          /zh/accounts /zh/guide/people
+          /zh/agents /zh/guide/on-call
+          /zh/ssh /zh/guide/machines
+          /zh/catalog /zh/guide/monitoring
+          /zh/status /zh/guide/status-pages
+          /zh/pages /zh/guide/console
+          /zh/feishu /zh/integrations/feishu
+          /zh/troubleshooting /zh/self-hosting/troubleshooting
+          /zh/sources /zh/reference/sources
+          /zh/goals /zh/about/goals
+          /zh/architecture /zh/about/architecture
+          EOF
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/no-such-page")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/zh/no-such-page")" = 404
           curl -fsSI "$s/" | grep -i '^cache-control: no-cache' >/dev/null
