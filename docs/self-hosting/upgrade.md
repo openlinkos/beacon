@@ -6,11 +6,11 @@ Moving a running centre from one release to the next, and back again, is one lin
 
 | Changes | Stays |
 | --- | --- |
-| The `beacon` container, recreated on the image named by `BEACON_VERSION` in `.env` (`ghcr.io/openlinkos/beacon:vX.Y.Z`) | `status.db` and `recordings/` in the `beacon-data` volume: accounts, agents and tokens, the catalogue, probe targets and modules (they live in that database), alert groups, the audit log |
+| The `beacon` container, recreated on the image named by `BEACON_VERSION` in `.env` (`ghcr.io/openlinkos/beacon:vX.Y.Z`) | `beacon.db` and `recordings/` in the `beacon-data` volume: accounts, agents and tokens, the catalogue, probe targets and modules (they live in that database), alert groups, the audit log |
 | VictoriaMetrics, vmalert and Caddy, only when you take a new `compose.yaml`: their images are pinned by digest and move with the repository | `/opt/beacon`: `config.yaml`, `secrets/`, `catalog/`, `targets/` are yours; the upgrade does not write them |
 | | The `victoriametrics-data` and `caddy-data` volumes |
 
-Beacon has no database migrations to run: it opens the same `status.db` and adds what it misses. The interruption is the container being recreated, which takes seconds and ends open SSH sessions (what they did is on record up to that point; [what the channel guarantees](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not)). While the gateway is down, each probe queues its results on disk — up to 64 MB — and sends them when it answers again, so no probe results are lost. Alert groups survive the restart, and firing alerts are still in `list_alerts` after it.
+Beacon has no database migrations for you to run: it opens the same database and adds what its schema misses (a first start beside an old bbolt `status.db` migrates that file once, in one transaction, and keeps the old file beside for the way back). The interruption is the container being recreated, which takes seconds and ends open SSH sessions (what they did is on record up to that point; [what the channel guarantees](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not)). While the gateway is down, each probe queues its results on disk — up to 64 MB — and sends them when it answers again, so no probe results are lost. Alert groups survive the restart, and firing alerts are still in `list_alerts` after it.
 
 ## Pick a version
 
