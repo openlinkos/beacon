@@ -42,11 +42,13 @@ func TestLeaseTakeover(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := Options{Name: "test", Renew: 60 * time.Millisecond, Expire: 300 * time.Millisecond}
-	one, err := Open(admin, o)
+	one, err := Open(admin, Options{Name: o.Name, ID: "primary", Renew: o.Renew, Expire: o.Expire})
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := Open(admin, o)
+	// the pair's two instances: the same lease row, ids of their own (the default id is
+	// hostname:pid, which in one process would make them the same holder)
+	two, err := Open(admin, Options{Name: o.Name, ID: "standby", Renew: o.Renew, Expire: o.Expire})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,9 @@ func TestLeaseTakeover(t *testing.T) {
 	defer cancel()
 
 	// the first takes the lease; the second, a moment later, does not
-	go one.Run(ctx)
+	oneCtx, stopOne := context.WithCancel(context.Background())
+	defer stopOne()
+	go one.Run(oneCtx)
 	deadline := time.Now().Add(3 * time.Second)
 	for !one.Leader() && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
@@ -62,8 +66,7 @@ func TestLeaseTakeover(t *testing.T) {
 	if !one.Leader() {
 		t.Fatal("the first instance never took the lease")
 	}
-	oneCtx, oneCancel := context.WithCancel(context.Background())
-	go two.Run(oneCtx)
+	go two.Run(ctx)
 	time.Sleep(150 * time.Millisecond) // two renewals of the second, all refused
 	if two.Leader() {
 		t.Fatal("the second instance took a lease the first holds")
@@ -71,7 +74,7 @@ func TestLeaseTakeover(t *testing.T) {
 
 	// the first stops; the second takes over within the expiry, and answers leader ever after
 	start := time.Now()
-	oneCancel() // Run releases the lease on its way out
+	stopOne() // Run releases the lease on its way out
 	took, tookWhen := false, time.Time{}
 	for !took && time.Now().Before(start.Add(3*time.Second)) {
 		took = two.Leader()
@@ -85,8 +88,8 @@ func TestLeaseTakeover(t *testing.T) {
 	if d := tookWhen.Sub(start); d > o.Expire {
 		t.Errorf("the takeover took %s, longer than the %s expiry", d, o.Expire)
 	}
+	stopOne()
 	cancel()
-	oneCancel()
 }
 
 // TestSingle: what only the leader may do runs while the lease is held, stops when it is not, and

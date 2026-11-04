@@ -1,17 +1,13 @@
 package store
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestConsoleSessions(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, _ := open(t)
 	defer func() { _ = s.Close() }()
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
@@ -87,10 +83,7 @@ func TestConsoleSessions(t *testing.T) {
 }
 
 func TestEachSession(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, _ := open(t)
 	defer func() { _ = s.Close() }()
 	for _, id := range []string{"20261101-000000-aaaaaa", "20261102-000000-bbbbbb", "20261103-000000-cccccc"} {
 		if err := s.PutSession(SessionRecord{ID: id, Machine: "edge-1"}); err != nil {

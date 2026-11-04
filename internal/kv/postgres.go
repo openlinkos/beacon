@@ -105,12 +105,21 @@ func redact(err error) error {
 	return errors.New(msg)
 }
 
+// SchemaLock is the advisory lock every CREATE TABLE IF NOT EXISTS on the database takes: the two
+// instances of a primary/standby pair, starting together, would otherwise race the check and one
+// would lose to PostgreSQL's duplicate-type error. The lock lives in the transaction that holds it.
+const SchemaLock = 784221
+
 // migrate makes the schema, in one transaction. WITHOUT ROWID is SQLite's; PostgreSQL's tables are
 // heaps with primary-key indexes, which is what they are anyway.
 func (p *Postgres) migrate() error {
 	ctx := context.Background()
 	tx, err := p.write.BeginTx(ctx, nil)
 	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, SchemaLock); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 	for _, ddl := range []string{
@@ -194,14 +203,14 @@ func (p *Postgres) Close() error {
 	return err
 }
 
-// Health reads every table the store keeps; PostgreSQL has no single-file check, but every table
-// answering a count, with none of them missing, is the health the command line asks for.
+// Health reads the tables this backend keeps (kv, sequences); PostgreSQL has no single-file
+// check, but every table answering a count, with none missing, is the health of its own. The
+// event tables beside them are the store's: the command line's checks read them through the
+// store, whose chain verification says at once when one is missing.
 func (p *Postgres) Health() (string, error) {
 	var n int
 	err := p.read.QueryRowContext(context.Background(), `SELECT
-		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)
-		+ (SELECT COUNT(*) FROM audit_events) + (SELECT COUNT(*) FROM secret_uses)
-		+ (SELECT COUNT(*) FROM event_checkpoints) + (SELECT COUNT(*) FROM event_keys)`).Scan(&n)
+		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)`).Scan(&n)
 	if err != nil {
 		return "", err
 	}
@@ -329,8 +338,10 @@ func (t *pgTx) NextSequence(bucket []byte) (uint64, error) {
 	if !t.write {
 		return 0, errors.New("a sequence advances only in an Update")
 	}
+	// sequences.seq names the row's own value (a bare seq would read as the new row's in
+	// PostgreSQL, and as ambiguous outright)
 	q, args := t.query(`INSERT INTO sequences (bucket, seq) VALUES (?, 1)
-		ON CONFLICT (bucket) DO UPDATE SET seq = seq + 1 RETURNING seq`, string(bucket))
+		ON CONFLICT (bucket) DO UPDATE SET seq = sequences.seq + 1 RETURNING sequences.seq`, string(bucket))
 	var seq uint64
 	err := t.tx.QueryRowContext(ctx, q, args...).Scan(&seq)
 	return seq, err

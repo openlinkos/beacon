@@ -24,6 +24,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // Options is how a lease is held. Renew and Expire default to 5s and 15s.
@@ -61,12 +63,26 @@ func Open(db *sql.DB, o Options) (*Lease, error) {
 	l := &Lease{db: db, o: o}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS leader (
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// under the same advisory lock as the schema's other tables: the pair's two instances, starting
+	// together, would otherwise race the IF NOT EXISTS check
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, kv.SchemaLock); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS leader (
 		name TEXT PRIMARY KEY,
 		holder TEXT NOT NULL,
 		expires TIMESTAMPTZ NOT NULL,
 		renewed TIMESTAMPTZ NOT NULL
 	)`); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return l, nil
@@ -171,25 +187,29 @@ func (l *Lease) ID() string { return l.o.ID }
 // running for the changes to arrive.
 func Single(ctx context.Context, l *Lease, fn func(context.Context)) {
 	go func() {
+		watch := time.NewTicker(100 * time.Millisecond) // an atomic read: the leader's work follows the flip closely
+		defer watch.Stop()
 		for {
 			for !l.Leader() { // wait for the lease
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(l.o.Renew):
+				case <-watch.C:
 				}
 			}
 			// the lease is held: run fn until it is not, or ctx ends
 			ictx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
 			go func() { fn(ictx); close(done) }()
-			for l.Leader() {
+			hold := true
+			for hold {
 				select {
 				case <-ctx.Done():
 					cancel()
 					<-done
 					return
-				case <-time.After(l.o.Renew):
+				case <-watch.C:
+					hold = l.Leader()
 				}
 			}
 			cancel() // leadership lost: stop what only the leader does

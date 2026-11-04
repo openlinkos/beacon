@@ -419,6 +419,20 @@ func serve(args []string, stderr io.Writer) int {
 		single = func(fn func(context.Context)) {
 			go ha.Single(ctx, lease, fn)
 		}
+		// the standby's token cache is a snapshot of its start; the tokens the primary made while
+		// it held the lead arrive by refresh — on taking over, and while it waits
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					st.RefreshTokens()
+				}
+			}
+		}()
 		sd.Standby = func() bool { return !lease.Leader() }
 		log.Info("high availability on: this instance answers /healthz with 503 until it holds the leader lease",
 			"lease", cfg.HA.Name, "renew", cfg.HA.Renew.String(), "expire", cfg.HA.Expire.String())
@@ -437,6 +451,7 @@ func serve(args []string, stderr io.Writer) int {
 	single(func(lctx context.Context) { br.Run(lctx, ping) })
 	go pagesOut.Run(ctx)
 	single(func(lctx context.Context) {
+		st.RefreshTokens() // what the other instance made while this one waited
 		rt.Restore(st.Groups())
 		rt.Run(lctx)
 	})

@@ -16,6 +16,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// currentDSN is the PostgreSQL database the running test's open(t) opened, empty on SQLite: what
+// reopen needs to reach the same state. The package's tests run one at a time.
+var currentDSN string
+
 // open is the store on the backend the environment picks: SQLite by default, or PostgreSQL when
 // BEACON_TEST_POSTGRES_DSN names one (CI runs the whole suite on both). The path it returns is the
 // SQLite file, which the PostgreSQL runs do not use.
@@ -23,19 +27,30 @@ func open(t *testing.T) (*Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "status.db")
 	if dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN"); dsn != "" {
-		s, err := OpenWith(Options{Driver: "postgres", DSN: testDatabase(t, dsn)})
+		currentDSN = testDatabase(t, dsn)
+		s, err := OpenWith(Options{Driver: "postgres", DSN: currentDSN})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = s.Close() })
 		return s, path
 	}
+	currentDSN = ""
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s, path
+}
+
+// reopen opens the database open(t) opened, as a restart of the service would.
+func reopen(t *testing.T, path string) (*Store, error) {
+	t.Helper()
+	if currentDSN != "" {
+		return OpenWith(Options{Driver: "postgres", DSN: currentDSN})
+	}
+	return Open(path)
 }
 
 // testDatabase makes a database of the test's own on the server the DSN names, dropped when the
@@ -56,9 +71,17 @@ func testDatabase(t *testing.T, dsn string) string {
 		t.Fatalf("create %s: %v", name, err)
 	}
 	t.Cleanup(func() {
-		dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer dcancel()
-		_, _ = admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+		// the store's pools close asynchronously; FORCE drops through what is still open, but a
+		// connection in flight can beat it — try again before giving up
+		for range 3 {
+			dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+			dcancel()
+			if err == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 	})
 	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Host != "" {
 		u.Path = "/" + name
@@ -134,7 +157,7 @@ func TestTokens(t *testing.T) {
 	}
 	// survives a restart
 	_ = s.Close()
-	s2, err := Open(path)
+	s2, err := reopen(t, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +180,13 @@ func TestTokens(t *testing.T) {
 	}
 }
 
+// TestLocked is the SQLite file's lock: a second process cannot hold the database. PostgreSQL is a
+// server that any number may talk to — that is the premise of the primary/standby pair — so the
+// test is the file backend's own.
 func TestLocked(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") != "" {
+		t.Skip("PostgreSQL holds no file to lock; its connections are the HA pair's premise")
+	}
 	_, path := open(t)
 	if _, err := Open(path); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second open: %v", err)

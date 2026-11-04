@@ -334,6 +334,31 @@ func (s *Store) SetClock(now func() time.Time) {
 	s.uses.SetClock(now)
 }
 
+// RefreshTokens re-reads every token from the database into the in-memory cache, replacing what it
+// held. The cache is what open filled: a single process owns it, but the two instances of a
+// primary/standby pair share the database, and the standby's snapshot would not know the tokens
+// the primary made while it held the lead — so the service refreshes when it takes over, and on a
+// schedule while it waits.
+func (s *Store) RefreshTokens() {
+	tokens := map[string]Token{}
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
+			var t Token
+			if json.Unmarshal(v, &t) == nil {
+				if t.Lifetime == 0 { // from before the lifetime was kept
+					t.Lifetime = t.Expires.Sub(t.Created)
+				}
+				tokens[t.Hash] = t
+			}
+			return true
+		})
+		return nil
+	})
+	s.mu.Lock()
+	s.tokens = tokens
+	s.mu.Unlock()
+}
+
 // ---- Groups
 
 // Group returns the group with id.

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/events"
@@ -43,14 +44,17 @@ func MigrateToPostgres(src, dst Options) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	audit, err := events.Open(pg.Handle(), pg.WriteHandle(), "audit_events",
-		events.Options{Dialect: events.PostgreSQL, SignKey: dst.SignKey, CheckpointInterval: dst.CheckpointInterval, Now: time.Now})
+	// opening the logs makes the tables and a signer key of the destination's own; the copy then
+	// adopts the source's keys (in event_keys), so the checkpoints that come over still verify —
+	// and no checkpoint is written while the move runs (an interval nothing can reach), for the
+	// first one after the move covers everything, signed with the adopted key
+	migOpts := events.Options{Dialect: events.PostgreSQL, SignKey: dst.SignKey, CheckpointInterval: never, Now: time.Now}
+	audit, err := events.Open(pg.Handle(), pg.WriteHandle(), "audit_events", migOpts)
 	if err != nil {
 		_ = pg.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
-	if _, err := events.Open(pg.Handle(), pg.WriteHandle(), "secret_uses",
-		events.Options{Dialect: events.PostgreSQL, SignKey: dst.SignKey, CheckpointInterval: dst.CheckpointInterval, Now: time.Now}); err != nil {
+	if _, err := events.Open(pg.Handle(), pg.WriteHandle(), "secret_uses", migOpts); err != nil {
 		_ = pg.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
@@ -111,6 +115,9 @@ func (t roTx) Range(b []byte, r kv.Range, fn func(k, v []byte) bool) { t.tx.Rang
 func (t roTx) Count(bucket []byte) int                               { return t.tx.Count(bucket) }
 func (t roTx) Sequence(bucket []byte) uint64                         { return t.tx.Sequence(bucket) }
 
+// never is a checkpoint interval nothing can reach: the migration writes no checkpoint of its own.
+var never = 87600 * 24 * time.Hour
+
 // eventCols is the event tables' shared column list.
 const eventCols = "seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash"
 
@@ -150,7 +157,40 @@ func copyEventTables(src *kv.SQLite, raw *sql.Tx) error {
 	if err := copyRows("event_checkpoints", "log, seq, first_seq, count, head, time, prev, hash, signer, signature"); err != nil {
 		return err
 	}
-	return copyRows("event_keys", "log, key")
+	return copyKeys(src, raw)
+}
+
+// copyKeys adopts the source's signer keys over the ones the destination generated when it opened:
+// the checkpoints that came over were signed with them, and the chain verifies only with the same.
+func copyKeys(src *kv.SQLite, raw *sql.Tx) error {
+	ctx := context.Background()
+	rows, err := src.Handle().QueryContext(ctx, `SELECT log, key FROM event_keys`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	type pair struct {
+		log string
+		key []byte
+	}
+	var keys []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.log, &p.key); err != nil {
+			return err
+		}
+		keys = append(keys, p)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, p := range keys {
+		if _, err := raw.ExecContext(ctx, `INSERT INTO event_keys (log, key) VALUES ($1, $2)
+			ON CONFLICT (log) DO UPDATE SET key = excluded.key`, p.log, p.key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func countCommas(s string) int {
@@ -163,13 +203,14 @@ func countCommas(s string) int {
 	return n
 }
 
+// repeatMarks writes the PostgreSQL placeholders the destination takes: $1, $2, …
 func repeatMarks(n int) string {
 	out := ""
-	for i := 0; i < n; i++ {
-		if i > 0 {
+	for i := 1; i <= n; i++ {
+		if i > 1 {
 			out += ", "
 		}
-		out += "?"
+		out += "$" + strconv.Itoa(i)
 	}
 	return out
 }

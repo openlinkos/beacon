@@ -73,9 +73,17 @@ func testDatabase(t *testing.T, dsn string) string {
 		t.Fatalf("create %s: %v", name, err)
 	}
 	t.Cleanup(func() {
-		dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer dcancel()
-		_, _ = admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+		// the store's pools close asynchronously; FORCE drops through what is still open, but a
+		// connection in flight can beat it — try again before giving up
+		for range 3 {
+			dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+			dcancel()
+			if err == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 	})
 	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Host != "" {
 		u.Path = "/" + name

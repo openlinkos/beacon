@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // Dialect is the SQL the log's statements are written for. The queries are kept in one spelling
@@ -203,6 +205,12 @@ func (l *Log) create() error {
 	if err != nil {
 		return err
 	}
+	if l.dialect == PostgreSQL { // the pair's two instances, starting together, serialise here
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, kv.SchemaLock); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
 	// SQLite keeps whole-number primary keys and blobs; PostgreSQL takes BIGINT and BYTEA, and has
 	// no WITHOUT ROWID (its tables are heaps with primary-key indexes anyway).
 	integer, blob, rowid := "INTEGER", "BLOB", ""
@@ -258,27 +266,33 @@ func (l *Log) create() error {
 	return tx.Commit()
 }
 
-// storedKey reads the log's generated signer key, making one at random the first time.
+// storedKey reads the log's generated signer key, making one at random the first time. The insert
+// keeps what a concurrent opener stored already (both instances of a pair, starting together): the
+// row is read back either way, so every process signs with the one key the table holds.
 func (l *Log) storedKey() ([]byte, error) {
-	var key []byte
-	err := l.read.QueryRowContext(context.Background(), l.q(`SELECT key FROM event_keys WHERE log = ?`), l.table).Scan(&key)
-	if err == nil {
-		return key, nil
+	read := func() ([]byte, error) {
+		var key []byte
+		err := l.read.QueryRowContext(context.Background(), l.q(`SELECT key FROM event_keys WHERE log = ?`), l.table).Scan(&key)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return key, err
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+	if key, err := read(); err != nil || key != nil {
+		return key, err
 	}
-	key = make([]byte, 32)
+	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
 	if l.write == nil {
 		return nil, errors.New("no signer key: the log is open read-only and never had one")
 	}
-	if _, err := l.write.ExecContext(context.Background(), l.q(`INSERT INTO event_keys (log, key) VALUES (?, ?)`), l.table, key); err != nil {
+	if _, err := l.write.ExecContext(context.Background(), l.q(`INSERT INTO event_keys (log, key) VALUES (?, ?)
+		ON CONFLICT (log) DO NOTHING`), l.table, key); err != nil {
 		return nil, err
 	}
-	return key, nil
+	return read() // what the table holds now, ours or the concurrent opener's
 }
 
 // SetClock sets the log's clock, which stamps what it writes; a nil clock is the real one. The
