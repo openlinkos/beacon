@@ -2,7 +2,21 @@
 # and keep the file out of git. `beacon check-config -config <this file>` validates it.
 
 listen: ":17001"
-data_dir: /var/lib/beacon                   # bbolt state: alert groups, tokens, audit log, the configuration below
+data_dir: /var/lib/beacon                   # the SQL database (beacon.db), recordings, the admin socket
+# Where the state lives: one SQL database, SQLite by default. A first start with an old bbolt file
+# (status.db) beside it migrates that file into the database in one go; the old file stays as
+# status.db.pre-sql to roll back to (what changed after the migration is not in it). A WAL database
+# is one file plus its -wal and -shm side files and cannot live on a network file system.
+storage:
+  driver: sqlite                            # sqlite today; postgres arrives with a later release
+  # path: /var/lib/beacon/beacon.db         # default: <data_dir>/beacon.db
+  audit:
+    checkpoint_interval: 24h                # how often the audit log's hash chain gets a signed checkpoint
+    retention: 8760h                        # how long audit entries are kept (365 days)
+  sqlite:
+    journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
+    synchronous: full                       # full (recommended: every commit is on the disk first), normal or off
+    busy_timeout: 15s
 # The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.

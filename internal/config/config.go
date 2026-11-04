@@ -52,6 +52,28 @@ type Config struct {
 		TargetsDir  string `yaml:"targets_dir"`
 		ModulesFile string `yaml:"modules_file"` // how to probe; default modules.yml in targets_dir
 	} `yaml:"gateway"`
+	// Storage is where the service's state lives: one SQL database, SQLite by default. Driver and
+	// path belong here because the database has to be open before anything else can be read; the
+	// rest of the storage settings live in the database itself (see the settings framework).
+	Storage struct {
+		Driver string `yaml:"driver"` // sqlite (the default); postgres arrives with the next package
+		Path   string `yaml:"path"`   // default <data_dir>/beacon.db
+		// Audit is the audit log's own schedule: how often its chain's checkpoints are signed
+		// (24h by default) and how long entries are kept (365 days by default).
+		Audit struct {
+			CheckpointInterval Duration `yaml:"checkpoint_interval"`
+			Retention          Duration `yaml:"retention"`
+		} `yaml:"audit"`
+		// SQLite holds the pragmas a deployment may tune. The defaults are what a deployment
+		// should keep: WAL (readers never wait for the writer) and synchronous FULL (every
+		// commit is on the disk before it answers). A WAL database is one file plus its -wal and
+		// -shm side files and cannot live on a network file system.
+		SQLite struct {
+			JournalMode string   `yaml:"journal_mode"` // WAL (default), DELETE, TRUNCATE, PERSIST or MEMORY
+			Synchronous string   `yaml:"synchronous"`  // FULL (default), NORMAL or OFF
+			BusyTimeout Duration `yaml:"busy_timeout"` // default 15s
+		} `yaml:"sqlite"`
+	} `yaml:"storage"`
 	// SSH is the channel through which agents reach machines with their own ssh, or with the MCP and
 	// REST tools; it is on when CAKeyFile is set. PublicAddress (host:port) is where agents reach it,
 	// for the ssh configuration Beacon hands them. SourceAddresses (CIDRs), when set, go into every
@@ -314,6 +336,13 @@ func (c *Config) defaults() {
 	if c.Routing.ResolveTimeout == 0 {
 		c.Routing.ResolveTimeout = Duration(5 * time.Minute)
 	}
+	set(&c.Storage.Driver, "sqlite")
+	if c.Storage.Audit.CheckpointInterval == 0 {
+		c.Storage.Audit.CheckpointInterval = Duration(24 * time.Hour)
+	}
+	if c.Storage.Audit.Retention == 0 {
+		c.Storage.Audit.Retention = Duration(365 * 24 * time.Hour)
+	}
 	set(&c.Language, "zh")
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
@@ -415,6 +444,16 @@ func (c *Config) validate() error {
 		if c.SSH.Keep.D() < 24*time.Hour {
 			bad("ssh.keep is at least 24h")
 		}
+	}
+
+	if c.Storage.Driver != "sqlite" {
+		bad("storage.driver %q: sqlite is the driver today; postgres arrives with the next package", c.Storage.Driver)
+	}
+	if t := c.Storage.Audit.CheckpointInterval.D(); t < time.Minute {
+		bad("storage.audit.checkpoint_interval is at least 1m")
+	}
+	if t := c.Storage.Audit.Retention.D(); t < 24*time.Hour {
+		bad("storage.audit.retention is at least 24h")
 	}
 
 	if c.Gateway.Listen != "" {
