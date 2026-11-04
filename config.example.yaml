@@ -17,6 +17,38 @@ storage:
     journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
     synchronous: full                       # full (recommended: every commit is on the disk first), normal or off
     busy_timeout: 15s
+# Beacon's own backups. Backups are on when there is a destination; everything else has a working
+# default. Each backup is one file, beacon-<host>-<time>-<full|incr>.tar.zst.age: the database
+# (an online-consistent VACUUM INTO snapshot), the session recordings (a full set every
+# files_full, otherwise what changed), the configuration and the secrets directory — tarred,
+# zstd-compressed and age-encrypted to the recipients' public keys. Beacon holds only the public
+# keys and cannot read what it wrote; with no recipients configured it generates a key pair once
+# and leaves the private half in <data_dir>/backup/RECOVERY-MATERIAL.txt for you to take off the
+# machine (it keeps reminding you until you do). Every upload is read back and compared before it
+# counts, and a backup that stops succeeding goes quiet on the built-in beacon-backup heartbeat,
+# which alerts through the ordinary HeartbeatStale path. `beacon backup now | ls | restore |
+# drill | keygen` drives it from the command line.
+backup:
+  destinations:
+    - dir: /var/lib/beacon/backups           # a local directory, made when missing
+    # - s3:                                  # an S3-compatible store (MinIO, R2, S3); several destinations at once
+    #     endpoint: https://s3.example.com:9000
+    #     region: us-east-1                  # for signing; MinIO ignores it
+    #     bucket: backups
+    #     prefix: beacon/
+    #     access_key_file: /etc/beacon/secrets/backup-s3-access-key
+    #     secret_key_file: /etc/beacon/secrets/backup-s3-secret-key
+  # recipients: [age1qyvlchnhvn7h9vhzxcqdr4pj4gwz4gp8q4lzjr0vzq99w8pn5atsp4a2km]   # age public keys
+  # recipients_file: /etc/beacon/secrets/backup-recipients   # or ssh-ed25519 lines, one per file
+  # secrets_dir: /etc/beacon/secrets         # packed whole, in every backup (default)
+  # heartbeat: {max_age: 2h, severity: warning}   # the built-in heartbeat's patience
+  # drill_expiry: 2160h                       # the recovery drill counts for 90 days
+  # schedule: {database: 1h, files: 24h, files_full: 168h}
+  # retention: {hourly: 24, daily: 14, weekly: 8, monthly: 12}   # keep what fits any rule
+  # retries: 3                                # failed uploads, the wait growing fourfold from retry_wait
+  # retry_wait: 1m
+  # verify_readback: true                     # read every upload back, compare size and hash
+  # on_failure: alert                         # alert, or alert_and_pause once the vault exists
 # The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.
