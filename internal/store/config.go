@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // The configuration Beacon holds (the catalogue, the probe targets and modules; see package configdb):
@@ -62,16 +62,12 @@ type ConfigWrite struct {
 func (s *Store) Config() (map[string][]byte, int64) {
 	out := map[string][]byte{}
 	var version int64
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketConfig); b != nil {
-			_ = b.ForEach(func(k, v []byte) error {
-				out[string(k)] = bytes.Clone(v)
-				return nil
-			})
-		}
-		if b := tx.Bucket(bucketConfigChanges); b != nil {
-			version = int64(b.Sequence())
-		}
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketConfig, kv.Range{}, func(k, v []byte) bool {
+			out[string(k)] = bytes.Clone(v)
+			return true
+		})
+		version = int64(tx.Sequence(bucketConfigChanges))
 		return nil
 	})
 	return out, version
@@ -84,32 +80,25 @@ func (s *Store) CommitConfig(c ConfigChange, writes []ConfigWrite) (ConfigChange
 		c.Time = s.now().UTC()
 	}
 	c.Unchanged = false
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		entries, err := tx.CreateBucketIfNotExists(bucketConfig)
-		if err != nil {
-			return err
-		}
-		changes, err := tx.CreateBucketIfNotExists(bucketConfigChanges)
-		if err != nil {
-			return err
-		}
+	err := s.db.Update(func(tx kv.Tx) error {
 		for _, w := range writes {
-			cur := entries.Get([]byte(w.Key))
+			cur := tx.Get(bucketConfig, []byte(w.Key))
 			if (cur == nil) != (w.Was == nil) || !bytes.Equal(cur, w.Was) {
 				return ErrConflict
 			}
 		}
 		for _, w := range writes {
+			var err error
 			if w.Value == nil {
-				err = entries.Delete([]byte(w.Key))
+				err = tx.Delete(bucketConfig, []byte(w.Key))
 			} else {
-				err = entries.Put([]byte(w.Key), w.Value)
+				err = tx.Put(bucketConfig, []byte(w.Key), w.Value)
 			}
 			if err != nil {
 				return err
 			}
 		}
-		seq, err := changes.NextSequence()
+		seq, err := tx.NextSequence(bucketConfigChanges)
 		if err != nil {
 			return err
 		}
@@ -118,16 +107,19 @@ func (s *Store) CommitConfig(c ConfigChange, writes []ConfigWrite) (ConfigChange
 		if err != nil {
 			return err
 		}
-		if err := changes.Put(versionKey(c.Version), b); err != nil {
+		if err := tx.Put(bucketConfigChanges, versionKey(c.Version), b); err != nil {
 			return err
 		}
 		var old [][]byte // versions are consecutive: drop those the latest keepConfigChanges leave out
-		cur := changes.Cursor()
-		for k, _ := cur.First(); k != nil && int64(binary.BigEndian.Uint64(k)) <= c.Version-int64(keepConfigChanges); k, _ = cur.Next() {
+		tx.Range(bucketConfigChanges, kv.Range{}, func(k, _ []byte) bool {
+			if int64(binary.BigEndian.Uint64(k)) > c.Version-int64(keepConfigChanges) {
+				return false
+			}
 			old = append(old, bytes.Clone(k))
-		}
+			return true
+		})
 		for _, k := range old {
-			if err := changes.Delete(k); err != nil {
+			if err := tx.Delete(bucketConfigChanges, k); err != nil {
 				return err
 			}
 		}
@@ -146,24 +138,22 @@ func versionKey(v int64) []byte {
 // keep returns true (nil keeps all), the newest first.
 func (s *Store) ConfigChanges(before int64, limit int, keep func(ConfigChange) bool) []ConfigChange {
 	var out []ConfigChange
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketConfigChanges)
-		if b == nil {
-			return nil
+	_ = s.db.View(func(tx kv.Tx) error {
+		// walk backwards from the newest version older than before (0: from the newest)
+		r := kv.Range{Reverse: true}
+		if before > 0 {
+			r.Start = versionKey(before)
 		}
-		c := b.Cursor()
-		var k, v []byte
-		if at, _ := c.Seek(versionKey(before)); before > 0 && at != nil {
-			k, v = c.Prev() // the newest older than before
-		} else {
-			k, v = c.Last()
-		}
-		for ; k != nil && len(out) < limit; k, v = c.Prev() {
+		tx.Range(bucketConfigChanges, r, func(_, v []byte) bool {
+			if len(out) >= limit {
+				return false
+			}
 			var ch ConfigChange
 			if json.Unmarshal(v, &ch) == nil && (keep == nil || keep(ch)) {
 				out = append(out, ch)
 			}
-		}
+			return true
+		})
 		return nil
 	})
 	return out
@@ -173,11 +163,9 @@ func (s *Store) ConfigChanges(before int64, limit int, keep func(ConfigChange) b
 func (s *Store) ConfigChangeAt(v int64) (ConfigChange, bool) {
 	var ch ConfigChange
 	var ok bool
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketConfigChanges); b != nil {
-			if raw := b.Get(versionKey(v)); raw != nil {
-				ok = json.Unmarshal(raw, &ch) == nil
-			}
+	_ = s.db.View(func(tx kv.Tx) error {
+		if raw := tx.Get(bucketConfigChanges, versionKey(v)); raw != nil {
+			ok = json.Unmarshal(raw, &ch) == nil
 		}
 		return nil
 	})

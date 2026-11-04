@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // Tokens that renew themselves: a token's holder asks for a new secret before the old one expires, so
@@ -90,7 +90,7 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 	t.OldHash, t.OldUntil = old, now.Add(RenewGrace)
 	t.Hash, t.Expires, t.Renewed = hashToken(secret), now.Add(t.Lifetime), now
 	b, _ := json.Marshal(t)
-	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketTokens).Put([]byte(name), b) }); err != nil {
+	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(name), b) }); err != nil {
 		return "", Token{}, err
 	}
 	delete(s.tokens, old)

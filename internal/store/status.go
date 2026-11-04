@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // What the public status pages need to remember for longer than Beacon keeps alert groups and
@@ -58,34 +58,30 @@ func (i Incident) Ended() time.Time {
 // whether anything was written.
 func (s *Store) PutIncidents(in []Incident, forget time.Time) (bool, error) {
 	wrote := false
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		bk, err := tx.CreateBucketIfNotExists(bucketIncidents)
-		if err != nil {
-			return err
-		}
+	err := s.db.Update(func(tx kv.Tx) error {
 		for _, i := range in {
 			b, err := json.Marshal(i)
 			if err != nil {
 				return err
 			}
-			if old := bk.Get([]byte(i.ID)); bytes.Equal(old, b) {
+			if old := tx.Get(bucketIncidents, []byte(i.ID)); bytes.Equal(old, b) {
 				continue
 			}
-			if err := bk.Put([]byte(i.ID), b); err != nil {
+			if err := tx.Put(bucketIncidents, []byte(i.ID), b); err != nil {
 				return err
 			}
 			wrote = true
 		}
 		var old [][]byte
-		_ = bk.ForEach(func(k, v []byte) error {
+		tx.Range(bucketIncidents, kv.Range{}, func(k, v []byte) bool {
 			var i Incident
 			if json.Unmarshal(v, &i) == nil && !i.Ended().IsZero() && i.Ended().Before(forget) {
 				old = append(old, append([]byte(nil), k...))
 			}
-			return nil
+			return true
 		})
 		for _, k := range old {
-			if err := bk.Delete(k); err != nil {
+			if err := tx.Delete(bucketIncidents, k); err != nil {
 				return err
 			}
 			wrote = true
@@ -98,18 +94,15 @@ func (s *Store) PutIncidents(in []Incident, forget time.Time) (bool, error) {
 // Incidents lists the incidents kept, the newest first.
 func (s *Store) Incidents() []Incident {
 	var out []Incident
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketIncidents)
-		if bk == nil {
-			return nil
-		}
-		return bk.ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketIncidents, kv.Range{}, func(_, v []byte) bool {
 			var i Incident
 			if json.Unmarshal(v, &i) == nil {
 				out = append(out, i)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(a, b int) bool {
 		if !out[a].StartsAt.Equal(out[b].StartsAt) {
@@ -153,43 +146,36 @@ func (s *Store) PutMaintenance(m Maintenance, forget time.Time) error {
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bk, err := tx.CreateBucketIfNotExists(bucketMaintenance)
-		if err != nil {
-			return err
-		}
+	return s.db.Update(func(tx kv.Tx) error {
 		var old [][]byte
-		_ = bk.ForEach(func(k, v []byte) error {
+		tx.Range(bucketMaintenance, kv.Range{}, func(k, v []byte) bool {
 			var x Maintenance
 			if json.Unmarshal(v, &x) == nil && x.End().Before(forget) {
 				old = append(old, append([]byte(nil), k...))
 			}
-			return nil
+			return true
 		})
 		for _, k := range old {
-			if err := bk.Delete(k); err != nil {
+			if err := tx.Delete(bucketMaintenance, k); err != nil {
 				return err
 			}
 		}
-		return bk.Put([]byte(m.ID), b)
+		return tx.Put(bucketMaintenance, []byte(m.ID), b)
 	})
 }
 
 // MaintenanceWindows lists the maintenance windows kept, the latest to start first.
 func (s *Store) MaintenanceWindows() []Maintenance {
 	var out []Maintenance
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketMaintenance)
-		if bk == nil {
-			return nil
-		}
-		return bk.ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketMaintenance, kv.Range{}, func(_, v []byte) bool {
 			var m Maintenance
 			if json.Unmarshal(v, &m) == nil {
 				out = append(out, m)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(a, b int) bool {
 		if !out[a].StartsAt.Equal(out[b].StartsAt) {
@@ -204,12 +190,8 @@ func (s *Store) MaintenanceWindows() []Maintenance {
 func (s *Store) MaintenanceWindow(id string) (Maintenance, bool) {
 	var m Maintenance
 	found := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketMaintenance)
-		if bk == nil {
-			return nil
-		}
-		if v := bk.Get([]byte(id)); v != nil {
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketMaintenance, []byte(id)); v != nil {
 			found = json.Unmarshal(v, &m) == nil
 		}
 		return nil

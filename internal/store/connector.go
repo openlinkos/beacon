@@ -3,7 +3,7 @@ package store
 import (
 	"encoding/json"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // ConnectorAddress is the address of a machine behind NAT: Beacon cannot connect to it, so the machine
@@ -21,14 +21,15 @@ func (s *Store) MachineByConnectorKey(fingerprint string) (Machine, bool) {
 	if fingerprint == "" {
 		return out, false
 	}
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketMachines).ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketMachines, kv.Range{}, func(_, v []byte) bool {
 			var m Machine
 			if json.Unmarshal(v, &m) == nil && m.Connector() && m.ConnectorFingerprint == fingerprint {
 				out, found = m, true
 			}
-			return nil
+			return !found
 		})
+		return nil
 	})
 	return out, found
 }

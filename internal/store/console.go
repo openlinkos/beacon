@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // The console's sign-ins: a person signs in to the console (package web) with their username and
@@ -81,15 +81,11 @@ func (s *Store) createConsoleSession(cs ConsoleSession, ttl time.Duration, until
 	if err != nil {
 		return "", ConsoleSession{}, err
 	}
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		bk, err := tx.CreateBucketIfNotExists(bucketConsole)
-		if err != nil {
+	err = s.db.Update(func(tx kv.Tx) error {
+		if err := deleteConsole(tx, func(x ConsoleSession) bool { return !now.Before(x.Expires) }); err != nil {
 			return err
 		}
-		if err := deleteConsole(bk, func(x ConsoleSession) bool { return !now.Before(x.Expires) }); err != nil {
-			return err
-		}
-		return bk.Put([]byte(cs.Hash), b)
+		return tx.Put(bucketConsole, []byte(cs.Hash), b)
 	})
 	if err != nil {
 		return "", ConsoleSession{}, err
@@ -105,11 +101,9 @@ func (s *Store) ConsoleSessionByID(id string) (ConsoleSession, error) {
 	}
 	var cs ConsoleSession
 	found := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if bk := tx.Bucket(bucketConsole); bk != nil {
-			if v := bk.Get([]byte(hashSession(id))); v != nil {
-				found = json.Unmarshal(v, &cs) == nil
-			}
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketConsole, []byte(hashSession(id))); v != nil {
+			found = json.Unmarshal(v, &cs) == nil
 		}
 		return nil
 	})
@@ -121,12 +115,8 @@ func (s *Store) ConsoleSessionByID(id string) (ConsoleSession, error) {
 
 // DeleteConsoleSession ends the session whose id this is; an unknown one is no error.
 func (s *Store) DeleteConsoleSession(id string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketConsole)
-		if bk == nil {
-			return nil
-		}
-		return bk.Delete([]byte(hashSession(id)))
+	return s.db.Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketConsole, []byte(hashSession(id)))
 	})
 }
 
@@ -147,12 +137,8 @@ func (s *Store) DeleteAccountSessions(username, keep string) int {
 
 func (s *Store) deleteSessions(match func(ConsoleSession) bool) int {
 	n := 0
-	_ = s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketConsole)
-		if bk == nil {
-			return nil
-		}
-		return deleteConsole(bk, func(x ConsoleSession) bool {
+	_ = s.db.Update(func(tx kv.Tx) error {
+		return deleteConsole(tx, func(x ConsoleSession) bool {
 			if match(x) {
 				n++
 				return true
@@ -164,17 +150,17 @@ func (s *Store) deleteSessions(match func(ConsoleSession) bool) int {
 }
 
 // deleteConsole removes the sessions for which drop returns true.
-func deleteConsole(bk *bolt.Bucket, drop func(ConsoleSession) bool) error {
+func deleteConsole(tx kv.Tx, drop func(ConsoleSession) bool) error {
 	var keys [][]byte
-	_ = bk.ForEach(func(k, v []byte) error {
+	tx.Range(bucketConsole, kv.Range{}, func(k, v []byte) bool {
 		var x ConsoleSession
 		if json.Unmarshal(v, &x) != nil || drop(x) {
 			keys = append(keys, append([]byte(nil), k...))
 		}
-		return nil
+		return true
 	})
 	for _, k := range keys {
-		if err := bk.Delete(k); err != nil {
+		if err := tx.Delete(bucketConsole, k); err != nil {
 			return err
 		}
 	}
@@ -184,17 +170,14 @@ func deleteConsole(bk *bolt.Bucket, drop func(ConsoleSession) bool) error {
 // EachSession calls fn with the records of SSH sessions, the newest first, until fn returns false; the
 // console's lists walk them this way rather than loading them all.
 func (s *Store) EachSession(fn func(SessionRecord) bool) {
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		c := tx.Bucket(bucketSessions).Cursor()
-		for k, v := c.Last(); k != nil; k, v = c.Prev() {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketSessions, kv.Range{Reverse: true}, func(_, v []byte) bool {
 			var r SessionRecord
 			if json.Unmarshal(v, &r) != nil {
-				continue
+				return true
 			}
-			if !fn(r) {
-				return nil
-			}
-		}
+			return fn(r)
+		})
 		return nil
 	})
 }
