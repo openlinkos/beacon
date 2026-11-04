@@ -41,6 +41,15 @@ gateway:
   listen: ":17006"
   targets_dir: /etc/beacon/targets             # imported at the first start, with modules.yml
 
+# Beacon's own backups: the database snapshot every hour, the recordings, this configuration and
+# the secrets directory every day, encrypted to public keys (with none configured, a key pair is
+# generated at the first start and the private key is left in /var/lib/beacon/backup/
+# RECOVERY-MATERIAL.txt — take it off the machine and keep it somewhere safe). The compose file
+# carries the local directory to the host; add an s3: destination to send a copy off the machine.
+backup:
+  destinations:
+    - dir: /var/lib/beacon/backups
+
 # The SSH channel (docs/guide/machines.md). install.sh generates both keys.
 ssh:
   listen: ":17002"
