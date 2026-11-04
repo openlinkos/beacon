@@ -110,8 +110,27 @@ func TestOperations(t *testing.T) {
 		t.Errorf("expire: %d", code)
 	}
 	code, out = c.do("GET", "/api/v1/audit?limit=10", read, "")
-	if entries, _ := out["entries"].([]any); code != 200 || len(entries) != 3 {
+	if entries, _ := out["entries"].([]any); code != 200 || len(entries) != 3 || out["total"] != float64(3) {
 		t.Errorf("audit: %d %v", code, out)
+	}
+	// the filter and pagination the event table makes possible
+	if code, out = c.do("GET", "/api/v1/audit?action=ack", read, ""); code != 200 || out["total"] != float64(1) {
+		t.Errorf("audit by action: %d %v", code, out)
+	}
+	if code, out = c.do("GET", "/api/v1/audit?actor=no-one", read, ""); code != 200 || out["total"] != float64(0) {
+		t.Errorf("audit by a wrong actor: %d %v", code, out)
+	}
+	if code, out = c.do("GET", "/api/v1/audit?limit=2&offset=2", read, ""); code != 200 || out["total"] != float64(3) {
+		t.Errorf("audit paged: %d %v", code, out)
+	}
+	if code, _ = c.do("GET", "/api/v1/audit?offset=-1", read, ""); code != 400 {
+		t.Errorf("a negative offset: %d", code)
+	}
+	if code, _ = c.do("GET", "/api/v1/audit?from=yesterday", read, ""); code != 400 {
+		t.Errorf("a bad from: %d", code)
+	}
+	if code, out = c.do("GET", "/api/v1/audit?target="+id, read, ""); code != 200 || out["total"] != float64(2) { // the ack and the silence; the expired silence names the silence
+		t.Errorf("audit by target: %d %v", code, out)
 	}
 	if code, out := c.do("GET", "/api/v1/bridge", read, ""); code != 200 || out["firing"] == nil {
 		t.Errorf("bridge: %d %v", code, out)

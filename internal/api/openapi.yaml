@@ -46,7 +46,8 @@ components:
             session.not_found,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
-            probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists]
+            probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
+            audit.unavailable]
         docs:
           type: string
           format: uri
@@ -1068,21 +1069,48 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /audit:
     get:
-      summary: The latest writes, newest first
-      description: "Scope: status:read"
+      summary: The audit log, newest first, with filters
+      description: "Scope: status:read. The audit log is an event table with a hash chain; entries
+        are kept for the retention the storage configuration sets and can be filtered by who did
+        what to which, and by time."
       parameters:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 1000, default: 100}
+        - name: offset
+          in: query
+          description: Pages through the matches (0-based).
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: actor
+          in: query
+          description: Only entries by this actor (a person, an agent or beacon).
+          schema: {type: string}
+        - name: action
+          in: query
+          description: Only entries with this action (ack, silence, user_invite…).
+          schema: {type: string}
+        - name: target
+          in: query
+          description: Only entries touching this object (an alert group's id, a token's name…).
+          schema: {type: string}
+        - name: from
+          in: query
+          description: Only entries at or after this RFC 3339 time.
+          schema: {type: string, format: date-time}
+        - name: to
+          in: query
+          description: Only entries at or before this RFC 3339 time.
+          schema: {type: string, format: date-time}
       responses:
         "200":
-          description: Audit entries
+          description: Audit entries and how many match in all
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   entries: {type: array, items: {type: object}}
+                  total: {type: integer}
         default: {$ref: "#/components/responses/Error"}
   /ssh:
     get:

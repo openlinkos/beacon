@@ -96,8 +96,12 @@ func TestMCP(t *testing.T) {
 	if res.IsError || !strings.Contains(text, `"via":"mcp"`) || !strings.Contains(text, `"by":"claude-code"`) {
 		t.Fatalf("silence_alert: %s", text)
 	}
-	if _, text := call(t, write, "list_audit", map[string]any{"limit": 5}); !strings.Contains(text, `"via":"mcp"`) {
+	if _, text := call(t, write, "list_audit", map[string]any{"limit": 5}); !strings.Contains(text, `"via":"mcp"`) || !strings.Contains(text, `"total":`) {
 		t.Errorf("audit: %s", text)
+	}
+	// the filter the event table makes possible
+	if _, text := call(t, write, "list_audit", map[string]any{"action": "ack"}); !strings.Contains(text, `"total":0`) {
+		t.Errorf("audit by action: %s", text) // nothing was acknowledged in this test
 	}
 	if res, _ := call(t, write, "expire_silence", map[string]any{"silence_id": "sil-1"}); res.IsError || len(e.AM.Expired) != 1 {
 		t.Errorf("expire_silence failed")

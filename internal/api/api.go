@@ -419,5 +419,36 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
 		}
 		limit = n
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": s.Bridge.Audit(limit)})
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "bad_input", "offset is 0 or more")
+			return
+		}
+		offset = n
+	}
+	f := store.AuditFilter{Limit: limit, Offset: offset,
+		Actor:  r.URL.Query().Get("actor"),
+		Action: r.URL.Query().Get("action"),
+		Target: r.URL.Query().Get("target")}
+	for name, to := range map[string]*time.Time{"from": &f.From, "to": &f.To} {
+		if v := r.URL.Query().Get(name); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "bad_input", name+" is an RFC 3339 time")
+				return
+			}
+			*to = t
+		}
+	}
+	entries, total, err := s.Bridge.AuditQuery(f)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "unavailable", "the audit log cannot be read")
+		return
+	}
+	if entries == nil {
+		entries = []store.AuditEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "total": total})
 }
