@@ -30,7 +30,7 @@ func TestStatusRoutes(t *testing.T) {
 	if code, out := c.do("GET", "/api/v1/status/public", read, ""); code != 404 || out["code"] != "status.not_found" {
 		t.Errorf("no page yet: %d %v", code, out)
 	}
-	page := `{"title": "Example Status", "components": [{"name": "hub", "title": "Hub", "services": ["hub-linkos-io"]}]}`
+	page := `{"title": "Example Status", "components": [{"name": "hub", "title": "Hub", "services": ["hub-example-com"]}]}`
 	if code, out := c.do("PUT", "/api/v1/config/status_pages/public", write, page); code != 200 || out["version"] != float64(1) {
 		t.Fatalf("put a page: %d %v", code, out)
 	}
@@ -51,7 +51,7 @@ func TestStatusRoutes(t *testing.T) {
 	// maintenance: planned, listed, ended, and not twice
 	starts := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	ends := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-	body := `{"services": ["hub-linkos-io"], "starts_at": "` + starts + `", "ends_at": "` + ends + `", "title": "Hub upgrade"}`
+	body := `{"services": ["hub-example-com"], "starts_at": "` + starts + `", "ends_at": "` + ends + `", "title": "Hub upgrade"}`
 	if code, out := c.do("POST", "/api/v1/maintenance", read, body); code != 403 || out["code"] != "auth.scope" {
 		t.Errorf("maintenance:write is needed: %d %v", code, out)
 	}
@@ -60,10 +60,10 @@ func TestStatusRoutes(t *testing.T) {
 		t.Fatalf("plan: %d %v", code, out)
 	}
 	id, _ := out["id"].(string)
-	if len(e.AM.Created) != 1 || e.AM.Created[0]["service"] != "hub-linkos-io" {
+	if len(e.AM.Created) != 1 || e.AM.Created[0]["service"] != "hub-example-com" {
 		t.Errorf("silences: %v", e.AM.Created)
 	}
-	if !strings.Contains(strings.Join(e.Bot.Texts, "\n"), `claude-oncall planned maintenance "Hub upgrade" of hub-linkos-io`) {
+	if !strings.Contains(strings.Join(e.Bot.Texts, "\n"), `claude-oncall planned maintenance "Hub upgrade" of hub-example-com`) {
 		t.Errorf("echo: %v", e.Bot.Texts)
 	}
 	if code, out := c.do("GET", "/api/v1/maintenance", read, ""); code != 200 || len(out["maintenance"].([]any)) != 1 {

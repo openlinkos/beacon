@@ -78,7 +78,7 @@ func TestMCP(t *testing.T) {
 			t.Errorf("%s needs annotations and a description", tool.Name)
 		}
 	}
-	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.linkos.io is down") {
+	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.example.com is down") {
 		t.Errorf("list_alerts: %s", text)
 	}
 	if _, text := call(t, read, "status_summary", nil); !strings.Contains(text, `"critical":1`) {
