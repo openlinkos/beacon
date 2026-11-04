@@ -12,6 +12,7 @@
 //	beacon ssh pause | ssh resume | ssh status
 //	beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
 //	beacon silence list | silence expire ID
+//	beacon audit verify | storage check
 //	beacon enroll probe|host|heartbeat NAME [-rotate]
 //	beacon drill fail 15m | drill off | drill status
 //	beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
@@ -103,6 +104,9 @@ func usage(w io.Writer) {
   beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
                                               stop notifying alerts with these labels (or -alert GROUP_ID)
   beacon silence list | silence expire ID
+  beacon audit verify [-from-seq N]
+                                              check the audit log's hash chain from a checkpoint (default: all)
+  beacon storage check                        the database's health: integrity, buckets, audit chain
   beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
   beacon drill fail 15m | drill off | drill status
@@ -143,6 +147,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return sshCmd(args[1:], stdout, stderr)
 	case "silence":
 		return silenceCmd(args[1:], stdout, stderr)
+	case "audit":
+		return auditCmd(args[1:], stdout, stderr)
+	case "storage":
+		return storageCmd(args[1:], stdout, stderr)
 	case "healthcheck":
 		return healthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -230,7 +238,16 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	st, err := store.Open(filepath.Join(cfg.DataDir, "status.db"))
+	so := storeOptions(cfg)
+	// the move from the bbolt file, once: a database from before the SQL storage migrates in
+	// whole or not at all, and the old file stays beside as status.db.pre-sql
+	if migrated, err := store.Migrate(filepath.Join(cfg.DataDir, "status.db"), so); err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	} else if migrated {
+		log.Info("the bbolt database moved into " + so.Path + "; the old file is kept as status.db.pre-sql")
+	}
+	st, err := store.OpenWith(so)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
@@ -256,6 +273,30 @@ func serve(args []string, stderr io.Writer) int {
 		}
 		return out
 	})
+
+	// the audit log keeps what the retention says; the chain's checkpoints keep it verifiable
+	pruneAudit := func() {
+		if n, err := st.PruneAudit(cfg.Storage.Audit.Retention.D()); err != nil {
+			log.Warn("the audit log could not be pruned", "err", err)
+		} else if n > 0 {
+			log.Info("the audit log was pruned", "entries", n)
+		}
+	}
+	pruneAudit()
+	pruneStop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-pruneStop:
+				return
+			case <-t.C:
+				pruneAudit()
+			}
+		}
+	}()
+	defer close(pruneStop)
 
 	var br *bridge.Bridge
 	rcfg, err := routerConfig(cfg.Routing)

@@ -70,7 +70,7 @@ func TestCheckConfigDatabase(t *testing.T) {
 		t.Fatalf("no files, no database: %d %s %s", code, out, errs)
 	}
 
-	st, err := store.Open(filepath.Join(data, "status.db"))
+	st, err := store.Open(filepath.Join(data, "beacon.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestCheckConfigDatabase(t *testing.T) {
 		t.Fatalf("a database: %d %s %s", code, out, errs)
 	}
 
-	st, err = store.Open(filepath.Join(data, "status.db"))
+	st, err = store.Open(filepath.Join(data, "beacon.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +94,9 @@ func TestCheckConfigDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := check(); code != 1 || !strings.Contains(errs, "max_age must be at least 1m") {
-		t.Errorf("a database that fails its checks: %d %s", code, errs)
+	code, out, errs := check()
+	if code != 1 || !strings.Contains(errs, "max_age must be at least 1m") {
+		t.Errorf("a database that fails its checks: %d out=%q errs=%q", code, out, errs)
 	}
 }
 

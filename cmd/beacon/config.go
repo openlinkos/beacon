@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -101,11 +99,17 @@ func reloadOnHUP(ctx context.Context, ch <-chan os.Signal, cfg *config.Config, c
 }
 
 // checkDatabase validates the configuration in the database: through the running service when it
-// answers on its socket, else in the database file itself.
+// answers on its socket, else in the database file itself (read-only, so the service may be
+// running).
 func checkDatabase(cfg *config.Config) (string, error) {
-	path := filepath.Join(cfg.DataDir, "status.db")
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return "none yet at " + path + "; the service imports the files when it first starts", nil
+	dbPath := storagePath(cfg)
+	boltPath := filepath.Join(cfg.DataDir, "status.db")
+	dbThere, boltThere := fileThere(dbPath), fileThere(boltPath)
+	switch {
+	case !dbThere && !boltThere:
+		return "none yet at " + dbPath + "; the service imports the files when it first starts", nil
+	case !dbThere && boltThere:
+		return fmt.Sprintf("a bbolt database at %s; the service migrates it into %s when it next starts", boltPath, dbPath), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -119,22 +123,25 @@ func checkDatabase(cfg *config.Config) (string, error) {
 		}
 		return fmt.Sprintf("version %d in the running service: %s", s.Version, s.Summary) + warningLines(s.Warnings), nil
 	}
-	st, err := store.Open(path)
-	if errors.Is(err, store.ErrLocked) {
-		return "", fmt.Errorf("database %s is in use, and the service's admin socket does not answer", path)
-	}
+	st, err := store.OpenRead(dbPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("database %s: %w (it may have been left mid-write: start the service once, or stop it cleanly, and check again)", dbPath, err)
 	}
 	defer func() { _ = st.Close() }()
 	cdb := configdb.Open(configdb.Deps{Store: st})
 	if err := cdb.Check(); err != nil {
-		return "", fmt.Errorf("database %s, version %d: %w", path, cdb.Version(), err)
+		return "", fmt.Errorf("database %s, version %d: %w", dbPath, cdb.Version(), err)
 	}
 	if cdb.Version() == 0 {
 		return "no configuration yet; the service imports the files when it next starts", nil
 	}
 	return fmt.Sprintf("version %d: %s", cdb.Version(), cdb.Summary()) + warningLines(cdb.Warnings()), nil
+}
+
+// fileThere reports whether a file exists.
+func fileThere(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // warningLines are the warnings of a check or a change, one per line: what the configuration names that
