@@ -1,0 +1,16 @@
+# The one probe module the try environment needs, in the Blackbox Exporter's format (the reference
+# deployment's modules are in ../../targets/modules.yml). Plain http is allowed here: the demo service
+# has no TLS, being a container on the same compose network.
+modules:
+  http_get_200:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        Connection: close
+        User-Agent: Beacon-Probe/1.0 (+https://github.com/openlinkos/beacon)

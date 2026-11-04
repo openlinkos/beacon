@@ -1,0 +1,7 @@
+{"command":"wget -q -T 2 -O- http://127.0.0.1:8080/healthz; echo; ps -o pid,user,args | grep -E 'httpd|PID' | grep -v grep; start-web","term":{"cols":120,"rows":40,"type":"xterm-256color"},"timestamp":1793718471,"title":"demo-owner / try-agent on demo","version":3}
+[0.00249,"o","wget: can't connect to remote host (127.0.0.1): Connection refused\n"]
+[0.000188,"o","\n"]
+[0.000668,"o","PID   USER     COMMAND\n"]
+[0.00292,"o","the demo web server is started\n"]
+[0.00067,"o","{\"status\":\"ok\"}\n"]
+[0.000124,"x","0"]
