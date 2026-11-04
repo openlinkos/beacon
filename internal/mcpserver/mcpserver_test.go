@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -58,9 +59,10 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 // and how long to wait, instead of the bare "invalid token" a bad credential gets.
 func TestLockoutNamesTheWait(t *testing.T) {
 	e := testutil.New(t)
-	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
+	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store, Now: func() time.Time { return now }}, slog.Default()))
 	defer srv.Close()
-	post := func(token string) (int, string) {
+	post := func(token string) (int, string, string) {
 		t.Helper()
 		req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{}`))
 		if err != nil {
@@ -74,17 +76,17 @@ func TestLockoutNamesTheWait(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(b)
+		return resp.StatusCode, string(b), resp.Header.Get("Retry-After")
 	}
-	if code, body := post("lbt_wrong"); code != http.StatusUnauthorized || !strings.Contains(body, "invalid token") || strings.Contains(body, "try again in") {
-		t.Fatalf("one bad token: %d %s", code, body)
+	if code, body, retry := post("lbt_wrong"); code != http.StatusUnauthorized || !strings.Contains(body, "invalid token") || strings.Contains(body, "try again in") || retry != "" {
+		t.Fatalf("one bad token: %d Retry-After=%q %s", code, retry, body)
 	}
 	for range 19 {
 		post("lbt_wrong")
 	}
-	code, body := post(e.Token(t, "reader", "status:read"))
-	if code != http.StatusUnauthorized || !strings.Contains(body, "too many failed sign-ins from this address") || !strings.Contains(body, "try again in") {
-		t.Fatalf("lockout: %d %s", code, body)
+	code, body, retry := post(e.Token(t, "reader", "status:read"))
+	if code != http.StatusUnauthorized || !strings.Contains(body, "too many failed sign-ins from this address; try again in 10 minutes") || retry != "600" {
+		t.Fatalf("lockout: %d Retry-After=%q %s", code, retry, body)
 	}
 }
 

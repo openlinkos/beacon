@@ -92,8 +92,9 @@ func (s *Server) roleOptions(selected string) []option {
 	return out
 }
 
-// accountProblem says what went wrong with an account form, in the console's words.
-func (s *Server) accountProblem(err error) string {
+// accountProblem says what went wrong with an account form, in the console's words. kind is the link's,
+// so an expired setup link can say to run beacon setup: there is no owner yet to ask.
+func (s *Server) accountProblem(kind string, err error) string {
 	switch {
 	case errors.Is(err, store.ErrBadUsername):
 		return s.t("The username: use 2 to 32 lower-case letters, digits, dots, dashes and underscores, starting with a letter or a digit.")
@@ -112,6 +113,9 @@ func (s *Server) accountProblem(err error) string {
 	case errors.Is(err, store.ErrExists):
 		return s.t("Someone has this username; choose another.")
 	case errors.Is(err, store.ErrLinkExpired):
+		if kind == store.LinkSetup {
+			return s.t("This link has expired. Run beacon setup to make a new one.")
+		}
 		return s.t("This link has expired; ask an owner for a new one.")
 	case errors.Is(err, store.ErrBadLink):
 		return s.t("This link does not work: it was used already, or it is wrong. Ask an owner for a new one.")
@@ -180,7 +184,7 @@ func (s *Server) accountForm(w http.ResponseWriter, r *http.Request, status int,
 		err = store.ErrHasAccounts
 	}
 	if err != nil {
-		p.Broken, p.Error = true, s.accountProblem(err)
+		p.Broken, p.Error = true, s.accountProblem(kind, err)
 	}
 	switch kind {
 	case store.LinkSetup:
@@ -245,7 +249,7 @@ func (s *Server) accountFormPost(kind string) http.HandlerFunc {
 			if errors.Is(err, store.ErrBadLink) && s.Auth != nil {
 				s.Auth.Fail(r) // guessing codes counts like guessing tokens
 			}
-			s.accountForm(w, r, http.StatusBadRequest, kind, code, username, display, s.accountProblem(err))
+			s.accountForm(w, r, http.StatusBadRequest, kind, code, username, display, s.accountProblem(kind, err))
 			return
 		}
 		s.startSession(w, r, a, consolePath(""))

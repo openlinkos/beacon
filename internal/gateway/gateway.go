@@ -140,8 +140,9 @@ func (g *gateway) with(route string, scopes []string, h handler) http.Handler {
 			fail(rec, http.StatusUnauthorized, "auth.required", "send a bearer token")
 			return
 		}
-		if g.Auth.Blocked(r) {
-			fail(rec, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts; try again later")
+		if d, blocked := g.Auth.BlockedFor(r); blocked {
+			rec.Header().Set("Retry-After", api.RetryAfter(d))
+			fail(rec, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+api.WaitWords(d))
 			return
 		}
 		t, ok := g.Auth.Verify(r, secret)

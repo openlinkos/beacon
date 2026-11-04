@@ -614,8 +614,6 @@ func clientID(r *http.Request) string {
 	return ""
 }
 
-func (s *Server) blocked(r *http.Request) bool { return s.Auth != nil && s.Auth.Blocked(r) }
-
 func (s *Server) fail(r *http.Request) {
 	if s.Auth != nil {
 		s.Auth.Fail(r)
@@ -623,9 +621,14 @@ func (s *Server) fail(r *http.Request) {
 }
 
 func (s *Server) token(w http.ResponseWriter, r *http.Request) {
-	if s.blocked(r) {
-		oauthError(w, http.StatusTooManyRequests, "too_many_requests", "too many failed attempts from here; try again later")
-		return
+	// too_many_requests is the OAuth error code (RFC 6749). The description and Retry-After are the
+	// REST lockout's, so a client reads one wait wherever it was refused.
+	if s.Auth != nil {
+		if d, blocked := s.Auth.BlockedFor(r); blocked {
+			w.Header().Set("Retry-After", api.RetryAfter(d))
+			oauthError(w, http.StatusTooManyRequests, "too_many_requests", "too many failed attempts from this address; try again in "+api.WaitWords(d))
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := r.ParseForm(); err != nil {

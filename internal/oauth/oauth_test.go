@@ -439,6 +439,42 @@ func register(t *testing.T, b *beacon, body string) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
+// TestTokenLockoutNamesTheWait checks the token endpoint names the wait and sets Retry-After, and keeps
+// the OAuth error code too_many_requests.
+func TestTokenLockoutNamesTheWait(t *testing.T) {
+	e := testutil.New(t)
+	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	o := &oauth.Server{Store: e.Store, Auth: &api.Auth{Store: e.Store, Now: func() time.Time { return now }}, PublicURL: "https://beacon.example.com", Log: slog.Default()}
+	mux := http.NewServeMux()
+	o.Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	post := func() (int, string, string) {
+		t.Helper()
+		res, err := http.PostForm(srv.URL+"/oauth/token", url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"nope"}, "client_id": {"lbc_test"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		b, _ := io.ReadAll(res.Body)
+		var out map[string]any
+		_ = json.Unmarshal(b, &out)
+		desc, _ := out["error_description"].(string)
+		errCode, _ := out["error"].(string)
+		return res.StatusCode, errCode + " " + desc, res.Header.Get("Retry-After")
+	}
+	if code, body, retry := post(); code != http.StatusBadRequest || !strings.Contains(body, "invalid_grant") || retry != "" {
+		t.Fatalf("one bad refresh: %d Retry-After=%q %s", code, retry, body)
+	}
+	for range 19 {
+		post()
+	}
+	code, body, retry := post()
+	if code != http.StatusTooManyRequests || !strings.Contains(body, "too_many_requests") || !strings.Contains(body, "too many failed attempts from this address; try again in 10 minutes") || retry != "600" {
+		t.Fatalf("lockout: %d Retry-After=%q %s", code, retry, body)
+	}
+}
+
 func token(t *testing.T, b *beacon, form url.Values) (int, map[string]any) {
 	t.Helper()
 	res, err := http.PostForm(b.url+"/oauth/token", form)

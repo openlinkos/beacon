@@ -117,8 +117,8 @@ func WaitWords(d time.Duration) string {
 	return strconv.Itoa(minutes) + " minutes"
 }
 
-// retryAfter is a lockout's wait in whole seconds, for the header of the same name.
-func retryAfter(d time.Duration) string {
+// RetryAfter is a lockout's wait in whole seconds, rounded up, for the Retry-After header.
+func RetryAfter(d time.Duration) string {
 	return strconv.Itoa(int((d + time.Second - 1) / time.Second))
 }
 
@@ -318,7 +318,7 @@ func (s *Server) with(scope string, h handler) http.Handler {
 func (s *Server) withPrincipal(scope string, h func(w http.ResponseWriter, r *http.Request, p store.Principal)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if d, blocked := s.Auth.BlockedFor(r); blocked {
-			w.Header().Set("Retry-After", retryAfter(d))
+			w.Header().Set("Retry-After", RetryAfter(d))
 			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+WaitWords(d))
 			return
 		}
