@@ -77,19 +77,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 
 ## Connect with your own ssh, scp and rsync
 
-`list_machines` (MCP) or `GET /api/v1/machines` returns the machines, whether the agent reaches each, an `ssh_config` block and a `known_hosts` line. Put the block in `~/.ssh/config` and the line in `~/.ssh/known_hosts`:
-
-```
-Host edge-1
-  HostName ssh.example.com
-  Port 17002
-  User edge-1
-  HostKeyAlias beacon
-```
-
-Then `ssh edge-1 'systemctl status relay'`, `scp`, `sftp`, `rsync -e ssh` and `ssh -L` work as usual. The user name tells Beacon which machine; on the machine, the session runs as `beacon`. `HostKeyAlias beacon` makes ssh check Beacon's own host key, the same for every machine; Beacon checks each machine's pinned key itself.
-
-When the channel refuses, the agent's ssh prints why and exits with 1, such as `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`. [Troubleshooting](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists the messages and what to do about each.
+`list_machines` returns an `ssh_config` block and a `known_hosts` line for the agent's own ssh, scp, sftp and rsync, with `ssh -L` port forwarding: how to put them in place, and what the agent's ssh says when the channel refuses, is in [Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 
 ## The MCP tools
 
