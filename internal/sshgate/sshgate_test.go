@@ -319,10 +319,16 @@ func TestExec(t *testing.T) {
 	if !strings.Contains(ids, "for claude-code via ssh") {
 		t.Errorf("certificate key ids %q", ids)
 	}
+	// finish writes the record, then the audit entry, then queues the echo, and waitSessions above
+	// returns at the record; flushing once races the echo. Flush until the chat has heard the
+	// session, which by that order also means the audit entry is in.
+	waitFor(t, "the echo of the session", func() bool {
+		e.g.echo.flush(context.Background(), true)
+		return strings.Contains(e.bot.all(), "(exit 3)")
+	})
 	if a := e.st.AuditLog(5); len(a) == 0 || a[0].Action != "ssh_exec" || a[0].Target != "box" {
 		t.Errorf("audit %+v", a)
 	}
-	e.g.echo.flush(context.Background(), true)
 	if got := e.bot.all(); !strings.Contains(got, "claude-code on box:") || !strings.Contains(got, "(exit 3)") {
 		t.Errorf("echo %q", got)
 	}
