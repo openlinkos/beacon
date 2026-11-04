@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" role="img" aria-label="The one call that hands the agent the evidence">
+  <rect x="0.5" y="0.5" width="639" height="239" rx="10" fill="#0f172a" stroke="#334155"/>
+  <text x="28" y="40" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">get_evidence</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">
+    <text x="28" y="82" fill="#e2e8f0"><tspan fill="#34d399" font-weight="600">$</tspan> get_evidence demo-web is down</text>
+    <text x="28" y="126" fill="#e2e8f0">probes    edge-1  connect</text>
+    <text x="28" y="152" fill="#e2e8f0">related   none in this failure domain</text>
+    <text x="28" y="178" fill="#e2e8f0">changes   none</text>
+    <text x="28" y="204" fill="#e2e8f0">done      nothing yet</text>
+  </g>
+</svg>

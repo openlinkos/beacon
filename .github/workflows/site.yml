@@ -69,6 +69,12 @@ jobs:
           s=http://localhost:8080
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
           curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
+          curl -fsS "$s/" | grep 'beacon/deploy/try' >/dev/null
+          curl -fsS "$s/" | grep 'One outage, end to end' >/dev/null
+          # The Chinese title lives on the page. This file stays in English (TestNoChinese).
+          title=$(sed -n 's/^title: //p' docs/zh/index.md | head -n 1)
+          test -n "$title"
+          curl -fsS "$s/zh/" | grep -F "$title" >/dev/null
           curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
           curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
           curl -fsS "$s/self-hosting/install" | grep 'On a server' >/dev/null
