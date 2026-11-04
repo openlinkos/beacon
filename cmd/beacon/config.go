@@ -104,12 +104,16 @@ func reloadOnHUP(ctx context.Context, ch <-chan os.Signal, cfg *config.Config, c
 func checkDatabase(cfg *config.Config) (string, error) {
 	dbPath := storagePath(cfg)
 	boltPath := filepath.Join(cfg.DataDir, "status.db")
-	dbThere, boltThere := fileThere(dbPath), fileThere(boltPath)
-	switch {
-	case !dbThere && !boltThere:
-		return "none yet at " + dbPath + "; the service imports the files when it first starts", nil
-	case !dbThere && boltThere:
-		return fmt.Sprintf("a bbolt database at %s; the service migrates it into %s when it next starts", boltPath, dbPath), nil
+	if cfg.Storage.Driver == "postgres" {
+		dbPath = "postgres (" + cfg.Storage.DSNFile + ")"
+	} else {
+		dbThere, boltThere := fileThere(dbPath), fileThere(boltPath)
+		switch {
+		case !dbThere && !boltThere:
+			return "none yet at " + dbPath + "; the service imports the files when it first starts", nil
+		case !dbThere && boltThere:
+			return fmt.Sprintf("a bbolt database at %s; the service migrates it into %s when it next starts", boltPath, dbPath), nil
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -123,7 +127,7 @@ func checkDatabase(cfg *config.Config) (string, error) {
 		}
 		return fmt.Sprintf("version %d in the running service: %s", s.Version, s.Summary) + warningLines(s.Warnings), nil
 	}
-	st, err := store.OpenRead(dbPath)
+	st, err := store.OpenReadWith(storeOptions(cfg))
 	if err != nil {
 		return "", fmt.Errorf("database %s: %w (it may have been left mid-write: start the service once, or stop it cleanly, and check again)", dbPath, err)
 	}

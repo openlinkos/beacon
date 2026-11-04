@@ -47,6 +47,7 @@ import (
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/gateway"
+	"github.com/openlinkos/beacon/internal/ha"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/inventory"
 	"github.com/openlinkos/beacon/internal/mcpserver"
@@ -394,21 +395,51 @@ func serve(args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go reloadOnHUP(ctx, hup, cfg, cdb, log)
+
+	// The leader lease of a primary/standby pair (PostgreSQL): one instance holds the Feishu long
+	// connection, the alert routing and the escalation loops, and answers /healthz with 200; the
+	// other waits, and takes over when the lease expires. What the pair shares is in the database
+	// (and, for recordings, in S3-compatible storage); a loop restarts from it as after a restart.
+	var lease *ha.Lease
+	single := func(fn func(context.Context)) {
+		go fn(ctx)
+	}
+	if cfg.HA.Enabled {
+		pool, err := ha.OpenPool(sec.StorageDSN)
+		if err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+		defer func() { _ = pool.Close() }()
+		if lease, err = ha.Open(pool, ha.Options{Name: cfg.HA.Name, Renew: cfg.HA.Renew.D(), Expire: cfg.HA.Expire.D(), Log: log}); err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+		go lease.Run(ctx)
+		single = func(fn func(context.Context)) {
+			go ha.Single(ctx, lease, fn)
+		}
+		sd.Standby = func() bool { return !lease.Leader() }
+		log.Info("high availability on: this instance answers /healthz with 503 until it holds the leader lease",
+			"lease", cfg.HA.Name, "renew", cfg.HA.Renew.String(), "expire", cfg.HA.Expire.String())
+	}
 	if listener != nil {
-		go func() {
-			if err := listener.Run(ctx); err != nil {
+		single(func(lctx context.Context) {
+			if err := listener.Run(lctx); err != nil && lctx.Err() == nil {
 				log.Error("feishu long connection stopped", "err", err)
 			}
-		}()
+		})
 	}
 	var ping func(context.Context, bool) error
 	if sec.HealthchecksBridgeURL != "" {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
-	go br.Run(ctx, ping)
+	single(func(lctx context.Context) { br.Run(lctx, ping) })
 	go pagesOut.Run(ctx)
-	rt.Restore(st.Groups())
-	go rt.Run(ctx)
+	single(func(lctx context.Context) {
+		rt.Restore(st.Groups())
+		rt.Run(lctx)
+	})
 	inv := &inventory.Checker{Catalog: cdb.Catalog}
 	inv.Register(m)
 	go inv.Run(ctx)

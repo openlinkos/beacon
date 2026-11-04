@@ -8,8 +8,12 @@ data_dir: /var/lib/beacon                   # the SQL database (beacon.db), reco
 # status.db.pre-sql to roll back to (what changed after the migration is not in it). A WAL database
 # is one file plus its -wal and -shm side files and cannot live on a network file system.
 storage:
-  driver: sqlite                            # sqlite today; postgres arrives with a later release
-  # path: /var/lib/beacon/beacon.db         # default: <data_dir>/beacon.db
+  driver: sqlite                            # sqlite (one file, no services) or postgres
+  # path: /var/lib/beacon/beacon.db         # sqlite: default <data_dir>/beacon.db
+  # dsn_file: /etc/beacon/secrets/postgres-dsn   # postgres: a file holding the connection string, e.g.
+  #   postgres://beacon@db.example.com:5432/beacon?sslmode=require — the password, if any, is in the
+  #   file too; never in this YAML. `beacon storage migrate --to postgres` copies a SQLite database
+  #   into it in one transaction, with the counts checked
   audit:
     checkpoint_interval: 24h                # how often the audit log's hash chain gets a signed checkpoint
     retention: 8760h                        # how long audit entries are kept (365 days)
@@ -17,6 +21,20 @@ storage:
     journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
     synchronous: full                       # full (recommended: every commit is on the disk first), normal or off
     busy_timeout: 15s
+  postgres:
+    pool_size: 4                            # read connections; writes take one connection of their own
+    statement_timeout: 15s                  # bounds a statement that hangs before it holds the writer
+# High availability: a primary and a standby over one PostgreSQL database, one active at a time.
+# The primary renews a lease in the database; when it stops, the standby takes the lease within
+# ha.expire and /healthz answers 200 again — before that it answers 503, so the load balancer or
+# the VIP in front sends traffic to the primary alone. Recordings shared by the pair
+# (ssh.recordings: s3) and the state in the database make the switch complete. On SQLite this is
+# refused: the file belongs to one process.
+# ha:
+#   enabled: true
+#   name: beacon                            # the lease's name; both instances name the same
+#   renew: 5s                               # how often the primary renews
+#   expire: 15s                             # how long the lease lasts; the switch takes about this
 # The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.
@@ -81,6 +99,14 @@ ssh:
   ca_key_file: /etc/beacon/secrets/ssh-ca-key       # signs a certificate for every connection to a machine
   # source_addresses: [203.0.113.7/32]      # certificates then work only from Beacon's own addresses
   keep: 4320h                               # sessions and their recordings are kept 180 days
+  # recordings: s3                          # dir (the default, under data_dir) or an S3-compatible bucket
+  #                                          # both machines of an HA pair read and write; needed there
+  # recordings_s3:
+  #   endpoint: https://s3.example.com       # or http://10.0.0.5:9000 for MinIO on a private network
+  #   region: us-east-1
+  #   bucket: beacon-recordings
+  #   access_key_id_file: /etc/beacon/secrets/s3-access-key-id
+  #   secret_access_key_file: /etc/beacon/secrets/s3-secret-access-key
 
 links:
   # {service} and {alertname} are filled in; an alert's own runbook/dashboard annotation wins.
