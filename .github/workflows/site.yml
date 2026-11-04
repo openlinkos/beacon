@@ -69,6 +69,9 @@ jobs:
           s=http://localhost:8080
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
           curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
+          curl -fsS "$s/" | grep 'beacon/deploy/try' >/dev/null
+          curl -fsS "$s/" | grep 'One outage, end to end' >/dev/null
+          curl -fsS "$s/zh/" | grep '让你的 AI Agent 值班' >/dev/null
           curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
           curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
           curl -fsS "$s/self-hosting/install" | grep 'On a server' >/dev/null
