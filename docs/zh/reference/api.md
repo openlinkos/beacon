@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-67e48a53
+sourceHash: sha256-1d4e7743
 ---
 
 # REST API
@@ -234,6 +234,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `auth.too_many_failures` | 429 | 这个地址失败次数太多；消息里写明还要等多久，响应带 `Retry-After` |
 | `bad_input` | 400、415 | 请求不符合这个接口的要求：不是 JSON、有不认识的字段、值超出范围。消息里写明是哪一处 |
 | `upstream` | 502、503 | Beacon 依赖的东西没有回应（VictoriaMetrics、存储），或者这个 Beacon 不接收这类请求 |
+| `audit.unavailable` | 500 | 审计日志读不了 |
 | `alert.not_found` | 404 | 没有这个 id 的告警组 |
 | `alert.not_firing` | 409 | 告警组不在触发中，不能认领或静默 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |

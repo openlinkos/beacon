@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f9c8780a
+sourceHash: sha256-d7ab3bef
 ---
 
 # 命令行
@@ -28,6 +28,8 @@ docker exec beacon beacon token list
 | `enroll` | 机器的网关令牌：[probe、host 或 heartbeat](#beacon-enroll-silence-drill) |
 | `silence` | 静默：[create、list、expire](#beacon-enroll-silence-drill) |
 | `drill` | 演练一次故障：[fail、off、status](#beacon-enroll-silence-drill) |
+| `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
+| `storage` | 数据库的健康检查：[check](#beacon-audit-storage) |
 | `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
 | `version` | 版本、提交和构建 |
 | `help` | 完整用法，含角色、预设和 scope |
@@ -121,6 +123,15 @@ docker exec beacon beacon token list
 | `create` | `-matchers`、`-alert`、`-duration`、`-comment` | 不再通知带指定标签的告警：`-matchers` 写成 `alertname=X,service=Y`，或 `-alert` 给告警组的 id。`-duration`（至多 24h）和 `-comment` 必填 |
 | `list` | | 生效和待生效的静默，先结束的在前 |
 | `expire` ID | | 立即结束一条静默，它盖住的告警恢复通知 |
+
+### beacon audit、storage {#beacon-audit-storage}
+
+**`beacon audit`** 与 **`beacon storage`** 直接读数据库文件，不需要服务，也不加锁，服务运行时也能用。都接受 `-config`：
+
+| 子命令 | 参数 | 作用 |
+| --- | --- | --- |
+| `audit verify` | `-from-seq` | 校验审计日志的哈希链——从覆盖 `-from-seq` 的检查点起，或校验现存的全部——链在哪里断就报哪里（退出码 1），否则报告校验了多少条 |
+| `storage check` | | 数据库的健康：SQLite 自身的一致性检查、每个桶各存了多少、审计链的校验 |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：
 

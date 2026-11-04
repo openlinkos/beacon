@@ -24,6 +24,8 @@ docker exec beacon beacon token list
 | `enroll` | A machine's gateway token: [probe, host or heartbeat](#beacon-enroll-silence-drill) |
 | `silence` | Silences: [create, list, expire](#beacon-enroll-silence-drill) |
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
+| `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
+| `storage` | The database's health: [check](#beacon-audit-storage) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
 | `help` | The whole usage, with the roles, presets and scopes |
@@ -117,6 +119,15 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | `create` | `-matchers`, `-alert`, `-duration`, `-comment` | Stop notifying alerts that carry the given labels: `-matchers` as `alertname=X,service=Y`, or `-alert` with an alert group's id. `-duration` (at most 24h) and `-comment` are required |
 | `list` | | Silences active and pending, ending soonest first |
 | `expire` ID | | End a silence now, so the alerts it covered notify again |
+
+### beacon audit, storage
+
+**`beacon audit`** and **`beacon storage`** read the database itself, without the service and without locking it, so they work while it runs. Both take `-config`:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
+| `storage check` | | The database's health: SQLite's own integrity check, what each bucket holds, and the audit chain's verification |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 

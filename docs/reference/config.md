@@ -20,6 +20,13 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `trusted_proxies` | list of addresses or CIDR ranges | — | The proxy in front, as the service sees it, so the API knows real client addresses |
 | `language` | `zh` or `en` | `zh` | The language of cards and chat messages |
 | `timezone` | time zone | `Asia/Shanghai` | Times on cards; the days of the status pages' history begin at midnight here |
+| `storage.driver` | `sqlite` | `sqlite` | The database's driver. PostgreSQL arrives with a later release |
+| `storage.path` | path | `<data_dir>/beacon.db` | The database file. A first start with an old bbolt file (`status.db`) beside it migrates that file into the database in one transaction; the old file stays as `status.db.pre-sql` to roll back with |
+| `storage.audit.checkpoint_interval` | duration | `24h` | How often the audit log's hash chain gets a signed checkpoint |
+| `storage.audit.retention` | duration | `8760h` | How long audit entries are kept (365 days); the chain stays verifiable after pruning |
+| `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite's journal mode. A WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system |
+| `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
+| `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
 
 ## Rules and routing
 

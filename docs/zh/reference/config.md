@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-542008fa
+sourceHash: sha256-c111d2e3
 ---
 
 # config.yaml
@@ -24,6 +24,13 @@ sourceHash: sha256-542008fa
 | `trusted_proxies` | 地址或 CIDR 段列表 | — | 前面的反向代理（服务眼中的地址），让 API 看到真实客户端地址 |
 | `language` | `zh` 或 `en` | `zh` | 卡片和聊天消息的语言 |
 | `timezone` | 时区 | `Asia/Shanghai` | 卡片上的时间；状态页历史的每一天从这里的午夜开始 |
+| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动。PostgreSQL 在后续版本提供 |
+| `storage.path` | 路径 | `<data_dir>/beacon.db` | 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
+| `storage.audit.checkpoint_interval` | 时长 | `24h` | 审计日志的哈希链多久生成一个签名检查点 |
+| `storage.audit.retention` | 时长 | `8760h` | 审计记录保留多久（365 天）；剪除旧记录后链仍可校验 |
+| `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
+| `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
+| `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
 
 ## 规则与路由 {#rules-and-routing}
 

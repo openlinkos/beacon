@@ -480,7 +480,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
 	}
 	entries, total, err := s.Bridge.AuditQuery(f)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "unavailable", "the audit log cannot be read")
+		writeError(w, http.StatusInternalServerError, "audit.unavailable", "the audit log cannot be read")
 		return
 	}
 	if entries == nil {
