@@ -71,7 +71,8 @@ jobs:
           curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
           curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
           curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
-          curl -fsS "$s/self-hosting/install" | grep 'Up in 30 minutes' >/dev/null
+          curl -fsS "$s/self-hosting/install" | grep 'On a server' >/dev/null
+          curl -fsS "$s/guide/quickstart" | grep 'Try it on your laptop' >/dev/null
           curl -fsS "$s/reference/api" | grep 'auth.scope' >/dev/null
           curl -fsS "$s/reference/mcp" | grep 'probe_now' >/dev/null
           curl -fsS "$s/changelog" | grep 'Changelog' >/dev/null
