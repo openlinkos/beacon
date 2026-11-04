@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d7ab3bef
+sourceHash: sha256-3fce4198
 ---
 
 # 命令行
@@ -44,6 +44,18 @@ docker exec beacon beacon token list
 | `export` DIR | | 把配置按同样布局写到该目录，并删除配置里已不存在的文件 |
 | `history` | `-limit` | 变更列表：版本、时间、谁、途径、动作、备注。`-limit`（默认 20）定条数 |
 | `revert` VERSION | `-note` | 回到 `history` 里的某个版本 |
+
+### beacon settings
+
+`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。
+
+| 子命令 | 参数 | 作用 |
+| --- | --- | --- |
+| `get` [KEY] | | 全部设置项的值、默认值、覆盖层级与谁改的，随后是其他作用域的覆盖；带 KEY 时只看这一项及其生效情况 |
+| `set` KEY VALUE | `-scope`、`-target`、`-reason` | 修改一个设置项。`-reason` 写明原因，随修改保存并显示在告警群；`-scope`（默认 `system`）与 `-target` 把值放到库、标签、资格或申请上 |
+| `reset` KEY | `-scope`、`-target`、`-reason` | 去掉这层覆盖，由上一级（或默认值）重新生效 |
+| `history` | `-limit` | 修改历史：版本、时间、谁、途径、动作、设置项、备注 |
+| `revert` VERSION | `-note` | 回到 `history` 里的一个版本 |
 
 ### beacon setup, user, agent
 
