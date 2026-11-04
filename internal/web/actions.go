@@ -46,7 +46,7 @@ func problemCode(err error) string {
 }
 
 // problem is what a problem's code says.
-func (s *Server) problem(code string) string {
+func (s *Server) problem(r *http.Request, code string) string {
 	switch code {
 	case "":
 		return ""
@@ -81,6 +81,11 @@ func (s *Server) problem(code string) string {
 	case "differ":
 		return s.t("The passwords differ.")
 	case "blocked":
+		if s.Auth != nil {
+			if d, ok := s.Auth.BlockedFor(r); ok {
+				return s.lockedOutFromHere(d)
+			}
+		}
 		return s.t("Too many failed sign-ins from here; try again in a few minutes.")
 	case "password_short":
 		return s.t("The password is shorter than 10 characters.")
