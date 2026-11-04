@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f3a779d6
+sourceHash: sha256-cf9e2664
 layout: home
 title: 让你的 AI Agent 值班
 ---
@@ -20,7 +20,7 @@ title: 让你的 AI Agent 值班
 
 ## 一次故障，从头到尾 {#one-outage}
 
-上面的录像就是试用环境在你机器上跑的那个闭环：你弄坏演示服务，告警、修复、复测和回放随之而来。下面五步是同一个闭环；凌晨三点，它们在没人盯着的时候照常运转。
+上面的录像就是试用环境在你机器上跑的那个闭环：你弄坏演示服务，告警、修复、复测和回放随之而来。下面五步是同一个闭环；每步旁边的小面板是那一步返回的东西，最后两步是控制台自己的页面。凌晨三点，它们在没人盯着的时候照常运转。
 
 <OlSteps :steps="[
   { title: '多个检测点同时看到故障', text: '一个不到 20 MB 的检测程序装在任何小机器上，按用户访问的路径检测每个服务，并记下每次失败的原因。多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。', media: '/landing/step-probes.svg', alt: '一项服务出故障时产生的证据：服务、目标、检测点和原因' },
@@ -46,7 +46,7 @@ title: 让你的 AI Agent 值班
 
 ## 接入 {#works-with}
 
-Claude Code、Codex 在浏览器里经 MCP 的 OAuth 登录，任何 MCP 客户端指向 `/mcp` 即可，无头 Agent 由 CI 里一条签名的 webhook 叫醒。
+Claude Code、Codex 在浏览器里经 MCP 的 OAuth 登录，任何 MCP 客户端指向 `/mcp` 即可，无界面 Agent 由 CI 里一条签名的 webhook 叫醒。
 
 <OlLogos label="Agent 客户端与唤醒方式" :items="[
   { name: 'Claude Code', href: '/zh/integrations/claude-code' },
@@ -79,4 +79,4 @@ sudo ./install.sh
 
 ## 正在运行 {#running-now}
 
-做 Beacon 的人自己的运维就跑在 Beacon 上。LinkOS 服务的公开状态页 [status.linkos.io](https://status.linkos.io) 由 Beacon 提供：每项服务的状态、90 天的历史和事件记录，和你的用户将读到的页面一样。
+做 Beacon 的人自己的运维就跑在 Beacon 上。LinkOS 服务的公开状态页 [status.linkos.io](https://status.linkos.io) 由 Beacon 提供：每项服务的状态、90 天的历史和事件记录，和你的用户读到的页面一样。

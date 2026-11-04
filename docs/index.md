@@ -11,7 +11,7 @@ title: Put your AI agent on call
     <a class="ghost" href="/guide/concepts">How it works</a>
     <a class="ghost" href="https://github.com/openlinkos/beacon">GitHub</a>
   </template>
-  <template #meta>Ten minutes, one command, Docker on this machine — no domain, no certificate, no cloud account.</template>
+  <template #meta>Ten minutes, one command, Docker on this machine — no domain or certificate, and no cloud account.</template>
   <template #media>
     <OlCast src="/media/agent-repairs-demo-web.cast" player="/landing/asciinema-player.min.js" player-css="/landing/asciinema-player.css" poster="/landing/cast-poster.svg" alt="A terminal where an agent repairs the demo web server: the health check is refused, the agent runs start-web, and the health check answers ok" caption="Recorded in the try environment: an agent repairs the demo service through the SSH channel, with the tools it already knows." />
   </template>
@@ -19,7 +19,7 @@ title: Put your AI agent on call
 
 ## One outage, end to end {#one-outage}
 
-The recording above is the loop the try environment runs on your machine: you break the demo service, and the alert, the repair, the check and the replay follow. The five steps below are the same loop; at 3 a.m. they run with nobody watching.
+The recording above is the loop the try environment runs on your machine: you break the demo service, and the alert, the repair, the check and the replay follow. The five steps below are the same loop; each panel beside a step is what that step returns, and the last two are the console’s own pages. At 3 a.m. they run with nobody watching.
 
 <OlSteps :steps="[
   { title: 'Several locations see it fail', text: 'A probe of under 20 MB runs on any small machine and checks each service the way its users reach it, recording why a check fails. A service is down only when several locations agree, so one flaky location wakes nobody.', media: '/landing/step-probes.svg', alt: 'The evidence a failing service produces: the service, the target, the location and the reason' },
