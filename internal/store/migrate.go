@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/events"
@@ -28,9 +30,10 @@ import (
 // a failed migration was filling is removed, so the next start tries again.
 var ErrMigrating = errors.New("the migration did not complete")
 
-// Migrate copies the bbolt database at boltPath into the SQL database o names, when there is a
-// bbolt file to copy and the SQL database holds nothing yet. It reports whether it migrated; a
-// missing bbolt file or a database with anything in it is no error, simply nothing to do.
+// Migrate copies the bbolt database at boltPath into the SQL database o names (SQLite or
+// PostgreSQL, whichever the options' driver says), when there is a bbolt file to copy and the SQL
+// database holds nothing yet. It reports whether it migrated; a missing bbolt file or a database
+// with anything in it is no error, simply nothing to do.
 func Migrate(boltPath string, o Options) (bool, error) {
 	if _, err := os.Stat(boltPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -38,19 +41,19 @@ func Migrate(boltPath string, o Options) (bool, error) {
 		}
 		return false, err
 	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous})
+	db, dialect, err := openKV(o)
 	if err != nil {
 		return false, err
 	}
 	// the event tables first: the emptiness check reads them
 	audit, err := events.Open(db.Handle(), db.WriteHandle(), "audit_events",
-		events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now})
+		events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now})
 	if err != nil {
 		_ = db.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
 	if _, err := events.Open(db.Handle(), db.WriteHandle(), "secret_uses",
-		events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now}); err != nil {
+		events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now}); err != nil {
 		_ = db.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
@@ -67,10 +70,12 @@ func Migrate(boltPath string, o Options) (bool, error) {
 	defer func() {
 		if !done {
 			_ = db.Close()
-			_ = os.Remove(o.Path) // a failed migration leaves no half-moved database behind
-			_ = os.Remove(o.Path + "-wal")
-			_ = os.Remove(o.Path + "-shm")
-			_ = os.Remove(o.Path + ".lock")
+			if o.isSQLite() { // a failed migration leaves no half-moved database behind
+				_ = os.Remove(o.Path)
+				_ = os.Remove(o.Path + "-wal")
+				_ = os.Remove(o.Path + "-shm")
+				_ = os.Remove(o.Path + ".lock")
+			}
 			_ = os.Remove(boltPath + ".pre-sql")
 		}
 	}()
@@ -115,9 +120,34 @@ func Migrate(boltPath string, o Options) (bool, error) {
 	return true, nil
 }
 
+// isSQLite says whether the options open a SQLite database (the default).
+func (o Options) isSQLite() bool {
+	return strings.TrimSpace(strings.ToLower(o.Driver)) == "" || strings.EqualFold(strings.TrimSpace(o.Driver), "sqlite")
+}
+
+// openKV opens the key-value database the options name, without the store on top, with the
+// dialect the event tables are written for.
+func openKV(o Options) (kv.SQL, events.Dialect, error) {
+	if o.isSQLite() {
+		if o.Path == "" {
+			return nil, 0, errors.New("no database path")
+		}
+		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
+			return nil, 0, err
+		}
+		db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous})
+		return db, events.SQLite, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(o.Driver), "postgres") {
+		return nil, 0, fmt.Errorf("storage driver %q: sqlite or postgres", o.Driver)
+	}
+	db, err := kv.OpenPostgres(kv.PostgresOptions{DSN: o.DSN, PoolSize: o.PoolSize, StatementTimeout: o.StatementTimeout})
+	return db, events.PostgreSQL, err
+}
+
 // nothingIn reports whether the SQL database holds nothing of Beacon's: no key-value pairs, no
 // events, no checkpoints.
-func nothingIn(db *kv.SQLite) (bool, error) {
+func nothingIn(db kv.SQL) (bool, error) {
 	var n int
 	if err := db.Handle().QueryRowContext(context.Background(), `SELECT
 		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)

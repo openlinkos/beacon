@@ -11,6 +11,7 @@ package store
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/hex"
@@ -173,23 +174,35 @@ type AuditEntry struct {
 
 // Store is the state in the SQL database.
 type Store struct {
-	db    *kv.SQLite
-	audit *events.Log
-	uses  *events.Log
-	now   func() time.Time
+	db      kv.SQL
+	audit   *events.Log
+	uses    *events.Log
+	now     func() time.Time
+	dialect events.Dialect
 
 	mu     sync.RWMutex
 	tokens map[string]Token // by hash
 }
 
-// Options is how the database is opened. The zero options beside Path are the plan's defaults:
-// WAL, synchronous FULL, checkpoints every 24 hours.
+// Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
+// are the plan's defaults: WAL, synchronous FULL, checkpoints every 24 hours, a read pool of four
+// PostgreSQL connections and a 15s statement timeout.
 type Options struct {
-	// Path is the database file.
+	// Driver is "sqlite" (the default) or "postgres".
+	Driver string
+	// Path is the SQLite database file.
 	Path string
 	// JournalMode and Synchronous are SQLite's pragmas; the defaults (WAL, FULL) are what a
 	// deployment should keep.
 	JournalMode, Synchronous string
+	// DSN is the PostgreSQL connection string, read from the file the configuration names
+	// (storage.dsn_file); it never appears in logs or errors.
+	DSN string
+	// PoolSize is the PostgreSQL read pool's size; writes take one connection of their own. 4 by
+	// default.
+	PoolSize int
+	// StatementTimeout bounds each PostgreSQL statement; 15s by default, zero turns it off.
+	StatementTimeout time.Duration
 	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
 	CheckpointInterval time.Duration
 	// SignKey signs the checkpoints (nil: one is generated and kept in the database; the key
@@ -197,32 +210,96 @@ type Options struct {
 	SignKey []byte
 }
 
-// Open opens or creates the database at path; it fails with ErrLocked when another process holds
-// it.
+// Open opens or creates the SQLite database at path; it fails with ErrLocked when another process
+// holds it.
 func Open(path string) (*Store, error) {
 	return OpenWith(Options{Path: path})
 }
 
-// OpenWith is Open with the options named.
+// OpenWith opens or creates the database the options name: SQLite at Path (the default) or
+// PostgreSQL at DSN.
 func OpenWith(o Options) (*Store, error) {
-	if o.Path == "" {
-		return nil, errors.New("no database path")
-	}
-	if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
-		return nil, err
-	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous})
+	s, db, err := openBackend(o, false)
 	if err != nil {
-		if errors.Is(err, kv.ErrLocked) {
-			return nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
-		}
-		return nil, fmt.Errorf("open %s: %w", o.Path, err)
-	}
-	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	if err := s.openLogs(o); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
+	if err := s.load(db, o); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenRead opens the database for reading only (the CLI's checks while the service runs); it
+// fails when the file is not there, and every write fails. With PostgreSQL there is no file to
+// hold: the database simply opens without its write pool.
+func OpenRead(path string) (*Store, error) {
+	return OpenReadWith(Options{Path: path})
+}
+
+// OpenReadWith is OpenRead with the options named.
+func OpenReadWith(o Options) (*Store, error) {
+	s, db, err := openBackend(o, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.load(db, o); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// openBackend opens the database the options name and the store that will sit on it, with its
+// event logs open (read-only logs read the tables the service made).
+func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
+	var db kv.SQL
+	var dialect events.Dialect
+	switch strings.ToLower(strings.TrimSpace(o.Driver)) {
+	case "", "sqlite":
+		if o.Path == "" {
+			return nil, nil, errors.New("no database path")
+		}
+		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
+			return nil, nil, err
+		}
+		sq, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, ReadOnly: ro})
+		if err != nil {
+			if errors.Is(err, kv.ErrLocked) {
+				return nil, nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
+			}
+			return nil, nil, fmt.Errorf("open %s: %w", o.Path, err)
+		}
+		db, dialect = sq, events.SQLite
+	case "postgres":
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: o.DSN, PoolSize: o.PoolSize, StatementTimeout: o.StatementTimeout, ReadOnly: ro})
+		if err != nil {
+			return nil, nil, err
+		}
+		db, dialect = pg, events.PostgreSQL
+	default:
+		return nil, nil, fmt.Errorf("storage driver %q: sqlite or postgres", o.Driver)
+	}
+	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}, dialect: dialect}
+	var write *sql.DB
+	if !ro {
+		write = db.WriteHandle()
+	}
+	eo := events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: s.now}
+	audit, err := events.Open(db.Handle(), write, "audit_events", eo)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	uses, err := events.Open(db.Handle(), write, "secret_uses", eo)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	s.audit, s.uses = audit, uses
+	return s, db, nil
+}
+
+// load reads the tokens into memory, as every open does.
+func (s *Store) load(db kv.SQL, _ Options) error {
 	_ = db.View(func(tx kv.Tx) error {
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
@@ -236,56 +313,11 @@ func OpenWith(o Options) (*Store, error) {
 		})
 		return nil
 	})
-	return s, nil
-}
-
-// OpenRead opens the database for reading only (the CLI's checks while the service runs); it
-// fails when the file is not there, and every write fails.
-func OpenRead(path string) (*Store, error) {
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path, ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
-	}
-	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	if err := s.openLogs(Options{}); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	_ = db.View(func(tx kv.Tx) error {
-		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
-			var t Token
-			if json.Unmarshal(v, &t) == nil {
-				if t.Lifetime == 0 {
-					t.Lifetime = t.Expires.Sub(t.Created)
-				}
-				s.tokens[t.Hash] = t
-			}
-			return true
-		})
-		return nil
-	})
-	return s, nil
-}
-
-func (s *Store) openLogs(o Options) error {
-	eo := events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: s.now}
-	audit, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "audit_events", eo)
-	if err != nil {
-		return err
-	}
-	uses, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "secret_uses", eo)
-	if err != nil {
-		return err
-	}
-	s.audit, s.uses = audit, uses
 	return nil
 }
 
 // Storage is the SQL database under the store, for the checks the command line runs.
-func (s *Store) Storage() *kv.SQLite { return s.db }
+func (s *Store) Storage() kv.SQL { return s.db }
 
 // Close closes the database, folding the WAL into the file.
 func (s *Store) Close() error { return s.db.Close() }

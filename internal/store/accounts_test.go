@@ -19,7 +19,13 @@ func TestMain(m *testing.M) {
 
 func openTest(t *testing.T) (*Store, *time.Time) {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	var s *Store
+	var err error
+	if dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN"); dsn != "" {
+		s, err = OpenWith(Options{Driver: "postgres", DSN: testDatabase(t, dsn)})
+	} else {
+		s, err = Open(filepath.Join(t.TempDir(), "s.db"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
