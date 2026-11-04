@@ -11,8 +11,8 @@
 // its record commit together or not at all.
 //
 // The tables live in the same database as the key-value space, over database/sql handles (the
-// SQLite pools of internal/kv today, PostgreSQL in the package to come; only the placeholder
-// spelling differs).
+// pools of internal/kv: SQLite by default, PostgreSQL under storage.driver postgres). The dialect
+// says which: only the placeholder spelling and the table options differ.
 package events
 
 import (
@@ -26,8 +26,43 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
+
+// Dialect is the SQL the log's statements are written for. The queries are kept in one spelling
+// (SQLite's, with ? placeholders); PostgreSQL's are rewritten from it, so the two backends run the
+// same statements and cannot drift apart.
+type Dialect int
+
+const (
+	// SQLite is the default dialect: ? placeholders and WITHOUT ROWID tables.
+	SQLite Dialect = iota
+	// PostgreSQL writes $N placeholders and plain heap tables.
+	PostgreSQL
+)
+
+// placeholder rewrites a statement from ? to $1, $2, … for PostgreSQL.
+func (d Dialect) placeholder(sql string) string {
+	if d == SQLite || !strings.Contains(sql, "?") {
+		return sql
+	}
+	var b strings.Builder
+	n := 0
+	for {
+		i := strings.IndexByte(sql, '?')
+		if i < 0 {
+			b.WriteString(sql)
+			return b.String()
+		}
+		n++
+		b.WriteString(sql[:i])
+		b.WriteString("$")
+		b.WriteString(strconv.Itoa(n))
+		sql = sql[i+1:]
+	}
+}
 
 // Event is one record in a log. Actor is who did it (a person, an agent, a rule or the system),
 // OnBehalf the person an agent acted for; Via is how (api, mcp, card, console, cli, hook);
@@ -78,6 +113,8 @@ type Filter struct {
 
 // Options is how a Log is opened.
 type Options struct {
+	// Dialect is the database under the handles: SQLite (the default) or PostgreSQL.
+	Dialect Dialect
 	// SignKey signs checkpoints (HMAC-SHA256). When nil, one is made at random and kept in the
 	// database, which holds a tamperer who cannot write the tables — but whoever can write them
 	// all could re-sign; the key hierarchy that comes with the vault replaces this with a key
@@ -116,6 +153,7 @@ var nameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}$`)
 type Log struct {
 	read, write *sql.DB
 	table       string
+	dialect     Dialect
 	key         []byte
 	signer      string
 	interval    time.Duration
@@ -138,7 +176,7 @@ func Open(read, write *sql.DB, name string, o Options) (*Log, error) {
 	if o.SignerID == "" {
 		o.SignerID = "generated"
 	}
-	l := &Log{read: read, write: write, table: name, interval: o.CheckpointInterval, now: o.Now}
+	l := &Log{read: read, write: write, table: name, dialect: o.Dialect, interval: o.CheckpointInterval, now: o.Now}
 	if err := l.create(); err != nil {
 		return nil, err
 	}
@@ -153,6 +191,9 @@ func Open(read, write *sql.DB, name string, o Options) (*Log, error) {
 	return l, nil
 }
 
+// q writes the statement for the log's dialect: ? placeholders become $1, $2, … for PostgreSQL.
+func (l *Log) q(sql string) string { return l.dialect.placeholder(sql) }
+
 func (l *Log) create() error {
 	if l.write == nil {
 		return nil // a read-only log reads tables the service made
@@ -162,10 +203,18 @@ func (l *Log) create() error {
 	if err != nil {
 		return err
 	}
+	// SQLite keeps whole-number primary keys and blobs; PostgreSQL takes BIGINT and BYTEA, and has
+	// no WITHOUT ROWID (its tables are heaps with primary-key indexes anyway).
+	integer, blob, rowid := "INTEGER", "BLOB", ""
+	if l.dialect == PostgreSQL {
+		integer, blob = "BIGINT", "BYTEA"
+	} else {
+		rowid = " WITHOUT ROWID"
+	}
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS "` + l.table + `" (
-			seq INTEGER PRIMARY KEY,
-			time INTEGER NOT NULL,
+			seq ` + integer + ` PRIMARY KEY,
+			time ` + integer + ` NOT NULL,
 			actor TEXT NOT NULL DEFAULT '',
 			on_behalf TEXT NOT NULL DEFAULT '',
 			via TEXT NOT NULL DEFAULT '',
@@ -184,21 +233,21 @@ func (l *Log) create() error {
 		`CREATE INDEX IF NOT EXISTS "` + l.table + `_object" ON "` + l.table + `" (object)`,
 		`CREATE TABLE IF NOT EXISTS event_checkpoints (
 			log TEXT NOT NULL,
-			seq INTEGER NOT NULL,
-			first_seq INTEGER NOT NULL,
-			count INTEGER NOT NULL,
+			seq ` + integer + ` NOT NULL,
+			first_seq ` + integer + ` NOT NULL,
+			count ` + integer + ` NOT NULL,
 			head TEXT NOT NULL,
-			time INTEGER NOT NULL,
+			time ` + integer + ` NOT NULL,
 			prev TEXT NOT NULL DEFAULT '',
 			hash TEXT NOT NULL,
 			signer TEXT NOT NULL DEFAULT '',
 			signature TEXT NOT NULL,
 			PRIMARY KEY (log, seq)
-		) WITHOUT ROWID`,
+		)` + rowid,
 		`CREATE TABLE IF NOT EXISTS event_keys (
 			log TEXT NOT NULL PRIMARY KEY,
-			key BLOB NOT NULL
-		) WITHOUT ROWID`,
+			key ` + blob + ` NOT NULL
+		)` + rowid,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {
@@ -212,7 +261,7 @@ func (l *Log) create() error {
 // storedKey reads the log's generated signer key, making one at random the first time.
 func (l *Log) storedKey() ([]byte, error) {
 	var key []byte
-	err := l.read.QueryRowContext(context.Background(), `SELECT key FROM event_keys WHERE log = ?`, l.table).Scan(&key)
+	err := l.read.QueryRowContext(context.Background(), l.q(`SELECT key FROM event_keys WHERE log = ?`), l.table).Scan(&key)
 	if err == nil {
 		return key, nil
 	}
@@ -226,7 +275,7 @@ func (l *Log) storedKey() ([]byte, error) {
 	if l.write == nil {
 		return nil, errors.New("no signer key: the log is open read-only and never had one")
 	}
-	if _, err := l.write.ExecContext(context.Background(), `INSERT INTO event_keys (log, key) VALUES (?, ?)`, l.table, key); err != nil {
+	if _, err := l.write.ExecContext(context.Background(), l.q(`INSERT INTO event_keys (log, key) VALUES (?, ?)`), l.table, key); err != nil {
 		return nil, err
 	}
 	return key, nil
@@ -297,7 +346,7 @@ func sign(key []byte, c *Checkpoint) string {
 func (l *Log) head(q interface {
 	QueryRow(string, ...any) *sql.Row
 }) (seq uint64, hash string, err error) {
-	err = q.QueryRow(`SELECT seq, hash FROM "`+l.table+`" ORDER BY seq DESC LIMIT 1`).Scan(&seq, &hash)
+	err = q.QueryRow(l.q(`SELECT seq, hash FROM "`+l.table+`" ORDER BY seq DESC LIMIT 1`)).Scan(&seq, &hash)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, "", err
 	}
@@ -306,7 +355,7 @@ func (l *Log) head(q interface {
 	}
 	var cseq uint64
 	var chead string
-	err = q.QueryRow(`SELECT seq, head FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`, l.table).Scan(&cseq, &chead)
+	err = q.QueryRow(l.q(`SELECT seq, head FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`), l.table).Scan(&cseq, &chead)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
@@ -323,8 +372,8 @@ func (l *Log) lastCheckpoint(q interface {
 }) (Checkpoint, bool, error) {
 	var c Checkpoint
 	var when int64
-	err := q.QueryRow(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`, l.table).
+	err := q.QueryRow(l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`), l.table).
 		Scan(&c.Seq, &c.FirstSeq, &c.Count, &c.Head, &when, &c.Prev, &c.Hash, &c.Signer, &c.Signature)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Checkpoint{}, false, nil
@@ -351,8 +400,6 @@ func (l *Log) Append(e Event) (Event, error) {
 
 // AppendTx adds e inside a transaction the caller holds (a use and its record commit together);
 // the transaction is not committed here, so the caller can add more to it first.
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 	ctx := context.Background()
 	if e.Time.IsZero() {
@@ -366,9 +413,9 @@ func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 	}
 	e.Seq = hseq + 1
 	e.Hash = sum(hhash, e)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO "`+l.table+`"
+	if _, err := tx.ExecContext(ctx, l.q(`INSERT INTO "`+l.table+`"
 		(seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		e.Seq, e.Time.UnixNano(), e.Actor, e.OnBehalf, e.Via, e.Action, e.Object, e.Detail, e.Reason, e.Context, e.IP, e.Client, e.Hash, e.PrevHash); err != nil {
 		return err
 	}
@@ -398,10 +445,10 @@ func (l *Log) checkpointTx(tx *sql.Tx, seq uint64, hash string, last Checkpoint)
 	chash := sha256.Sum256(canonicalCheckpoint(&c))
 	c.Hash = hex.EncodeToString(chash[:])
 	c.Signature = sign(l.key, &c)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO event_checkpoints
+	if _, err := tx.ExecContext(ctx, l.q(`INSERT INTO event_checkpoints
 		(log, seq, first_seq, count, head, time, prev, hash, signer, signature)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (log, seq) DO NOTHING`,
+		ON CONFLICT (log, seq) DO NOTHING`),
 		c.Log, c.Seq, c.FirstSeq, c.Count, c.Head, c.Time.UnixNano(), c.Prev, c.Hash, c.Signer, c.Signature); err != nil {
 		return Checkpoint{}, err
 	}
@@ -434,8 +481,6 @@ func (l *Log) Checkpoint() (Checkpoint, error) {
 }
 
 // Query returns the records matching f, newest first, and how many match in all.
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) Query(f Filter) ([]Event, int, error) {
 	if f.Limit <= 0 {
 		f.Limit = 100
@@ -471,11 +516,11 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 		cond += w
 	}
 	var total int
-	if err := l.read.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM "`+l.table+`" WHERE `+cond, args...).Scan(&total); err != nil {
+	if err := l.read.QueryRowContext(context.Background(), l.q(`SELECT COUNT(*) FROM "`+l.table+`" WHERE `+cond), args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := l.read.QueryContext(context.Background(), `SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
-		FROM "`+l.table+`" WHERE `+cond+` ORDER BY seq DESC LIMIT ? OFFSET ?`,
+	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
+		FROM "`+l.table+`" WHERE `+cond+` ORDER BY seq DESC LIMIT ? OFFSET ?`),
 		append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, err
@@ -496,8 +541,6 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 
 // Prune removes the records older than retention, writing a checkpoint over them first so the
 // chain that remains still verifies, and reports how many went. Checkpoints are never removed.
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) Prune(retention time.Duration) (int, error) {
 	ctx := context.Background()
 	if l.write == nil {
@@ -510,7 +553,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 	deleted := 0
 	err := withTx(l.write, func(tx *sql.Tx) error {
 		var last int64
-		err := tx.QueryRowContext(ctx, `SELECT seq FROM "`+l.table+`" WHERE time <= ? ORDER BY seq DESC LIMIT 1`, cutoff).Scan(&last)
+		err := tx.QueryRowContext(ctx, l.q(`SELECT seq FROM "`+l.table+`" WHERE time <= ? ORDER BY seq DESC LIMIT 1`), cutoff).Scan(&last)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil // nothing that old
 		}
@@ -518,7 +561,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 			return err
 		}
 		var hash string
-		if err := tx.QueryRowContext(ctx, `SELECT hash FROM "`+l.table+`" WHERE seq = ?`, last).Scan(&hash); err != nil {
+		if err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), last).Scan(&hash); err != nil {
 			return err
 		}
 		prev, _, err := l.lastCheckpoint(tx)
@@ -530,7 +573,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 				return err
 			}
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM "`+l.table+`" WHERE seq <= ?`, last)
+		res, err := tx.ExecContext(ctx, l.q(`DELETE FROM "`+l.table+`" WHERE seq <= ?`), last)
 		if err != nil {
 			return err
 		}
@@ -543,8 +586,8 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 
 // Checkpoints lists them, oldest first.
 func (l *Log) Checkpoints() ([]Checkpoint, error) {
-	rows, err := l.read.QueryContext(context.Background(), `SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`, l.table)
+	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`), l.table)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +616,6 @@ func (l *Log) Verify() (Result, error) { return l.verify(0) }
 // be gone); there must be a checkpoint at seq.
 func (l *Log) VerifySince(seq uint64) (Result, error) { return l.verify(seq) }
 
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) verify(from uint64) (Result, error) {
 	checkpoints, err := l.Checkpoints()
 	if err != nil {
@@ -603,7 +645,7 @@ func (l *Log) verify(from uint64) (Result, error) {
 			return Result{}, fmt.Errorf("no checkpoint at %d; the checkpoints are at %s", from, seqList(checkpoints))
 		}
 		first = int64(from) + 1
-	} else if err := l.read.QueryRowContext(context.Background(), `SELECT COALESCE(MIN(seq), 1) FROM "`+l.table+`"`).Scan(&first); err != nil {
+	} else if err := l.read.QueryRowContext(context.Background(), l.q(`SELECT COALESCE(MIN(seq), 1) FROM "`+l.table+`"`)).Scan(&first); err != nil {
 		return Result{}, err
 	}
 	// the anchor: the newest checkpoint below the start; a chain beginning at 1 anchors itself
@@ -618,8 +660,8 @@ func (l *Log) verify(from uint64) (Result, error) {
 		return broken(Result{FirstSeq: uint64(first)}, uint64(first), "record %d follows records that are gone without a checkpoint", first)
 	}
 	res := Result{FirstSeq: uint64(first), Checkpoints: len(checkpoints)}
-	rows, err := l.read.QueryContext(context.Background(), `SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
-		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`, first)
+	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
+		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`), first)
 	if err != nil {
 		return Result{}, err
 	}

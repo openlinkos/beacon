@@ -1,10 +1,16 @@
 package events
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +18,7 @@ import (
 )
 
 type fixture struct {
-	db  *kv.SQLite
+	db  kv.SQL
 	log *Log
 	now time.Time
 }
@@ -23,17 +29,70 @@ func open(t *testing.T, o Options) *fixture {
 	if o.Now == nil {
 		o.Now = func() time.Time { return f.now }
 	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: filepath.Join(t.TempDir(), "beacon.db")})
+	// SQLite, or PostgreSQL when BEACON_TEST_POSTGRES_DSN names one: the same chain tests run on
+	// both (CI runs the suite twice), with the dialect doing no more than the placeholder spelling
+	if dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN"); dsn != "" {
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: testDatabase(t, dsn)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pg.Close() })
+		f.db = pg
+		o.Dialect = PostgreSQL
+	} else {
+		db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: filepath.Join(t.TempDir(), "beacon.db")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		f.db = db
+	}
+	log, err := Open(f.db.Handle(), f.db.WriteHandle(), "audit_events", o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	log, err := Open(db.Handle(), db.WriteHandle(), "audit_events", o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.db, f.log = db, log
+	f.log = log
 	return f
+}
+
+// testDatabase makes a database of the test's own on the server the DSN names, dropped when the
+// test ends. It mirrors internal/kv's helper (test packages cannot share code).
+func testDatabase(t *testing.T, dsn string) string {
+	t.Helper()
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	name := "beacon_test_" + hex.EncodeToString(raw)
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer dcancel()
+		_, _ = admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+	})
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Host != "" {
+		u.Path = "/" + name
+		return u.String()
+	}
+	for _, k := range []string{"dbname", "database"} {
+		if i := strings.Index(dsn, k+"="); i >= 0 {
+			rest := dsn[i+len(k)+1:]
+			if j := strings.IndexAny(rest, " 	"); j >= 0 {
+				rest = rest[j:]
+			} else {
+				rest = ""
+			}
+			return dsn[:i] + k + "=" + name + rest
+		}
+	}
+	return dsn + " dbname=" + name
 }
 
 func TestAppendAndQuery(t *testing.T) {
@@ -125,7 +184,7 @@ func TestVerify(t *testing.T) {
 }
 
 // tamper runs SQL straight against the tables, as whoever gets the database file would.
-func tamper(t *testing.T, db *kv.SQLite, q string) {
+func tamper(t *testing.T, db kv.SQL, q string) {
 	t.Helper()
 	if _, err := db.WriteHandle().Exec(q); err != nil {
 		t.Fatal(err)
