@@ -167,8 +167,8 @@ func TestSetupAndSignInWithPassword(t *testing.T) {
 	for range 10 {
 		m.signInAs("alice", "not her password")
 	}
-	if a := m.signInAs("alice", password); a.code != http.StatusTooManyRequests {
-		t.Errorf("after ten wrong passwords: %d", a.code)
+	if a := m.signInAs("alice", password); a.code != http.StatusTooManyRequests || !strings.Contains(a.body, "try again in") || !strings.Contains(a.body, "minute") {
+		t.Errorf("after ten wrong passwords: %d %s", a.code, a.body)
 	}
 }
 

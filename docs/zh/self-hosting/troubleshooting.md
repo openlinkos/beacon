@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a1ee42ac
+sourceHash: sha256-20786ea8
 ---
 
 # 常见问题
@@ -123,7 +123,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - **OAuth 客户端要求重新登录。** 它的登录被吊销了，或者授权页面上允许的期限到了：从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的。** 像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥，而旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
 - **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](../reference/api.md#scopes)）。
-- **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住；常见于客户端拿着错误的令牌不停重试。
+- **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住。消息里写明还要等多久，响应带 `Retry-After`。常见于客户端拿着错误的令牌不停重试。MCP 对同一次锁定回答 401，正文里写明要等多久，因为它用的库没有 429。
 - **续期时返回 `token.too_soon`（429）。** 令牌不到 24 小时前刚续过期，仍然有效。
 
 ### probe_now 报告有检测点缺席 {#probe_now-names-locations-as-missing}

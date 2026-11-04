@@ -222,9 +222,11 @@ func (s *Server) accountFormPost(kind string) http.HandlerFunc {
 			s.accountForm(w, r, http.StatusForbidden, kind, code, username, display, s.t("The form has expired; try again."))
 			return
 		}
-		if s.Auth != nil && s.Auth.Blocked(r) {
-			s.accountForm(w, r, http.StatusTooManyRequests, kind, code, username, display, s.t("Too many failed sign-ins from here; try again in a few minutes."))
-			return
+		if s.Auth != nil {
+			if d, blocked := s.Auth.BlockedFor(r); blocked {
+				s.accountForm(w, r, http.StatusTooManyRequests, kind, code, username, display, s.lockedOutFromHere(d))
+				return
+			}
 		}
 		if f.Get("password") != f.Get("again") {
 			s.accountForm(w, r, http.StatusBadRequest, kind, code, username, display, s.t("The passwords differ."))

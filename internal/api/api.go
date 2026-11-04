@@ -81,6 +81,47 @@ func (a *Auth) Blocked(r *http.Request) bool {
 	return w != nil && a.now().Sub(w.start) < failWindow && w.n >= maxFails
 }
 
+// BlockedFor is Blocked with the answer to "how long?": how much of the lockout is left, the time
+// until the client may try again.
+func (a *Auth) BlockedFor(r *http.Request) (time.Duration, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.left(a.fails[a.client(r)], maxFails)
+}
+
+// UserBlockedFor is BlockedFor for one username's wrong passwords, which lock it from anywhere.
+func (a *Auth) UserBlockedFor(username string) (time.Duration, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.left(a.userFails[username], maxUserFails)
+}
+
+// left is the time until the window that locked out with limit failures ends.
+func (a *Auth) left(w *window, limit int) (time.Duration, bool) {
+	if w == nil {
+		return 0, false
+	}
+	if left := failWindow - a.now().Sub(w.start); w.n >= limit && left > 0 {
+		return left, true
+	}
+	return 0, false
+}
+
+// WaitWords says a lockout's wait as a person reads it: "a minute", "9 minutes". Errors carry it so
+// a client knows how long to wait before trying again.
+func WaitWords(d time.Duration) string {
+	minutes := int((d + time.Minute - 1) / time.Minute)
+	if minutes <= 1 {
+		return "a minute"
+	}
+	return strconv.Itoa(minutes) + " minutes"
+}
+
+// retryAfter is a lockout's wait in whole seconds, for the header of the same name.
+func retryAfter(d time.Duration) string {
+	return strconv.Itoa(int((d + time.Second - 1) / time.Second))
+}
+
 func (a *Auth) fail(r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -276,8 +317,9 @@ func (s *Server) with(scope string, h handler) http.Handler {
 // any credential.
 func (s *Server) withPrincipal(scope string, h func(w http.ResponseWriter, r *http.Request, p store.Principal)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Auth.Blocked(r) {
-			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts; try again later")
+		if d, blocked := s.Auth.BlockedFor(r); blocked {
+			w.Header().Set("Retry-After", retryAfter(d))
+			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+WaitWords(d))
 			return
 		}
 		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")

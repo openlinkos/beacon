@@ -310,6 +310,40 @@ func (s *Server) signInForm(w http.ResponseWriter, r *http.Request, status int, 
 	s.renderStatus(w, status, signInTmpl, p)
 }
 
+// waitMinutes rounds a lockout's wait up to whole minutes, a minute at least.
+func waitMinutes(d time.Duration) int { return max(1, int((d+time.Minute-1)/time.Minute)) }
+
+// lockedOutFromHere is the console's words for the caller's address being locked out, with the wait.
+func (s *Server) lockedOutFromHere(d time.Duration) string {
+	minutes := waitMinutes(d)
+	if minutes <= 1 {
+		return s.t("Too many failed sign-ins from here; try again in a minute.")
+	}
+	return s.t("Too many failed sign-ins from here; try again in %d minutes.", minutes)
+}
+
+// lockedOut is the console's words for a sign-in refused by a lockout — the address's or the
+// username's, whichever waits longer.
+func (s *Server) lockedOut(r *http.Request, username string) string {
+	wait := time.Duration(0)
+	if s.Auth != nil {
+		if d, ok := s.Auth.BlockedFor(r); ok {
+			wait = d
+		}
+		if d, ok := s.Auth.UserBlockedFor(username); ok && d > wait {
+			wait = d
+		}
+	}
+	if wait == 0 { // the window ended while the request was being answered
+		return s.t("Too many failed sign-ins; try again in a few minutes.")
+	}
+	minutes := waitMinutes(wait)
+	if minutes <= 1 {
+		return s.t("Too many failed sign-ins; try again in a minute.")
+	}
+	return s.t("Too many failed sign-ins; try again in %d minutes.", minutes)
+}
+
 func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 	headers(w)
 	r.Body = http.MaxBytesReader(w, r.Body, maxForm)
@@ -323,8 +357,12 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 		s.signInForm(w, r, http.StatusForbidden, next, withToken, "", s.t("The form has expired; try again."))
 		return
 	}
-	if s.Auth == nil || s.Auth.Blocked(r) {
+	if s.Auth == nil {
 		s.signInForm(w, r, http.StatusTooManyRequests, next, withToken, "", s.t("Too many failed sign-ins from here; try again in a few minutes."))
+		return
+	}
+	if d, blocked := s.Auth.BlockedFor(r); blocked {
+		s.signInForm(w, r, http.StatusTooManyRequests, next, withToken, "", s.lockedOutFromHere(d))
 		return
 	}
 	if withToken {
@@ -335,7 +373,7 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 	a, err := s.Auth.SignIn(r, username, r.PostForm.Get("password"))
 	switch {
 	case errors.Is(err, api.ErrBlocked):
-		s.signInForm(w, r, http.StatusTooManyRequests, next, false, username, s.t("Too many failed sign-ins; try again in a few minutes."))
+		s.signInForm(w, r, http.StatusTooManyRequests, next, false, username, s.lockedOut(r, username))
 		return
 	case errors.Is(err, store.ErrDisabled):
 		s.signInForm(w, r, http.StatusForbidden, next, false, username, s.t("This account is disabled; an owner can enable it."))

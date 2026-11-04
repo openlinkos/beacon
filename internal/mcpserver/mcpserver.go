@@ -81,6 +81,9 @@ func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger, opts ...Opt
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log})
 	verify := func(_ context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
+		if d, blocked := a.BlockedFor(r); blocked {
+			return nil, lockoutError{wait: d}
+		}
 		p, ok := a.Authenticate(r, token)
 		if !ok {
 			return nil, auth.ErrInvalidToken
@@ -94,6 +97,18 @@ func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger, opts ...Opt
 		auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{ResourceMetadataURL: o.metadata(r)})(h).ServeHTTP(w, r)
 	})
 }
+
+// lockoutError says the address may not try again yet, and for how long, where the SDK's only
+// answers are a 401 that unwraps to ErrInvalidToken and a 500 for anything else: it unwraps to
+// ErrInvalidToken, so the answer's text is these words and its status stays a 401 (the SDK has no
+// 429), and a client reads the wait instead of mistaking a lockout for a bad token.
+type lockoutError struct{ wait time.Duration }
+
+func (e lockoutError) Error() string {
+	return "too many failed sign-ins from this address; try again in " + api.WaitWords(e.wait)
+}
+
+func (lockoutError) Is(target error) bool { return target == auth.ErrInvalidToken }
 
 // principal is who is calling, whatever it may do.
 func principal(ctx context.Context) (store.Principal, bool) {

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,40 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 		}
 	}
 	return res, text
+}
+
+// TestLockoutNamesTheWait checks that MCP, which can only answer 401, says the address is locked
+// and how long to wait, instead of the bare "invalid token" a bad credential gets.
+func TestLockoutNamesTheWait(t *testing.T) {
+	e := testutil.New(t)
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
+	defer srv.Close()
+	post := func(token string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := post("lbt_wrong"); code != http.StatusUnauthorized || !strings.Contains(body, "invalid token") || strings.Contains(body, "try again in") {
+		t.Fatalf("one bad token: %d %s", code, body)
+	}
+	for range 19 {
+		post("lbt_wrong")
+	}
+	code, body := post(e.Token(t, "reader", "status:read"))
+	if code != http.StatusUnauthorized || !strings.Contains(body, "too many failed sign-ins from this address") || !strings.Contains(body, "try again in") {
+		t.Fatalf("lockout: %d %s", code, body)
+	}
 }
 
 func TestMCP(t *testing.T) {

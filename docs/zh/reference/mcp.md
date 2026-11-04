@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-da5d0da7
+sourceHash: sha256-cff1bbf7
 ---
 
 # MCP 工具
@@ -26,7 +26,7 @@ url = "https://status.example.com/mcp"
 bearer_token_env_var = "BEACON_TOKEN"
 ```
 
-其他支持 HTTP 上 MCP 的客户端，也用这两种方式之一接入。没有凭据，或者凭据通不过校验的请求，会得到 `401`，它的 `WWW-Authenticate` 指向受保护资源的元数据（`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`），MCP 客户端从那里找到怎样登录。server 自带的说明会告诉 Agent 每组工具是做什么的，以及写工具要怎样谨慎地用。每个凭据都能看到全部工具；调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个，对 Agent 还会说明它的预设在所有者角色范围内允许什么（`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`）。
+其他支持 HTTP 上 MCP 的客户端，也用这两种方式之一接入。没有凭据，或者凭据通不过校验的请求，会得到 `401`，它的 `WWW-Authenticate` 指向受保护资源的元数据（`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`），MCP 客户端从那里找到怎样登录。一个地址在 10 分钟内失败 20 次后被锁定，得到的也是 401，因为 MCP 的库没有 429：正文会写明这个地址已被锁定、还要等多久（`too many failed sign-ins from this address; try again in 9 minutes`），和 [REST API](api.md) 用 `auth.too_many_failures` 与 `Retry-After` 报告的是同一段等待。server 自带的说明会告诉 Agent 每组工具是做什么的，以及写工具要怎样谨慎地用。每个凭据都能看到全部工具；调用时缺少所需的作用域会被拒绝，消息里写明缺的是哪个，对 Agent 还会说明它的预设在所有者角色范围内允许什么（`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`）。
 
 ## 告警 {#alerts}
 
