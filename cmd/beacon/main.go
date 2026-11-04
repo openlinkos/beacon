@@ -55,6 +55,7 @@ import (
 	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/server"
 	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/status"
@@ -75,6 +76,9 @@ func usage(w io.Writer) {
   beacon check-config [-config path]          validate the configuration, its files and the database
   beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
+  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags
+                                              the vault of secrets, as a named account (-user; reveal needs the account's password)
+  beacon key status|unseal|seal|rotate        the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
                                               the catalogue, probe targets and modules, as one change
@@ -134,6 +138,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return configCmd(args[1:], stdout, stderr)
 	case "settings":
 		return settingsCmd(args[1:], stdout, stderr)
+	case "secret":
+		return secretCmd(args[1:], stdout, stderr)
+	case "key":
+		return keyCmd(args[1:], stdout, stderr)
 	case "token":
 		return token(args[1:], stdout, stderr)
 	case "setup":
@@ -269,11 +277,52 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	sset, err := settings.Open(settings.Deps{Store: st, Bot: bot, Lang: language(cfg), Log: log})
+	// the chat's echo reaches whichever of the settings and the vault has it; a nil *notify.GroupBot
+	// must not go into the interface (it would read as a poster that is not there)
+	var echoBot settings.Poster
+	if bot != nil {
+		echoBot = bot
+	}
+	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
+	// the vault: the collections of items whose values it keeps encrypted, its root key from the
+	// configured source. While it is sealed the key functions wait — monitoring and the SSH channel
+	// carry on — and the settings serve their defaults, for their rows cannot be verified.
+	vault, err := secrets.Open(context.Background(), sealConfigOf(cfg), secrets.Deps{Store: st, Bot: echoBot,
+		Settings: sset, Lang: language(cfg), Log: log})
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	if vault.Sealed() {
+		sset.MarkSealed()
+	} else {
+		if err := sset.SetKey(vault.SK()); err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+	}
+	vault.OnKeyChange(func(sk []byte) {
+		if err := sset.SetKey(sk); err != nil {
+			log.Error("the settings could not move onto the new signature key", "err", err)
+		}
+	})
+	purgeTrash := func() {
+		if n := vault.PurgeTrash(); n > 0 {
+			log.Info("the vault's trash was purged", "items", n)
+		}
+	}
+	purgeTrash()
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for range t.C {
+			purgeTrash()
+		}
+	}()
 	m := metrics.New(version.Version)
 	catalog.Register(m, cdb.Catalog)
 	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
@@ -387,12 +436,12 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	pagesOut := status.New(sdeps)
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Settings: sset, Status: pagesOut},
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Settings: sset, Vault: vault, Status: pagesOut},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
-			mcpserver.WithSettings(sset), mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
+			mcpserver.WithSettings(sset), mcpserver.WithVault(vault), mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Settings: sset, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Settings: sset, Vault: vault, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway
@@ -443,6 +492,10 @@ func serve(args []string, stderr io.Writer) int {
 		socket.Handle("/v1/config/", ctl.ConfigHandler(cdb))
 		socket.Handle("/v1/settings/", ctl.SettingsHandler(sset))
 		socket.Handle("/v1/settings", ctl.SettingsHandler(sset))
+		vh := ctl.VaultHandler(vault)
+		for _, p := range []string{"/v1/secrets", "/v1/secrets/"} {
+			socket.Handle(p, vh)
+		}
 		silences := ctl.SilenceHandler(br)
 		socket.Handle("/v1/silences", silences)
 		socket.Handle("/v1/silences/", silences)
