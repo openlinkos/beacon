@@ -124,25 +124,50 @@ exit 3
 	}
 }
 
+// release lets the run for delivery leave the slot it is holding.
+func release(t *testing.T, dir, delivery string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "release-"+delivery), []byte("go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConcurrencyAndQueue(t *testing.T) {
 	dir := t.TempDir()
-	run := script(t, dir, `touch "`+dir+`/$BEACON_DELIVERY.start"
-sleep 1.5
+	// Each run holds its slot until the test releases it, so nothing depends on a sleep ending
+	// first. d1 and d2 are sent before either has started: both must be accepted, because a free
+	// slot is room even when no worker has reached its receive yet.
+	run := script(t, dir, `echo x >> "`+dir+`/$BEACON_DELIVERY.ran"
+touch "`+dir+`/$BEACON_DELIVERY.start"
+while [ ! -f "`+dir+`/release-$BEACON_DELIVERY" ]; do sleep 0.02; done
 touch "`+dir+`/$BEACON_DELIVERY.end"
 `)
 	s, _ := newServer(t, Options{Run: run, Concurrency: 2, Queue: 1})
 	fire(t, s, "d1", http.StatusAccepted)
 	fire(t, s, "d2", http.StatusAccepted)
-	waitFor(t, "d1 and d2 running", 3*time.Second, func() bool {
+	waitFor(t, "d1 and d2 running", 5*time.Second, func() bool {
 		return exists(filepath.Join(dir, "d1.start")) && exists(filepath.Join(dir, "d2.start"))
 	})
 	fire(t, s, "d3", http.StatusAccepted)           // queued
 	fire(t, s, "d4", http.StatusServiceUnavailable) // no room: Beacon will try again
 	fire(t, s, "d3", http.StatusAccepted)           // a repeat of a queued one is simply seen
-	waitFor(t, "d3 running", 5*time.Second, func() bool { return exists(filepath.Join(dir, "d3.start")) })
-	if !exists(filepath.Join(dir, "d1.end")) && !exists(filepath.Join(dir, "d2.end")) {
-		t.Error("d3 started while both d1 and d2 still ran")
+	// d1 and d2 have already shown that a run touches its files at once, so a third run would have
+	// done the same inside this window. It must still be waiting.
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if exists(filepath.Join(dir, "d3.start")) || exists(filepath.Join(dir, "d3.ran")) {
+			t.Fatal("d3 started while d1 and d2 still held their slots")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	release(t, dir, "d1")
+	waitFor(t, "d3 running", 5*time.Second, func() bool { return exists(filepath.Join(dir, "d3.start")) })
+	if exists(filepath.Join(dir, "d2.end")) {
+		t.Error("d2 ended before it was released")
+	}
+	waitFor(t, "d1 ended", 5*time.Second, func() bool { return exists(filepath.Join(dir, "d1.end")) })
+	release(t, dir, "d2")
+	release(t, dir, "d3")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.Shutdown(ctx); err != nil {
@@ -151,6 +176,14 @@ touch "`+dir+`/$BEACON_DELIVERY.end"
 	starts, _ := filepath.Glob(filepath.Join(dir, "*.start"))
 	if len(starts) != 3 || exists(filepath.Join(dir, "d4.start")) {
 		t.Errorf("runs: %v", starts)
+	}
+	for _, id := range []string{"d1", "d2", "d3"} {
+		if b, err := os.ReadFile(filepath.Join(dir, id+".ran")); err != nil || string(b) != "x\n" {
+			t.Errorf("%s ran %q, want one run", id, b)
+		}
+	}
+	if exists(filepath.Join(dir, "d4.ran")) {
+		t.Error("d4 ran")
 	}
 	// Once closed, the harness takes nothing more, and says so in a way Beacon retries.
 	fire(t, s, "d5", http.StatusServiceUnavailable)
