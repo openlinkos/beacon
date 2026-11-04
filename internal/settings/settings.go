@@ -127,10 +127,18 @@ type Deps struct {
 // Service holds the settings: the rows in the database, verified, and the defaults registered in
 // code (Definitions). Rows that fail their signature are served as absent and reported, both to
 // the log and to the audit log, and listed by Bad for the console to show.
+//
+// The MAC key is the store's own secret until the vault's root key is there, and SK with it: the
+// wiring calls SetKey with SK as soon as the vault unseals, which re-signs the rows the old key
+// signed (the one-time migration), so a row always verifies under the key in force. While the
+// vault is sealed the rows cannot be verified at all, so the service serves the defaults and says
+// so — it does not call sealed rows tampered, which they are not.
 type Service struct {
-	d   Deps
-	mu  sync.Mutex // serialises changes
-	key []byte     // the HMAC key, made once
+	d      Deps
+	mu     sync.Mutex // serialises changes
+	key    []byte     // the HMAC key in force
+	legacy []byte     // the key before SetKey, whose rows are re-signed onto key
+	sealed bool       // the vault is sealed: the rows cannot be verified, the defaults answer
 
 	rowsMtx sync.Mutex
 	rows    map[string]Row // by rowKey; only rows that verified
@@ -156,11 +164,93 @@ func Open(d Deps) (*Service, error) {
 	return s, nil
 }
 
+// SetKey moves the rows onto a new MAC key (the vault's SK): a row that already verifies under it
+// stays as it is, a row that verifies under the key before is re-signed onto the new one (the
+// migration), and a row that verifies under neither is bad, reported and served as absent. It also
+// unmarks the sealed state, since a key in hand is what sealed means the service lacks.
+func (s *Service) SetKey(key []byte) error {
+	if len(key) != 32 {
+		return fmt.Errorf("%w: the signature key is 32 bytes", ErrBadInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resigned := 0
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		var keys [][]byte
+		tx.Range(bucketSettings, kv.Range{}, func(k, v []byte) bool {
+			var r Row
+			if json.Unmarshal(v, &r) != nil {
+				return true // unreadable: reload reports it
+			}
+			if hmac.Equal(r.Sig, sign(key, r)) {
+				return true // already on the new key
+			}
+			if hmac.Equal(r.Sig, sign(s.key, r)) || (len(s.legacy) > 0 && hmac.Equal(r.Sig, sign(s.legacy, r))) {
+				keys = append(keys, append([]byte(nil), k...))
+				return true
+			}
+			return true
+		})
+		for _, k := range keys {
+			v := tx.Get(bucketSettings, k)
+			var r Row
+			if json.Unmarshal(v, &r) != nil {
+				continue
+			}
+			r.Sig = sign(key, r)
+			if err := putRow(tx, r); err != nil {
+				return err
+			}
+			resigned++
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(s.legacy) == 0 {
+		s.legacy = append([]byte(nil), s.key...)
+	}
+	s.key = append([]byte(nil), key...)
+	s.sealed = false
+	s.reload()
+	if resigned > 0 {
+		s.d.Log.Info("the settings' rows were re-signed onto the vault's signature key", "rows", resigned)
+	}
+	return nil
+}
+
+// MarkSealed says the vault is sealed: no key can verify the rows, so the defaults answer and no
+// row is called tampered. The first SetKey lifts it.
+func (s *Service) MarkSealed() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sealed {
+		return
+	}
+	s.sealed = true
+	s.reload()
+	s.d.Log.Warn("the vault is sealed; the settings' rows cannot be verified and the defaults are in force")
+}
+
+// Sealed reports whether the settings run on defaults because the vault is sealed.
+func (s *Service) Sealed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sealed
+}
+
 // reload reads every row, verifies each signature and keeps what verified. It is the only place
 // rows enter the service, so nothing unverified is ever served.
 func (s *Service) reload() {
 	rows := map[string]Row{}
 	var bad []string
+	if s.sealed {
+		s.rowsMtx.Lock()
+		s.rows, s.bad = rows, nil
+		s.rowsMtx.Unlock()
+		return
+	}
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		tx.Range(bucketSettings, kv.Range{}, func(_, v []byte) bool {
 			var r Row
@@ -214,6 +304,9 @@ func (s *Service) Set(ctx context.Context, who Actor, scope, target, key string,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.sealed {
+		return Change{}, fmt.Errorf("the vault is sealed; settings cannot be changed until it is unsealed")
+	}
 	var out Change
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		cur, ok := s.row(tx, scope, target, key)
