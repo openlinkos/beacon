@@ -92,8 +92,9 @@ type Server struct {
 	abandon bool                 // queued runs are dropped (the shutdown deadline passed)
 	running map[*exec.Cmd]struct{}
 
-	queue chan *job
-	wg    sync.WaitGroup // the workers
+	queue       chan *job
+	outstanding int            // accepted runs not yet finished; capped at Concurrency + Queue
+	wg          sync.WaitGroup // the workers
 }
 
 type job struct {
@@ -131,8 +132,11 @@ func New(o Options) (*Server, error) {
 	if err := os.MkdirAll(o.LogDir, 0o750); err != nil {
 		return nil, fmt.Errorf("log directory: %w", err)
 	}
+	// The channel holds every accepted run, both those running and those waiting. It is as deep as the
+	// concurrency plus the queue, so a send that outstanding has already allowed cannot block on a
+	// worker that has not reached its receive; outstanding is what refuses a delivery.
 	s := &Server{o: o, log: o.Log, now: time.Now, seen: map[string]time.Time{}, running: map[*exec.Cmd]struct{}{},
-		queue: make(chan *job, o.Queue)}
+		queue: make(chan *job, o.Concurrency+o.Queue)}
 	s.prune()
 	for range o.Concurrency {
 		s.wg.Add(1)
@@ -241,8 +245,17 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "nothing to run\n")
 		return
 	}
+	// Room is Concurrency runs plus Queue waiting. A worker that has not yet received is not a full
+	// queue: the count, not a rendezvous with a worker, decides. The send does not block while mu is
+	// held; the buffer is that deep, so the default is only a disagreement between the two.
+	if s.outstanding >= s.o.Concurrency+s.o.Queue {
+		s.log.Warn("not taken", "reason", "queue full", "delivery", p.Delivery, "event", p.Event, "alert", p.Alert.ID)
+		http.Error(w, "queue full, try later", http.StatusServiceUnavailable)
+		return
+	}
 	select {
 	case s.queue <- &job{p: p, body: body, command: command}:
+		s.outstanding++
 	default:
 		s.log.Warn("not taken", "reason", "queue full", "delivery", p.Delivery, "event", p.Event, "alert", p.Alert.ID)
 		http.Error(w, "queue full, try later", http.StatusServiceUnavailable)
@@ -300,9 +313,12 @@ func (s *Server) worker() {
 		s.mu.Unlock()
 		if abandon {
 			s.log.Warn("run abandoned", "reason", "shutting down", "delivery", j.p.Delivery, "alert", j.p.Alert.ID)
-			continue
+		} else {
+			s.run(j)
 		}
-		s.run(j)
+		s.mu.Lock()
+		s.outstanding--
+		s.mu.Unlock()
 	}
 }
 
