@@ -1,0 +1,401 @@
+package kv
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/stdlib"
+)
+
+// PostgresOptions is how a PostgreSQL 14+ database is opened: a DSN (libpq's key=value form or a
+// URL), the read pool's size and a statement timeout. The write side always takes one connection of
+// its own, as SQLite's single writer does, so a deployment's writes serialise in order whatever the
+// pool size; the timeout bounds a statement that hangs (a lock elsewhere, a lost connection) before
+// it holds the writer.
+type PostgresOptions struct {
+	// DSN is the connection string, read from the file the configuration names
+	// (storage.dsn_file). Everything pgx understands goes: host, port, user, password, dbname,
+	// sslmode, and more.
+	DSN string
+	// PoolSize is how many connections the read pool holds. Default 4.
+	PoolSize int
+	// StatementTimeout bounds each statement; 15s by default. Zero turns it off.
+	StatementTimeout time.Duration
+	// ReadOnly opens for reading only (the CLI's checks): no write pool, Update fails, and the
+	// schema is not made. There is no lock to take — PostgreSQL is a server — so this is only
+	// about not writing.
+	ReadOnly bool
+}
+
+// Postgres is a kv.SQL on one PostgreSQL database: the same tables as SQLite's (kv, sequences),
+// bytea keys and values, byte order everywhere SQLite's blobs had it.
+type Postgres struct {
+	write *sql.DB
+	read  *sql.DB
+	where string
+}
+
+// OpenPostgres opens or creates the database o names. The DSN never appears in errors or logs: a
+// connection that fails names the host and database alone.
+func OpenPostgres(o PostgresOptions) (*Postgres, error) {
+	if o.DSN == "" {
+		return nil, errors.New("postgres: a DSN is needed")
+	}
+	if o.PoolSize <= 0 {
+		o.PoolSize = 4
+	}
+	cfg, err := pgx.ParseConfig(o.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: the DSN is not valid")
+	}
+	if o.StatementTimeout > 0 {
+		cfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(o.StatementTimeout.Milliseconds(), 10)
+	}
+	cfg.RuntimeParams["application_name"] = "beacon"
+	open := func(max int) (*sql.DB, error) {
+		db := stdlib.OpenDB(*cfg)
+		db.SetMaxOpenConns(max)
+		db.SetMaxIdleConns(max)
+		if err := db.PingContext(context.Background()); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("postgres %s:%d/%s: %w", cfg.Host, cfg.Port, cfg.Database, redact(err))
+		}
+		return db, nil
+	}
+	p := &Postgres{where: fmt.Sprintf("postgres %s:%d/%s", cfg.Host, cfg.Port, cfg.Database)}
+	if o.ReadOnly {
+		if p.read, err = open(o.PoolSize); err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	// the writer: one connection, as SQLite's write pool
+	if p.write, err = open(1); err != nil {
+		return nil, err
+	}
+	if p.read, err = open(o.PoolSize); err != nil {
+		_ = p.write.Close()
+		return nil, err
+	}
+	if err := p.migrate(); err != nil {
+		_ = p.Close()
+		return nil, err
+	}
+	return p, nil
+}
+
+// redact keeps the DSN's secret out of errors: pgx quotes the password when it says why a
+// connection failed.
+func redact(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return err // a server's message carries no credential
+	}
+	msg := err.Error()
+	if i := strings.Index(msg, "password="); i >= 0 {
+		msg = msg[:i] + "password=…"
+	}
+	return errors.New(msg)
+}
+
+// migrate makes the schema, in one transaction. WITHOUT ROWID is SQLite's; PostgreSQL's tables are
+// heaps with primary-key indexes, which is what they are anyway.
+func (p *Postgres) migrate() error {
+	ctx := context.Background()
+	tx, err := p.write.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, ddl := range []string{
+		`CREATE TABLE IF NOT EXISTS kv (
+			bucket TEXT NOT NULL,
+			k BYTEA NOT NULL,
+			v BYTEA NOT NULL,
+			PRIMARY KEY (bucket, k)
+		)`,
+		`CREATE TABLE IF NOT EXISTS sequences (
+			bucket TEXT NOT NULL PRIMARY KEY,
+			seq BIGINT NOT NULL
+		)`,
+	} {
+		if _, err = tx.ExecContext(ctx, ddl); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// View runs fn in a read-only transaction.
+func (p *Postgres) View(fn func(Tx) error) error {
+	tx, err := p.read.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(&pgTx{tx: tx}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Rollback() // nothing to commit; releases the snapshot
+}
+
+// Update runs fn in a read-write transaction on the single write connection.
+func (p *Postgres) Update(fn func(Tx) error) error {
+	if p.write == nil {
+		return errors.New("the database is open read-only")
+	}
+	tx, err := p.write.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(&pgTx{tx: tx, write: true}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpdateBoth runs fn in one write transaction, giving it the key-value space and the database/sql
+// transaction under it, as SQLite's does for the migrations.
+func (p *Postgres) UpdateBoth(fn func(tx Tx, raw *sql.Tx) error) error {
+	if p.write == nil {
+		return errors.New("the database is open read-only")
+	}
+	tx, err := p.write.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(&pgTx{tx: tx, write: true}, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// Close closes both pools.
+func (p *Postgres) Close() error {
+	var err error
+	if p.write != nil {
+		err = p.write.Close()
+	}
+	if p.read != nil {
+		rerr := p.read.Close()
+		if err == nil {
+			err = rerr
+		}
+	}
+	return err
+}
+
+// Health reads every table the store keeps; PostgreSQL has no single-file check, but every table
+// answering a count, with none of them missing, is the health the command line asks for.
+func (p *Postgres) Health() (string, error) {
+	var n int
+	err := p.read.QueryRowContext(context.Background(), `SELECT
+		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)
+		+ (SELECT COUNT(*) FROM audit_events) + (SELECT COUNT(*) FROM secret_uses)
+		+ (SELECT COUNT(*) FROM event_checkpoints) + (SELECT COUNT(*) FROM event_keys)`).Scan(&n)
+	if err != nil {
+		return "", err
+	}
+	return "ok", nil
+}
+
+// Where names the database for the command line: host, port and database, never the DSN.
+func (p *Postgres) Where() string { return p.where }
+
+// Handle is the read pool.
+func (p *Postgres) Handle() *sql.DB { return p.read }
+
+// WriteHandle is the write pool, whose single connection serialises the writes.
+func (p *Postgres) WriteHandle() *sql.DB { return p.write }
+
+type pgTx struct {
+	tx    *sql.Tx
+	write bool
+}
+
+// query builds the statement with PostgreSQL's $N placeholders from one written with ?, and keeps
+// the arguments beside it.
+func (t *pgTx) query(sql string, args ...any) (string, []any) {
+	if len(args) == 0 {
+		return sql, args
+	}
+	var b strings.Builder
+	n := 0
+	for {
+		i := strings.IndexByte(sql, '?')
+		if i < 0 {
+			b.WriteString(sql)
+			return b.String(), args
+		}
+		n++
+		b.WriteString(sql[:i])
+		fmt.Fprintf(&b, "$%d", n)
+		sql = sql[i+1:]
+	}
+}
+
+func (t *pgTx) Get(bucket, key []byte) []byte {
+	ctx := context.Background()
+	q, args := t.query("SELECT v FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
+	var v []byte
+	err := t.tx.QueryRowContext(ctx, q, args...).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return nil // as bbolt: a read that fails is a missing key
+	}
+	return v
+}
+
+func (t *pgTx) Put(bucket, key, value []byte) error {
+	ctx := context.Background()
+	q, args := t.query("INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?) ON CONFLICT (bucket, k) DO UPDATE SET v = excluded.v",
+		string(bucket), key, value)
+	_, err := t.tx.ExecContext(ctx, q, args...)
+	return err
+}
+
+func (t *pgTx) Delete(bucket, key []byte) error {
+	ctx := context.Background()
+	q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
+	_, err := t.tx.ExecContext(ctx, q, args...)
+	return err
+}
+
+func (t *pgTx) Range(bucket []byte, r Range, fn func(k, v []byte) bool) {
+	ctx := context.Background()
+	q := "SELECT k, v FROM kv WHERE bucket = ?"
+	args := []any{string(bucket)}
+	if len(r.Prefix) > 0 {
+		q += " AND k >= ?"
+		args = append(args, r.Prefix)
+		if end := prefixEnd(r.Prefix); end != nil {
+			q += " AND k < ?"
+			args = append(args, end)
+		}
+	}
+	if len(r.Start) > 0 {
+		if r.Reverse {
+			q += " AND k < ?"
+		} else {
+			q += " AND k >= ?"
+		}
+		args = append(args, r.Start)
+	}
+	if r.Reverse {
+		q += " ORDER BY k DESC"
+	} else {
+		q += " ORDER BY k ASC"
+	}
+	stmt, args := t.query(q, args...)
+	rows, err := t.tx.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var k, v []byte
+		if err := rows.Scan(&k, &v); err != nil {
+			return
+		}
+		if !fn(k, v) {
+			return
+		}
+	}
+}
+
+func (t *pgTx) Count(bucket []byte) int {
+	ctx := context.Background()
+	q, args := t.query("SELECT COUNT(*) FROM kv WHERE bucket = ?", string(bucket))
+	var n int
+	if err := t.tx.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		return 0
+	}
+	return n
+}
+
+func (t *pgTx) NextSequence(bucket []byte) (uint64, error) {
+	ctx := context.Background()
+	if !t.write {
+		return 0, errors.New("a sequence advances only in an Update")
+	}
+	q, args := t.query(`INSERT INTO sequences (bucket, seq) VALUES (?, 1)
+		ON CONFLICT (bucket) DO UPDATE SET seq = seq + 1 RETURNING seq`, string(bucket))
+	var seq uint64
+	err := t.tx.QueryRowContext(ctx, q, args...).Scan(&seq)
+	return seq, err
+}
+
+func (t *pgTx) SetSequence(bucket []byte, seq uint64) error {
+	ctx := context.Background()
+	if !t.write {
+		return errors.New("a sequence is set only in an Update")
+	}
+	q, args := t.query(`INSERT INTO sequences (bucket, seq) VALUES (?, ?)
+		ON CONFLICT (bucket) DO UPDATE SET seq = excluded.seq`, string(bucket), seq)
+	_, err := t.tx.ExecContext(ctx, q, args...)
+	return err
+}
+
+func (t *pgTx) Sequence(bucket []byte) uint64 {
+	ctx := context.Background()
+	q, args := t.query("SELECT seq FROM sequences WHERE bucket = ?", string(bucket))
+	var seq uint64
+	if err := t.tx.QueryRowContext(ctx, q, args...).Scan(&seq); err != nil {
+		return 0
+	}
+	return seq
+}
+
+func (t *pgTx) CompareAndSwap(bucket, key, old, value []byte) error {
+	ctx := context.Background()
+	if !t.write {
+		return errors.New("a compare-and-swap runs only in an Update")
+	}
+	switch {
+	case old == nil && value == nil:
+		q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
+		_, err := t.tx.ExecContext(ctx, q, args...)
+		return err // absent already: nothing to hold
+	case old == nil:
+		q, args := t.query("INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?)", string(bucket), key, value)
+		if _, err := t.tx.ExecContext(ctx, q, args...); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // the key is there
+				return fmt.Errorf("%w: %s", ErrCompareFailed, "the key exists")
+			}
+			return err
+		}
+		return nil
+	case value == nil:
+		q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ? AND v = ?", string(bucket), key, old)
+		res, err := t.tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrCompareFailed
+		}
+		return nil
+	default:
+		q, args := t.query("UPDATE kv SET v = ? WHERE bucket = ? AND k = ? AND v = ?", value, string(bucket), key, old)
+		res, err := t.tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrCompareFailed
+		}
+		return nil
+	}
+}
