@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -166,8 +167,113 @@ func TestSetupAndSignInWithPassword(t *testing.T) {
 	for range 10 {
 		m.signInAs("alice", "not her password")
 	}
-	if a := m.signInAs("alice", password); a.code != http.StatusTooManyRequests {
-		t.Errorf("after ten wrong passwords: %d", a.code)
+	if a := m.signInAs("alice", password); a.code != http.StatusTooManyRequests || !strings.Contains(a.body, "try again in") || !strings.Contains(a.body, "minute") {
+		t.Errorf("after ten wrong passwords: %d %s", a.code, a.body)
+	}
+}
+
+// TestOneTimeLinks checks what a setup, invitation or reset link survives — the page loading twice,
+// a form that fails — and what spends it: one successful submission. A link that merely expired says
+// so, not "used already".
+func TestOneTimeLinks(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+
+	// a setup link whose time is up says it expired
+	old, _, err := e.st.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(31 * time.Minute)
+	if a := e.browser().get("/console/setup?code=" + url.QueryEscape(old)); !strings.Contains(a.body, "This link has expired") || strings.Contains(a.body, "used already") {
+		t.Errorf("an expired setup link: %s", a.body)
+	}
+	e.now = e.now.Add(-31 * time.Minute)
+
+	// a setup link survives two loads and forms that fail; the form that succeeds spends it
+	code, _, err := e.st.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/console/setup?code=" + url.QueryEscape(code)
+	b := e.browser()
+	if p1, p2 := b.get(path), b.get(path); p1.code != http.StatusOK || p2.code != http.StatusOK || !strings.Contains(p2.body, `name="password"`) {
+		t.Fatalf("the setup page after two loads: %d %d %s", p1.code, p2.code, p2.body)
+	}
+	if a := b.fill(path, url.Values{"username": {"alice"}, "password": {password}, "again": {"differs"}}); a.code != http.StatusBadRequest {
+		t.Fatalf("differing passwords: %d %s", a.code, a.body)
+	}
+	if a := b.fill(path, url.Values{"username": {"alice"}, "password": {"password123"}, "again": {"password123"}}); a.code != http.StatusBadRequest {
+		t.Fatalf("a common password: %d %s", a.code, a.body)
+	}
+	if a := b.fill(path, url.Values{"username": {"bad name"}, "password": {password}, "again": {password}}); a.code != http.StatusBadRequest {
+		t.Fatalf("a bad username: %d %s", a.code, a.body)
+	}
+	if p := b.get(path); !strings.Contains(p.body, `name="password"`) {
+		t.Fatalf("the setup link spent by failures: %s", p.body)
+	}
+	if a := b.fill(path, url.Values{"username": {"alice"}, "display_name": {"Alice"}, "password": {password}, "again": {password}}); a.code != http.StatusSeeOther {
+		t.Fatalf("setup: %d %s", a.code, a.body)
+	}
+	b.get("/console")
+
+	// an invitation: two loads and a taken username leave it whole; one join spends it
+	a := b.post("/console/people/invite", url.Values{"role": {"oncall"}, "note": {"links"}})
+	if a.code != http.StatusCreated {
+		t.Fatalf("invite: %d %s", a.code, a.body)
+	}
+	join := shownLink(t, a.body)
+	c := e.browser()
+	if p1, p2 := c.get(join), c.get(join); p1.code != http.StatusOK || p2.code != http.StatusOK || !strings.Contains(p2.body, `name="password"`) {
+		t.Fatalf("the join page after two loads: %d %d %s", p1.code, p2.code, p2.body)
+	}
+	if a := c.fill(join, url.Values{"username": {"alice"}, "password": {password}, "again": {password}}); a.code != http.StatusBadRequest {
+		t.Fatalf("a taken username through an invitation: %d %s", a.code, a.body)
+	}
+	a = b.post("/console/people/invite", url.Values{"role": {"viewer"}, "note": {"expired"}})
+	if a.code != http.StatusCreated {
+		t.Fatalf("second invite: %d %s", a.code, a.body)
+	}
+	stale := shownLink(t, a.body)
+	e.now = e.now.Add(25 * time.Hour)
+	if p := e.browser().get(stale); !strings.Contains(p.body, "This link has expired") || strings.Contains(p.body, "used already") {
+		t.Errorf("an expired invitation: %s", p.body)
+	}
+	e.now = e.now.Add(-25 * time.Hour)
+	if a := c.fill(join, url.Values{"username": {"bob"}, "password": {password}, "again": {password}}); a.code != http.StatusSeeOther {
+		t.Fatalf("join: %d %s", a.code, a.body)
+	}
+	if p := e.browser().get(join); !strings.Contains(p.body, "used already, or it is wrong") {
+		t.Errorf("the invitation after use: %s", p.body)
+	}
+
+	// a reset link: two loads and a common password leave it whole; one reset spends it
+	r := b.post("/console/people/bob/reset", nil)
+	if r.code != http.StatusCreated {
+		t.Fatalf("reset link: %d %s", r.code, r.body)
+	}
+	reset := shownLink(t, r.body)
+	d := e.browser()
+	if p1, p2 := d.get(reset), d.get(reset); p1.code != http.StatusOK || p2.code != http.StatusOK || !strings.Contains(p2.body, `name="password"`) {
+		t.Fatalf("the reset page after two loads: %d %d %s", p1.code, p2.code, p2.body)
+	}
+	if a := d.fill(reset, url.Values{"password": {"password123"}, "again": {"password123"}}); a.code != http.StatusBadRequest {
+		t.Fatalf("a common password through a reset: %d %s", a.code, a.body)
+	}
+	r = b.post("/console/people/alice/reset", nil)
+	if r.code != http.StatusCreated {
+		t.Fatalf("second reset link: %d %s", r.code, r.body)
+	}
+	stale = shownLink(t, r.body)
+	e.now = e.now.Add(31 * time.Minute)
+	if p := e.browser().get(stale); !strings.Contains(p.body, "This link has expired") || strings.Contains(p.body, "used already") {
+		t.Errorf("an expired reset link: %s", p.body)
+	}
+	e.now = e.now.Add(-31 * time.Minute)
+	if a := d.fill(reset, url.Values{"password": {"a whole new password"}, "again": {"a whole new password"}}); a.code != http.StatusSeeOther {
+		t.Fatalf("reset: %d %s", a.code, a.body)
+	}
+	if p := e.browser().get(reset); !strings.Contains(p.body, "used already, or it is wrong") {
+		t.Errorf("the reset link after use: %s", p.body)
 	}
 }
 

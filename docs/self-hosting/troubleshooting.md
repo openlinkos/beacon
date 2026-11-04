@@ -119,7 +119,7 @@ The API or MCP answers 401 or 403, or the MCP client says it cannot connect, or 
 - **An OAuth client asks to sign in again.** Its sign-in was revoked, or the time allowed on the consent page is up: sign in again from the client (`/mcp` in Claude Code, `codex mcp login beacon`).
 - **A renewed token that the client no longer has.** A client registered with a fixed header, as `claude mcp add --header` does, keeps the old secret, which stops working ten minutes after a renewal: add it again with the new secret. The wrappers in `contrib/oncall` read the token file on every connection instead.
 - **`auth.scope`.** The route or tool needs a scope the credential does not have. The message names it: `the token lacks the … scope` for a token of its own, and for an agent what its preset within its owner's role allows. Change the agent's preset on its page, or ask an owner for a role that allows it ([Scopes](../reference/api.md#scopes)).
-- **`auth.too_many_failures`.** 20 failed attempts from one address within 10 minutes block it for the rest of those 10 minutes; a client retrying with a wrong token causes it.
+- **`auth.too_many_failures`.** 20 failed attempts from one address within 10 minutes block it for the rest of those 10 minutes. The message says how long is left and the response carries `Retry-After`. A client retrying with a wrong token causes it. MCP answers the same lockout with a 401 whose text names the wait, because its library has no 429.
 - **`token.too_soon` (429) on a renewal.** The token renewed itself less than 24 hours ago and is still good.
 
 ### probe_now names locations as missing
@@ -134,12 +134,12 @@ The sign-in form at `/console/sign-in` says why:
 
 - `Wrong username or password.`: one of the two is wrong; the answer is the same for both. A lost password takes a reset link from an owner (**People**, or `beacon user reset NAME`).
 - `This account is disabled; an owner can enable it.`: an owner enables it on **People**, or with `beacon user enable NAME`.
-- `Too many failed sign-ins; try again in a few minutes.`: 10 wrong passwords for this username within 10 minutes, from anywhere; wait for the 10 minutes to pass.
-- `Too many failed sign-ins from here; try again in a few minutes.`: 20 failures from your address within 10 minutes; wait for the 10 minutes to pass.
+- `Too many failed sign-ins; try again in %d minutes.` (a minute, when less than one is left): 10 wrong passwords for this username within 10 minutes, from anywhere; the number is the minutes to wait.
+- `Too many failed sign-ins from here; try again in %d minutes.`: 20 failures from your address within 10 minutes; the number is the minutes to wait, and it is the same on the account forms (setup, invitation, reset).
 - `The form has expired; try again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
 - With a token instead: `The token is unknown or has expired.` (the token is mistyped, expired or revoked), or `Token NAME lacks status:read, which the console needs to show anything.` (make a token with `status:read`).
 
-Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](../guide/people.md#the-first-owner)). A setup, invitation or reset link that says `This link does not work: it was used already, it expired, or it is wrong.` needs a new one from an owner. [The console](../guide/console.md#signing-in) has the details.
+Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](../guide/people.md#the-first-owner)). A setup, invitation or reset link that says `This link has expired; ask an owner for a new one.` has run out of its time (30 minutes for a setup or reset link, 24 hours for an invitation), and one that says `This link does not work: it was used already, or it is wrong.` was spent or mistyped; either way an owner makes another. [The console](../guide/console.md#signing-in) has the details.
 
 ### The console says 404 on an old link
 

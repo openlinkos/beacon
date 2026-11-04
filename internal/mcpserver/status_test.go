@@ -19,7 +19,7 @@ import (
 func TestStatusTools(t *testing.T) {
 	e := testutil.New(t)
 	cfg := configdb.Open(configdb.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN})
-	page := `{"title": "Example Status", "components": [{"name": "hub", "title": "Hub", "services": ["hub-linkos-io"]}]}`
+	page := `{"title": "Example Status", "components": [{"name": "hub", "title": "Hub", "services": ["hub-example-com"]}]}`
 	if _, err := cfg.Put(context.Background(), configdb.Actor{Name: "test", Via: "cli"}, "status_pages", "public", json.RawMessage(page), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -42,14 +42,14 @@ func TestStatusTools(t *testing.T) {
 	if res, text := call(t, read, "get_status_page", map[string]any{"name": "nope"}); !res.IsError || !strings.Contains(text, "status_pages") {
 		t.Errorf("an unknown page: %s", text)
 	}
-	if res, text := call(t, read, "schedule_maintenance", map[string]any{"services": []string{"hub-linkos-io"}, "ends_at": "2030-01-01T00:00:00Z", "title": "x"}); !res.IsError || !strings.Contains(text, "maintenance:write") {
+	if res, text := call(t, read, "schedule_maintenance", map[string]any{"services": []string{"hub-example-com"}, "ends_at": "2030-01-01T00:00:00Z", "title": "x"}); !res.IsError || !strings.Contains(text, "maintenance:write") {
 		t.Errorf("a read token plans nothing: %s", text)
 	}
 
 	agent := connect(t, srv.URL, e.Token(t, "claude-oncall", "maintenance:write", "status:read"))
 	starts := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	ends := time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339)
-	res, text = call(t, agent, "schedule_maintenance", map[string]any{"services": []string{"hub-linkos-io"}, "starts_at": starts, "ends_at": ends,
+	res, text = call(t, agent, "schedule_maintenance", map[string]any{"services": []string{"hub-example-com"}, "starts_at": starts, "ends_at": ends,
 		"title": "Hub upgrade", "description": "Pulls may fail."})
 	if res.IsError || !strings.Contains(text, `"title":"Hub upgrade"`) || !strings.Contains(text, `"via":"mcp"`) {
 		t.Fatalf("schedule_maintenance: %s", text)
@@ -59,7 +59,7 @@ func TestStatusTools(t *testing.T) {
 	}
 	b, _ := json.Marshal(res.StructuredContent)
 	_ = json.Unmarshal(b, &m)
-	if res, text := call(t, agent, "schedule_maintenance", map[string]any{"services": []string{"hub-linkos-io"}, "ends_at": "tomorrow", "title": "x"}); !res.IsError || !strings.Contains(text, "RFC 3339") {
+	if res, text := call(t, agent, "schedule_maintenance", map[string]any{"services": []string{"hub-example-com"}, "ends_at": "tomorrow", "title": "x"}); !res.IsError || !strings.Contains(text, "RFC 3339") {
 		t.Errorf("a time that is not one: %s", text)
 	}
 	if _, text := call(t, read, "list_maintenance", nil); !strings.Contains(text, m.ID) {
