@@ -134,7 +134,7 @@ resources:
 	now := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // cdn-pre-cn1 expired on 11-02
 	e.board = probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return c }, Targets: func() *targets.Set { return set },
 		Metrics: e.m, Now: func() time.Time { return now }})
-	e.h = Handler(Deps{Auth: &api.Auth{Store: st}, Catalog: func() *catalog.Catalog { return c },
+	e.h = Handler(Deps{Auth: &api.Auth{Store: st, Now: func() time.Time { return now }}, Catalog: func() *catalog.Catalog { return c },
 		Targets: func() *targets.Set { return set }, Modules: func() []byte { return []byte("modules: {}\n") }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
 		Metrics: e.m, Now: func() time.Time { return now }, Requests: e.board})
 	return e
@@ -273,6 +273,30 @@ func TestAlertsToTheRouter(t *testing.T) {
 	code(t, e.do("POST", "/api/v2/alerts", "rules-wrong", body), http.StatusUnauthorized, "auth.invalid")
 	code(t, e.do("POST", "/api/v2/alerts", e.probe, body), http.StatusForbidden, "auth.scope")
 	code(t, e.do("POST", "/api/v2/alerts", e.flux, "{not json"), http.StatusBadRequest, "bad_input")
+}
+
+// TestLockoutNamesTheWait checks the gateway says how long a locked address waits, with Retry-After,
+// and that a request which sent no token is still 401.
+func TestLockoutNamesTheWait(t *testing.T) {
+	e := newEnv(t, false)
+	one := e.do("POST", "/api/v1/write", "lbt_nope", "x")
+	code(t, one, http.StatusUnauthorized, "auth.invalid")
+	if one.Header().Get("Retry-After") != "" {
+		t.Errorf("one bad token carries Retry-After %q", one.Header().Get("Retry-After"))
+	}
+	for range 19 {
+		e.do("POST", "/api/v1/write", "lbt_nope", "x")
+	}
+	rec := e.do("POST", "/api/v1/write", e.probe, "x")
+	code(t, rec, http.StatusTooManyRequests, "auth.too_many_failures")
+	if rec.Header().Get("Retry-After") != "600" || !strings.Contains(rec.Body.String(), "too many failed attempts from this address; try again in 10 minutes") {
+		t.Fatalf("lockout: Retry-After=%q %s", rec.Header().Get("Retry-After"), rec.Body)
+	}
+	bare := e.do("POST", "/api/v1/write", "", "x")
+	code(t, bare, http.StatusUnauthorized, "auth.required")
+	if bare.Header().Get("Retry-After") != "" {
+		t.Errorf("no token during a lockout: Retry-After %q %s", bare.Header().Get("Retry-After"), bare.Body)
+	}
 }
 
 func TestAuth(t *testing.T) {

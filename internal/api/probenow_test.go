@@ -95,10 +95,10 @@ func TestProbeNowRoute(t *testing.T) {
 	if r["ok"] != true || r["http_status"] != 200.0 || r["duration_seconds"] != 0.2 || r["probed_at"] == nil || r["instance"] != "https://hub.example.com/" {
 		t.Errorf("result %v", r)
 	}
-	if last := e.Bot.Texts[len(e.Bot.Texts)-1]; last != "claude-code had 2 locations probe 2 targets of hub-linkos-io again via API: 2 OK" {
+	if last := e.Bot.Texts[len(e.Bot.Texts)-1]; last != "claude-code had 2 locations probe 2 targets of hub-example-com again via API: 2 OK" {
 		t.Errorf("echo %q", last)
 	}
-	if a := e.Store.AuditLog(1); a[0].Action != "probe_now" || a[0].Via != "api" || a[0].Target != "2 targets of hub-linkos-io" {
+	if a := e.Store.AuditLog(1); a[0].Action != "probe_now" || a[0].Via != "api" || a[0].Target != "2 targets of hub-example-com" {
 		t.Errorf("audit %+v", a[0])
 	}
 }

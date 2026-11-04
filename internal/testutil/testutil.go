@@ -96,9 +96,9 @@ func NewWith(t *testing.T, tweak func(*bridge.Deps)) *Env {
 	e.Bridge = bridge.New(deps)
 	err = e.Bridge.HandleWebhook(context.Background(), alertmanager.Webhook{
 		Version: "4", GroupKey: GroupKey, Status: "firing",
-		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "hub-linkos-io"},
-		CommonLabels:      map[string]string{"alertname": "ServiceDown", "service": "hub-linkos-io", "severity": "critical"},
-		CommonAnnotations: map[string]string{"summary": "hub.linkos.io is down"},
+		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "hub-example-com"},
+		CommonLabels:      map[string]string{"alertname": "ServiceDown", "service": "hub-example-com", "severity": "critical"},
+		CommonAnnotations: map[string]string{"summary": "hub.example.com is down"},
 		Alerts:            []alertmanager.Alert{{Status: "firing", Fingerprint: "f", StartsAt: time.Now()}},
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func NewWith(t *testing.T, tweak func(*bridge.Deps)) *Env {
 }
 
 // GroupKey is the key of the group New fires; GroupID is its id.
-const GroupKey = `{}:{alertname="ServiceDown",service="hub-linkos-io"}`
+const GroupKey = `{}:{alertname="ServiceDown",service="hub-example-com"}`
 
 // GroupID returns the id of the group New fires.
 func GroupID() string { return bridge.GroupID(GroupKey) }
@@ -126,7 +126,7 @@ func (e *Env) Token(t *testing.T, name string, scopes ...string) string {
 // ProbeBoard is a board of requests to probe on demand over two locations, edge-1 (overseas) and
 // edge-2 (mainland), and these target sets:
 //
-//	all-web.yaml       https://hub.example.com/ (service hub-linkos-io, the alert's; module http_head)
+//	all-web.yaml       https://hub.example.com/ (service hub-example-com, the alert's; module http_head)
 //	all-tls.yaml       https://hub.example.com/ again, module tls_expiry
 //	all-docs.yaml      https://docs.example.com/ and https://www.example.com/ (service docs)
 //	overseas-api.yaml  https://api.example.com/ (service api): edge-1 alone probes it
@@ -137,8 +137,8 @@ func ProbeBoard(t *testing.T) *probenow.Board {
 		{ID: "edge-2", Name: "Mainland China - Shanghai", Region: "mainland"},
 	}}
 	set, err := targets.Build(map[string][]targets.Group{
-		"all-web.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "hub-linkos-io"}}},
-		"all-tls.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "tls_expiry", "service": "hub-linkos-io"}}},
+		"all-web.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "hub-example-com"}}},
+		"all-tls.yaml":      {{Targets: []string{"https://hub.example.com/"}, Labels: map[string]string{"module": "tls_expiry", "service": "hub-example-com"}}},
 		"all-docs.yaml":     {{Targets: []string{"https://docs.example.com/", "https://www.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "docs"}}},
 		"overseas-api.yaml": {{Targets: []string{"https://api.example.com/"}, Labels: map[string]string{"module": "http_2xx", "service": "api"}}},
 	}, []string{"edge-1", "edge-2"})

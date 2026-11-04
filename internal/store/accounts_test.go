@@ -155,7 +155,7 @@ func TestSetupAndInvitations(t *testing.T) {
 		t.Errorf("a taken username: %v", err)
 	}
 	*now = now.Add(25 * time.Hour)
-	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrBadLink) {
+	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired invitation: %v", err)
 	}
 	inv, l, _ = s.CreateInvitation("viewer", "", "alice")
@@ -263,8 +263,39 @@ func TestSignInAndAccounts(t *testing.T) {
 	}
 	code, _, _ = s.CreateResetLink("alice", "alice")
 	*now = now.Add(31 * time.Minute)
-	if _, err := s.Reset(code, "too late for this"); !errors.Is(err, ErrBadLink) {
+	if _, err := s.Reset(code, "too late for this"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired reset link: %v", err)
+	}
+	if _, err := s.Link(LinkReset, code); !errors.Is(err, ErrLinkExpired) {
+		t.Errorf("an expired link through Link: %v", err)
+	}
+}
+
+// TestExpiredLinkOutlivesANewerOne keeps a link that has only just expired when a newer one is made, and
+// forgets it once it has been expired for more than a week.
+func TestExpiredLinkOutlivesANewerOne(t *testing.T) {
+	s, now := openTest(t)
+	old, _, err := s.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(31 * time.Minute)
+	fresh, _, err := s.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Link(LinkSetup, old); !errors.Is(err, ErrLinkExpired) {
+		t.Fatalf("an expired link after a newer one: %v", err)
+	}
+	if _, err := s.Link(LinkSetup, fresh); err != nil {
+		t.Fatalf("the newer link: %v", err)
+	}
+	*now = now.Add(8 * 24 * time.Hour)
+	if _, _, err := s.CreateSetupLink(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Link(LinkSetup, old); errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
+		t.Fatalf("a link expired for over a week: %v", err)
 	}
 }
 
