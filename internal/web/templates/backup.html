@@ -1,0 +1,35 @@
+{{define "content"}}<div class="ol-stack">
+{{if .Off}}<section class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "hard-drive"}} {{.L.Off}}</h2></div>
+  <div class="ol-panel-body ol-stack"><p>{{.L.OffHint}}</p></div>
+</section>
+{{else}}{{if .HasMaterial}}<section class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "key-round"}} {{.L.Waiting}}</h2></div>
+  <div class="ol-panel-body ol-stack">
+    <p>{{.L.WaitingHint}}</p>
+    <div class="ol-code ol-code-wrap"><pre><code>{{.Material}}</code></pre></div>
+    <div class="ol-alert ol-alert-warning" role="status">{{icon "triangle-alert"}}<div class="ol-alert-body"><p><strong>{{.L.Warn}}.</strong> {{.L.WarnHint}}</p></div></div>
+    <div class="ol-cluster">
+      <a class="ol-btn ol-btn-primary" href="{{.Download}}" download>{{icon "download"}} {{.L.Download}}</a>
+    </div>
+  </div>
+</section>
+<section class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "trash-2"}} {{.L.Remove}}</h2></div>
+  <div class="ol-panel-body ol-stack">
+    <p class="ol-hint">{{.L.RemoveHint}}</p>
+    <form method="post" action="{{.Remove}}"><input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" class="ol-btn ol-btn-danger-soft">{{iconSm "trash-2"}} {{.L.Remove}}</button>
+    </form>
+  </div>
+</section>
+{{else}}<section class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "hard-drive"}} {{.L.PublicKey}}</h2></div>
+  <div class="ol-panel-body ol-stack">
+    <p>{{.L.StoredHint}}</p>
+    {{if .PublicKey}}<p class="ol-hint">{{.L.PublicKeyHint}}</p>
+    <div class="ol-code ol-code-wrap"><pre><code>{{.PublicKey}}</code></pre></div>{{end}}
+  </div>
+</section>
+{{end}}{{end}}
+</div>{{end}}
