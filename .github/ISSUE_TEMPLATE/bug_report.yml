@@ -31,8 +31,8 @@ body:
         - Alert routing and delivery (cards, escalation, hooks)
         - The SSH channel
         - The gateway (probes, hosts, heartbeats, change events)
-        - The probe agent (linkos-probe)
-        - The on-call harness (linkos-oncall)
+        - The probe agent (beacon-probe)
+        - The on-call harness (beacon-oncall)
         - The pages people open from a card
         - Configuration (catalogue, targets, modules)
         - The reference deployment (deploy/)
@@ -43,7 +43,7 @@ body:
     id: version
     attributes:
       label: Version or commit
-      description: What `linkos-beacon version` prints, and `linkos-probe version` if a probe is involved.
+      description: What `beacon version` prints, and `beacon-probe version` if a probe is involved.
       placeholder: e.g. v0.3.0-rc.6 or a1b2c3d
     validations:
       required: true

@@ -46,8 +46,8 @@ type MachineView struct {
 	ConnectedSince time.Time `json:"connected_since,omitzero"`
 }
 
-// view is a machine as the API shows it to the holder of t.
-func (g *Gate) view(m store.Machine, t store.Token) MachineView {
+// view is a machine as the API shows it to t.
+func (g *Gate) view(m store.Machine, t store.Principal) MachineView {
 	v := MachineView{Name: m.Name, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
 		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name)}
 	if m.Connector() {
@@ -84,7 +84,7 @@ func (g *Gate) List(who Actor, address string) (Machines, error) {
 	if g == nil {
 		return Machines{}, ErrDisabled
 	}
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	out := Machines{Machines: []MachineView{}}
 	ms := g.d.Store.Machines()
 	slices.SortFunc(ms, func(a, b store.Machine) int { return strings.Compare(a.Name, b.Name) })
@@ -172,7 +172,7 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey()}, nil
 }
 

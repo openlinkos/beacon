@@ -1,0 +1,93 @@
+{{define "layout"}}<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="/static/ol/ui.css?v={{.Version}}">
+<link rel="stylesheet" href="/static/beacon.css?v={{.Version}}">
+{{block "head" .}}{{end}}
+</head>
+<body data-brand="beacon">
+{{.Icons}}
+{{if .Bare}}{{template "bare" .}}{{else}}{{template "app" .}}{{end}}
+{{block "scripts" .}}{{end}}
+</body>
+</html>
+{{end}}
+
+{{/* Beacon's mark as the design system draws it: a fire and its signal both ways along the wall. */}}
+{{define "mark"}}<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14.358 35.491A15 15 0 0 1 14.358 12.509" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><path d="M33.642 12.509A15 15 0 0 1 33.642 35.491" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><circle cx="24" cy="24" r="6" class="ol-brand-accent"/></svg>{{end}}
+
+{{define "app"}}<a class="ol-skip-link" href="#main">{{.S.Skip}}</a>
+<div class="ol-app ol-app-workbench">
+  <aside class="ol-sidebar" id="nav" popover aria-label="{{.S.Sections}}">
+    <div class="ol-sidebar-head"><a class="ol-brand" href="{{.Home}}" aria-label="Beacon">{{template "mark" .}}<span>Beacon</span></a></div>
+    <nav class="ol-nav" aria-label="{{.S.Sections}}">
+      {{range .Nav}}<div class="ol-nav-group">{{if .Label}}<div class="ol-nav-label">{{.Label}}</div>{{end}}
+        {{range .Items}}<a class="ol-nav-item" href="{{.Href}}" title="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="ol-nav-text">{{.Label}}</span>{{if .Count}}<span class="ol-nav-count">{{.Count}}</span>{{end}}</a>
+        {{end}}</div>
+      {{end}}
+    </nav>
+    <div class="ol-sidebar-foot">
+      {{if .SignedIn}}
+      <a class="ol-sidebar-status{{if .Side.Tone}} ol-status-{{.Side.Tone}}{{end}}" href="{{.Side.Href}}" title="{{.Side.Text}}"><span class="ol-dot"></span><span>{{.Side.Text}}</span></a>
+      <button class="ol-sidebar-account" type="button" popovertarget="account" title="{{.S.Account}}">
+        {{icon "user"}}
+        <span class="ol-sidebar-account-text"><span class="ol-sidebar-account-name">{{.Who}}</span><span class="ol-sidebar-account-meta">{{.WhoMeta}}</span></span>
+        {{iconSm "chevrons-up-down"}}
+      </button>
+      <div class="ol-menu ol-menu-above" id="account" popover>
+        <div class="ol-menu-header"><span class="ol-entity"><span class="ol-entity-text"><span class="ol-entity-title">{{.Who}}</span><span class="ol-entity-sub" title="{{.S.Scopes}}: {{.WhoScopes}}">{{.WhoScopes}}</span></span></span></div>
+        <hr class="ol-menu-separator">
+        <a class="ol-menu-item" href="{{.AccountHref}}">{{iconSm "user"}}{{.S.YourAccount}}</a>
+        <form method="post" action="{{.SignOut}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-menu-item">{{iconSm "log-out"}}{{.S.SignOut}}</button></form>
+      </div>
+      {{else if .Access}}
+      <div class="ol-sidebar-status" title="{{.Access}}"><span class="ol-dot"></span><span>{{.Access}}</span></div>
+      {{end}}
+    </div>
+  </aside>
+  <div class="ol-main">
+    <header class="ol-topbar">
+      <button class="ol-btn ol-btn-ghost ol-btn-icon ol-btn-sm ol-nav-open" type="button" popovertarget="nav" aria-label="{{.S.Menu}}">{{icon "menu"}}</button>
+      <nav aria-label="{{.S.Breadcrumb}}"><ol class="ol-breadcrumb">{{range .Crumbs}}<li>{{if .Href}}<a href="{{.Href}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</li>{{end}}</ol></nav>
+      <h1 class="ol-topbar-title"><span class="ol-topbar-title-text">{{.Heading}}</span>{{if .Count}}<span class="ol-topbar-count">{{.Count}}</span>{{end}}{{range .Badges}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Text}}</span>{{end}}</h1>
+      <div class="ol-topbar-actions">{{block "actions" .}}{{end}}</div>
+    </header>
+    <main class="ol-content" id="main" tabindex="-1">
+{{if .Problem}}<div class="ol-notices"><div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Problem}}</p></div></div></div>{{end}}
+{{template "content" .}}
+    </main>
+    {{template "project" .Project}}
+  </div>
+</div>
+{{if .Toast}}<div class="ol-toaster" role="status"><div class="ol-toast ol-toast-{{.ToastTone}} ol-toast-auto">{{iconSm "circle-check"}} {{.Toast}}</div></div>{{end}}
+{{end}}
+
+{{define "bare"}}<main class="ol-auth" id="main">
+  <aside class="ol-auth-aside">
+    <div class="ol-auth-rings" aria-hidden="true"></div>
+    <a class="ol-auth-brand" href="/">{{template "mark" .}}<span>Beacon</span></a>
+    <p class="ol-auth-statement">{{.Statement}}</p>
+    <p class="ol-auth-meta">{{.Host}}</p>
+  </aside>
+  <div class="ol-auth-body">
+    <div class="ol-auth-card">
+{{template "content" .}}
+    </div>
+    <div class="ol-auth-foot"><span>{{.Project.Version}}</span><span>{{.Project.OpenSource}}</span><a href="{{.Project.Docs}}">{{.Project.DocsLabel}}</a><a href="{{.Project.Repo}}">{{.Project.RepoLabel}}</a></div>
+  </div>
+</main>
+{{end}}
+
+{{/* The foot of every page of the console: what it runs on, and where the project is. */}}
+{{define "project"}}<footer class="ol-footer">
+  <span>{{.Version}}</span>
+  <a href="{{.Docs}}">{{.DocsLabel}}</a>
+  <a href="{{.Repo}}">{{.RepoLabel}}</a>
+  <a href="{{.Issues}}">{{.IssuesLabel}}</a>
+</footer>{{end}}

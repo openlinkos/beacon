@@ -1,12 +1,12 @@
 #!/bin/sh
 # codex.sh: runs Codex (codex exec) for the alert Beacon woke us for. The same contract as
-# claude-code.sh: linkos-oncall starts it with the payload on standard input and the alert in BEACON_*
+# claude-code.sh: beacon-oncall starts it with the payload on standard input and the alert in BEACON_*
 # variables; it builds the prompt from prompt.md, points Codex at Beacon's MCP server with the agent's
 # token, and runs it non-interactively. Everything Codex prints goes to the run's log.
 #
 # Environment:
 #   BEACON_TOKEN_FILE  the agent's Beacon token; required
-#   BEACON_MCP_URL     Beacon's MCP endpoint; linkos-oncall sets it from the payload
+#   BEACON_MCP_URL     Beacon's MCP endpoint; beacon-oncall sets it from the payload
 #   ONCALL_PROMPT      the prompt file; prompt.md beside this script by default
 #   ONCALL_MODEL       a model name; Codex's default otherwise
 #   CODEX_BIN          the codex program; "codex" on PATH by default

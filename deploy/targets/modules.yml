@@ -1,4 +1,4 @@
-# Probe modules, in the Blackbox Exporter's format (docs/catalog.md lists the fields Beacon implements) plus the
+# Probe modules, in the Blackbox Exporter's format (docs/guide/monitoring.md lists the fields Beacon implements) plus the
 # registry, git and rdap probers. The gateway hands this file to every probe; a change here needs no redeployment
 # of the probes. IPv4 only: not every location has IPv6, and mixing the two gives one service different results
 # from different locations.

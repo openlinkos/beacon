@@ -22,6 +22,6 @@ Put the node back in rotation or fix what dropped it; once a primary is back, ta
 
 ## How to verify
 
-`linkos_location_in_rotation{location="<id>"}` is 1 again (0 for a standby), `linkos_rotation_unknown_address` is gone, `linkos_rotation_resolve_success` is 1.
+`beacon_location_in_rotation{location="<id>"}` is 1 again (0 for a standby), `beacon_rotation_unknown_address` is gone, `beacon_rotation_resolve_success` is 1.
 
-To silence a node taken out on purpose: `linkos-beacon silence create -matchers 'alertname=CDNNodeOutOfRotation,location=<id>' -duration 24h -comment '…'`.
+To silence a node taken out on purpose: `beacon silence create -matchers 'alertname=CDNNodeOutOfRotation,location=<id>' -duration 24h -comment '…'`.

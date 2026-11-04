@@ -97,7 +97,7 @@ func TestServesRequestsAndPostsResults(t *testing.T) {
 	waitFor(t, "two pushes", func() bool { pushes = append(pushes, gw.take()...); return len(pushes) >= 2 })
 	var onDemand string
 	for _, p := range pushes {
-		if !strings.Contains(p, "linkos_probe_targets") { // the cycle's push has the agent's own series
+		if !strings.Contains(p, "beacon_probe_targets") { // the cycle's push has the agent's own series
 			onDemand = p
 		}
 	}
@@ -105,7 +105,7 @@ func TestServesRequestsAndPostsResults(t *testing.T) {
 		`probe_success{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical"} 0 `,
 		`probe_failure_info{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical",reason="http_status"} 1 `,
 		`probe_http_status_code{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical"} 502 `,
-		`linkos_probe_attempts{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical"} 1 `,
+		`beacon_probe_attempts{instance="` + target + `/broken",job="probe",module="http_2xx",service="web",severity="critical"} 1 `,
 	} {
 		if !strings.Contains(onDemand, want) {
 			t.Errorf("missing %q in\n%s", want, onDemand)

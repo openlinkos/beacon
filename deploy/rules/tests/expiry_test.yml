@@ -8,11 +8,11 @@ tests:
   - name: resources expiring within 30 days warn, within 7 days are critical
     interval: 5m
     input_series:
-      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="edge-2",kind="vps"}'
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="beacon",resource="edge-2",kind="vps"}'
         values: '947548800x5'   # in 10 days
-      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="edge-3",kind="vps"}'
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="beacon",resource="edge-3",kind="vps"}'
         values: '946944000x5'   # in 3 days
-      - series: 'linkos_resource_expiry_timestamp_seconds{job="linkos-beacon",resource="example.com",kind="domain"}'
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="beacon",resource="example.com",kind="domain"}'
         values: '978220800x5'   # in 365 days
     alert_rule_test:
       - eval_time: 10m
@@ -63,9 +63,9 @@ tests:
     interval: 10m
     input_series:
       # reported once, at the start (one pushed sample)
-      - series: 'linkos_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}'
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}'
         values: '946684800'
-      - series: 'linkos_heartbeat_max_age_seconds{job="linkos-beacon",heartbeat="nas-backup",severity="warning"}'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="nas-backup",severity="warning"}'
         values: '3600x20'
     alert_rule_test:
       - eval_time: 50m
@@ -87,9 +87,9 @@ tests:
   - name: a heartbeat that names its machine alerts as before, the machine label aggregated away
     interval: 10m
     input_series:
-      - series: 'linkos_heartbeat_last_success_timestamp_seconds{heartbeat="drill-1"}'
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="drill-1"}'
         values: '946684800'
-      - series: 'linkos_heartbeat_max_age_seconds{job="linkos-beacon",heartbeat="drill-1",severity="critical",machine="develop-1"}'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="db-1"}'
         values: '3600x20'
     alert_rule_test:
       - eval_time: 50m

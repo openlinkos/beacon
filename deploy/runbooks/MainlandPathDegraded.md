@@ -18,4 +18,4 @@ If the service is meant to work from mainland China: a different address or CDN 
 
 The mainland locations succeed again; the alert resolves after `resolve_timeout`.
 
-To silence: the card's buttons; `silence_alert` over MCP; or `linkos-beacon silence create -matchers 'alertname=MainlandPathDegraded,service=<service>' -duration 4h -comment '…'`.
+To silence: the card's buttons; `silence_alert` over MCP; or `beacon silence create -matchers 'alertname=MainlandPathDegraded,service=<service>' -duration 4h -comment '…'`.

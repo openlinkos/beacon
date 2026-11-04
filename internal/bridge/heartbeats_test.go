@@ -39,7 +39,7 @@ func (v *heartbeatVM) QueryAt(_ context.Context, q string, _ time.Time) ([]vm.Sa
 	if err := v.asked(q); err != nil {
 		return nil, err
 	}
-	if strings.Contains(q, "linkos_heartbeat_last_success_timestamp_seconds") {
+	if strings.Contains(q, "beacon_heartbeat_last_success_timestamp_seconds") {
 		return v.last, nil
 	}
 	return nil, nil
@@ -121,7 +121,7 @@ func TestHeartbeatEvidence(t *testing.T) {
 		t.Errorf("heartbeat: %+v", h)
 	}
 	if !slices.ContainsFunc(v.queries, func(q string) bool {
-		return q == `max by (heartbeat) (last_over_time(linkos_heartbeat_last_success_timestamp_seconds{heartbeat="drill-develop-cn"}[31d]))`
+		return q == `max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{heartbeat="drill-develop-cn"}[31d]))`
 	}) {
 		t.Errorf("queries: %q", v.queries)
 	}

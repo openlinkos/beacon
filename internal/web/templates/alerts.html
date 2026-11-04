@@ -1,0 +1,21 @@
+{{define "content"}}<div class="ol-layout-filters">
+  {{template "facets" .}}
+  <section class="ol-layout-main">
+    {{template "filterbar" .}}
+    {{if .Rows}}
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.Title}}</th><th>{{.L.Severity}}</th><th>{{.L.State}}</th><th>{{.L.Service}}</th><th class="ol-num">{{.L.Since}}</th></tr></thead>
+      <tbody>
+      {{range .Rows}}<tr>
+        <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if or .Acked .Silenced}}<span class="ol-cell-sub">{{if .Acked}}<span class="ol-badge">{{$.L.Acked}}</span> {{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span>{{end}}</td>
+        <td data-label="{{$.L.Severity}}"><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
+        <td data-label="{{$.L.State}}"><span class="ol-badge ol-badge-{{.StateTone}}"><span class="ol-dot"></span>{{.State}}</span> <span class="ol-subtle">{{.When}}</span></td>
+        <td data-label="{{$.L.Service}}">{{.Service}}</td>
+        <td class="ol-num">{{.Since}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table></div>
+    {{template "pager" .}}
+    {{else}}{{template "empty" .List.Empty}}{{end}}
+  </section>
+</div>{{end}}

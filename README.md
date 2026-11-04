@@ -1,130 +1,120 @@
-# Beacon · 烽火
+<h1>
+  <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
+</h1>
 
-English | [简体中文](README.zh-CN.md)
+**Self-hosted monitoring and SSH access for the AI agents that run your servers.**
 
-Beacon is infrastructure for AI agents that run operations. It tells whether your services work for your users, checked from where they are; it lets agents reach your machines over SSH without ever holding a key, and records every session; and it puts the people on call and their agents on one platform. A Go service and a small probe agent, on top of VictoriaMetrics and vmalert. What it aims at, and what it leaves out, is in [docs/goals.md](docs/goals.md).
+[![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-> Named after the beacon towers of the Great Wall: watch posts along the border lit a fire when they saw trouble, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.
+English | [简体中文](README.zh-CN.md) · Documentation: [beacon.openlinkos.com](https://beacon.openlinkos.com)
 
-Early days. Agents already work through it in production: they see alerts with their evidence, reach enrolled machines with their own ssh and the MCP tools without holding a key, and every session is on record; probes from several locations feed the alerts. Being built now: the first agent on call end to end (a reference harness and probing on demand), the pages people open from a card, machines behind NAT, and a reference deployment for other teams.
+Beacon checks your websites and services from several places at once, the way your users reach them, and says why a check fails: DNS, connection, TLS, timeout, status code. When a service goes down, it wakes your AI agent (Claude Code, Codex, or anything that speaks MCP or HTTP) and hands it the evidence in one call: what every location sees, what changed just before, what has already been done. The agent logs in to your servers through Beacon with its own `ssh`, or with Beacon's tools for running commands and editing files, fixes what it can, has every location check again, and leaves a note on the alert. It never holds a password or a private key, and every command it runs is recorded and can be replayed in a browser. Your users see a status page; the people on call get a card in Feishu and, when nobody answers, a call on their phone.
 
-## What it does
+> **Status: early (0.3, release candidates).** Probing, alert routing, Feishu cards and phone escalation, the SSH channel with its recordings, waking agents, evidence, probing on demand, the console and public status pages work end to end, and run the makers' own servers. Until 1.0 the configuration may change between minor versions; the [changelog](CHANGELOG.md) says what to do when it does.
 
-### Sees: monitoring
+## Why
 
-- **Probes from where your users are.** `linkos-probe` runs on any small machine (an edge node, a VPS in mainland China) and checks HTTP, TCP, TLS, container registries, Git over HTTP and domain expiry, like the Blackbox Exporter and with its metric names, and says why each failure happened: DNS, connect, timeout, TLS, status code, body. It reports a few host metrics and heartbeats too, and pushes everything with a queue on disk for when the network is down. One static binary, under 20 MB of memory.
-- **An outage is what several locations agree on.** A service is down only when at least two locations, and at least half of those reporting, fail; one location's hiccup never pages anyone. Locations follow their machines: when a machine is let go, its location stops counting.
-- **One door for machines.** The gateway gives each probe and host its own token (`linkos-beacon enroll`) and labels what it writes, so no machine can speak for another. It hands every probe its targets, probe modules and settings (a longer timeout for a machine on a lossy path, say), so changing what is checked needs no redeployment, and it takes heartbeats, alerts from the rule engine and Flux, and metric queries from agents.
-- **Alert routing built in.** Grouping, inhibition and silences, as Alertmanager does them, inside the service. Rule engines post alerts to it as they would to Alertmanager.
-- **Alert cards in Feishu.** A new alert becomes an interactive card in the alert chat: what is wrong, since when, which locations see it failing, and links to the runbook and the dashboard. Buttons on the card acknowledge it (with a note) or silence it for 1, 4 or 24 hours. The card changes in place, and turns green when the alert resolves.
-- **Escalation to phones.** A critical alert that nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15: the phone keeps ringing until someone acknowledges it there, which also acknowledges it here. An acknowledgement lapses after 4 hours if the alert is still firing.
-- **Nothing silently lost.** Low-severity alerts and anything over the Feishu app's monthly API budget go to the chat's custom bot, which needs no quota. If the card cannot be sent, a critical alert goes straight to Pushover. The service pings healthchecks.io every minute while rules, routing and delivery all work, so a dead monitoring host or a broken Feishu connection still reaches a phone.
-- **CDN nodes in rotation.** For probe locations on CDN nodes, Beacon notices when a node drops out of its cluster's DNS answers (up and probing, yet serving nobody), when a standby node steps in, and when the rotation holds a node nobody watches.
+AI coding agents are already good at operations work: reading logs, finding the wrong line in a configuration, restarting the right service. What keeps people from letting them do it is everything around the work.
 
-### Reaches: the SSH channel
+- **The agent does not know that something broke.** Monitoring tools page people and draw dashboards. An agent hears of an outage only when someone pastes the alert into a chat, and then has to guess what the probes saw.
+- **To touch a server, it needs your keys.** The usual way is to give the agent your SSH key or a root password. From then on it can reach every machine they open, from anywhere, and nothing records what it ran.
+- **Afterwards, nobody can tell what happened.** The agent's commands scrolled past in a terminal nobody was watching. Reviewing them means asking the agent, which remembers nothing between sessions.
 
-- **Agents use the tools they know.** ssh, scp, sftp, rsync and port forwarding go through Beacon unchanged, and MCP tools run commands and read and edit files with clean, structured results.
-- **No keys for agents.** Beacon holds the credentials and signs a certificate valid for a few minutes for each connection; machines trust only Beacon's certificate authority.
-- **Every session on record.** Sessions are recorded for replay, and interactive shells are broken down into commands with their exit status. Deciding what to run is the agent's own business; people see everything it does and can pause agents at once.
-- **Machines behind NAT connect out.** A machine Beacon cannot reach runs plain `ssh -R` to the channel with a key enrolled for it, and Beacon reaches its sshd through that connection; nothing is installed on the machine.
+Beacon is built for the agent to do the work and for people to see all of it:
 
-### Connects: the platform
+- **Checked from where your users are.** A probe of under 20 MB, on any small machine, checks HTTP, TLS, TCP, container registries, Git and domain expiry, and records why each check failed. A service is down only when several locations agree, so one location's bad network wakes nobody.
+- **The agent is woken with the evidence.** A signed webhook or a GitHub workflow wakes the agent you choose. One call, `get_evidence`, returns each location's result, the other alerts in the same failure domain, the deployments just before, and what people and agents have done so far.
+- **Server access without handing over keys.** Agents use their own `ssh`, `scp` and `rsync` through Beacon, or its MCP tools. Beacon signs a certificate valid for five minutes for each connection, and your servers trust only Beacon. Revoke one agent, or stop them all with one switch.
+- **Every command on record.** Sessions are recorded and replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. You review what was done afterwards instead of approving each step in advance.
+- **Fixed means checked again.** After a fix the agent asks every location to probe the service at once (`probe_now`) and sees their answers within a minute.
+- **People stay in the loop.** A public status page for your users, a console for your team, alert cards in Feishu that can be acknowledged and silenced, and escalation to phones through Pushover when nobody answers.
+- **Small, and yours.** One Go service and one probe binary, on VictoriaMetrics; a machine with 2 CPUs and 4 GB is plenty. Apache-2.0. Beacon calls no model and needs no cloud account.
 
-- **An API and MCP for agents.** List alerts, acknowledge, silence and end silences, leave notes, with scoped tokens that expire. Every write is audited and echoed to the alert chat, so what an agent did is visible to everyone.
-- **Agents woken, with the evidence at hand.** A new alert can wake an agent: a signed webhook or a GitHub workflow, told where the evidence is. One call returns it: each probe location's result and why it fails, the alerts in the same failure domain, the changes just before (deployments, Flux), and what was done. Notes an agent leaves show on the card, and one timeline joins alerts, notes, agents woken, changes and sessions. Beacon calls no model: the agent decides. See [docs/agents.md](docs/agents.md).
-- **An agent on call, end to end.** `linkos-oncall`, a small third binary, catches the hook, checks its signature and starts the agent program you name, with wrappers for Claude Code and Codex and a GitHub Actions example. When the agent has fixed something, `probe_now` has every location probe the target again and shows each answer within a minute, and the alert resolves sooner. Agents' tokens renew themselves before they expire, so nobody hands out long-lived ones.
-- **One link for people.** From the card, a signed link opens the alert's page: each location's result, the timeline, notes, the agents woken and every session on its machines with the commands run; each session replays in the browser. No login system: links expire (30 days by default), and a bearer token works too. See [docs/pages.md](docs/pages.md).
-- **Configured through Beacon.** Probe locations, heartbeats, expiring resources, probe targets and modules live in Beacon's database and are changed through the API, MCP and the command line, checked and in force at once. Every change is a version with who made it and the values before and after, and can be reverted; files are for import and export, so they can still live in git.
-- **Small.** A whole installation is four containers (Beacon, VictoriaMetrics, vmalert, Caddy) and one binary per probe machine.
+## Features
 
-## How it fits
+- **MCP server** at `/mcp` with 43 tools: alerts (`list_alerts`, `get_alert`, `ack_alert`, `silence_alert`, …), working an alert (`get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`), machines (`list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, …), maintenance and status pages, the configuration, people and the agent's own SSH keys (`list_users`, `invite_user`, `add_ssh_key`, …), and the agent's own token (`whoami`, `renew_token`). Claude Code and Codex sign in to it through the browser, with MCP's OAuth. Every tool has the same REST route under `/api/v1`.
+- **The SSH channel** on port 17002: `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` to any enrolled machine, the user name naming the machine, also machines behind NAT that connect out with plain `ssh -R`.
+- **Probes** (`beacon-probe`): Blackbox-compatible checks with failure reasons, host metrics and heartbeats, pushed through a queue on disk when the network is down; targets and modules come from the centre, so changing what is checked needs no redeployment.
+- **Alerting** without Alertmanager: grouping, inhibition, silences and a dead man's switch inside the service; vmalert posts its alerts to Beacon as it would to Alertmanager.
+- **Feishu cards** that change in place: what is wrong, since when, which locations fail and why, the agent's notes; buttons to acknowledge and silence; escalation to the Feishu app's urgent notice and to Pushover's emergency priority.
+- **Waking agents**: signed webhooks and GitHub workflow dispatches for new alert groups, and `beacon-oncall`, a small harness that verifies the webhook and starts the agent program you name (wrappers for Claude Code and Codex included).
+- **Public status pages** served by Beacon itself: components from the probe targets, 90 days of history, incidents from the alerts, maintenance windows, JSON, an Atom feed and badges.
+- **The console** at `/console` (the site's root is the public status page): alerts with their evidence and timeline, machines, every session with its replay, people and their agents with their tokens, OAuth sign-ins and keys, the configuration and its history, the audit log.
+- **Configuration through Beacon**: probe locations, targets, modules and status pages live in its database, changed through the API, MCP or the command line, every change a version that can be reverted; files are for import and export, so they can stay in git.
 
-```
-linkos-probe (each location) ─push─▶ gateway ─▶ VictoriaMetrics ─▶ vmalert ─alerts─▶ router ─▶ bridge ─▶ Feishu app ◀─▶ people on call
-hosts, CI, Flux ─────────────────▶ gateway                                                          ├─▶ Feishu group bot
-agents ─▶ /api/v1, /mcp ─▶ linkos-beacon                                                            ├─▶ Pushover / Bark
-                                                                                                    ├─▶ agents' hooks (webhook, GitHub workflow)
-                                   healthchecks.io ◀─ every minute, while rules, routing and delivery work
-```
+## Works with
 
-The gateway, the router and the bridge are all `linkos-beacon`. Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary` (optionally `description`, `runbook`, `dashboard`). An alert named `Watchdog` proves the pipeline works and is never shown.
+| Agent | Connects over | Can be woken by Beacon |
+|---|---|---|
+| Claude Code | MCP over HTTP, its own `ssh` | ✅ with `beacon-oncall` (headless) or a GitHub workflow |
+| Codex CLI | MCP over HTTP, its own `ssh` | ✅ with `beacon-oncall` |
+| Any MCP client | MCP over HTTP | ✅ with a webhook |
+| Bots and scripts | REST and `ssh` | ✅ with a webhook |
 
-## Running it
+Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Put an agent on call](https://beacon.openlinkos.com/guide/on-call).
 
-```bash
-docker run -d --name linkos-beacon -p 127.0.0.1:17001:17001 -p 127.0.0.1:17006:17006 -p 17002:17002 \
-  -v ./config.yaml:/etc/linkos-beacon/config.yaml:ro \
-  -v ./catalog:/etc/linkos-beacon/catalog:ro \
-  -v ./targets:/etc/linkos-beacon/targets:ro \
-  -v ./secrets:/etc/linkos-beacon/secrets:ro \
-  -v linkos-beacon:/var/lib/linkos-beacon \
-  ghcr.io/openlinkos/beacon:latest
-```
+## Getting started
 
-Start from [config.example.yaml](config.example.yaml); `linkos-beacon check-config` validates it, with the catalogue (probe locations, heartbeats, expiring resources), the probe targets and the module file, all described in [docs/catalog.md](docs/catalog.md). The first start imports those files into the database, where they are changed from then on; the two mounts are needed only for that, for `SIGHUP` and for `config import`. Port 17001 serves the API and MCP, and the pages people open from a card (`/alerts/{id}`, `/sessions/{id}` with the replay; signed links, no login; [docs/pages.md](docs/pages.md)); port 17006 is the gateway for machines; port 17002 is the SSH channel, set up as in [docs/ssh.md](docs/ssh.md).
-
-Point vmalert at the gateway: `-notifier.url=http://linkos-beacon:17006 -notifier.bearerTokenFile=<the file in rules.token_file>`.
-
-Give each probe location its token and start the agent there:
+**Requirements:** a Linux machine with 2 CPUs and 4 GB of memory, Docker with Compose v2, and two DNS names pointing at it.
 
 ```bash
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 > token     # edge-1 is a location in the catalogue
-linkos-probe agent -gateway https://metrics.example.com -token-file /etc/linkos-agent/token
+git clone https://github.com/openlinkos/beacon.git
+sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
+sudo ./install.sh        # asks for the two host names and an e-mail address for the certificates
 ```
 
-Set up the Feishu app as in [docs/feishu.md](docs/feishu.md). Pushover needs its iOS app with Critical Alerts allowed, an application token and your user key.
+`install.sh` generates the secrets, validates every file, starts Beacon, VictoriaMetrics, vmalert and Caddy, and prints what to do next. [Up in 30 minutes](https://beacon.openlinkos.com/self-hosting/install) walks through the rest: the first probe, the first machine, the first agent, and a rehearsed outage from alert to recovery.
 
-### Tokens, machines and drills
-
-Commands that change the running service talk to it over a socket in its data directory:
+### Connect Claude Code
 
 ```bash
-docker exec linkos-beacon linkos-beacon token create claude-code -scopes status:read,alerts:write,machines:ssh -expires 90d \
-  -ssh-key "$(cat ~/.ssh/id_ed25519.pub)"                 # the key it signs in to the SSH channel with
-docker exec linkos-beacon linkos-beacon token list
-docker exec linkos-beacon linkos-beacon machine add edge-1 edge-1.example.net   # pins its host key, prints what the machine needs
-docker exec linkos-beacon linkos-beacon machine add nas-1 connector -key "ssh-ed25519 AAAA…"   # behind NAT: it connects out with ssh -R
-docker exec linkos-beacon linkos-beacon ssh pause         # closes agents' sessions on machines until "ssh resume"
-docker exec linkos-beacon linkos-beacon enroll probe edge-1 -rotate    # a new token; the old one stops working
-docker exec linkos-beacon linkos-beacon drill fail 15m    # /drill/healthz answers 503: probe it to rehearse the whole chain
-docker exec linkos-beacon linkos-beacon drill off
-docker exec linkos-beacon linkos-beacon config import /etc/linkos-beacon -dry-run   # catalog/, targets/: what would change
-docker exec linkos-beacon linkos-beacon config export /tmp/beacon   # the configuration as files, in the same layout
-docker exec linkos-beacon linkos-beacon config history    # who changed what; config revert VERSION undoes one change
+docker exec beacon beacon setup    # a one-time link: open it and choose your username and password
+claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-## API and MCP
+Then run `/mcp` in Claude Code and sign in through the browser: Beacon asks you to allow Claude Code as one of your agents, with what it may do and for how long, and no token is copied anywhere. Then ask, in any session: *"Is anything failing right now? Look at the evidence, check the machine, and tell me what you would do."* The agent answers from `get_evidence` and the machine itself, and everything it ran is in the console under Sessions. An agent without a browser takes a token instead: `docker exec beacon beacon agent add oncall-bot -owner alice -preset oncall`.
 
-- REST: `/api/v1`, described in [internal/api/openapi.yaml](internal/api/openapi.yaml) (also served at `/api/v1/openapi.yaml`).
-- MCP: streamable HTTP at `/mcp` with the same bearer tokens. Tools for alerts: `status_summary`, `list_alerts`, `get_alert`, `list_silences`, `list_audit`, `ack_alert`, `silence_alert`, `expire_silence`. For working an alert: `get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`. For machines: `list_machines`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, `add_machine`, `set_machine_connector`, `remove_machine`, `pause_ssh`, `resume_ssh`. For the configuration (scope `config:write` to change it): `get_config`, `put_config`, `delete_config`, `list_config_changes`, `get_config_change`, `revert_config_change`. For the agent's own token: `whoami`, `renew_token`.
+## Documentation
 
-```bash
-claude mcp add --transport http linkos-beacon https://status.example.com/mcp --header "Authorization: Bearer lbt_…"
+The documentation lives in [`docs/`](docs/) and is published at [beacon.openlinkos.com](https://beacon.openlinkos.com):
+
+- [Up in 30 minutes](docs/self-hosting/install.md): from a bare machine to the first probe, machine, agent and drill
+- [People and their agents](docs/guide/people.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
+- [Put an agent on call](docs/guide/on-call.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
+- [The SSH channel](docs/guide/machines.md): how agents reach machines without keys, recordings, machines behind NAT
+- [Catalogue, targets and modules](docs/guide/monitoring.md): what is probed, from where, and how it is configured
+- [Status pages](docs/guide/status-pages.md): the public page, incidents, maintenance, badges
+- [The console](docs/guide/console.md): what people see, and the links cards open
+- [Feishu](docs/integrations/feishu.md): the app, the cards, the group bot
+- [API](docs/reference/api.md) and [MCP tools](docs/reference/mcp.md): every route and tool, with scopes and error codes
+- [Architecture](docs/about/architecture.md) and [goals](docs/about/goals.md): how it fits together, what it is for and what it leaves out
+- [Changelog](CHANGELOG.md)
+
+## How it works
+
+```
+beacon-probe (each location) ──results──▶ gateway ──▶ VictoriaMetrics ◀── vmalert (rules)
+CI, Flux ──change events──▶ gateway                                          │ alerts
+                                                                             ▼
+people ◀── Feishu cards, phones, status page ◀── beacon (router, bridge) ──▶ agents' webhooks
+agents ──▶ MCP and REST (evidence, notes, probe_now) ──▶ beacon
+agents ──▶ ssh, scp, rsync (port 17002) ──▶ SSH channel ──▶ your servers (5-minute certificates, every session recorded)
 ```
 
-| Route (port 17001) | Purpose |
-| --- | --- |
-| `GET /healthz`, `GET /readyz` | Liveness; readiness (Watchdog seen, Feishu connection up, budget left) |
-| `GET /metrics` | Prometheus metrics, direct connections only |
-| `POST /hooks/feishu` | Feishu card callbacks when `feishu.callback: http` |
-| `GET /drill/healthz` | 200, or 503 during a drill |
-
-| Gateway route (port 17006) | Scope | Purpose |
-| --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the text format (what `linkos-probe` pushes), heartbeats |
-| `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
-| `GET /api/v1/targets`, `GET /api/v1/modules`, `GET /api/v1/agent` | `probe:write` | What the probe checks, how, and its location's settings |
-| `GET /api/v1/agent/requests`, `POST /api/v1/agent/requests/{id}` | `probe:write` | Probing on demand: the probe long-polls for targets to probe now, and posts what it found; see [docs/agents.md](docs/agents.md) |
-| `POST /api/v2/alerts` | the rule engine's token, `alerts:send` | Alerts, in Alertmanager's API v2 form |
-| `POST /api/v1/changes`, `POST /api/v1/changes/flux` | `changes:write` | Change events: deployments and the like, and Flux's events (its `generic` provider); see [docs/agents.md](docs/agents.md) |
-| `GET /api/v1/query`, `query_range`, `series`, … | `metrics:read` | Metric queries for agents |
-
-The SSH channel (port 17002) takes keys given to tokens with the `machines:ssh` scope; the user name is the machine. See [docs/ssh.md](docs/ssh.md).
+One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one bbolt file, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
 
 ## Security
 
-Tokens are stored only as SHA-256 hashes and expire; failed attempts are limited per client address. A probe or host token can only write as its own location or host, and a location whose machine has expired cannot write at all. Only the people listed in `feishu.on_call` can act on cards. Secrets are read from files and never logged. Report vulnerabilities to security@linkos.io.
+Agents never see a password or a private key: the SSH channel signs a short-lived certificate for every connection and the machines trust only its certificate authority. People sign in with Beacon's own accounts, their passwords kept as argon2id hashes; there is no external sign-in. An agent acts for a person and never does more than that person's role allows, checked on every request. Tokens are stored as SHA-256 hashes, carry scopes and expire; each probe and host can write only as itself. Everything an agent does is audited and echoed to the alert chat. Secrets are read from files and never logged. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
+
+## Contributing
+
+Issues and pull requests are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build, test and propose a change, and [AGENTS.md](AGENTS.md) is the guide for AI agents working on the code.
 
 ## Licence
 
 [Apache License 2.0](LICENSE). The LinkOS and OpenLinkOS names and marks are not covered by it.
+
+Beacon is named after the beacon towers of the Great Wall: when a watch post saw trouble it lit a fire, the signal ran from tower to tower to the capital, and the number of fires told how serious it was.

@@ -1,0 +1,163 @@
+# Beacon's try environment: the whole loop on one machine, in Docker, without a domain or a certificate
+# (docs/guide/quickstart.md walks through it). Five containers, all on one compose network:
+#   beacon           the service: the API, MCP and the console (17001), the SSH channel (17002),
+#                    the gateway for machines (17006, inside the network only)
+#   victoriametrics  the metrics store, keeping three days
+#   vmalert          the rule engine (rules/*.yml, with the waits shortened for a laptop); it posts its
+#                    alerts to the gateway with the rules token
+#   probe            beacon-probe in push mode (the same image carries it), one location, edge-1,
+#                    probing every 30 seconds
+#   demo             a machine: Alpine with sshd, which trusts Beacon's certificate authority, and a
+#                    small web server (port 8080) that `stop-web` breaks and `start-web` repairs
+# Everything is published on the loopback interface only: http://localhost:17001 is the entrance.
+# up.sh makes the secrets under ./secrets, starts the core, enrolls the probe and pins the demo machine's
+# host key, then prints the link that makes the first account.
+name: beacon-try
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 5m
+    max-file: "2"
+
+networks:
+  beacon:
+    name: beacon-try
+
+volumes:
+  beacon-data:
+  victoriametrics-data:
+  probe-state:
+
+services:
+  beacon:
+    container_name: beacon-try
+    image: ghcr.io/openlinkos/beacon:${BEACON_VERSION:?set BEACON_VERSION in .env (up.sh copies .env.example)}
+    restart: unless-stopped
+    command: [serve, -config, /etc/beacon/config.yaml]
+    ports:
+      - 127.0.0.1:17001:17001
+      - 127.0.0.1:17002:17002
+    volumes:
+      - ./config.yaml:/etc/beacon/config.yaml:ro
+      - ./catalog:/etc/beacon/catalog:ro
+      - ./targets:/etc/beacon/targets:ro
+      - ./secrets:/etc/beacon/secrets:ro
+      - beacon-data:/var/lib/beacon
+    networks: [beacon]
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+      demo:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, /usr/local/bin/beacon, healthcheck]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging: *logging
+
+  victoriametrics:
+    container_name: beacon-try-vm
+    image: victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df
+    restart: unless-stopped
+    command:
+      - -httpListenAddr=:8428
+      - -storageDataPath=/storage
+      - -retentionPeriod=3d
+      - -memory.allowedPercent=60
+      - -promscrape.config=/etc/victoriametrics/scrape.yml
+    volumes:
+      - ./metrics/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+      - victoriametrics-data:/storage
+    networks: [beacon]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8428/health]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  vmalert:
+    container_name: beacon-try-vmalert
+    image: victoriametrics/vmalert:v1.155.0@sha256:3256cba5ddaca5974eae6141105cec4ce37871f1c213f0a5c267ec0111bc68e1
+    restart: unless-stopped
+    # Beacon's user, so that it can read the rules token (owner 65532, mode 0400) and nothing else
+    user: "65532:65532"
+    command:
+      - -httpListenAddr=:8880
+      - -rule=/etc/vmalert/rules/*.yml
+      - -datasource.url=http://victoriametrics:8428
+      - -remoteWrite.url=http://victoriametrics:8428
+      - -remoteRead.url=http://victoriametrics:8428
+      - -notifier.url=http://beacon:17006
+      - -notifier.bearerTokenFile=/run/secrets/rules-token
+      - -evaluationInterval=15s
+      - -disableAlertgroupLabel
+      - -external.url=http://localhost:17001
+    volumes:
+      - ./rules:/etc/vmalert/rules:ro
+      - ./secrets/rules-token:/run/secrets/rules-token:ro
+    networks: [beacon]
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8880/health]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  probe:
+    container_name: beacon-try-probe
+    image: ghcr.io/openlinkos/beacon:${BEACON_VERSION:?set BEACON_VERSION in .env (up.sh copies .env.example)}
+    restart: unless-stopped
+    # the image carries beacon-probe; up.sh fills the token file with what 'beacon enroll probe edge-1' printed
+    entrypoint: [/usr/local/bin/beacon-probe]
+    command:
+      - agent
+      - -gateway=http://beacon:17006
+      - -token-file=/etc/beacon-probe/token
+      - -state=/var/lib/beacon-probe
+      - -interval=30s
+      - -listen=127.0.0.1:17009
+    # the image's own HEALTHCHECK (beacon healthcheck) probes a beacon centre, which this container is
+    # not, and the distroless image carries no shell or wget to reach the agent's own /healthz on its
+    # -listen address: disable it. The probe's health is Beacon's own to report — the location shows as
+    # reporting (or, if it stops pushing, ProbeLocationDown fires).
+    healthcheck:
+      test: ["NONE"]
+    volumes:
+      - ./secrets/probe-edge-1.token:/etc/beacon-probe/token:ro
+      - probe-state:/var/lib/beacon-probe
+    networks: [beacon]
+    depends_on:
+      beacon:
+        condition: service_healthy
+    mem_limit: 128m
+    logging: *logging
+
+  demo:
+    build: ./demo
+    container_name: beacon-try-demo
+    restart: unless-stopped
+    # the entrypoint reads ./secrets (Beacon's certificate authority and this machine's host key, both made
+    # by up.sh), sets up sshd and the beacon account, starts the web server and then runs sshd
+    ports:
+      - 127.0.0.1:18080:8080
+    volumes:
+      - ./secrets:/secrets:ro
+    networks: [beacon]
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    logging: *logging

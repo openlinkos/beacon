@@ -91,6 +91,12 @@ type Deps struct {
 	// ShellCommands reads, from a finished session's transcript, the commands run at an interactive
 	// shell's prompt with their exit statuses; nil without the SSH channel.
 	ShellCommands func(sessionID string) []ShellCommand
+	// SSHConfig is the ssh configuration (ssh_config blocks and the known_hosts line) for the principal with
+	// this key (store.Principal.Key); nil without the SSH channel.
+	SSHConfig func(key string) string
+	// Recheck closes what is open on the SSH channel for whoever may no longer reach it, after a
+	// credential, an agent or an account changed (sshgate.Gate.Recheck); nil without the channel.
+	Recheck func() int
 }
 
 // Bridge is the alert bridge.
@@ -130,14 +136,14 @@ func New(d Deps) *Bridge {
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
 	if d.Metrics != nil {
-		d.Metrics.Register("linkos_beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
 			ok, _ := b.Ready()
 			return []metrics.Sample{{Value: map[bool]float64{true: 1, false: 0}[ok]}}
 		})
-		d.Metrics.Register("linkos_beacon_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_feishu_api_calls", "Feishu app API calls this month", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(b.d.Store.Counter(b.quotaKey()))}}
 		})
-		d.Metrics.Register("linkos_beacon_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
+		d.Metrics.Register("beacon_alert_groups_firing", "Alert groups firing, by severity", "gauge", func() []metrics.Sample {
 			n := map[string]int{}
 			for _, g := range b.d.Store.Groups() {
 				if g.Firing() {
@@ -164,7 +170,7 @@ func (b *Bridge) now() time.Time { return b.d.Now() }
 
 func (b *Bridge) count(channel, result string) {
 	if b.d.Metrics != nil {
-		b.d.Metrics.Inc("linkos_beacon_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
+		b.d.Metrics.Inc("beacon_notifications_total", "Notifications sent, by channel and result", metrics.Labels("channel", channel, "result", result))
 	}
 }
 
@@ -604,10 +610,19 @@ var (
 	ErrBadInput  = errors.New("bad input")
 )
 
-// Actor is who performs an operation through the API or MCP.
+// Actor is who performs an operation: Name as the audit log and the chat name it (a person, "person /
+// agent" for an agent, or a token's name), Via how (api, mcp, console, cli), and Key the principal
+// (store.Principal.Key), for checks made later; none for the command line.
 type Actor struct {
-	Name string // token name
-	Via  string // api or mcp
+	Name string
+	Via  string
+	Key  string
+	Cred string // the credential it came with (store.Principal.Cred), for the SSH channel's later checks
+}
+
+// ActorOf is the actor a principal is when it comes through via.
+func ActorOf(p store.Principal, via string) Actor {
+	return Actor{Name: p.Name(), Via: via, Key: p.Key(), Cred: p.Cred()}
 }
 
 // GroupView is an alert group as the API shows it.
@@ -725,6 +740,8 @@ func (b *Bridge) viaName(via string) string {
 		return "MCP"
 	case "cli":
 		return b.t("the command line")
+	case "console":
+		return b.t("the console")
 	}
 	return "API"
 }
@@ -792,7 +809,7 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 }
 
 // SilenceLabels silences every alert whose labels equal all of labels for d (at most 24 hours) with a
-// comment, as `linkos-beacon silence create -matchers` does; the router stops delivering what matches.
+// comment, as `beacon silence create -matchers` does; the router stops delivering what matches.
 // A firing group every alert of which matches is marked silenced (and acknowledged, as Silence does),
 // so that its card shows it.
 func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d time.Duration, who Actor, comment string) (alertmanager.Silence, error) {

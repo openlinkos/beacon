@@ -29,7 +29,7 @@ modules:
       ip_protocol_fallback: false
       headers:
         Connection: close
-        User-Agent: LinkOS-Status-Probe/1.0
+        User-Agent: Beacon-Probe/1.0
   http_get_gitea:
     prober: http
     timeout: 20s
@@ -331,7 +331,7 @@ func TestSecretsDir(t *testing.T) {
 			t.Errorf("SecretName(%q) accepted", bad)
 		}
 	}
-	if (&Prober{}).SecretsDir != "" || DefaultSecretsDir != "/etc/linkos-agent/secrets" {
+	if (&Prober{}).SecretsDir != "" || DefaultSecretsDir != "/etc/beacon-probe/secrets" {
 		t.Error("the default directory")
 	}
 

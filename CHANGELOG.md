@@ -4,6 +4,145 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **A try environment for one laptop** (`deploy/try/`, walked through by the new guide [Try it on your laptop](https://beacon.openlinkos.com/guide/quickstart)). `sh deploy/try/up.sh` starts the whole loop in Docker with no domain and no certificate, everything on the loopback interface at `http://localhost:17001`: Beacon, VictoriaMetrics, vmalert, one probe location (`edge-1`, probing every 30 seconds) and a demo machine — Alpine with sshd that trusts Beacon's certificate authority and a small web server that `docker compose exec demo stop-web` breaks. The rules and routing waits are shortened in the try configuration so a broken service alerts within about a minute and a half (`deploy/try/rules/`, with unit tests); the reference deployment's rules are unchanged. `up.sh` makes the throwaway secrets, enrolls the probe, pins the demo machine's host key and prints the link that makes the first account; `claude mcp add --transport http beacon http://localhost:17001/mcp` connects Claude Code, whose OAuth and the console's `Secure` cookie both work on plain http on localhost. `docker compose down -v` stops and forgets everything.
+- **The documentation takes the site's new structure** (`docs/`, English and Chinese). The twelve guides move to the sections they belong to: `guide/` (people and their agents, putting an agent on call, the SSH channel as *machines*, what is checked as *monitoring*, status pages, the console), `self-hosting/` (install, troubleshooting), `integrations/` (the Feishu app), `reference/` (sources beside the API and MCP pages) and `about/` (goals, architecture); their text is unchanged, only their links. The new structure's other pages (the guide's openings, the integrations section, the rest of self-hosting, the reference pages beyond the API and MCP) are placeholders while later changes write them. The old addresses answer with a 301 to the new ones, in English and under `/zh/`, and everything in the program and the deployment that names a guide now names its new path: the OAuth metadata's documentation URL, what `machine add` and the machine connector print, the MCP tools' descriptions, the example configuration and the deployment's comments.
+## 0.3.0
+
+### rc.15 (2026-11-02)
+
+**People have accounts, agents are theirs, and Claude Code and Codex sign in through the browser** (`docs/accounts.md`). People sign in to the console at `/console/sign-in` with a username and a password (argon2id, made again when its parameters change; at least 10 characters, not the username, not one of the commonest), in 12-hour sessions; there is no external sign-in of any kind. Each person has a role, `viewer` (`status:read`, `sessions:read`), `oncall` (and `alerts:write`, `machines:ssh`), `operator` (and `maintenance:write`, `incidents:write`, `machines:write`) or `owner` (and `config:write` and the new scope `accounts:write`), read afresh on every request: a lowered role or a disabled account limits the person and their agents at once, and Beacon always keeps an enabled owner. **The first start of this version** writes a one-time setup link to the log (valid 30 minutes, only while there is no account; `beacon setup` prints another) that makes the first owner at `/console/setup`; owners then invite people with one-time links valid 24 hours (the new **People** page, `beacon user invite -role oncall`), change roles, disable and enable people, and make one-time password reset links valid 30 minutes (`beacon user list|disable|enable|role|reset`); everyone changes their own password on **Your account**. Failed sign-ins are limited per address, as the API's are, and per username (10 wrong passwords in 10 minutes). **Agents** are owned by a person, with a preset (`readonly`, `oncall`, `operator`; `custom` only for a claimed token or from the command line) that never gives more than the owner's role: what an agent may do is the intersection, checked on every request. The new **Agents** page (people's own; owners see everyone's) makes an agent with a token shown once beside ready-made commands for Claude Code, Codex and curl (and the `~/.ssh/config` block once it has a key), sets its preset and machines, adds and removes its SSH keys, revokes its tokens and OAuth sign-ins, and deletes it; `beacon agent add NAME -owner USER -preset oncall [-machines a,b] [-expires 365d] [-ssh-key KEY|@FILE]` prints the token on stdout and the commands on stderr, with `beacon agent list|remove`. The hooks and their calls, which `/console/agents` showed, are at `/console/hooks` (the old `/agents` path goes there). **MCP OAuth**: Beacon is the authorization server for its own `/mcp` (`/.well-known/oauth-protected-resource` and its `/mcp` form, `/.well-known/oauth-authorization-server`, `/oauth/register`, `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`; PKCE S256, one-time codes valid 60 seconds, the issuer in the answer, dynamic registration for loopback and https redirect URIs, client ID metadata documents such as Claude Code's and Codex's fetched over https and never from private addresses, or not at all with the new setting `oauth: {client_id_documents: false}` for a Beacon that cannot reach the internet, whose clients then register themselves); a `401` from `/mcp` names the resource metadata, so `claude mcp add --transport http beacon https://status.example.com/mcp` then `/mcp` (or `claude mcp login beacon`), and `codex mcp add beacon --url …` then `codex mcp login beacon`, open a consent page where the person allows the client as one of their agents (made, or reused by its name), with a preset no stronger than their role, its machines, and 1, 30 or 90 days; each sign-in keeps what its consent allowed as a ceiling of its own, within its agent, and reusing an agent never widens it or its other credentials. Access tokens (`lba_…`) last an hour and work wherever a token does (REST and MCP); every grant has a refresh token (`lbr_…`) for the time allowed, replaced by each use, and a replaced one sent again revokes the grant; revoking any of a grant's tokens (Claude Code's `claude mcp logout`) ends it. **The audit log and the chat name people and their agents** (`alice`, `alice / claude-code`; a legacy token keeps its name; entries already written keep theirs), and so do sessions, `whoami` (new fields `actor`, `user`, `agent`, `preset`, `credential`, `client`) and the API's `auth.scope` answers, which say what an agent's preset within its owner's role allows. **Legacy tokens keep working**: every token from before is listed on the console's **Tokens** page; one with people's scopes only is marked Legacy, and an owner can claim it as an agent of a person (keeping its secret and expiry; into an existing agent only when that gives it nothing more; its preset is the one with exactly its scopes, or custom; its machines and keys move to the agent), on the console or with `beacon token claim NAME -owner USER`; nothing breaks if nobody claims anything. Signing in with a pasted token stays for this release, behind "Sign in with a token instead". New REST routes with `accounts:write`: `GET /api/v1/users`, `POST /api/v1/users/invitations`, `PATCH /api/v1/users/{name}`, `POST /api/v1/users/{name}/reset`; with `machines:ssh`, an agent's own keys: `GET`, `POST` and `DELETE /api/v1/ssh-keys` (a key an agent adds itself lives and goes with the credential it added it with); new MCP tools `list_users`, `invite_user`, `add_ssh_key`, `list_ssh_keys`, `remove_ssh_key`; new error codes `user.not_found`, `user.last_owner`, `key.not_found`, `key.exists`. **Ending access closes open sessions**: revoking a token, deleting an agent or narrowing its machines or preset, revoking an OAuth sign-in, disabling or demoting a person, or removing a key now closes at once what that principal has open on the SSH channel (connections and tool calls), and Beacon rechecks every minute for credentials that expired; before, only new connections were refused.
+
+**The guides follow.** *Up in 30 minutes* now makes your owner account at step 4 (`beacon setup`) and signs Claude Code in through the browser, without a token; a new guide, *People and their agents* (`docs/accounts.md`), takes an owner through roles, inviting people, passwords, agents and presets, connecting Claude Code and Codex, headless agents and CI, SSH keys, stopping an agent and moving from tokens; the SSH channel, the console, *Put an agent on call*, troubleshooting, the architecture and the REST and MCP references say what changed for each.
+
+### rc.14 (2026-11-02)
+
+- The reference deployment installs the current release (it pinned 0.3.0-rc.2, before the rename), and re-running `deploy/install.sh` after editing `config.yaml` or a secret restarts Beacon so that it reads them.
+- **The guides are rewritten**, in English and Chinese, for the people who run Beacon: each says what you will have at the end and who it is for, moves in the order you act, and gives the command and what you should see at every step. *Up in 30 minutes* (`docs/install.md`) shows each step's expected output and what to do when it differs; the agents guide is now *Put an agent on call* (`docs/agents.md`), with a trimmed example of the evidence; and a new *Troubleshooting* page (`docs/troubleshooting.md`) goes by symptom: an alert that never arrives, an agent that cannot reach a machine, a probe location or a status page without data, a 404 on an old link.
+
+### rc.13 (2026-11-02)
+
+**The site's root is public, and the console is at `/console`.** Visiting Beacon now shows its public face first: `/` serves the default status page, exactly as `/status` does (same caching and headers), or, without any status page, a small page on the family's site design with the deployment's title (`branding.title`, Beacon by default), one line on what Beacon is and **Sign in**. The console and every page of it moved under `/console` (`/console/sign-in`, `/console/alerts`, `/console/alerts/{id}`, `/console/machines`, `/console/sessions/{id}` and its recording, `/console/tokens`, `/console/config`, `/console/agents`, `/console/audit`, `/console/changes`); the old paths answer `308` to the new ones with their query, so bookmarks keep working, and links already in the chat keep working until they expire: a link signed for `/alerts/{id}` or `/sessions/{id}` is sent on with a signature for its new path that expires when the old one would have (a forged or expired one is sent on without it, and gets the same 404). The card's **Timeline** button, the chat's **Replay** links and the API's and MCP's `page` fields now link under `/console`. The public pages (status pages, their incidents, the page at `/`) have **Sign in** at the right of their header (**Console** for someone signed in; such a page is `private, max-age=30`), and none on a page's own host. **Beacon says it is open source**: the public pages' footer has "Powered by Beacon, open source" with Beacon's mark, linking to beacon.openlinkos.com and GitHub (`branding: {powered_by: false}` leaves it out, for teams that want only their own name on their status pages); every console page ends with Beacon's version and links to the documentation (in the console's language), GitHub and "Report an issue"; the sign-in page says "Beacon is open source." under its form, and its tagline now says what signing in shows. A `401` from the API or the gateway (`auth.required`, `auth.invalid`) also carries `docs`, the API reference's address. `/robots.txt` now allows `/`, `/status` and `/static/` and disallows `/console`, `/api/`, `/mcp`, `/alerts/` and `/sessions/`.
+
+### rc.12 (2026-11-02)
+
+**Public status pages, served by Beacon itself** (`docs/status.md`). A page is defined in the catalogue under `status_pages` (imported, versioned, reverted and changed through `/api/v1/config/status_pages/{name}` and `put_config` like the rest), and made from what Beacon already has: each component is backed by the probe targets of some services (their `service` label, or a `page` label on the targets, never a target labelled `visibility: internal`); its state now is the worst of a maintenance window, the incidents firing on it and the probes' agreement by the reference rules' logic (at least two locations and at least half), so a page never says a service works while an alert about it fires; its 90 days of history are that agreement minute by minute, computed by VictoriaMetrics with no recording rule, with the incidents and maintenance laid over it. Incidents are the availability alert groups on the page's services (`ServiceDown`, `ServiceDegraded`, `MainlandPathDegraded` unless the page names others), titled by Beacon, with their updates: detected, investigating, the notes that begin with `public:` (or every note, with `notes: all`; an agent's marked as such, no names), resolved; Beacon keeps them 91 days. Maintenance windows are planned with `POST /api/v1/maintenance` or `schedule_maintenance` (scope `maintenance:write`, at most 7 days, starting within 90, never in the past), each a silence per service so that the work pages nobody, ended or called off with `DELETE /api/v1/maintenance/{id}` or `end_maintenance`; a silence whose comment begins with `maintenance:` is shown as maintenance too. Pages are at `/status` (the default page) and `/status/<name>` on port 17001 without signing in, or at `/` on a host name of their own (`host:`; nothing else of Beacon answers there; a Caddy block for it in `deploy/Caddyfile`), on the family's site design with the family menu, in English, Chinese or both, without script, readable at 360px, light and dark; with each incident's page, the JSON (`/status/<name>.json`, a stable shape; for agents `GET /api/v1/status/{name}` and `get_status_page`), an Atom feed and SVG badges for the page and each component. All are public and cacheable (`Cache-Control: public, max-age=30`, an `ETag`), indexed by search engines (`/robots.txt` allows `/status` and nothing else), under the console's CSP without script. The reference deployment ships an example page (`deploy/catalog/status_pages.yaml`).
+
+### rc.11 (2026-11-02)
+
+**Renamed: the commands are `beacon`, `beacon-probe` and `beacon-oncall`.** The product is called Beacon, so its commands are too, as the family's other products name theirs (Origin's is `origin`). The prefix `linkos` goes from the commands, their paths, units, metrics and rules; nothing else changes in what they do.
+
+| Before | Now |
+| --- | --- |
+| `linkos-beacon`, the service and its command line (`cmd/linkos-beacon`) | `beacon` (`cmd/beacon`) |
+| `linkos-probe`, the probe agent (`cmd/linkos-probe`) | `beacon-probe` (`cmd/beacon-probe`) |
+| `linkos-oncall`, the harness that runs an agent (`cmd/linkos-oncall`) | `beacon-oncall` (`cmd/beacon-oncall`) |
+| Release archives `linkos-beacon_<version>_linux_<arch>.tar.gz`, `linkos-probe_…`, `linkos-oncall_…` | `beacon_<version>_linux_<arch>.tar.gz`, `beacon-probe_…`, `beacon-oncall_…` |
+| In the image: `/usr/local/bin/linkos-beacon` (the entry point; the health command `linkos-beacon healthcheck`) and `/usr/local/bin/linkos-probe` | `/usr/local/bin/beacon` (`beacon healthcheck`) and `/usr/local/bin/beacon-probe` |
+| `/etc/linkos-beacon/` (`config.yaml`, `secrets/`, `catalog/`, `targets/`): the defaults of `-config`, `catalog_dir`, `gateway.targets_dir` and `gateway.modules_file` | `/etc/beacon/` |
+| `/var/lib/linkos-beacon` (`data_dir`: the database, the recordings, the admin socket) | `/var/lib/beacon` |
+| `LINKOS_BEACON_DATA_DIR`, where the command line looks for the admin socket | `BEACON_DATA_DIR` |
+| The probe's `/etc/linkos-agent/` (`token`, `agent.env`, `secrets/`, `modules.yml`) | `/etc/beacon-probe/` |
+| The probe's `/var/lib/linkos-agent/` (`state/`, `textfile/`) | `/var/lib/beacon-probe/` |
+| `/opt/linkos-agent/bin/linkos-probe` and the user `linkos-agent` | `/opt/beacon-probe/bin/beacon-probe` and the user `beacon-probe` |
+| The units `linkos-probe.service` and `linkos-oncall.service`; the script `linkos-heartbeat` | `beacon-probe.service` and `beacon-oncall.service`; `beacon-heartbeat` |
+| The harness's user `linkos-oncall`, `/etc/linkos-oncall/`, `/var/lib/linkos-oncall/` (its home and `logs/`) and `/usr/local/lib/linkos-oncall/` | `beacon-oncall`, `/etc/beacon-oncall/`, `/var/lib/beacon-oncall/` and `/usr/local/lib/beacon-oncall/` |
+| `deploy/`: the compose project, service, container and network `linkos-beacon`; the containers `linkos-beacon-victoriametrics`, `linkos-beacon-vmalert`, `linkos-beacon-caddy`; so the volumes `linkos-beacon_beacon-data`, `linkos-beacon_victoriametrics-data`, `linkos-beacon_caddy-data`, `linkos-beacon_caddy-config` | `beacon`; `beacon-victoriametrics`, `beacon-vmalert`, `beacon-caddy`; `beacon_beacon-data`, `beacon_victoriametrics-data`, `beacon_caddy-data`, `beacon_caddy-config` |
+| The scrape job `linkos-beacon` (`job="linkos-beacon"`, `instance="linkos-beacon:17001"`) | `beacon` (`job="beacon"`, `instance="beacon:17001"`) |
+| The MCP server's name, in its own information and in the examples (`claude mcp add --transport http linkos-beacon …`) | `beacon` |
+| `User-Agent: linkos-beacon/<version>` and `linkos-probe/<version>`; the API's `WWW-Authenticate` realm; the Bark group; the name the service records for the configuration it imports itself (`config history`) | `beacon/<version>` and `beacon-probe/<version>`; `beacon`; `beacon`; `beacon` (older entries keep theirs) |
+
+Every metric and recording rule of Beacon's own: `linkos_beacon_X` is now `beacon_X`, any other `linkos_X` is `beacon_X`, and `linkos:X` is `beacon:X`. The Blackbox-compatible metrics (`probe_success`, `probe_failure_info`, `probe_duration_seconds` and the rest) keep their names. `deploy/rules/` and its tests use the new names.
+
+| Before | Now |
+| --- | --- |
+| `linkos_beacon_build_info` | `beacon_build_info` |
+| `linkos_beacon_start_time_seconds` | `beacon_start_time_seconds` |
+| `linkos_beacon_alerts_firing` | `beacon_alerts_firing` |
+| `linkos_beacon_alert_groups_firing` | `beacon_alert_groups_firing` |
+| `linkos_beacon_bridge_ready` | `beacon_bridge_ready` |
+| `linkos_beacon_notifications_total` | `beacon_notifications_total` |
+| `linkos_beacon_feishu_api_calls` | `beacon_feishu_api_calls` |
+| `linkos_beacon_ssh_open` | `beacon_ssh_open` |
+| `linkos_beacon_ssh_paused` | `beacon_ssh_paused` |
+| `linkos_beacon_ssh_machines` | `beacon_ssh_machines` |
+| `linkos_beacon_ssh_sessions_total` | `beacon_ssh_sessions_total` |
+| `linkos_beacon_ssh_connectors` | `beacon_ssh_connectors` |
+| `linkos_beacon_ssh_connector_machines` | `beacon_ssh_connector_machines` |
+| `linkos_token_expiry_timestamp_seconds` | `beacon_token_expiry_timestamp_seconds` |
+| `linkos_expected_location` | `beacon_expected_location` |
+| `linkos_heartbeat_max_age_seconds` | `beacon_heartbeat_max_age_seconds` |
+| `linkos_heartbeat_last_success_timestamp_seconds` (written by heartbeat jobs) | `beacon_heartbeat_last_success_timestamp_seconds` |
+| `linkos_resource_expiry_timestamp_seconds` | `beacon_resource_expiry_timestamp_seconds` |
+| `linkos_location_in_rotation` | `beacon_location_in_rotation` |
+| `linkos_rotation_members` | `beacon_rotation_members` |
+| `linkos_rotation_resolve_success` | `beacon_rotation_resolve_success` |
+| `linkos_rotation_unknown_address` | `beacon_rotation_unknown_address` |
+| `linkos_gateway_requests_total` | `beacon_gateway_requests_total` |
+| `linkos_gateway_last_write_timestamp_seconds` | `beacon_gateway_last_write_timestamp_seconds` |
+| `linkos_gateway_changes_limited_total` | `beacon_gateway_changes_limited_total` |
+| `linkos_probe_now_requests_total` | `beacon_probe_now_requests_total` |
+| `linkos_probe_now_requests_open` | `beacon_probe_now_requests_open` |
+| `linkos_probe_now_answers_total` | `beacon_probe_now_answers_total` |
+| `linkos_probe_now_missing_total` | `beacon_probe_now_missing_total` |
+| `linkos_probe_attempts` (from the probe) | `beacon_probe_attempts` |
+| `linkos_probe_build_info` (from the probe) | `beacon_probe_build_info` |
+| `linkos_probe_modules` (from the probe) | `beacon_probe_modules` |
+| `linkos_probe_targets` (from the probe) | `beacon_probe_targets` |
+| `linkos_probe_queue_batches` (from the probe) | `beacon_probe_queue_batches` |
+| `linkos_probe_queue_bytes` (from the probe) | `beacon_probe_queue_bytes` |
+| `linkos_probe_push_errors_total` (from the probe) | `beacon_probe_push_errors_total` |
+| `linkos_probe_last_push_timestamp_seconds` (from the probe) | `beacon_probe_last_push_timestamp_seconds` |
+| `linkos:probe_failing` | `beacon:probe_failing` |
+| `linkos:service_reporting` | `beacon:service_reporting` |
+| `linkos:service_failing_locations` | `beacon:service_failing_locations` |
+| `linkos:service_failing_overseas` | `beacon:service_failing_overseas` |
+| `linkos:service_reporting_mainland` | `beacon:service_reporting_mainland` |
+| `linkos:service_failing_mainland` | `beacon:service_failing_mainland` |
+| `linkos:service_down` | `beacon:service_down` |
+| `linkos:service_up` | `beacon:service_up` |
+| `linkos:heartbeat_last_success` | `beacon:heartbeat_last_success` |
+
+What stays: the Go module `github.com/openlinkos/beacon`, the image `ghcr.io/openlinkos/beacon`, the token prefix `lbt_` (the mark of a Beacon token: tokens already issued keep working), the probe protocol's routes and formats (a probe of either name works with a gateway of either), the `BEACON_*` variables the harness passes to an agent, the ports, the audit log's actions and the data in the database.
+
+Moving a running deployment, in this order (each step works with the next one not done yet; what is missing meanwhile is said):
+
+1. **The centre.** With the reference deployment, in `deploy/`: `docker compose down` while the old `compose.yaml` is still there (the volumes stay), then take the new release's `compose.yaml`, `Caddyfile`, `metrics/scrape.yml` and `rules/` (keep your `.env`, with the new `BEACON_VERSION`, and `config.yaml`, `catalog/`, `targets/`, `secrets/`). Point `config.yaml` at the new paths, copy the four volumes to the new project's names, and start:
+   ```sh
+   sed -i -e 's#/etc/linkos-beacon/#/etc/beacon/#g' -e 's#/var/lib/linkos-beacon#/var/lib/beacon#g' config.yaml
+   for v in beacon-data victoriametrics-data caddy-data caddy-config; do
+     docker volume create "beacon_$v" >/dev/null
+     docker run --rm -v "linkos-beacon_$v:/from:ro" -v "beacon_$v:/to" busybox cp -a /from/. /to/
+   done
+   sh install.sh    # validates, starts and waits as on the first install; or docker compose up -d
+   ```
+   Remove the old volumes (`docker volume rm linkos-beacon_beacon-data …`) once the new ones hold; to keep the data where it is instead of copying it, put `COMPOSE_PROJECT_NAME=linkos-beacon` in `.env`. Without compose: move `/etc/linkos-beacon` to `/etc/beacon` and `/var/lib/linkos-beacon` to `/var/lib/beacon` (or bind-mount them there), change the paths in `config.yaml`, and run `beacon serve` from your unit in place of `linkos-beacon serve`. Rules and dashboards of your own: rename the metrics as in the table, and `job="linkos-beacon"` to `job="beacon"`; samples stored before the switch keep their old names, so a look back across it takes both, as in `{__name__=~"(linkos|beacon)_gateway_requests_total"}`. Until the probes follow, `ProbeQueueBacklog` does not see their queues and the evidence has no `attempts`; alerts on `probe_success` are not affected.
+2. **Each probe machine**, as root, with the new release's `deploy/probe/` (the old and the new agent both listen on 127.0.0.1:17009, so the old one stops first; renaming the user keeps its uid, so the token, the secrets and the queue stay readable):
+   ```sh
+   systemctl disable --now linkos-probe
+   usermod -l beacon-probe linkos-agent && groupmod -n beacon-probe linkos-agent
+   mv /etc/linkos-agent /etc/beacon-probe && mv /var/lib/linkos-agent /var/lib/beacon-probe
+   rm -rf /etc/systemd/system/linkos-probe.service /opt/linkos-agent /usr/local/bin/linkos-heartbeat
+   sh install.sh -version vX.Y.Z    # the token and the gateway are already where it looks
+   ```
+3. **Heartbeats**, within a day of step 1: jobs that end with `linkos-heartbeat <name>` call `beacon-heartbeat <name>`, and jobs that push a sample with their token write `beacon_heartbeat_last_success_timestamp_seconds`. `HeartbeatStale` reads the new name only, and `HeartbeatMissing` waits a day for a heartbeat that has never reported under it. For a job that runs less often than daily, let the recording rule read both names until it has run, then put it back: `max by (heartbeat) (last_over_time({__name__=~"(linkos|beacon)_heartbeat_last_success_timestamp_seconds"}[31d]))`.
+4. **The harness**, on the agent's machine, as root: `systemctl disable --now linkos-oncall`, then `usermod -l beacon-oncall -d /var/lib/beacon-oncall -m linkos-oncall && groupmod -n beacon-oncall linkos-oncall` (the agent's sign-in moves with its home), `mv /etc/linkos-oncall /etc/beacon-oncall && mv /usr/local/lib/linkos-oncall /usr/local/lib/beacon-oncall` (your prompt stays), `rm /usr/local/bin/linkos-oncall /etc/systemd/system/linkos-oncall.service`, then install `beacon-oncall`, the new release's wrappers (their defaults name the new paths) and `beacon-oncall.service` as the unit's header says, and `systemctl enable --now beacon-oncall`.
+5. **Agents' MCP clients** may keep the server's old name, since it is the client's own label; to follow it, `claude mcp remove linkos-beacon` and add it again as `beacon`.
+
+### rc.10 (2026-11-02)
+
+- The console's stylesheets and scripts are linked with Beacon's version in the URL, so a cache in front (a CDN, a browser) never serves the previous release's styling after an upgrade.
+
+### rc.9 (2026-11-02)
+
+- The console draws with `@openlinkos/ui` 0.7.0, which carries the Beacon brand (signal orange, the mark); the provisional stylesheet is gone. The docs site uses the theme 0.7.0 with the same brand.
+
+### rc.8 (2026-11-02)
+
+- A `SIGHUP` that arrives while the service is still starting no longer ends it: the signal is taken from the first instant and acted on once the service is up. A deployment that reloads right after starting the service used to kill it, the more so as start-up grew with the console.
+
+### rc.7 (2026-11-02)
+
+- `DELETE /api/v1/tokens/{name}` and the MCP tool `revoke_token` (`machines:write`): revoke a token that reaches machines, the pause switch for one agent, as the console does; machines' and services' tokens stay with `linkos-beacon token revoke` on the host. New error codes `token.not_found`, `token.not_revocable`.
 - **What the first drill showed missing** (`docs/agents.md`, `docs/catalog.md`): the agent woken by `HeartbeatStale` found the machine only in the heartbeat's description, did not see the session that broke it, and was told of the end while its first run was still writing.
   - **Heartbeats name their machine**: a heartbeat in the catalogue takes `machine`, a machine as the SSH channel names it. The evidence and the timeline for an alert with a `heartbeat` label then have `heartbeats` (the catalogue entry, whether the machine is enrolled, the last success from VictoriaMetrics, a hint on reaching it) and count that machine among the alert's machines, so its sessions and changes are listed; the firing hook's hint names it. A put through the API or MCP refuses a machine that is not enrolled (`config.invalid`), unless the heartbeat named it already; an import or a revert takes one and warns (`warnings` on the change, the log, `config import`'s output), and `check-config` lists such heartbeats without failing. `linkos_heartbeat_max_age_seconds` has a `machine` label when one is set; the rules aggregate it away. `config export` writes it.
   - **Before the alert**: every change and session in the evidence and the timeline has a `phase`, `before` the alert started, `during` or `after` it resolved, and the sessions on the alert's machines before it are kept first when there are many. A shell session has its last 20 commands with their exit statuses (`shell_commands`), and the timeline has each as a `command` event, and a heartbeat's last success as a `heartbeat` event.
@@ -11,8 +150,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - **The site, beacon.openlinkos.com** (`docs/`): Beacon's home page and documentation, in English and Simplified Chinese, on the shared OpenLinkOS theme. The home page shows the three pillars and how Beacon fits; the guide keeps its pages (`docs/goals.md` and the rest stay where they were) and gains an architecture page, a reference for the REST API (routes, scopes, error codes) and the MCP tools, a page on the sources Beacon takes in, and this changelog. Headings take GitHub's ids, so links to them work on GitHub and on the site alike.
   - The build fails when a Chinese page falls behind its English page, or when the reference misses a route, an error code, a scope or an MCP tool that the code has. CI builds the site on every pull request; the `site` workflow publishes the image `ghcr.io/openlinkos/beacon-site` (nginx, port 8080, `linux/amd64` and `linux/arm64`) from `main`, tagged `<UTC time>-<commit>`.
   - A code of conduct (Contributor Covenant 2.1), issue forms, a pull request template, Dependabot for the site, and how to work on the site in `CONTRIBUTING.md`.
-
-## 0.3.0
+- **The console** (`docs/pages.md`): Beacon's own workbench, served by `linkos-beacon` at `/` on port 17001 beside the API, on the OpenLinkOS design system `@openlinkos/ui` 0.6.1 (its workbench shell, vendored under `internal/web/static/ol` with `scripts/update-ui.sh`), so the family looks alike. One place for people to look at everything:
+  - the overview (firing alerts by severity, probe locations expected and reporting, machines, the SSH channel, agents woken and sessions today, the configuration's and Beacon's versions, each linking to its list); alerts, sessions, agent calls, the audit log and change events as lists with facets and search, 50 to a page; machines with the pause switch, and each machine's sessions and commands; tokens with their scopes, machines and SSH keys; the configuration read-only, with its history and each version's diff. The alert's and the session's pages move onto the same shell; signed links and bearer tokens keep opening them without signing in, view-only.
+  - No login system of Beacon's own: `/sign-in` takes a Beacon token (`status:read` at least) and keeps a 12-hour session bound to it, in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie; revoking the token ends it, and its scopes are what the console may do. Failed sign-ins count against the API's limit. The console needs HTTPS (or `localhost`).
+  - Forms, each with a CSRF secret and the scope of the matching API route, done as the token with `via` `console`, audited and echoed to the chat: acknowledge with a note, silence for 1, 4 or 24 hours, add a note (`alerts:write`); pause and resume agents' access, revoke a token that reaches machines (`machines:write`; other tokens stay with the admin socket); revert a configuration change (`config:write`).
+  - One page for every screen, adapted by CSS alone (a full sidebar from 1200px, a rail from 860px, a sheet below, lists restacked at phone widths); in Chinese or English; no inline script or style. The pages' `Content-Security-Policy` now also allows fonts and forms from Beacon itself. Beacon's accent (`data-brand="beacon"`) is provisional until the design system ships it.
 
 ### rc.6 (2026-11-02)
 

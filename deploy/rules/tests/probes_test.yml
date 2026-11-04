@@ -29,10 +29,10 @@ tests:
         alertname: MainlandPathDegraded
         exp_alerts: []
     metricsql_expr_test:
-      - expr: linkos:service_up
+      - expr: beacon:service_up
         eval_time: 16m
         exp_samples:
-          - labels: '{__name__="linkos:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+          - labels: '{__name__="beacon:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
             value: 1
 
   - name: half of the locations failing is an outage, at the target's severity
@@ -68,10 +68,10 @@ tests:
         alertname: MainlandPathDegraded
         exp_alerts: []
     metricsql_expr_test:
-      - expr: linkos:service_up
+      - expr: beacon:service_up
         eval_time: 12m
         exp_samples:
-          - labels: '{__name__="linkos:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+          - labels: '{__name__="beacon:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
             value: 0
 
   - name: a target without a severity label is critical when down
@@ -188,11 +188,11 @@ tests:
   - name: a probe location without results is reported
     interval: 1m
     input_series:
-      - series: 'linkos_expected_location{job="linkos-beacon",location="edge-1",region="overseas",network="BGP"}'
+      - series: 'beacon_expected_location{job="beacon",location="edge-1",region="overseas",network="BGP"}'
         values: '1x15'
-      - series: 'linkos_expected_location{job="linkos-beacon",location="cn-1",region="mainland",network="BGP"}'
+      - series: 'beacon_expected_location{job="beacon",location="cn-1",region="mainland",network="BGP"}'
         values: '1x15'
-      - series: 'linkos_expected_location{job="linkos-beacon",location="edge-3",region="overseas",network="CN2 GIA"}'
+      - series: 'beacon_expected_location{job="beacon",location="edge-3",region="overseas",network="CN2 GIA"}'
         values: '1x15'
       - series: 'probe_success{job="probe",service="example.com",location="edge-1",region="overseas"}'
         values: '1x15'
@@ -214,5 +214,5 @@ tests:
               failure_domain: probe-edge-3
             exp_annotations:
               summary: Probe location edge-3 has sent no results for 10 minutes
-              description: "No probe results from edge-3 (CN2 GIA). The machine, its linkos-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
+              description: "No probe results from edge-3 (CN2 GIA). The machine, its beacon-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md

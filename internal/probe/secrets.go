@@ -14,11 +14,11 @@ import (
 // A module's file fields (password_file) name files on the probe's machine, and whoever holds
 // config:write chooses their values. So that such a holder cannot have a probe read any file on its
 // machine and send it as a credential, the values are file names in one directory, the secrets
-// directory (linkos-probe -secrets-dir), never paths: the probe refuses anything else before reading
+// directory (beacon-probe -secrets-dir), never paths: the probe refuses anything else before reading
 // (reason config), and the centre refuses it when a module is put or imported (config.invalid).
 
 // DefaultSecretsDir is where a probe looks for the files its modules name.
-const DefaultSecretsDir = "/etc/linkos-agent/secrets" //nolint:gosec // G101: a directory, not a credential
+const DefaultSecretsDir = "/etc/beacon-probe/secrets" //nolint:gosec // G101: a directory, not a credential
 
 // SecretName checks the value of a module's file field: a file name to be found in the secrets
 // directory, without a path. field names the field, for the error; an empty name is no file.
@@ -28,7 +28,7 @@ func SecretName(field, name string) error {
 		return nil
 	case strings.ContainsAny(name, `/\`), strings.Contains(name, ".."), filepath.IsAbs(name), name == ".",
 		strings.ContainsFunc(name, unicode.IsControl):
-		return fmt.Errorf("%s %q: put the file under the probe's secrets directory (%s by default; linkos-probe -secrets-dir) "+
+		return fmt.Errorf("%s %q: put the file under the probe's secrets directory (%s by default; beacon-probe -secrets-dir) "+
 			"and name it there without a path, such as %q", field, name, DefaultSecretsDir, "registry-password")
 	}
 	return nil

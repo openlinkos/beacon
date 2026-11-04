@@ -1,0 +1,94 @@
+# vmalert-tool unittest --disableAlertgroupLabel --files 'deploy/try/rules/tests/*.yml'
+# The try environment's one location, edge-1, pushing every 30 seconds; rules evaluated every 15. A location
+# counts as failing once 45 seconds hold no success; ServiceDown waits 20 more seconds.
+rule_files:
+  - ../probes.yml
+evaluation_interval: 15s
+
+tests:
+  - name: the one location failing is an outage, about a minute and a half after it breaks
+    interval: 30s
+    input_series:
+      - series: 'probe_success{job="probe",service="demo-web",severity="critical",failure_domain="try",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 3m15s
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 3m30s
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: demo-web
+              severity: critical
+              failure_domain: try
+            exp_annotations:
+              summary: demo-web is down
+              description: demo-web has failed from every probe location that reports it (the try environment has one, edge-1, and its waits are shortened). The card lists the location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+    metricsql_expr_test:
+      - expr: beacon:service_up
+        eval_time: 3m30s
+        exp_samples:
+          - labels: '{__name__="beacon:service_up",service="demo-web",severity="critical",failure_domain="try"}'
+            value: 0
+
+  - name: the repair clears it within a window
+    interval: 30s
+    input_series:
+      - series: 'probe_success{job="probe",service="demo-web",severity="critical",failure_domain="try",location="edge-1",region="overseas"}'
+        values: '0x5 1x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ServiceDown
+        exp_alerts: []
+    metricsql_expr_test:
+      - expr: beacon:service_up
+        eval_time: 6m
+        exp_samples:
+          - labels: '{__name__="beacon:service_up",service="demo-web",severity="critical",failure_domain="try"}'
+            value: 1
+
+  - name: a target without a severity label is critical when down
+    interval: 30s
+    input_series:
+      - series: 'probe_success{job="probe",service="plain",failure_domain="try",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 3m30s
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: plain
+              severity: critical
+              failure_domain: try
+            exp_annotations:
+              summary: plain is down
+              description: plain has failed from every probe location that reports it (the try environment has one, edge-1, and its waits are shortened). The card lists the location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
+  - name: a location without results is reported
+    interval: 30s
+    input_series:
+      - series: 'beacon_expected_location{job="beacon",location="edge-1",region="overseas",network="loopback"}'
+        values: '1x15'
+      - series: 'probe_success{job="probe",service="demo-web",severity="critical",failure_domain="try",location="edge-1",region="overseas"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 4m15s
+        alertname: ProbeLocationDown
+        exp_alerts: []
+      - eval_time: 4m45s
+        alertname: ProbeLocationDown
+        exp_alerts:
+          - exp_labels:
+              location: edge-1
+              region: overseas
+              network: loopback
+              severity: warning
+              service: probe-edge-1
+              failure_domain: probe-edge-1
+            exp_annotations:
+              summary: Probe location edge-1 has sent no results for 2 minutes
+              description: "No probe results from edge-1 (loopback). In the try environment the probe is the container beacon-try-probe; the agent queues results on disk and fills the gap when it is back."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md

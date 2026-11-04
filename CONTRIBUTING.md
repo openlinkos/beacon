@@ -1,6 +1,6 @@
 # Contributing
 
-Beacon is infrastructure for AI agents that run operations. [docs/goals.md](docs/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
+Beacon is self-hosted monitoring and SSH access for the AI agents that run your servers. [docs/about/goals.md](docs/about/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
 
 Before you plan a change, say which goal it serves. A change that moves neither coverage nor closure and holds no guardrail waits.
 
@@ -12,14 +12,14 @@ Report a bug or ask for a feature through the [issue forms](https://github.com/o
 
 ## Build and test
 
-Go, at the version `go.mod` names; no cgo and no other toolchain (only the [documentation site](#the-documentation-site) needs Node.js). The three binaries are `linkos-beacon` (the service), `linkos-probe` (the probe agent) and `linkos-oncall` (the harness that runs an agent when a hook wakes it).
+Go, at the version `go.mod` names; no cgo and no other toolchain (only the [documentation site](#the-documentation-site) needs Node.js). The three binaries are `beacon` (the service), `beacon-probe` (the probe agent) and `beacon-oncall` (the harness that runs an agent when a hook wakes it).
 
 ```bash
-go build ./cmd/linkos-beacon ./cmd/linkos-probe ./cmd/linkos-oncall
+go build ./cmd/beacon ./cmd/beacon-probe ./cmd/beacon-oncall
 go test ./...                                    # CI also runs with -race, and on Windows
 golangci-lint run ./...                          # v2.15 (.golangci.yml); and again with
 GOOS=linux golangci-lint run ./...               # some files are Unix-only
-go run ./cmd/linkos-beacon check-config -config config.example.yaml   # needs the secret files it names
+go run ./cmd/beacon check-config -config config.example.yaml   # needs the secret files it names
 ```
 
 The reference deployment under `deploy/` has its own checks, which the `deploy` workflow runs: `docker compose -f deploy/compose.yaml config -q`, `caddy validate`, `vmalert -dryRun` and `vmalert-tool unittest` on `deploy/rules`, `check-config` on `deploy/config.yaml` with generated secrets, and `shellcheck` on the scripts.
@@ -42,7 +42,7 @@ pnpm preview                                     # serves the build
 - **each Chinese page records the English version it translates** in its frontmatter, `sourceHash: sha256-…`, the first 8 hex digits of the SHA-256 of the English file with LF line endings. When the English page changes, the build prints the line to paste once the translation is updated. To compute it yourself:
 
   ```bash
-  node -e "const c=require('fs').readFileSync(process.argv[1],'utf8').replace(/\r\n/g,'\n');console.log('sha256-'+require('crypto').createHash('sha256').update(c,'utf8').digest('hex').slice(0,8))" docs/agents.md
+  node -e "const c=require('fs').readFileSync(process.argv[1],'utf8').replace(/\r\n/g,'\n');console.log('sha256-'+require('crypto').createHash('sha256').update(c,'utf8').digest('hex').slice(0,8))" docs/guide/on-call.md
   ```
 
 - **links stay within their language**: relative `.md` links between pages, which resolve to the same language; English pages never link into `docs/zh/`, and Chinese pages link only there. Link to files outside `docs/` with full GitHub URLs. There is no "English | 简体中文" line at the top of a page: the site has a language menu;
@@ -60,7 +60,7 @@ If you cannot write Chinese, change the English page only and say so in the pull
 - **Secrets** come only from `*_file` paths named in the configuration, are never logged and never put in errors.
 - **Security first**: tokens are stored hashed, with scopes and an expiry; a machine's token writes only as its own subject. Do not weaken a check to make a test pass.
 - **The probe protocol** is shared across versions: add fields and routes, never change or remove them.
-- **Probe agents stay small**: about 15 MB resident, 64 MB hard limit. No new dependency in `cmd/linkos-probe` without measuring.
+- **Probe agents stay small**: about 15 MB resident, 64 MB hard limit. No new dependency in `cmd/beacon-probe` without measuring.
 - **Close to how agents work**: SSH, the shell, HTTP with JSON, Prometheus queries, MCP; no protocol or configuration language of our own. **No approval workflows**: Beacon records; the agent's harness decides. **Beacon calls no model.**
 - **Public repository, no internal information**: machines are named by place and network, examples use `example.com`, nothing about any particular deployment. Code that only one deployment needs is configuration, kept outside this repository.
 - **Ask before adding a dependency**, and keep `go.mod` tidy.

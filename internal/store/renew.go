@@ -27,10 +27,10 @@ var (
 	// ErrTooSoon means the token was renewed less than RenewEvery ago.
 	ErrTooSoon = errors.New("the token was renewed less than 24 hours ago")
 	// ErrNotRenewable means the token is an enrolled machine's, replaced with enroll -rotate.
-	ErrNotRenewable = errors.New("the token is an enrolled machine's and cannot renew itself; linkos-beacon enroll -rotate replaces it")
+	ErrNotRenewable = errors.New("the token is an enrolled machine's and cannot renew itself; beacon enroll -rotate replaces it")
 )
 
-// RotatedScopes are the scopes of enrolled machines' tokens (linkos-beacon enroll probe|host|heartbeat),
+// RotatedScopes are the scopes of enrolled machines' tokens (beacon enroll probe|host|heartbeat),
 // which are replaced with enroll -rotate rather than renewed by their holder.
 var RotatedScopes = []string{"probe:write", "host:write", "heartbeat:write"}
 

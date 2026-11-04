@@ -160,7 +160,7 @@ func (a *Agent) postAnswer(ctx context.Context, id string, ans targets.Answer) e
 	}
 	req.Header.Set("Authorization", "Bearer "+a.cfg.Token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "linkos-probe/"+version.Version)
+	req.Header.Set("User-Agent", "beacon-probe/"+version.Version)
 	resp, err := a.cfg.HTTP.Do(req)
 	if err != nil {
 		return err

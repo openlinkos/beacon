@@ -126,7 +126,7 @@ func (g *gateway) limited(w http.ResponseWriter, t store.Token) bool {
 		return false
 	}
 	if g.Metrics != nil {
-		g.Metrics.Inc("linkos_gateway_changes_limited_total", "Change events refused because the token posted more than 60 in a minute",
+		g.Metrics.Inc("beacon_gateway_changes_limited_total", "Change events refused because the token posted more than 60 in a minute",
 			metrics.Labels("token", t.Name))
 	}
 	fail(w, http.StatusTooManyRequests, "changes.too_many", "this token posted more than 60 change events in a minute; batch them, or wait for the minute to pass")

@@ -18,4 +18,4 @@ A network path is mostly out of your hands: wait, or route around it (another CD
 
 The failing locations succeed again and the alert resolves on its own after `resolve_timeout`.
 
-To silence: the card's buttons; `silence_alert` over MCP; or `linkos-beacon silence create -matchers 'alertname=ServiceDegraded,service=<service>' -duration 4h -comment '…'`.
+To silence: the card's buttons; `silence_alert` over MCP; or `beacon silence create -matchers 'alertname=ServiceDegraded,service=<service>' -duration 4h -comment '…'`.

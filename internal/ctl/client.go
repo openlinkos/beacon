@@ -86,6 +86,7 @@ type TokenInfo struct {
 	Machines  []string  `json:"machines,omitempty"`
 	Lifetime  string    `json:"lifetime,omitempty"`
 	Renewed   time.Time `json:"renewed,omitzero"`
+	Agent     string    `json:"agent,omitempty"` // the agent whose token it is; its scopes are the agent's
 }
 
 func urlQuery(s string) string { return url.QueryEscape(s) }
@@ -118,7 +119,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://linkos-beacon"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, "http://beacon"+path, body)
 	if err != nil {
 		return err
 	}

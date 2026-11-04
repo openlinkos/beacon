@@ -10,7 +10,7 @@ When healthchecks.io says the check is late or failed:
 
 1. Can you reach the monitoring host? If not, the machine or its network (your provider's console).
 2. On it: `docker compose ps` in the deployment directory: all four containers up and healthy?
-3. `curl -s 127.0.0.1:17001/readyz`: the reasons it gives. "Watchdog" means the rule engine's alerts are not arriving (`docker compose logs vmalert`; `curl -s 127.0.0.1:17001/metrics | grep 'route="alerts"'` shows what the gateway received). A chat reason means the chat connection or quota (`docker compose logs linkos-beacon`).
+3. `curl -s 127.0.0.1:17001/readyz`: the reasons it gives. "Watchdog" means the rule engine's alerts are not arriving (`docker compose logs vmalert`; `curl -s 127.0.0.1:17001/metrics | grep 'route="alerts"'` shows what the gateway received). A chat reason means the chat connection or quota (`docker compose logs beacon`).
 4. All fine, yet no pings: the host's outbound path to healthchecks.io, or the URL in the secret file.
 
 ## How to fix

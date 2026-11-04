@@ -178,8 +178,8 @@ func TestProbeWriteIsLabelledByTheGateway(t *testing.T) {
 	if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 		t.Fatal("the token and cookies must not reach VictoriaMetrics")
 	}
-	if !strings.Contains(scrape(e), `linkos_gateway_last_write_timestamp_seconds{subject="cdn-pre-us1"}`) ||
-		!strings.Contains(scrape(e), `linkos_gateway_requests_total{route="write",code="204"} 1`) {
+	if !strings.Contains(scrape(e), `beacon_gateway_last_write_timestamp_seconds{subject="cdn-pre-us1"}`) ||
+		!strings.Contains(scrape(e), `beacon_gateway_requests_total{route="write",code="204"} 1`) {
 		t.Fatalf("metrics:\n%s", scrape(e))
 	}
 }
@@ -241,7 +241,7 @@ func TestTargetsForTheLocation(t *testing.T) {
 
 func TestHeartbeatReadAndAlerts(t *testing.T) {
 	e := newEnv(t, false)
-	code(t, e.do("POST", "/api/v1/import/prometheus", e.beat, "linkos_heartbeat_last_success_timestamp_seconds{name=\"x\"} 1"), http.StatusNoContent, "")
+	code(t, e.do("POST", "/api/v1/import/prometheus", e.beat, "beacon_heartbeat_last_success_timestamp_seconds{name=\"x\"} 1"), http.StatusNoContent, "")
 	r, _ := e.vm.last()
 	if r.URL.Path != "/prefix/api/v1/import/prometheus" || strings.Join(r.URL.Query()["extra_label"], ",") != "source=heartbeat,sender=nas" {
 		t.Fatalf("heartbeat forwarded as %s?%s", r.URL.Path, r.URL.RawQuery)
@@ -267,7 +267,7 @@ func TestAlertsToTheRouter(t *testing.T) {
 		t.Fatalf("posted %+v", e.posted)
 	}
 	// the rule engine's posts are counted too: a deployment checks there that its alerts arrive
-	if !strings.Contains(scrape(e), `linkos_gateway_requests_total{route="alerts",code="200"} 2`) {
+	if !strings.Contains(scrape(e), `beacon_gateway_requests_total{route="alerts",code="200"} 2`) {
 		t.Errorf("alert posts not counted:\n%s", scrape(e))
 	}
 	code(t, e.do("POST", "/api/v2/alerts", "rules-wrong", body), http.StatusUnauthorized, "auth.invalid")
@@ -278,7 +278,13 @@ func TestAlertsToTheRouter(t *testing.T) {
 func TestAuth(t *testing.T) {
 	e := newEnv(t, false)
 	code(t, e.do("POST", "/api/v1/write", "", "x"), http.StatusUnauthorized, "auth.required")
+	if rec := e.do("POST", "/api/v1/write", "lbt_nope", "x"); !strings.Contains(rec.Body.String(), `"docs":"https://beacon.openlinkos.com/reference/api"`) {
+		t.Errorf("a 401 does not point at the reference: %s", rec.Body)
+	}
 	code(t, e.do("POST", "/api/v1/write", "lbt_nope", "x"), http.StatusUnauthorized, "auth.invalid")
+	if rec := e.do("POST", "/api/v1/write", e.human, "x"); strings.Contains(rec.Body.String(), `"docs"`) {
+		t.Errorf("a 403 carries docs: %s", rec.Body)
+	}
 	code(t, e.do("POST", "/api/v1/write", e.human, "x"), http.StatusForbidden, "auth.scope")
 	code(t, e.do("GET", "/api/v1/nothing", e.probe, ""), http.StatusNotFound, "not_found")
 	code(t, e.do("DELETE", "/api/v1/admin/tsdb/delete_series", e.reader, ""), http.StatusNotFound, "not_found")

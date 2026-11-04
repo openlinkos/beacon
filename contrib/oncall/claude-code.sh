@@ -1,15 +1,15 @@
 #!/bin/sh
 # claude-code.sh: runs Claude Code in headless mode for the alert Beacon woke us for.
 #
-# linkos-oncall starts this with Beacon's payload on standard input and the alert in BEACON_* variables
-# (docs/agents.md, "Running an agent when woken"). The script builds the prompt from prompt.md and the
+# beacon-oncall starts this with Beacon's payload on standard input and the alert in BEACON_* variables
+# (docs/guide/on-call.md, "Running an agent when woken"). The script builds the prompt from prompt.md and the
 # alert, points Claude Code at Beacon's MCP server with the agent's own token, lets it use Beacon's tools
 # and nothing else, and runs it with nobody to ask. Everything Claude Code prints goes to the run's log.
 #
 # Environment:
 #   BEACON_TOKEN_FILE  the agent's Beacon token (scopes status:read and alerts:write; machines:ssh to work
 #                      on machines); required
-#   BEACON_MCP_URL     Beacon's MCP endpoint; linkos-oncall sets it from the payload (links.mcp)
+#   BEACON_MCP_URL     Beacon's MCP endpoint; beacon-oncall sets it from the payload (links.mcp)
 #   ONCALL_PROMPT      the prompt file; prompt.md beside this script by default
 #   ONCALL_MAX_TURNS   agentic turns Claude Code may take; 60 by default
 #   ONCALL_MODEL       a model alias or name; Claude Code's default otherwise

@@ -1,5 +1,5 @@
 Third-party files served by Beacon's pages (internal/web/static). Nothing here is fetched from the
-network at run time; the files are embedded in the linkos-beacon binary.
+network at run time; the files are embedded in the beacon binary.
 
 asciinema-player 3.17.0
   Copyright 2011 Marcin Kulik. Licensed under the Apache License, Version 2.0 (LICENSE.asciinema-player).
@@ -17,5 +17,9 @@ asciinema-player 3.17.0
   The bundle plays asciicast v3 (the format the SSH channel records: i, o, r, m and x events) as well
   as v2, and runs its terminal emulator as WebAssembly, which is why the pages' Content-Security-Policy
   allows 'wasm-unsafe-eval' for scripts from Beacon itself and nothing else.
+
+@openlinkos/ui, the design system the pages and the console are drawn with (its stylesheet, icons and
+  the Geist fonts), is vendored under ol/, with its own NOTICE, licences and hashes; scripts/update-ui.sh
+  refreshes it from npm.
 
 beacon.css and beacon-player.js are Beacon's own (Apache-2.0, see the repository's LICENSE).

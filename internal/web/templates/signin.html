@@ -1,0 +1,37 @@
+{{define "content"}}<h1 class="ol-auth-title">{{.L.Title}}</h1>
+      <p>{{.L.Help}}</p>
+      {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
+      {{if .NoAccounts}}<div class="ol-alert ol-alert-info" role="status">{{icon "users"}}<div class="ol-alert-body"><p>{{.L.NoAccounts}}</p></div></div>{{end}}
+      {{if .WithToken}}
+      <form method="post" action="{{console "/sign-in"}}" class="ol-stack">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <input type="hidden" name="form" value="{{.Form}}">
+        <input type="text" name="username" value="beacon-token" autocomplete="username" hidden>
+        <div class="ol-field">
+          <label class="ol-label" for="token">{{.L.Token}}</label>
+          <input class="ol-input ol-input-lg ol-input-mono" id="token" name="token" type="password" autocomplete="current-password" spellcheck="false" placeholder="lbt_…" required autofocus aria-describedby="token-hint">
+          <p class="ol-hint" id="token-hint">{{.L.Hint}}</p>
+        </div>
+        <button class="ol-btn ol-btn-primary ol-btn-lg ol-btn-block" type="submit">{{icon "log-in"}}{{.L.Submit}}</button>
+      </form>
+      {{if not .NoAccounts}}<p><a href="{{.PasswordHref}}">{{.L.WithPassword}}</a></p>{{end}}
+      <details class="ol-details">
+        <summary>{{.L.HowTo}}</summary>
+        <div class="ol-code"><pre><code>beacon agent add NAME -owner YOU -preset readonly</code></pre></div>
+      </details>
+      {{else}}
+      <form method="post" action="{{console "/sign-in"}}" class="ol-stack">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <input type="hidden" name="form" value="{{.Form}}">
+        <div class="ol-field">
+          <label class="ol-label" for="username">{{.L.Username}}</label>
+          <input class="ol-input ol-input-lg" id="username" name="username" type="text" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus maxlength="32">
+        </div>
+        <div class="ol-field">
+          <label class="ol-label" for="password">{{.L.Password}}</label>
+          <input class="ol-input ol-input-lg" id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+        </div>
+        <button class="ol-btn ol-btn-primary ol-btn-lg ol-btn-block" type="submit">{{icon "log-in"}}{{.L.Submit}}</button>
+      </form>
+      <p class="ol-hint"><a href="{{.TokenHref}}">{{.L.WithToken}}</a></p>
+      {{end}}{{end}}

@@ -147,7 +147,7 @@ func TestProbeProtocolUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Import(context.Background(), configdb.Actor{Name: "linkos-beacon", Via: "start"}, in, "", false); err != nil {
+	if _, err := db.Import(context.Background(), configdb.Actor{Name: "beacon", Via: "start"}, in, "", false); err != nil {
 		t.Fatal(err)
 	}
 	fromDB := gatewayFor(t, st, tokens, db.Catalog, db.Targets, db.Modules)

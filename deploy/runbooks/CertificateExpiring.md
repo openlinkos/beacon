@@ -18,4 +18,4 @@ Renew it (or let the issuer retry once the cause is gone), then make sure the re
 
 The next probe round sees the new expiry; the alert resolves after `resolve_timeout`.
 
-To silence: the card's buttons; `silence_alert` over MCP; or `linkos-beacon silence create -matchers 'alertname=CertificateExpiring,service=<service>' -duration 24h -comment '…'`.
+To silence: the card's buttons; `silence_alert` over MCP; or `beacon silence create -matchers 'alertname=CertificateExpiring,service=<service>' -duration 24h -comment '…'`.

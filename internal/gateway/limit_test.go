@@ -49,7 +49,7 @@ func TestChangeLimit(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
-	for _, want := range []string{`linkos_gateway_changes_limited_total{token="ci"} 2`, `linkos_gateway_requests_total{route="changes",code="429"} 2`} {
+	for _, want := range []string{`beacon_gateway_changes_limited_total{token="ci"} 2`, `beacon_gateway_requests_total{route="changes",code="429"} 2`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("metrics lack %s", want)
 		}

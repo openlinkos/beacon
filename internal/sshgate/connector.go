@@ -115,10 +115,10 @@ func (s *connectorSet) count() int {
 }
 
 func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
-	m.Register("linkos_beacon_ssh_connectors", "Connector machines (behind NAT) connected out to the SSH channel right now", "gauge", func() []metrics.Sample {
+	m.Register("beacon_ssh_connectors", "Connector machines (behind NAT) connected out to the SSH channel right now", "gauge", func() []metrics.Sample {
 		return []metrics.Sample{{Value: float64(g.connectors.count())}}
 	})
-	m.Register("linkos_beacon_ssh_connector_machines", "Machines added as connectors, connected or not", "gauge", func() []metrics.Sample {
+	m.Register("beacon_ssh_connector_machines", "Machines added as connectors, connected or not", "gauge", func() []metrics.Sample {
 		n := 0
 		for _, m := range g.d.Store.Machines() {
 			if m.Connector() {
@@ -134,11 +134,14 @@ func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
 // machine says: a token's key can never register a forward, a connector key can never open a session.
 func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 	fp := ssh.FingerprintSHA256(k)
-	if t, ok := g.d.Store.TokenBySSHKey(fp); ok {
-		if !t.Has("machines:ssh") {
+	if p, ok := g.d.Store.PrincipalBySSHKey(fp); ok {
+		if !p.Has("machines:ssh") {
 			return nil, errors.New("unknown key")
 		}
-		return &ssh.Permissions{Extensions: map[string]string{"token": t.Name}}, nil
+		return &ssh.Permissions{Extensions: map[string]string{"principal": p.Key(), "name": p.Name(), "cred": "key:" + fp}}, nil
+	}
+	if g.d.Store.KeyHolder(fp) != "" { // an agent's or a token's key that does not sign in now: never a connector's
+		return nil, errors.New("unknown key")
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {
 		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name}}, nil
@@ -186,13 +189,9 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 				port = defaultForwardPort
 			}
 			c.setForward(p.Addr, port)
-			if r.WantReply {
-				var reply []byte
-				if p.Port == 0 { // RFC 4254, 7.1: the reply names the port bound, only when 0 was asked
-					reply = ssh.Marshal(struct{ Port uint32 }{port})
-				}
-				_ = r.Reply(true, reply)
-			}
+			// Register before answering: the reply is what tells the machine its forward is up, and
+			// whoever saw it — the ssh -R unit, an agent listing machines, a dial right after — must
+			// find the machine connected, not turned away with ErrDisconnected.
 			if old := g.connectors.put(name, c); old != nil {
 				g.d.Log.Info("connector replaced by a newer connection", "machine", name, "old", old.from, "new", c.from)
 				_ = old.sc.Close()
@@ -200,6 +199,13 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 			registered = true
 			g.d.Log.Info("connector connected", "machine", name, "from", c.from, "forward", fmt.Sprintf("%s:%d", p.Addr, p.Port))
 			go c.keepalive()
+			if r.WantReply {
+				var reply []byte
+				if p.Port == 0 { // RFC 4254, 7.1: the reply names the port bound, only when 0 was asked
+					reply = ssh.Marshal(struct{ Port uint32 }{port})
+				}
+				_ = r.Reply(true, reply)
+			}
 			if m, ok := g.d.Store.Machine(name); ok && m.HostKey == "" {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -393,8 +399,8 @@ func (g *Gate) parseConnectorKey(line string) (key, fingerprint string, err erro
 		return "", "", fmt.Errorf("%w: connector_key is a certificate; give the public key itself", ErrBadInput)
 	}
 	fp := ssh.FingerprintSHA256(k)
-	if t, held := g.d.Store.TokenBySSHKey(fp); held {
-		return "", "", fmt.Errorf("%w: the key %s belongs to token %s; a machine's connector key is its own", ErrBadInput, fp, t.Name)
+	if holder := g.d.Store.KeyHolder(fp); holder != "" {
+		return "", "", fmt.Errorf("%w: the key %s belongs to %s; a machine's connector key is its own", ErrBadInput, fp, holder)
 	}
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))), fp, nil
 }
@@ -455,7 +461,7 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: strings.TrimSpace(detail)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, store.ConnectorAddress))
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey(), Connector: g.connectorSetup(m)}, nil
 }
 
@@ -486,7 +492,7 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_connector", Target: name, Detail: fp})
 	g.post(ctx, i18n.T(g.d.Lang, "%s set the connector key of machine %s", who.Name, name))
-	t, _ := g.token(who.Name)
+	t, _ := g.principal(who)
 	return g.view(m, t), nil
 }
 
@@ -523,7 +529,7 @@ func (g *Gate) connectorSetup(m store.Machine) *ConnectorSetup {
 		port, connectorKeyPath, connectorHostsPath, m.Name, host)
 	unit := "[Unit]\n" +
 		"Description=Beacon connector: connects out to the SSH channel so agents can reach this machine\n" +
-		"Documentation=https://github.com/openlinkos/beacon/blob/main/docs/ssh.md\n" +
+		"Documentation=https://github.com/openlinkos/beacon/blob/main/docs/guide/machines.md\n" +
 		"After=network-online.target\nWants=network-online.target\nStartLimitIntervalSec=0\n\n" +
 		"[Service]\nUser=" + connectorUser + "\nExecStart=" + cmd + "\nRestart=always\nRestartSec=5\n" +
 		"NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n\n" +
@@ -542,7 +548,7 @@ func (g *Gate) connectorSetup(m store.Machine) *ConnectorSetup {
 	fmt.Fprintf(&sb, "cat > /etc/systemd/system/beacon-connector.service <<'EOF'\n%sEOF\n", unit)
 	sb.WriteString("systemctl daemon-reload && systemctl enable --now beacon-connector\n")
 	if m.ConnectorKey == "" {
-		fmt.Fprintf(&sb, "# then register the key with Beacon: linkos-beacon machine connector %s -key \"$(cat %s.pub)\"\n", m.Name, connectorKeyPath)
+		fmt.Fprintf(&sb, "# then register the key with Beacon: beacon machine connector %s -key \"$(cat %s.pub)\"\n", m.Name, connectorKeyPath)
 	}
 	return &ConnectorSetup{KnownHosts: kh, Command: cmd, Unit: unit, Script: sb.String(), HostKeyPending: m.HostKey == ""}
 }

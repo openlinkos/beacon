@@ -65,7 +65,7 @@ type Gate struct {
 	key ssh.Signer // the throwaway key every certificate is issued for
 
 	mu    sync.Mutex
-	open  map[uint64]func() // what to close when the channel is paused: agent connections, tool calls
+	open  map[uint64]tracked // what is open on the channel: agent connections, tool calls
 	seq   atomic.Uint64
 	fails map[string]*window
 	echo  *echoer
@@ -78,10 +78,14 @@ type window struct {
 	start time.Time
 }
 
-// Actor is who uses the channel: the token's name, and how (ssh, mcp or api).
+// Actor is who uses the channel: Name as the audit log names it (a person, "person / agent", or a token's
+// name), how (ssh, mcp, api, console or cli), and Key, the principal (store.Principal.Key) whose access
+// is checked afresh each time; none for the command line.
 type Actor struct {
 	Name string
 	Via  string
+	Key  string
+	Cred string // the credential it came with: token:NAME, grant:ID or key:FINGERPRINT; none for the console and the command line
 }
 
 // Errors the API and MCP turn into answers. They are wrapped with details.
@@ -89,7 +93,7 @@ var (
 	ErrDisabled    = errors.New("the SSH channel is not configured")
 	ErrPaused      = errors.New("agents' access to machines is paused")
 	ErrNoMachine   = errors.New("no such machine")
-	ErrForbidden   = errors.New("this token may not reach the machine")
+	ErrForbidden   = errors.New("this agent may not reach the machine")
 	ErrUnreachable = errors.New("the machine cannot be reached")
 	ErrExists      = errors.New("a machine with this name exists")
 	ErrBadInput    = errors.New("bad input")
@@ -128,19 +132,19 @@ func New(d Deps) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gate{d: d, key: k, open: map[uint64]func(){}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}}
+	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}}
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
 		g.registerConnectorMetrics(m)
-		m.Register("linkos_beacon_ssh_open", "Agent connections and tool calls open on the SSH channel", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_open", "Agent connections and tool calls open on the SSH channel", "gauge", func() []metrics.Sample {
 			g.mu.Lock()
 			defer g.mu.Unlock()
 			return []metrics.Sample{{Value: float64(len(g.open))}}
 		})
-		m.Register("linkos_beacon_ssh_paused", "1 while agents' access to machines is paused", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_paused", "1 while agents' access to machines is paused", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: map[bool]float64{true: 1, false: 0}[g.Paused()]}}
 		})
-		m.Register("linkos_beacon_ssh_machines", "Machines the SSH channel reaches", "gauge", func() []metrics.Sample {
+		m.Register("beacon_ssh_machines", "Machines the SSH channel reaches", "gauge", func() []metrics.Sample {
 			return []metrics.Sample{{Value: float64(len(d.Store.Machines()))}}
 		})
 	}
@@ -166,17 +170,64 @@ func newID(t time.Time) string {
 	return t.UTC().Format("20060102-150405") + "-" + hex.EncodeToString(b)
 }
 
-// track remembers how to close something open on the channel, until the returned function is called.
-func (g *Gate) track(closer func()) func() {
+// tracked is something open on the channel: how to close it, who has it open and on which machine.
+type tracked struct {
+	close   func()
+	who     Actor
+	machine string
+}
+
+// track remembers how to close something who has open on machine, until the returned function is called.
+func (g *Gate) track(closer func(), who Actor, machine string) func() {
 	id := g.seq.Add(1)
 	g.mu.Lock()
-	g.open[id] = closer
+	g.open[id] = tracked{close: closer, who: who, machine: machine}
 	g.mu.Unlock()
 	return func() {
 		g.mu.Lock()
 		delete(g.open, id)
 		g.mu.Unlock()
 	}
+}
+
+// Recheck closes at once what is open on the channel (connections and tool calls) for whoever may no
+// longer reach its machine: a token revoked or expired, an agent deleted or given fewer machines or a
+// weaker preset, an OAuth grant revoked, an account disabled or demoted so that its agents lose
+// machines:ssh, a key removed. Beacon calls it after each such change, and every minute (Tidy) for what
+// expired. It reports how many it closed.
+func (g *Gate) Recheck() int {
+	if g == nil {
+		return 0
+	}
+	g.mu.Lock()
+	items := make([]tracked, 0, len(g.open))
+	for _, t := range g.open {
+		items = append(items, t)
+	}
+	g.mu.Unlock()
+	n := 0
+	for _, t := range items {
+		if !g.still(t.who, t.machine) {
+			t.close()
+			n++
+		}
+	}
+	if n > 0 {
+		g.d.Log.Info("closed sessions on the SSH channel whose access ended", "count", n)
+	}
+	return n
+}
+
+// still reports whether who may still reach machine with the credential it came with.
+func (g *Gate) still(who Actor, machine string) bool {
+	if who.Key == "" { // the command line
+		return true
+	}
+	p, ok := g.principal(who)
+	if !ok || !p.Reaches(machine) {
+		return false
+	}
+	return who.Cred == "" || g.d.Store.CredentialLive(who.Cred, p)
 }
 
 // Paused reports whether agents' access is paused.
@@ -208,7 +259,7 @@ func (g *Gate) SetPaused(ctx context.Context, who Actor, paused bool) error {
 		g.mu.Lock()
 		closers := make([]func(), 0, len(g.open))
 		for _, c := range g.open {
-			closers = append(closers, c)
+			closers = append(closers, c.close)
 		}
 		g.mu.Unlock()
 		for _, c := range closers {
@@ -233,18 +284,16 @@ func (g *Gate) post(ctx context.Context, text string) {
 	}
 }
 
-// token returns the token called name, if it is still valid.
-func (g *Gate) token(name string) (store.Token, bool) {
-	for _, t := range g.d.Store.Tokens() {
-		if t.Name == name && g.now().Before(t.Expires) {
-			return t, true
-		}
+// principal resolves who, afresh: what it may do now.
+func (g *Gate) principal(who Actor) (store.Principal, bool) {
+	if who.Key == "" {
+		return store.Principal{}, false
 	}
-	return store.Token{}, false
+	return g.d.Store.PrincipalWith(who.Key, who.Cred)
 }
 
-// reachable lists the machines the token may reach.
-func (g *Gate) reachable(t store.Token) []string {
+// reachable lists the machines the principal may reach.
+func (g *Gate) reachable(t store.Principal) []string {
 	var out []string
 	for _, m := range g.d.Store.Machines() {
 		if t.Reaches(m.Name) {
@@ -261,12 +310,12 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 		return store.Machine{}, ErrDisabled
 	}
 	if g.Paused() {
-		return store.Machine{}, fmt.Errorf("%w since %s; a person resumes it with linkos-beacon ssh resume", ErrPaused,
+		return store.Machine{}, fmt.Errorf("%w since %s; a person resumes it with beacon ssh resume", ErrPaused,
 			g.PausedSince().Format(time.RFC3339))
 	}
-	t, ok := g.token(who.Name)
+	t, ok := g.principal(who)
 	if !ok || !t.Has("machines:ssh") {
-		return store.Machine{}, fmt.Errorf("%w: the token lacks the machines:ssh scope", ErrForbidden)
+		return store.Machine{}, fmt.Errorf("%w: the agent lacks the machines:ssh scope", ErrForbidden)
 	}
 	m, found := g.d.Store.Machine(name)
 	if !found || !t.Reaches(name) {
@@ -275,9 +324,9 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 			list = "none"
 		}
 		if !found {
-			return store.Machine{}, fmt.Errorf("%w called %q; machines this token reaches: %s", ErrNoMachine, name, list)
+			return store.Machine{}, fmt.Errorf("%w called %q; machines this agent reaches: %s", ErrNoMachine, name, list)
 		}
-		return store.Machine{}, fmt.Errorf("%w %s; machines this token reaches: %s", ErrForbidden, name, list)
+		return store.Machine{}, fmt.Errorf("%w %s; machines this agent reaches: %s", ErrForbidden, name, list)
 	}
 	return m, nil
 }
@@ -432,10 +481,10 @@ func (g *Gate) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		g.serveConnector(sc, chans, reqs, name) // a machine's own connection: not an agent's, so not tracked for the pause switch
 		return
 	}
-	untrack := g.track(func() { _ = sc.Close() })
+	who := Actor{Name: sc.Permissions.Extensions["name"], Via: "ssh", Key: sc.Permissions.Extensions["principal"], Cred: sc.Permissions.Extensions["cred"]}
+	untrack := g.track(func() { _ = sc.Close() }, who, sc.User())
 	defer untrack()
 
-	who := Actor{Name: sc.Permissions.Extensions["token"], Via: "ssh"}
 	go func() {
 		for r := range reqs { // global requests: keepalives yes, remote forwarding never for agents (a token's key registers no forward)
 			if r.WantReply {

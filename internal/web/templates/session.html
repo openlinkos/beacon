@@ -1,49 +1,55 @@
-{{define "head"}}{{if .Recording}}<link rel="stylesheet" href="/static/asciinema-player.css">{{end}}{{end}}
-{{define "scripts"}}{{if .Recording}}<script src="/static/asciinema-player.min.js"></script>
-<script src="/static/beacon-player.js"></script>{{end}}{{end}}
-{{define "content"}}
-<h1>{{.Agent}} <span class="muted">→</span> {{.Machine}}</h1>
-<p class="sub mono">{{.ID}}</p>
-<div class="chips">
-  <span class="chip">{{.Kind}}</span>
-  <span class="chip">{{.Via}}</span>
-  {{if .Open}}<span class="chip">{{.L.Open}}</span>{{end}}
-  {{if .Exit}}<span class="chip {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span>{{end}}
-</div>
-{{if .Command}}<pre>{{.Command}}</pre>{{end}}
-<div class="card">
-<dl class="kv">
-  <dt>{{.L.Started}}</dt><dd>{{.Started}}</dd>
-  {{if .Duration}}<dt>{{.L.Duration}}</dt><dd>{{.Duration}} <span class="muted">({{.Ended}})</span></dd>{{end}}
-</dl>
+{{define "head"}}{{if .Recording}}<link rel="stylesheet" href="/static/asciinema-player.css?v={{.Version}}">{{end}}{{end}}
+{{define "scripts"}}{{if .Recording}}<script src="/static/asciinema-player.min.js?v={{.Version}}"></script>
+<script src="/static/beacon-player.js?v={{.Version}}"></script>{{end}}{{end}}
+{{define "content"}}<div class="ol-layout-supporting">
+<div class="ol-stack">
+  {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
+
+  <section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Recording}}</h2>{{if .Recording}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Recording}}" download="{{.ID}}.cast">{{iconSm "download"}}{{.L.Download}}</a>{{end}}</div>
+    <div class="ol-panel-body">
+    {{if .Recording}}
+      <div id="player" class="bc-player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>
+      <p id="player-note" class="ol-hint" hidden></p>
+      {{if .Truncated}}<p class="ol-hint">{{.L.RecordingCut}}</p>{{end}}
+    {{else}}<p class="ol-hint">{{.RecordingNote}}</p>{{end}}
+    </div>
+  </section>
+
+  {{if .Commands}}
+  <section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Commands}}</h2></div>
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact">
+      <tbody>{{range .Commands}}<tr><td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td><td><span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span></td><td class="ol-num">{{.Took}}</td></tr>{{end}}</tbody>
+    </table></div>
+  </section>
+  {{end}}
+
+  {{if .Outputs}}
+  <section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Output}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+    {{range .Outputs}}<div class="ol-code"><div class="ol-code-label">{{.K}}</div><pre><code>{{.V}}</code></pre></div>{{end}}
+    </div>
+  </section>
+  {{end}}
 </div>
 
-<h2>{{.L.Recording}}</h2>
-<div class="card">
-{{if .Recording}}
-<div id="player" class="player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>
-<p id="player-note" class="muted" hidden></p>
-{{if .Truncated}}<p class="muted">{{.L.RecordingCut}}</p>{{end}}
-<p><a class="btn" href="{{.Recording}}" download="{{.ID}}.cast">{{.L.Download}}</a></p>
-{{else}}<p class="muted">{{.RecordingNote}}</p>{{end}}
+<div class="ol-stack">
+  <section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Details}}</h2></div>
+    <div class="ol-panel-body">
+      <dl class="ol-dl ol-dl-stack">
+        <dt>{{.L.Agent}}</dt><dd>{{.Agent}}</dd>
+        <dt>{{.L.Machine}}</dt><dd>{{if .MachineHref}}<a href="{{.MachineHref}}">{{.Machine}}</a>{{else}}{{.Machine}}{{end}}</dd>
+        <dt>{{.L.Via}}</dt><dd>{{.Via}}</dd>
+        <dt>{{.L.Kind}}</dt><dd>{{.Kind}}</dd>
+        <dt>{{.L.Started}}</dt><dd>{{.Started}}</dd>
+        {{if .Duration}}<dt>{{.L.Duration}}</dt><dd>{{.Duration}}</dd><dt>{{.L.Ended}}</dt><dd>{{.Ended}}</dd>{{else if .Open}}<dt>{{.L.Duration}}</dt><dd>{{.L.Open}}</dd>{{end}}
+        {{if .Exit}}<dt>{{.L.Exit}}</dt><dd>{{.Exit}}</dd>{{end}}
+        <dt>{{.L.ID}}</dt><dd class="ol-mono ol-break">{{.ID}}</dd>
+      </dl>
+    </div>
+  </section>
 </div>
-
-{{if .Commands}}
-<h2>{{.L.Commands}}</h2>
-<div class="card session">
-<ul class="cmds">
-  {{range .Commands}}<li><code>{{.Command}}</code><span class="exit {{if .Failed}}bad{{else}}ok{{end}}">{{.Exit}}</span><span class="muted exit">{{.Took}}</span></li>{{end}}
-</ul>
-</div>
-{{end}}
-
-{{if .Outputs}}
-<h2>{{.L.Output}}</h2>
-{{range .Outputs}}
-<div class="card">
-<p class="muted mono">{{.K}}</p>
-<pre>{{.V}}</pre>
-</div>
-{{end}}
-{{end}}
-{{end}}
+</div>{{end}}

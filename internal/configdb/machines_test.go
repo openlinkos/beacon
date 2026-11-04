@@ -16,7 +16,7 @@ func TestHeartbeatMachine(t *testing.T) {
 	f := testFiles()
 	f["catalog/other.yaml"] = strings.Replace(f["catalog/other.yaml"], "description: Nightly backup of the NAS}",
 		"description: Nightly backup of the NAS, machine: nas-1}", 1)
-	ch, err := e.s.Import(ctx, Actor{Name: "linkos-beacon", Via: "start"}, f, "", false)
+	ch, err := e.s.Import(ctx, Actor{Name: "beacon", Via: "start"}, f, "", false)
 	if err != nil {
 		t.Fatalf("an import takes a machine not enrolled yet: %v", err)
 	}

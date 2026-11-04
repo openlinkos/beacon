@@ -12,7 +12,7 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// Silences is the bridge as the socket serves it for `linkos-beacon silence …`: the methods the API and
+// Silences is the bridge as the socket serves it for `beacon silence …`: the methods the API and
 // MCP call, so that a silence made on the command line is audited and echoed like theirs.
 type Silences interface {
 	Silence(ctx context.Context, id string, d time.Duration, who bridge.Actor, comment string) (bridge.GroupView, error)

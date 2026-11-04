@@ -11,7 +11,7 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// Config is the configuration Beacon holds, as the socket serves it for `linkos-beacon config …`.
+// Config is the configuration Beacon holds, as the socket serves it for `beacon config …`.
 type Config interface {
 	Import(ctx context.Context, who configdb.Actor, f configdb.Files, note string, dryRun bool) (store.ConfigChange, error)
 	Export() (configdb.Files, int64, error)

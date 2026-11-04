@@ -17,6 +17,6 @@ Whatever the reason points at, on the machine: an agent reaches it through the S
 
 ## How to verify
 
-The probes keep going: the card turns green when every location succeeds again, and `linkos:service_up` for the service goes back to 1. `probe_now`-style re-probing is not needed; the next minute's results tell.
+The probes keep going: the card turns green when every location succeeds again, and `beacon:service_up` for the service goes back to 1. `probe_now`-style re-probing is not needed; the next minute's results tell.
 
-To silence: the card's buttons; `silence_alert` over MCP; or `linkos-beacon silence create -matchers 'alertname=ServiceDown,service=<service>' -duration 2h -comment '…'` on the monitoring host.
+To silence: the card's buttons; `silence_alert` over MCP; or `beacon silence create -matchers 'alertname=ServiceDown,service=<service>' -duration 2h -comment '…'` on the monitoring host.

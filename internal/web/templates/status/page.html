@@ -1,0 +1,85 @@
+{{define "nav"}}{{if .Active}}<a href="#incidents">{{.L.ActiveIncidents}}</a>{{end}}{{if or .Ongoing .Upcoming}}<a href="#maintenance">{{.L.Maintenance}}</a>{{end}}<a href="#components">{{.L.Components}}</a><a href="#past">{{.L.Past}}</a>{{end}}
+
+{{define "content"}}
+<section class="ol-hero bc-status-hero" aria-labelledby="hero-title">
+  <div class="ol-hero-rings" aria-hidden="true">{{.MarkHero}}</div>
+  <div class="ol-hero-body">
+    <a class="ol-status{{if .Tone}} ol-status-{{.Tone}}{{end}}" href="#components"><span class="ol-dot ol-dot-live"></span>{{.P.Summary}}</a>
+    <h1 class="ol-hero-title" id="hero-title">{{.P.Title}}</h1>
+    {{if .P.Description}}<p class="ol-hero-lead">{{.P.Description}}</p>{{end}}
+    <p class="ol-hero-meta"><time datetime="{{.P.Updated.Format "2006-01-02T15:04:05Z07:00"}}">{{.Updated}}</time>{{if .Locations}} · {{.L.Checked .Locations}}{{end}}</p>
+  </div>
+</section>
+
+{{if .Active}}<section class="ol-site-section" id="incidents" aria-labelledby="incidents-title">
+  <div class="ol-site-section-header"><h2 class="ol-site-section-title" id="incidents-title">{{.L.ActiveIncidents}}</h2></div>
+  <div class="ol-stack">
+  {{range .Active}}<article class="ol-panel bc-incident" aria-labelledby="incident-{{.ID}}">
+    <div class="ol-panel-header"><h3 class="ol-panel-title" id="incident-{{.ID}}"><a href="{{.Href}}">{{.Title}}</a></h3>{{template "state" .}}</div>
+    <div class="ol-panel-body">
+      <p class="ol-muted ol-text-sm">{{$.L.Started}} <time datetime="{{.StartedISO}}">{{.Started}}</time> · {{$.L.Affected}}: {{.Components}}</p>
+      {{template "updates" .Updates}}
+      <p class="ol-text-sm"><a href="{{.Href}}">{{$.L.AllUpdates}}</a></p>
+    </div>
+  </article>{{end}}
+  </div>
+</section>{{end}}
+
+{{if or .Ongoing .Upcoming}}<section class="ol-site-section" id="maintenance" aria-labelledby="maintenance-title">
+  <div class="ol-site-section-header"><h2 class="ol-site-section-title" id="maintenance-title">{{.L.Maintenance}}</h2></div>
+  <div class="ol-stack">
+  {{range .Ongoing}}<article class="ol-panel">
+    <div class="ol-panel-header"><h3 class="ol-panel-title">{{.Title}}</h3><span class="ol-badge ol-badge-info">{{iconSm "wrench"}}{{$.L.Ongoing}}</span></div>
+    <div class="ol-panel-body">
+      <p class="ol-muted ol-text-sm">{{$.L.From}} <time datetime="{{.StartsISO}}">{{.Starts}}</time> {{$.L.Until}} <time datetime="{{.EndsISO}}">{{.Ends}}</time> · {{$.L.Affected}}: {{.Components}}</p>
+      {{if .Description}}<p class="ol-text-pre">{{.Description}}</p>{{end}}
+    </div>
+  </article>{{end}}
+  {{range .Upcoming}}<article class="ol-panel">
+    <div class="ol-panel-header"><h3 class="ol-panel-title">{{.Title}}</h3><span class="ol-badge">{{iconSm "calendar"}}{{$.L.Scheduled}}</span></div>
+    <div class="ol-panel-body">
+      <p class="ol-muted ol-text-sm">{{$.L.From}} <time datetime="{{.StartsISO}}">{{.Starts}}</time> {{$.L.Until}} <time datetime="{{.EndsISO}}">{{.Ends}}</time> · {{$.L.Affected}}: {{.Components}}</p>
+      {{if .Description}}<p class="ol-text-pre">{{.Description}}</p>{{end}}
+    </div>
+  </article>{{end}}
+  </div>
+</section>{{end}}
+
+<section class="ol-site-section" id="components" aria-labelledby="components-title">
+  <div class="ol-site-section-header">
+    <h2 class="ol-site-section-title" id="components-title">{{.L.Components}}</h2>
+    <p class="ol-site-section-description">{{.L.HistoryIn .P.Timezone}}</p>
+  </div>
+  <div class="ol-stack">
+  {{range .Groups}}<div class="ol-panel">
+    {{if .Title}}<div class="ol-panel-header"><h3 class="ol-panel-title">{{.Title}}</h3>{{if .Description}}<span class="ol-hint">{{.Description}}</span>{{end}}</div>{{end}}
+    <ul class="ol-list">
+    {{range .Items}}<li id="component-{{.Name}}">
+      <span class="ol-list-row"><span class="ol-list-title">{{.Title}}</span>{{template "state" .}}</span>
+      {{if .Description}}<span class="ol-list-meta">{{.Description}}</span>{{end}}
+      <div class="ol-uptime ol-uptime-lg bc-uptime" role="img" aria-label="{{.Strip}}">{{range .Cells}}<span{{if .Class}} class="{{.Class}}"{{end}} title="{{.Title}}"></span>{{end}}</div>
+      <span class="ol-list-meta bc-uptime-axis"><span class="bc-axis-90">{{$.L.DaysAgo 90}}</span><span class="bc-axis-30">{{$.L.DaysAgo 30}}</span><span>{{if .Avail}}{{$.L.Available .Avail}}{{else}}{{$.L.NoData}}{{end}}</span><span>{{$.L.Today}}</span></span>
+    </li>{{end}}
+    </ul>
+  </div>{{end}}
+  </div>
+  <ul class="ol-legend bc-legend" aria-label="{{.L.Legend}}">
+    <li><span class="ol-swatch bc-swatch-ok" aria-hidden="true"></span>{{.L.Operational}}</li>
+    <li><span class="ol-swatch bc-swatch-degraded" aria-hidden="true"></span>{{.L.Degraded}}</li>
+    <li><span class="ol-swatch bc-swatch-down" aria-hidden="true"></span>{{.L.Down}}</li>
+    <li><span class="ol-swatch bc-swatch-maintenance" aria-hidden="true"></span>{{.L.InMaintenance}}</li>
+    <li><span class="ol-swatch bc-swatch-none" aria-hidden="true"></span>{{.L.NoData}}</li>
+  </ul>
+  {{if .P.Locations}}<details class="ol-details bc-locations"><summary>{{.L.Locations}}</summary><ul>{{range .P.Locations}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+</section>
+
+<section class="ol-site-section" id="past" aria-labelledby="past-title">
+  <div class="ol-site-section-header"><h2 class="ol-site-section-title" id="past-title">{{.L.Past}}</h2></div>
+  {{if .Past}}<ul class="ol-list">
+  {{range .Past}}<li>
+    <span class="ol-list-row">{{if .Href}}<a class="ol-list-title" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="ol-list-title">{{.Title}}</span>{{end}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}"><span class="ol-dot"></span>{{.Day}}</span></span>
+    <span class="ol-list-meta"><span>{{.Meta}}</span></span>
+  </li>{{end}}
+  </ul>{{else}}<div class="ol-empty"><p class="ol-empty-title">{{.L.NoPast}}</p></div>{{end}}
+</section>
+{{end}}

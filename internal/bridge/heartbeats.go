@@ -22,7 +22,7 @@ const maxHeartbeats = 5
 
 // lastSuccessQuery is the last success of the heartbeats sel matches, within 31 days as the rules read it:
 // a heartbeat may arrive as a steady series or as one pushed sample.
-const lastSuccessQuery = "max by (heartbeat) (last_over_time(linkos_heartbeat_last_success_timestamp_seconds{%s}[31d]))"
+const lastSuccessQuery = "max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{%s}[31d]))"
 
 // HeartbeatView is a heartbeat an alert is about: its entry in the catalogue, whether the SSH channel has
 // the machine it names (Enrolled, when it names one), and its last success at the end of the window. Hint

@@ -18,4 +18,4 @@ Fix the rule in `rules/*.yml` and check it before reloading: `docker compose run
 
 The counter stops rising; the alert resolves after 10 minutes.
 
-To silence: `linkos-beacon silence create -matchers 'alertname=VMAlertRuleErrors' -duration 2h -comment '…'`.
+To silence: `beacon silence create -matchers 'alertname=VMAlertRuleErrors' -duration 2h -comment '…'`.

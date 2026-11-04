@@ -8,7 +8,7 @@ Write to **security@linkos.io**. Do not open a public issue or pull request for 
 
 Please include what you can of:
 
-- the version or commit (`linkos-beacon version`), and which part: the service (API, MCP, gateway, alert delivery, SSH channel), the probe agent, or the deployment files under `deploy/`;
+- the version or commit (`beacon version`), and which part: the service (API, MCP, gateway, alert delivery, SSH channel), the probe agent, or the deployment files under `deploy/`;
 - what an attacker gains: a token, a machine, an alert that is lost or forged, a secret in a log;
 - how to reproduce it: requests, configuration, a probe module, a transcript;
 - whether it is already public or being exploited, as far as you know;
@@ -30,8 +30,8 @@ The latest minor release (`vX.Y`), and its release candidates, receive fixes. Ol
 
 In scope:
 
-- the service `linkos-beacon`: the REST API and MCP server, the gateway for machines, alert routing and delivery (Feishu, Pushover, Bark, healthchecks.io), the hooks that wake agents, and the SSH channel (sign-in, certificates, recordings, the tools);
-- the probe agent `linkos-probe`: the probers, the push to the gateway, what it reads from the machine;
+- the service `beacon`: the REST API and MCP server, the gateway for machines, alert routing and delivery (Feishu, Pushover, Bark, healthchecks.io), the hooks that wake agents, and the SSH channel (sign-in, certificates, recordings, the tools);
+- the probe agent `beacon-probe`: the probers, the push to the gateway, what it reads from the machine;
 - the deployment files under `deploy/`: the compose project, the Caddyfile, the rules, the install scripts and the systemd unit;
 - the release pipeline: the signatures, SBOMs and provenance of the published binaries and image.
 

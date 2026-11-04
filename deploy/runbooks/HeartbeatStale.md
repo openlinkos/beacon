@@ -7,8 +7,8 @@ A heartbeat in the catalogue (`catalog/heartbeats.yaml`) has not reported succes
 ## What to check
 
 1. On the machine that runs the job: its own log (cron's mail, `systemctl status <timer>`, `journalctl`), and whether it ran at all.
-2. If the job succeeded but nothing arrived: does it end with `linkos-heartbeat <name>` (a machine with the probe agent), or push one sample with its own token (`linkos-beacon enroll heartbeat <name>`, `docs/catalog.md`)? Is the name the same as in the catalogue?
-3. For a pushed heartbeat: the token's expiry (`linkos-beacon token list`), and the gateway's log for a 401.
+2. If the job succeeded but nothing arrived: does it end with `beacon-heartbeat <name>` (a machine with the probe agent), or push one sample with its own token (`beacon enroll heartbeat <name>`, `docs/guide/monitoring.md`)? Is the name the same as in the catalogue?
+3. For a pushed heartbeat: the token's expiry (`beacon token list`), and the gateway's log for a 401.
 
 ## How to fix
 
@@ -16,6 +16,6 @@ Run the job again, fix what broke it, or fix the reporting. A job that no longer
 
 ## How to verify
 
-`linkos_heartbeat_last_success_timestamp_seconds{heartbeat="<name>"}` has a fresh sample; the alert resolves within a few minutes.
+`beacon_heartbeat_last_success_timestamp_seconds{heartbeat="<name>"}` has a fresh sample; the alert resolves within a few minutes.
 
-To silence: the card's buttons; `silence_alert` over MCP; or `linkos-beacon silence create -matchers 'alertname=HeartbeatStale,heartbeat=<name>' -duration 24h -comment '…'`.
+To silence: the card's buttons; `silence_alert` over MCP; or `beacon silence create -matchers 'alertname=HeartbeatStale,heartbeat=<name>' -duration 24h -comment '…'`.

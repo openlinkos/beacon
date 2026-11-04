@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -25,6 +23,8 @@ type Machines interface {
 	CAPublicKey() string
 	HostKey() string
 	SetConnector(ctx context.Context, who sshgate.Actor, name, key string) (sshgate.MachineView, error)
+	// Recheck closes what is open on the channel for whoever may no longer reach it.
+	Recheck() int
 }
 
 // ConnectorKeyRequest sets the key a machine behind NAT connects out with (an authorized_keys line).
@@ -42,7 +42,7 @@ type MachinesRequest struct {
 	Machines []string `json:"machines"`
 }
 
-// SSHState is the channel's state for `linkos-beacon ssh status`.
+// SSHState is the channel's state for `beacon ssh status`.
 type SSHState struct {
 	Enabled          bool      `json:"enabled"`
 	PausedSince      time.Time `json:"paused_since,omitzero"`
@@ -56,22 +56,7 @@ type PauseRequest struct {
 }
 
 // ParseSSHKey reads an authorized_keys line into what a token keeps.
-func ParseSSHKey(line string) (store.SSHKey, error) {
-	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(line)))
-	if err != nil {
-		return store.SSHKey{}, fmt.Errorf("not a public key in the authorized_keys form (ssh-ed25519 AAAA…): %w", err)
-	}
-	if _, isCert := k.(*ssh.Certificate); isCert {
-		return store.SSHKey{}, errors.New("give the public key itself, not a certificate")
-	}
-	return store.SSHKey{Key: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))), Fingerprint: ssh.FingerprintSHA256(k)}, nil
-}
-
-func addSSHKey(t *store.Token, k store.SSHKey) {
-	if !slices.ContainsFunc(t.SSHKeys, func(x store.SSHKey) bool { return x.Fingerprint == k.Fingerprint }) {
-		t.SSHKeys = append(t.SSHKeys, k)
-	}
-}
+func ParseSSHKey(line string) (store.SSHKey, error) { return store.ParseSSHKey(line) }
 
 func machineNames(in []string) ([]string, error) {
 	var out []string
@@ -120,9 +105,16 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		tok, err := s.UpdateToken(r.PathValue("name"), func(t *store.Token) error { addSSHKey(t, k); return nil })
+		tok, err := s.AddTokenSSHKey(r.PathValue("name"), k)
 		if err != nil {
-			fail(w, map[bool]int{true: http.StatusNotFound, false: http.StatusInternalServerError}[errors.Is(err, store.ErrNotFound)], err)
+			code := http.StatusBadRequest
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+				code = http.StatusNotFound
+			case errors.Is(err, store.ErrExists):
+				code = http.StatusConflict
+			}
+			fail(w, code, err)
 			return
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_ssh_key_add", Target: tok.Name, Detail: k.Fingerprint})
@@ -143,6 +135,9 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			return
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_ssh_key_remove", Target: tok.Name, Detail: fp})
+		if m != nil {
+			m.Recheck()
+		}
 		writeJSON(w, http.StatusOK, info(tok))
 	})
 	mux.HandleFunc("PUT /v1/tokens/{name}/machines", func(w http.ResponseWriter, r *http.Request) {
@@ -155,12 +150,21 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		tok, err := s.UpdateToken(r.PathValue("name"), func(t *store.Token) error { t.Machines = names; return nil })
+		tok, err := s.UpdateToken(r.PathValue("name"), func(t *store.Token) error {
+			if t.Agent != "" {
+				return fmt.Errorf("token %s is agent %s's: the agent's machines are set on the console's Agents page", t.Name, t.Agent)
+			}
+			t.Machines = names
+			return nil
+		})
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
 		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_machines", Target: tok.Name, Detail: strings.Join(names, ",")})
+		if m != nil {
+			m.Recheck()
+		}
 		writeJSON(w, http.StatusOK, info(tok))
 	})
 	mux.HandleFunc("GET /v1/machines", func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +245,7 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 // info is a token as the socket shows it.
 func info(t store.Token) TokenInfo {
 	ti := TokenInfo{Name: t.Name, Scopes: t.Scopes, Subject: t.Subject, Created: t.Created, CreatedBy: t.CreatedBy, Expires: t.Expires, Machines: t.Machines,
-		Lifetime: store.FormatTTL(t.Lifetime), Renewed: t.Renewed}
+		Lifetime: store.FormatTTL(t.Lifetime), Renewed: t.Renewed, Agent: t.Agent}
 	for _, k := range t.SSHKeys {
 		ti.SSHKeys = append(ti.SSHKeys, k.Fingerprint)
 	}

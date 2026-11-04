@@ -1,0 +1,8 @@
+{{define "content"}}<div class="ol-layout-filters">
+  {{template "facets" .}}
+  <section class="ol-layout-main">
+    {{template "filterbar" .}}
+    {{if .Rows}}{{template "sessionrows" .Table}}{{template "pager" .}}{{else}}{{template "empty" .List.Empty}}{{end}}
+    {{if .More}}<p class="ol-hint">{{.More}}</p>{{end}}
+  </section>
+</div>{{end}}

@@ -1,6 +1,7 @@
 // Package store keeps the service's state in one bbolt file: alert groups (card, acknowledgement,
-// silence, escalation progress), API tokens (only their SHA-256), the machines the SSH channel reaches,
-// the index of SSH sessions, the audit log and small counters.
+// silence, escalation progress), people's accounts (an argon2id hash of each password) and their
+// agents, tokens and OAuth grants (only their SHA-256), the machines the SSH channel reaches, the index
+// of SSH sessions, the audit log and small counters.
 // A single process holds the file lock, which also guarantees a single Feishu connection.
 package store
 
@@ -109,6 +110,9 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 // Lifetime is how long it was made to last; a renewal (renew.go) gives it a new secret that expires
 // Lifetime from then, and the old secret (OldHash) stays valid until OldUntil, so that a client can swap
 // its token file without a race. Tokens from before Lifetime was kept get Expires - Created when loaded.
+//
+// Agent names the agent (principals.go) whose credential the token is: then it has no scopes, machines
+// or keys of its own, and may do what the agent may.
 type Token struct {
 	Name      string        `json:"name"`
 	Hash      string        `json:"hash"`
@@ -123,12 +127,19 @@ type Token struct {
 	Renewed   time.Time     `json:"renewed,omitzero"`
 	OldHash   string        `json:"old_hash,omitempty"`
 	OldUntil  time.Time     `json:"old_until,omitzero"`
+	Agent     string        `json:"agent,omitempty"`
 }
 
-// SSHKey is a public key in the authorized_keys form (without its comment) and its SHA256 fingerprint.
+// SSHKey is a public key in the authorized_keys form (without its comment) and its SHA256 fingerprint;
+// Comment is what whoever added it said it is, and Added when.
 type SSHKey struct {
-	Key         string `json:"key"`
-	Fingerprint string `json:"fingerprint"`
+	Key         string    `json:"key"`
+	Fingerprint string    `json:"fingerprint"`
+	Comment     string    `json:"comment,omitempty"`
+	Added       time.Time `json:"added,omitzero"`
+	// Via is the credential an agent added its own key with (Principal.Cred): the key works while that
+	// credential does, and goes with it. None when a person or the command line added it.
+	Via string `json:"via,omitempty"`
 }
 
 // Reaches reports whether the token may reach machine through the SSH channel.
@@ -200,6 +211,16 @@ func Open(path string) (*Store, error) {
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
+
+// SetClock sets the store's clock, which stamps what it writes; a nil clock is the real one.
+// Tests that hold an environment's time still give the store that environment's clock, so what
+// it stamps matches the rest.
+func (s *Store) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	s.now = now
+}
 
 // ---- Groups
 
@@ -273,10 +294,10 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 
 // ---- Tokens
 
-// Scopes are the token scopes. Public reads need no token. The first eight are for people and agents
-// (the REST API, MCP and the SSH channel); the rest are for machines, on the metrics gateway.
+// Scopes are the token scopes. Public reads need no token. The first nine are for people and agents
+// (the REST API, MCP and the SSH channel: PeopleScopes); the rest are for machines, on the metrics gateway.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
-	"machines:ssh", "machines:write", "sessions:read", "config:write",
+	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send", "changes:write"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.
@@ -287,7 +308,8 @@ var (
 	subjectRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
-// TokenPrefix starts every token, so a leaked one is easy to recognise and to search for.
+// TokenPrefix starts every token, the mark of a Beacon token, so a leaked one is easy to recognise and to
+// search for. It outlived the old command names on purpose: tokens already issued keep working.
 const TokenPrefix = "lbt_"
 
 // secretBytes is the random part of a secret: 32 bytes (256 bits), 52 base32 characters after the
@@ -383,7 +405,13 @@ func (s *Store) RevokeToken(name string) error {
 	if hash == "" {
 		return ErrNotFound
 	}
-	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketTokens).Delete([]byte(name)) }); err != nil {
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(bucketTokens).Delete([]byte(name)); err != nil {
+			return err
+		}
+		return dropKeys(tx, "token:"+name) // the keys an agent added with this token go with it
+	})
+	if err != nil {
 		return err
 	}
 	delete(s.tokens, hash)

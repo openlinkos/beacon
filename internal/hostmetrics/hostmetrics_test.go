@@ -89,14 +89,14 @@ func TestMissingFilesAreLeftOut(t *testing.T) {
 func TestTextfile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "heartbeat_lo1-backup.prom"),
-		[]byte("# a comment\nlinkos_heartbeat_last_success_timestamp_seconds{heartbeat=\"lo1-backup\"} 1793436000\nnot a sample\n"), 0o600); err != nil {
+		[]byte("# a comment\nbeacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"lo1-backup\"} 1793436000\nnot a sample\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".heartbeat_tmp.123"), []byte("x 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := (&Collector{TextfileDir: dir}).Textfile()
-	if len(got) != 1 || got[0] != `linkos_heartbeat_last_success_timestamp_seconds{heartbeat="lo1-backup"} 1793436000` {
+	if len(got) != 1 || got[0] != `beacon_heartbeat_last_success_timestamp_seconds{heartbeat="lo1-backup"} 1793436000` {
 		t.Fatalf("textfile %q", got)
 	}
 }

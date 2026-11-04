@@ -1,0 +1,156 @@
+# Command line
+
+Beacon ships three binaries. `beacon` is the service, and the commands that run it and administer the running service; `beacon-probe` is the probe agent that runs on every probe location; `beacon-oncall` is the reference harness that runs an agent when Beacon wakes it. Each answers `version` (the version, commit and build) and `help` (the whole usage).
+
+## beacon
+
+`serve` runs the service. Every other command talks to the running service over its admin socket in the data directory, `/var/lib/beacon` by default or `BEACON_DATA_DIR` when that is set, so run them inside the container:
+
+```bash
+docker exec beacon beacon token list
+```
+
+| Command | What it does |
+| --- | --- |
+| `serve` | Run the service: the console, the API and MCP, the router and the bridge, the gateway and the SSH channel. Takes `-config` (default `/etc/beacon/config.yaml`); the catalogue, target and module files it names are imported into the database at the first start and again on SIGHUP. See [config.yaml](config.md) |
+| `check-config` | Validate the configuration file, the files it names and the configuration in the database, without starting. Takes `-config` |
+| `config` | The configuration in the database: [import, export, history, revert](#beacon-config) |
+| `setup` | Print the one-time link that makes the first account, an owner, valid 30 minutes |
+| `user` | People: [list, invite, disable, enable, role, reset](#beacon-setup-user-agent) |
+| `agent` | Agents of a person: [add, list, remove](#beacon-setup-user-agent) |
+| `token` | Credentials: [create, list, revoke, ssh-key, machines, claim](#beacon-token) |
+| `machine` | Machines: [add, connector, list, remove, ca](#beacon-machine-ssh) |
+| `ssh` | The SSH channel: [pause, resume, status](#beacon-machine-ssh) |
+| `enroll` | A machine's gateway token: [probe, host or heartbeat](#beacon-enroll-silence-drill) |
+| `silence` | Silences: [create, list, expire](#beacon-enroll-silence-drill) |
+| `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
+| `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
+| `version` | The version, commit and build |
+| `help` | The whole usage, with the roles, presets and scopes |
+
+### beacon config
+
+The catalogue, probe targets and modules live in the database ([Monitor a service](../guide/monitoring.md)); these commands change them as one versioned change. `import` reads `DIR/catalog`, `DIR/targets` and `DIR/targets/modules.yml`, the layout `export` writes.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `import` DIR | `-dry-run`, `-note` | Make DIR's files the catalogue, targets and modules, as one change. `-dry-run` says what would change and changes nothing; `-note` says why, kept with the change and shown in the alert chat |
+| `export` DIR | | Write the configuration there in the same layout, and remove files the configuration does not hold |
+| `history` | `-limit` | The changes: version, time, who, via, action, note. `-limit` (default 20) says how many |
+| `revert` VERSION | `-note` | Go back to a version from `history` |
+
+### beacon setup, user, agent
+
+People's own accounts and their agents ([Invite your team](../guide/people.md)). One-time links and token secrets print once, on standard output; everything else goes to standard error. `setup` prints the one-time link that makes the first account, an owner; it works once and lasts 30 minutes.
+
+**`beacon user`** — the people:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `list` | | People, their roles and agents, and invitations not yet used |
+| `invite` | `-role`, `-note` | A one-time link to join as a role. `-role` is one of `viewer`, `oncall`, `operator`, `owner`; `-note` says who it is for |
+| `disable` NAME, `enable` NAME | | Stop or restore someone's sign-in |
+| `role` NAME ROLE | | Change the role; their sessions and agents follow at once |
+| `reset` NAME | | A one-time link to choose a new password; their sign-ins end then |
+
+**`beacon agent`** — a person's agents:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `add` NAME | `-owner`, `-preset`, `-scopes`, `-machines`, `-expires`, `-ssh-key` | An agent of a person and its first token, with the snippets that use it. `-owner` names the person; `-preset` is `readonly`, `oncall` or `operator`, the strongest the owner's role allows; `-scopes` gives custom scopes instead of a preset; `-machines` limits the machines it reaches; `-expires` (default `365d`); `-ssh-key` adds a public key for the channel, a key or `@FILE` |
+| `list` | | Every agent: owner, preset, what it may do, machines, tokens, OAuth sign-ins, keys |
+| `remove` NAME | | Remove an agent, with its tokens, OAuth sign-ins and keys |
+
+### beacon token
+
+Credentials with scopes by name, for machines and for experts; agents' tokens come from [beacon agent](#beacon-setup-user-agent) or the console. The secret of a new token prints once, on standard output.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `create` NAME | `-scopes`, `-expires`, `-ssh-key`, `-machines` | A token. `-scopes` (default `status:read`), comma-separated; `-expires` (default `365d`); `-ssh-key` a public key for the channel, a key or `@FILE`; `-machines` the machines it reaches, all when left out |
+| `list` | | Every token: scopes, expiry, lifetime, when renewed, who made it |
+| `revoke` NAME | | End a token at once |
+| `ssh-key` NAME `add` KEY | | Add a public key to a token (`@FILE` reads it from a file) |
+| `ssh-key` NAME `remove` FINGERPRINT | | Remove one of a token's keys |
+| `machines` NAME a,b | | The machines a token reaches through the channel; `all` for every machine |
+| `claim` NAME | `-owner`, `-agent`, `-preset` | Make a legacy token an agent of a person. `-owner` names the person; `-agent` names the agent (the token's own name by default); `-preset` is `readonly`, `oncall`, `operator` or `custom` (it keeps its scopes) |
+
+### beacon machine, ssh
+
+Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `add` prints what the machine needs on its side.
+
+**`beacon machine`**:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `add` NAME HOST[:PORT] | `-user`, `-critical`, `-note`, `-replace`, `-key`, `-host-key` | Pin a machine's host key and reach it at its address. `-user` is the account on the machine (default `beacon`); `-critical` marks it critical; `-note` says what it is; `-replace` pins the host key of a machine that is added already |
+| `add` NAME connector | the same | A machine behind NAT, which connects out to Beacon with `ssh -R`; `-key` is the public key it connects with, `-host-key` its host key (learned at its first connection when left out) |
+| `connector` NAME | `-key` | Set or change the key a connector machine connects out with |
+| `list` | | Every machine: address, account, host key, whether a connector is connected |
+| `remove` NAME | | Remove a machine |
+| `ca` | | The certificate authority key machines trust (`TrustedUserCAKeys`) |
+
+**`beacon ssh`** — the brake on agents' access to machines:
+
+| Subcommand | What it does |
+| --- | --- |
+| `pause` | Stop agents' access to every machine, at once; the brake besides each machine's access |
+| `resume` | Allow it again |
+| `status` | Whether the channel is on, paused since when, and its host key |
+
+### beacon enroll, silence, drill
+
+**`beacon enroll`** — a machine's gateway token, printed once and alone on standard output, so a deploy script can pass it straight to the machine:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `probe` NAME | `-rotate` | A probe location's token, with the scopes to push results and fetch what to check |
+| `host` NAME | `-rotate` | A host's token, to push its own metrics |
+| `heartbeat` NAME | `-rotate` | A job's token, to push heartbeats |
+
+`-rotate` replaces the token of a machine that is enrolled already.
+
+**`beacon silence`**:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `create` | `-matchers`, `-alert`, `-duration`, `-comment` | Stop notifying alerts that carry the given labels: `-matchers` as `alertname=X,service=Y`, or `-alert` with an alert group's id. `-duration` (at most 24h) and `-comment` are required |
+| `list` | | Silences active and pending, ending soonest first |
+| `expire` ID | | End a silence now, so the alerts it covered notify again |
+
+**`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
+
+| Subcommand | What it does |
+| --- | --- |
+| `fail` 15m | Make `/drill/healthz` answer 503 for that long, and watch the alerts fire |
+| `off` | End the drill |
+| `status` | Whether a drill runs and until when |
+
+## beacon-probe
+
+The probe agent ([Probe locations](../self-hosting/probes.md)). The files modules name in `password_file` are read from `-secrets-dir` only (default `/etc/beacon-probe/secrets`), by file name; a module that names a path is refused.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `agent` | `-gateway`, `-token-file`, `-state`, `-interval`, `-textfile`, `-proc`, `-listen`, `-secrets-dir` | Push mode: fetch targets and modules from the gateway (`-gateway`), probe every `-interval` (default `1m`) and push the results, with a queue on disk in `-state` (default `/var/lib/beacon-probe`) for when the gateway cannot be reached. `-token-file` (default `/etc/beacon-probe/token`) holds the token from `beacon enroll probe`. `-textfile` (default `/var/lib/beacon-probe/textfile`) reads `*.prom` files, heartbeats; `-proc` (default `/proc`) the host's own metrics; `-listen` (default `127.0.0.1:17009`, empty for none) serves `/healthz` and `/metrics` for a look by hand |
+| `serve` | `-listen`, `-modules`, `-textfile`, `-proc`, `-secrets-dir` | Pull mode, like the Blackbox Exporter: answer `/probe` and `/metrics` for a scraper. `-modules` (default `/etc/beacon-probe/modules.yml`) reloads on SIGHUP |
+| `check` | `-modules` | Validate the module file, as the centre checks it on import |
+| `run` MODULE TARGET | `-modules`, `-secrets-dir` | Probe once and print the result |
+| `version` | | The version, commit and build |
+
+## beacon-oncall
+
+The reference harness on the agent's machine ([Agents woken by a webhook](../integrations/webhooks.md)): it takes Beacon's signed webhook, answers at once, and starts the program named by `-run` through `/bin/sh -c`, with the payload on standard input and the alert in `BEACON_*` environment variables. The harness decides nothing; the program does.
+
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `-listen` | `:17007` | The address to take Beacon's webhook on |
+| `-secret-file` | required | The file with the hook's secret, the same as Beacon's `secret_file` |
+| `-run` | required | The program for firing events |
+| `-run-resolved` | none | The program for resolved events; without it they are acknowledged and nothing runs |
+| `-concurrency` | `2` | Programs running at once; the rest wait. At most 32 |
+| `-timeout` | `30m` | The time a program gets before its process group is killed |
+| `-log-dir` | `/var/lib/beacon-oncall/logs` | Each run's output, as `<time>-<delivery>.log` |
+| `-keep` | `720h` | Logs older than this are removed; `0` keeps them all |
+
+`beacon-oncall version` prints the version, commit and build. The wrappers around Claude Code and Codex, and the unit that runs it, are in `contrib/oncall` in the repository.

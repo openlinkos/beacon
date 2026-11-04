@@ -41,17 +41,17 @@ resources:
 	m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	out := rec.Body.String()
 	for _, want := range []string{
-		`linkos_rotation_resolve_success{rotation="192.0.2.1"} 1`,
-		`linkos_rotation_members{rotation="192.0.2.1"} 1`,
-		`linkos_location_in_rotation{location="cdn-pre-us1",rotation="192.0.2.1",role="primary"} 1`,
-		`linkos_location_in_rotation{location="cdn-pre-us3",rotation="192.0.2.1",role="standby"} 0`,
+		`beacon_rotation_resolve_success{rotation="192.0.2.1"} 1`,
+		`beacon_rotation_members{rotation="192.0.2.1"} 1`,
+		`beacon_location_in_rotation{location="cdn-pre-us1",rotation="192.0.2.1",role="primary"} 1`,
+		`beacon_location_in_rotation{location="cdn-pre-us3",rotation="192.0.2.1",role="standby"} 0`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
 	}
 	// the expired machine is not checked, and the location without a rotation neither
-	for _, not := range []string{"cdn-old", "192.0.2.9", "monitor-us1", "linkos_rotation_unknown_address{"} {
+	for _, not := range []string{"cdn-old", "192.0.2.9", "monitor-us1", "beacon_rotation_unknown_address{"} {
 		if strings.Contains(out, not) {
 			t.Errorf("should not contain %s:\n%s", not, out)
 		}
@@ -75,8 +75,8 @@ func TestUnknownAddress(t *testing.T) {
 	c.Register(m)
 	rec := httptest.NewRecorder()
 	m.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
-	if !strings.Contains(rec.Body.String(), `linkos_rotation_unknown_address{rotation="192.0.2.5",address="192.0.2.5"} 1`) ||
-		!strings.Contains(rec.Body.String(), `linkos_location_in_rotation{location="n1",rotation="192.0.2.5",role="primary"} 0`) {
+	if !strings.Contains(rec.Body.String(), `beacon_rotation_unknown_address{rotation="192.0.2.5",address="192.0.2.5"} 1`) ||
+		!strings.Contains(rec.Body.String(), `beacon_location_in_rotation{location="n1",rotation="192.0.2.5",role="primary"} 0`) {
 		t.Fatalf("%s", rec.Body)
 	}
 }

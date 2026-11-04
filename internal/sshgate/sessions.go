@@ -51,7 +51,18 @@ func (g *Gate) file(t Transcript) {
 	}
 }
 
-// SessionFilter narrows a list of sessions.
+// RanBy reports whether a session's actor (as the audit log names it) is who: the whole name, or the
+// person or the agent of "person / agent".
+func RanBy(actor, who string) bool {
+	if actor == who {
+		return true
+	}
+	person, agent, ok := strings.Cut(actor, " / ")
+	return ok && (person == who || agent == who)
+}
+
+// SessionFilter narrows a list of sessions. Agent matches who ran them: "person / agent", the agent or
+// the person alone, or a token's name.
 type SessionFilter struct {
 	Machine string
 	Agent   string
@@ -67,7 +78,7 @@ func (g *Gate) Sessions(f SessionFilter) ([]SessionView, error) {
 		f.Limit = 50
 	}
 	rs := g.d.Store.Sessions(min(f.Limit, 1000), func(r store.SessionRecord) bool {
-		return (f.Machine == "" || r.Machine == f.Machine) && (f.Agent == "" || r.Agent == f.Agent)
+		return (f.Machine == "" || r.Machine == f.Machine) && (f.Agent == "" || RanBy(r.Agent, f.Agent))
 	})
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
@@ -124,6 +135,8 @@ func (g *Gate) Tidy(ctx context.Context) {
 	defer prune.Stop()
 	flush := time.NewTicker(10 * time.Second)
 	defer flush.Stop()
+	recheck := time.NewTicker(time.Minute)
+	defer recheck.Stop()
 	g.prune()
 	for {
 		select {
@@ -132,6 +145,8 @@ func (g *Gate) Tidy(ctx context.Context) {
 			return
 		case <-flush.C:
 			g.echo.flush(ctx, false)
+		case <-recheck.C: // credentials that expired meanwhile
+			g.Recheck()
 		case <-prune.C:
 			g.prune()
 		}

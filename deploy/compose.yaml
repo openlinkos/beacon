@@ -1,5 +1,5 @@
 # Beacon's reference deployment: four containers on one machine (2 CPUs and 4 GB are ample).
-#   linkos-beacon    the service: the gateway for machines (17006), alert routing and delivery, the API and
+#   beacon           the service: the gateway for machines (17006), alert routing and delivery, the API and
 #                    MCP (17001), the SSH channel (17002)
 #   victoriametrics  the metrics store; it also scrapes the other three (metrics/scrape.yml)
 #   vmalert          the rule engine (rules/*.yml); it posts alerts to the gateway with the rules token
@@ -7,7 +7,7 @@
 # Published: 80 and 443 (Caddy) and 17002 (the SSH channel is plain SSH, published directly); 17001, 17006, 8428
 # and 8880 on 127.0.0.1 only, for a look by hand. install.sh writes .env and the secrets, then starts this.
 # Third-party images are pinned by digest; Beacon's version comes from .env.
-name: linkos-beacon
+name: beacon
 
 x-logging: &logging
   driver: json-file
@@ -17,7 +17,7 @@ x-logging: &logging
 
 networks:
   beacon:
-    name: linkos-beacon
+    name: beacon
 
 volumes:
   beacon-data:
@@ -26,21 +26,21 @@ volumes:
   caddy-config:
 
 services:
-  linkos-beacon:
-    container_name: linkos-beacon
+  beacon:
+    container_name: beacon
     image: ghcr.io/openlinkos/beacon:${BEACON_VERSION:?set BEACON_VERSION in .env}
     restart: unless-stopped
-    command: [serve, -config, /etc/linkos-beacon/config.yaml]
+    command: [serve, -config, /etc/beacon/config.yaml]
     ports:
       - 127.0.0.1:17001:17001
       - 127.0.0.1:17006:17006
       - 17002:17002
     volumes:
-      - ./config.yaml:/etc/linkos-beacon/config.yaml:ro
-      - ./catalog:/etc/linkos-beacon/catalog:ro
-      - ./targets:/etc/linkos-beacon/targets:ro
-      - ./secrets:/etc/linkos-beacon/secrets:ro
-      - beacon-data:/var/lib/linkos-beacon
+      - ./config.yaml:/etc/beacon/config.yaml:ro
+      - ./catalog:/etc/beacon/catalog:ro
+      - ./targets:/etc/beacon/targets:ro
+      - ./secrets:/etc/beacon/secrets:ro
+      - beacon-data:/var/lib/beacon
     networks: [beacon]
     depends_on:
       victoriametrics:
@@ -48,7 +48,7 @@ services:
     mem_limit: 256m
     # the image is distroless (no shell, no curl): its own health command asks /healthz
     healthcheck:
-      test: [CMD, /usr/local/bin/linkos-beacon, healthcheck]
+      test: [CMD, /usr/local/bin/beacon, healthcheck]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -56,7 +56,7 @@ services:
     logging: *logging
 
   victoriametrics:
-    container_name: linkos-beacon-victoriametrics
+    container_name: beacon-victoriametrics
     image: victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df
     restart: unless-stopped
     command:
@@ -81,7 +81,7 @@ services:
     logging: *logging
 
   vmalert:
-    container_name: linkos-beacon-vmalert
+    container_name: beacon-vmalert
     image: victoriametrics/vmalert:v1.155.0@sha256:3256cba5ddaca5974eae6141105cec4ce37871f1c213f0a5c267ec0111bc68e1
     restart: unless-stopped
     # Beacon's user, so that it can read the rules token (owner 65532, mode 0400) and nothing else
@@ -92,7 +92,7 @@ services:
       - -datasource.url=http://victoriametrics:8428
       - -remoteWrite.url=http://victoriametrics:8428
       - -remoteRead.url=http://victoriametrics:8428
-      - -notifier.url=http://linkos-beacon:17006
+      - -notifier.url=http://beacon:17006
       - -notifier.bearerTokenFile=/run/secrets/rules-token
       - -evaluationInterval=30s
       - -disableAlertgroupLabel
@@ -115,7 +115,7 @@ services:
     logging: *logging
 
   caddy:
-    container_name: linkos-beacon-caddy
+    container_name: beacon-caddy
     image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
     restart: unless-stopped
     command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]

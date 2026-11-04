@@ -1,0 +1,48 @@
+{{define "actions"}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.HooksHref}}">{{iconSm "zap"}}{{.L.Hooks}}</a>{{end}}
+{{define "content"}}<div class="ol-stack">
+<div class="ol-grid ol-grid-2">
+  <section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "plug"}} {{.L.OAuth}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+      <p class="ol-hint">{{.L.OAuthHelp}}</p>
+      <p class="ol-code-label">Claude Code</p>
+      <div class="ol-code ol-code-wrap"><pre><code>{{.ClaudeCmd}}</code></pre></div>
+      <p class="ol-code-label">Codex</p>
+      <div class="ol-code ol-code-wrap"><pre><code>{{.CodexCmd}}</code></pre></div>
+    </div>
+  </section>
+  {{if .CanCreate}}<form class="ol-panel" method="post" action="{{console "/agents"}}">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Headless}}</h2></div>
+    <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">
+      <p class="ol-hint">{{.L.HeadlessHelp}}</p>
+      <div class="ol-field"><label class="ol-label" for="agent-name">{{.L.Name}}</label><input class="ol-input ol-input-mono" id="agent-name" name="name" required minlength="2" maxlength="40" pattern="[a-z0-9][a-z0-9._\-]{1,39}" autocapitalize="none" spellcheck="false" aria-describedby="agent-name-hint"><p class="ol-hint" id="agent-name-hint">{{.L.NameHint}}</p></div>
+      {{if .Owners}}<div class="ol-field"><label class="ol-label" for="agent-owner">{{.L.Owner}}</label><select class="ol-select" id="agent-owner" name="owner">{{range .Owners}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>{{end}}
+      <div class="ol-field"><label class="ol-label" for="agent-preset">{{.L.Preset}}</label><select class="ol-select" id="agent-preset" name="preset">{{range .Presets}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+      <div class="ol-field"><label class="ol-label" for="agent-machines">{{.L.Machines}}</label><input class="ol-input ol-input-mono" id="agent-machines" name="machines" maxlength="2000" autocapitalize="none" spellcheck="false" aria-describedby="agent-machines-hint"><p class="ol-hint" id="agent-machines-hint">{{.L.MachinesHint}}</p></div>
+      <div class="ol-field"><label class="ol-label" for="agent-expires">{{.L.Expires}}</label><select class="ol-select" id="agent-expires" name="expires">{{range .Expiries}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    </div>
+    <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "plus"}}{{.L.Create}}</button></div>
+  </form>{{end}}
+</div>
+
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.Heading}}</h2></div>
+  {{if .Rows}}
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Agent}}</th>{{if .ShowOwner}}<th>{{.L.Owner}}</th>{{end}}<th>{{.L.Preset}}</th><th>{{.L.Scopes}}</th><th>{{.L.Machines}}</th><th>{{.L.Credentials}}</th><th class="ol-num">{{.L.Keys}}</th><th>{{.L.Created}}</th></tr></thead>
+    <tbody>
+    {{range .Rows}}<tr>
+      <td><a class="ol-cell-title ol-row-link ol-mono" href="{{.Href}}">{{.Name}}</a></td>
+      {{if $.ShowOwner}}<td data-label="{{$.L.Owner}}">{{.Owner}}</td>{{end}}
+      <td data-label="{{$.L.Preset}}">{{.Preset}}</td>
+      <td data-label="{{$.L.Scopes}}"><span class="ol-cluster">{{range .Scopes}}<span class="ol-badge ol-badge-mono">{{.}}</span>{{else}}<span class="ol-badge ol-badge-danger">{{$.L.None}}</span>{{end}}</span></td>
+      <td data-label="{{$.L.Machines}}">{{.Machines}}</td>
+      <td data-label="{{$.L.Credentials}}">{{.Credentials}}</td>
+      <td class="ol-num" data-label="{{$.L.Keys}}">{{.Keys}}</td>
+      <td data-label="{{$.L.Created}}">{{.Created}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}{{template "empty" .L.NoAgents}}{{end}}
+</section>
+</div>{{end}}

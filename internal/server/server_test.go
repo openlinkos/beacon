@@ -42,7 +42,7 @@ func TestRoutes(t *testing.T) {
 	if code, body, _ := do("GET", "/readyz", "", ""); code != 200 || !strings.Contains(body, `"ready":true`) {
 		t.Errorf("readyz: %d %s", code, body)
 	}
-	if code, body, _ := do("GET", "/metrics", "", ""); code != 200 || !strings.Contains(body, "linkos_beacon_build_info") {
+	if code, body, _ := do("GET", "/metrics", "", ""); code != 200 || !strings.Contains(body, "beacon_build_info") {
 		t.Errorf("metrics direct: %d", code)
 	}
 	if code, _, _ := do("GET", "/metrics", "", "", "X-Forwarded-For", "198.51.100.7"); code != 404 {
@@ -61,8 +61,13 @@ func TestRoutes(t *testing.T) {
 		t.Errorf("drill on: %d", code)
 	}
 
-	if code, body, _ := do("GET", "/", "", ""); code != 200 || !strings.Contains(body, "on its way") || strings.Contains(body, "<script") || strings.Contains(body, "style=") {
+	// without status pages, / names the deployment and says it runs on Beacon
+	if code, body, hd := do("GET", "/", "", ""); code != 200 || !strings.Contains(body, `class="ol-site-header"`) || !strings.Contains(body, "Powered by Beacon") ||
+		strings.Contains(body, "<script") || strings.Contains(body, "style=") || hd.Get("X-Robots-Tag") != "" {
 		t.Errorf("page: %d %s", code, body)
+	}
+	if code, _, _ := do("GET", "/console", "", ""); code != 404 {
+		t.Errorf("no console without its store: %d", code)
 	}
 	if code, _, _ := do("GET", "/nope", "", ""); code != 404 {
 		t.Errorf("unknown path: %d", code)

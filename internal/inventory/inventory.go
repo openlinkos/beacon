@@ -85,8 +85,8 @@ func (c *Checker) Check(ctx context.Context) {
 			ok = 0
 		}
 		rotations[l.Rotation] = members
-		add("linkos_rotation_resolve_success", metrics.Labels("rotation", l.Rotation), ok)
-		add("linkos_rotation_members", metrics.Labels("rotation", l.Rotation), float64(len(members)))
+		add("beacon_rotation_resolve_success", metrics.Labels("rotation", l.Rotation), ok)
+		add("beacon_rotation_members", metrics.Labels("rotation", l.Rotation), float64(len(members)))
 	}
 	claimed := map[string]map[string]bool{} // rotation -> addresses of its locations
 	for _, l := range cat.Locations {
@@ -112,12 +112,12 @@ func (c *Checker) Check(ctx context.Context) {
 		if l.Standby {
 			role = "standby"
 		}
-		add("linkos_location_in_rotation", metrics.Labels("location", l.ID, "rotation", l.Rotation, "role", role), in)
+		add("beacon_location_in_rotation", metrics.Labels("location", l.ID, "rotation", l.Rotation, "role", role), in)
 	}
 	for rot, members := range rotations {
 		for _, a := range members {
 			if !claimed[rot][a] {
-				add("linkos_rotation_unknown_address", metrics.Labels("rotation", rot, "address", a), 1)
+				add("beacon_rotation_unknown_address", metrics.Labels("rotation", rot, "address", a), 1)
 			}
 		}
 	}
@@ -144,10 +144,10 @@ func (c *Checker) Run(ctx context.Context) {
 // Register exports the last check's results.
 func (c *Checker) Register(m *metrics.Metrics) {
 	for name, help := range map[string]string{
-		"linkos_rotation_resolve_success": "Whether a CDN cluster's DNS name resolved",
-		"linkos_rotation_members":         "How many addresses a CDN cluster's DNS name resolved to",
-		"linkos_location_in_rotation":     "Whether a probe location's CDN node is among its cluster's DNS answers (role: primary, or standby that joins only when another fails)",
-		"linkos_rotation_unknown_address": "An address in a CDN cluster's DNS answers that belongs to no probe location",
+		"beacon_rotation_resolve_success": "Whether a CDN cluster's DNS name resolved",
+		"beacon_rotation_members":         "How many addresses a CDN cluster's DNS name resolved to",
+		"beacon_location_in_rotation":     "Whether a probe location's CDN node is among its cluster's DNS answers (role: primary, or standby that joins only when another fails)",
+		"beacon_rotation_unknown_address": "An address in a CDN cluster's DNS answers that belongs to no probe location",
 	} {
 		m.Register(name, help, "gauge", func() []metrics.Sample {
 			c.mu.Lock()

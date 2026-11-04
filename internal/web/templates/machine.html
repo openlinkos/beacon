@@ -1,0 +1,34 @@
+{{define "content"}}<div class="ol-layout-supporting">
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Sessions}}</h2></div>
+      {{if .Sessions}}{{template "sessionrows" .Table}}{{template "pager" .}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+    </section>
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Commands}}</h2></div>
+      {{if .Commands}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <thead><tr><th>{{.LL.Time}}</th><th>{{.LL.Command}}</th><th>{{.LL.Agent}}</th><th>{{.LL.Exit}}</th><th class="ol-num">{{.LL.Duration}}</th></tr></thead>
+        <tbody>
+        {{range .Commands}}<tr>
+          <td><a href="{{.Href}}">{{.At}}</a></td>
+          <td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td>
+          <td data-label="{{$.LL.Agent}}">{{.Agent}}</td>
+          <td data-label="{{$.LL.Exit}}">{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</td>
+          <td class="ol-num" data-label="{{$.LL.Duration}}">{{.Took}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+    </section>
+  </div>
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "server"}} {{.Heading}}</h2></div>
+      <div class="ol-panel-body">
+        <dl class="ol-dl ol-dl-stack">{{range .Facts}}<dt>{{.K}}</dt><dd class="ol-break">{{.V}}</dd>{{end}}</dl>
+        {{if .Note}}<p class="ol-hint">{{.Note}}</p>{{end}}
+      </div>
+    </section>
+  </div>
+</div>{{end}}

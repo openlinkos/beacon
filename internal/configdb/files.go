@@ -24,7 +24,7 @@ import (
 // Files is a configuration as files, by their path in an import or export directory, with forward
 // slashes: catalog/*.yaml (the catalogue, which may be split over several files), targets/*.yaml (one
 // file per target set, named as the set) and targets/modules.yml (the module file). It is the layout
-// a deployment has always had in /etc/linkos-beacon.
+// a deployment has always had in /etc/beacon.
 type Files map[string]string
 
 // ModulesFile is the module file's path in Files.
@@ -102,6 +102,9 @@ func (f Files) entries() (map[string][]byte, error) {
 	for _, r := range c.Resources {
 		put(entryKey(KindResource, r.Name), r)
 	}
+	for _, p := range c.StatusPages {
+		put(entryKey(KindStatus, p.Name), p)
+	}
 	for _, file := range set.Files() {
 		gs := set.Groups(file)
 		if gs == nil {
@@ -138,7 +141,7 @@ func (s *Service) Import(ctx context.Context, who Actor, f Files, note string, d
 }
 
 // Signal is who imports the files when the service gets SIGHUP.
-var Signal = Actor{Name: "linkos-beacon", Via: "signal"}
+var Signal = Actor{Name: "beacon", Via: "signal"}
 
 // ImportOnSignal imports the files on SIGHUP, but only when nothing was changed through Beacon since
 // the last import, so that files cannot silently undo what people and agents changed. Otherwise it
@@ -153,7 +156,7 @@ func (s *Service) ImportOnSignal(ctx context.Context, f Files) (store.ConfigChan
 	if last := s.d.Store.ConfigChanges(0, 1, nil); len(last) == 1 && last[0].Action != "import" {
 		l := last[0]
 		return store.ConfigChange{}, fmt.Errorf("%w through Beacon since the last import (version %d: %s by %s via %s); "+
-			"keep it with linkos-beacon config export DIR, or replace it with linkos-beacon config import DIR", ErrConflict, l.Version, l.Action, l.Actor, l.Via)
+			"keep it with beacon config export DIR, or replace it with beacon config import DIR", ErrConflict, l.Version, l.Action, l.Actor, l.Via)
 	}
 	return s.commit(ctx, Signal, "import", "", 0, next, false)
 }
@@ -189,6 +192,9 @@ func (s *Service) Export() (Files, int64, error) {
 	}
 	if len(v.Resources) > 0 {
 		errs = append(errs, write("catalog/resources.yaml", catalog.Catalog{Resources: v.Resources}))
+	}
+	if len(v.StatusPages) > 0 {
+		errs = append(errs, write("catalog/status_pages.yaml", catalog.Catalog{StatusPages: v.StatusPages}))
 	}
 	for _, t := range v.Targets {
 		errs = append(errs, write("targets/"+t.Name+".yaml", t.Groups))

@@ -100,7 +100,7 @@ jobs:
           IFS=/ read -r GOOS GOARCH GOARM <<<"$TARGET"
           export GOOS GOARCH CGO_ENABLED=0
           [ -n "$GOARM" ] && export GOARM="${GOARM#v}"
-          go build -trimpath -o /dev/null ./cmd/linkos-beacon
+          go build -trimpath -o /dev/null ./cmd/beacon
 
   release-snapshot:
     name: release (snapshot)

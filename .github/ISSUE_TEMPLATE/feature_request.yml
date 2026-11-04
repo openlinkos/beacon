@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Beacon's [goals](https://beacon.openlinkos.com/goals) say what it is for, what it will not do (an approval workflow, a log platform, calling a model, among others), and how to choose when goals pull apart. Every change serves one of them.
+        Beacon's [goals](https://beacon.openlinkos.com/about/goals) say what it is for, what it will not do (an approval workflow, a log platform, calling a model, among others), and how to choose when goals pull apart. Every change serves one of them.
   - type: textarea
     id: problem
     attributes:

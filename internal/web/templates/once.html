@@ -1,0 +1,16 @@
+{{define "content"}}<div class="ol-stack">
+<section class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "key-round"}} {{.Heading}}</h2></div>
+  <div class="ol-panel-body ol-stack">
+    <p>{{.Text}}</p>
+    <div class="ol-code ol-code-wrap"><pre><code>{{.Value}}</code></pre></div>
+    <div class="ol-alert ol-alert-warning" role="status">{{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.Warning}}</p></div></div>
+  </div>
+</section>
+{{if .Snippets}}<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.SnippetsTitle}}</h2></div>
+  {{range .Snippets}}<div class="ol-stack"><p class="ol-code-label">{{.Title}}</p><div class="ol-code ol-code-wrap"><pre><code>{{.Text}}</code></pre></div></div>
+  {{end}}
+</section>{{end}}
+<p><a class="ol-btn ol-btn-secondary" href="{{.BackHref}}">{{icon "chevron-left"}}{{.Back}}</a></p>
+</div>{{end}}

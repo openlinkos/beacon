@@ -9,8 +9,11 @@
 /.claude/
 /deploy/.env
 /deploy/secrets/
+/deploy/try/.env
+/deploy/try/secrets/
 
 # docs site
 /docs/node_modules/
 /docs/.vitepress/cache/
 /docs/.vitepress/dist/
+/deploy/.install-state

@@ -1,11 +1,11 @@
 // Package server routes the service's HTTP requests: health and readiness, metrics (direct
 // connections only), Feishu's HTTP callbacks, the drill check, the REST API, the MCP endpoint and the
-// status page. Machines (probes, the rule engine) use the gateway's own listener.
+// pages (the public ones at the root, the console under /console). Machines (probes, the rule engine)
+// use the gateway's own listener.
 package server
 
 import (
 	"encoding/json"
-	"html/template"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,12 +14,12 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/ctl"
-	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/web"
 )
 
-// Deps are what the routes need. Feishu is nil unless callbacks come over HTTP; Web is nil without the
-// pages people open from the chat.
+// Deps are what the routes need. Feishu is nil unless callbacks come over HTTP; Web nil serves only
+// the public page at / (without status pages, the console or the pages people open from the chat).
 type Deps struct {
 	Bridge  *bridge.Bridge
 	API     *api.Server
@@ -29,9 +29,12 @@ type Deps struct {
 	Drill   func() time.Time
 	Log     *slog.Logger
 	Web     *web.Server
+	// OAuth is Beacon's authorization server for MCP clients: its metadata, registration, token and
+	// revocation endpoints (the console serves /oauth/authorize); nil leaves them out.
+	OAuth *oauth.Server
 }
 
-// CSP for everything the service serves itself; the status page will bring its own.
+// CSP for everything the service serves itself; the pages bring their own.
 const CSP = "default-src 'none'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // Handler builds the router.
@@ -67,11 +70,14 @@ func Handler(d Deps) http.Handler {
 	})
 	d.API.Register(mux)
 	mux.Handle("/mcp", d.MCP)
-	if d.Web != nil {
-		d.Web.Register(mux) // the pages set their own Content-Security-Policy over the one below
+	if d.OAuth != nil {
+		d.OAuth.Register(mux)
 	}
-	mux.HandleFunc("GET /{$}", placeholder)
-	return headers(mux)
+	if d.Web == nil {
+		d.Web = &web.Server{Log: d.Log}
+	}
+	d.Web.Register(mux)              // the pages set their own Content-Security-Policy over the one below
+	return headers(d.Web.Hosts(mux)) // a status page on a host name of its own answers there, and nothing else does
 }
 
 // directOnly answers only requests that did not come through a proxy (the edge adds X-Forwarded-For).
@@ -96,19 +102,6 @@ func headers(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-var page = template.Must(template.New("p").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Beacon</title><meta name="robots" content="noindex"></head>
-<body><main><h1>Beacon</h1><p>{{.EN}}</p><p lang="zh-CN">{{.ZH}}</p></main></body></html>
-`))
-
-func placeholder(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	const msg = "The status page is on its way."
-	_ = page.Execute(w, map[string]string{"EN": msg, "ZH": i18n.T(i18n.ZH, "The status page is on its way.")})
 }
 
 // DrillFrom reads the drill's end from the store.

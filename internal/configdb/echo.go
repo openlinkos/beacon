@@ -80,6 +80,8 @@ func (s *Service) kind(k string) string {
 		return i18n.T(s.d.Lang, "resource")
 	case KindTargets:
 		return i18n.T(s.d.Lang, "target set")
+	case KindStatus:
+		return i18n.T(s.d.Lang, "status page")
 	}
 	return i18n.T(s.d.Lang, "module")
 }
@@ -90,6 +92,8 @@ func (s *Service) via(v string) string {
 		return i18n.T(s.d.Lang, "the command line")
 	case "mcp":
 		return "MCP"
+	case "console":
+		return i18n.T(s.d.Lang, "the console")
 	}
 	return "API"
 }

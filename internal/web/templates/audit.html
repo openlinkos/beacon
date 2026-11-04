@@ -1,0 +1,21 @@
+{{define "content"}}<div class="ol-layout-filters">
+  {{template "facets" .}}
+  <section class="ol-layout-main">
+    {{template "filterbar" .}}
+    {{if .Rows}}
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.Time}}</th><th>{{.L.Actor}}</th><th>{{.L.Action}}</th><th>{{.L.Target}}</th><th>{{.L.Detail}}</th></tr></thead>
+      <tbody>
+      {{range .Rows}}<tr>
+        <td>{{.Time}}</td>
+        <td><span class="ol-cell-title">{{.Actor}}</span><span class="ol-cell-sub">{{.Via}}</span></td>
+        <td data-label="{{$.L.Action}}"><span class="ol-badge ol-badge-mono">{{.Action}}</span></td>
+        <td data-label="{{$.L.Target}}">{{if .Target}}<span class="ol-mono">{{.Target}}</span>{{end}}</td>
+        <td data-label="{{$.L.Detail}}" class="ol-cell-wrap">{{.Detail}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table></div>
+    {{template "pager" .}}
+    {{else}}{{template "empty" .List.Empty}}{{end}}
+  </section>
+</div>{{end}}

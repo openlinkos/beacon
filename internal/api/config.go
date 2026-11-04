@@ -21,6 +21,7 @@ var configKinds = []configKind{
 	{configdb.KindResource, "resources", "name"},
 	{configdb.KindTargets, "targets", "name"},
 	{configdb.KindModule, "modules", "name"},
+	{configdb.KindStatus, "status_pages", "name"},
 }
 
 func configRoutes() []string {

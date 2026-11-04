@@ -1,15 +1,15 @@
-# Things that run out: resources in the catalogue (machines, domains, tokens: linkos_resource_expiry_timestamp_seconds),
+# Things that run out: resources in the catalogue (machines, domains, tokens: beacon_resource_expiry_timestamp_seconds),
 # certificates seen by the probes (probe_ssl_earliest_cert_expiry), and heartbeats of scheduled jobs
-# (linkos_heartbeat_max_age_seconds from the catalogue, linkos_heartbeat_last_success_timestamp_seconds from the jobs).
+# (beacon_heartbeat_max_age_seconds from the catalogue, beacon_heartbeat_last_success_timestamp_seconds from the jobs).
 groups:
   - name: expiry
     interval: 5m
     rules:
       - alert: ResourceExpiring
         expr: |
-          (max by (resource, kind) (linkos_resource_expiry_timestamp_seconds) - time()) < 30 * 86400
+          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) < 30 * 86400
           and
-          (max by (resource, kind) (linkos_resource_expiry_timestamp_seconds) - time()) >= 7 * 86400
+          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) >= 7 * 86400
         labels:
           severity: warning
           service: "{{ $labels.resource }}"
@@ -20,7 +20,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
 
       - alert: ResourceExpiring
-        expr: (max by (resource, kind) (linkos_resource_expiry_timestamp_seconds) - time()) < 7 * 86400
+        expr: (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) < 7 * 86400
         labels:
           severity: critical
           service: "{{ $labels.resource }}"
@@ -58,15 +58,15 @@ groups:
     rules:
       # A heartbeat may arrive as a steady series (the probe agent's textfile directory) or as one pushed sample,
       # so the last value within 31 days counts, not the current one.
-      - record: linkos:heartbeat_last_success
-        expr: max by (heartbeat) (last_over_time(linkos_heartbeat_last_success_timestamp_seconds[31d]))
+      - record: beacon:heartbeat_last_success
+        expr: max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds[31d]))
 
       # at the heartbeat's own severity, from the catalogue
       - alert: HeartbeatStale
         expr: |
-          (time() - linkos:heartbeat_last_success)
+          (time() - beacon:heartbeat_last_success)
           > on (heartbeat) group_left (severity)
-          max by (heartbeat, severity) (linkos_heartbeat_max_age_seconds)
+          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds)
         labels:
           service: "{{ $labels.heartbeat }}"
           failure_domain: "{{ $labels.heartbeat }}"
@@ -78,13 +78,13 @@ groups:
       # listed in the catalogue but never reported: a new heartbeat gets a day to succeed once
       - alert: HeartbeatMissing
         expr: |
-          max by (heartbeat, severity) (linkos_heartbeat_max_age_seconds)
-          unless on (heartbeat) linkos:heartbeat_last_success
+          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds)
+          unless on (heartbeat) beacon:heartbeat_last_success
         for: 1d
         labels:
           service: "{{ $labels.heartbeat }}"
           failure_domain: "{{ $labels.heartbeat }}"
         annotations:
           summary: "{{ $labels.heartbeat }} has never reported"
-          description: "Heartbeat {{ $labels.heartbeat }} is in the catalogue, but no success has been reported in 31 days. Check that the job ends with linkos-heartbeat, or pushes with its token."
+          description: "Heartbeat {{ $labels.heartbeat }} is in the catalogue, but no success has been reported in 31 days. Check that the job ends with beacon-heartbeat, or pushes with its token."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md

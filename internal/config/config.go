@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -67,11 +69,14 @@ type Config struct {
 		GrafanaService string `yaml:"grafana_service"`
 		Runbook        string `yaml:"runbook"`
 	} `yaml:"links"`
-	// Pages are the HTML pages people open from the chat (docs/pages.md): an alert's timeline and a
+	// Pages are the HTML pages people open from the chat (docs/guide/console.md): an alert's timeline and a
 	// session's replay, reached by signed links built from PublicURL. LinkTTL is how long a link is valid.
 	Pages struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
+	Branding Branding `yaml:"branding"`
+	// OAuth is how MCP clients sign in to Beacon (docs/guide/people.md).
+	OAuth OAuth `yaml:"oauth"`
 
 	Feishu       Feishu              `yaml:"feishu"`
 	Pushover     Pushover            `yaml:"pushover"`
@@ -85,6 +90,37 @@ type Config struct {
 	Location     *time.Location      `yaml:"-"`
 	Proxies      []netip.Prefix      `yaml:"-"`
 	OnCallByID   map[string]OnCaller `yaml:"-"`
+}
+
+// Branding is what Beacon's public pages say of the deployment and of Beacon (docs/guide/status-pages.md). Title
+// names the deployment on the page at / when there is no status page (Beacon when empty). PoweredBy, on
+// unless set to false, puts "Powered by Beacon, open source" in the public pages' footer; a team may
+// leave it out of its status pages. The console always says what it runs on.
+type Branding struct {
+	Title     string `yaml:"title"`
+	PoweredBy *bool  `yaml:"powered_by"`
+}
+
+// OAuth is how MCP clients sign in. ClientIDDocuments, on unless set to false, takes a client whose
+// client_id is the https URL of its metadata document (Claude Code's and Codex's are), which Beacon
+// fetches from the internet; a deployment that cannot reach the internet sets it to false, and clients
+// then register themselves instead.
+type OAuth struct {
+	ClientIDDocuments *bool `yaml:"client_id_documents"`
+}
+
+// Documents reports whether Beacon takes clients by their metadata documents.
+func (o OAuth) Documents() bool { return o.ClientIDDocuments == nil || *o.ClientIDDocuments }
+
+// Powered reports whether the public pages say they are powered by Beacon.
+func (b Branding) Powered() bool { return b.PoweredBy == nil || *b.PoweredBy }
+
+// Name is the deployment's title, Beacon unless the configuration names it.
+func (b Branding) Name() string {
+	if t := strings.TrimSpace(b.Title); t != "" {
+		return t
+	}
+	return "Beacon"
 }
 
 // Routing groups and inhibits alerts (what Alertmanager's route and inhibit_rules did). Label values in
@@ -257,9 +293,9 @@ func (c *Config) defaults() {
 		}
 	}
 	set(&c.Listen, ":17001")
-	set(&c.DataDir, "/var/lib/linkos-beacon")
-	set(&c.CatalogDir, "/etc/linkos-beacon/catalog")
-	set(&c.Gateway.TargetsDir, "/etc/linkos-beacon/targets")
+	set(&c.DataDir, "/var/lib/beacon")
+	set(&c.CatalogDir, "/etc/beacon/catalog")
+	set(&c.Gateway.TargetsDir, "/etc/beacon/targets")
 	set(&c.Gateway.Listen, ":17006")
 	set(&c.Gateway.ModulesFile, strings.TrimSuffix(c.Gateway.TargetsDir, "/")+"/modules.yml")
 	set(&c.SSH.Listen, ":17002")
@@ -349,6 +385,9 @@ func (c *Config) validate() error {
 	}
 	if c.Language != "zh" && c.Language != "en" {
 		bad("language must be zh or en, not %q", c.Language)
+	}
+	if t := c.Branding.Title; utf8.RuneCountInString(t) > 80 || strings.ContainsFunc(t, unicode.IsControl) {
+		bad("branding.title must be one line of at most 80 characters")
 	}
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {
