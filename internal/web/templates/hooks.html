@@ -1,0 +1,47 @@
+{{define "content"}}<div class="ol-stack">
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Configured}}</h2></div>
+  {{if .Hooks}}
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Hook}}</th><th>{{.L.Kind}}</th><th>{{.L.Severities}}</th><th>{{.L.Service}}</th><th>{{.L.Resolved}}</th><th class="ol-num">{{.L.Target2}}</th></tr></thead>
+    <tbody>
+    {{range .Hooks}}<tr>
+      <td><span class="ol-cell-title">{{.Name}}</span>{{if .Where}}<span class="ol-cell-sub">{{.Where}}</span>{{end}}</td>
+      <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
+      <td data-label="{{$.L.Severities}}">{{.Severities}}</td>
+      <td data-label="{{$.L.Service}}">{{if .Service}}<code class="ol-mono">{{.Service}}</code>{{end}}</td>
+      <td data-label="{{$.L.Resolved}}">{{if .Resolved}}{{$.L.Yes}}{{else}}{{$.L.No}}{{end}}</td>
+      <td class="ol-num" data-label="{{$.L.Target2}}">{{.Calls}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}<p class="ol-hint">{{.L.NoHooks}}</p>{{end}}
+</section>
+
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Calls}}</h2></div>
+  <div class="ol-layout-filters">
+    {{template "facets" .}}
+    <section class="ol-layout-main">
+      {{template "filterbar" .}}
+      {{if .Rows}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <thead><tr><th>{{.L.When}}</th><th>{{.L.Hook}}</th><th>{{.L.Event}}</th><th>{{.L.Status}}</th><th class="ol-num">{{.L.Code}}</th><th class="ol-num">{{.L.Attempts}}</th><th>{{.L.Alert}}</th></tr></thead>
+        <tbody>
+        {{range .Rows}}<tr>
+          <td>{{.When}}</td>
+          <td><span class="ol-cell-title">{{.Hook}}</span></td>
+          <td data-label="{{$.L.Event}}">{{.Event}}</td>
+          <td data-label="{{$.L.Status}}"><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span>{{if .Error}}<span class="ol-cell-sub">{{.Error}}</span>{{end}}</td>
+          <td class="ol-num" data-label="{{$.L.Code}}">{{.Code}}</td>
+          <td class="ol-num" data-label="{{$.L.Attempts}}">{{.Attempts}}</td>
+          <td data-label="{{$.L.Alert}}"><a href="{{.AlertHref}}">{{.Alert}}</a></td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{template "pager" .}}
+      {{else}}{{template "empty" .List.Empty}}{{end}}
+    </section>
+  </div>
+</section>
+</div>{{end}}

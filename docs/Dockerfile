@@ -1,7 +1,8 @@
 # The site image (beacon.openlinkos.com): built with VitePress, served by unprivileged nginx on port 8080.
 #
 # Build from the repository root, which the site reads: the changelog page includes CHANGELOG.md, and the
-# reference pages are checked against the API's, the gateway's and the MCP server's sources.
+# reference pages are checked against the sources of the API, the gateway, the MCP server, the configuration
+# and the commands.
 #   docker build -f docs/Dockerfile -t beacon-site .
 # Dockerfile.dockerignore beside this file lets only those into the build context. The site is the same files
 # on every platform, so it is built once, on the builder's own platform, and an image for another platform needs
@@ -17,6 +18,11 @@ COPY internal/api/ /src/internal/api/
 COPY internal/gateway/ /src/internal/gateway/
 COPY internal/mcpserver/ /src/internal/mcpserver/
 COPY internal/store/store.go /src/internal/store/
+COPY internal/config/ /src/internal/config/
+COPY internal/ctl/ctl.go /src/internal/ctl/
+COPY cmd/beacon/ /src/cmd/beacon/
+COPY cmd/beacon-oncall/ /src/cmd/beacon-oncall/
+COPY cmd/beacon-probe/ /src/cmd/beacon-probe/
 COPY docs/ /src/docs/
 RUN pnpm build
 

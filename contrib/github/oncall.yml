@@ -1,4 +1,4 @@
-# An on-call workflow for a Beacon hook of kind: github (docs/agents.md, "A GitHub workflow" and "Running an
+# An on-call workflow for a Beacon hook of kind: github (docs/guide/on-call.md, "A GitHub workflow" and "Running an
 # agent when woken"). Beacon dispatches it with the inputs alert and event; it runs Claude Code through the
 # Claude Code GitHub Action with Beacon's MCP server and the same prompt as contrib/oncall/prompt.md.
 #

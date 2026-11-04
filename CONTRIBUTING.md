@@ -1,6 +1,6 @@
 # Contributing
 
-Beacon is infrastructure for AI agents that run operations. [docs/goals.md](docs/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
+Beacon is self-hosted monitoring and SSH access for the AI agents that run your servers. [docs/about/goals.md](docs/about/goals.md) says what it is for, what it will not do, and how to choose when goals pull apart; [AGENTS.md](AGENTS.md) holds the rules for anyone, person or agent, who changes the code. This page is the short form: how to build and test, what a change must respect, and how it gets in and out.
 
 Before you plan a change, say which goal it serves. A change that moves neither coverage nor closure and holds no guardrail waits.
 
@@ -42,7 +42,7 @@ pnpm preview                                     # serves the build
 - **each Chinese page records the English version it translates** in its frontmatter, `sourceHash: sha256-…`, the first 8 hex digits of the SHA-256 of the English file with LF line endings. When the English page changes, the build prints the line to paste once the translation is updated. To compute it yourself:
 
   ```bash
-  node -e "const c=require('fs').readFileSync(process.argv[1],'utf8').replace(/\r\n/g,'\n');console.log('sha256-'+require('crypto').createHash('sha256').update(c,'utf8').digest('hex').slice(0,8))" docs/agents.md
+  node -e "const c=require('fs').readFileSync(process.argv[1],'utf8').replace(/\r\n/g,'\n');console.log('sha256-'+require('crypto').createHash('sha256').update(c,'utf8').digest('hex').slice(0,8))" docs/guide/on-call.md
   ```
 
 - **links stay within their language**: relative `.md` links between pages, which resolve to the same language; English pages never link into `docs/zh/`, and Chinese pages link only there. Link to files outside `docs/` with full GitHub URLs. There is no "English | 简体中文" line at the top of a page: the site has a language menu;

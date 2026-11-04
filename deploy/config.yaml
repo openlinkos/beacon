@@ -5,7 +5,7 @@
 
 listen: ":17001"
 data_dir: /var/lib/beacon
-catalog_dir: /etc/beacon/catalog              # imported at the first start; docs/catalog.md
+catalog_dir: /etc/beacon/catalog              # imported at the first start; docs/guide/monitoring.md
 public_url: https://status.example.com
 trusted_proxies: [172.16.0.0/12]               # Caddy, on the compose network; it rewrites X-Forwarded-For
 language: en                                   # cards and chat messages: en or zh
@@ -41,7 +41,7 @@ gateway:
   listen: ":17006"
   targets_dir: /etc/beacon/targets             # imported at the first start, with modules.yml
 
-# The SSH channel (docs/ssh.md). install.sh generates both keys.
+# The SSH channel (docs/guide/machines.md). install.sh generates both keys.
 ssh:
   listen: ":17002"
   public_address: status.example.com:17002     # where agents connect
@@ -55,7 +55,7 @@ links:
 
 # The chat and the phones. Until a section below is filled in, alerts are recorded and shown in the API and MCP,
 # and nobody is notified. Put each secret in the file named, under ./secrets (owner 65532, mode 0400), then
-# uncomment the section and restart beacon. Feishu: docs/feishu.md.
+# uncomment the section and restart beacon. Feishu: docs/integrations/feishu.md.
 # feishu:
 #   app_id_file: /etc/beacon/secrets/feishu-app-id
 #   app_secret_file: /etc/beacon/secrets/feishu-app-secret
@@ -80,7 +80,7 @@ links:
 #   warning: {channel: app}
 #   info: {channel: webhook}
 
-# Hooks that wake agents when a new alert group is first notified (docs/agents.md).
+# Hooks that wake agents when a new alert group is first notified (docs/guide/on-call.md).
 # agents:
 #   - name: claude-oncall
 #     kind: webhook

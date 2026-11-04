@@ -139,13 +139,13 @@ func (s *Server) configPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 		p.History = append(p.History, s.versionRow(ch))
 	}
 	if len(hist) == perPage && hist[len(hist)-1].Version > 1 {
-		p.Older = "/config?before=" + strconv.FormatInt(hist[len(hist)-1].Version, 10) + "#history"
+		p.Older = consolePath("/config?before=") + strconv.FormatInt(hist[len(hist)-1].Version, 10) + "#history"
 	}
 	s.render(w, configTmpl, p)
 }
 
 func (s *Server) versionRow(ch store.ConfigChange) versionRow {
-	row := versionRow{Version: strconv.FormatInt(ch.Version, 10), Href: "/config/history/" + strconv.FormatInt(ch.Version, 10),
+	row := versionRow{Version: strconv.FormatInt(ch.Version, 10), Href: consolePath("/config/history/") + strconv.FormatInt(ch.Version, 10),
 		Time: s.clock(ch.Time), Who: ch.Actor, Via: s.via(ch.Via), Action: ch.Action, Note: ch.Note}
 	var items []string
 	for _, it := range ch.Items {
@@ -210,7 +210,7 @@ func (s *Server) versionPage(w http.ResponseWriter, r *http.Request, v *viewer) 
 		return
 	}
 	l := s.configLabels()
-	p := versionPage{shell: s.shellFor(r, v, "config", s.t("Version %d", n), crumb{Label: s.t("Configuration"), Href: "/config"}), L: l,
+	p := versionPage{shell: s.shellFor(r, v, "config", s.t("Version %d", n), crumb{Label: s.t("Configuration"), Href: consolePath("/config")}), L: l,
 		Change: s.versionRow(ch)}
 	p.Badges = []badge{{Text: ch.Action}}
 	if ch.Reverts > 0 {
@@ -220,7 +220,7 @@ func (s *Server) versionPage(w http.ResponseWriter, r *http.Request, v *viewer) 
 		p.Items = append(p.Items, itemDiff{Kind: it.Kind, Key: it.Key, Op: it.Op, Lines: diff(pretty(it.Before), pretty(it.After))})
 	}
 	if v.has("config:write") {
-		p.Revert = "/config/history/" + url.PathEscape(strconv.FormatInt(n, 10)) + "/revert"
+		p.Revert = consolePath("/config/history/") + url.PathEscape(strconv.FormatInt(n, 10)) + "/revert"
 	}
 	s.render(w, versionTmpl, p)
 }

@@ -1,0 +1,21 @@
+{{define "nav"}}<a href="{{.Root}}">{{iconSm "arrow-left"}}{{.L.Back}}</a>{{end}}
+
+{{define "content"}}{{with .Incident}}
+<section class="ol-site-section" aria-labelledby="incident-title">
+  <div class="ol-site-section-header">
+    <p>{{template "state" .}} <span class="ol-badge ol-badge-{{.ImpactTone}}">{{.Impact}}</span></p>
+    <h1 class="ol-site-section-title" id="incident-title">{{.Title}}</h1>
+    <p class="ol-site-section-description">{{$.L.Affected}}: {{.Components}}</p>
+  </div>
+  <dl class="ol-dl bc-incident-facts">
+    <dt>{{$.L.Started}}</dt><dd><time datetime="{{.StartedISO}}">{{.Started}}</time></dd>
+    {{if .Resolved}}<dt>{{$.L.Ended}}</dt><dd><time datetime="{{.ResolvedISO}}">{{.Resolved}}</time></dd>
+    <dt>{{$.L.Lasted}}</dt><dd>{{.Took}}</dd>{{end}}
+  </dl>
+</section>
+<section class="ol-site-section" aria-labelledby="updates-title">
+  <div class="ol-site-section-header"><h2 class="ol-site-section-title" id="updates-title">{{$.L.Updates}}</h2></div>
+  <div class="ol-panel"><div class="ol-panel-body">{{template "updates" .Updates}}</div></div>
+  <p class="ol-text-sm bc-back"><a href="{{$.Root}}">{{iconSm "arrow-left"}}{{$.L.Back}}</a></p>
+</section>
+{{end}}{{end}}

@@ -92,7 +92,7 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		return contains(q, texts...)
 	}
-	kept, l := filter(s, "/alerts", r.URL.Query(), groups, facets, match)
+	kept, l := filter(s, consolePath("/alerts"), r.URL.Query(), groups, facets, match)
 	l.SearchHint = s.t("Title, service or label")
 	p := listPage[alertRow]{shell: s.shellFor(r, v, "alerts", s.t("Alerts")), L: s.listLabels(), List: l}
 	p.Count = l.Total
@@ -124,7 +124,7 @@ type sessionItem struct {
 
 func (s *Server) sessionItem(r store.SessionRecord) sessionItem {
 	it := sessionItem{ID: r.ID, Href: link.SessionPath(r.ID), Agent: r.Agent, Via: s.via(r.Via), Machine: r.Machine,
-		MachineHref: "/machines/" + url.PathEscape(r.Machine), Kind: s.kind(r.Kind), Command: shorten(r.Command, 160),
+		MachineHref: consolePath("/machines/") + url.PathEscape(r.Machine), Kind: s.kind(r.Kind), Command: shorten(r.Command, 160),
 		Started: s.clock(r.Started), Exit: s.exit(r.Exit), Failed: r.Exit != nil && *r.Exit != 0, Open: r.Ended.IsZero()}
 	if !r.Ended.IsZero() {
 		it.Duration = s.dur(r.Ended.Sub(r.Started))
@@ -191,7 +191,7 @@ func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer)
 	// days read newest first, not by how busy they were
 	facets[5].Order = days(recs, s.day)
 	match := func(r store.SessionRecord, q string) bool { return contains(q, r.ID, r.Agent, r.Machine, r.Command) }
-	kept, l := filter(s, "/sessions", r.URL.Query(), recs, facets, match)
+	kept, l := filter(s, consolePath("/sessions"), r.URL.Query(), recs, facets, match)
 	l.SearchHint = s.t("Command, agent or machine")
 	p := sessionsPage{listPage: listPage[sessionItem]{shell: s.shellFor(r, v, "sessions", s.t("Sessions")), L: s.listLabels(), List: l}}
 	p.Count = l.Total
@@ -231,14 +231,15 @@ type callRow struct {
 	Hook, Event, Status, StatusTone, Code, Attempts, When, Alert, AlertHref, Error string
 }
 
-type agentsPage struct {
+type hooksPage struct {
 	listPage[callRow]
 	Hooks []hookRow
 }
 
-var agentsTmpl = parse("agents.html")
+var hooksTmpl = parse("hooks.html")
 
-func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
+// hooks is the agent hooks configured and the calls made to wake agents.
+func (s *Server) hooks(w http.ResponseWriter, r *http.Request, v *viewer) {
 	all := s.calls()
 	byHook := map[string]int{}
 	for _, c := range all {
@@ -256,9 +257,9 @@ func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
 		{Param: "status", Title: s.t("Status"), Value: func(c call) string { return c.Status }, Order: []string{"ok", "failed", "pending"}, Label: s.callStatus},
 	}
 	match := func(c call, q string) bool { return contains(q, c.Hook, c.title, c.alert, c.Error) }
-	kept, l := filter(s, "/agents", r.URL.Query(), all, facets, match)
+	kept, l := filter(s, consolePath("/hooks"), r.URL.Query(), all, facets, match)
 	l.SearchHint = s.t("Hook or alert")
-	p := agentsPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "agents", s.t("Agents")), L: s.listLabels(), List: l}}
+	p := hooksPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "hooks", s.t("Hooks")), L: s.listLabels(), List: l}}
 	p.Count = l.Total
 	for _, h := range s.Hooks {
 		row := hookRow{Name: h.Name, Kind: h.Kind, Severities: strings.Join(h.Severities, ", "), Service: h.Service, Resolved: h.Resolved, Calls: num(byHook[h.Name])}
@@ -280,7 +281,7 @@ func (s *Server) agents(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		p.Rows = append(p.Rows, row)
 	}
-	s.render(w, agentsTmpl, p)
+	s.render(w, hooksTmpl, p)
 }
 
 // ---- the audit log
@@ -297,7 +298,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, v *viewer) {
 		{Param: "via", Title: s.t("Via"), Value: func(e store.AuditEntry) string { return e.Via }, Label: s.via},
 	}
 	match := func(e store.AuditEntry, q string) bool { return contains(q, e.Actor, e.Action, e.Target, e.Detail) }
-	kept, l := filter(s, "/audit", r.URL.Query(), entries, facets, match)
+	kept, l := filter(s, consolePath("/audit"), r.URL.Query(), entries, facets, match)
 	l.SearchHint = s.t("Who, what or detail")
 	p := listPage[auditRow]{shell: s.shellFor(r, v, "audit", s.t("Audit log")), L: s.listLabels(), List: l}
 	p.Count = l.Total
@@ -324,7 +325,7 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, v *viewer) {
 	match := func(c store.Change, q string) bool {
 		return contains(q, c.Summary, c.Source, c.Kind, c.Service, c.Machine, c.Revision, c.Object)
 	}
-	kept, l := filter(s, "/changes", r.URL.Query(), all, facets, match)
+	kept, l := filter(s, consolePath("/changes"), r.URL.Query(), all, facets, match)
 	l.SearchHint = s.t("Summary, revision or object")
 	p := listPage[changeItem]{shell: s.shellFor(r, v, "changes", s.t("Changes")), L: s.listLabels(), List: l}
 	p.Count = l.Total

@@ -1,6 +1,6 @@
 # Jobs that must report success at least every max_age: backups, scheduled tasks. On a machine with the
 # probe agent, the job ends with `beacon-heartbeat <name>` (deploy/probe/beacon-heartbeat); elsewhere it pushes
-# one sample with a token from `beacon enroll heartbeat <name>` (docs/catalog.md). HeartbeatStale fires
+# one sample with a token from `beacon enroll heartbeat <name>` (docs/guide/monitoring.md). HeartbeatStale fires
 # when a heartbeat is older than its max_age, HeartbeatMissing when one listed here has never reported.
 heartbeats: []
 # heartbeats:

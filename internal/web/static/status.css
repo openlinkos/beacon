@@ -1,0 +1,53 @@
+/* The public pages' own styles: only what the design system (@openlinkos/ui, static/ol/ui.css) has no
+   part for, written with its tokens. Outside any layer, so they need no specificity to apply. */
+
+/* The hero states the overall state, or what the site is; it need not be as tall as a service site's. */
+.bc-status-hero, .bc-landing-hero { min-height: 18rem; }
+
+/* The footer's line about Beacon: its mark at the size of the text, in Beacon's own colours. */
+.bc-powered a[data-brand] { display: inline-flex; align-items: center; gap: var(--ol-space-1); }
+.bc-powered svg { width: 1em; height: 1em; flex: none; }
+
+/* A day of maintenance in an uptime strip, and its swatch in the legend. */
+.ol-uptime > .bc-uptime-maintenance { background: var(--ol-color-info-solid); }
+.bc-swatch-ok { --ol-series: var(--ol-color-success-solid); }
+.bc-swatch-degraded { --ol-series: var(--ol-color-warning-solid); }
+.bc-swatch-down { --ol-series: var(--ol-color-danger-solid); }
+.bc-swatch-maintenance { --ol-series: var(--ol-color-info-solid); }
+.bc-swatch-none { --ol-series: var(--ol-color-border); }
+.bc-legend { margin-block-start: var(--ol-space-4); color: var(--ol-color-fg-muted); }
+.bc-legend > li { display: inline-flex; align-items: center; gap: var(--ol-space-1-5); }
+
+/* Under the strip: where it starts, the availability, today. */
+.bc-uptime-axis { justify-content: space-between; }
+.bc-uptime { margin-block-start: var(--ol-space-1); }
+
+/* On a phone the strip shows the last 30 days: 90 cells do not fit in 360px. */
+@media (max-width: 640px) {
+  .bc-uptime > :nth-child(-n+60) { display: none; }
+  .bc-axis-90 { display: none; }
+}
+@media (min-width: 641px) {
+  .bc-axis-30 { display: none; }
+}
+
+/* An incident's updates, the newest first, on a line that joins them. */
+.bc-updates { display: flex; flex-direction: column; gap: var(--ol-space-4); margin: var(--ol-space-3) 0; padding: 0; list-style: none; }
+.bc-update { padding-inline-start: var(--ol-space-4); border-inline-start: 2px solid var(--ol-color-border); }
+.bc-update-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ol-space-2); }
+.bc-update-kind { font-weight: var(--ol-font-weight-medium); }
+.bc-update-text { margin-block-start: var(--ol-space-1); }
+
+.bc-incident-facts { max-width: 32rem; }
+.bc-locations { margin-block-start: var(--ol-space-4); }
+.bc-locations ul { margin: var(--ol-space-2) 0 0; padding-inline-start: var(--ol-space-5); }
+.bc-back { margin-block-start: var(--ol-space-4); }
+.bc-back a, .ol-site-nav a { display: inline-flex; align-items: center; gap: var(--ol-space-1); }
+
+/* The footer's columns: the family menu's groups. */
+.bc-footer-col { min-width: 10rem; }
+.bc-footer-title { color: var(--ol-color-fg); font-weight: var(--ol-font-weight-medium); }
+
+@media (forced-colors: active) {
+  .ol-uptime > .bc-uptime-maintenance { forced-color-adjust: none; background: LinkText; }
+}

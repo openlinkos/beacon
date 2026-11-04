@@ -1,5 +1,5 @@
 // Package oncall is the reference harness that runs an agent program when Beacon wakes it. It listens
-// for Beacon's webhook (docs/agents.md, "The webhook"), checks the signature, refuses what it has seen
+// for Beacon's webhook (docs/guide/on-call.md, "The webhook"), checks the signature, refuses what it has seen
 // or what is stale, answers at once, and starts the program the operator named, with the payload on its
 // standard input and the alert in its environment. It decides nothing: the program does, and Beacon
 // records what the program then does. Standard library only, so that it builds and runs anywhere.

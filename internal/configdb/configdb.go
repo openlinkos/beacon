@@ -37,13 +37,17 @@ const (
 	KindResource  = "resource"
 	KindTargets   = "targets" // a target set, once a file in the targets directory
 	KindModule    = "module"
+	KindStatus    = "status_page" // a public status page, in the catalogue (statuspages.go)
 )
 
-var kinds = []string{KindLocation, KindHeartbeat, KindResource, KindTargets, KindModule}
+var kinds = []string{KindLocation, KindHeartbeat, KindResource, KindTargets, KindModule, KindStatus}
 
 // Lists are the names of the kinds' lists in the files and the API.
 var Lists = map[string]string{KindLocation: "locations", KindHeartbeat: "heartbeats", KindResource: "resources",
-	KindTargets: "targets", KindModule: "modules"}
+	KindTargets: "targets", KindModule: "modules", KindStatus: "status_pages"}
+
+// kindsHint says what a kind may be, for the errors that refuse one.
+const kindsHint = "kind is one of locations, heartbeats, resources, targets, modules, status_pages"
 
 // Kind reads a kind as people write it, singular or plural: location or locations.
 func Kind(s string) (string, bool) {
@@ -151,8 +155,12 @@ func (st *State) Summary() string {
 			n = len(mods)
 		}
 	}
-	return fmt.Sprintf("%d probe locations, %d heartbeats, %d resources, %d probe targets in %d sets, %d modules",
+	out := fmt.Sprintf("%d probe locations, %d heartbeats, %d resources, %d probe targets in %d sets, %d modules",
 		len(st.Catalog.Locations), len(st.Catalog.Heartbeats), len(st.Catalog.Resources), st.Targets.Count(), len(st.Targets.Files()), n)
+	if p := len(st.Catalog.StatusPages); p > 0 {
+		out += fmt.Sprintf(", %d status pages", p)
+	}
+	return out
 }
 
 // commit makes next the configuration, if it passes the checks and changes anything, as one version.
@@ -168,7 +176,7 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 	items := diff(cur.entries, next)
 	ch := store.ConfigChange{Time: s.d.Now().UTC(), Actor: who.Name, Via: who.Via, Action: action, Reverts: reverts,
 		Note: strings.TrimSpace(note), Items: items}
-	warnings := s.unenrolled(st.Catalog)
+	warnings := append(s.unenrolled(st.Catalog), pageWarnings(st)...)
 	exact := action == "import"
 	if len(items) == 0 && (!exact || maps.EqualFunc(cur.entries, next, bytes.Equal)) {
 		return store.ConfigChange{Version: cur.Version, Action: action, Items: []store.ConfigItem{}, Unchanged: true, Warnings: warnings}, nil
@@ -206,8 +214,12 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 }
 
 // Warnings lists what the configuration in force names that Beacon does not know: heartbeats whose
-// machine is not enrolled on the SSH channel. They stop no change; check-config reports them.
-func (s *Service) Warnings() []string { return s.unenrolled(s.state.Load().Catalog) }
+// machine is not enrolled on the SSH channel, and status page components whose services no probe
+// target has. They stop no change; check-config reports them.
+func (s *Service) Warnings() []string {
+	st := s.state.Load()
+	return append(s.unenrolled(st.Catalog), pageWarnings(st)...)
+}
 
 // unenrolled lists, as warnings, the heartbeats in c whose machine the SSH channel does not have.
 //

@@ -1,0 +1,33 @@
+{{define "content"}}<h1 class="ol-auth-title">{{.Heading}}</h1>
+      {{if .Intro}}<p>{{.Intro}}</p>{{end}}
+      {{if .Note}}<p class="ol-hint">{{.Note}}</p>{{end}}
+      {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
+      {{if .Broken}}<p><a class="ol-btn ol-btn-secondary" href="{{.SignInHref}}">{{icon "log-in"}}{{.L.SignIn}}</a></p>
+      {{else}}
+      <form method="post" action="{{.Action}}" class="ol-stack">
+        <input type="hidden" name="code" value="{{.Code}}">
+        <input type="hidden" name="form" value="{{.Form}}">
+        {{if .AskUsername}}
+        <div class="ol-field">
+          <label class="ol-label" for="username">{{.L.Username}}</label>
+          <input class="ol-input ol-input-lg" id="username" name="username" type="text" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="2" maxlength="32" pattern="[a-z0-9][a-z0-9._\-]{1,31}" autofocus aria-describedby="username-hint">
+          <p class="ol-hint" id="username-hint">{{.L.UsernameHint}}</p>
+        </div>
+        <div class="ol-field">
+          <label class="ol-label" for="display_name">{{.L.DisplayName}}</label>
+          <input class="ol-input" id="display_name" name="display_name" type="text" value="{{.DisplayName}}" autocomplete="name" maxlength="64" aria-describedby="display-hint">
+          <p class="ol-hint" id="display-hint">{{.L.DisplayHint}}</p>
+        </div>
+        {{end}}
+        <div class="ol-field">
+          <label class="ol-label" for="password">{{.L.Password}}</label>
+          <input class="ol-input ol-input-lg" id="password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="1024" aria-describedby="password-hint"{{if not .AskUsername}} autofocus{{end}}>
+          <p class="ol-hint" id="password-hint">{{.L.PasswordHint}}</p>
+        </div>
+        <div class="ol-field">
+          <label class="ol-label" for="again">{{.L.Again}}</label>
+          <input class="ol-input ol-input-lg" id="again" name="again" type="password" autocomplete="new-password" required minlength="10" maxlength="1024">
+        </div>
+        <button class="ol-btn ol-btn-primary ol-btn-lg ol-btn-block" type="submit">{{icon "user-check"}}{{.L.Submit}}</button>
+      </form>
+      {{end}}{{end}}

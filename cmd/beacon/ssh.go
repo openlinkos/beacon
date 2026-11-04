@@ -150,7 +150,7 @@ func machine(args []string, stdout, stderr io.Writer) int {
 			"  echo '%s' > /etc/ssh/beacon_ca.pub\n"+
 			"  echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf\n"+
 			"  id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n"+
-			"  systemctl reload ssh\n(see docs/ssh.md for sudo and for PerSourcePenaltyExemptList)\n", a.TrustedUserCAKey, a.Machine.User, a.Machine.User)
+			"  systemctl reload ssh\n(see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)\n", a.TrustedUserCAKey, a.Machine.User, a.Machine.User)
 		return 0
 	case "connector":
 		fs := flag.NewFlagSet("machine connector", flag.ContinueOnError)
@@ -267,7 +267,7 @@ func printConnector(stdout io.Writer, a sshgate.Added) {
 		hk = "its host key will be pinned when it first connects (the audit log and the chat will say so; -host-key pins it now)"
 	}
 	fmt.Fprintf(stdout, "added %s as a connector machine (user %s): it connects out to Beacon with ssh -R; %s\n", a.Machine.Name, a.Machine.User, hk)
-	fmt.Fprintf(stdout, "On the machine, as root (idempotent; see docs/ssh.md, Machines behind NAT):\n")
+	fmt.Fprintf(stdout, "On the machine, as root (idempotent; see docs/guide/machines.md, Machines behind NAT):\n")
 	for _, line := range strings.Split(strings.TrimRight(a.Connector.Script, "\n"), "\n") {
 		fmt.Fprintf(stdout, "  %s\n", line)
 	}

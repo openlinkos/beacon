@@ -1,0 +1,8 @@
+# Probe locations for the try environment: one, running as a container beside Beacon on this machine.
+# The rules in rules/probes.yml are written for it (in the reference deployment a service is down only
+# when at least two locations fail it; here every location that reports it must, and there is one).
+locations:
+  - id: edge-1
+    name: This laptop - the try environment
+    region: overseas
+    network: loopback

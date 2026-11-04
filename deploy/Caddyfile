@@ -46,7 +46,7 @@
 	handle /readyz {
 		respond 404
 	}
-	# the rest: the pages, /api/v1/*, /mcp, /healthz, /drill/healthz
+	# the rest: the public pages at /, the console at /console, /api/v1/*, /mcp, /healthz, /drill/healthz
 	handle {
 		reverse_proxy beacon:17001 {
 			header_up X-Forwarded-For {client_ip}
@@ -67,3 +67,14 @@
 		header_up X-Forwarded-For {client_ip}
 	}
 }
+
+# A status page on a host name of its own (host: in catalog/status_pages.yaml, docs/guide/status-pages.md): Beacon serves that
+# page at / by the Host header, and nothing else of Beacon answers there. Point the name at this machine, then
+# uncomment the block with the name in place of uptime.example.com, and reload Caddy.
+# uptime.example.com {
+# 	import common
+# 	reverse_proxy beacon:17001 {
+# 		header_up Host {host}
+# 		header_up X-Forwarded-For {client_ip}
+# 	}
+# }

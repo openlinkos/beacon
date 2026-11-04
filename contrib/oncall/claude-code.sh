@@ -2,7 +2,7 @@
 # claude-code.sh: runs Claude Code in headless mode for the alert Beacon woke us for.
 #
 # beacon-oncall starts this with Beacon's payload on standard input and the alert in BEACON_* variables
-# (docs/agents.md, "Running an agent when woken"). The script builds the prompt from prompt.md and the
+# (docs/guide/on-call.md, "Running an agent when woken"). The script builds the prompt from prompt.md and the
 # alert, points Claude Code at Beacon's MCP server with the agent's own token, lets it use Beacon's tools
 # and nothing else, and runs it with nobody to ask. Everything Claude Code prints goes to the run's log.
 #

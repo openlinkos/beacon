@@ -10,7 +10,7 @@
 # delete internal/web/static/beacon-brand.css once the package ships data-brand="beacon".
 set -eu
 
-version=${1:-0.6.1}
+version=${1:-0.7.0}
 root=$(cd "$(dirname "$0")/.." && pwd)
 dest=$root/internal/web/static/ol
 

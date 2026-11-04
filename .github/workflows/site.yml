@@ -50,7 +50,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=beacon-site
-            org.opencontainers.image.description=The site of Beacon, infrastructure for AI agents that run operations.
+            org.opencontainers.image.description=The site of Beacon: self-hosted monitoring and SSH access for the AI agents that run your servers.
             org.opencontainers.image.url=https://beacon.openlinkos.com
             org.opencontainers.image.licenses=Apache-2.0
 
@@ -64,28 +64,64 @@ jobs:
       - name: smoke test
         run: |
           set -euo pipefail
+          # grep reads the whole page (no -q): with pipefail, -q would stop early and fail curl with SIGPIPE on a long page
           docker run -d --name site -p 8080:8080 beacon-site:test
           s=http://localhost:8080
           for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
-          curl -fsS "$s/" | grep -q 'Infrastructure for AI agents that run operations'
-          curl -fsS "$s/zh/" | grep -q 'lang="zh-CN"'
-          curl -fsS "$s/install" | grep -q 'Up in 30 minutes'
-          curl -fsS "$s/reference/api" | grep -q 'auth.scope'
-          curl -fsS "$s/reference/mcp" | grep -q 'probe_now'
-          curl -fsS "$s/changelog" | grep -q 'Changelog'
-          curl -fsS "$s/zh/changelog" | grep -q 'lang="zh-CN"'
-          curl -fsS "$s/zh/architecture" | grep -q 'lang="zh-CN"'
+          curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
+          curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
+          curl -fsS "$s/self-hosting/install" | grep 'On a server' >/dev/null
+          curl -fsS "$s/guide/quickstart" | grep 'Try it on your laptop' >/dev/null
+          curl -fsS "$s/reference/api" | grep 'auth.scope' >/dev/null
+          curl -fsS "$s/reference/mcp" | grep 'probe_now' >/dev/null
+          curl -fsS "$s/changelog" | grep 'Changelog' >/dev/null
+          curl -fsS "$s/zh/changelog" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/zh/guide/people" | grep 'lang="zh-CN"' >/dev/null
+          curl -fsS "$s/zh/about/architecture" | grep 'lang="zh-CN"' >/dev/null
+          # The pages the site structure moved answer on their old addresses with a 301 to their new homes.
+          while read -r old new; do
+            case "$old" in ''|'#'*) continue ;; esac
+            headers=$(curl -sI "$s$old" | tr -d '\r')
+            echo "$headers" | grep -E '^HTTP/[0-9.]+ 301' >/dev/null
+            echo "$headers" | grep "^Location: $new\$" >/dev/null
+          done <<'EOF'
+          /install /self-hosting/install
+          /accounts /guide/people
+          /agents /guide/on-call
+          /ssh /guide/machines
+          /catalog /guide/monitoring
+          /status /guide/status-pages
+          /pages /guide/console
+          /feishu /integrations/feishu
+          /troubleshooting /self-hosting/troubleshooting
+          /sources /reference/sources
+          /goals /about/goals
+          /architecture /about/architecture
+          /zh/install /zh/self-hosting/install
+          /zh/accounts /zh/guide/people
+          /zh/agents /zh/guide/on-call
+          /zh/ssh /zh/guide/machines
+          /zh/catalog /zh/guide/monitoring
+          /zh/status /zh/guide/status-pages
+          /zh/pages /zh/guide/console
+          /zh/feishu /zh/integrations/feishu
+          /zh/troubleshooting /zh/self-hosting/troubleshooting
+          /zh/sources /zh/reference/sources
+          /zh/goals /zh/about/goals
+          /zh/architecture /zh/about/architecture
+          EOF
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/no-such-page")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' "$s/zh/no-such-page")" = 404
-          curl -fsSI "$s/" | grep -qi '^cache-control: no-cache'
+          curl -fsSI "$s/" | grep -i '^cache-control: no-cache' >/dev/null
           # brand assets, metadata and language detection from @openlinkos/vitepress-theme
           curl -fsS -o /dev/null "$s/favicon.ico"
-          curl -fsS "$s/site.webmanifest" | grep -q '"icons"'
-          curl -fsS "$s/robots.txt" | grep -q 'Sitemap: https://beacon.openlinkos.com/sitemap.xml'
-          curl -fsS "$s/sitemap.xml" | grep -q 'hreflang="x-default"'
-          curl -fsS "$s/.well-known/security.txt" | grep -q '^Contact:'
-          curl -fsS "$s/" | grep -q 'hreflang="zh-CN"'
-          curl -fsS "$s/" | grep -q 'id="openlinkos-lang"'
+          curl -fsS "$s/site.webmanifest" | grep '"icons"' >/dev/null
+          curl -fsS "$s/robots.txt" | grep 'Sitemap: https://beacon.openlinkos.com/sitemap.xml' >/dev/null
+          curl -fsS "$s/sitemap.xml" | grep 'hreflang="x-default"' >/dev/null
+          curl -fsS "$s/.well-known/security.txt" | grep '^Contact:' >/dev/null
+          curl -fsS "$s/" | grep 'hreflang="zh-CN"' >/dev/null
+          curl -fsS "$s/" | grep 'id="openlinkos-lang"' >/dev/null
           docker rm -f site
 
       - name: build and push

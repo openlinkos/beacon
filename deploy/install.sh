@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/install.md walks
+# Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/self-hosting/install.md walks
 # through the first half hour).
 #   sudo ./install.sh                                              asks for the host names and the ACME address
 #   STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh    unattended
@@ -100,8 +100,16 @@ docker compose run --rm --no-deps -T beacon check-config -config /etc/beacon/con
   die "config.yaml, the catalogue, the targets or the modules do not validate"
 
 # 5. Start, and wait until all four are healthy (Beacon waits for VictoriaMetrics; Caddy's first certificates
-# take a moment longer and do not count here)
+# take a moment longer and do not count here). Compose does not notice a changed bind-mounted file, so when
+# config.yaml or a secret changed since the last run, Beacon is restarted to read it.
+sum=$(cat config.yaml secrets/* 2>/dev/null | cksum)
+last=$(cat .install-state 2>/dev/null || true)
 docker compose up -d --remove-orphans --quiet-pull
+if [ -n "$last" ] && [ "$sum" != "$last" ]; then
+  say "config.yaml or a secret changed: restarting Beacon"
+  docker compose restart beacon >/dev/null
+fi
+printf '%s\n' "$sum" > .install-state
 say "Waiting for the containers to be healthy …"
 healthy=0
 i=0
@@ -139,16 +147,17 @@ say "  https://$STATUS_HOST          the API (/api/v1), MCP (/mcp) and pages; th
 say "  https://$METRICS_HOST         the gateway for machines"
 say "  $STATUS_HOST:17002            the SSH channel"
 say ""
-say "Next (docs/install.md has the details and how long each takes); run these from this directory:"
+say "Next (docs/self-hosting/install.md has the details and how long each takes); run these from this directory:"
 say "  1. A probe location (edge-1 is in catalog/locations.yaml; add yours there or through the API):"
 say "       docker exec beacon beacon enroll probe edge-1 > /tmp/edge-1.token"
 say "     then on that machine, with probe/ and the token copied over:"
 say "       sh probe/install.sh -gateway https://$METRICS_HOST -token-file edge-1.token"
 say "  2. A machine agents may reach (prints the lines its sshd needs):"
 say "       docker exec beacon beacon machine add NAME HOST"
-say "  3. A token for the agent program you already use, with its SSH key:"
-say "       docker exec beacon beacon token create claude-code \\"
-say "         -scopes status:read,alerts:write,machines:ssh,sessions:read -expires 90d -ssh-key \"\$(cat ~/.ssh/id_ed25519.pub)\""
-say "       claude mcp add --transport http beacon https://$STATUS_HOST/mcp --header \"Authorization: Bearer <the token>\""
+say "  3. Your own account (open the link it prints), then the agent program you already use:"
+say "       docker exec beacon beacon setup"
+say "       claude mcp add --scope user --transport http beacon https://$STATUS_HOST/mcp"
+say "     and /mcp in Claude Code to sign it in through the browser; a headless agent gets a token with"
+say "       docker exec beacon beacon agent add NAME -owner YOU -preset oncall"
 say "  4. A drill, to see the whole chain once: docker exec beacon beacon drill fail 15m"
-say "  The chat: uncomment feishu: in config.yaml (docs/feishu.md), put its secrets under secrets/, run ./install.sh again."
+say "  The chat: uncomment feishu: in config.yaml (docs/integrations/feishu.md), put its secrets under secrets/, run ./install.sh again."
