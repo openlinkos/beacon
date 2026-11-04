@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -52,6 +53,32 @@ type Config struct {
 		TargetsDir  string `yaml:"targets_dir"`
 		ModulesFile string `yaml:"modules_file"` // how to probe; default modules.yml in targets_dir
 	} `yaml:"gateway"`
+	// Vault is where the secrets vault's root key comes from (the unseal mode) and the directory
+	// its key material lives in. It belongs here because the database has to open before anything
+	// else can be read, and the vault's keys wrap what the database holds. Dir defaults to
+	// <data_dir>/secrets; Mode to file (a 32-byte key file, made at the first start).
+	Vault struct {
+		Dir  string `yaml:"dir"`
+		Mode string `yaml:"mode"` // file (default), passphrase, aws-kms, gcp-kms, transit
+		AWS  struct {
+			Region           string `yaml:"region"`
+			KeyID            string `yaml:"key_id"`
+			Endpoint         string `yaml:"endpoint"` // a local KMS for the tests; empty is AWS's own
+			AccessKeyFile    string `yaml:"access_key_file"`
+			SecretKeyFile    string `yaml:"secret_key_file"`
+			SessionTokenFile string `yaml:"session_token_file"`
+		} `yaml:"aws_kms"`
+		GCP struct {
+			KeyName   string `yaml:"key_name"` // projects/…/cryptoKeys/…
+			Endpoint  string `yaml:"endpoint"` // a local KMS for the tests; empty is Google's own
+			TokenFile string `yaml:"token_file"`
+		} `yaml:"gcp_kms"`
+		Transit struct {
+			Address   string `yaml:"address"`
+			KeyName   string `yaml:"key_name"`
+			TokenFile string `yaml:"token_file"`
+		} `yaml:"transit"`
+	} `yaml:"vault"`
 	// Storage is where the service's state lives: one SQL database, SQLite by default. Driver and
 	// path belong here because the database has to be open before anything else can be read; the
 	// rest of the storage settings live in the database itself (see the settings framework).
@@ -337,6 +364,12 @@ func (c *Config) defaults() {
 		c.Routing.ResolveTimeout = Duration(5 * time.Minute)
 	}
 	set(&c.Storage.Driver, "sqlite")
+	if c.Vault.Dir == "" {
+		c.Vault.Dir = filepath.Join(c.DataDir, "secrets")
+	}
+	if c.Vault.Mode == "" {
+		c.Vault.Mode = "file"
+	}
 	if c.Storage.Audit.CheckpointInterval == 0 {
 		c.Storage.Audit.CheckpointInterval = Duration(24 * time.Hour)
 	}
@@ -446,6 +479,22 @@ func (c *Config) validate() error {
 		}
 	}
 
+	switch c.Vault.Mode {
+	case "", "file", "passphrase", "aws-kms", "gcp-kms", "transit":
+	case "postgres":
+		bad("vault.mode %q: that is a storage driver, not an unseal mode", c.Vault.Mode)
+	default:
+		bad("vault.mode %q: file, passphrase, aws-kms, gcp-kms or transit", c.Vault.Mode)
+	}
+	if c.Vault.Mode == "aws-kms" && c.Vault.AWS.KeyID == "" {
+		bad("vault.aws_kms.key_id: the AWS KMS mode names the key it wraps the root key with")
+	}
+	if c.Vault.Mode == "gcp-kms" && c.Vault.GCP.KeyName == "" {
+		bad("vault.gcp_kms.key_name: the GCP KMS mode names the key it wraps the root key with")
+	}
+	if c.Vault.Mode == "transit" && (c.Vault.Transit.Address == "" || c.Vault.Transit.KeyName == "") {
+		bad("vault.transit: the transit mode names its address and key")
+	}
 	if c.Storage.Driver != "sqlite" {
 		bad("storage.driver %q: sqlite is the driver today; postgres arrives with the next package", c.Storage.Driver)
 	}
