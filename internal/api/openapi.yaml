@@ -44,7 +44,8 @@ components:
             ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
-            config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
+            config.not_found, config.invalid, config.conflict,
+            settings.not_found, settings.unknown, settings.invalid, settings.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             audit.unavailable]
@@ -688,6 +689,61 @@ components:
         targets: {type: array, items: {$ref: "#/components/schemas/TargetSet"}}
         modules: {type: object, additionalProperties: {$ref: "#/components/schemas/Module"}}
         status_pages: {type: array, items: {$ref: "#/components/schemas/StatusPageDefinition"}}
+    Setting:
+      type: object
+      description: One setting, what it turns, its default, the value in force and where that came from
+      properties:
+        key: {type: string}
+        group: {type: string, enum: [requests, review, use, retention, import, backup, storage]}
+        what: {type: string, description: What the setting turns, in one line}
+        default: {description: The registered default, in the setting's own shape}
+        value: {description: The value in force}
+        from: {type: string, enum: [default, system, collection, tag, entitlement, request], description: Where the value in force comes from}
+        target: {type: string, description: "The scope's target, when from is collection, tag, entitlement or request"}
+        version: {type: integer, description: The version of the row in force, when there is one}
+        actor: {type: string}
+        via: {type: string, enum: [api, mcp, cli, console]}
+        at: {type: string, format: date-time}
+        reason: {type: string}
+        levels:
+          type: array
+          description: The value each present level gives, least specific first, when the setting was resolved for more than the system level
+          items:
+            type: object
+            properties:
+              from: {type: string}
+              target: {type: string}
+              value: {}
+    SettingRow:
+      type: object
+      description: A setting's row at a scope that is not the system's
+      properties:
+        key: {type: string}
+        scope: {type: string, enum: [collection, tag, entitlement, request]}
+        target: {type: string}
+        value: {}
+        version: {type: integer}
+        actor: {type: string}
+        via: {type: string, enum: [api, mcp, cli, console]}
+        at: {type: string, format: date-time}
+        reason: {type: string}
+    SettingChange:
+      type: object
+      description: One change to the settings, a version
+      properties:
+        version: {type: integer}
+        time: {type: string, format: date-time}
+        actor: {type: string}
+        via: {type: string, enum: [api, mcp, cli, console]}
+        action: {type: string, enum: [set, reset, revert]}
+        reverts: {type: integer, description: The version a revert undid}
+        key: {type: string}
+        scope: {type: string, enum: [system, collection, tag, entitlement, request]}
+        target: {type: string}
+        before: {description: The value the change found, when there was one}
+        after: {description: The value it left, when it left one}
+        reason: {type: string}
+        unchanged: {type: boolean, description: Set when the change asked for nothing different}
     ConfigChange:
       type: object
       description: One change to the configuration, a version
@@ -1601,6 +1657,126 @@ paths:
       parameters: [{$ref: "#/components/parameters/Version"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /settings:
+    get:
+      summary: "Every setting: its default, the value in force, and where that came from"
+      description: "Scope: status:read or secrets:admin. The settings of the secrets work (requests and grants, review, use and rate limits, retention, import, backup, storage), each with the value in force at the system level, the registered default, where the value was overridden, and who changed it, when and why. Rows whose signature does not verify are served as absent and listed under bad_rows, having been reported to the log and the audit log."
+      responses:
+        "200":
+          description: The settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    type: array
+                    items: {$ref: "#/components/schemas/Setting"}
+                  overrides:
+                    type: array
+                    description: The rows that are not at the system level, what some collection, tag, entitlement or request holds
+                    items: {$ref: "#/components/schemas/SettingRow"}
+                  bad_rows:
+                    type: array
+                    description: Rows that failed their signature and are treated as absent
+                    items: {type: string}
+        default: {$ref: "#/components/responses/Error"}
+  /settings/{key}:
+    get:
+      summary: One setting, resolved level by level
+      description: "Scope: status:read or secrets:admin. The query places the setting: collection, tag (more than one), entitlement and request. The value in force is the most specific level's, tags taking the stricter value and a request clamped to the bound the level above gives; levels lists each level that was present, least specific first."
+      parameters:
+        - {name: key, in: path, required: true, schema: {type: string}}
+        - {name: collection, in: query, schema: {type: string}}
+        - {name: tag, in: query, description: "More than one may be given", schema: {type: string}}
+        - {name: entitlement, in: query, schema: {type: string}}
+        - {name: request, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: The setting, resolved
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Setting"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      summary: Change one setting
+      description: "Scope: secrets:admin. The value must fit the setting (settings.invalid says what does not); the change is a version, kept with who made it and why, audited and echoed to the chat. With if_version, refused with settings.conflict when the row moved since the caller saw it."
+      parameters:
+        - {name: key, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [value, reason]
+              properties:
+                value:
+                  description: The value, in the setting's own shape (a number, a string such as 30d or unlimited, a list, an object)
+                scope: {type: string, enum: [system, collection, tag, entitlement, request], description: "Where the value sits; system unless said"}
+                target: {type: string, description: "What the scope names: the collection, tag, entitlement or request"}
+                reason: {type: string, description: "Why; kept with the change and shown in the alert chat"}
+                if_version: {type: integer, description: "The version the caller last saw; refused with settings.conflict when a later one is in force"}
+      responses:
+        "200": {$ref: "#/components/responses/SettingChange"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Reset one setting to what the level above gives
+      description: "Scope: secrets:admin. Takes the row away, so the default (or the collection, tag or entitlement above) answers again. With if_version, refused with settings.conflict when the row moved."
+      parameters:
+        - {name: key, in: path, required: true, schema: {type: string}}
+        - {name: scope, in: query, schema: {type: string, enum: [system, collection, tag, entitlement, request]}}
+        - {name: target, in: query, description: "With scope, what it names", schema: {type: string}}
+        - {name: reason, in: query, schema: {type: string}}
+        - {name: if_version, in: query, schema: {type: integer}}
+      responses:
+        "200": {$ref: "#/components/responses/SettingChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /settings/history:
+    get:
+      summary: Changes to the settings, newest first
+      description: "Scope: status:read or secrets:admin"
+      parameters:
+        - {name: key, in: query, description: "Only this setting's changes", schema: {type: string}}
+        - {name: scope, in: query, schema: {type: string}}
+        - {name: target, in: query, description: "With scope, only this target's", schema: {type: string}}
+        - {name: before, in: query, description: "Changes older than this version, for the next page", schema: {type: integer}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+      responses:
+        "200":
+          description: Changes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes: {type: array, items: {$ref: "#/components/schemas/SettingChange"}}
+        default: {$ref: "#/components/responses/Error"}
+  /settings/history/{version}:
+    get:
+      summary: One change to the settings
+      description: "Scope: status:read or secrets:admin"
+      parameters: [{$ref: "#/components/parameters/Version"}]
+      responses:
+        "200": {$ref: "#/components/responses/SettingChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /settings/history/{version}/revert:
+    post:
+      summary: Undo one change to the settings
+      description: "Scope: secrets:admin. What the change found in place goes back, as a new change; settings.conflict when a later change touched the same row."
+      parameters: [{$ref: "#/components/parameters/Version"}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: {type: string, description: "Why"}
+      responses:
+        "200": {$ref: "#/components/responses/SettingChange"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/connector:
     put:

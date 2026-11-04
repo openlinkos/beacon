@@ -276,6 +276,9 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	if o.config != nil {
 		instructions += "\n\n" + ConfigInstructions
 	}
+	if o.settings != nil {
+		instructions += "\n\n" + SettingsInstructions
+	}
 	if o.status != nil {
 		instructions += "\n\n" + StatusInstructions
 	}
@@ -402,7 +405,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	addStatusTools(s, b, o.status)
 	addMachineTools(s, g)
 	if o.config != nil {
-		addConfigTools(s, o.config)
+		addConfigTools(s, o.config, o.settings)
 	}
 	return s
 }

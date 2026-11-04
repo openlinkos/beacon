@@ -19,6 +19,7 @@ import (
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -219,6 +220,7 @@ type Server struct {
 	Auth       *Auth
 	Log        *slog.Logger
 	Config     *configdb.Service
+	Settings   *settings.Service // the secrets work's settings (settings.go); nil: none
 	Status     *status.Service // the public status pages (status.go); nil: none
 }
 
@@ -229,6 +231,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		_, _ = w.Write(openAPI)
 	})
 	s.registerConfig(mux)
+	s.registerSettings(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
