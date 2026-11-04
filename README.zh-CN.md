@@ -48,10 +48,10 @@ Beacon 的设计是让 Agent 干活，让人看得见全部：
 
 | Agent | 接入方式 | Beacon 能否叫醒它 |
 |---|---|---|
-| Claude Code | HTTP 上的 MCP，它自己的 `ssh` | ✅ 用 `beacon-oncall`（无界面模式）或 GitHub workflow |
-| Codex CLI | HTTP 上的 MCP，它自己的 `ssh` | ✅ 用 `beacon-oncall` |
-| 任何 MCP 客户端 | HTTP 上的 MCP | ✅ 用 webhook |
-| Bot 和脚本 | REST 和 `ssh` | ✅ 用 webhook |
+| Claude Code | HTTP 上的 MCP，它自己的 `ssh` | 可以，用 `beacon-oncall`（无界面模式）或 GitHub workflow |
+| Codex CLI | HTTP 上的 MCP，它自己的 `ssh` | 可以，用 `beacon-oncall` |
+| 任何 MCP 客户端 | HTTP 上的 MCP | 可以，用 webhook |
+| Bot 和脚本 | REST 和 `ssh` | 可以，用 webhook |
 
 Beacon 不调用模型：告警该怎么处理由 Agent 决定，哪个 Agent 都可以用。见[让 Agent 值班](https://beacon.openlinkos.com/zh/guide/on-call)。
 

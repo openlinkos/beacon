@@ -48,10 +48,10 @@ Beacon is built for the agent to do the work and for people to see all of it:
 
 | Agent | Connects over | Can be woken by Beacon |
 |---|---|---|
-| Claude Code | MCP over HTTP, its own `ssh` | ✅ with `beacon-oncall` (headless) or a GitHub workflow |
-| Codex CLI | MCP over HTTP, its own `ssh` | ✅ with `beacon-oncall` |
-| Any MCP client | MCP over HTTP | ✅ with a webhook |
-| Bots and scripts | REST and `ssh` | ✅ with a webhook |
+| Claude Code | MCP over HTTP, its own `ssh` | Yes, with `beacon-oncall` (headless) or a GitHub workflow |
+| Codex CLI | MCP over HTTP, its own `ssh` | Yes, with `beacon-oncall` |
+| Any MCP client | MCP over HTTP | Yes, with a webhook |
+| Bots and scripts | REST and `ssh` | Yes, with a webhook |
 
 Beacon calls no model: what to do about an alert is the agent's decision, and every agent is welcome. See [Put an agent on call](https://beacon.openlinkos.com/guide/on-call).
 
