@@ -57,7 +57,16 @@ Beacon 不调用模型：告警该怎么处理由 Agent 决定，哪个 Agent �
 
 ## 快速开始
 
-**需要：**一台 Linux 机器（2 核、4 GB 内存），装好 Docker 和 Compose v2，两个指向它的域名。
+**先在眼前这台机器上试，十分钟**：装了 Docker，一条命令，不需要域名和证书。
+
+```bash
+git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try
+sh up.sh
+```
+
+`up.sh` 启动五个容器——Beacon、VictoriaMetrics、vmalert、一个检测点和一台演示机器——并打印建第一个账号的一次性链接。[在本机试一试](https://beacon.openlinkos.com/zh/guide/quickstart)带你走完剩下的：接入 Claude Code，弄坏演示服务，看 Agent 经 SSH 通道把它修好，它执行的每一条都有记录。
+
+**上生产：**一台 Linux 机器（2 核、4 GB 内存），装好 Docker 和 Compose v2，两个指向它的域名。
 
 ```bash
 git clone https://github.com/openlinkos/beacon.git
@@ -65,7 +74,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh        # 会问两个域名和一个用于申请证书的邮箱
 ```
 
-`install.sh` 生成密钥、校验所有文件、启动 Beacon、VictoriaMetrics、vmalert 和 Caddy，最后告诉你下一步做什么。[30 分钟装好](https://beacon.openlinkos.com/zh/self-hosting/install)带你走完剩下的：第一个检测点、第一台机器、第一个 Agent，以及一次从告警到恢复的故障演练。
+`install.sh` 生成密钥、校验所有文件、启动 Beacon、VictoriaMetrics、vmalert 和 Caddy，最后告诉你下一步做什么。[装在服务器上](https://beacon.openlinkos.com/zh/self-hosting/install)带你走完剩下的：第一个检测点、第一台机器、第一个 Agent，以及一次从告警到恢复的故障演练。
 
 ### 接入 Claude Code
 
@@ -80,7 +89,8 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 
 文档在 [`docs/`](docs/)，发布在 [beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)：
 
-- [30 分钟装好](docs/zh/self-hosting/install.md)：从一台空机器到第一个检测点、第一台机器、第一个 Agent 和第一次演练
+- [在本机试一试](docs/zh/guide/quickstart.md)：十分钟，在你自己的机器上走完整个闭环
+- [装在服务器上](docs/zh/self-hosting/install.md)：从一台空机器到第一个检测点、第一台机器、第一个 Agent 和第一次演练
 - [成员和 Agent](docs/zh/guide/people.md)：账号和角色、Claude Code 和 Codex 通过浏览器接入、无界面 Agent 和它的令牌
 - [让 Agent 值班](docs/zh/guide/on-call.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
 - [SSH 通道](docs/zh/guide/machines.md)：Agent 不拿密钥怎么上机器、录像、NAT 后面的机器

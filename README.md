@@ -57,7 +57,16 @@ Beacon calls no model: what to do about an alert is the agent's decision, and ev
 
 ## Getting started
 
-**Requirements:** a Linux machine with 2 CPUs and 4 GB of memory, Docker with Compose v2, and two DNS names pointing at it.
+**Try it first, in ten minutes** on the machine in front of you: Docker, one command, no domain and no certificate.
+
+```bash
+git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try
+sh up.sh
+```
+
+`up.sh` starts five containers — Beacon, VictoriaMetrics, vmalert, one probe location and a demo machine — and prints the one-time link that makes the first account. [Try it on your laptop](https://beacon.openlinkos.com/guide/quickstart) walks through the rest: connect Claude Code, break the demo service, and watch an agent repair it through the SSH channel while everything it runs is recorded.
+
+**For production:** a Linux machine with 2 CPUs and 4 GB of memory, Docker with Compose v2, and two DNS names pointing at it.
 
 ```bash
 git clone https://github.com/openlinkos/beacon.git
@@ -65,7 +74,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh        # asks for the two host names and an e-mail address for the certificates
 ```
 
-`install.sh` generates the secrets, validates every file, starts Beacon, VictoriaMetrics, vmalert and Caddy, and prints what to do next. [Up in 30 minutes](https://beacon.openlinkos.com/self-hosting/install) walks through the rest: the first probe, the first machine, the first agent, and a rehearsed outage from alert to recovery.
+`install.sh` generates the secrets, validates every file, starts Beacon, VictoriaMetrics, vmalert and Caddy, and prints what to do next. [On a server](https://beacon.openlinkos.com/self-hosting/install) walks through the rest: the first probe, the first machine, the first agent, and a rehearsed outage from alert to recovery.
 
 ### Connect Claude Code
 
@@ -80,7 +89,8 @@ Then run `/mcp` in Claude Code and sign in through the browser: Beacon asks you 
 
 The documentation lives in [`docs/`](docs/) and is published at [beacon.openlinkos.com](https://beacon.openlinkos.com):
 
-- [Up in 30 minutes](docs/self-hosting/install.md): from a bare machine to the first probe, machine, agent and drill
+- [Try it on your laptop](docs/guide/quickstart.md): the whole loop in ten minutes, in Docker on your machine
+- [On a server](docs/self-hosting/install.md): from a bare machine to the first probe, machine, agent and drill
 - [People and their agents](docs/guide/people.md): accounts and roles, connecting Claude Code and Codex through the browser, headless agents and their tokens
 - [Put an agent on call](docs/guide/on-call.md): waking an agent, the evidence, notes, the timeline, probing on demand, `beacon-oncall`
 - [The SSH channel](docs/guide/machines.md): how agents reach machines without keys, recordings, machines behind NAT
