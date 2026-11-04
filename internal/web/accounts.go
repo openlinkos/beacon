@@ -111,8 +111,10 @@ func (s *Server) accountProblem(err error) string {
 		return s.t("That password is one of the commonest; choose another.")
 	case errors.Is(err, store.ErrExists):
 		return s.t("Someone has this username; choose another.")
+	case errors.Is(err, store.ErrLinkExpired):
+		return s.t("This link has expired; ask an owner for a new one.")
 	case errors.Is(err, store.ErrBadLink):
-		return s.t("This link does not work: it was used already, it expired, or it is wrong. Ask an owner for a new one.")
+		return s.t("This link does not work: it was used already, or it is wrong. Ask an owner for a new one.")
 	case errors.Is(err, store.ErrHasAccounts):
 		return s.t("Beacon is set up already: sign in, or ask an owner for an invitation.")
 	case errors.Is(err, store.ErrBadCredentials):

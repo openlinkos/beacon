@@ -84,6 +84,9 @@ var (
 	ErrDisabled = errors.New("the account is disabled")
 	// ErrBadLink means a setup, invitation or reset link is unknown, used or expired.
 	ErrBadLink = errors.New("the link is unknown, used already or expired")
+	// ErrLinkExpired names the one case ErrBadLink can prove: the link's time is up. It wraps ErrBadLink,
+	// so an expired link still counts as a bad one wherever that matters.
+	ErrLinkExpired = fmt.Errorf("the link has expired: %w", ErrBadLink)
 	// ErrExists means the name is taken.
 	ErrExists = errors.New("the name is taken")
 	// ErrHasAccounts means Beacon has accounts already, so there is nothing to set up.
@@ -560,8 +563,11 @@ func (s *Store) Link(kind, code string) (AccountLink, error) {
 		l, found = getLink(tx, code)
 		return nil
 	})
-	if !found || l.Kind != kind || !s.now().Before(l.Expires) {
+	if !found || l.Kind != kind {
 		return AccountLink{}, ErrBadLink
+	}
+	if !s.now().Before(l.Expires) {
+		return AccountLink{}, ErrLinkExpired
 	}
 	return l, nil
 }
@@ -642,8 +648,11 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	var a Account
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		l, ok := getLink(tx, code)
-		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) || !now.Before(l.Expires) {
+		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) {
 			return ErrBadLink
+		}
+		if !now.Before(l.Expires) {
+			return ErrLinkExpired
 		}
 		if l.Kind == LinkSetup {
 			if b := tx.Bucket(bucketAccounts); b != nil && b.Stats().KeyN > 0 {
@@ -687,8 +696,11 @@ func (s *Store) Reset(code, password string) (Account, error) {
 	var a Account
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		cur, ok := getLink(tx, code)
-		if !ok || cur.Kind != LinkReset || !now.Before(cur.Expires) {
+		if !ok || cur.Kind != LinkReset {
 			return ErrBadLink
+		}
+		if !now.Before(cur.Expires) {
+			return ErrLinkExpired
 		}
 		acc, ok := getAccount(tx, cur.User)
 		if !ok {

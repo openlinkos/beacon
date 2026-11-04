@@ -143,7 +143,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 
-还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link does not work: it was used already, it expired, or it is wrong.`（「这个链接不能用：已用过、已过期或不正确。」）时，请所有者重新给一个。详见[控制台](../guide/console.md#signing-in)。
+还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link has expired; ask an owner for a new one.`（「这个链接已过期；请找所有者要一个新的。」，时间到了：初始化和重设链接 30 分钟，邀请 24 小时），或者提示 `This link does not work: it was used already, or it is wrong.`（「这个链接不能用：已用过或者不正确。请找所有者要一个新的。」，已用掉或抄错了）时，请所有者重新给一个。详见[控制台](../guide/console.md#signing-in)。
 
 ### 打开旧链接，控制台显示 404 {#the-console-says-404-on-an-old-link}
 

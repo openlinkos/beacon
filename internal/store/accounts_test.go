@@ -155,7 +155,7 @@ func TestSetupAndInvitations(t *testing.T) {
 		t.Errorf("a taken username: %v", err)
 	}
 	*now = now.Add(25 * time.Hour)
-	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrBadLink) {
+	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired invitation: %v", err)
 	}
 	inv, l, _ = s.CreateInvitation("viewer", "", "alice")
@@ -263,8 +263,11 @@ func TestSignInAndAccounts(t *testing.T) {
 	}
 	code, _, _ = s.CreateResetLink("alice", "alice")
 	*now = now.Add(31 * time.Minute)
-	if _, err := s.Reset(code, "too late for this"); !errors.Is(err, ErrBadLink) {
+	if _, err := s.Reset(code, "too late for this"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired reset link: %v", err)
+	}
+	if _, err := s.Link(LinkReset, code); !errors.Is(err, ErrLinkExpired) {
+		t.Errorf("an expired link through Link: %v", err)
 	}
 }
 

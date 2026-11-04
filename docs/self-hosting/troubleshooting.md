@@ -139,7 +139,7 @@ The sign-in form at `/console/sign-in` says why:
 - `The form has expired; try again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
 - With a token instead: `The token is unknown or has expired.` (the token is mistyped, expired or revoked), or `Token NAME lacks status:read, which the console needs to show anything.` (make a token with `status:read`).
 
-Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](../guide/people.md#the-first-owner)). A setup, invitation or reset link that says `This link does not work: it was used already, it expired, or it is wrong.` needs a new one from an owner. [The console](../guide/console.md#signing-in) has the details.
+Nobody has an account yet? The sign-in page then offers only a token, and says so: the setup link is in Beacon's log, and `beacon setup` prints a new one ([The first owner](../guide/people.md#the-first-owner)). A setup, invitation or reset link that says `This link has expired; ask an owner for a new one.` has run out of its time (30 minutes for a setup or reset link, 24 hours for an invitation), and one that says `This link does not work: it was used already, or it is wrong.` was spent or mistyped; either way an owner makes another. [The console](../guide/console.md#signing-in) has the details.
 
 ### The console says 404 on an old link
 
