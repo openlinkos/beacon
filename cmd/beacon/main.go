@@ -13,6 +13,7 @@
 //	beacon silence create -matchers 'alertname=X,service=Y' -duration 4h -comment TEXT
 //	beacon silence list | silence expire ID
 //	beacon audit verify | storage check
+//	beacon backup now | ls | restore | drill | keygen
 //	beacon enroll probe|host|heartbeat NAME [-rotate]
 //	beacon drill fail 15m | drill off | drill status
 //	beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
@@ -39,6 +40,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/backup"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/clientip"
@@ -107,6 +109,13 @@ func usage(w io.Writer) {
   beacon audit verify [-from-seq N]
                                               check the audit log's hash chain from a checkpoint (default: all)
   beacon storage check                        the database's health: integrity, buckets, audit chain
+  beacon backup now [-full]                   one backup at once (a complete set with -full)
+  beacon backup ls                            what every destination holds, newest first
+  beacon backup restore FILE... -identity KEY|@FILE [-into DIR] [-dry-run]
+                                              decrypt, verify, put the database and what surrounds it back
+  beacon backup drill FILE... -identity KEY|@FILE
+                                              restore to a scratch directory, verify, report the drill
+  beacon backup keygen                        a key pair; the private key prints once, alone
   beacon enroll probe|host|heartbeat NAME [-rotate]
                                               a machine's gateway token (printed once, alone, on stdout)
   beacon drill fail 15m | drill off | drill status
@@ -151,6 +160,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return auditCmd(args[1:], stdout, stderr)
 	case "storage":
 		return storageCmd(args[1:], stdout, stderr)
+	case "backup":
+		return backupCmd(args[1:], stdout, stderr)
 	case "healthcheck":
 		return healthcheck(args[1:], stderr)
 	case "version", "-version", "--version":
@@ -240,8 +251,25 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	so := storeOptions(cfg)
 	// the move from the bbolt file, once: a database from before the SQL storage migrates in
-	// whole or not at all, and the old file stays beside as status.db.pre-sql
-	if migrated, err := store.Migrate(filepath.Join(cfg.DataDir, "status.db"), so); err != nil {
+	// whole or not at all, and the old file stays beside as status.db.pre-sql. Backups being
+	// on, one is taken of the old file first (the plan's: before a migration); a migration
+	// whose backup failed waits for the operator, not for chance.
+	bboltPath := filepath.Join(cfg.DataDir, "status.db")
+	_, bboltErr := os.Stat(bboltPath)
+	if cfg.Backup.Enabled() && bboltErr == nil {
+		bo, err := backupOptions(cfg, path, nil)
+		if err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+		bo.DBPath = bboltPath
+		if err := backup.BackupBeforeMigration(context.Background(), bo); err != nil {
+			log.Error("the backup before the migration failed; fix it and start again (the bbolt file is untouched)", "err", err)
+			return 1
+		}
+		log.Info("a backup of the bbolt database was taken before the migration")
+	}
+	if migrated, err := store.Migrate(bboltPath, so); err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	} else if migrated {
@@ -265,7 +293,28 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	m := metrics.New(version.Version)
-	catalog.Register(m, cdb.Catalog)
+	// the backups, when the configuration turns them on: the schedules (and the built-in
+	// beacon-backup heartbeat the catalogue gains below, whose silence is what alerts)
+	var backups *backup.Manager
+	if cfg.Backup.Enabled() {
+		bo, err := backupOptions(cfg, path, st.Audit)
+		if err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+		backups, err = backup.New(bo)
+		if err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
+		}
+		if backups.GeneratedKey() {
+			if _, err := os.Stat(backups.RecoveryFile()); err == nil {
+				log.Warn("the backup recovery material is still on this machine; take it off and delete it",
+					"file", backups.RecoveryFile())
+			}
+		}
+	}
+	catalog.Register(m, backupCatalogView(cfg, path, backups, cdb.Catalog))
 	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
 		for _, t := range st.Tokens() {
@@ -409,6 +458,9 @@ func serve(args []string, stderr io.Writer) int {
 	go pagesOut.Run(ctx)
 	rt.Restore(st.Groups())
 	go rt.Run(ctx)
+	if backups != nil {
+		go backups.Start(ctx)
+	}
 	inv := &inventory.Checker{Catalog: cdb.Catalog}
 	inv.Register(m)
 	go inv.Run(ctx)
@@ -431,6 +483,14 @@ func serve(args []string, stderr io.Writer) int {
 		}
 		socket := http.NewServeMux()
 		socket.Handle("/v1/config/", ctl.ConfigHandler(cdb))
+		if backups != nil {
+			b := backups
+			socket.Handle("/v1/backup/", backup.CTLHandler(
+				func(ctx context.Context, trigger, by string) (backup.Manifest, error) {
+					return b.Run(ctx, trigger, by, true, false)
+				},
+				b.RecordDrill))
+		}
 		silences := ctl.SilenceHandler(br)
 		socket.Handle("/v1/silences", silences)
 		socket.Handle("/v1/silences/", silences)
