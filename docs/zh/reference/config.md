@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c111d2e3
+sourceHash: sha256-147b239a
 ---
 
 # config.yaml
@@ -24,13 +24,20 @@ sourceHash: sha256-c111d2e3
 | `trusted_proxies` | 地址或 CIDR 段列表 | — | 前面的反向代理（服务眼中的地址），让 API 看到真实客户端地址 |
 | `language` | `zh` 或 `en` | `zh` | 卡片和聊天消息的语言 |
 | `timezone` | 时区 | `Asia/Shanghai` | 卡片上的时间；状态页历史的每一天从这里的午夜开始 |
-| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动。PostgreSQL 在后续版本提供 |
-| `storage.path` | 路径 | `<data_dir>/beacon.db` | 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
+| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动：`sqlite`（一个文件，不依赖服务）或 `postgres`。已经在运维 PostgreSQL、想用托管数据库、按时间点恢复或主备高可用的部署才换；性能不是换的理由。`beacon storage migrate -to postgres` 把 SQLite 数据库搬过去 |
+| `storage.path` | 路径 | `<data_dir>/beacon.db` | SQLite 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
+| `storage.dsn_file` | 路径 | — | `storage.driver: postgres` 时，存放连接串的文件（如 `postgres://beacon@db.example.com:5432/beacon?sslmode=require`），启动时读一次；密码若有也写在文件里，绝不进本配置文件 |
 | `storage.audit.checkpoint_interval` | 时长 | `24h` | 审计日志的哈希链多久生成一个签名检查点 |
 | `storage.audit.retention` | 时长 | `8760h` | 审计记录保留多久（365 天）；剪除旧记录后链仍可校验 |
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
+| `storage.postgres.pool_size` | 数字 | `4` | PostgreSQL 的读连接数；写永远单独占一条连接，与连接池大小无关 |
+| `storage.postgres.statement_timeout` | 时长 | `15s` | 一条 PostgreSQL 语句最多跑多久就被服务端取消，免得一条挂起的语句占住写入；`0` 关闭 |
+| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）：主在数据库里续租约，备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
+| `ha.name` | 字符串 | `beacon` | 租约的名字；一对实例用同一个名字 |
+| `ha.renew` | 时长 | `5s` | 主多久续一次租约 |
+| `ha.expire` | 时长 | `15s` | 租约多久不续就过期；备用实例在这之内接手。必须长于 `ha.renew` |
 
 ## 规则与路由 {#rules-and-routing}
 
@@ -75,6 +82,12 @@ sourceHash: sha256-c111d2e3
 | `ssh.ca_key_file` | 路径 | — | 为每次连机器签短期证书的钥匙；设置它即开启通道。必须与 host key 是不同的钥匙 |
 | `ssh.source_addresses` | CIDR 段列表 | — | 设置后，证书只从这些地址可用 |
 | `ssh.keep` | 时长 | `4320h`（180 天） | 会话及其录像保留多久。至少 `24h` |
+| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放 |
+| `ssh.recordings_s3.endpoint` | URL | — | 桶的地址，如 `https://s3.example.com`，内网 MinIO 用 `http://10.0.0.5:9000`。一律路径风格寻址 |
+| `ssh.recordings_s3.region` | 字符串 | `us-east-1` | 签名用的区域 |
+| `ssh.recordings_s3.bucket` | 字符串 | — | 桶名 |
+| `ssh.recordings_s3.access_key_id_file` | 路径 | 用 `s3` 时必填 | 存放 access key id 的文件 |
+| `ssh.recordings_s3.secret_access_key_file` | 路径 | 用 `s3` 时必填 | 存放 secret access key 的文件 |
 
 ## 链接、页面与品牌 {#links-pages-and-branding}
 

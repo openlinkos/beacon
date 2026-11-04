@@ -25,7 +25,7 @@ docker exec beacon beacon token list
 | `silence` | Silences: [create, list, expire](#beacon-enroll-silence-drill) |
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
-| `storage` | The database's health: [check](#beacon-audit-storage) |
+| `storage` | The database's health: [check](#beacon-audit-storage); the move to PostgreSQL: [migrate](#beacon-audit-storage) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
 | `help` | The whole usage, with the roles, presets and scopes |
@@ -127,7 +127,8 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
-| `storage check` | | The database's health: SQLite's own integrity check, what each bucket holds, and the audit chain's verification |
+| `storage check` | | The database's health: the backend's own check (SQLite's integrity check, or every table on PostgreSQL), what each bucket holds, and the audit chain's verification |
+| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits; a genesis record notes the import. The SQLite file is kept and keeps serving until the configuration names PostgreSQL as the driver; rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 
