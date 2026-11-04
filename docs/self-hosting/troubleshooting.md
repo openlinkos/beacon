@@ -135,7 +135,7 @@ The sign-in form at `/console/sign-in` says why:
 - `Wrong username or password.`: one of the two is wrong; the answer is the same for both. A lost password takes a reset link from an owner (**People**, or `beacon user reset NAME`).
 - `This account is disabled; an owner can enable it.`: an owner enables it on **People**, or with `beacon user enable NAME`.
 - `Too many failed sign-ins; try again in N minutes.`: 10 wrong passwords for this username within 10 minutes, from anywhere. N is how many minutes of that window are left, rounded up, and at least one (`a minute` when only one is left).
-- `Too many failed sign-ins from here; try again in N minutes.`: 20 failures from your address within 10 minutes. N is named the same way.
+- `Too many failed sign-ins from here; try again in N minutes.`: 20 failures from your address within 10 minutes. N is named the same way, and the same sentence is on the account forms (setup, invitation, reset).
 - `The form has expired; try again.`, again and again: the browser did not keep the sign-in form's cookie. The console's cookies are `Secure`, so it must be opened over HTTPS (or on `localhost`); over plain HTTP the form never works. Open it through the TLS proxy at `public_url`.
 - With a token instead: `The token is unknown or has expired.` (the token is mistyped, expired or revoked), or `Token NAME lacks status:read, which the console needs to show anything.` (make a token with `status:read`).
 

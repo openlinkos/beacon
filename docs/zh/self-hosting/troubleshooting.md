@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-33562c69
+sourceHash: sha256-73e129a1
 ---
 
 # 常见问题
@@ -139,7 +139,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - `Wrong username or password.`（「用户名或密码不对。」）：两者有一个不对，提示对两种情况都一样。忘了密码，请所有者给一个重设链接（**成员**页面，或 `beacon user reset NAME`）。
 - `This account is disabled; an owner can enable it.`（「这个账号已停用；所有者可以重新启用。」）：所有者在**成员**页面上启用它，或者执行 `beacon user enable NAME`。
 - `Too many failed sign-ins; try again in N minutes.`（「登录失败的次数太多，请过 N 分钟再试。」）：这个用户名 10 分钟内密码错了 10 次，不论来自哪里。N 是这 10 分钟里还剩下的分钟数，向上取整，至少 1 分钟（只剩 1 分钟时是 `a minute`，「请过 1 分钟再试。」）。
-- `Too many failed sign-ins from here; try again in N minutes.`（「这里登录失败的次数太多，请过 N 分钟再试。」）：你的地址 10 分钟内失败了 20 次。N 的说法相同。
+- `Too many failed sign-ins from here; try again in N minutes.`（「这里登录失败的次数太多，请过 N 分钟再试。」）：你的地址 10 分钟内失败了 20 次。N 的说法相同，一次性链接的表单（初始化、邀请、重设）也是这一句。
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 

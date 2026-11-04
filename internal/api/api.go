@@ -73,27 +73,18 @@ func (a *Auth) client(r *http.Request) netip.Addr {
 	return netip.Addr{}
 }
 
-// Blocked reports whether the client has failed too often recently.
-func (a *Auth) Blocked(r *http.Request) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	w := a.fails[a.client(r)]
-	return w != nil && a.now().Sub(w.start) < failWindow && w.n >= maxFails
-}
-
-// BlockedFor is Blocked with the answer to "how long?": how much of the lockout is left, the time
-// until the client may try again.
+// BlockedFor reports how much of the lockout is left, and whether there is one: how long the client
+// must wait before trying again.
 func (a *Auth) BlockedFor(r *http.Request) (time.Duration, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.left(a.fails[a.client(r)], maxFails)
 }
 
-// UserBlockedFor is BlockedFor for one username's wrong passwords, which lock it from anywhere.
-func (a *Auth) UserBlockedFor(username string) (time.Duration, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.left(a.userFails[username], maxUserFails)
+// Blocked reports whether the client has failed too often recently.
+func (a *Auth) Blocked(r *http.Request) bool {
+	_, blocked := a.BlockedFor(r)
+	return blocked
 }
 
 // left is the time until the window that locked out with limit failures ends.
@@ -118,6 +109,7 @@ func WaitWords(d time.Duration) string {
 }
 
 // RetryAfter is a lockout's wait in whole seconds, rounded up, for the Retry-After header.
+// The gateway answers its lockouts the same way the API does, so it shares these words.
 func RetryAfter(d time.Duration) string {
 	return strconv.Itoa(int((d + time.Second - 1) / time.Second))
 }
@@ -173,12 +165,11 @@ func (a *Auth) Authenticate(r *http.Request, secret string) (store.Principal, bo
 	return p, ok
 }
 
-// userBlocked reports whether the username has had too many wrong passwords recently.
-func (a *Auth) userBlocked(username string) bool {
+// UserBlockedFor is BlockedFor for one username's wrong passwords, which lock it from anywhere.
+func (a *Auth) UserBlockedFor(username string) (time.Duration, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	w := a.userFails[username]
-	return w != nil && a.now().Sub(w.start) < failWindow && w.n >= maxUserFails
+	return a.left(a.userFails[username], maxUserFails)
 }
 
 func (a *Auth) failUser(username string) {
@@ -205,7 +196,10 @@ func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account
 	if len(username) > 64 {
 		username = username[:64]
 	}
-	if a.Blocked(r) || a.userBlocked(username) {
+	if _, blocked := a.BlockedFor(r); blocked {
+		return store.Account{}, ErrBlocked
+	}
+	if _, blocked := a.UserBlockedFor(username); blocked {
 		return store.Account{}, ErrBlocked
 	}
 	acc, err := a.Store.SignIn(username, password)
