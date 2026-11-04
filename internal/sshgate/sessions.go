@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -45,8 +43,7 @@ func (g *Gate) file(t Transcript) {
 		return
 	}
 	b, _ := json.MarshalIndent(t, "", "  ")
-	path := filepath.Join(g.d.Dir, filepath.FromSlash(t.Recording)+".json")
-	if err := os.WriteFile(path, b, 0o600); err != nil {
+	if err := g.d.Files.WriteFile(t.Recording+".json", b); err != nil {
 		g.d.Log.Error("cannot write a transcript", "session", t.ID, "err", err)
 	}
 }
@@ -100,7 +97,7 @@ func (g *Gate) Session(id string) (Transcript, error) {
 	if r.Recording == "" || r.Ended.IsZero() {
 		return t, nil
 	}
-	b, err := os.ReadFile(filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording)+".json"))
+	b, err := g.d.Files.ReadFile(r.Recording + ".json")
 	if err != nil {
 		return t, nil //nolint:nilerr // the record alone is still the answer
 	}
@@ -118,7 +115,7 @@ func (g *Gate) Recording(id string) (io.ReadCloser, error) {
 	if !ok || !idRe.MatchString(id) || r.Recording == "" {
 		return nil, fmt.Errorf("%w %q", ErrNoSession, id)
 	}
-	f, err := os.Open(filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording)+".cast"))
+	f, err := g.d.Files.Open(r.Recording + ".cast")
 	if err != nil {
 		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, id)
 	}
@@ -162,15 +159,8 @@ func (g *Gate) prune() {
 		if r.Recording == "" {
 			continue
 		}
-		base := filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording))
-		_ = os.Remove(base + ".cast")
-		_ = os.Remove(base + ".json")
-		// drop the day's directory, and the month's and year's, once empty
-		for d := filepath.Dir(base); strings.HasPrefix(d, filepath.Clean(g.d.Dir)+string(filepath.Separator)); d = filepath.Dir(d) {
-			if os.Remove(d) != nil {
-				break
-			}
-		}
+		_ = g.d.Files.Remove(r.Recording + ".cast")
+		_ = g.d.Files.Remove(r.Recording + ".json")
 	}
 	if len(gone) > 0 {
 		g.d.Log.Info("old SSH sessions forgotten", "sessions", len(gone))

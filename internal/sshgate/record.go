@@ -3,8 +3,8 @@ package sshgate
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"math"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,23 +20,28 @@ const maxRecording = 16 << 20
 // starts), x exit status.
 type recorder struct {
 	mu      sync.Mutex
-	f       *os.File
+	f       io.WriteCloser
 	last    time.Time
 	written int64
 	full    bool
 	now     func() time.Time
 }
 
-func newRecorder(path string, cols, rows int, command, title string, now func() time.Time) (*recorder, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // inside the recordings directory
-	if err != nil {
-		return nil, err
-	}
+// newRecorder writes the asciicast to w, whose making and closing (a file under the recordings
+// directory, an upload that Close sends) is the store's business.
+func newRecorder(w io.WriteCloser, cols, rows int, command, title string, now func() time.Time) (*recorder, error) {
 	hdr, _ := json.Marshal(map[string]any{"version": 3, "term": map[string]any{"cols": cols, "rows": rows, "type": "xterm-256color"},
 		"timestamp": now().Unix(), "command": command, "title": title})
-	r := &recorder{f: f, last: now(), now: now}
+	r := &recorder{f: w, last: now(), now: now}
 	r.write(append(hdr, '\n'))
 	return r, nil
+}
+
+// close finishes the recording: for a file it closes it, for an upload it sends it.
+func (r *recorder) close() {
+	if r != nil {
+		_ = r.f.Close()
+	}
 }
 
 func (r *recorder) write(b []byte) {
@@ -71,12 +76,6 @@ func (r *recorder) truncated() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.full
-}
-
-func (r *recorder) close() {
-	if r != nil {
-		_ = r.f.Close()
-	}
 }
 
 // Command is one command run at an interactive shell's prompt, as the shell-integration marks delimit

@@ -43,13 +43,16 @@ type Deps struct {
 	// SourceAddresses, when set, go into every certificate as its source-address option (CIDRs), so a
 	// certificate works only from Beacon's own addresses.
 	SourceAddresses []string
-	Dir             string        // where recordings and transcripts are kept
+	Dir             string        // where recordings and transcripts are kept (Files' default)
 	Keep            time.Duration // how long sessions are kept
-	Bot             Poster
-	Lang            i18n.Lang
-	Metrics         *metrics.Metrics
-	Log             *slog.Logger
-	Now             func() time.Time
+	// Files is where recordings and transcripts are kept: DirFiles under Dir (the default), or an
+	// S3-compatible bucket an HA pair shares (ssh.recordings: s3 in the configuration).
+	Files   Files
+	Bot     Poster
+	Lang    i18n.Lang
+	Metrics *metrics.Metrics
+	Log     *slog.Logger
+	Now     func() time.Time
 	// Dial connects to machines; nil uses a net.Dialer. Tests replace it.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// PublicAddress (host:port) is where agents and connector machines reach the channel; it goes into
@@ -127,6 +130,9 @@ func New(d Deps) (*Gate, error) {
 	if d.Dial == nil {
 		var nd net.Dialer
 		d.Dial = nd.DialContext
+	}
+	if d.Files == nil {
+		d.Files = DirFiles{Dir: d.Dir}
 	}
 	k, err := newKey()
 	if err != nil {
