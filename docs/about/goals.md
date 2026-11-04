@@ -38,7 +38,7 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 | Goal | Done when (figures are targets) |
 | --- | --- |
 | **1. Sees** (monitoring): whether services work for their users, what broke and why | A critical outage reaches agents and people within 5 minutes; one probe location's hiccup disturbs nobody; every failure carries its location and its reason; one call returns the evidence |
-| **2. Reaches** (the SSH channel): agents get to every enrolled machine and work on it | ssh, scp, rsync, `ssh -L` and the MCP tools reach any enrolled machine, also behind NAT; the channel adds under 50 ms (measured: about 23 ms per new connection); agents never touch a password or a key |
+| **2. Reaches** (the SSH channel and the secrets): agents get to every enrolled machine and work on it | ssh, scp, rsync, `ssh -L` and the MCP tools reach any enrolled machine, also behind NAT; the channel adds under 50 ms (measured: about 23 ms per new connection); agents never touch a password or a key. The other credentials an agent needs it takes by grant: one authorisation, many uses, a grant allowed to last and to be renewed, and every use traced to the agent, the person it acts for and the reason |
 | **3. Connects** (the platform): people and agents share one identity and one timeline | An agent is one identity on SSH, REST and MCP, acting for a person and never beyond that person's role; a machine is enrolled once, and monitoring and the SSH channel share that identity; one timeline joins alerts, sessions, commands and notes; a new alert can wake an agent; people see in Feishu everything agents do, can replay it, and can pause agents at once |
 
 ## Design goals
@@ -46,17 +46,18 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 | Goal | Done when |
 | --- | --- |
 | **4. Close to how agents work** (first among the design goals) | Standard protocols: SSH, Prometheus queries, HTTP with JSON, MCP; no configuration language of our own. MCP tools match the agents' own tools in name and meaning: run a command, read a file, edit a file, search, background jobs. Results are clean and structured, without terminal control codes; long output is cut and says how to get the rest. Error codes are stable and say how to put the problem right |
-| **5. Visibility instead of approval** | Every session is recorded and can be replayed, every command has a structured record, kept for at least six months. No approval workflow is built in: reviewing is the agent's job, done by its own harness. Beacon supplies information (which machines are critical, for one) and a pause switch for people |
+| **5. Visibility instead of approval** | Every session is recorded and can be replayed, every command has a structured record, kept for at least six months. No command waits for a permit: reviewing what to run is the agent's job, done by its own harness. What Beacon does approve is credentials, once per grant and never at each use (goal 2). Beacon supplies information (which machines are critical, for one) and a pause switch for people |
 | **6. Credentials stay in Beacon** | Passwords and keys exist only in Beacon; machines are reached with certificates valid for minutes; tokens have scopes and expire; secrets are read only from files the configuration names |
 | **7. Configured through Beacon** | The catalogue, probe targets, modules and machines live in Beacon's database and are changed through the API, MCP and the command line, with a history of who changed what; files are for import and export |
 | **8. Small** | One machine with 2 CPUs and 4 GB is ample for the centre; probes and the connectors on machines stay within 20 MB resident; installing takes 30 minutes |
 | **9. Open** | Apache-2.0; everything these goals need is in this repository; no lock-in to a model, a chat service or a cloud |
 | **10. Hostable without a fork** | Only the seams are kept (workspace, storage interface, protocol versions, metering), so a hosted deployment stays possible; none of it is built ahead of need |
+| **11. Adjustable means configured** | Everything tunable is a setting: it ships with a default that works out of the box, lives in Beacon's database with a version, who changed it and why, and can be reverted; the system, a collection, a tag, an entitlement and a request each override the level above. Only the four invariants of the record and the approval are not configurable, because the record and the approval are what the rest stands on |
 
 ## Not doing
 
 - **Beacon is not an agent and calls no model.** It wakes agents, and `beacon-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
-- **No approval workflow.** The pause switch and each machine's access are the only brakes.
+- **No approval of what agents run.** Approval is for credentials, given once per grant and never per use: rules, a review agent or a person decide, and how they combine is configuration ([Secrets for agents](../guide/secrets.md)); a review agent runs outside Beacon, woken by a hook like an on-call agent. Deciding what to run stays the agent's job, done by its own harness. The pause switch remains the master brake, with each machine's access beside it.
 - **No log platform, tracing, APM or custom dashboards.** An agent reads logs through the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.

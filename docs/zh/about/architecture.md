@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-dcbd3d1a
+sourceHash: sha256-511ac2b1
 ---
 
 # 架构
@@ -46,8 +46,9 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 
 ## 状态存在哪里 {#where-state-lives}
 
-- **一个 bbolt 文件**：数据目录（`data_dir`，即 `/var/lib/beacon`）里的 `status.db`。里面有告警组及其备注和唤醒 Agent 的记录、静默、成员的账号（密码只存 argon2id 哈希）、他们的 Agent、令牌和 OAuth 登录（只存 SHA-256 哈希）、机器、SSH 会话的索引、变更事件、配置及其历史、控制台的登录，以及审计日志。
+- **一个 SQL 数据库**：数据目录（`data_dir`，即 `/var/lib/beacon`）里的 `beacon.db`。默认 SQLite——单个文件、WAL、纯 Go 驱动、不用 cgo；可选 PostgreSQL，用于主备、按时间点恢复和托管数据库（见 [PostgreSQL](../self-hosting/postgres.md)）。里面有告警组及其备注和唤醒 Agent 的记录、静默、成员的账号（密码只存 argon2id 哈希）、他们的 Agent、令牌和 OAuth 登录（只存 SHA-256 哈希）、机器、SSH 会话的索引、变更事件、配置及其历史、控制台的登录，以及作为带哈希链的事件表的审计日志。
 - **SSH 会话的录像**：放在它旁边的 `recordings/YYYY/MM/DD/` 下，保留 `ssh.keep` 这么久（默认 180 天）。
+- **备份由 Beacon 自己来做**：按计划在线抓取数据库快照，连同录像、配置和 secrets 目录，用 age 加密给接收者的公钥——服务器只持有公钥，读不了自己的备份——上传前校验、上传后回读核对，按祖父—父—子规则保留，并由一个心跳盯着，备份失败或迟到就告警（见[备份与恢复](../self-hosting/backup.md)）。
 - **管理套接字**：同一目录下的 `ctl.sock`，权限 0600。命令行通过它连到运行中的服务，所以 `setup`、`user`、`agent`、`token`、`enroll`、`machine`、`ssh`、`silence`、`config` 和 `drill` 既不需要网络，也不需要令牌；只有服务自己的用户和 root 能连上。机器的令牌在这里创建，创建第一个账号用的初始化链接也从这里来。
 - **指标和规则不归 Beacon 管**：检测结果由 VictoriaMetrics 存储和查询（参考部署保留 400 天），规则由 vmalert 计算。
 
@@ -102,7 +103,7 @@ Agent 用在 Beacon 上登记的自己的密钥登录 SSH 通道，登录用的�
 | `internal/status` | 公开状态页：组件、组件现在的状态和根据检测点一致判断算出的 90 天历史、来自告警组的事件、维护窗口 |
 | `internal/web`、`internal/web/link` | 控制台（包括登录、初始化、邀请和重设密码、成员、Agent 和 OAuth 授权页面）和公开状态页，基于 `@openlinkos/ui` 的工作台框架（内置在 `static/ol` 下，用 `scripts/update-ui.sh` 更新；asciinema-player 在 `static/` 下），以及卡片打开这些页面用的签名链接 |
 | `internal/sshgate` | SSH 通道：Agent 凭自己的密钥登录、访问结束时关闭打开着的一切、给机器的证书、转接会话和转发的端口、录像（asciicast v3）和文字记录、工具（执行、读、写、改）、NAT 后面机器的连接器、暂停、回显到告警群 |
-| `internal/store` | bbolt 数据库：告警组（带备注和唤醒记录）、静默、账号和一次性链接、Agent 及其预设、令牌（只存哈希，带作用域、主体、有效期、SSH 密钥和机器）、OAuth 客户端和授权、机器、SSH 会话的索引、变更事件、控制台登录、审计日志、演练 |
+| `internal/store` | 存在 SQL 里的状态——默认 SQLite，可选 PostgreSQL——走同一个键值接口：告警组（带备注和唤醒记录）、静默、账号和一次性链接、Agent 及其预设、令牌（只存哈希，带作用域、主体、有效期、SSH 密钥和机器）、OAuth 客户端和授权、机器、SSH 会话的索引、变更事件、控制台登录、作为事件的审计日志、演练 |
 | `internal/ctl` | 数据目录里的管理套接字，命令行的 `setup`、`user`、`agent`、`token`、`enroll`、`machine`、`ssh`、`silence`、`config` 和 `drill` 都通过它 |
 | `internal/catalog`、`internal/targets` | 检测点、心跳、到期资源和状态页；检测目标文件和检测协议的类型；每次修改都要通过的校验 |
 | `internal/configdb` | 数据库里的目录、检测目标集和检测模块文件：带版本的修改、历史和撤销、导入和导出、网关读取的当前配置 |
@@ -120,5 +121,5 @@ Agent 用在 Beacon 上登记的自己的密钥登录 SSH 通道，登录用的�
 - **每个操作既是 REST 接口，也是 MCP 工具**，走同一个方法，都有作用域检查、审计记录和到告警群的回显。错误是 `{"error", "code"}`，错误码保持稳定（[REST API](../reference/api.md)）。
 - **检测协议只增不改**：只加字段和接口，从不修改或删除，所以不同版本的检测点和网关始终能配合。
 - **贴近 Agent 的习惯**：用 SSH、shell、HTTP 加 JSON、Prometheus 查询和 MCP，不自创协议或配置语言。
-- **没有审批流程，也不调用模型**：Beacon 记录并展示 Agent 做了什么；拿主意的是 Agent，暂停开关和每台机器的权限是仅有的刹车。
+- **不审批 Agent 运行什么，也不调用模型**：Beacon 记录并展示 Agent 做了什么；审批只针对凭据，按授权一次批准、从不按取用，由规则、Beacon 之外的审核 Agent 或人按配置来定；拿主意的是 Agent，暂停开关仍是总闸。
 - **给人看的内容都有翻译**：卡片、提示和群消息有英文和中文；日志、命令行输出和 API 错误保持英文。
