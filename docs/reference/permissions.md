@@ -30,7 +30,7 @@ An OAuth sign-in (Claude Code, Codex) is held, besides, to the preset and the ma
 
 ## Scopes
 
-The first nine are for people and agents, on the REST API, MCP and the SSH channel; the rest are for machines, on the metrics gateway ([Sources](sources.md)).
+The first nine are for people and agents, on the REST API, MCP and the SSH channel; the five `secrets:` scopes govern the vault ([Secrets for agents](../guide/secrets.md)); the rest are for machines, on the metrics gateway ([Sources](sources.md)).
 
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
@@ -43,6 +43,11 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `machines:write` | operator and above | Adding and removing machines, connector keys, pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
 | `accounts:write` | owner; no preset | Managing people and everyone's agents; an owner's, by hand only |
+| `secrets:describe` | a secrets preset, or `custom` | Searching within entitlements and seeing summaries ([the secrets](#the-secrets-levels-entitlements-and-actions)) |
+| `secrets:read` | the same, one step up | Reading values through `get_secret`, within entitlements and grants |
+| `secrets:use` | the same, one step up | Using values without seeing them: `beacon run`, `run_command`, `http_request`, file delivery |
+| `secrets:review` | a review agent's own | Deciding requests on the review chain; reviewing is not reading |
+| `secrets:admin` | owner; grantable to an agent | Levels, tags, entitlements and [settings](settings.md) |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
 | `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success |
@@ -51,6 +56,42 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `changes:write` | a machine's or an expert's token | Posting change events |
 
 A token of its own carries its scopes by name, fixed when it was made; an agent's credentials follow the agent instead — whichever of its tokens or OAuth sign-ins it presents, it may do what the agent's preset and its owner's role both allow now. `GET /api/v1/token` and `POST /api/v1/token/renew` take any scope: the token itself is the credential.
+
+## The secrets: levels, entitlements and actions
+
+The vault — collections, items and their grants — is governed by two axes, and the stricter one decides. A scope of the five above lets an agent in the door; what it may then ask for is the second axis. [Secrets for agents](../guide/secrets.md) walks the workflow; [the design](../about/secrets.md) says why.
+
+**The level of an item** — what a request for it takes. Set on a collection, a tag or the item; an item's own level overrides, otherwise the strictest of the collection's default and the item's tags applies:
+
+| Level | A request for the item takes |
+| --- | --- |
+| `auto` | An entitlement: granted on asking |
+| `review` | The review chain — rules, a review agent, people, as [configured](settings.md#review) |
+| `person` | A person, always; a review agent cannot approve these |
+| `never` | No agent at all; people can still read the item in the console |
+
+**The entitlement of an agent** — what it may even ask for. Default deny: an agent arrives with nothing, and an item outside its entitlements is invisible to it, search included. An entitlement names principals (agents, agent tags, or all of a person's), resources (collections, tag globs, items, optionally fields), the actions below, a minimum `approval`, settings overrides of its own, and its own reviewers and expiry. A `deny` entitlement is checked before every allow; several entitlements matching one request combine to the widest approval with the highest limits; and no entitlement lifts an agent past what its owner may read in that collection. Changing an item's tags needs `manage`, because tags change permissions.
+
+**The actions** — what the holder receives:
+
+| Action | The agent gets | The tool |
+| --- | --- | --- |
+| `describe` | Names, categories, tags, URLs, field names, the level asked, whether it holds a grant | `search_secrets` |
+| `read` | Field values; an `otp` field the current code and its seconds | `get_secret` |
+| `use` | Nothing seen: the value injected into a command, a process, a request or a file on a bound machine | `beacon run`, `run_command`, `http_request`, file delivery |
+
+An item, tag or collection may restrict its actions to `use` only; the actions available are the entitlement's and the item's in common.
+
+**People's permissions per collection** — four grades, beside the global roles:
+
+| Permission | What it allows |
+| --- | --- |
+| `describe` | Seeing an item's summary |
+| `read` | Reading values, with a password re-check inside `reveal.reauth_window`; every read is recorded like an agent's use |
+| `edit` | Creating, changing, archiving and removing items |
+| `manage` | Levels, tags, members and entitlements of the collection, and its settings |
+
+An owner holds `manage` on every collection. An agent never gets more than its owner's grade, and when the owner loses it, the settings say what happens to the grants ([settings](settings.md)).
 
 ## Machines
 
