@@ -7,12 +7,18 @@
 # Dockerfile.dockerignore beside this file lets only those into the build context. The site is the same files
 # on every platform, so it is built once, on the builder's own platform, and an image for another platform needs
 # no emulation. The base images are pinned by digest and updated by Dependabot.
-FROM --platform=$BUILDPLATFORM docker.io/library/node:24.22.2-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS build
+# Node 26 is the current LTS line. From Node 25 the official image no longer
+# ships Corepack, so `corepack enable` on its own cannot see pnpm. Corepack
+# 0.36.0 is installed from npm, then asked for the pnpm named in package.json,
+# which fails the build here if that package manager cannot be fetched.
+FROM --platform=$BUILDPLATFORM docker.io/library/node:26.13.0-alpine3.24@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /src/docs
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 \
+ && corepack enable
 COPY docs/package.json docs/pnpm-lock.yaml docs/pnpm-workspace.yaml docs/.npmrc ./
-RUN pnpm install --frozen-lockfile
+RUN corepack prepare --activate \
+ && pnpm install --frozen-lockfile
 COPY CHANGELOG.md /src/
 COPY internal/api/ /src/internal/api/
 COPY internal/gateway/ /src/internal/gateway/

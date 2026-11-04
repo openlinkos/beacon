@@ -6,7 +6,7 @@ require (
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	go.etcd.io/bbolt v1.5.0
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.61.1

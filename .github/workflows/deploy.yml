@@ -32,12 +32,13 @@ jobs:
       - name: No internal names in public files
         run: |
           set -euo pipefail
-          # the organisation's public pages (the security contact, the privacy notice in the site's footer) are fine;
+          # the organisation's public pages (the security contact, the privacy notice in the site's footer)
+          # and the public status page the docs use as an example are fine;
           # the site's dependencies and build output are not ours
           if hits=$(grep -rn -i -E "linkos\.io|cdn-|pve-|develop-|monitor-us|worker-us|homelab|goedge|openclaw|hczhang" \
               --exclude-dir=node_modules --exclude-dir=cache --exclude-dir=dist \
               deploy/ docs/ CONTRIBUTING.md SECURITY.md |
-              grep -v -E 'security@linkos\.io|https://linkos\.io/(zh/)?privacy'); then
+              grep -v -E 'security@linkos\.io|https://linkos\.io/(zh/)?privacy|status\.linkos\.io'); then
             echo "$hits"
             echo "::error::names of the makers' own machines or accounts in public files"
             exit 1

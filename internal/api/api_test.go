@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -69,6 +70,39 @@ func TestAuth(t *testing.T) {
 	}
 	if code, out := c.do("GET", "/api/v1/alerts", read, ""); code != 429 || out["code"] != "auth.too_many_failures" {
 		t.Errorf("after many failures even a good token waits: %d %v", code, out)
+	}
+}
+
+// TestLockoutNamesTheWait checks that a locked address is told it is locked and how long to wait,
+// on the dedicated code, and that a good token does not get past the lockout.
+func TestLockoutNamesTheWait(t *testing.T) {
+	e, c := setup(t)
+	good := e.Token(t, "reader", "status:read")
+	if code, out := c.do("GET", "/api/v1/alerts", "lbt_wrong", ""); code != http.StatusUnauthorized || out["code"] != "auth.invalid" {
+		t.Fatalf("one bad token is not a lockout: %d %v", code, out)
+	}
+	for range 19 { // twenty failures in all, then the address is locked
+		c.do("GET", "/api/v1/alerts", "lbt_wrong", "")
+	}
+	req, err := http.NewRequest(http.MethodGet, c.srv.URL+"/api/v1/alerts", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+good)
+	resp, err := c.srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	var out map[string]any
+	_ = json.Unmarshal(b, &out)
+	wait, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+	msg, _ := out["error"].(string)
+	if resp.StatusCode != http.StatusTooManyRequests || out["code"] != "auth.too_many_failures" ||
+		!strings.Contains(msg, "too many failed attempts from this address") || !strings.Contains(msg, "try again in") ||
+		err != nil || wait < 1 || wait > 600 {
+		t.Fatalf("lockout: %d Retry-After=%q %s", resp.StatusCode, resp.Header.Get("Retry-After"), b)
 	}
 }
 

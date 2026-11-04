@@ -7,12 +7,12 @@
 # updated by Dependabot.
 
 # The data directory belongs to nonroot (65532): a new named volume takes this ownership.
-FROM --platform=$BUILDPLATFORM docker.io/library/busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e AS files
+FROM --platform=$BUILDPLATFORM docker.io/library/busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4 AS files
 RUN mkdir -p /out/var/lib/beacon /out/etc/beacon/catalog /out/etc/beacon/targets \
  && chown 65532:65532 /out/var/lib/beacon \
  && chmod 0700 /out/var/lib/beacon
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 ARG TARGETPLATFORM
 COPY --from=files /out/ /
 COPY --chmod=0755 $TARGETPLATFORM/beacon /usr/local/bin/beacon

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" role="img" aria-label="Every location probes the target again at once">
+  <rect x="0.5" y="0.5" width="639" height="239" rx="10" fill="#0f172a" stroke="#334155"/>
+  <text x="28" y="40" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">probe_now</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">
+    <text x="28" y="82" fill="#e2e8f0"><tspan fill="#34d399" font-weight="600">$</tspan> probe_now service=demo-web</text>
+    <text x="28" y="126" fill="#e2e8f0">edge-1  <tspan fill="#34d399">ok</tspan>  http_status 200</text>
+    <text x="28" y="152" fill="#e2e8f0">missing —</text>
+    <text x="28" y="204" fill="#e2e8f0">summary <tspan fill="#34d399">1 OK</tspan></text>
+  </g>
+</svg>

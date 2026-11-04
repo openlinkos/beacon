@@ -85,6 +85,9 @@ var (
 	ErrDisabled = errors.New("the account is disabled")
 	// ErrBadLink means a setup, invitation or reset link is unknown, used or expired.
 	ErrBadLink = errors.New("the link is unknown, used already or expired")
+	// ErrLinkExpired names the one case ErrBadLink can prove: the link's time is up. It wraps ErrBadLink,
+	// so an expired link still counts as a bad one wherever that matters.
+	ErrLinkExpired = fmt.Errorf("the link has expired: %w", ErrBadLink)
 	// ErrExists means the name is taken.
 	ErrExists = errors.New("the name is taken")
 	// ErrHasAccounts means Beacon has accounts already, so there is nothing to set up.
@@ -441,6 +444,11 @@ const (
 	SetupTTL  = 30 * time.Minute
 	InviteTTL = 24 * time.Hour
 	ResetTTL  = 30 * time.Minute
+
+	// expiredLinkKeep is how long an expired link stays. Opening it then still says it expired.
+	// Forgetting it at once made a newer link (beacon setup, another invitation) turn the old page
+	// into "used already", which it was not. A week covers a person coming back to the old tab.
+	expiredLinkKeep = 7 * 24 * time.Hour
 )
 
 // AccountLink is a one-time link: to set up the first account (setup), to join with a role (invite), or
@@ -464,8 +472,9 @@ func hashLink(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// createLink stores a link and returns its code, which is not stored. Expired links are forgotten on the
-// way.
+// createLink stores a link and returns its code, which is not stored. A link expired longer than
+// expiredLinkKeep is forgotten on the way, and so is a row that no longer reads. One that has only just
+// expired stays, so opening it still says it expired after a newer link was made.
 func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx) error) (string, AccountLink, error) {
 	code, err := randomID(32)
 	if err != nil {
@@ -482,7 +491,7 @@ func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx
 		var old [][]byte
 		tx.Range(bucketLinks, kv.Range{}, func(k, v []byte) bool {
 			var x AccountLink
-			if json.Unmarshal(v, &x) != nil || !now.Before(x.Expires) {
+			if json.Unmarshal(v, &x) != nil || now.After(x.Expires.Add(expiredLinkKeep)) {
 				old = append(old, append([]byte(nil), k...))
 			}
 			return true
@@ -540,8 +549,11 @@ func (s *Store) Link(kind, code string) (AccountLink, error) {
 		l, found = getLink(tx, code)
 		return nil
 	})
-	if !found || l.Kind != kind || !s.now().Before(l.Expires) {
+	if !found || l.Kind != kind {
 		return AccountLink{}, ErrBadLink
+	}
+	if !s.now().Before(l.Expires) {
+		return AccountLink{}, ErrLinkExpired
 	}
 	return l, nil
 }
@@ -617,8 +629,11 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	var a Account
 	err = s.db.Update(func(tx kv.Tx) error {
 		l, ok := getLink(tx, code)
-		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) || !now.Before(l.Expires) {
+		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) {
 			return ErrBadLink
+		}
+		if !now.Before(l.Expires) {
+			return ErrLinkExpired
 		}
 		if l.Kind == LinkSetup {
 			if tx.Count(bucketAccounts) > 0 {
@@ -662,8 +677,11 @@ func (s *Store) Reset(code, password string) (Account, error) {
 	var a Account
 	err = s.db.Update(func(tx kv.Tx) error {
 		cur, ok := getLink(tx, code)
-		if !ok || cur.Kind != LinkReset || !now.Before(cur.Expires) {
+		if !ok || cur.Kind != LinkReset {
 			return ErrBadLink
+		}
+		if !now.Before(cur.Expires) {
+			return ErrLinkExpired
 		}
 		acc, ok := getAccount(tx, cur.User)
 		if !ok {

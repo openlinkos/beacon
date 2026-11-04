@@ -14,7 +14,7 @@ func TestEvidenceRoutes(t *testing.T) {
 	read := e.Token(t, "reader", "status:read")
 	write := e.Token(t, "claude-code", "status:read", "alerts:write")
 	id := testutil.GroupID()
-	if _, err := e.Bridge.RecordChange(context.Background(), store.Change{Source: "ci", Kind: "deploy", Service: "hub-linkos-io", Summary: "hub v2"}, "ci"); err != nil {
+	if _, err := e.Bridge.RecordChange(context.Background(), store.Change{Source: "ci", Kind: "deploy", Service: "hub-example-com", Summary: "hub v2"}, "ci"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,7 +59,7 @@ func TestEvidenceRoutes(t *testing.T) {
 		t.Errorf("timeline: %d %v", code, kinds)
 	}
 
-	code, out = c.do("GET", "/api/v1/changes?service=hub-linkos-io&since=1h", read, "")
+	code, out = c.do("GET", "/api/v1/changes?service=hub-example-com&since=1h", read, "")
 	if changes, _ := out["changes"].([]any); code != 200 || len(changes) != 1 || changes[0].(map[string]any)["posted_by"] != "ci" {
 		t.Errorf("changes: %d %v", code, out)
 	}

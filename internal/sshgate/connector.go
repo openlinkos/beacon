@@ -207,11 +207,32 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 				_ = r.Reply(true, reply)
 			}
 			if m, ok := g.d.Store.Machine(name); ok && m.HostKey == "" {
+				// The machine's client registers this forward only after it has read the reply
+				// (golang.org/x/crypto/ssh's Listen). A probe opened in that gap is refused and
+				// not kept for Accept, so one try could miss the host key until an agent connected.
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
-					if _, err := g.learnHostKey(ctx, c); err != nil {
-						g.d.Log.Warn("connector machine's host key could not be learned", "machine", name, "err", err)
+					delay := 20 * time.Millisecond
+					var err error
+					for {
+						if _, err = g.learnHostKey(ctx, c); err == nil {
+							return
+						}
+						if g.connectors.get(name) != c { // replaced, or the machine was removed
+							return
+						}
+						timer := time.NewTimer(delay)
+						select {
+						case <-ctx.Done():
+							timer.Stop()
+							g.d.Log.Warn("connector machine's host key could not be learned", "machine", name, "err", err)
+							return
+						case <-timer.C:
+						}
+						if delay < 500*time.Millisecond {
+							delay *= 2
+						}
 					}
 				}()
 			}

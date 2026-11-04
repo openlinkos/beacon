@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a1ee42ac
+sourceHash: sha256-73e129a1
 ---
 
 # 常见问题
@@ -123,7 +123,7 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 - **OAuth 客户端要求重新登录。** 它的登录被吊销了，或者授权页面上允许的期限到了：从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的。** 像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥，而旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
 - **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](../reference/api.md#scopes)）。
-- **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住；常见于客户端拿着错误的令牌不停重试。
+- **`auth.too_many_failures`。** 同一个地址 10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住。消息里写明还要等多久，响应带 `Retry-After`。REST API 和网关都这样回答。`POST /oauth/token` 回答 429 `too_many_requests`（OAuth 自己的错误码），`error_description` 里是同一段等待，响应同样带 `Retry-After`。常见于客户端拿着错误的令牌不停重试。MCP 对同一次锁定回答 401，因为它用的库没有 429：正文里写明要等多久，响应也带 `Retry-After`。
 - **续期时返回 `token.too_soon`（429）。** 令牌不到 24 小时前刚续过期，仍然有效。
 
 ### probe_now 报告有检测点缺席 {#probe_now-names-locations-as-missing}
@@ -138,12 +138,12 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 
 - `Wrong username or password.`（「用户名或密码不对。」）：两者有一个不对，提示对两种情况都一样。忘了密码，请所有者给一个重设链接（**成员**页面，或 `beacon user reset NAME`）。
 - `This account is disabled; an owner can enable it.`（「这个账号已停用；所有者可以重新启用。」）：所有者在**成员**页面上启用它，或者执行 `beacon user enable NAME`。
-- `Too many failed sign-ins; try again in a few minutes.`（「登录失败的次数太多，请过几分钟再试。」）：这个用户名 10 分钟内密码错了 10 次，不论来自哪里；等这 10 分钟过去。
-- `Too many failed sign-ins from here; try again in a few minutes.`（「这里登录失败的次数太多，请过几分钟再试。」）：你的地址 10 分钟内失败了 20 次，等这 10 分钟过去。
+- `Too many failed sign-ins; try again in N minutes.`（「登录失败的次数太多，请过 N 分钟再试。」）：这个用户名 10 分钟内密码错了 10 次，不论来自哪里。N 是这 10 分钟里还剩下的分钟数，向上取整，至少 1 分钟（只剩 1 分钟时是 `a minute`，「请过 1 分钟再试。」）。
+- `Too many failed sign-ins from here; try again in N minutes.`（「这里登录失败的次数太多，请过 N 分钟再试。」）：你的地址 10 分钟内失败了 20 次。N 的说法相同，一次性链接的表单（初始化、邀请、重设）也是这一句。
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。
 
-还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化、邀请或重设链接提示 `This link does not work: it was used already, it expired, or it is wrong.`（「这个链接不能用：已用过、已过期或不正确。」）时，请所有者重新给一个。详见[控制台](../guide/console.md#signing-in)。
+还没有人有账号？这时登录页面只提供令牌登录，并会说明：初始化链接在 Beacon 的日志里，`beacon setup` 能再打印一个（见[第一位所有者](../guide/people.md#the-first-owner)）。初始化链接提示 `This link has expired. Run beacon setup to make a new one.`（「这个链接已过期。请运行 beacon setup 生成一个新的。」）是 30 分钟到了：再运行一次 `beacon setup`。这时还没有所有者可以找。邀请或重设链接提示 `This link has expired; ask an owner for a new one.`（「这个链接已过期；请找所有者要一个新的。」）是时间到了（邀请 24 小时，重设 30 分钟），请所有者重新给一个。提示 `This link does not work: it was used already, or it is wrong.`（「这个链接不能用：已用过或者不正确。请找所有者要一个新的。」）是已经用掉或抄错了。过期的链接在新建一个之后仍会这样说明，保留 7 天；过了 7 天就忘掉，再打开会显示已用过或不正确。详见[控制台](../guide/console.md#signing-in)。
 
 ### 打开旧链接，控制台显示 404 {#the-console-says-404-on-an-old-link}
 

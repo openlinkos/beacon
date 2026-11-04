@@ -3,11 +3,13 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -53,6 +55,41 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 	return res, text
 }
 
+// TestLockoutNamesTheWait checks that MCP, which can only answer 401, says the address is locked
+// and how long to wait, instead of the bare "invalid token" a bad credential gets.
+func TestLockoutNamesTheWait(t *testing.T) {
+	e := testutil.New(t)
+	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store, Now: func() time.Time { return now }}, slog.Default()))
+	defer srv.Close()
+	post := func(token string) (int, string, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b), resp.Header.Get("Retry-After")
+	}
+	if code, body, retry := post("lbt_wrong"); code != http.StatusUnauthorized || !strings.Contains(body, "invalid token") || strings.Contains(body, "try again in") || retry != "" {
+		t.Fatalf("one bad token: %d Retry-After=%q %s", code, retry, body)
+	}
+	for range 19 {
+		post("lbt_wrong")
+	}
+	code, body, retry := post(e.Token(t, "reader", "status:read"))
+	if code != http.StatusUnauthorized || !strings.Contains(body, "too many failed sign-ins from this address; try again in 10 minutes") || retry != "600" {
+		t.Fatalf("lockout: %d Retry-After=%q %s", code, retry, body)
+	}
+}
+
 func TestMCP(t *testing.T) {
 	e := testutil.New(t)
 	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
@@ -78,7 +115,7 @@ func TestMCP(t *testing.T) {
 			t.Errorf("%s needs annotations and a description", tool.Name)
 		}
 	}
-	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.linkos.io is down") {
+	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.example.com is down") {
 		t.Errorf("list_alerts: %s", text)
 	}
 	if _, text := call(t, read, "status_summary", nil); !strings.Contains(text, `"critical":1`) {
