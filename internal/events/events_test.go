@@ -1,0 +1,367 @@
+package events
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/openlinkos/beacon/internal/kv"
+)
+
+type fixture struct {
+	db  *kv.SQLite
+	log *Log
+	now time.Time
+}
+
+func open(t *testing.T, o Options) *fixture {
+	t.Helper()
+	f := &fixture{now: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
+	if o.Now == nil {
+		o.Now = func() time.Time { return f.now }
+	}
+	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: filepath.Join(t.TempDir(), "beacon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	log, err := Open(db.Handle(), db.WriteHandle(), "audit_events", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.db, f.log = db, log
+	return f
+}
+
+func TestAppendAndQuery(t *testing.T) {
+	f := open(t, Options{})
+	base := f.now
+	for i := range 5 {
+		e, err := f.log.Append(Event{Actor: "alice", Action: "ack", Object: fmt.Sprintf("g%d", i%2), Detail: fmt.Sprintf("note %d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Seq != uint64(i+1) || e.Hash == "" || e.PrevHash == "" && i > 0 {
+			t.Fatalf("append %d: %+v", i, e)
+		}
+		f.now = base.Add(time.Duration(i+1) * time.Minute)
+	}
+	// the chain runs
+	got, total, err := f.log.Query(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 5 || len(got) != 5 || got[0].Seq != 5 {
+		t.Fatalf("query: %d %d first %d", total, len(got), got[0].Seq)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].Hash != got[i-1].PrevHash {
+			t.Fatalf("chain: %d does not follow %d", got[i].Seq, got[i-1].Seq)
+		}
+	}
+	// filters
+	got, total, _ = f.log.Query(Filter{Actor: "alice", Action: "ack", Object: "g1"})
+	if total != 2 || len(got) != 2 { // g1 is the second and the fourth
+		t.Fatalf("filtered: %d %d", total, len(got))
+	}
+	got, total, _ = f.log.Query(Filter{From: base.Add(90 * time.Second), To: base.Add(3 * time.Minute)})
+	if total != 2 || got[0].Seq != 4 || got[1].Seq != 3 { // the third and the fourth minute
+		t.Fatalf("time window: %d %+v", total, got)
+	}
+	// pagination
+	got, total, _ = f.log.Query(Filter{Limit: 2, Offset: 2})
+	if total != 5 || len(got) != 2 || got[0].Seq != 3 {
+		t.Fatalf("page: %d %+v", total, got)
+	}
+	// a wrong actor matches nothing
+	_, total, _ = f.log.Query(Filter{Actor: "bob"})
+	if total != 0 {
+		t.Fatalf("bob: %d", total)
+	}
+}
+
+func TestVerify(t *testing.T) {
+	f := open(t, Options{})
+	for range 4 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "ack"}); err != nil {
+			t.Fatal(err)
+		}
+		f.now = f.now.Add(time.Minute)
+	}
+	res, err := f.log.Verify()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Events != 4 || res.LastSeq != 4 || res.Head == "" {
+		t.Fatalf("verify: %+v", res)
+	}
+	// tamper with one record: the hash no longer matches what it says of itself
+	tamper(t, f.db, `UPDATE audit_events SET detail = 'gone fishing' WHERE seq = 2`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a changed record: %v", err)
+	}
+	// delete a middle record: the chain no longer runs
+	restore(t, f)
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatalf("after restore: %v", err)
+	}
+	tamper(t, f.db, `DELETE FROM audit_events WHERE seq = 3`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a deleted record: %v", err)
+	}
+	restore(t, f)
+	// rewrite the tail without checkpoints is invisible to the walk alone, so make one and try
+	if _, err := f.log.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	tamper(t, f.db, `DELETE FROM audit_events WHERE seq = 4`) // the checkpoint at 4 stands
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a deleted record under a checkpoint: %v", err)
+	}
+	restore(t, f)
+}
+
+// tamper runs SQL straight against the tables, as whoever gets the database file would.
+func tamper(t *testing.T, db *kv.SQLite, q string) {
+	t.Helper()
+	if _, err := db.WriteHandle().Exec(q); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// restore rebuilds the fixture: a tampered database stays tampered, so each break has its own.
+// What the new fixture's log uses as its clock stays the new fixture's; set f2.now, not f's.
+func restore(t *testing.T, f *fixture) {
+	t.Helper()
+	_ = f.db.Close()
+	f2 := open(t, Options{})
+	for range 4 {
+		if _, err := f2.log.Append(Event{Actor: "alice", Action: "ack"}); err != nil {
+			t.Fatal(err)
+		}
+		f2.now = f2.now.Add(time.Minute)
+	}
+	*f = *f2
+}
+
+func TestCheckpoints(t *testing.T) {
+	f := open(t, Options{CheckpointInterval: time.Hour})
+	for range 3 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+		f.now = f.now.Add(30 * time.Minute)
+	}
+	cps, err := f.log.Checkpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the first record is checkpointed at once, then one every hour: after 12:00, 12:30 and
+	// 13:00 that is a checkpoint at 1 and one at 3
+	if len(cps) != 2 || cps[0].Seq != 1 || cps[1].Seq != 3 || cps[1].Count != 2 || cps[1].FirstSeq != 2 {
+		t.Fatalf("checkpoints after an hour: %+v", cps)
+	}
+	// the checkpoint matches the chain
+	res, err := f.log.Verify()
+	if err != nil || res.Events != 3 {
+		t.Fatalf("verify with a checkpoint: %v %+v", err, res)
+	}
+	// a changed checkpoint is seen: its own hash covers it
+	tamper(t, f.db, `UPDATE event_checkpoints SET head = '`+cps[1].Head[:8]+`0000' WHERE seq = 3`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a changed checkpoint: %v", err)
+	}
+	// a forged signature is seen
+	restore(t, f)
+	if _, err := f.log.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	cps, _ = f.log.Checkpoints()
+	tamper(t, f.db, `UPDATE event_checkpoints SET signature = '`+cps[len(cps)-1].Signature[:8]+`00' WHERE seq = 4`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a forged signature: %v", err)
+	}
+}
+
+func TestPruneKeepsTheChain(t *testing.T) {
+	f := open(t, Options{})
+	base := f.now
+	for i := range 10 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a", Detail: fmt.Sprintf("n%d", i)}); err != nil {
+			t.Fatal(err)
+		}
+		f.now = base.Add(time.Duration(i) * time.Hour)
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatal(err)
+	}
+	// eight hours of retention takes the first three (they are older than the cutoff)
+	n, err := f.log.Prune(8 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Fatalf("pruned %d", n)
+	}
+	if res, err := f.log.Verify(); err != nil || res.Events != 7 || res.FirstSeq != 4 {
+		t.Fatalf("verify after prune: %v %+v", err, res)
+	}
+	// and the chain continues from where it was
+	e, err := f.log.Append(Event{Actor: "alice", Action: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Seq != 11 || e.PrevHash == "" {
+		t.Fatalf("append after prune: %+v", e)
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatal(err)
+	}
+	// pruning nearly everything still leaves a verifiable chain: the record at the clock's now
+	// (seq 11) stays, anchored by the checkpoint the prune wrote at 10
+	n, err = f.log.Prune(time.Nanosecond) // the cutoff falls before every record but that one
+	if err != nil || n != 7 {
+		t.Fatalf("prune all: %d %v", n, err)
+	}
+	if res, err := f.log.Verify(); err != nil || res.Events != 1 || res.Head == "" {
+		t.Fatalf("verify after pruning the rest: %v %+v", err, res)
+	}
+	// verify from any checkpoint whose records are still there
+	cps, _ := f.log.Checkpoints()
+	if len(cps) == 0 {
+		t.Fatal("the prune left no checkpoints")
+	}
+	last := cps[len(cps)-1]
+	if res, err := f.log.VerifySince(last.Seq); err != nil {
+		t.Fatalf("verify since %d: %v %+v", last.Seq, err, res)
+	}
+	// a checkpoint whose records were pruned cannot be verified from: the walk starts where it
+	// left off and finds the records gone
+	if _, err := f.log.VerifySince(cps[0].Seq); !errors.Is(err, ErrBrokenChain) {
+		t.Errorf("verify since a pruned checkpoint %d: %v", cps[0].Seq, err)
+	}
+	if _, err := f.log.VerifySince(999); err == nil {
+		t.Error("verify since a seq that is no checkpoint should say so")
+	}
+	// events that vanish without a checkpoint break the chain
+	tamper(t, f.db, `DELETE FROM audit_events`)
+	tamper(t, f.db, `DELETE FROM event_checkpoints WHERE seq > 3`)
+	tamper(t, f.db, `INSERT INTO audit_events (seq, time, actor, via, action, hash, prev_hash) VALUES (5, 0, 'x', '', 'a', 'x', 'x')`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("records without an anchor: %v", err)
+	}
+}
+
+func TestReadOnlyLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "beacon.db")
+	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wlog, err := Open(db.Handle(), db.WriteHandle(), "audit_events", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if _, err := wlog.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil { // cleanly: the WAL is folded into the file
+		t.Fatal(err)
+	}
+	ro, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ro.Close() })
+	rlog, err := Open(ro.Handle(), nil, "audit_events", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, total, err := rlog.Query(Filter{}); err != nil || total != 3 {
+		t.Fatalf("query read-only: %v %d", err, total)
+	}
+	if res, err := rlog.Verify(); err != nil || res.Events != 3 {
+		t.Fatalf("verify read-only: %v %+v", err, res)
+	}
+	if _, err := rlog.Append(Event{Actor: "alice", Action: "a"}); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("append read-only: %v", err)
+	}
+	if _, err := rlog.Prune(time.Hour); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("prune read-only: %v", err)
+	}
+	if _, err := rlog.Checkpoint(); !errors.Is(err, ErrReadOnly) {
+		t.Errorf("checkpoint read-only: %v", err)
+	}
+}
+
+func TestAppendTxCommitsWithTheCaller(t *testing.T) {
+	f := open(t, Options{})
+	err := withTx(f.db.WriteHandle(), func(tx *sql.Tx) error {
+		e := Event{Actor: "alice", Action: "a"}
+		if err := f.log.AppendTx(tx, &e); err != nil {
+			return err
+		}
+		if e.Seq != 1 {
+			t.Fatalf("seq: %d", e.Seq)
+		}
+		return errors.New("roll it back")
+	})
+	if err == nil {
+		t.Fatal("the caller's error should come back")
+	}
+	if _, total, _ := f.log.Query(Filter{}); total != 0 {
+		t.Fatalf("a rolled-back append left %d records", total)
+	}
+	// and commits with the caller
+	if err := withTx(f.db.WriteHandle(), func(tx *sql.Tx) error {
+		e := Event{Actor: "alice", Action: "a"}
+		return f.log.AppendTx(tx, &e)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, total, _ := f.log.Query(Filter{}); total != 1 {
+		t.Fatalf("append in a caller's transaction: %d", total)
+	}
+}
+
+func TestProvidedSignKey(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef") // 32 bytes, for the tests only
+	f := open(t, Options{SignKey: key, SignerID: "root"})
+	if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	f.now = f.now.Add(25 * time.Hour)
+	if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	cps, err := f.log.Checkpoints()
+	if err != nil || len(cps) != 2 { // one at the first record, one when the 24 hours passed
+		t.Fatalf("checkpoints: %v %+v", err, cps)
+	}
+	if cps[0].Signer != "root" {
+		t.Fatalf("signer: %s", cps[0].Signer)
+	}
+	// the key is not in the database when the caller provides it
+	var n int
+	_ = f.db.Handle().QueryRow(`SELECT COUNT(*) FROM event_keys`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("event_keys has %d rows", n)
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenRejectsBadNames(t *testing.T) {
+	f := open(t, Options{})
+	for _, name := range []string{"Audit", "audit-events", "drop table x", ""} {
+		if _, err := Open(f.db.Handle(), f.db.WriteHandle(), name, Options{}); err == nil {
+			t.Errorf("name %q should be refused", name)
+		}
+	}
+}
