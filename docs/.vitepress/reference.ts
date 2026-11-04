@@ -110,7 +110,7 @@ const configStructs = (): Map<string, { tag: string | null; type?: string; field
       const stack: typeof fields[] = [fields];
       for (const line of m[2].split('\n')) {
         const l = line.replace(/\/\/.*$/, '').trim();
-        const open = /^(\w+) struct \{$/.exec(l);
+        const open = /^(\w+)\s+struct \{$/.exec(l); // gofmt aligns the name and the keyword
         const close = /^\} `yaml:"([^"]+)"`$/.exec(l);
         const field = /^(\w+)\s+(\S+)\s+`yaml:"([^"]+)"`/.exec(l);
         if (open) {
@@ -149,7 +149,7 @@ const configKeys = (): string[] => {
         walk(f.fields as typeof fields, `${path}.`);
         continue;
       }
-      const t = (f.type ?? '').replace(/^\[\]/, '').replace(/^map\[\]?\w*\]/, '');
+      const t = (f.type ?? '').replace(/^\*/, '').replace(/^\[\]/, '').replace(/^map\[\]?\w*\]/, ''); // pointers and slices name a struct the same
       if (structs.has(t)) {
         if (f.type?.startsWith('map[')) for (const s of severities) walk(structs.get(t)!, `${path}.${s}.`);
         else walk(structs.get(t)!, `${path}.`);
