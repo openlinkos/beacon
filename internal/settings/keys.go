@@ -179,7 +179,7 @@ var anomalyKind = kind{
 }
 
 // itemVersionsKind is retention.item_versions: how long to keep versions, and how many of the
-// newest to keep whatever their age ("365 天，另外始终保留最近 10 个版本").
+// newest to keep whatever their age ("365 days, plus the latest 10 versions whatever their age").
 var itemVersionsKind = kind{
 	name: "item_versions",
 	check: func(v json.RawMessage) (json.RawMessage, error) {

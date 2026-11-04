@@ -80,7 +80,7 @@ func TestResolutionLevelByLevel(t *testing.T) {
 }
 
 // Several tags cover one item and each overrides the same setting: counts and durations take the
-// smaller, consequences the more conservative of 拒绝、过期、交给下一层、等待、批准, booleans take
+// smaller, consequences the more conservative of deny, expire, pass on, wait, approve; booleans take
 // the disabling side where the design's default is the safe one, and what the design does not
 // order falls to the first tag in name order.
 func TestSeveralTagsTakeTheStricter(t *testing.T) {

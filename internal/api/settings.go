@@ -41,7 +41,9 @@ func (s *Server) registerSettings(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/settings/{key}", s.with("secrets:admin", s.deleteSetting))
 }
 
-func settingsActor(who bridge.Actor) settings.Actor { return settings.Actor{Name: who.Name, Via: who.Via} }
+func settingsActor(who bridge.Actor) settings.Actor {
+	return settings.Actor{Name: who.Name, Via: who.Via}
+}
 
 // settingsError maps the settings' errors to HTTP answers.
 func (s *Server) settingsError(w http.ResponseWriter, err error) {

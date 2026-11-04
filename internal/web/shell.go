@@ -142,7 +142,8 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 	} else if v.person() {
 		agents = len(s.Store.Agents(v.Account.Username))
 	}
-	settings := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"}}
+	settings := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"},
+		{Key: "settings", Label: s.t("System settings"), Href: consolePath("/settings"), Icon: "settings"}}
 	if v.owner() {
 		settings = append(settings, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
 	}
@@ -207,6 +208,10 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Token revoked"), "success"
 	case "reverted":
 		return s.t("Change reverted"), "success"
+	case "changed":
+		return s.t("Setting changed"), "success"
+	case "reset":
+		return s.t("Setting reset; the level above answers again"), "success"
 	case "password":
 		return s.t("Password changed; your other sign-ins ended"), "success"
 	case "role":

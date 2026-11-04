@@ -9,6 +9,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
@@ -31,8 +32,10 @@ func problemCode(err error) string {
 		return "not_firing"
 	case errors.Is(err, bridge.ErrBadInput):
 		return "bad_input"
-	case errors.Is(err, configdb.ErrConflict):
+	case errors.Is(err, configdb.ErrConflict), errors.Is(err, settings.ErrConflict):
 		return "conflict"
+	case errors.Is(err, settings.ErrInvalid):
+		return "setting_invalid"
 	case errors.Is(err, configdb.ErrInvalid):
 		return "invalid"
 	case errors.Is(err, sshgate.ErrDisabled):
@@ -58,6 +61,10 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("A later change touched the same items; revert that one first, or change them through the API.")
 	case "invalid":
 		return s.t("The configuration would not pass its checks after this change, so nothing changed.")
+	case "setting_invalid":
+		return s.t("The value does not fit this setting, so nothing changed.")
+	case "setting_conflict":
+		return s.t("The setting changed meanwhile; read it again and retry.")
 	case "ssh_off":
 		return s.t("The SSH channel is off.")
 	case "not_revocable":

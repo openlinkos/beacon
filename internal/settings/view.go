@@ -13,8 +13,8 @@ type View struct {
 	What    string          `json:"what"`
 	Default json.RawMessage `json:"default"`
 	Value   json.RawMessage `json:"value"`
-	From    string          `json:"from"`             // default, system, collection, tag, entitlement or request
-	Target  string          `json:"target,omitempty"` // the scope's target, when from is neither default nor system
+	From    string          `json:"from"`              // default, system, collection, tag, entitlement or request
+	Target  string          `json:"target,omitempty"`  // the scope's target, when from is neither default nor system
 	Version int64           `json:"version,omitempty"` // of the row in force, when there is one
 	Actor   string          `json:"actor,omitempty"`
 	Via     string          `json:"via,omitempty"`

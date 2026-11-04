@@ -221,7 +221,7 @@ type Server struct {
 	Log        *slog.Logger
 	Config     *configdb.Service
 	Settings   *settings.Service // the secrets work's settings (settings.go); nil: none
-	Status     *status.Service // the public status pages (status.go); nil: none
+	Status     *status.Service   // the public status pages (status.go); nil: none
 }
 
 // Register adds the API's routes to mux.

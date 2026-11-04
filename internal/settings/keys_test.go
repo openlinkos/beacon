@@ -15,86 +15,86 @@ import (
 // stored value is the same thing in the setting's own shape, and the comment says the words.
 func TestDefaultsMatchThePlan(t *testing.T) {
 	plan := map[string]string{
-		// ---- Requests and grants (the plan's 申请与授权 table)
-		"request.default_uses":        `"unlimited"`,                                           // 不限
-		"request.max_uses":            `"unlimited"`,                                           // 不限
-		"request.default_duration":    `{"auto":"never","review":"30d","person":"7d"}`,         // auto: 不过期; review: 30 天; person: 7 天
-		"request.max_duration":        `"unlimited"`,                                           // 不限
+		// ---- Requests and grants (the plan's requests-and-grants table)
+		"request.default_uses":        `"unlimited"`,                                           // no limit
+		"request.max_uses":            `"unlimited"`,                                           // no limit
+		"request.default_duration":    `{"auto":"never","review":"30d","person":"7d"}`,         // auto: no expiry; review: 30 days; person: 7 days
+		"request.max_duration":        `"unlimited"`,                                           // no limit
 		"request.reason_min_length":   `10`,                                                    // 10
-		"use.reason":                  `{"mode":"required","min_length":2}`,                    // 必填，最短 2
-		"request.pending_ttl":         `"24h"`,                                                 // 24 小时
+		"use.reason":                  `{"mode":"required","min_length":2}`,                    // required, at least 2 characters
+		"request.pending_ttl":         `"24h"`,                                                 // 24 hours
 		"request.on_pending_expiry":   `"expire"`,                                              // expire
-		"grant.renewal":               `{"auto":"auto","review":"request","person":"request"}`, // auto 级 auto；其余 request
-		"grant.expiry_notice":         `"3d"`,                                                  // 提前 3 天（短于 1 天的不提醒）
+		"grant.renewal":               `{"auto":"auto","review":"request","person":"request"}`, // auto renews itself; the rest ask
+		"grant.expiry_notice":         `"3d"`,                                                  // 3 days ahead (grants under a day are not told)
 		"grant.on_policy_tightened":   `"revoke"`,                                              // revoke
 		"grant.on_owner_access_lost":  `"revoke"`,                                              // revoke
 		"grant.on_item_changed":       `"notify_holders"`,                                      // notify_holders
-		"grant.alert_grace":           `"15m"`,                                                 // 15 分钟
-		"agents.default_entitlements": `[]`,                                                    // 空
+		"grant.alert_grace":           `"15m"`,                                                 // 15 minutes
+		"agents.default_entitlements": `[]`,                                                    // empty
 
-		// ---- Review (审核)
+		// ---- Review (the plan's review table)
 		"review.chain":              `["rules","agents","people"]`, // [rules, agents, people]
 		"review.agent.may_approve":  `["review"]`,                  // [review]
-		"review.agent.max_uses":     `"unlimited"`,                 // 不限
-		"review.agent.max_duration": `"unlimited"`,                 // 不限
-		"review.agent.timeout":      `"10m"`,                       // 10 分钟
+		"review.agent.max_uses":     `"unlimited"`,                 // no limit
+		"review.agent.max_duration": `"unlimited"`,                 // no limit
+		"review.agent.timeout":      `"10m"`,                       // 10 minutes
 		"review.agent.on_timeout":   `"next"`,                      // next
-		"review.people.timeout":     `"24h"`,                       // 24 小时
+		"review.people.timeout":     `"24h"`,                       // 24 hours
 		"review.people.on_timeout":  `"expire"`,                    // expire
-		"review.approvals_required": `1`,                           // 1（每个级别可分别设）
+		"review.approvals_required": `1`,                           // 1 (settable per level)
 		"review.separation":         `"requester"`,                 // requester
-		"review.notify_decisions":   `["feishu"]`,                  // 飞书
+		"review.notify_decisions":   `["feishu"]`,                  // Feishu
 
-		// ---- Use, rate limits and anomalies (取用、限流、异常)
+		// ---- Use, rate limits and anomalies (the plan's use table)
 		"rate.per_agent_per_minute": `600`,        // 600
 		"rate.on_exceed":            `"throttle"`, // throttle
 		"anomaly.rules": `{"first_collection_use":true,"usage_spike":{"enabled":true,"times_mean_7d":5},` +
-			`"denial_spike":true,"signature_failure":true,"sealed_state":true}`, // 6.7 的五条，全开（用量取 7 天均值的 5 倍）
+			`"denial_spike":true,"signature_failure":true,"sealed_state":true}`, // the plan's five rules, all on (usage at 5 times the 7-day mean)
 		"anomaly.on_detect":     `"notify"`,                       // notify
 		"otp.seed_to_agents":    `false`,                          // false
-		"reveal.reauth_window":  `"5m"`,                           // 5 分钟
-		"scrub.encodings":       `["plain","base64","url","hex"]`, // 原值、base64、URL 编码、十六进制
+		"reveal.reauth_window":  `"5m"`,                           // 5 minutes
+		"scrub.encodings":       `["plain","base64","url","hex"]`, // the value itself, base64, URL encoding, hexadecimal
 		"http.allow_private":    `false`,                          // false
 		"http.follow_redirects": `"same_host"`,                    // same_host
 		"file.on_change":        `"deliver"`,                      // deliver
 		"sealed.on_request":     `"refuse"`,                       // refuse
 
-		// ---- Retention (保留期)
-		"retention.audit":           `"365d"`,                            // 365 天
-		"retention.uses":            `"365d"`,                            // 365 天
-		"retention.requests":        `"365d"`,                            // 365 天
-		"retention.item_versions":   `{"keep":"365d","min_versions":10}`, // 365 天，另外始终保留最近 10 个版本
-		"retention.trash":           `"30d"`,                             // 30 天
-		"audit.checkpoint_interval": `"24h"`,                             // 24 小时
-		"audit.checkpoint_publish":  `["backup","feishu"]`,               // 备份；配了飞书就同时发飞书
-		"audit.export":              `null`,                              // 无
+		// ---- Retention (the plan's retention table)
+		"retention.audit":           `"365d"`,                            // 365 days
+		"retention.uses":            `"365d"`,                            // 365 days
+		"retention.requests":        `"365d"`,                            // 365 days
+		"retention.item_versions":   `{"keep":"365d","min_versions":10}`, // 365 days, plus the latest 10 versions whatever their age
+		"retention.trash":           `"30d"`,                             // 30 days
+		"audit.checkpoint_interval": `"24h"`,                             // 24 hours
+		"audit.checkpoint_publish":  `["backup","feishu"]`,               // the backup; Feishu too, when configured
+		"audit.export":              `null`,                              // none
 
-		// ---- Import (导入)
-		"import.levels.by_source": `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`, // 1Password Personal、Private → person；Chrome → person；其余 vault → review
+		// ---- Import (the plan's import table)
+		"import.levels.by_source": `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`, // 1Password Personal and Private -> person; Chrome -> person; every other vault -> review
 		"import.levels.by_category": `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never",` +
-			`"social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`, // 证件和金融类 → never
+			`"social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`, // the identity and finance categories -> never
 		"import.on_conflict":   `"ask"`,    // ask
 		"attachments.max_size": `10485760`, // 10 MB
 
 		// ---- Backup (§11): schedule, retention, checks, retries, failure, heartbeat, pg_dump
-		"backup.schedule.database":   `"1h"`,    // 数据库每小时
-		"backup.schedule.recordings": `"24h"`,   // 录像和配置每天
-		"backup.retention.hourly":    `24`,      // 每小时留 24 份
-		"backup.retention.daily":     `14`,      // 每天 14 份
-		"backup.retention.weekly":    `8`,       // 每周 8 份
-		"backup.retention.monthly":   `12`,      // 每月 12 份
-		"backup.verify.integrity":    `true`,    // 加密前 integrity_check（开）
-		"backup.verify.readback":     `true`,    // 上传后回读核对（都开）
-		"backup.retries":             `3`,       // 重试 3 次，间隔递增
-		"backup.on_failure":          `"alert"`, // 默认只告警
-		"backup.heartbeat":           `"2h"`,    // 心跳最长间隔 2 小时
-		"backup.pg_dump_daily":       `false`,   // 每天一份 pg_dump 进加密备份（关）
+		"backup.schedule.database":   `"1h"`,    // the database, hourly
+		"backup.schedule.recordings": `"24h"`,   // recordings and the configuration, daily
+		"backup.retention.hourly":    `24`,      // 24 hourly copies kept
+		"backup.retention.daily":     `14`,      // 14 daily copies kept
+		"backup.retention.weekly":    `8`,       // 8 weekly copies kept
+		"backup.retention.monthly":   `12`,      // 12 monthly copies kept
+		"backup.verify.integrity":    `true`,    // integrity_check before encrypting (on)
+		"backup.verify.readback":     `true`,    // read back after uploading (both on)
+		"backup.retries":             `3`,       // 3 retries, the wait growing
+		"backup.on_failure":          `"alert"`, // alert only, by default
+		"backup.heartbeat":           `"2h"`,    // 2 hours between heartbeats at most
+		"backup.pg_dump_daily":       `false`,   // a daily pg_dump inside the encrypted backup (off)
 
 		// ---- Storage (§10.3): the lease values the design says are configurable. The driver, the
 		// DSN and the SQLite and PostgreSQL tuning are read before the database opens, so they live
 		// in the configuration file; the lease loop reads from here.
-		"storage.lease.renew":   `"5s"`,  // 主每 5 秒续一次
-		"storage.lease.expires": `"15s"`, // 15 秒过期
+		"storage.lease.renew":   `"5s"`,  // the primary renews every 5 seconds
+		"storage.lease.expires": `"15s"`, // the lease lasts 15 seconds
 	}
 	for key, want := range plan {
 		d, ok := Definitions[key]

@@ -27,9 +27,6 @@ reported, so a change made straight in the database never takes effect.`
 // settingsKind is the configuration kind that addresses the settings.
 const settingsKind = "settings"
 
-// errSettingsInput says the call named something there is not; the MCP answers carry plain words.
-var errSettingsInput = errors.New("no such setting")
-
 // WithSettings adds the settings to the configuration tools (kind "settings").
 func WithSettings(s *settings.Service) Option { return func(o *options) { o.settings = s } }
 
@@ -109,27 +106,6 @@ func settingsChanges(ctx context.Context, svc *settings.Service, in configChange
 	}{Changes: svc.History(in.Key, in.Scope, in.Target, in.Before, min(limit, 200))}, nil
 }
 
-// settingChange is get_config_change's settings kind.
-func settingChange(ctx context.Context, svc *settings.Service, in versionIn) (any, error) {
-	if _, err := need(ctx, "status:read", "secrets:admin"); err != nil {
-		return nil, err
-	}
-	ch, ok := svc.ChangeAt(in.Version)
-	if !ok {
-		return nil, fmt.Errorf("no settings change with version %d", in.Version)
-	}
-	return ch, nil
-}
-
-// revertSetting is revert_config_change's settings kind.
-func revertSetting(ctx context.Context, svc *settings.Service, in revertIn) (any, error) {
-	who, err := settingsActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return svc.Revert(ctx, who, in.Version, in.Note)
-}
-
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
@@ -140,7 +116,7 @@ func mustJSON(v any) []byte {
 // first, and a caller who may read the status may read either.
 func settingChangeIfSettings(ctx context.Context, svc *settings.Service, in versionIn) (any, bool, error) {
 	if _, err := need(ctx, "status:read"); err != nil {
-		return nil, false, nil // let the configuration's own scope check answer
+		return nil, false, nil //nolint:nilerr // no read scope at all: the configuration's own check answers
 	}
 	ch, ok := svc.ChangeAt(in.Version)
 	if !ok {
@@ -153,14 +129,14 @@ func settingChangeIfSettings(ctx context.Context, svc *settings.Service, in vers
 // change the settings; otherwise the configuration's own path answers.
 func revertSettingIfSettings(ctx context.Context, svc *settings.Service, in revertIn) (any, bool, error) {
 	if _, err := need(ctx, "secrets:admin"); err != nil {
-		return nil, false, nil
+		return nil, false, nil //nolint:nilerr // not a settings caller: the configuration's own path answers
 	}
 	if _, ok := svc.ChangeAt(in.Version); !ok {
 		return nil, false, nil
 	}
 	who, err := settingsActor(ctx)
 	if err != nil {
-		return nil, false, nil
+		return nil, false, nil //nolint:nilerr // cannot change the settings: the configuration's own path answers
 	}
 	out, err := svc.Revert(ctx, who, in.Version, in.Note)
 	return out, true, err
