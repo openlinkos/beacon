@@ -525,6 +525,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"That password is one of the commonest; choose another.":                                    "这是最常见的密码之一，请换一个。",
 	"Someone has this username; choose another.":                                                "这个用户名已被占用，请换一个。",
 	"This link has expired; ask an owner for a new one.":                                        "这个链接已过期；请找所有者要一个新的。",
+	"This link has expired. Run beacon setup to make a new one.":                                "这个链接已过期。请运行 beacon setup 生成一个新的。",
 	"This link does not work: it was used already, or it is wrong. Ask an owner for a new one.": "这个链接不能用：已用过或者不正确。请找所有者要一个新的。",
 	"Beacon is set up already: sign in, or ask an owner for an invitation.":                     "Beacon 已经初始化过了：请登录，或找所有者要一份邀请。",
 	"The current password is wrong.":                                                            "当前密码不对。",

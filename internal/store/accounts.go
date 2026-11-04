@@ -460,6 +460,11 @@ const (
 	SetupTTL  = 30 * time.Minute
 	InviteTTL = 24 * time.Hour
 	ResetTTL  = 30 * time.Minute
+
+	// expiredLinkKeep is how long an expired link stays. Opening it then still says it expired.
+	// Forgetting it at once made a newer link (beacon setup, another invitation) turn the old page
+	// into "used already", which it was not. A week covers a person coming back to the old tab.
+	expiredLinkKeep = 7 * 24 * time.Hour
 )
 
 // AccountLink is a one-time link: to set up the first account (setup), to join with a role (invite), or
@@ -483,8 +488,9 @@ func hashLink(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// createLink stores a link and returns its code, which is not stored. Expired links are forgotten on the
-// way.
+// createLink stores a link and returns its code, which is not stored. A link expired longer than
+// expiredLinkKeep is forgotten on the way, and so is a row that no longer reads. One that has only just
+// expired stays, so opening it still says it expired after a newer link was made.
 func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx *bolt.Tx) error) (string, AccountLink, error) {
 	code, err := randomID(32)
 	if err != nil {
@@ -505,7 +511,7 @@ func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx *bolt
 		var old [][]byte
 		_ = b.ForEach(func(k, v []byte) error {
 			var x AccountLink
-			if json.Unmarshal(v, &x) != nil || !now.Before(x.Expires) {
+			if json.Unmarshal(v, &x) != nil || now.After(x.Expires.Add(expiredLinkKeep)) {
 				old = append(old, append([]byte(nil), k...))
 			}
 			return nil

@@ -271,6 +271,34 @@ func TestSignInAndAccounts(t *testing.T) {
 	}
 }
 
+// TestExpiredLinkOutlivesANewerOne keeps a link that has only just expired when a newer one is made, and
+// forgets it once it has been expired for more than a week.
+func TestExpiredLinkOutlivesANewerOne(t *testing.T) {
+	s, now := openTest(t)
+	old, _, err := s.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(31 * time.Minute)
+	fresh, _, err := s.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Link(LinkSetup, old); !errors.Is(err, ErrLinkExpired) {
+		t.Fatalf("an expired link after a newer one: %v", err)
+	}
+	if _, err := s.Link(LinkSetup, fresh); err != nil {
+		t.Fatalf("the newer link: %v", err)
+	}
+	*now = now.Add(8 * 24 * time.Hour)
+	if _, _, err := s.CreateSetupLink(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Link(LinkSetup, old); errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
+		t.Fatalf("a link expired for over a week: %v", err)
+	}
+}
+
 func TestRoles(t *testing.T) {
 	if got := RoleScopes("viewer"); !slices.Equal(got, []string{"status:read", "sessions:read"}) {
 		t.Errorf("viewer: %v", got)

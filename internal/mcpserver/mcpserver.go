@@ -90,13 +90,46 @@ func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger, opts ...Opt
 		}
 		return &auth.TokenInfo{Scopes: p.Scopes, Expiration: p.Expires, UserID: p.Key(), Extra: map[string]any{principalKey: p}}, nil
 	}
+	var hdl http.Handler
 	if o.metadata == nil {
-		return auth.RequireBearerToken(verify, nil)(h)
+		hdl = auth.RequireBearerToken(verify, nil)(h)
+	} else {
+		hdl = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{ResourceMetadataURL: o.metadata(r)})(h).ServeHTTP(w, r)
+		})
 	}
+	// The library answers a lockout with 401 and has no 429. The wrapper adds Retry-After to that 401,
+	// the same wait the text names. A request with no token is still "no bearer token": the library
+	// reports that before the verifier runs, and the header is set whenever the address is already locked.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{ResourceMetadataURL: o.metadata(r)})(h).ServeHTTP(w, r)
+		if d, blocked := a.BlockedFor(r); blocked {
+			w = &retryAfterWriter{ResponseWriter: w, after: api.RetryAfter(d)}
+		}
+		hdl.ServeHTTP(w, r)
 	})
 }
+
+// retryAfterWriter sets Retry-After on the 401 a lockout gets. Flush and Unwrap stay available, so a
+// streaming response is not cut off by the wrapper.
+type retryAfterWriter struct {
+	http.ResponseWriter
+	after string
+}
+
+func (w *retryAfterWriter) WriteHeader(code int) {
+	if code == http.StatusUnauthorized && w.after != "" {
+		w.Header().Set("Retry-After", w.after)
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *retryAfterWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *retryAfterWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // lockoutError says the address may not try again yet, and for how long, where the SDK's only
 // answers are a 401 that unwraps to ErrInvalidToken and a 500 for anything else: it unwraps to

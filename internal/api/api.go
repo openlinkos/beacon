@@ -108,8 +108,8 @@ func WaitWords(d time.Duration) string {
 	return strconv.Itoa(minutes) + " minutes"
 }
 
-// RetryAfter is a lockout's wait in whole seconds, for the header of the same name. The gateway
-// answers its lockouts the same way the API does, so it shares these words.
+// RetryAfter is a lockout's wait in whole seconds, rounded up, for the Retry-After header.
+// The gateway answers its lockouts the same way the API does, so it shares these words.
 func RetryAfter(d time.Duration) string {
 	return strconv.Itoa(int((d + time.Second - 1) / time.Second))
 }
