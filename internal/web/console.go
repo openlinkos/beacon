@@ -135,6 +135,9 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/tokens/{name}/claim", s.action("accounts:write", s.claim))
 	at("GET", "/config", s.console("status:read|config:write", s.configPage))
 	at("GET", "/settings", s.console("status:read|secrets:admin", s.settingsPage))
+	if s.Secrets != nil {
+		s.registerSecretPages(at)
+	}
 	if s.Vault != nil {
 		at("GET", "/secrets", s.console("", s.vaultPage))
 		at("GET", "/secrets/{id}", s.console("", s.vaultCollectionPage))

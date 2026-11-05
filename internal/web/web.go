@@ -87,8 +87,8 @@ type vaultUI interface {
 	Collection(nameOrID string) (secrets.Collection, bool)
 	Permissions(collection string) []secrets.Permission
 	SetPermission(who secrets.Actor, collection, subject, perm, reason string) error
-	CreateCollection(who secrets.Actor, name, description, level string) (secrets.Collection, error)
-	UpdateCollection(who secrets.Actor, id, description, level string) (secrets.Collection, error)
+	CreateCollection(who secrets.Actor, name, description, level string, actions []string) (secrets.Collection, error)
+	UpdateCollection(who secrets.Actor, id, description, level string, actions []string) (secrets.Collection, error)
 	Items(collection, state string) []secrets.Item
 	Item(ref string) (secrets.Item, secrets.Collection, bool)
 	Versions(item string) []secrets.ItemVersion
@@ -100,7 +100,7 @@ type vaultUI interface {
 	Generate(who secrets.Actor, item, section, field, reason string, spec secrets.GenSpec) (secrets.Item, error)
 	Reveal(who secrets.Actor, item string, fields []string, password string) (map[string]string, []secrets.Field, error)
 	Tags() []secrets.Tag
-	SetTag(who secrets.Actor, name, level, description string) (secrets.Tag, error)
+	SetTag(who secrets.Actor, name, level, description string, actions []string) (secrets.Tag, error)
 	DeleteTag(who secrets.Actor, name string) error
 	EffectiveLevel(item secrets.Item) string
 	WhoCanGet(collection string) []string
@@ -128,6 +128,7 @@ type Server struct {
 	Config    *configdb.Service
 	Settings  *settings.Service // the secrets work's settings (settingspage.go); nil: the console's settings page is empty
 	Vault     vaultUI           // the secrets vault (vaultpage.go); nil: the console's vault page is away
+	Secrets   secretsUI         // the vault's grants (secretsgrants.go); nil: those pages are away
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string
