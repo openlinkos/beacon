@@ -81,12 +81,6 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 	if err := checkItemIn(in); err != nil {
 		return Item{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
-		return Item{}, err
-	}
 	maxSize := s.attachmentMax()
 	for _, a := range in.Attachments {
 		if int64(len(a.Data)) > maxSize {
@@ -94,7 +88,16 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		}
 	}
 	var out Item
+	var policyTightened, valueChanged bool
+	var before Item
 	created := false
+	var err error
+	s.mu.Lock()
+	sk, lockErr := s.sk()
+	if lockErr != nil {
+		s.mu.Unlock()
+		return Item{}, lockErr
+	}
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		var cur signedItem
 		exists := false
@@ -113,6 +116,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 				return fmt.Errorf("%w: the item belongs to another collection", ErrBadInput)
 			}
 			exists = true
+			before = cur.Item // the overview as it stands, before this change folds in
 		}
 		// permissions: writing needs edit; changing the tags or the level is policy, so manage
 		if exists && (len(in.Tags) > 0 || in.Level != "") && !s.mayTx(tx, who, col.ID, PermManage) {
@@ -285,6 +289,10 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			}
 		}
 		item.Version = next
+		if exists {
+			policyTightened = before.Level != item.Level || !equalStrings(before.Tags, item.Tags) || !equalStrings(before.Actions, item.Actions)
+			valueChanged = true // a new version is a new value, whatever else changed
+		}
 		r := signedItem{Item: item}
 		r.Sig = signRow(sk, item.signedParts()...)
 		b, err := json.Marshal(r)
@@ -298,6 +306,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		s.pruneVersions(tx, item.ID, next)
 		return nil
 	})
+	s.mu.Unlock()
 	if err != nil {
 		return Item{}, err
 	}
@@ -306,6 +315,12 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		verb, action = "created the item", "secrets_item_create"
 	}
 	s.echo(who, verb, out.Title+" in "+col.Name+" (version "+i64(out.Version)+")", action)
+	if policyTightened {
+		s.reassessGrants() // outside the lock: it takes the lock itself per grant
+	}
+	if valueChanged {
+		s.notifyItemChanged(out, before.Version)
+	}
 	return out, nil
 }
 
