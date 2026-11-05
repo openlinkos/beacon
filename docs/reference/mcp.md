@@ -52,7 +52,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. A 
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
-| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it |
+| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600; `secrets` a list of `beacon://` references and `reason` when the agent holds `secrets:use`). Values are injected as the command's environment on a machine the item is bound to; stdout, stderr, the recording and the transcript are scrubbed. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it |
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
 | `edit_file` | `machines:ssh` | Replace an exact string in a text file (`machine`, `path`, `old_string`, `new_string`, `replace_all`). `old_string` must occur once unless `replace_all` is set; refused, rather than overwrite, if the file changed meanwhile |
@@ -66,7 +66,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. A 
 
 ## Configuration
 
-What Beacon monitors, in the shapes of its files ([What is checked, and from where](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)); `key` names one item.
+What Beacon monitors, in the shapes of its files ([What is checked, and from where](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)); `key` names one item. The same tools carry the vault's settings as `kind` `settings`: `get_config` with that kind lists or resolves a setting, `put_config` changes one (`secrets:admin` and a `note`), `delete_config` resets it, and the history tools answer for settings versions — their own sequence, so pass `kind` `settings` with the version.
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
@@ -78,6 +78,44 @@ What Beacon monitors, in the shapes of its files ([What is checked, and from whe
 | `revert_config_change` | `config:write` | Undo one change as a new change (`version`, `note`); refused when a later change touched one of its items |
 
 Pass the version you read as `if_version`: a change made on top of a later version is refused with `config.conflict`, so an agent never overwrites what someone changed meanwhile. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes.
+
+## The vault
+
+The secrets vault, under the same operations as the [REST routes](api.md) and the console's Secrets pages. A person signed in through a client (an OAuth sign-in) works the vault with them. An agent never sees more than its entitlements and grants allow; `never` items are invisible; a `use` grant injects a value without returning it. There is no MCP tool that returns a value for `use`, and no `import_secrets` tool: imports are the CLI and the console wizard only.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `vault_state` | any credential, a person | Whether the vault is sealed, its unseal mode, and the policy rows that failed their signature (served as absent and reported) |
+| `list_collections` | a person | The collections: name, approval level, key version |
+| `list_items` | a person, `describe` | An item list's summaries (`collection`, `state`): title, version, state, tags — never a value |
+| `get_item` | a person, `describe` | One item (`ref`): its collection, effective level, versions (who, when, why, field names) and its `beacon://` reference |
+| `put_item` | a person, `edit` | Add or change an item (`collection`, `title`, `fields` with values, `tags`, `level`, `notes`, `reason`); a new version, never a value back |
+| `reveal_item` | a person, `read` | The values (`ref`, `fields`, the account's `password`; audited before they leave). An `otp` field gives the current code and the seconds left, not the seed |
+| `search_secrets` | `secrets:describe` | A person: items they may describe (`query`, `collection`, `tags`). An agent: what its entitlements reach, with the fields, the approval a request would need, and whether it holds a grant — "where is the password for…", without the values |
+| `request_secret` | `secrets:use` | An agent's ask (`items`, `tags`, `collection`, `fields`, `action`, `reason`, `uses`, `duration`, `alert`, `entitlement`, `wait` seconds); the answer splits by the approval each item needs: the grants already in force, the request waiting, the refusals. A rule that denies settles as refused in the same answer |
+| `get_request` | `secrets:describe` | One request by `id`: the items, the reason, the decisions, and the review context |
+| `get_secret` | `secrets:read` | An agent takes a value by its `beacon://` reference (`ref`, `field`, `reason`); the use is recorded before the value is given; an otp field answers with the current code and the seconds left |
+| `list_grants` | an agent | The calling agent's grants: items, fields, uses left, until when, bound to which alert |
+| `renew_grant` | `secrets:use` | Renew a grant (`id`, `reason`): auto-level at once, the rest ask again |
+| `release_grant` | `secrets:use` | Give a grant back early (`id`) |
+| `list_requests` | `secrets:describe` | The requests by `state` (pending by default); an agent sees its own, a person and a review agent the queue |
+| `decide_request` | a person (operator, owner or a named reviewer), a review agent | `{"id", "approve", "note", "uses", "duration"}` — the reason is required, and the requester never decides its own request |
+| `pass_request` | a review agent (`secrets:review`) | `{"id", "note"}` — hand the ask to the next layer of the chain without deciding it |
+| `list_entitlements` | `secrets:admin` | The entitlements: who may ask for what |
+| `put_entitlement` | `secrets:admin` | Add or change an entitlement (principals, resources, actions, the approval floor, reviewers, the template flag) |
+| `delete_entitlement` | `secrets:admin` | Remove one (`name`); the grants that reached through it are re-assessed |
+| `set_agent_tags` | `secrets:admin` | An agent's grouping tags (`agent`, `tags`), which entitlements reach agents by |
+| `revoke_grant` | `secrets:admin` | End a grant by hand (`id`, `reason`) |
+| `agent_secret_scope` | the agent's owner, an admin | What an agent can reach and holds (`agent`): entitlements, the reach by approval, grants, tags, templates |
+| `http_request` | `secrets:use` | Send an HTTPS request with `secret.beacon://` placeholders filled from the agent's use grants (`method`, `url`, `headers`, `body`, `reason`). Only hosts the item is bound to; a literal private address is refused before the grant is consumed unless `http.allow_private`; the answer comes back scrubbed. The agent never sees a value |
+| `generate_item_value` | a person, `edit` | Make a new value for a field (`ref`, `field`, `length`, `charset`), stored as a new version; the value itself is never returned |
+| `archive_item` | a person, `edit` | Archive an item (`ref`, `reason`): kept, out of the way |
+| `remove_item` | a person, `edit` | Move an item to the trash (`ref`, `reason`), where retention keeps it |
+| `restore_item` | a person, `edit` | Bring an item back from the archive or the trash (`ref`) |
+| `rollback_item` | a person, `edit` | Make an old version current again (`ref`, `version`, `reason`) |
+| `list_tags` | any credential, a person | The tags: name, approval level, description |
+| `health_report` | a person, `secrets:describe` | The vault's hygiene: password fields judged weak, repeated, old, or in the leak corpus (only when `hygiene.hibp_check` is on); items whose rotation period ends soon; grants idle longer than `grant.unused_after`. Judgements and references, never values |
+| `rotate_secret` | `secrets:use`, an agent | Turn an item (`ref`, `reason`, `length`, `charset`): the server makes the next value, stores it as a new version and answers with the version number. Needs a live `use` grant; work the new value into the target through the use action |
 
 ## Status pages and maintenance
 

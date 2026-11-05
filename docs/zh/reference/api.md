@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1d4e7743
+sourceHash: sha256-81235925
 ---
 
 # REST API
@@ -42,7 +42,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 作用域 {#scopes}
 
-一个凭据带一个或多个作用域。前九个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
+一个凭据带一个或多个作用域。前十四个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
 
 | 作用域 | 允许做什么 |
 | --- | --- |
@@ -52,6 +52,11 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `machines:write` | 添加和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
+| `secrets:describe` | 看到自己的资格能触及什么：条目概要、字段名、申请要过的审批。`readonly` 预设自带，viewer 的 Agent 因此有它 |
+| `secrets:read` | 取自己持有授权的值（`get_secret`），每次取用都带原因。`oncall` 预设增加 |
+| `secrets:use` | 申请授权（`request_secret`）、续期与释放，以及使用路径（`run_command` 的 `secrets`、`http_request`、`beacon run`）。`oncall` 预设增加 |
+| `secrets:review` | 在审核链上裁决申请（`decide_request`、`pass_request`）。`operator` 预设增加 |
+| `secrets:admin` | 修改密钥托管所依赖的系统设置（[见下](#settings)）、资格和保管库的密钥，也能读取；每次修改都有版本、有审计、有群内回声。默认只有所有者有 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
@@ -66,10 +71,10 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 | 角色 | Agent 预设 | 作用域 |
 | --- | --- | --- |
-| 查看者 | 只读 | `status:read`、`sessions:read` |
-| 值班 | 值班 | + `alerts:write`、`machines:ssh` |
-| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write` |
-| 所有者 | | + `config:write`、`accounts:write` |
+| 查看者 | 只读 | `status:read`、`sessions:read`、`secrets:describe` |
+| 值班 | 值班 | + `alerts:write`、`machines:ssh`、`secrets:read`、`secrets:use` |
+| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write`、`secrets:review` |
+| 所有者 | | + `config:write`、`accounts:write`、`secrets:admin` |
 
 Agent 要用一个作用域，得它的预设给了、它的所有者的角色也给了，每次请求时都会检查：降低或停用所有者，会立即限制这个 Agent。OAuth 登录还另外受成员当初允许的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
 
@@ -109,7 +114,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 | `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置 |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
-| `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
+| `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr。`secrets` 把 `beacon://` 的值注入为命令的环境（`secrets:use`；每条须绑定这台机器）；输出、录像和转写会打码 |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | 文本文件的若干行，带行号（`path`、`offset`、`limit`：默认 2000 行） |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | 写入整个文件，最多 1 MiB，需要时创建目录 |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | 替换一段完全一致的文本，一处或全部（`old_string`、`new_string`、`replace_all`）；读取之后文件变过则拒绝 |
@@ -151,6 +156,88 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/history` | `status:read` 或 `config:write` | 修改记录，新的在前，不带具体的值（`kind`、`key`、`before` 一个版本号、`limit` 最多 1000）；保留最近 10,000 次 |
 | `GET /api/v1/config/history/{version}` | `status:read` 或 `config:write` | 一次修改，带每一项改前和改后的值 |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | 以一次新修改的方式撤销某次修改；之后的修改动过其中某一项时返回 `config.conflict` |
+
+## 系统设置 {#settings}
+
+密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名，直接改数据库不会生效（[系统设置](settings.md) 全部列出）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（视为不存在） |
+| `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
+| `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
+| `DELETE /api/v1/settings/{key}` | `secrets:admin` | 重置一个设置项，由上一级重新生效（该行删除）；`?scope=`、`?target=`、`?reason=`、`?if_version=` |
+| `GET /api/v1/settings/history` | `status:read` 或 `secrets:admin` | 修改历史，最新在前（`key`、`scope`、`target`、`before` 某版本、`limit` 至多 200） |
+| `GET /api/v1/settings/history/{version}` | `status:read` 或 `secrets:admin` | 一次修改，含改前与改后的值 |
+| `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | 把一次修改撤销为一次新修改；同一行被更晚的修改动过时 `settings.conflict` |
+
+## 保管库 {#vault}
+
+密钥保管库：库里的条目，值由 Beacon 代为保管。条目的概要——标题、类别、标签、网址、字段名——是明文，供搜索与策略使用；全部字段值、用户名、笔记与验证码种子在详情里，按版本用该库的密钥加密。版本保留谁何时为何改了什么；附件走同一套加密，单个不超过 `attachments.max_size`（10 MB）。每一条策略行——库、人员权限、标签、条目——都带一条由根密钥派生的签名密钥算出的签名，直接改数据库不会生效：该行视为不存在并上报（下方的 `rows_failed_signature`）。同一套操作也是控制台的「保管库」页与同名 MCP 工具；根密钥从哪来见 [config.yaml](config.md)。
+
+条目路由给人用，每次修改都记审计并回声到告警群。不是人的令牌被拒（`secrets.person`），Agent 一律被拒（`secrets.agent`）：Agent 经由授权取条目。查看值要重新输入账号密码，窗口为 `reveal.reauth_window`（默认 5 分钟），并且先写审计再返回值——与人取值、Agent 经授权取值同一规矩。owner 对所有库有 `manage`；其他人按库所给的档位：`describe`（看概要）、`read`（看值，需密码）、`edit`（改条目）、`manage`（改权限与策略）。保管库封存期间（口令模式重启后、owner 启封前）这些路由返回 `secrets.sealed` 并告警；监控与 SSH 通道照常。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/vault` | 任意凭据 | 状态：`sealed`、`mode`（`file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit`）与签名不符的策略行 `rows_failed_signature` |
+| `POST /api/v1/vault/init` | `secrets:admin` | 给口令模式保管库设第一道口令，请求体 `{"passphrase"}`。之后的启封用这道口令，不会再接受新口令。已经有口令时是 `secrets.conflict` |
+| `POST /api/v1/vault/unseal` | `secrets:admin` | 用 `{"passphrase"}` 启封口令模式；口令不对是 `secrets.wrong_passphrase`；从未初始化过是 `secrets.not_initialised` |
+| `POST /api/v1/vault/seal` | `secrets:admin` | 重新封存（口令模式）：密钥功能等待口令 |
+| `POST /api/v1/vault/rotate-key` | `secrets:admin` | 换根密钥：全部库密钥重新包裹，秒级完成。口令模式下 `{"passphrase"}` 是新口令 |
+| `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | 换一个库的密钥（`{"collection"}`）；该库条目在后台重新加密。移除成员不需要换钥：成员从来不经手密钥 |
+| `GET /api/v1/vault/collections` | 任意凭据 | 调用者能描述的库：名字、说明、审批级别、密钥版本 |
+| `POST /api/v1/vault/collections` | `secrets:admin` | 建库（`name`、`description`、`level`：条目继承的审批级别） |
+| `GET /api/v1/vault/collections/{id}` | 人 | 一个库，以及调用者能否在其中读值 |
+| `PUT /api/v1/vault/collections/{id}` | `secrets:admin` | 改库的说明或级别 |
+| `GET /api/v1/vault/collections/{id}/items` | 人，`describe` | 条目清单（`?state=normal`、`archived` 或 `trash`）：标题、版本、状态、标签——概要，绝无值 |
+| `POST /api/v1/vault/collections/{id}/items` | 人，`edit` | 加条目：`title`、`category`、`urls`、`tags`、`level`（空则继承库的）、`actions`、`fields`（每个 `section`、`name`、`type`——`concealed`、`string`、`email`、`url`、`otp`、`date`、`file`——`purpose`、`value`）、`notes`、`attachments`（`name`、base64 `data`）、`reason` |
+| `GET /api/v1/vault/collections/{id}/perms` | 人，`manage` | 谁在这个库里能做什么 |
+| `POST /api/v1/vault/collections/{id}/perms` | 人，`manage` | 给人或角色授一档权限：`{"subject": "user:alice"}` 或 `role:oncall`，`perm` 为 `describe`、`read`、`edit`、`manage` 之一（空为移除），`reason` |
+| `GET /api/v1/vault/items/{id}` | 人，`describe` | 一个条目：所在库、生效的审批级别、各版本（谁、何时、为何、字段清单——绝无密文）、`who_can_get`（授权）与它的 `ref`，`beacon://collection/item[/section/field]`。调用者连 describe 都没有的条目返回 `secrets.not_found`，而不是拒绝 |
+| `PUT /api/v1/vault/items/{id}` | 人，`edit` | 改条目；请求体与新增相同，实际要求带 `reason`，产生一个新版本 |
+| `DELETE /api/v1/vault/items/{id}` | 人，`edit` | 把条目移入回收站，`retention.trash`（30 天）保留 |
+| `POST /api/v1/vault/items/{id}/archive` | 人，`edit` | 归档条目：保留、让开 |
+| `POST /api/v1/vault/items/{id}/restore` | 人，`edit` | 从归档或回收站恢复条目 |
+| `POST /api/v1/vault/items/{id}/rollback` | 人，`edit` | 让旧版本重新成为当前版本（`version`、`reason`）；各版本仍在 |
+| `POST /api/v1/vault/items/{id}/generate` | 人，`edit` | 让 Beacon 为一个字段生成新值（`field`、`section`、`length`——默认 24——`charset`：`letters`、`alnum` 或 `all`、`reason`）：作为新版本保存，值本身不返回；要看就 reveal |
+| `POST /api/v1/vault/items/{id}/reveal` | 人，`read` | 值（`fields` 指定字段名，不给则全部；`password` 为账号密码）。`otp` 字段返回当前验证码与剩余秒数，绝无种子。先写审计，值才离开 |
+| `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | 人，`read` | 一个附件的字节 |
+| `GET /api/v1/vault/search` | 人，`describe` | 标题、类别、标签或字段名匹配 `q` 的条目（`?collection=`、`?tag=` 可多个），只在调用者有 describe 的库里找 |
+| `GET /api/v1/vault/tags` | 任意凭据 | 全部标签：名字（小写、`/` 分层）、审批级别、说明 |
+| `POST /api/v1/vault/tags` | 人，owner | 设置标签（`name`、`level`、`description`）：标签的级别是策略——带它的条目至少那么严——所以只有 owner 能改 |
+| `DELETE /api/v1/vault/tags/{name}` | 人，owner | 删除标签；条目上的名字保留 |
+
+没有 REST 导入：导出文件由 `beacon secret import` 经本机管理 socket 在 Beacon 主机上解析，或走控制台向导。
+
+## 授权 {#grants}
+
+Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余走审核链（规则、审核 Agent、人：控制台的「密钥审批」页，或飞书卡片的「按申请批准 / 只批一次 / 拒绝」，每个决定都带理由）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和其余策略行一样带签名，直接改数据库的行会被视为不存在并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/secrets/search` | `secrets:describe` | Agent：资格能触及什么——引用、概要、字段名与类型、申请要过的审批、是否已持有授权。人：保管库自己的搜索 |
+| `POST /api/v1/secrets/request` | `secrets:use` | Agent 的申请（`items`、`tags`、`collection`、`fields`、`action`（read 或 use）、`reason`、`uses`（0 为不限）、`duration` 秒（0 为不过期）、`alert`、`entitlement`）；回答分三部分：已生效的授权、等待中的申请、被拒的部分。规则否决在同一次回答里变成拒绝 |
+| `GET /api/v1/secrets/requests` | `secrets:describe` | 按 `?status=` 列申请；Agent 看自己的，人看全部 |
+| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | 一个申请：条目、原因、决定、审核上下文 |
+| `POST /api/v1/secrets/requests/{id}/decide` | 人（operator、owner 或资格点名的审核人）或审核 Agent（`secrets:review`） | `{"approve", "note", "uses", "duration"}`；申请人自己不能审自己的申请（`secrets.self_approval`） |
+| `POST /api/v1/secrets/requests/{id}/pass` | 审核 Agent（`secrets:review`） | `{"note"}`；不决定，交给链的下一层 |
+| `POST /api/v1/secrets/requests/{id}/withdraw` | `secrets:use` | 提出申请的 Agent 撤回等待中的申请 |
+| `POST /api/v1/secrets/get` | `secrets:read` | Agent 按 `beacon://` 引用取值（`ref`、`field`、`reason`）；otp 字段只给当前码和剩余秒数，不给种子 |
+| `GET /api/v1/secrets/grants` | `secrets:describe` | Agent 自己的授权；人按 `?state=` 看全部 |
+| `POST /api/v1/secrets/grants/{id}/renew` | `secrets:use` | 续期：auto 级立刻续，其余重新申请 |
+| `POST /api/v1/secrets/grants/{id}/release` | `secrets:use` | 提前释放授权 |
+| `POST /api/v1/secrets/grants/{id}/revoke` | `secrets:admin` | 由人吊销授权 |
+| `GET /api/v1/secrets/entitlements` | `secrets:admin` | 资格清单 |
+| `POST /api/v1/secrets/entitlements` | `secrets:admin` | 写一条资格：`principals`（`agents`、`agent_tags`、`agents_of`）、`resources`（`collections`、`tags` 模式、`items`、`fields`）、`actions`、`approval` 下限、`reviewers`、`template` 标记 |
+| `DELETE /api/v1/secrets/entitlements/{name}` | `secrets:admin` | 删除一条资格；借它生效的授权会被重新评估 |
+| `POST /api/v1/secrets/agent-tags` | `secrets:admin` | Agent 的分组标签（`role/on-call` 一类），资格按它们圈定 Agent |
+| `GET /api/v1/secrets/agents/{name}/scope` | Agent 的所有者、管理员 | 这个 Agent 能触及什么（按审批级别分）、持有什么 |
+| `POST /api/v1/secrets/agents/{name}/templates` | Agent 的所有者、管理员 | 把勾选的资格模板交给这个 Agent |
+| `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | 解除异常规则对该 Agent 的暂停 |
+| `POST /api/v1/secrets/use` | `secrets:use` | Agent 按 `beacon://` 引用取值（`refs`、`reason`），用于本地进程（`beacon run`）。不应看见值的 Agent 用 `run_command` 的 `secrets` 或 `http_request`。没有会返回这些值的 MCP 工具 |
+| `POST /api/v1/secrets/http-request` | `secrets:use` | Beacon 填入 `secret.beacon://` 占位，向条目绑定的主机发 HTTPS（`method`、`url`、`headers`、`body`、`reason`）；私网地址是 `secrets.private_address`，除非 `http.allow_private`；回答打码后返回 |
+| `GET /api/v1/secrets/hygiene` | `secrets:describe`，人 | 口令健康报告（弱、重复、过旧；仅当 `hygiene.hibp_check` 开启时查泄露库）、轮换周期即将到期或已过期的条目、闲置超过 `grant.unused_after` 的授权。报告只带引用和判断，绝不带值 |
+| `POST /api/v1/secrets/rotate` | `secrets:use`，Agent | 轮换条目的值：服务端按规格（`length`、`charset`）生成下一个值，存成新版本，回答里只有版本号——值本身不离开。需要生效的 `use` 授权；仅有 `read` 不够 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
@@ -218,7 +305,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开状态页和其中的事件，不需要令牌（[状态页](../guide/status-pages.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
 | `GET /status.json`、`GET /status/{name}.json`、`GET /status/{name}/feed.atom`、`GET /status/{name}/badge.svg`、`GET /status/{name}/components/{component}/badge.svg` | 状态页的 JSON、Atom 订阅和徽章，公开，可以缓存 |
 | `GET /robots.txt` | 允许搜索引擎读取 `/`、`/status` 和 `/static/`，不让它们进 `/console`、`/api/`、`/mcp`、`/alerts/` 和 `/sessions/` |
-| `GET /healthz` | 存活检查：`ok` |
+| `GET /healthz` | 给负载均衡：主机回 `ok`，备机回 `503 standby` |
+| `GET /livez` | 给 Docker 的健康检查：主机回 `ok`，健康的备机回 `standby`（200），本实例连不上 PostgreSQL 时回 `503 unhealthy` |
 | `GET /readyz` | 就绪检查：收到过 Watchdog、飞书连接正常、额度没用完 |
 | `GET /metrics` | Beacon 自己的 Prometheus 指标，只回答直连 |
 | `POST /hooks/feishu` | `feishu.callback: http` 时飞书的卡片回调 |
@@ -255,6 +343,32 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `config.not_found` | 404 | 没有这个配置项或这次修改 |
 | `config.invalid` | 422 | 修改通不过校验；消息说明原因，什么都没有改 |
 | `config.conflict` | 409 | 已有更新的版本生效，或者之后的修改动过同一项；重新读取，再做决定 |
+| `settings.not_found` | 404 | 没有这个版本的设置修改，或该设置在这一作用域没有设置 |
+| `settings.unknown` | 404 | 没有这个键的设置项 |
+| `settings.invalid` | 422 | 值不符合该设置项的要求；消息说明原因，什么都没有改 |
+| `settings.conflict` | 409 | 之后的修改动过同一设置行；重新读取后再试 |
+| `secrets.sealed` | 503 | 保管库处于封存状态（口令模式重启后）；owner 输入口令启封 |
+| `secrets.wrong_passphrase` | 403 | 口令打不开这个保管库 |
+| `secrets.not_initialised` | 409 | 口令模式保管库还没有口令；先 `POST /api/v1/vault/init` |
+| `secrets.reauth` | 401 | 查看值要重新输入账号密码（重新打开 `reveal.reauth_window` 窗口） |
+| `secrets.agent` | 403 | Agent 来问；Agent 经由授权取条目 |
+| `secrets.person` | 403 | 保管库的条目路由给人用；请用账号登录 |
+| `secrets.permission` | 403 | 调用者在这个库里做不了这件事 |
+| `secrets.not_found` | 404 | 没有这个库、条目、标签或字段 |
+| `secrets.exists` | 409 | 已有这个名字的库或标签 |
+| `secrets.conflict` | 409 | 自调用者上次看到之后它变过；重新读取 |
+| `secrets.attachment_too_large` | 413 | 附件超过 `attachments.max_size` |
+| `secrets.invalid` | 422 | 条目不符合要求（级别、字段、值）；消息说明原因，什么都没有改 |
+| `secrets.bad_input` | 400 | 请求不是路由要的形状；消息说明是哪里 |
+| `secrets.crypto` | 500 | 密文在该密钥下验证不过——这一行不是它自称的那一行 |
+| `secrets.no_grant` | 403 | 没有生效中的授权覆盖这次取用；`request_secret` 可以申请 |
+| `secrets.not_bound` | 403 | 条目没有绑定到这台机器或这个主机 |
+| `secrets.private_address` | 403 | `http_request` 拒绝私网地址（`http.allow_private`） |
+| `secrets.redirect` | 400 | 重定向离开了 `http.follow_redirects` 允许的范围 |
+| `secrets.throttled` | 429 | Agent 超过 `rate.per_agent_per_minute`，且设置说限流 |
+| `secrets.suspended` | 403 | 异常规则暂停了该 Agent 的授权；由运维解除 |
+| `secrets.self_approval` | 403 | 申请人不能审自己的申请 |
+| `secrets.error` | 500 | 授权自身的失败，没有更具体的名字 |
 | `status.not_found` | 404 | 没有这个名字的状态页 |
 | `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |

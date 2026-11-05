@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c111d2e3
+sourceHash: sha256-b9249688
 ---
 
 # config.yaml
@@ -24,13 +24,60 @@ sourceHash: sha256-c111d2e3
 | `trusted_proxies` | 地址或 CIDR 段列表 | — | 前面的反向代理（服务眼中的地址），让 API 看到真实客户端地址 |
 | `language` | `zh` 或 `en` | `zh` | 卡片和聊天消息的语言 |
 | `timezone` | 时区 | `Asia/Shanghai` | 卡片上的时间；状态页历史的每一天从这里的午夜开始 |
-| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动。PostgreSQL 在后续版本提供 |
-| `storage.path` | 路径 | `<data_dir>/beacon.db` | 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
+| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动：`sqlite`（一个文件，不依赖服务）或 `postgres`。已经在运维 PostgreSQL、想用托管数据库、按时间点恢复或主备高可用的部署才换；性能不是换的理由。`beacon storage migrate -to postgres` 把 SQLite 数据库搬过去 |
+| `storage.path` | 路径 | `<data_dir>/beacon.db` | SQLite 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
+| `storage.dsn_file` | 路径 | — | `storage.driver: postgres` 时，存放连接串的文件（如 `postgres://beacon@db.example.com:5432/beacon?sslmode=require`），启动时读一次；密码若有也写在文件里，绝不进本配置文件 |
 | `storage.audit.checkpoint_interval` | 时长 | `24h` | 审计日志的哈希链多久生成一个签名检查点 |
 | `storage.audit.retention` | 时长 | `8760h` | 审计记录保留多久（365 天）；剪除旧记录后链仍可校验 |
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
+| `storage.postgres.pool_size` | 数字 | `4` | PostgreSQL 的读连接数；写永远单独占一条连接，与连接池大小无关 |
+| `storage.postgres.statement_timeout` | 时长 | `15s` | 一条 PostgreSQL 语句最多跑多久就被服务端取消，免得一条挂起的语句占住写入；`0` 关闭 |
+| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）：主在数据库里续租约，备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。健康的备机 `/livez` 仍回 200（镜像的健康检查走它），本实例连不上 PostgreSQL 时才回 503。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
+| `ha.name` | 字符串 | `beacon` | 租约的名字；一对实例用同一个名字 |
+| `ha.id` | 字符串 | 主机名:pid 再加随机后缀 | 本实例在租约行里的名字。两个容器主机名相同又以 PID 1 运行时要设 |
+| `ha.renew` | 时长 | `5s` | 主多久续一次租约 |
+| `ha.expire` | 时长 | `15s` | 租约多久不续就过期；备用实例在这之内接手。必须长于 `ha.renew` |
+| `backup.destinations` | 列表 | — | 每份备份同时写往哪里：`{dir: 路径}` 是本地目录，`{s3: …}` 是 S3 兼容存储。至少一个目的地即开启备份 |
+| `backup.destinations.dir` | 路径 | — | 本地目录，不存在则创建 |
+| `backup.destinations.s3.endpoint` | URL | — | 存储地址，如 `https://s3.example.com:9000`（路径寻址） |
+| `backup.destinations.s3.region` | 区域 | `us-east-1` | 签名用；不区分区域的存储会忽略 |
+| `backup.destinations.s3.bucket` | 名字 | — | 备份落入的桶 |
+| `backup.destinations.s3.prefix` | 前缀 | — | 桶内前缀，如 `beacon/`。空前缀只列桶根下的对象，不会匹配其他前缀下的键 |
+| `backup.destinations.s3.access_key_file` | 路径 | — | 访问密钥，使用时从文件读取 |
+| `backup.destinations.s3.secret_key_file` | 路径 | — | 私有密钥，使用时从文件读取。单次 PUT 最大 5 GiB |
+| `backup.recipients` | 公钥列表 | 自动生成 | 备份加密给的 age（`age1…`）或 ssh-ed25519 公钥；Beacon 只持有这些，读不了自己写的备份。一个都不配时，首次启动生成密钥对，私钥只留在 `<data_dir>/backup/RECOVERY-MATERIAL.txt` |
+| `backup.recipients_file` | 路径 | — | 更多接收者，一行一个公钥 |
+| `backup.secrets_dir` | 路径 | `/etc/beacon/secrets` | 整个目录进每一份备份：快照与封装它的密钥同行 |
+| `backup.heartbeat.max_age` | 时长 | `2h` | 内置 `beacon-backup` 心跳的耐心；超过即走 `HeartbeatStale` 告警 |
+| `backup.heartbeat.severity` | 级别 | `warning` | 该告警的级别 |
+| `backup.drill_expiry` | 时长 | `2160h` | 恢复演练的有效期：内置 `recovery-drill` 资源在上次演练后这么久到期 |
+| `backup.schedule.database` | 时长 | `1h` | 多久单做一次数据库快照 |
+| `backup.schedule.files` | 时长 | `24h` | 多久带上录像、配置和 secrets |
+| `backup.schedule.files_full` | 时长 | `168h` | 多久做一次完整而非增量的录像集，让链条始终可恢复 |
+| `backup.retention.hourly` | 个数 | `24` | 祖父—父—子：保留最近 N 个小时里每个小时最新的一份；满足任一规则即保留 |
+| `backup.retention.daily` | 个数 | `14` | ……最近 N 天 |
+| `backup.retention.weekly` | 个数 | `8` | ……最近 N 周 |
+| `backup.retention.monthly` | 个数 | `12` | ……最近 N 月 |
+| `backup.retries` | 次数 | `3` | 上传失败后再试几次 |
+| `backup.retry_wait` | 时长 | `1m` | 重试的首次间隔，之后每次翻四倍 |
+| `backup.verify_readback` | 布尔 | `true` | 每次上传后回读并核对大小与哈希 |
+| `backup.on_failure` | `alert` | `alert` | 一直失败的备份怎么办（`alert_and_pause` 尚未实现，配置此项会被拒绝） |
+| `vault.mode` | `file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit` | `file` | 根密钥从哪来，启动时读取：secrets 目录里的文件（`file`）；owner 输入的口令（`passphrase`，重启后保管库封存直到输入——监控与 SSH 通道照常）；或代为解开它的保管方（`aws-kms`、`gcp-kms`、`transit`）。轮换用 `beacon key rotate` |
+| `vault.dir` | 路径 | `<data_dir>/secrets` | 密钥文件所在目录，首次启动创建，仅属主可读 |
+| `vault.aws_kms.region` | 字符串 | — | AWS KMS 模式：密钥所在区域 |
+| `vault.aws_kms.key_id` | 字符串 | — | 密钥的 id 或别名（`alias/beacon`） |
+| `vault.aws_kms.endpoint` | URL | — | 自建 KMS，测试用；留空是 AWS 自己的 |
+| `vault.aws_kms.access_key_file` | 路径 | — | 访问密钥，文件方式 |
+| `vault.aws_kms.secret_key_file` | 路径 | — | 私有密钥，文件方式 |
+| `vault.aws_kms.session_token_file` | 路径 | — | 会话令牌，部署用临时凭据时的做法 |
+| `vault.gcp_kms.key_name` | 字符串 | — | Cloud KMS 模式：密钥的完整资源名 `projects/…/locations/…/keyRings/…/cryptoKeys/…` |
+| `vault.gcp_kms.endpoint` | URL | — | 自建 KMS，测试用；留空是 Google 自己的 |
+| `vault.gcp_kms.token_file` | 路径 | — | Bearer 令牌，文件方式 |
+| `vault.transit.address` | URL | — | Vault 或 OpenBao transit 模式：它的地址 |
+| `vault.transit.key_name` | 字符串 | — | transit 密钥的名字 |
+| `vault.transit.token_file` | 路径 | — | 令牌，文件方式 |
 
 ## 规则与路由 {#rules-and-routing}
 
@@ -75,6 +122,12 @@ sourceHash: sha256-c111d2e3
 | `ssh.ca_key_file` | 路径 | — | 为每次连机器签短期证书的钥匙；设置它即开启通道。必须与 host key 是不同的钥匙 |
 | `ssh.source_addresses` | CIDR 段列表 | — | 设置后，证书只从这些地址可用 |
 | `ssh.keep` | 时长 | `4320h`（180 天） | 会话及其录像保留多久。至少 `24h` |
+| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放。`s3` 时先写本地再在会话结束时上传，失败会重试；请给桶设生命周期规则，清理失败留下的对象到期也会被删 |
+| `ssh.recordings_s3.endpoint` | URL | — | 桶的地址，如 `https://s3.example.com`，内网 MinIO 用 `http://10.0.0.5:9000`。一律路径风格寻址 |
+| `ssh.recordings_s3.region` | 字符串 | `us-east-1` | 签名用的区域 |
+| `ssh.recordings_s3.bucket` | 字符串 | — | 桶名 |
+| `ssh.recordings_s3.access_key_id_file` | 路径 | 用 `s3` 时必填 | 存放 access key id 的文件 |
+| `ssh.recordings_s3.secret_access_key_file` | 路径 | 用 `s3` 时必填 | 存放 secret access key 的文件 |
 
 ## 链接、页面与品牌 {#links-pages-and-branding}
 

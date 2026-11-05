@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-425a0d56
+sourceHash: sha256-73e83c09
 ---
 
 # 部署形态
@@ -42,6 +42,7 @@ Beacon 是自托管的：一个**中心**，成员、Agent 和机器都跟它打
 
 - [在本机试一试](../guide/quickstart.md)：10 分钟，在一台机器上跑完整闭环。
 - [装在服务器上](install.md)：中心、前两个检测点和第一台机器，约 12 分钟。
+- [PostgreSQL 与高可用](postgres.md)：SQLite 什么时候够用，加一台备机换来什么。
 - [检测点位置](probes.md)：检测点放在哪里、怎样安装。
 - [配置](configuration.md)：`config.yaml`、密钥文件，以及改动怎样作用到运行中的 Beacon。
 - [升级](upgrade.md)、[备份与恢复](backup.md)、[安全模型](security.md) 和[常见问题](troubleshooting.md)，各一页。

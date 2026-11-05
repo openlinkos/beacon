@@ -25,8 +25,13 @@ docker exec beacon beacon token list
 | `silence` | Silences: [create, list, expire](#beacon-enroll-silence-drill) |
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
-| `storage` | The database's health: [check](#beacon-audit-storage) |
-| `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
+| `storage` | The database's health: [check, migrate](#beacon-audit-storage) |
+| `settings` | The vault's settings: [get, set, reset, history, revert](#beacon-settings) |
+| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, import, perms, tags](#beacon-secret) |
+| `run` | Inject `beacon://` references from the environment and a `.env` file into a child process (`-agent`, `-reason`, `-env-file`, `-wait`); the values never print. See [beacon run](#beacon-run) |
+| `key` | The vault's keys: [status, init, unseal, seal, rotate](#beacon-key) |
+| `backup` | Beacon's own backups: [now, ls, restore, drill, keygen](#beacon-audit-storage) |
+| `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/livez`, which is 200 on a healthy standby; `/healthz` is the load balancer's check and is 503 there) |
 | `version` | The version, commit and build |
 | `help` | The whole usage, with the roles, presets and scopes |
 
@@ -40,6 +45,73 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 | `export` DIR | | Write the configuration there in the same layout, and remove files the configuration does not hold |
 | `history` | `-limit` | The changes: version, time, who, via, action, note. `-limit` (default 20) says how many |
 | `revert` VERSION | `-note` | Go back to a version from `history` |
+
+### beacon settings
+
+The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](settings.md)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `get` [KEY] | | Every setting with its value, default, where the value was overridden and who changed it, then the other scopes' overrides; with KEY, that one and where its value stands |
+| `set` KEY VALUE | `-scope`, `-target`, `-reason` | Change one setting. `-reason` says why, kept with the change and shown in the alert chat; `-scope` (default `system`) and `-target` put the value at a collection, tag, entitlement or request |
+| `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
+| `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
+| `revert` VERSION | `-note` | Go back to a version from `history` |
+
+### beacon secret
+
+The vault, for a person's hands on the command line: the same operations the console's Secrets pages and the [REST routes](api.md) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`.
+
+The commands talk to the running service over the admin socket in the data directory, so run them inside the container (or on the host that holds the socket). An import is parsed there: the plaintext of an export never travels over REST or MCP, and those two surfaces have no import entry.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `ls` [COLLECTION] | `-state` | The collections with their level and item count; with a collection, its items (`-state`: `normal`, `archived` or `trash`): title, version, state, level, tags |
+| `collection` NAME | `-level`, `-description` | Make a collection; `-level` (default `review`) is the approval its items inherit |
+| `show` REF | | One item: version, level, state, tags, its `beacon://` reference, its fields (names, types, purposes) and how many versions it has — never a value |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`, `-level`, `-category`, `-url`, `-set-note`, `-reason`, `-value-file`, `-value-from-stdin` | Add an item or write its next version. A field is `name=value` or `section/name=value`; `username` is a plain field, everything else concealed. `FIELD=-` with `-value-file` or `-value-from-stdin` reads the value from a file or stdin, so it need not sit on the command line. `-level` `-` clears the item's own; `-reason` says why, kept with the version |
+| `reveal` REF [FIELD …] | `-user`, `-password-file`, `-password-from-stdin` | View values: the account's password comes from the file (`-password-file`) or stdin (`-password-from-stdin`; it shows while you type). An `otp` field gives the current code and the seconds left. Audited before the values print |
+| `tag` REF TAGS | `-user`, `-reason` | Change an item's tags (comma-separated) — a policy change, so it needs `manage` on the collection |
+| `level` REF LEVEL | `-user`, `-reason` | Set an item's own approval level (`auto`, `review`, `person`, `never`, or `-` to inherit the collection's) — also `manage` |
+| `archive` REF | `-user` | Archive an item: kept, out of the way |
+| `rm` REF | `-user` | Move an item to the trash, where `retention.trash` (30 days) keeps it |
+| `restore` REF | `-user` | Bring an item back from the archive or the trash |
+| `rollback` REF VERSION | `-note` | Make an old version current again; `-note` says why, kept with the new version |
+| `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
+| `import` SOURCE | `-file`, `-collection`, `-on-conflict`, `-level`, `-map`, `-vault`, `-dry-run`, `-user`, `-reason` | Bring an export in: `1pux` (1Password's unencrypted export, recommended), `1password-csv`, `op` (the signed-in `op` command line; over about 300 items prefer 1PUX), `chrome` (one collection; the same credential across sites is one item with every URL), `bitwarden` (the unencrypted JSON export) or `csv` (any CSV, columns named by `-map title=HEADER,…`). The command talks to the running service over the admin socket in the data directory, so the file is parsed on the Beacon host. There is no REST or MCP import. `-dry-run` answers the report and writes nothing. `-on-conflict` is `skip` by default (`new_version`, `skip`, `keep_both` — there is no `ask`). Never a value in the output; delete the export file when it is done |
+| `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
+| `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
+
+### beacon run
+
+`beacon run` fills `beacon://` references in the process environment and in a `.env` file, then starts a child command with the values. They never print: they live only in that process, the way `op run` does. The references ride the named agent's use grants; `-wait` asks for a grant and waits that long when none covers a reference.
+
+```bash
+beacon run -agent claude-code -reason "fix the dns outage" --env-file .env -- printenv TOKEN
+```
+
+| Flag | What it does |
+| --- | --- |
+| `-agent` NAME | The agent whose grants the references ride |
+| `-reason` TEXT | Why; recorded with every use |
+| `-env-file` FILE | A `.env` file whose `beacon://` values are filled |
+| `-wait` DURATION | How long to wait for a grant when none covers a reference (a Go duration, such as `30s`) |
+
+Everything after `--` is the command. Values from `-env-file` overlay the process environment; resolved `beacon://` values overlay both.
+
+REST `POST /api/v1/secrets/use` is this same path for the CLI: it returns values so `beacon run` can inject them. Agents that must not see a value use `run_command`'s `secrets` or `http_request`; there is no MCP tool that returns a value.
+
+### beacon key
+
+The vault's keys: where the root key comes from is [config.yaml's](config.md) `vault` section. In the `file`, `aws-kms`, `gcp-kms` and `transit` modes the keys are there at the start; in the `passphrase` mode a restart leaves the vault sealed until an owner initialises it (`key init`) the first time, then unseals it. Sealing the vault is the secrets brake: uses and reveals wait, monitoring and the SSH channel carry on.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `status` | | `sealed` or `unsealed`, the mode, and a warning for every policy row that failed its signature (served as absent) |
+| `init` | `-passphrase-file`, `-passphrase-from-stdin` | Set the first passphrase of a passphrase-mode vault and unseal it. Later unseals open with that passphrase; they never take a new one. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
+| `unseal` | `-passphrase-file`, `-passphrase-from-stdin` | Unseal the passphrase mode after a restart. The passphrase comes from a file (`-passphrase-file`) or stdin (`-passphrase-from-stdin`) — never a shell argument |
+| `seal` | | Seal again: the key functions wait for the passphrase; monitoring and the SSH channel carry on |
+| `rotate` [COLLECTION] | `-passphrase-file`, `-passphrase-from-stdin` | Without a name, a new root key: every collection key wrapped again, in seconds (in the passphrase mode, `-passphrase-file` names a file holding the new one). With a name, that collection's key: its items are encrypted again in the background. Removing a member needs no rotation — members never hold a key |
 
 ### beacon setup, user, agent
 
@@ -127,7 +199,18 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
-| `storage check` | | The database's health: SQLite's own integrity check, what each bucket holds, and the audit chain's verification |
+| `storage check` | | The database's health: the backend's own check (SQLite's integrity check, or every table on PostgreSQL), what each bucket holds, and the audit chain's verification |
+| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits; a genesis record notes the import. The SQLite file is kept and keeps serving until the configuration names PostgreSQL as the driver; rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today |
+
+**`beacon backup`** — Beacon's own backups; every subcommand takes `-config`. A single S3 PUT is at most 5 GiB.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `backup now` | `-full` | One backup at once (a complete recordings set with `-full`): through the running service's admin socket when it is up, on its own otherwise |
+| `backup ls` | | What every destination holds, newest first |
+| `backup restore` FILE... | `-identity`, `-into`, `-dry-run`, `-confirm`, `-verify-key` | Decrypt, verify the manifest signature and every member against the manifest, check the database's integrity and audit chain, and put the database, recordings, configuration and secrets back; `-dry-run` proves it in a temporary directory and touches nothing. Restoring into the live `data_dir` needs `-confirm` (the current files are copied aside first). Give the full archive first, then the incrementals. `-verify-key` is the `sign1:…` line from the recovery material when `-identity` does not already hold it |
+| `backup drill` FILE... | `-identity`, `-keep`, `-verify-key` | Restore to a scratch directory, verify, and renew the built-in `recovery-drill` reminder; `-keep` prints where it stays |
+| `backup keygen` | | An age key pair: the private key prints once, alone, on stdout; the public key is for `backup.recipients` |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 

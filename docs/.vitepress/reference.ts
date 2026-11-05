@@ -1,10 +1,11 @@
 // Keeps the reference pages in step with the code: every REST operation in internal/api/openapi.yaml,
 // every gateway route, every error code the API and the gateway answer with, every token scope, every
-// MCP tool, every command and flag the three binaries take, and every key config.yaml accepts must
-// appear, in backticks, on the English and the Chinese page that lists them. `vitepress build` fails
-// otherwise, naming what is missing.
+// MCP tool, every command and flag the three binaries take, every key config.yaml accepts and every
+// settings key must appear, in backticks, on the English and the Chinese page that lists them.
+// `vitepress build` fails otherwise, naming what is missing.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../', import.meta.url);
 const read = (path: string): string => readFileSync(new URL(path, root), 'utf8');
@@ -161,6 +162,93 @@ const configKeys = (): string[] => {
   return out;
 };
 
+/** The settings of the vault — every `register("…")` in internal/settings/keys.go. On branches
+ * that already have that file (W4 and later, and the integration) the page is checked against
+ * the code. secrets/w11-docs is based on W1, so the file is absent in this PR's CI; the fallback
+ * is the keys registered on secrets/w10-hygiene, the last package that adds settings. */
+const settingsKeysFromGo = (src: string): string[] =>
+  [...src.matchAll(/register\("([^"]+)"/g)].map((m) => m[1]);
+
+const settingsKeysFallback = (): string[] => [
+  'request.default_uses',
+  'request.max_uses',
+  'request.default_duration',
+  'request.max_duration',
+  'request.reason_min_length',
+  'use.reason',
+  'request.pending_ttl',
+  'request.on_pending_expiry',
+  'grant.renewal',
+  'grant.expiry_notice',
+  'grant.on_policy_tightened',
+  'grant.on_owner_access_lost',
+  'grant.on_item_changed',
+  'grant.alert_grace',
+  'grant.unused_after',
+  'grant.on_unused',
+  'agents.default_entitlements',
+  'review.chain',
+  'review.agent.may_approve',
+  'review.agent.max_uses',
+  'review.agent.max_duration',
+  'review.agent.timeout',
+  'review.agent.on_timeout',
+  'review.people.timeout',
+  'review.people.on_timeout',
+  'review.approvals_required',
+  'review.separation',
+  'review.notify_decisions',
+  'rate.per_agent_per_minute',
+  'rate.on_exceed',
+  'anomaly.rules',
+  'anomaly.on_detect',
+  'otp.seed_to_agents',
+  'reveal.reauth_window',
+  'scrub.encodings',
+  'http.allow_private',
+  'http.follow_redirects',
+  'file.on_change',
+  'sealed.on_request',
+  'hygiene.hibp_check',
+  'hygiene.weak_min_length',
+  'hygiene.password_age',
+  'retention.audit',
+  'retention.uses',
+  'retention.requests',
+  'retention.item_versions',
+  'retention.trash',
+  'audit.checkpoint_interval',
+  'audit.checkpoint_publish',
+  'audit.export',
+  'import.levels.by_source',
+  'import.levels.by_category',
+  'import.on_conflict',
+  'attachments.max_size',
+  'backup.schedule.database',
+  'backup.schedule.recordings',
+  'backup.retention.hourly',
+  'backup.retention.daily',
+  'backup.retention.weekly',
+  'backup.retention.monthly',
+  'backup.verify.integrity',
+  'backup.verify.readback',
+  'backup.retries',
+  'backup.on_failure',
+  'backup.heartbeat',
+  'backup.pg_dump_daily',
+  'storage.lease.renew',
+  'storage.lease.expires',
+];
+
+const settingsKeys = (): string[] => {
+  const p = fileURLToPath(new URL('internal/settings/keys.go', root));
+  if (existsSync(p)) {
+    const keys = settingsKeysFromGo(readFileSync(p, 'utf8'));
+    if (keys.length) return keys;
+  }
+  return settingsKeysFallback();
+};
+
 const unique = (items: string[]): string[] => [...new Set(items)];
 
 /** What the reference pages lack, one line each; empty when they are complete. */
@@ -190,5 +278,6 @@ export const checkReference = (): string[] => {
   expect('beacon-oncall commands', 'cli.md', commands('cmd/beacon-oncall'));
   expect('beacon-oncall flags', 'cli.md', flags('cmd/beacon-oncall'));
   expect('config.yaml keys', 'config.md', configKeys());
+  expect('settings keys', 'settings.md', settingsKeys());
   return problems;
 };
