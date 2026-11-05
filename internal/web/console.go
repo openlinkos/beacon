@@ -135,6 +135,17 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/tokens/{name}/claim", s.action("accounts:write", s.claim))
 	at("GET", "/config", s.console("status:read|config:write", s.configPage))
 	at("GET", "/settings", s.console("status:read|secrets:admin", s.settingsPage))
+	if s.Vault != nil {
+		at("GET", "/secrets", s.console("", s.vaultPage))
+		at("GET", "/secrets/{id}", s.console("", s.vaultCollectionPage))
+		at("GET", "/secrets/item/{id}", s.console("", s.vaultItemPage))
+		at("POST", "/secrets/unseal", s.action("secrets:admin", s.vaultUnsealForm))
+		at("POST", "/secrets/collection", s.action("secrets:admin", s.vaultCollectionForm))
+		at("POST", "/secrets/{id}/perms", s.action("secrets:admin", s.vaultPermForm))
+		at("POST", "/secrets/item/{id}/set", s.action("", s.vaultItemForm))
+		at("POST", "/secrets/item/{id}/state", s.action("", s.vaultStateForm))
+		at("POST", "/secrets/item/{id}/reveal", s.action("", s.vaultRevealForm))
+	}
 	at("POST", "/settings/{key}/set", s.action("secrets:admin", s.setSetting))
 	at("POST", "/settings/{key}/reset", s.action("secrets:admin", s.resetSetting))
 	at("POST", "/settings/history/{version}/revert", s.action("secrets:admin", s.revertSetting))

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7c07ae87
+sourceHash: sha256-8194987e
 ---
 
 # REST API
@@ -167,6 +167,42 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/settings/history/{version}` | `status:read` 或 `secrets:admin` | 一次修改，含改前与改后的值 |
 | `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | 把一次修改撤销为一次新修改；同一行被更晚的修改动过时 `settings.conflict` |
 
+## 保管库 {#vault}
+
+密钥保管库：库里的条目，值由 Beacon 代为保管。条目的概要——标题、类别、标签、网址、字段名——是明文，供搜索与策略使用；全部字段值、用户名、笔记与验证码种子在详情里，按版本用该库的密钥加密。版本保留谁何时为何改了什么；附件走同一套加密，单个不超过 `attachments.max_size`（10 MB）。每一条策略行——库、人员权限、标签、条目——都带一条由根密钥派生的签名密钥算出的签名，两个带纪元哈希的 head（`policy` 与 `items`）按存储字节的哈希点名仍有效的行，与设置项的 head 共用 secrets 目录里的一份 epochs 文件。直接改数据库不会生效：该行视为不存在（或 `never`）并上报（下方的 `rows_failed_signature`）。签名头缺失、过期或验不过时，用管理套接字上的 `beacon secret rebuild-head` 恢复；Beacon 不会自行重建。把数据库和 secrets 目录一起滚回到某个一致的旧状态是检测不到的，需要外部锚（KMS 或备份日志）。同一套操作也是控制台的「保管库」页与同名 MCP 工具；根密钥从哪来见 [config.yaml](config.md#the-vault)。
+
+条目路由给人用，每次修改都记审计并回声到告警群。不是人的令牌被拒（`secrets.person`），Agent 一律被拒（`secrets.agent`）：Agent 经由后续版本到来的授权取条目。查看值要重新输入账号密码，窗口为 `reveal.reauth_window`（默认 5 分钟），并且先写审计再返回值——与人将来取值、Agent 经授权取值同一规矩。owner 对所有库有 `manage`；其他人按库所给的档位：`describe`（看概要）、`read`（看值，需密码）、`edit`（改条目）、`manage`（改权限与策略）。保管库封存期间（口令模式重启后、owner 启封前）这些路由返回 `secrets.sealed` 并告警；监控与 SSH 通道照常。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/vault` | 任意凭据 | 状态：`sealed`、`mode`（`file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit`）与签名不符的策略行 `rows_failed_signature` |
+| `POST /api/v1/vault/init` | `secrets:admin` | 给口令模式保管库设第一道口令，请求体 `{"passphrase"}`。之后的启封用这道口令，不会再接受新口令。已经有口令时是 `secrets.conflict` |
+| `POST /api/v1/vault/unseal` | `secrets:admin` | 用 `{"passphrase"}` 启封口令模式；口令不对是 `secrets.wrong_passphrase`；从未初始化过是 `secrets.not_initialised` |
+| `POST /api/v1/vault/seal` | `secrets:admin` | 重新封存（口令模式）：密钥功能等待口令 |
+| `POST /api/v1/vault/rotate-key` | `secrets:admin` | 换根密钥：全部库密钥重新包裹，秒级完成。口令模式下 `{"passphrase"}` 是新口令 |
+| `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | 换一个库的密钥（`{"collection"}`）；该库条目在后台重新加密。移除成员不需要换钥：成员从来不经手密钥 |
+| `GET /api/v1/vault/collections` | 任意凭据 | 全部库：名字、说明、审批级别、密钥版本 |
+| `POST /api/v1/vault/collections` | `secrets:admin` | 建库（`name`、`description`、`level`：条目继承的审批级别） |
+| `GET /api/v1/vault/collections/{id}` | 人 | 一个库，以及调用者能否在其中读值 |
+| `PUT /api/v1/vault/collections/{id}` | `secrets:admin` | 改库的说明或级别 |
+| `GET /api/v1/vault/collections/{id}/items` | 人，`describe` | 条目清单（`?state=normal`、`archived` 或 `trash`）：标题、版本、状态、标签——概要，绝无值 |
+| `POST /api/v1/vault/collections/{id}/items` | 人，`edit` | 加条目：`title`、`category`、`urls`、`tags`、`level`（空则继承库的）、`actions`、`fields`（每个 `section`、`name`、`type`——`concealed`、`string`、`email`、`url`、`otp`、`date`、`file`——`purpose`、`value`）、`notes`、`attachments`（`name`、base64 `data`）、`reason` |
+| `GET /api/v1/vault/collections/{id}/perms` | 人，`manage` | 谁在这个库里能做什么 |
+| `POST /api/v1/vault/collections/{id}/perms` | 人，`manage` | 给人或角色授一档权限：`{"subject": "user:alice"}` 或 `role:oncall`，`perm` 为 `describe`、`read`、`edit`、`manage` 之一（空为移除），`reason` |
+| `GET /api/v1/vault/items/{id}` | 人，`describe` | 一个条目：所在库、生效的审批级别、各版本（谁、何时、为何、字段清单——绝无密文）、`who_can_get`（授权，后续版本）与它的 `ref`，`beacon://collection/item[/section/field]`。调用者连 describe 都没有的条目返回 `secrets.not_found`，而不是拒绝 |
+| `PUT /api/v1/vault/items/{id}` | 人，`edit` | 改条目；请求体与新增相同，实际要求带 `reason`，产生一个新版本 |
+| `DELETE /api/v1/vault/items/{id}` | 人，`edit` | 把条目移入回收站，`retention.trash`（30 天）保留 |
+| `POST /api/v1/vault/items/{id}/archive` | 人，`edit` | 归档条目：保留、让开 |
+| `POST /api/v1/vault/items/{id}/restore` | 人，`edit` | 从归档或回收站恢复条目 |
+| `POST /api/v1/vault/items/{id}/rollback` | 人，`edit` | 让旧版本重新成为当前版本（`version`、`reason`）；各版本仍在 |
+| `POST /api/v1/vault/items/{id}/generate` | 人，`edit` | 让 Beacon 为一个字段生成新值（`field`、`section`、`length`——默认 24——`charset`：`letters`、`alnum` 或 `all`、`reason`）：作为新版本保存，值本身不返回；要看就 reveal |
+| `POST /api/v1/vault/items/{id}/reveal` | 人，`read` | 值（`fields` 指定字段名，不给则全部；`password` 为账号密码）。`otp` 字段返回当前验证码与剩余秒数，绝无种子。先写审计，值才离开 |
+| `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | 人，`read` | 一个附件的字节 |
+| `GET /api/v1/vault/search` | 人，`describe` | 标题、类别、标签或字段名匹配 `q` 的条目（`?collection=`、`?tag=` 可多个），只在调用者有 describe 的库里找 |
+| `GET /api/v1/vault/tags` | 任意凭据 | 全部标签：名字（小写、`/` 分层）、审批级别、说明 |
+| `POST /api/v1/vault/tags` | 人，owner | 设置标签（`name`、`level`、`description`）：标签的级别是策略——带它的条目至少那么严——所以只有 owner 能改 |
+| `DELETE /api/v1/vault/tags/{name}` | 人，owner | 删除标签；条目上的名字保留 |
+
 ## 状态页与维护 {#status-pages-and-maintenance}
 
 公开页面本身不需要令牌（[见下文](#other-routes-on-port-17001)）；这些接口把同样的内容给 Agent，并让它安排维护（[状态页](../guide/status-pages.md)）。
@@ -274,6 +310,20 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `settings.unknown` | 404 | 没有这个键的设置项 |
 | `settings.invalid` | 422 | 值不符合该设置项的要求；消息说明原因，什么都没有改 |
 | `settings.conflict` | 409 | 之后的修改动过同一设置行；重新读取后再试 |
+| `secrets.sealed` | 503 | 保管库处于封存状态（口令模式重启后）；owner 输入口令启封 |
+| `secrets.wrong_passphrase` | 403 | 口令打不开这个保管库 |
+| `secrets.not_initialised` | 409 | 口令模式保管库还没有口令；先 `POST /api/v1/vault/init` |
+| `secrets.reauth` | 401 | 查看值要重新输入账号密码（重新打开 `reveal.reauth_window` 窗口） |
+| `secrets.agent` | 403 | Agent 来问；Agent 经由授权取条目，授权随后续版本到来 |
+| `secrets.person` | 403 | 保管库的条目路由给人用；请用账号登录 |
+| `secrets.permission` | 403 | 调用者在这个库里做不了这件事 |
+| `secrets.not_found` | 404 | 没有这个库、条目、标签或字段 |
+| `secrets.exists` | 409 | 已有这个名字的库或标签 |
+| `secrets.conflict` | 409 | 自调用者上次看到之后它变过；重新读取 |
+| `secrets.attachment_too_large` | 413 | 附件超过 `attachments.max_size` |
+| `secrets.invalid` | 422 | 条目不符合要求（级别、字段、值）；消息说明原因，什么都没有改 |
+| `secrets.bad_input` | 400 | 请求不是路由要的形状；消息说明是哪里 |
+| `secrets.crypto` | 500 | 密文在该密钥下验证不过——这一行不是它自称的那一行 |
 | `status.not_found` | 404 | 没有这个名字的状态页 |
 | `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |

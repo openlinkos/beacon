@@ -144,6 +144,9 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 	}
 	settings := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"},
 		{Key: "settings", Label: s.t("System settings"), Href: consolePath("/settings"), Icon: "settings"}}
+	if s.Vault != nil {
+		settings = append(settings, navItem{Key: "secrets", Label: s.t("Secrets"), Href: consolePath("/secrets"), Icon: "key-round"})
+	}
 	if v.owner() {
 		settings = append(settings, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
 	}

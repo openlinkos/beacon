@@ -1,0 +1,44 @@
+{{define "content"}}<div class="ol-stack">
+  <section class="ol-section">
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.Col.Name}}</h2>
+      <p class="ol-hint">{{.Col.Description}}</p></div>
+    <p><span class="ol-badge ol-badge-mono">{{.L.Level}}: {{.Col.Level}}</span>
+       <span class="ol-badge ol-badge-mono">{{.L.KeyVersion}}: {{.Col.KeyVersion}}</span></p>
+    {{if .Items}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.Item}}</th><th>{{.L.Version}}</th><th>{{.L.Level}}</th><th>{{.L.Tags}}</th><th>{{.L.State}}</th></tr></thead>
+      <tbody>{{range .Items}}<tr>
+        <td><a href="{{.Href}}">{{.Title}}</a></td>
+        <td data-label="{{$.L.Version}}">{{.Version}}</td>
+        <td data-label="{{$.L.Level}}"><span class="ol-badge ol-badge-mono">{{.Level}}</span></td>
+        <td data-label="{{$.L.Tags}}" class="ol-cell-wrap">{{.Tags}}</td>
+        <td data-label="{{$.L.State}}">{{.State}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+  </section>
+
+  <section class="ol-section">
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.WhoCanGet}}</h2>
+      <p class="ol-hint">{{.L.WhoCanGetHint}}</p></div>
+    {{if .WhoCanGet}}{{range .WhoCanGet}}<span class="ol-badge ol-badge-mono">{{.}}</span> {{end}}{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+    {{if .CanManage}}
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.PermsSubject}}</th><th>{{.L.Level}}</th><th>{{.L.CreatedBy}}</th></tr></thead>
+      <tbody>{{range .Perms}}<tr>
+        <td><span class="ol-mono">{{.Subject}}</span></td>
+        <td data-label="{{$.L.Level}}"><span class="ol-badge ol-badge-mono">{{.Perm}}</span></td>
+        <td data-label="{{$.L.CreatedBy}}">{{.Actor}} · {{.At.Format "2006-01-02 15:04"}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>
+    <details class="ol-details">
+      <summary class="ol-btn ol-btn-soft ol-btn-sm">{{iconSm "users"}}{{.L.PermsSet}}</summary>
+      <form class="ol-stack" method="post" action="{{console "/secrets/"}}{{.Col.ID}}/perms">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="ol-field"><label class="ol-label">{{.L.PermsSubject}}</label><input class="ol-input ol-mono" name="subject" placeholder="user:NAME or role:viewer"></div>
+        <div class="ol-field"><label class="ol-label">{{.L.PermsLevel}}</label>
+          <select class="ol-input" name="perm"><option value="describe">describe</option><option value="read">read</option><option value="edit">edit</option><option value="manage">manage</option></select></div>
+        <div class="ol-field"><label class="ol-label">{{.L.Reason}}</label><input class="ol-input" name="reason" maxlength="500"></div>
+        <button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "check"}}{{.L.PermsSet}}</button>
+      </form>
+    </details>{{end}}
+  </section>
+</div>{{end}}

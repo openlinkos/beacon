@@ -24,8 +24,9 @@ var i18nCalls = map[string]int{"Errorf": 0, "M": 0, "Coded": 1, "T": 1}
 // wrappers are helpers elsewhere that pass their format string on to this package, by package name,
 // function or method name and argument position. Their calls must use literal formats too.
 var wrappers = map[string]int{
-	"bridge.t": 0, // (*Bridge).t
-	"web.t":    0, // (*Server).t, the pages
+	"bridge.t":  0, // (*Bridge).t
+	"web.t":     0, // (*Server).t, the pages
+	"secrets.t": 0, // (*secrets.Service).t, the vault's chat echoes
 }
 
 // formats collects the literal format strings passed to this package and to the wrappers, with the

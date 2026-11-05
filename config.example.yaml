@@ -17,6 +17,29 @@ storage:
     journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
     synchronous: full                       # full (recommended: every commit is on the disk first), normal or off
     busy_timeout: 15s
+# The secrets vault: where its root key comes from and where its key material lives. The modes:
+#   file        a 32-byte root key file in the secrets directory, made at the first start
+#   passphrase  the root key derives from a passphrase and the file key together (argon2id then
+#               HKDF, two halves); after a restart the key functions wait sealed until the
+#               passphrase is entered (`beacon key unseal` or the console), while monitoring and
+#               the SSH channel carry on
+#   aws-kms / gcp-kms / transit  the root key is wrapped by the KMS and unwrapped at startup
+vault:
+  mode: file                                # file, passphrase, aws-kms, gcp-kms or transit
+  # dir: /var/lib/beacon/secrets            # default: <data_dir>/secrets
+  # aws_kms:                                # the AWS KMS mode
+  #   region: us-east-1
+  #   key_id: alias/beacon
+  #   # endpoint: http://localhost:4566     # a local KMS for the tests; empty is AWS's own
+  #   access_key_file: /run/secrets/aws-access-key
+  #   secret_key_file: /run/secrets/aws-secret-key
+  # gcp_kms:                                # the Cloud KMS mode
+  #   key_name: projects/example/locations/global/keyRings/beacon/cryptoKeys/root
+  #   token_file: /run/secrets/gcp-token
+  # transit:                                # the Vault or OpenBao transit mode
+  #   address: https://vault.example.com
+  #   key_name: beacon
+  #   token_file: /run/secrets/vault-token
 # The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are
 # imported once, into a database that holds none yet; after that only on SIGHUP (when nothing was changed
 # through Beacon since the last import) or with `beacon config import DIR`.

@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -179,31 +176,6 @@ func settingsCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stderr, settingsUsage)
 	return 2
-}
-
-func loadSettingsKey(dir string) ([]byte, error) {
-	path := filepath.Join(dir, "settings.sk")
-	b, err := os.ReadFile(path) //nolint:gosec // our own settings.sk in the data directory
-	if err == nil {
-		if len(b) != 32 {
-			return nil, fmt.Errorf("settings.sk must be 32 bytes")
-		}
-		return b, nil
-	}
-	if !os.IsNotExist(err) {
-		return nil, err
-	}
-	b = make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return nil, err
-	}
-	return b, nil
 }
 
 // resDefault is a key's registered default, for the line under a setting's value.

@@ -79,6 +79,26 @@ What Beacon monitors, in the shapes of its files ([What is checked, and from whe
 
 Pass the version you read as `if_version`: a change made on top of a later version is refused with `config.conflict`, so an agent never overwrites what someone changed meanwhile. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes.
 
+## The vault
+
+The secrets vault, under the same operations as the [REST routes](api.md#vault) and the console's Secrets pages. The tools are listed for the one surface; **until the grants arrive (a later release), every one of them answers an agent with the plain refusal** — nothing about the vault is visible to an agent yet. A person signed in through a client (an OAuth sign-in) works the vault with them.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `vault_state` | any credential, a person | Whether the vault is sealed, its unseal mode, and the policy rows that failed their signature (served as absent and reported) |
+| `list_collections` | a person | The collections: name, approval level, key version |
+| `list_items` | a person, `describe` | An item list's summaries (`collection`, `state`): title, version, state, tags — never a value |
+| `get_item` | a person, `describe` | One item (`ref`): its collection, effective level, versions (who, when, why, field names) and its `beacon://` reference |
+| `put_item` | a person, `edit` | Add or change an item (`collection`, `title`, `fields` with values, `tags`, `level`, `notes`, `reason`); a new version, never a value back |
+| `reveal_item` | a person, `read` | The values (`ref`, `fields`, the account's `password`; audited before they leave). An `otp` field gives the current code and the seconds left, not the seed |
+| `search_secrets` | a person, `describe` | Items whose title, category, tags or field names match (`query`, `collection`, `tags`) — "where is the password for…", without the values |
+| `generate_item_value` | a person, `edit` | Make a new value for a field (`ref`, `field`, `length`, `charset`), stored as a new version; the value itself is never returned |
+| `archive_item` | a person, `edit` | Archive an item (`ref`, `reason`): kept, out of the way |
+| `remove_item` | a person, `edit` | Move an item to the trash (`ref`, `reason`), where retention keeps it |
+| `restore_item` | a person, `edit` | Bring an item back from the archive or the trash (`ref`) |
+| `rollback_item` | a person, `edit` | Make an old version current again (`ref`, `version`, `reason`) |
+| `list_tags` | any credential, a person | The tags: name, approval level, description |
+
 ## Status pages and maintenance
 
 The public status pages are made from the alert groups and the maintenance windows ([Status pages](../guide/status-pages.md)). A note left with `add_note` that begins with `public:` is an update of the incident for the public.

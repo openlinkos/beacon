@@ -28,6 +28,27 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
 
+## The vault
+
+The secrets vault's root key: where it comes from, and what wraps it. Every collection's key is wrapped by the root key; every item's values are encrypted under its collection's key; every policy row is signed by a signature key derived from the root — so the root key is the one thing to keep. The mode is chosen at the first start: a vault under another mode makes a fresh key that does not open it, and the start refuses.
+
+| Key | Type | Default | What it is |
+| --- | --- | --- | --- |
+| `vault.mode` | `file`, `passphrase`, `aws-kms`, `gcp-kms`, `transit` | `file` | Where the root key comes from, read at start: a file in the secrets directory (`file`); a passphrase an owner enters (`passphrase`, after a restart the vault stays sealed until then — monitoring and the SSH channel carry on); or a keeper that unwraps it (`aws-kms`, `gcp-kms`, `transit`). Rotate with `beacon key rotate` |
+| `vault.dir` | path | `<data_dir>/secrets` | The directory the key files and the epochs file live in, made at the first start with only-owner permissions. Policy, items and settings heads share that epochs file |
+| `vault.aws_kms.region` | string | — | The AWS KMS mode: the region of the key |
+| `vault.aws_kms.key_id` | string | — | The key's id or alias (`alias/beacon`) |
+| `vault.aws_kms.endpoint` | URL | — | A KMS of one's own for the tests; empty is AWS's own |
+| `vault.aws_kms.access_key_file` | path | — | The access key, as a file |
+| `vault.aws_kms.secret_key_file` | path | — | The secret key, as a file |
+| `vault.aws_kms.session_token_file` | path | — | A session token, when temporary credentials are the deployment's way |
+| `vault.gcp_kms.key_name` | string | — | The Cloud KMS mode: the key's full resource name, `projects/…/locations/…/keyRings/…/cryptoKeys/…` |
+| `vault.gcp_kms.endpoint` | URL | — | A KMS of one's own for the tests; empty is Google's own |
+| `vault.gcp_kms.token_file` | path | — | The bearer token, as a file |
+| `vault.transit.address` | URL | — | The Vault or OpenBao transit mode: its address |
+| `vault.transit.key_name` | string | — | The transit key's name |
+| `vault.transit.token_file` | path | — | The token, as a file |
+
 ## Rules and routing
 
 | Key | Type | Default | What it is |

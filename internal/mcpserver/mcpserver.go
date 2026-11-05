@@ -286,6 +286,10 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 		&mcp.ServerOptions{Instructions: instructions})
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 
+	if o.vault != nil {
+		registerSecretsTools(s, o.vault)
+	}
+
 	mcp.AddTool(s, &mcp.Tool{Name: "status_summary", Title: "Alerting summary", Annotations: read,
 		Description: "Whether alerts can reach people right now (and why not), how many alert groups are firing by severity, how many are acknowledged, and the Feishu API budget used this month."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, bridge.Summary, error) {

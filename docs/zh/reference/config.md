@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c111d2e3
+sourceHash: sha256-4c1e14fb
 ---
 
 # config.yaml
@@ -31,6 +31,27 @@ sourceHash: sha256-c111d2e3
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
+
+## 保管库 {#the-vault}
+
+密钥保管库的根密钥：它从哪来、由谁包裹。每个库的密钥由根密钥包裹；每个条目的值由其库密钥加密；每条策略行由根密钥派生的签名密钥签名——所以根密钥是唯一要守住的东西。模式在首次启动时选定：已有保管库换一个模式会生成打不开它的新密钥，启动拒绝。
+
+| 键 | 类型 | 默认 | 是什么 |
+| --- | --- | --- | --- |
+| `vault.mode` | `file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit` | `file` | 根密钥从哪来，启动时读取：secrets 目录里的文件（`file`）；owner 输入的口令（`passphrase`，重启后保管库封存直到输入——监控与 SSH 通道照常）；或代为解开它的保管方（`aws-kms`、`gcp-kms`、`transit`）。轮换用 `beacon key rotate` |
+| `vault.dir` | 路径 | `<data_dir>/secrets` | 密钥文件与 epochs 文件所在目录，首次启动创建，仅属主可读。策略、条目与设置项的 head 共用这份 epochs 文件 |
+| `vault.aws_kms.region` | 字符串 | — | AWS KMS 模式：密钥所在区域 |
+| `vault.aws_kms.key_id` | 字符串 | — | 密钥的 id 或别名（`alias/beacon`） |
+| `vault.aws_kms.endpoint` | URL | — | 自建 KMS，测试用；留空是 AWS 自己的 |
+| `vault.aws_kms.access_key_file` | 路径 | — | 访问密钥，文件方式 |
+| `vault.aws_kms.secret_key_file` | 路径 | — | 私有密钥，文件方式 |
+| `vault.aws_kms.session_token_file` | 路径 | — | 会话令牌，部署用临时凭据时的做法 |
+| `vault.gcp_kms.key_name` | 字符串 | — | Cloud KMS 模式：密钥的完整资源名 `projects/…/locations/…/keyRings/…/cryptoKeys/…` |
+| `vault.gcp_kms.endpoint` | URL | — | 自建 KMS，测试用；留空是 Google 自己的 |
+| `vault.gcp_kms.token_file` | 路径 | — | Bearer 令牌，文件方式 |
+| `vault.transit.address` | URL | — | Vault 或 OpenBao transit 模式：它的地址 |
+| `vault.transit.key_name` | 字符串 | — | transit 密钥的名字 |
+| `vault.transit.token_file` | 路径 | — | 令牌，文件方式 |
 
 ## 规则与路由 {#rules-and-routing}
 

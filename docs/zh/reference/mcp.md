@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-69cf9221
+sourceHash: sha256-0bffbffe
 ---
 
 # MCP 工具
@@ -82,6 +82,26 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `revert_config_change` | `config:write` | 以一次新修改的方式撤销某次修改（`version`、`note`）；之后的修改动过其中某一项时拒绝 |
 
 把读到的版本作为 `if_version` 传回：在更新的版本之上做的修改会被拒绝，返回 `config.conflict`，这样 Agent 不会覆盖期间别人做的修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不会改。
+
+## 保管库 {#the-vault}
+
+密钥保管库，与 [REST 路由](api.md#vault)和控制台的「保管库」页同一套操作。工具在这里列出来是为了接口只有一个；**授权到来之前（后续版本），每一个工具对 Agent 都返回一句干脆的拒绝**——Agent 还看不到保管库的任何东西。通过客户端登录的人（OAuth 登录）可以用它们管理保管库。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `vault_state` | 任意凭据，人 | 保管库是否封存、启封方式，以及签名不符的策略行（视为不存在并上报） |
+| `list_collections` | 人 | 全部库：名字、审批级别、密钥版本 |
+| `list_items` | 人，`describe` | 一个库的条目概要（`collection`、`state`）：标题、版本、状态、标签——绝无值 |
+| `get_item` | 人，`describe` | 一个条目（`ref`）：所在库、生效级别、各版本（谁、何时、为何、字段名）与它的 `beacon://` 引用 |
+| `put_item` | 人，`edit` | 新增或改写条目（`collection`、`title`、带值的 `fields`、`tags`、`level`、`notes`、`reason`）；产生新版本，绝不返回值 |
+| `reveal_item` | 人，`read` | 查看值（`ref`、`fields`、账号的 `password`；先写审计再返回）。`otp` 字段给当前验证码与剩余秒数，不给种子 |
+| `search_secrets` | 人，`describe` | 标题、类别、标签或字段名匹配的条目（`query`、`collection`、`tags`）——「哪个密码在哪」，不带值 |
+| `generate_item_value` | 人，`edit` | 为一个字段生成新值（`ref`、`field`、`length`、`charset`），存为新版本；值本身不返回 |
+| `archive_item` | 人，`edit` | 归档条目（`ref`、`reason`）：保留、让开 |
+| `remove_item` | 人，`edit` | 把条目移入回收站（`ref`、`reason`），按保留期存放 |
+| `restore_item` | 人，`edit` | 从归档或回收站恢复条目（`ref`） |
+| `rollback_item` | 人，`edit` | 让旧版本重新成为当前版本（`ref`、`version`、`reason`） |
+| `list_tags` | 任意凭据，人 | 全部标签：名字、审批级别、说明 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 

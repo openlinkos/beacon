@@ -45,7 +45,10 @@ components:
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict,
-            settings.not_found, settings.unknown, settings.invalid, settings.conflict, status.not_found, maintenance.not_found, maintenance.ended,
+            settings.not_found, settings.unknown, settings.invalid, settings.conflict,
+            secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
+            secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
+            status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             audit.unavailable]
@@ -53,6 +56,68 @@ components:
           type: string
           format: uri
           description: "On a 401 (auth.required, auth.invalid): the API's reference, which says how to get a token"
+    SecretCollection:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        level: {type: string, enum: [auto, review, person, never], description: The collection's default approval level}
+        key_version: {type: integer, description: The collection key version in force}
+    SecretItem:
+      type: object
+      properties:
+        id: {type: string}
+        collection: {type: string}
+        title: {type: string}
+        category: {type: string}
+        urls: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+        level: {type: string, description: Empty when the item inherits}
+        actions: {type: array, items: {type: string, enum: [describe, read, use]}}
+        state: {type: string, enum: [normal, archived, trash]}
+        version: {type: integer}
+        source: {type: string, description: "Where the item came from: 1password:<uuid>, chrome"}
+        rotate_days: {type: integer}
+        machines: {type: array, items: {type: string}}
+        hosts: {type: array, items: {type: string}}
+    SecretItemIn:
+      type: object
+      properties:
+        title: {type: string}
+        category: {type: string}
+        urls: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+        level: {type: string, description: '"-" clears the override'}
+        actions: {type: array, items: {type: string}}
+        fields: {type: array, items: {$ref: "#/components/schemas/SecretFieldIn"}}
+        notes: {type: string}
+        has_notes: {type: boolean, description: The notes are set even when empty}
+        reason: {type: string}
+    SecretField:
+      type: object
+      properties:
+        section: {type: string}
+        name: {type: string}
+        type: {type: string, enum: [concealed, string, email, url, otp, date, file]}
+        purpose: {type: string, enum: [username, password, notes]}
+    SecretFieldIn:
+      allOf:
+        - $ref: "#/components/schemas/SecretField"
+        - type: object
+          properties:
+            value: {type: string}
+            clear: {type: boolean, description: Remove the field}
+    SecretPermission:
+      type: object
+      properties:
+        collection: {type: string}
+        subject: {type: string, description: "user:NAME or role:viewer|oncall|operator|owner"}
+        perm: {type: string, enum: [describe, read, edit, manage]}
+        actor: {type: string}
+        via: {type: string}
+        at: {type: string, format: date-time}
+        reason: {type: string}
     Ack:
       type: object
       properties:
@@ -1808,6 +1873,433 @@ paths:
       parameters: [{$ref: "#/components/parameters/Version"}, {$ref: "#/components/parameters/Note"}]
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /vault:
+    get:
+      summary: "The vault's state: sealed or open, its unseal mode, rows that failed their signature"
+      description: "The vault (collections of items, their values encrypted under per-collection keys the root key wraps). While it is sealed — the passphrase mode before the passphrase is entered, or a KMS that could not be reached — the key functions wait; monitoring and the SSH channel carry on. Rows whose signature does not verify are served as absent and listed here, having been reported to the log and the audit log."
+      responses:
+        "200":
+          description: The state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sealed: {type: boolean}
+                  mode: {type: string, enum: [file, passphrase, aws-kms, gcp-kms, transit]}
+                  rows_failed_signature: {type: array, items: {type: string}}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/init:
+    post:
+      summary: Set the first passphrase of a passphrase-mode vault
+      description: "Scope: secrets:admin. The passphrase mode only, and only when the vault has never been given a passphrase. Later unseals open with that passphrase; they never take a new one."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: {type: string}
+      responses:
+        "200":
+          description: Initialised and unsealed
+        default: {$ref: "#/components/responses/Error"}
+  /vault/unseal:
+    post:
+      summary: Unseal the vault with the passphrase
+      description: "Scope: secrets:admin. The passphrase mode only. The passphrase and the file key in the secrets directory derive the root key (argon2id then HKDF, two halves, so the disk alone is not enough); the key check tells a right passphrase from a wrong one (secrets.wrong_passphrase). A vault that has never been initialised answers secrets.not_initialised. Wrong passphrases count toward the address lockout."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: {type: string}
+      responses:
+        "200":
+          description: Unsealed
+        default: {$ref: "#/components/responses/Error"}
+  /vault/seal:
+    post:
+      summary: Seal the vault again
+      description: "Scope: secrets:admin. Drops the keys from memory (best effort; Go does not promise zeroed pages). The passphrase mode then needs the passphrase again; the file and KMS modes a fresh start or their own unseal."
+      responses:
+        "200":
+          description: Sealed
+        default: {$ref: "#/components/responses/Error"}
+  /vault/rotate-key:
+    post:
+      summary: Rotate the root key
+      description: "Scope: secrets:admin. A new root key (in the passphrase mode, the new passphrase derives it with the same file halves); every collection key of every version is wrapped again under it, seconds; the signature key changes with it and the settings' rows are re-signed. The old key never opens the vault again."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: {type: string, description: "The new passphrase, in the passphrase mode"}
+      responses:
+        "200":
+          description: Rotated
+        default: {$ref: "#/components/responses/Error"}
+  /vault/rotate-collection-key:
+    post:
+      summary: Give a collection a new key version
+      description: "Scope: secrets:admin. The new key version arrives in the background: every version of every item of the collection is decrypted and encrypted again under it, writes to the collection waiting until it is done. For a key suspected of leaking; removing a member never rotates anything, for members never hold the key."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collection]
+              properties:
+                collection: {type: string, description: The collection's name or ID}
+      responses:
+        "200":
+          description: Started
+        default: {$ref: "#/components/responses/Error"}
+  /vault/collections:
+    get:
+      summary: The collections
+      responses:
+        "200":
+          description: The collections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collections:
+                    type: array
+                    items: {$ref: "#/components/schemas/SecretCollection"}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Make a collection
+      description: "Scope: secrets:admin. A collection's key is made with it (a random 256-bit key, wrapped by the root key). The level is the collection's default approval level."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/SecretCollection"
+                - type: object
+                  required: [name]
+      responses:
+        "201":
+          description: Made
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SecretCollection"}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/collections/{id}:
+    get:
+      summary: One collection
+      description: "The caller must be a person (an agent gets secrets.agent). may_read says whether they hold read or more over it."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The collection
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      summary: Change a collection's description or default level
+      description: "Scope: secrets:admin. The level is policy: changing it is managing, not editing."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: {type: string}
+                level: {type: string, enum: [auto, review, person, never]}
+      responses:
+        "200":
+          description: Changed
+        default: {$ref: "#/components/responses/Error"}
+  /vault/collections/{id}/items:
+    get:
+      summary: The collection's items
+      description: "The caller must hold describe over the collection (a person; an agent gets secrets.agent). The state query picks another state (archived, trash). The answer holds the overviews only — titles, categories, tags, URLs — never a value."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string, enum: [normal, archived, trash]}}
+      responses:
+        "200":
+          description: The items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: "#/components/schemas/SecretItem"}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Make an item in the collection
+      description: "The caller must hold edit. The values are encrypted under the collection's key, bound by additional data to the item, the version, the collection and the key version; every change is a version, audited and echoed to the chat with what changed, by whom and why — never a value."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SecretItemIn"}
+      responses:
+        "201":
+          description: Made
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SecretItem"}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/collections/{id}/perms:
+    get:
+      summary: Who may do what over the collection
+      description: "The caller must hold manage. Every row is signed; one that fails its signature is served as absent and reported."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The permission rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items: {$ref: "#/components/schemas/SecretPermission"}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Grant a person or a role a permission over the collection
+      description: "The caller must hold manage (an owner holds it everywhere). A permission is one of describe (see the overview), read (view values, with the password re-entered), edit (add and change items) and manage (change policy: the collection's level, its permissions, items' tags and levels). An empty perm removes the row."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject]
+              properties:
+                subject: {type: string, description: "user:NAME or role:viewer|oncall|operator|owner"}
+                perm: {type: string, enum: [describe, read, edit, manage], description: Empty removes the row}
+                reason: {type: string}
+      responses:
+        "200":
+          description: Set
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}:
+    get:
+      summary: "One item: its overview, its versions, who can get it"
+      description: "The caller must hold describe over the item's collection. The versions list the fields by name, type and purpose and who made each, never a value; who_can_get lists the people and roles that hold read or more. The ref is the item's beacon:// reference."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, description: "The item's ID, or collection/title"}}
+      responses:
+        "200":
+          description: The item
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      summary: Change an item (a new version)
+      description: "The caller must hold edit; changing the tags or the level needs manage, for they change what the item requires. What is not named keeps its value; the notes need has_notes, so an empty note can be set."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SecretItemIn"}
+      responses:
+        "200":
+          description: Changed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SecretItem"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Remove an item to the trash
+      description: "The caller must hold edit. The item stays for the retention (retention.trash, thirty days by default) and can be restored; what it held stays encrypted."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Trashed
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/archive:
+    post:
+      summary: Archive an item
+      description: "The caller must hold edit. An archived item leaves the search but keeps its versions."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Archived
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/restore:
+    post:
+      summary: Restore an item from the archive or the trash
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Restored
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/rollback:
+    post:
+      summary: Roll an item back to an earlier version
+      description: "The caller must hold edit. The old version's details (and its attachments) become the next version, so nothing is lost and the history shows what happened."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: {type: integer}
+                reason: {type: string}
+      responses:
+        "200":
+          description: Rolled back
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/generate:
+    post:
+      summary: Generate a new value for a field
+      description: "The caller must hold edit. The value is made on the server by the spec (length, charset: letters, alnum or all) and stored as the item's next version; the answer says the version, never the value — an agent may turn a secret without ever seeing it."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [field]
+              properties:
+                section: {type: string}
+                field: {type: string}
+                length: {type: integer, default: 24}
+                charset: {type: string, enum: [letters, alnum, all], default: letters}
+                reason: {type: string}
+      responses:
+        "200":
+          description: Generated and stored
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SecretItem"}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/reveal:
+    post:
+      summary: View an item's values
+      description: "The caller must be a person holding read over the collection. The account password is re-entered, unless one was within the window the settings give (reveal.reauth_window, five minutes by default); the view is written to the audit log before the values are returned, and a record that cannot be written refuses the view. An otp field answers with the current code and the seconds it has left, not its seed. An agent is refused (secrets.agent): agents take values through grants, which arrive with the next package."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fields: {type: array, items: {type: string}, description: "The fields to view; empty is all of them"}
+                password: {type: string, description: The account password, when the window has passed}
+      responses:
+        "200":
+          description: The values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  values: {type: object, additionalProperties: {type: string}}
+                  fields:
+                    type: array
+                    items: {$ref: "#/components/schemas/SecretField"}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/items/{id}/versions/{version}/attachments/{name}:
+    get:
+      summary: One attachment of one version
+      description: "The caller must be a person holding read. The bytes are decrypted under the collection key of the version's own key version."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: integer}}
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The attachment's bytes
+        default: {$ref: "#/components/responses/Error"}
+  /vault/search:
+    get:
+      summary: Search the vault
+      description: "The caller must be a person. Items they may describe, in the collections their permissions open: a word in the title, category, URLs or tags, narrowed by tags, inside one collection when it names one. The trash stays out; the archive too."
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: collection, in: query, schema: {type: string}}
+        - {name: tag, in: query, description: "More than one may be given", schema: {type: string}}
+      responses:
+        "200":
+          description: The results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ref: {type: string, description: "The item's beacon:// reference"}
+                        collection: {type: string}
+                        item: {$ref: "#/components/schemas/SecretItem"}
+                        level: {type: string, enum: [auto, review, person, never]}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/tags:
+    get:
+      summary: The tags
+      responses:
+        "200":
+          description: The tags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: {type: string}
+                        level: {type: string, enum: [auto, review, person, never]}
+                        description: {type: string}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      summary: Add or change a tag
+      description: "The caller must be the deployment's owner. A tag's level is policy: it makes every item wearing the tag at least that strict, so only the owner changes it, and every change is recorded."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, description: "Lower-case, layered with /: env/prod, service/dns"}
+                level: {type: string, enum: [auto, review, person, never]}
+                description: {type: string}
+      responses:
+        "200":
+          description: Set
+        default: {$ref: "#/components/responses/Error"}
+  /vault/tags/{name}:
+    delete:
+      summary: Remove a tag
+      description: "The caller must be the deployment's owner. Items wearing it keep the string but lose the level it carried."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Removed
         default: {$ref: "#/components/responses/Error"}
   /token:
     get:

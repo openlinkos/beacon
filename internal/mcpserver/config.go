@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -33,6 +34,7 @@ type options struct {
 	config   *configdb.Service
 	settings *settings.Service
 	status   *status.Service
+	vault    *secrets.Service
 	metadata func(*http.Request) string
 }
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-feaedf56
+sourceHash: sha256-377a577e
 ---
 
 # 安全模型
@@ -30,6 +30,7 @@ Beacon 掌握着 Agent 永远看不见的东西：放它们进机器的钥匙、
 3. **端口。** 参考部署里对公网开放的只有 80 和 443（Caddy）以及 17002（SSH 通道）；17001、17006、8428 和 8880 都绑在 `127.0.0.1` 上。`/metrics` 只应答直连，不会经代理暴露。见[端口](index.md#ports)。
 4. **一个私有的聊天。** 卡片和它打开的签名链接都发到你的聊天工具；拿着链接的人在它过期前都能看到那个页面，所以链接发往的聊天必须是私有的。见[签名链接](../guide/console.md#signed-links)。
 5. **机器上的账号才是真正的边界。** 证书指名的是 `beacon` 账号；只给它工作所需的权限（比如 sudoers 里写明确切的命令），并把中心的地址从 OpenSSH 的惩罚机制里豁免。见[装在服务器上](install.md#3-the-first-machine)。
+6. **secrets 目录是回滚锚。** 策略、条目与设置项都在带纪元哈希的签名头后面；epochs 文件与根密钥文件一起放在 `<data_dir>/secrets`。只拿到数据库文件，无法放宽权限或让已撤销的行复活。头缺失时用 `beacon secret rebuild-head` 或 `beacon settings rebuild-head` 恢复。把数据库**和** secrets 目录一起滚回到某个一致的旧状态是检测不到的；能看见这件事的是外部锚（KMS，或该目录的备份日志）。
 
 ## 报告漏洞 {#reporting-a-hole}
 
