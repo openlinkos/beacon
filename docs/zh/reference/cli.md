@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d7ab3bef
+sourceHash: sha256-3a0a8f6e
 ---
 
 # 命令行
@@ -29,8 +29,13 @@ docker exec beacon beacon token list
 | `silence` | 静默：[create、list、expire](#beacon-enroll-silence-drill) |
 | `drill` | 演练一次故障：[fail、off、status](#beacon-enroll-silence-drill) |
 | `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
-| `storage` | 数据库的健康检查：[check](#beacon-audit-storage) |
-| `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
+| `storage` | 数据库的健康检查：[check、migrate](#beacon-audit-storage) |
+| `settings` | 保管库的配置：[get、set、reset、history、revert](#beacon-settings) |
+| `secret` | 密钥保管库：[ls、collection、show、set、reveal、tag、level、archive、rm、restore、rollback、generate、import、perms、tags](#beacon-secret) |
+| `run` | 把环境变量和 `.env` 里的 `beacon://` 引用注入子进程（`-agent`、`-reason`、`-env-file`、`-wait`）；值从不打印。见 [beacon run](#beacon-run) |
+| `key` | 保管库的密钥：[status、init、unseal、seal、rotate](#beacon-key) |
+| `backup` | Beacon 自己的备份：[now、ls、restore、drill、keygen](#beacon-audit-storage) |
+| `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/livez`，健康的备机也是 200；`/healthz` 是负载均衡的检查，备机上是 503） |
 | `version` | 版本、提交和构建 |
 | `help` | 完整用法，含角色、预设和 scope |
 
@@ -44,6 +49,73 @@ docker exec beacon beacon token list
 | `export` DIR | | 把配置按同样布局写到该目录，并删除配置里已不存在的文件 |
 | `history` | `-limit` | 变更列表：版本、时间、谁、途径、动作、备注。`-limit`（默认 20）定条数 |
 | `revert` VERSION | `-note` | 回到 `history` 里的某个版本 |
+
+### beacon settings {#beacon-settings}
+
+`settings` 命令读写密钥工作所依据的系统配置，每项都有登记过的默认值，每次改动都是一个版本，记着谁改的、为什么，可以回滚（[设置](settings.md)）。值按存的样子写 JSON：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。
+
+| 子命令 | 标志 | 做什么 |
+| --- | --- | --- |
+| `get` [KEY] | | 每一项的值、默认值、在哪一级被覆盖、谁改的，以及其它范围的覆盖；给 KEY 时只看那一项 |
+| `set` KEY VALUE | `-scope`、`-target`、`-reason` | 改一项。`-reason` 说明为什么，随改动保存并回显到告警群；`-scope`（默认 `system`）和 `-target` 把值放在某个库、标签、资格或申请上 |
+| `reset` KEY | `-scope`、`-target`、`-reason` | 去掉覆盖，让上一级（或默认值）重新生效 |
+| `history` | `-limit` | 改动：版本、时间、谁、途径、动作、配置项、备注 |
+| `revert` VERSION | `-note` | 回到 `history` 里的某个版本 |
+
+### beacon secret {#beacon-secret}
+
+保管库，给人在命令行上手：和控制台的密钥页、[REST 路由](api.md)是同一套权限和审计。每次改动都记在某个账号上（`-user`，默认是你自己），看值需要那个账号的密码，值和审计、日志里从不出现。条目用 `beacon://` 引用或 `COLLECTION/TITLE` 指名。
+
+这些命令走数据目录里的管理 socket，所以要在容器里（或持有 socket 的那台主机上）跑。导入也在那里解析：导出文件的明文不走 REST 或 MCP，那两面也没有导入入口。
+
+| 子命令 | 标志 | 做什么 |
+| --- | --- | --- |
+| `ls` [COLLECTION] | `-state` | 库的级别和条目数；给库名则列条目（`-state`：`normal`、`archived` 或 `trash`）：标题、版本、状态、级别、标签 |
+| `collection` NAME | `-level`、`-description` | 建一个库；`-level`（默认 `review`）是条目继承的审批 |
+| `show` REF | | 一条：版本、级别、状态、标签、`beacon://` 引用、字段（名、类型、用途）和有多少版本——从不带值 |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`、`-level`、`-category`、`-url`、`-set-note`、`-reason`、`-value-file`、`-value-from-stdin` | 添加或写下一条的下一版本。字段是 `name=value` 或 `section/name=value`；`username` 是明文，其余都是隐藏字段。`FIELD=-` 配 `-value-file` 或 `-value-from-stdin` 从文件或 stdin 读值，不必出现在命令行。`-level` `-` 清掉条目自己的级别；`-reason` 说明为什么，随版本保存 |
+| `reveal` REF [FIELD …] | `-user`、`-password-file`、`-password-from-stdin` | 看值：账号密码来自文件（`-password-file`）或 stdin（`-password-from-stdin`；输入时会显示）。`otp` 字段给当前验证码和剩余秒数。打印前先审计 |
+| `tag` REF TAGS | `-user`、`-reason` | 改标签（逗号分隔）——这是策略改动，需要该库的 `manage` |
+| `level` REF LEVEL | `-user`、`-reason` | 设条目自己的审批级别（`auto`、`review`、`person`、`never`，或 `-` 继承库的）——同样要 `manage` |
+| `archive` REF | `-user` | 归档：还在，不挡路 |
+| `rm` REF | `-user` | 进回收站，`retention.trash`（30 天）还管着 |
+| `restore` REF | `-user` | 从归档或回收站拿回来 |
+| `rollback` REF VERSION | `-note` | 把旧版本再做成当前；`-note` 说明为什么，随新版本保存 |
+| `generate` REF FIELD | `-length`、`-charset`、`-user`、`-reason` | 让 Beacon 生成新值（`-length` 默认 24，`-charset` 为 `letters`、`alnum` 或 `all`），存成新版本。值不显示；要看就 reveal |
+| `import` SOURCE | `-file`、`-collection`、`-on-conflict`、`-level`、`-map`、`-vault`、`-dry-run`、`-user`、`-reason` | 导入导出：`1pux`（1Password 未加密导出，推荐）、`1password-csv`、`op`（已登录的 `op` 命令行；大约 300 条以上用 1PUX）、`chrome`（一个库；同一凭据跨站点合成一条带多个 URL）、`bitwarden`（未加密 JSON）或 `csv`（任意 CSV，列名用 `-map title=HEADER,…`）。命令走数据目录里的管理 socket，文件在跑 Beacon 的那台主机上解析。没有 REST 或 MCP 的导入。`-dry-run` 只给报告、不写入。`-on-conflict` 默认 `skip`（`new_version`、`skip`、`keep_both`——没有 `ask`）。输出从不带值；做完删掉导出文件 |
+| `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库能做什么：没有第二段就列出来；`user:alice=read` 给人 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
+| `tags` [NAME [LEVEL]] | `-description`、`-user` | 标签，或设一个：标签的级别是策略（戴它的每条至少那么严），只有 owner 的账号能改 |
+
+### beacon run {#beacon-run}
+
+`beacon run` 填上进程环境和 `.env` 里的 `beacon://` 引用，再带着值启动子命令。值从不打印：只活在那个进程里，和 `op run` 一样。引用走点名的 Agent 的 use 授权；`-wait` 在没有覆盖的授权时申请并等待那么久。
+
+```bash
+beacon run -agent claude-code -reason "fix the dns outage" --env-file .env -- printenv TOKEN
+```
+
+| 标志 | 做什么 |
+| --- | --- |
+| `-agent` NAME | 引用所走的 Agent |
+| `-reason` TEXT | 为什么；每次取用都记 |
+| `-env-file` FILE | 一份 `.env`，里面的 `beacon://` 会被填上 |
+| `-wait` DURATION | 没有覆盖的授权时等多久（Go 时长，例如 `30s`） |
+
+`--` 后面是命令。`-env-file` 的值盖过进程环境；解析后的 `beacon://` 再盖过两者。
+
+REST `POST /api/v1/secrets/use` 是给 CLI 的同一条路：它返回值，好让 `beacon run` 注入。不能看见值的 Agent 用 `run_command` 的 `secrets` 或 `http_request`；没有会返回值的 MCP 工具。
+
+### beacon key {#beacon-key}
+
+保管库的密钥：根密钥从哪来见 [config.yaml](config.md) 的 `vault` 段。`file`、`aws-kms`、`gcp-kms`、`transit` 模式启动时密钥就在；`passphrase` 模式重启后封存，直到 owner 第一次 `key init`，再 `unseal`。封存是密钥这边的总闸：取用和揭示等待，监控和 SSH 通道继续。
+
+| 子命令 | 标志 | 做什么 |
+| --- | --- | --- |
+| `status` | | `sealed` 或 `unsealed`、模式，以及每条签名失败的策略行（当不存在处理） |
+| `init` | `-passphrase-file`、`-passphrase-from-stdin` | 给口令模式设第一句口令并启封。之后的启封用这句口令，不再收新的。口令来自文件（`-passphrase-file`，secrets 目录那种）或 stdin（`-passphrase-from-stdin`；输入时会显示）——从不作为 shell 参数 |
+| `unseal` | `-passphrase-file`、`-passphrase-from-stdin` | 重启后启封口令模式。口令来自文件或 stdin——从不作为 shell 参数 |
+| `seal` | | 再封上：密钥相关的功能等口令；监控和 SSH 通道继续 |
+| `rotate` [COLLECTION] | `-passphrase-file`、`-passphrase-from-stdin` | 不给名字就是新的根密钥：每个库密钥再包一次，几秒内完成（口令模式用 `-passphrase-file` 指名新口令文件）。给名字就是那个库的密钥：条目在后台重新加密。删成员不必轮换——成员从不持有密钥 |
 
 ### beacon setup, user, agent
 
@@ -131,7 +203,18 @@ docker exec beacon beacon token list
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | 校验审计日志的哈希链——从覆盖 `-from-seq` 的检查点起，或校验现存的全部——链在哪里断就报哪里（退出码 1），否则报告校验了多少条 |
-| `storage check` | | 数据库的健康：SQLite 自身的一致性检查、每个桶各存了多少、审计链的校验 |
+| `storage check` | | 数据库的健康：后端自己的检查（SQLite 的一致性检查，或 PostgreSQL 上每一张表）、每个桶各存了多少、审计链的校验 |
+| `storage migrate` | `-to` | 把 SQLite 数据库迁入 `storage.dsn_file` 所指的 PostgreSQL，一个事务里完成并在提交前核对条数；创世记录记下这次导入。SQLite 文件保留，配置改成 PostgreSQL 驱动之前仍由它服务；回滚就是把驱动留在 sqlite（迁过去之后写进 PostgreSQL 的不在 SQLite 文件里）。今天的目的地是 `-to postgres` |
+
+**`beacon backup`** —— Beacon 自己的备份；每个子命令都接受 `-config`。单次 S3 PUT 最大 5 GiB。
+
+| 子命令 | 标志 | 做什么 |
+| --- | --- | --- |
+| `backup now` | `-full` | 立刻做一次（`-full` 带完整录像集）：服务在就走管理 socket，否则自己做 |
+| `backup ls` | | 每个目的地里有什么，新的在前 |
+| `backup restore` FILE... | `-identity`、`-into`、`-dry-run`、`-confirm`、`-verify-key` | 解密、核对清单签名和每个成员、检查数据库完整性和审计链，再把数据库、录像、配置和 secrets 放回去；`-dry-run` 在临时目录里证明、不动真东西。恢复到正在用的 `data_dir` 需要 `-confirm`（当前文件先旁路复制）。先给完整档案，再给增量。`-identity` 里没有校验密钥时，`-verify-key` 是恢复材料里的 `sign1:…` 行 |
+| `backup drill` FILE... | `-identity`、`-keep`、`-verify-key` | 恢复到临时目录、核对，并续上内置的 `recovery-drill` 提醒；`-keep` 打印它留在哪 |
+| `backup keygen` | | 一对 age 密钥：私钥只在 stdout 打印一次；公钥给 `backup.recipients` |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：
 

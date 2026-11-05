@@ -22,7 +22,7 @@ storage:
   dsn_file: secrets/postgres-dsn
 ```
 
-PostgreSQL 14 or newer; the connection pool and statement timeouts are settings of the same block. A Beacon that starts with an SQLite database and a PostgreSQL driver beside it migrates in one pass: `beacon storage migrate --to postgres` copies every table and the event log across in one transaction, checks the counts, and leaves the SQLite file where it was. The other direction works the same way. `beacon storage check` reports the health of whichever database is in use — the integrity check, what each bucket holds, the audit chain's verification.
+PostgreSQL 14 or newer; the connection pool and statement timeouts are keys of the same block. A Beacon that starts with an SQLite database and a PostgreSQL driver beside it migrates in one pass: `beacon storage migrate -to postgres` copies every table and the event log across in one transaction, checks the counts, and leaves the SQLite file where it was. The other direction works the same way. `beacon storage check` reports the health of whichever database is in use — the integrity check, what each bucket holds, the audit chain's verification.
 
 Everything Beacon stores tests against both databases; the same key-value and event interfaces carry the state either way ([Architecture](../about/architecture.md#where-state-lives)).
 
@@ -30,8 +30,8 @@ Everything Beacon stores tests against both databases; the same key-value and ev
 
 High availability, where it applies, is one primary and one standby — not two active centres. The SSH listener, the chat's long connection and the alert router must each be single-headed, so only one instance is active at a time, and the database decides which:
 
-- A **lease** in the database: the primary renews it every 5 seconds and it expires after 15 — both configurable.
-- The standby holds the lease's door shut and answers `/healthz` with `503`, so a load balancer or a VIP in front sends every request to the primary.
+- A **lease** in the database. The pair that runs is `ha.renew` (5 seconds) and `ha.expire` (15 seconds) in [config.yaml](../reference/config.md). Settings also register `storage.lease.renew` and `storage.lease.expires` with the same numbers; the integration will keep one source.
+- The standby holds the lease's door shut and answers `/healthz` with `503`, so a load balancer or a VIP in front sends every request to the primary. `/livez` stays `200` on a waiting standby, so Docker's health check does not restart it; a partitioned instance fails `/livez`.
 - **Recordings** live on S3-compatible storage both instances can read and write ([configuration](configuration.md)); alerts, groups and the router's state were in the database all along.
 - A failover takes about as long as the lease takes to expire: kill the primary, and the standby answers inside those 15 seconds.
 

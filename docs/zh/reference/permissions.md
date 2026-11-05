@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-57a89d7c
+sourceHash: sha256-9b3412c6
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -12,10 +12,10 @@ sourceHash: sha256-57a89d7c
 
 | 角色 | Scope | 用来做什么 |
 | --- | --- | --- |
-| `viewer` | `status:read`、`sessions:read` | 看发生了什么：告警、证据、会话、控制台 |
-| `oncall` | + `alerts:write`、`machines:ssh` | 处理告警：认领、静默、备注，以及经 SSH 通道上机器 |
-| `operator` | + `maintenance:write`、`incidents:write`、`machines:write` | 改运行的东西：维护窗口、机器和它们的密钥 |
-| `owner` | + `config:write`、`accounts:write` | 部署本身：监控什么，以及上面的人 |
+| `viewer` | `status:read`、`sessions:read`、`secrets:describe` | 看发生了什么：告警、证据、会话、控制台，以及密钥概要 |
+| `oncall` | + `alerts:write`、`machines:ssh`、`secrets:read`、`secrets:use` | 处理告警：认领、静默、备注，经 SSH 通道上机器，以及在资格范围内取用或使用密钥 |
+| `operator` | + `maintenance:write`、`incidents:write`、`machines:write`、`secrets:review` | 改运行的东西：维护窗口、机器和它们的密钥，以及在审核链上裁决申请 |
+| `owner` | + `config:write`、`accounts:write`、`secrets:admin` | 部署本身：监控什么、上面的人，以及保管库的级别、资格和设置 |
 
 ## 预设 {#presets}
 
@@ -23,10 +23,10 @@ Agent 永远不超过其所有者的角色：只有**预设**给了它、*且*�
 
 | 预设 | 它要的 scope | 谁的 Agent 拿到它 |
 | --- | --- | --- |
-| `readonly` | `status:read`、`sessions:read` | viewer 的 Agent 至多拿到它 |
-| `oncall` | + `alerts:write`、`machines:ssh` | 值班的人的 Agent 至多拿到它 |
-| `operator` | + `maintenance:write`、`incidents:write`、`machines:write` | operator 或 owner 的 Agent 至多拿到它 |
-| `custom` | 自己列一份，从人和 Agent 的九个 scope 里选，至少一个 | 有意选择的：`beacon agent add -scopes`，或认领一个 scope 恰好不匹配任何预设的旧式令牌；认领绝不会放大令牌的权限 |
+| `readonly` | `status:read`、`sessions:read`、`secrets:describe` | viewer 的 Agent 至多拿到它 |
+| `oncall` | + `alerts:write`、`machines:ssh`、`secrets:read`、`secrets:use` | 值班的人的 Agent 至多拿到它 |
+| `operator` | + `maintenance:write`、`incidents:write`、`machines:write`、`secrets:review` | operator 或 owner 的 Agent 至多拿到它 |
+| `custom` | 自己列一份，从人和 Agent 的十四个 scope 里选，至少一个 | 有意选择的：`beacon agent add -scopes`，或认领一个 scope 恰好不匹配任何预设的旧式令牌；认领绝不会放大令牌的权限 |
 
 一个人的 Agent 默认拿其所有者角色允许的最强预设，除非特意选低的（`beacon agent add -preset`，或控制台）；所有者被降级后，下一个请求起 Agent 就被按新角色约束。
 
@@ -34,7 +34,7 @@ OAuth 登录（Claude Code、Codex）在此之外还被限制在授权页允许�
 
 ## Scope {#scopes}
 
-前九个属于人和 Agent，用在 REST API、MCP 和 SSH 通道；五个 `secrets:` scope 管密钥库（见[管理 Agent 的密钥](../guide/secrets.md)）；其余属于机器，用在指标网关（[数据来源](sources.md)）。
+人和 Agent 一共十四个 scope，覆盖 REST API、MCP 和 SSH 通道；其中五个是管保管库的 `secrets:` scope（见[管理 Agent 的密钥](../guide/secrets.md)）。Agent 预设经对应角色继承这些密钥 scope：只读 Agent 有 `secrets:describe`，值班 Agent 有 `secrets:read` 和 `secrets:use`，运维 Agent 有 `secrets:review`。其余 scope 属于机器，用在指标网关（[数据来源](sources.md)）。
 
 | Scope | 谁持有 | 允许什么 |
 | --- | --- | --- |
@@ -47,10 +47,10 @@ OAuth 登录（Claude Code、Codex）在此之外还被限制在授权页允许�
 | `machines:write` | operator 及以上 | 增删机器、连接器密钥、暂停 Agent 的访问 |
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
 | `accounts:write` | owner；无预设 | 管理人和所有人的 Agent；只有 owner，且只能手工给 |
-| `secrets:describe` | 密钥预设，或 `custom` | 在资格范围内搜索、看概要（见[下面的密钥](#the-secrets-levels-entitlements-and-actions)） |
-| `secrets:read` | 同上，再高一层 | 经 `get_secret` 读值，仍限资格与授权 |
-| `secrets:use` | 同上，再高一层 | 不见值地使用：`beacon run`、`run_command`、`http_request`、文件下发 |
-| `secrets:review` | 审核 Agent 专有 | 在审核链上裁决申请；有审核权不等于能读值 |
+| `secrets:describe` | viewer 及以上；`readonly` 预设 | 在资格范围内搜索、看概要（见[下面的密钥](#the-secrets-levels-entitlements-and-actions)） |
+| `secrets:read` | oncall 及以上；`oncall` 预设 | 经 `get_secret` 读值，仍限资格与授权 |
+| `secrets:use` | oncall 及以上；`oncall` 预设 | 不见值地使用：`beacon run`、`run_command`、`http_request`、文件下发 |
+| `secrets:review` | operator 及以上；`operator` 预设 | 在审核链上裁决申请；有审核权不等于能读值 |
 | `secrets:admin` | owner；可授给 Agent | 级别、标签、资格和[设置](settings.md) |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |

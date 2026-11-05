@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-579df6e8
+sourceHash: sha256-3f46e641
 ---
 
 # 管理 Agent 的密钥
@@ -87,7 +87,7 @@ get_secret(ref: "beacon://Infra/dns-example-com/password", reason: "renewing the
 
 对于根本不该经过 Agent 上下文的值，`use` 动作在不暴露值的前提下完成：
 
-- **`beacon run --reason "…" -- <命令>`** 读取写满引用的 `.env`，把值注入子进程，就像 `op run`；值进的是进程，不是对话。
+- **`beacon run -agent 名称 -reason "…" -env-file 文件 -- <命令>`** 读取写满引用的 `.env`，把值注入子进程，就像 `op run`；值进的是进程，不是对话。没有覆盖某条引用的授权时，`-wait` 会申请一份并等到那么久。REST `POST /api/v1/secrets/use` 是这条路径给 CLI 用的；MCP 没有回值的 use 工具。
 - **带 `secrets` 的 `run_command`** 把值作为环境变量传入机器上的命令，并在输出、录像和文字稿中打码——值本身和它的 base64、URL 编码、十六进制形式都盖住。只在条目绑定的机器上可用。
 - **`http_request`** 把密钥引用换成值后由 Beacon 自己发出请求，只发往条目绑定的 `https://` 主机，返回的响应已打码：
 
@@ -106,18 +106,18 @@ get_secret(ref: "beacon://Infra/dns-example-com/password", reason: "renewing the
 
 | 命令 | 做什么 |
 | --- | --- |
-| `beacon secret import` | 从 1Password、Chrome、Bitwarden 或 CSV 导入（见 [1Password](../integrations/1password.md)、[Chrome](../integrations/chrome.md)） |
+| `beacon secret import` | 从 1Password、Chrome、Bitwarden 或 CSV 导入（见 [1Password](../integrations/1password.md)、[Chrome](../integrations/chrome.md)）。在 Beacon 主机上经管理套接字解析；没有 REST 或 MCP 导入入口 |
 | `beacon secret ls` \| `show` \| `set` | 列出库和条目；看条目概要；写入条目 |
 | `beacon secret reveal` | 读值，带人查看值时的重新验证窗口 |
 | `beacon secret tag` \| `level` | 改条目的标签或级别（需要 `manage`） |
 | `beacon secret archive` \| `rm` | 归档条目（回收站保留 30 天）或删除 |
 | `beacon secret generate` | 按规格生成新值，作为新版本 |
-| `beacon entitlement add` \| `ls` \| `rm` | 管理资格 |
-| `beacon grant ls` \| `revoke` | 列出授权、吊销一份 |
-| `beacon run` | 按 `.env` 里的引用注入值后运行命令 |
-| `beacon settings get` \| `set` \| `history` \| `revert` | 读写[设置](../reference/settings.md)页的配置 |
-| `beacon key rotate` \| `seal` \| `unseal` | 轮换根密钥；封存与启封密钥库 |
+| `beacon run` | `-agent`、`-reason`、`-env-file`、`-wait`：把引用注入子进程 |
+| `beacon settings get` \| `set` \| `reset` \| `history` \| `revert` VERSION | 读写[设置](../reference/settings.md)页的配置 |
+| `beacon key rotate` \| `seal` \| `unseal` | 轮换根密钥；封存与启封密钥库（封存是密钥这边的总闸） |
 | `beacon backup now` \| `ls` \| `restore` \| `drill` | 见[备份与恢复](../self-hosting/backup.md) |
+
+资格和授权没有单独的 CLI：`put_entitlement`、`list_entitlements`、`delete_entitlement`、`list_grants` 和 `revoke_grant` 走 REST 和 MCP。
 
 `beacon audit verify` 校验审计链，`beacon storage check` 查数据库健康（见[命令行](../reference/cli.md)）。
 

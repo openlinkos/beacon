@@ -2,7 +2,7 @@
 
 By the end of this page your 1Password vaults are Beacon collections, with their items, fields, attachments and one-time passwords, each at a level that says which agent may ask for it. The commands are in [Secrets for agents](../guide/secrets.md); this page is the import itself.
 
-An export from 1Password is plaintext: everything in it, in the clear. Import it from your own computer, where the file is, over TLS to Beacon; the console's import wizard also takes the file, parses it in memory and never writes it to disk. Delete the export when you are done — both paths remind you.
+An export from 1Password is plaintext: everything in it, in the clear. `beacon secret import` talks to the running service over the admin socket in the data directory, so the file is parsed on the Beacon host — copy the export there, run the command inside the container, then delete it. The console's import wizard takes the file in the browser, parses it in memory and never writes it to disk. There is no REST or MCP import: an agent never sees an export. Delete the export when you are done — both paths remind you.
 
 ## Before you export
 
@@ -39,7 +39,7 @@ Each item arrives at a level, and the defaults are deliberate ([Settings](../ref
 - Every other vault imports at `review`.
 - Identity and money categories — Credit Card, Bank Account, Identity, Passport, Driver License, Social Security Number, Medical Record, Membership, Reward Program — import at `never`: they are not for agents at all, whatever the vault.
 
-The dry run lists what each vault and category would get, and you may change the levels per collection before committing; the conflict rule (`import.on_conflict`, `ask` by default) says what happens to an item that looks like one already there — same URL after normalisation, same username.
+The dry run lists what each vault and category would get, and you may change the levels per collection before committing; the conflict rule (`import.on_conflict`, `skip` by default; `new_version` or `keep_both`) says what happens to an item that looks like one already there — same URL after normalisation, same username. There is no `ask`: a headless import never waits for a decision.
 
 ## Run the import
 

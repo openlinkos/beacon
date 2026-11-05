@@ -8,10 +8,10 @@ A person's role, weakest first; each may do what the one before it may, and more
 
 | Role | Scopes | What it is for |
 | --- | --- | --- |
-| `viewer` | `status:read`, `sessions:read` | Seeing what happens: alerts, evidence, sessions, the console |
-| `oncall` | + `alerts:write`, `machines:ssh` | Working an alert: acknowledging, silencing, notes, and reaching machines through the SSH channel |
-| `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | Changing what is run: maintenance windows, machines and their keys |
-| `owner` | + `config:write`, `accounts:write` | The deployment itself: what is monitored, and the people on it |
+| `viewer` | `status:read`, `sessions:read`, `secrets:describe` | Seeing what happens: alerts, evidence, sessions, the console, and secret summaries |
+| `oncall` | + `alerts:write`, `machines:ssh`, `secrets:read`, `secrets:use` | Working an alert: acknowledging, silencing, notes, reaching machines through the SSH channel, and taking or using secrets within entitlements |
+| `operator` | + `maintenance:write`, `incidents:write`, `machines:write`, `secrets:review` | Changing what is run: maintenance windows, machines and their keys, and deciding requests on the review chain |
+| `owner` | + `config:write`, `accounts:write`, `secrets:admin` | The deployment itself: what is monitored, the people on it, and the vault's levels, entitlements and settings |
 
 ## Presets
 
@@ -19,10 +19,10 @@ An agent never does more than its owner's role allows: it may use a scope when i
 
 | Preset | Scopes it asks for | Whose agents get it |
 | --- | --- | --- |
-| `readonly` | `status:read`, `sessions:read` | the strongest a viewer's agents may have |
-| `oncall` | + `alerts:write`, `machines:ssh` | the strongest an on-call person's agents may have |
-| `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | the strongest an operator's or an owner's agents may have |
-| `custom` | A list of its own, from the nine scopes of people and agents, at least one | chosen on purpose: `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly; claiming never widens what a token may do |
+| `readonly` | `status:read`, `sessions:read`, `secrets:describe` | the strongest a viewer's agents may have |
+| `oncall` | + `alerts:write`, `machines:ssh`, `secrets:read`, `secrets:use` | the strongest an on-call person's agents may have |
+| `operator` | + `maintenance:write`, `incidents:write`, `machines:write`, `secrets:review` | the strongest an operator's or an owner's agents may have |
+| `custom` | A list of its own, from the fourteen scopes of people and agents, at least one | chosen on purpose: `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly; claiming never widens what a token may do |
 
 A person's agents get the strongest preset their owner's role allows unless they choose less (`beacon agent add -preset`, or the console); a demoted owner's agents are held to the new role at once, on the next request.
 
@@ -30,7 +30,7 @@ An OAuth sign-in (Claude Code, Codex) is held, besides, to the preset and the ma
 
 ## Scopes
 
-The first nine are for people and agents, on the REST API, MCP and the SSH channel; the five `secrets:` scopes govern the vault ([Secrets for agents](../guide/secrets.md)); the rest are for machines, on the metrics gateway ([Sources](sources.md)).
+The fourteen scopes of people and agents cover the REST API, MCP and the SSH channel; five of them are the `secrets:` scopes that govern the vault ([Secrets for agents](../guide/secrets.md)). Agent presets inherit those secrets scopes through the matching role, so a readonly agent may `secrets:describe`, an on-call agent may `secrets:read` and `secrets:use`, and an operator agent may `secrets:review`. The rest of the scopes are for machines, on the metrics gateway ([Sources](sources.md)).
 
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
@@ -43,10 +43,10 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `machines:write` | operator and above | Adding and removing machines, connector keys, pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
 | `accounts:write` | owner; no preset | Managing people and everyone's agents; an owner's, by hand only |
-| `secrets:describe` | a secrets preset, or `custom` | Searching within entitlements and seeing summaries ([the secrets](#the-secrets-levels-entitlements-and-actions)) |
-| `secrets:read` | the same, one step up | Reading values through `get_secret`, within entitlements and grants |
-| `secrets:use` | the same, one step up | Using values without seeing them: `beacon run`, `run_command`, `http_request`, file delivery |
-| `secrets:review` | a review agent's own | Deciding requests on the review chain; reviewing is not reading |
+| `secrets:describe` | viewer and above; the `readonly` preset | Searching within entitlements and seeing summaries ([the secrets](#the-secrets-levels-entitlements-and-actions)) |
+| `secrets:read` | oncall and above; the `oncall` preset | Reading values through `get_secret`, within entitlements and grants |
+| `secrets:use` | oncall and above; the `oncall` preset | Using values without seeing them: `beacon run`, `run_command`, `http_request`, file delivery |
+| `secrets:review` | operator and above; the `operator` preset | Deciding requests on the review chain; reviewing is not reading |
 | `secrets:admin` | owner; grantable to an agent | Levels, tags, entitlements and [settings](settings.md) |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |

@@ -22,7 +22,7 @@ Three binaries, all in Go without cgo:
 
 | Binary | Where it runs | What it does |
 | --- | --- | --- |
-| `beacon` | The centre (the machine Beacon runs on), beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck` |
+| `beacon` | The centre (the machine Beacon runs on), beside VictoriaMetrics and vmalert | The service (`serve`) and its command line: `check-config`, `config`, `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `drill`, `healthcheck`, `settings`, `secret`, `key`, `run`, `backup`, `storage` |
 | `beacon-probe` | Each probe location: an edge node, a small VPS where users are | `agent` pushes results to the gateway; `serve` answers scrapes like the Blackbox Exporter; `check` validates a module file; `run` probes once |
 | `beacon-oncall` | The machine where an agent runs | The reference harness: checks a hook's signature and starts the agent program you name, with the payload on its standard input |
 
@@ -34,7 +34,7 @@ The reference deployment (`deploy/`) is four containers on the centre: Beacon (m
 
 | Port | For | What answers |
 | --- | --- | --- |
-| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`) and its OAuth (`/.well-known/…`, `/oauth/…`), the public pages (`/`, `/status`), the console (`/console`, with the pages a card links to: `/console/alerts/{id}`, `/console/sessions/{id}`), `/healthz`, `/readyz`, `/metrics` (direct connections only) and the drill target |
+| 17001 | People and agents | The REST API (`/api/v1`), MCP (`/mcp`) and its OAuth (`/.well-known/…`, `/oauth/…`), the public pages (`/`, `/status`), the console (`/console`, with the pages a card links to: `/console/alerts/{id}`, `/console/sessions/{id}`), `/healthz`, `/livez`, `/readyz`, `/metrics` (direct connections only) and the drill target |
 | 17002 | Agents, and machines behind NAT | The SSH channel: plain SSH, published directly rather than through the HTTP proxy |
 | 17006 | Machines | The gateway: probes, hosts, heartbeats, the rule engine's alerts, change events, metric queries |
 
@@ -45,7 +45,7 @@ In the reference deployment Caddy serves 17001 as `https://status.example.com` a
 - **One SQL database**, `beacon.db` in the data directory (`data_dir`, `/var/lib/beacon`): SQLite by default — one file, WAL, the pure-Go driver, no cgo — and PostgreSQL optional, for a standby beside the primary, point-in-time recovery and hosted databases ([PostgreSQL](../self-hosting/postgres.md)). It holds alert groups with their notes and agent calls, silences, people's accounts (passwords as argon2id hashes), their agents, tokens and OAuth sign-ins (as SHA-256 hashes), machines, the index of SSH sessions, change events, the configuration with its history, the console's sign-ins, and the audit log as an event table with a hash chain.
 - **Recordings** of SSH sessions, as files beside it under `recordings/YYYY/MM/DD/`, kept for `ssh.keep` (180 days by default).
 - **Backups** are Beacon's own: a scheduled snapshot of the database taken online, with the recordings, the configuration and the secrets directory, encrypted with age to the recipients' public keys — the server holds only public keys and cannot read its own backup — verified before it is uploaded and read back after, kept by a grandfather-father-son rule, and watched by a heartbeat that raises an alarm when a backup fails or is late ([Backup and restore](../self-hosting/backup.md)).
-- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` need no network and no token; only the service's own user and root may connect. Machines' tokens are made there, and the setup link that makes the first account.
+- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config`, `drill`, `settings`, `secret`, `key`, `run` and `backup` need no network and no token; only the service's own user and root may connect. Machines' tokens are made there, and the setup link that makes the first account. An import is parsed on this host: there is no REST or MCP import.
 - **Metrics and rules are not Beacon's**: VictoriaMetrics stores and queries the probes' results (400 days in the reference deployment), and vmalert evaluates the rules.
 
 ## An alert's path
@@ -100,7 +100,7 @@ Every session is recorded as asciicast v3 for replay; an interactive shell is br
 | `internal/web`, `internal/web/link` | The console (with sign-in, setup, invitations and resets, people, agents and the OAuth consent page) and the public status pages, on the workbench shell of `@openlinkos/ui` (vendored under `static/ol`, refreshed by `scripts/update-ui.sh`; asciinema-player under `static/`), and the signed links a card opens them with |
 | `internal/sshgate` | The SSH channel: agents' sign-in by their keys, what is open closed when access ends, certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts, the tools (run, read, write, edit), connectors for machines behind NAT, pausing, echoes to the chat |
 | `internal/store` | The state in SQL — SQLite by default, PostgreSQL optional — through one key-value interface: groups (with notes and agent calls), silences, accounts and one-time links, agents and their presets, tokens (hashed, with scopes, subjects, expiry, SSH keys and machines), OAuth clients and grants, machines, the index of SSH sessions, change events, console sign-ins, the audit log as events, the drill |
-| `internal/ctl` | The admin socket in the data directory, behind the command line's `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` |
+| `internal/ctl` | The admin socket in the data directory, behind the command line's `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config`, `drill`, `settings`, `secret`, `key`, `run` and `backup` |
 | `internal/catalog`, `internal/targets` | Locations, heartbeats, resources and status pages; the target files and the probe protocol's types; the checks every change passes |
 | `internal/configdb` | The catalogue, target sets and module file in the database: changes with versions, history and revert, import and export, the state the gateway reads |
 | `internal/probe`, `internal/hostmetrics`, `internal/agent` | The probers (Blackbox-compatible, plus container registries, Git over HTTP and RDAP) with failure reasons; host metrics from `/proc`; the agent's cycle and disk queue |
@@ -117,5 +117,5 @@ Every session is recorded as asciicast v3 for replay; an interactive shell is br
 - **Every operation is both a REST route and an MCP tool**, through the same method, with a scope check, an audit entry and an echo to the alert chat. Errors are `{"error", "code"}`, with codes that stay stable ([REST API](../reference/api.md)).
 - **The probe protocol only grows**: fields and routes are added, never changed or removed, so probes and gateways of different versions keep working together.
 - **Close to how agents work**: SSH, the shell, HTTP with JSON, Prometheus queries and MCP, rather than a protocol or configuration language of Beacon's own.
-- **No approval of what agents run, and no model**: Beacon records and shows what agents do; approving is for credentials, per grant and never per use, with rules, a review agent outside Beacon or a person as configuration decides; deciding what to run is the agent's, and the pause switch remains the master brake.
+- **No approval of what agents run, and no model**: Beacon records and shows what agents do; approving is for credentials, per grant and never per use, with rules, a review agent outside Beacon or a person as configuration decides; deciding what to run is the agent's. Sealing the vault is the secrets brake; the SSH channel's pause switch remains the brake on machines.
 - **What people read is translated**: cards, toasts and chat messages are in English or Chinese; logs, command output and API errors stay English.

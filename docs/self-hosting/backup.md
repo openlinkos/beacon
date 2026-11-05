@@ -2,6 +2,8 @@
 
 What a Beacon centre's backup must hold, where each piece lives, and the commands to take it and pour it back. Beacon takes its own backup on a schedule — encrypted, verified, watched by a heartbeat — and this page starts with it; the sections after it are the by-hand path for the pieces Beacon does not carry (the metrics, chiefly) and for deployments that prefer their own tools. The examples assume the reference deployment from [On a server](install.md), run from `/opt/beacon` on the centre as root.
 
+With a `backup:` destination in the configuration, Beacon takes its own encrypted backups (`beacon backup now | ls | restore | drill | keygen`; [the command line](../reference/cli.md), [Settings](../reference/settings.md#backup-and-storage), [config.yaml](../reference/config.md)). Those archives are age-encrypted and the manifest is signed; restoring into the live data directory needs `-confirm`. A single S3 PUT is at most 5 GiB. The optional Litestream service in the reference deployment ships the WAL continuously, but **that replica is plaintext** — treat it as a hot copy behind the store's access control, not as the secret off-site copy. If no recipient key is given at initialisation, Beacon makes a pair and writes the private half once to `<data_dir>/backup/RECOVERY-MATERIAL.txt` (mode 0600), with a log reminder until you take it off; `beacon backup keygen` prints a new private key once.
+
 ## What lives where
 
 | Piece | Where | If it is lost |
@@ -21,7 +23,7 @@ Beacon backs itself up on a schedule, and the backup is written so that losing i
 - **Where it goes**: a local directory, an S3-compatible store (MinIO, R2, S3), or both at once. The destination's credentials live as files in the secrets directory, not in the vault — at restore time the vault is not open yet.
 - **When**: the database hourly, the recordings and the configuration daily, and always before an upgrade or a migration; `beacon backup now` takes one at any moment, `beacon backup ls` lists what is kept.
 - **How long it is kept**: grandfather-father-son — 24 hourlies, 14 dailies, 8 weeklies, 12 monthlies, about a year deep. A backup that satisfies any rule stays.
-- **That it worked**: an integrity check and the counts and chain check run before the archive is encrypted; after upload the file is read back and its size and hash compared. A failure retries three times with growing gaps, then alarms; whether an alarm also suspends the vault's uses is a setting.
+- **That it worked**: an integrity check and the counts and chain check run before the archive is encrypted; after upload the file is read back and its size and hash compared. A failure retries three times with growing gaps, then alarms (`backup.on_failure` in config.yaml is `alert` only; `alert_and_pause` is rejected). Settings also register `backup.on_failure` as `alert` / `alert_pause_use`.
 - **That it happened at all**: a heartbeat named `beacon-backup`, watched like any [heartbeat](../guide/heartbeats.md) — a backup two hours late raises `HeartbeatStale` through the ordinary alerting.
 
 ## Restoring, and rehearsing it

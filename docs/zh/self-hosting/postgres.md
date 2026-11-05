@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a47d87a2
+sourceHash: sha256-aceee746
 ---
 
 # PostgreSQL 与高可用
@@ -26,7 +26,7 @@ storage:
   dsn_file: secrets/postgres-dsn
 ```
 
-PostgreSQL 14 及以上；连接池和语句超时是同一配置块里的配置项。启动时如果 SQLite 数据库还在、驱动却选了 PostgreSQL，一次迁移完成：`beacon storage migrate --to postgres` 把每张表和事件日志在一个事务里拷过去，核对数量，SQLite 文件留在原地。反方向同理。`beacon storage check` 报告在用数据库的健康——一致性检查、每个桶各存多少、审计链的校验。
+PostgreSQL 14 及以上；连接池和语句超时是同一配置块里的键。启动时如果 SQLite 数据库还在、驱动却选了 PostgreSQL，一次迁移完成：`beacon storage migrate -to postgres` 把每张表和事件日志在一个事务里拷过去，核对数量，SQLite 文件留在原地。反方向同理。`beacon storage check` 报告在用数据库的健康——一致性检查、每个桶各存多少、审计链的校验。
 
 Beacon 存的一切都在两种数据库上测过；同一套键值和事件接口承载状态，哪种都一样（见[架构](../about/architecture.md#where-state-lives)）。
 
@@ -34,8 +34,8 @@ Beacon 存的一切都在两种数据库上测过；同一套键值和事件接�
 
 适用时的高可用是一主一备——不是两个同时活跃的中心。SSH 监听、聊天的长连接、告警路由都只能有一个头，所以同一时刻只有一个实例活跃，由数据库决定是哪个：
 
-- 数据库里的一张**租约**表：主机每 5 秒续一次，15 秒过期——两个值都可配。
-- 备机拿不到租约，`/healthz` 返回 `503`，于是前面的负载均衡或 VIP 把所有请求都转给主机。
+- 数据库里的一张**租约**表。真正跑的是 [config.yaml](../reference/config.md) 里的 `ha.renew`（5 秒）和 `ha.expire`（15 秒）。设置里也登记了 `storage.lease.renew` 和 `storage.lease.expires`，数字相同；集成时只会留一套。
+- 备机拿不到租约，`/healthz` 返回 `503`，于是前面的负载均衡或 VIP 把所有请求都转给主机。健康的备机 `/livez` 仍是 `200`，Docker 的健康检查就不会把它重启；断了网的实例 `/livez` 失败。
 - **录像**放在两个实例都能读写的 S3 兼容存储上（见[配置](configuration.md)）；告警、告警组和路由状态本来就在数据库里。
 - 切换耗时约等于租约过期时间：主机一停，备机在这 15 秒内开始应答。
 

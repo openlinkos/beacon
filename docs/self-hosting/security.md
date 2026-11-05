@@ -13,7 +13,7 @@ Beacon holds what agents never see: the keys that let them into machines, the to
 
 The channel's promise is that an agent reaches a machine without ever holding a key: it signs in to Beacon with its own key, machines trust only Beacon's certificate authority, and every connection gets a certificate valid for five minutes that names the account on the machine. Only the machines an agent may reach are connected to; when access ends, what it has open closes, checked again every minute; each machine's host key is pinned; every session is recorded, with a replay. [What the channel guarantees, and what it does not](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not).
 
-Equally deliberate is what it does not do: it reviews no command and runs nothing on its own — deciding what to run is the agent's job, done by its own harness — and it passes on no agent forwarding, no X11, no remote port forwarding for agents. The brakes are the pause switch ([Pausing](../guide/machines.md#pausing)) and each machine's access. Beacon calls no model, anywhere.
+Equally deliberate is what it does not do: it reviews no command and runs nothing on its own — deciding what to run is the agent's job, done by its own harness — and it passes on no agent forwarding, no X11, no remote port forwarding for agents. The SSH channel's brakes are the pause switch ([Pausing](../guide/machines.md#pausing)) and each machine's access. The secrets brake is sealing the vault (`beacon key seal`). Beacon calls no model, anywhere.
 
 ## Unsealing the root key
 

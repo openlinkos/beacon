@@ -83,7 +83,7 @@ An `otp` field returns the current code and the seconds left; the seed goes to a
 
 For values that should not pass through an agent's context at all, the `use` action works without revealing the value:
 
-- **`beacon run --reason "…" -- <command>`** reads a `.env` of references and injects them into the child process, like `op run`; the values reach the process, not the conversation.
+- **`beacon run -agent NAME -reason "…" -env-file FILE -- <command>`** reads a `.env` of references and injects them into the child process, like `op run`; the values reach the process, not the conversation. `-wait` asks for a grant and waits that long when none covers a reference. REST `POST /api/v1/secrets/use` is this path for the CLI; there is no MCP tool that returns a value.
 - **`run_command` with `secrets`** passes values as environment variables into a command on a machine, and masks them — the value and its base64, URL-encoded and hexadecimal forms — in the output, the recording and the transcript. Only on the machines the item is bound to.
 - **`http_request`** substitutes a secret reference into a request Beacon itself sends, only to the `https://` hosts the item is bound to, and returns the response masked:
 
@@ -102,18 +102,18 @@ Items may carry a rotation period, and Beacon can generate a new value server-si
 
 | Command | What it does |
 | --- | --- |
-| `beacon secret import` | Import from 1Password, Chrome, Bitwarden or CSV ([1Password](../integrations/1password.md), [Chrome](../integrations/chrome.md)) |
+| `beacon secret import` | Import from 1Password, Chrome, Bitwarden or CSV ([1Password](../integrations/1password.md), [Chrome](../integrations/chrome.md)). Parsed on the Beacon host over the admin socket; no REST or MCP import |
 | `beacon secret ls` \| `show` \| `set` | List collections and items; show an item's summary; write an item |
 | `beacon secret reveal` | Read a value, with the re-authentication window people get |
 | `beacon secret tag` \| `level` | Change tags or the level of an item (needs `manage`) |
 | `beacon secret archive` \| `rm` | Archive an item (the trash keeps 30 days) or remove it |
 | `beacon secret generate` | Make a new value to a specification, as a new version |
-| `beacon entitlement add` \| `ls` \| `rm` | Manage entitlements |
-| `beacon grant ls` \| `revoke` | List grants, revoke one |
-| `beacon run` | Run a command with references from a `.env` injected |
-| `beacon settings get` \| `set` \| `history` \| `revert` | Read and change the settings of [Settings](../reference/settings.md) |
-| `beacon key rotate` \| `seal` \| `unseal` | Rotate the root key; seal and unseal the vault |
+| `beacon run` | `-agent`, `-reason`, `-env-file`, `-wait`: inject references into a child process |
+| `beacon settings get` \| `set` \| `reset` \| `history` \| `revert` VERSION | Read and change the settings of [Settings](../reference/settings.md) |
+| `beacon key rotate` \| `seal` \| `unseal` | Rotate the root key; seal and unseal the vault (sealing is the secrets brake) |
 | `beacon backup now` \| `ls` \| `restore` \| `drill` | [Backup and restore](../self-hosting/backup.md) |
+
+Entitlements and grants have no CLI of their own: `put_entitlement`, `list_entitlements`, `delete_entitlement`, `list_grants` and `revoke_grant` are REST and MCP.
 
 `beacon audit verify` checks the audit chain, and `beacon storage check` the database's health ([Command line](../reference/cli.md)).
 

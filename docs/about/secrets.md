@@ -43,7 +43,7 @@ A root key wraps one key per collection; item details — every field value, use
 
 The root key comes from a file by default; it can be split into a passphrase plus a file, or wrapped by a KMS, so that the whole disk is not enough to open the vault ([security model](../self-hosting/security.md#unsealing-the-root-key)).
 
-Policy rows — entitlements, grants, settings — are signed. A row whose signature does not verify is treated as though it did not exist, and alarms: someone editing the database directly cannot widen a permission.
+Policy rows — entitlements, grants, agent tags and settings — are signed. A row whose signature does not verify is treated as though it did not exist, and alarms: someone editing the database directly cannot widen a permission. The secrets brake is sealing the vault (`beacon key seal`); uses and reveals then wait (`ErrSealed`), while monitoring and the SSH channel carry on. The SSH channel's pause switch stays on the channel.
 
 ## The audit chain
 

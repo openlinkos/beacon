@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-4386c9dc
+sourceHash: sha256-e235833c
 ---
 
 # 从 1Password 导入
 
 读完这一页，你的 1Password 各个 vault 就是 Beacon 的库，条目、字段、附件和一次性验证码都在，每条都有一个说明哪个 Agent 能申请它的级别。命令见[管理 Agent 的密钥](../guide/secrets.md)；本页只讲导入本身。
 
-1Password 的导出是明文：里面的每一样东西都不加遮掩。请在自己电脑上导入——文件就在那里，经 TLS 发给 Beacon；控制台的导入向导也收文件，只在内存里解析，从不落盘。导完删掉导出文件——两条路都会提醒你。
+1Password 的导出是明文：里面的每一样东西都不加遮掩。`beacon secret import` 走数据目录里的管理 socket，文件在跑 Beacon 的那台主机上解析——把导出拷到那里，在容器里跑命令，然后删掉。控制台的导入向导在浏览器里收文件，只在内存里解析，从不落盘。没有 REST 或 MCP 的导入：Agent 看不到导出文件。导完删掉导出文件——两条路都会提醒你。
 
 ## 导出之前 {#before-you-export}
 
@@ -43,7 +43,7 @@ sourceHash: sha256-4386c9dc
 - 其余 vault 一律导入为 `review`。
 - 证件和金融类——Credit Card、Bank Account、Identity、Passport、Driver License、Social Security Number、Medical Record、Membership、Reward Program——导入为 `never`：无论在哪个 vault，它们都不该到 Agent 手里。
 
-dry-run 会列出每个库和类别将得到什么，你可以在正式提交前按库改级别；冲突规则（`import.on_conflict`，默认 `ask`）决定「看起来已有一条」的条目怎么办——网址规范化后相同、用户名相同即视为同一条。
+dry-run 会列出每个库和类别将得到什么，你可以在正式提交前按库改级别；冲突规则（`import.on_conflict`，默认 `skip`；也可 `new_version` 或 `keep_both`）决定「看起来已有一条」的条目怎么办——网址规范化后相同、用户名相同即视为同一条。没有 `ask`：无头导入不会等人拍板。
 
 ## 执行导入 {#run-the-import}
 

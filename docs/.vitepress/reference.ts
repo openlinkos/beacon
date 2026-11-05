@@ -4,7 +4,8 @@
 // settings key must appear, in backticks, on the English and the Chinese page that lists them.
 // `vitepress build` fails otherwise, naming what is missing.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../', import.meta.url);
 const read = (path: string): string => readFileSync(new URL(path, root), 'utf8');
@@ -161,12 +162,14 @@ const configKeys = (): string[] => {
   return out;
 };
 
-/** The settings of the vault — requests, grants, review, uses, retention, import — by key, as the
- * settings page must list them, with their defaults, in both languages. The canonical list lives
- * here until internal/settings registers them; once it does, read them from the code the way the
- * scopes and the config.yaml keys are read, and delete this list. */
-const settingsKeys = (): string[] => [
-  // Requests and grants
+/** The settings of the vault — every `register("…")` in internal/settings/keys.go. On branches
+ * that already have that file (W4 and later, and the integration) the page is checked against
+ * the code. secrets/w11-docs is based on W1, so the file is absent in this PR's CI; the fallback
+ * is the keys registered on secrets/w10-hygiene, the last package that adds settings. */
+const settingsKeysFromGo = (src: string): string[] =>
+  [...src.matchAll(/register\("([^"]+)"/g)].map((m) => m[1]);
+
+const settingsKeysFallback = (): string[] => [
   'request.default_uses',
   'request.max_uses',
   'request.default_duration',
@@ -181,8 +184,9 @@ const settingsKeys = (): string[] => [
   'grant.on_owner_access_lost',
   'grant.on_item_changed',
   'grant.alert_grace',
+  'grant.unused_after',
+  'grant.on_unused',
   'agents.default_entitlements',
-  // Review
   'review.chain',
   'review.agent.may_approve',
   'review.agent.max_uses',
@@ -194,7 +198,6 @@ const settingsKeys = (): string[] => [
   'review.approvals_required',
   'review.separation',
   'review.notify_decisions',
-  // Uses, rate limits and anomalies
   'rate.per_agent_per_minute',
   'rate.on_exceed',
   'anomaly.rules',
@@ -206,7 +209,9 @@ const settingsKeys = (): string[] => [
   'http.follow_redirects',
   'file.on_change',
   'sealed.on_request',
-  // Retention
+  'hygiene.hibp_check',
+  'hygiene.weak_min_length',
+  'hygiene.password_age',
   'retention.audit',
   'retention.uses',
   'retention.requests',
@@ -215,12 +220,34 @@ const settingsKeys = (): string[] => [
   'audit.checkpoint_interval',
   'audit.checkpoint_publish',
   'audit.export',
-  // Import
   'import.levels.by_source',
   'import.levels.by_category',
   'import.on_conflict',
   'attachments.max_size',
+  'backup.schedule.database',
+  'backup.schedule.recordings',
+  'backup.retention.hourly',
+  'backup.retention.daily',
+  'backup.retention.weekly',
+  'backup.retention.monthly',
+  'backup.verify.integrity',
+  'backup.verify.readback',
+  'backup.retries',
+  'backup.on_failure',
+  'backup.heartbeat',
+  'backup.pg_dump_daily',
+  'storage.lease.renew',
+  'storage.lease.expires',
 ];
+
+const settingsKeys = (): string[] => {
+  const p = fileURLToPath(new URL('internal/settings/keys.go', root));
+  if (existsSync(p)) {
+    const keys = settingsKeysFromGo(readFileSync(p, 'utf8'));
+    if (keys.length) return keys;
+  }
+  return settingsKeysFallback();
+};
 
 const unique = (items: string[]): string[] => [...new Set(items)];
 

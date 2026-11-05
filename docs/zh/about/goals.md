@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0f8eb48a
+sourceHash: sha256-623d806e
 ---
 
 # 目标
@@ -61,7 +61,7 @@ Beacon 是 AI Agent 做运维时最顺手的基础设施：看得见服务是否
 ## 不做什么 {#not-doing}
 
 - **Beacon 不是 Agent，也不调用任何模型。**它唤醒 Agent；Agent 被唤醒时，`beacon-oncall` 启动你指定的 Agent 程序。推理和审核是 Agent 的事，Beacon 是它们干活的地方。
-- **不审批 Agent 运行什么。**审批只针对凭据，按授权一次批准，从不按取用：由规则、审核 Agent 或人来决定，怎么组合是配置（见[管理 Agent 的密钥](../guide/secrets.md)）；审核 Agent 在 Beacon 之外，像值班 Agent 一样被 hook 唤醒。决定运行什么始终是 Agent 的事，由它自己的执行框架负责。暂停开关仍是总闸，加上每台机器的访问范围。
+- **不审批 Agent 运行什么。**审批只针对凭据，按授权一次批准，从不按取用：由规则、审核 Agent 或人来决定，怎么组合是配置（见[管理 Agent 的密钥](../guide/secrets.md)）；审核 Agent 在 Beacon 之外，像值班 Agent 一样被 hook 唤醒。决定运行什么始终是 Agent 的事，由它自己的执行框架负责。密钥这边的总闸是封存保管库；SSH 通道的暂停开关仍是上机器的闸，加上每台机器的访问范围。
 - **不做日志平台、链路追踪、APM 和自定义面板。**Agent 要看日志，就通过 SSH 通道直接读（journalctl 之类），这是它最熟悉的方式。
 - **不自己做时序数据库。**存储和查询交给 VictoriaMetrics。
 - **不做远程桌面，也不做部署系统。**Flux 这类工具照常用，Beacon 接收它们的变更事件。

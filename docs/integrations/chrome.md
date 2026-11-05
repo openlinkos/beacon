@@ -2,7 +2,7 @@
 
 By the end of this page the passwords Chrome has saved for you are items in one Beacon collection, at a level that keeps them yours. The commands are in [Secrets for agents](../guide/secrets.md); this page is the import itself.
 
-A Chrome export is plaintext, and it is all of your saved passwords in one file. Import it on the machine the file is on; the console's import wizard also takes the file, parses it in memory and never writes it to disk. Delete the export when you are done.
+A Chrome export is plaintext, and it is all of your saved passwords in one file. `beacon secret import` parses it on the Beacon host, over the admin socket; the console's import wizard takes the file in the browser, parses it in memory and never writes it to disk. There is no REST or MCP import. Delete the export when you are done.
 
 ## Export from Chrome
 
@@ -32,7 +32,7 @@ beacon secret import chrome --file "Chrome Passwords.csv" --collection Browser -
 beacon secret import chrome --file "Chrome Passwords.csv" --collection Browser
 ```
 
-The dry run reports what conflicts with items already there — same URL after normalisation, same username — and `import.on_conflict` (ask, by default) says what happens to those. Nothing is printed during the import but counts.
+The dry run reports what conflicts with items already there — same URL after normalisation, same username — and `import.on_conflict` (`skip` by default; `new_version` or `keep_both`) says what happens to those. There is no `ask`. Nothing is printed during the import but counts.
 
 ## After the import
 

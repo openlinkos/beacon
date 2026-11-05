@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-69cf9221
+sourceHash: sha256-531a14e1
 ---
 
 # MCP 工具
@@ -56,7 +56,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
-| `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
+| `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600；Agent 持有 `secrets:use` 时可带 `secrets`——`beacon://` 引用列表——和 `reason`）。值注入到条目绑定的那台机器上的环境；stdout、stderr、录像和转写会打码。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
@@ -70,7 +70,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../guide/status-pages.md)）；`key` 指定其中一项。
+Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../guide/status-pages.md)）；`key` 指定其中一项。同一套工具以 `kind` `settings` 承载保管库的设置：带这个 kind 的 `get_config` 列出或解析一项，`put_config` 修改一项（要 `secrets:admin` 和 `note`），`delete_config` 重置，历史工具回答设置的版本——设置和配置各有一套序号，所以带版本时也要传 `kind` `settings`。
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -82,6 +82,44 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `revert_config_change` | `config:write` | 以一次新修改的方式撤销某次修改（`version`、`note`）；之后的修改动过其中某一项时拒绝 |
 
 把读到的版本作为 `if_version` 传回：在更新的版本之上做的修改会被拒绝，返回 `config.conflict`，这样 Agent 不会覆盖期间别人做的修改。通不过校验的修改会被拒绝，返回 `config.invalid` 和原因，什么都不会改。
+
+## 保管库 {#the-vault}
+
+密钥保管库，和 [REST 路由](api.md)、控制台的密钥页是同一套操作。人通过客户端登录（OAuth 登录）用这些工具操作保管库。Agent 看不到资格和授权之外的东西；`never` 条目对它不可见；`use` 授权把值注入进去、不把值交回。没有会返回值的 MCP `use` 工具，也没有 `import_secrets`：导入只有 CLI 和控制台向导。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `vault_state` | 任意凭据，人 | 保管库是否封存、启封方式，以及签名校验失败的策略行（当不存在处理并告警） |
+| `list_collections` | 人 | 库：名称、审批级别、密钥版本 |
+| `list_items` | 人，`describe` | 条目摘要（`collection`、`state`）：标题、版本、状态、标签——从不带值 |
+| `get_item` | 人，`describe` | 一条（`ref`）：所属库、生效级别、版本（谁、何时、为什么、字段名）和它的 `beacon://` 引用 |
+| `put_item` | 人，`edit` | 添加或改一条（`collection`、`title`、带值的 `fields`、`tags`、`level`、`notes`、`reason`）；新版本，不回值 |
+| `reveal_item` | 人，`read` | 值（`ref`、`fields`、账号的 `password`；先审计再交出）。`otp` 字段给当前验证码和剩余秒数，不给种子 |
+| `search_secrets` | `secrets:describe` | 人：能描述的条目（`query`、`collection`、`tags`）。Agent：资格能碰到的条目，带字段、申请会要的审批、是否已有授权——「……的密码在哪」，不带值 |
+| `request_secret` | `secrets:use` | Agent 的申请（`items`、`tags`、`collection`、`fields`、`action`、`reason`、`uses`、`duration`、`alert`、`entitlement`、`wait` 秒）；回答按每条要的审批拆开：已经生效的授权、还在等的申请、被拒的。规则否决在同一次回答里变成拒绝 |
+| `get_request` | `secrets:describe` | 按 `id` 看一条申请：条目、原因、决定、审核上下文 |
+| `get_secret` | `secrets:read` | Agent 按 `beacon://` 引用取值（`ref`、`field`、`reason`）；先记再用；otp 字段回答当前验证码和剩余秒数 |
+| `list_grants` | Agent | 调用者自己的授权：条目、字段、剩余次数、到期、绑了哪条告警 |
+| `renew_grant` | `secrets:use` | 续期（`id`、`reason`）：auto 级当场给，其余再走一遍审核 |
+| `release_grant` | `secrets:use` | 提前交回（`id`） |
+| `list_requests` | `secrets:describe` | 按 `state` 列申请（默认 pending）；Agent 看自己的，人和审核 Agent 看队列 |
+| `decide_request` | 人（operator、owner 或点名的审核人）、审核 Agent | `{"id", "approve", "note", "uses", "duration"}` ——原因必填，申请人不能审自己 |
+| `pass_request` | 审核 Agent（`secrets:review`） | `{"id", "note"}` ——不决定，交给链的下一层 |
+| `list_entitlements` | `secrets:admin` | 资格：谁可以申请什么 |
+| `put_entitlement` | `secrets:admin` | 添加或改一条资格（主体、资源、动作、审批下限、审核人、是否模板） |
+| `delete_entitlement` | `secrets:admin` | 删一条（`name`）；经它拿到的授权会重评 |
+| `set_agent_tags` | `secrets:admin` | Agent 的分组标签（`agent`、`tags`），资格按标签覆盖一组 Agent |
+| `revoke_grant` | `secrets:admin` | 人手结束一条授权（`id`、`reason`） |
+| `agent_secret_scope` | Agent 的属主、管理员 | 某个 Agent 能碰到和持有什么（`agent`）：资格、按审批的覆盖、授权、标签、模板 |
+| `http_request` | `secrets:use` | Beacon 自己发 HTTPS 请求，填入 `secret.beacon://` 占位（`method`、`url`、`headers`、`body`、`reason`）。只发往条目绑定的主机；字面私网地址在消耗授权前拒绝，除非 `http.allow_private`；回答打码。Agent 看不到值 |
+| `generate_item_value` | 人，`edit` | 给字段生成新值（`ref`、`field`、`length`、`charset`），存成新版本；值本身不返回 |
+| `archive_item` | 人，`edit` | 归档（`ref`、`reason`）：还在，不挡路 |
+| `remove_item` | 人，`edit` | 进回收站（`ref`、`reason`），保留期还管着 |
+| `restore_item` | 人，`edit` | 从归档或回收站拿回来（`ref`） |
+| `rollback_item` | 人，`edit` | 把旧版本再做成当前（`ref`、`version`、`reason`） |
+| `list_tags` | 任意凭据，人 | 标签：名称、审批级别、说明 |
+| `health_report` | 人，`secrets:describe` | 保管库卫生：口令字段判为弱、重复、过旧，或在泄漏语料里（仅当 `hygiene.hibp_check` 打开）；轮换期将尽的条目；闲置超过 `grant.unused_after` 的授权。只有判断和引用，没有值 |
+| `rotate_secret` | `secrets:use`，Agent | 轮换一条（`ref`、`reason`、`length`、`charset`）：服务端生成下一个值，存成新版本，回答版本号。要有活着的 `use` 授权；新值通过 use 动作写进目标 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 

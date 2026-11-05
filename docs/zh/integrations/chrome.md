@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-63089b34
+sourceHash: sha256-623a74c1
 ---
 
 # 从 Chrome 导入
 
 读完这一页，Chrome 替你保存的密码就成了 Beacon 一个库里的条目，级别让它们仍然是你自己的。命令见[管理 Agent 的密钥](../guide/secrets.md)；本页只讲导入本身。
 
-Chrome 的导出是明文，而且是你全部已存密码在一个文件里。请在文件所在的机器上导入；控制台的导入向导也收文件，只在内存里解析，从不落盘。导完删掉导出文件。
+Chrome 的导出是明文，而且是你全部已存密码在一个文件里。`beacon secret import` 走管理 socket，在跑 Beacon 的那台主机上解析；控制台的导入向导在浏览器里收文件，只在内存里解析，从不落盘。没有 REST 或 MCP 的导入。导完删掉导出文件。
 
 ## 从 Chrome 导出 {#export-from-chrome}
 
@@ -36,7 +36,7 @@ beacon secret import chrome --file "Chrome Passwords.csv" --collection Browser -
 beacon secret import chrome --file "Chrome Passwords.csv" --collection Browser
 ```
 
-dry-run 会报告与既有条目的冲突——网址规范化后相同、用户名相同即视为同一条——`import.on_conflict`（默认 `ask`）决定这些怎么办。导入过程中除了数量什么都不打印。
+dry-run 会报告与既有条目的冲突——网址规范化后相同、用户名相同即视为同一条——`import.on_conflict`（默认 `skip`；也可 `new_version` 或 `keep_both`）决定这些怎么办。没有 `ask`。导入过程中除了数量什么都不打印。
 
 ## 导入之后 {#after-the-import}
 

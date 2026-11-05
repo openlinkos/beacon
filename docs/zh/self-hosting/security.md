@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-afbdb249
+sourceHash: sha256-c56c00f8
 ---
 
 # 安全模型
@@ -17,7 +17,7 @@ Beacon 掌握着 Agent 永远看不见的东西：放它们进机器的钥匙、
 
 通道的承诺是：Agent 不持有任何密钥也能到达机器。它用自己的密钥登录 Beacon，机器只信任 Beacon 的证书机构，每一次连接拿到一张五分钟有效、指名机器上账号的证书。只有 Agent 有权到达的机器才会被连接；访问一结束，它开着的东西随即关闭，并且每分钟复查；每台机器的主机密钥被钉住；每个会话都有录像和回放。见[通道保证什么，不保证什么](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not)。
 
-同样有意为之的是它不做的事：它不审查命令，也不自作主张运行任何东西——决定运行什么是 Agent 的事，由它自己的执行框架负责——也不转发 agent forwarding、X11，不给 Agent 开远程端口转发。刹车只有两个：暂停开关（见[暂停](../guide/machines.md#pausing)）和每台机器的访问权限。Beacon 不调用任何模型。
+同样有意为之的是它不做的事：它不审查命令，也不自作主张运行任何东西——决定运行什么是 Agent 的事，由它自己的执行框架负责——也不转发 agent forwarding、X11，不给 Agent 开远程端口转发。SSH 通道的刹车是暂停开关（见[暂停](../guide/machines.md#pausing)）和每台机器的访问权限。密钥这边的总闸是封存保管库（`beacon key seal`）。Beacon 不调用任何模型。
 
 ## 启封根密钥 {#unsealing-the-root-key}
 

@@ -38,7 +38,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## Scopes
 
-A credential carries one or more scopes. The first nine are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
+A credential carries one or more scopes. The first fourteen are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
 
 | Scope | What it allows |
 | --- | --- |
@@ -48,6 +48,11 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `machines:write` | Adding and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
+| `secrets:describe` | Seeing what the caller's entitlements reach: the items' summaries, field names, the approval a request would need. The `readonly` preset's, so a viewer's agents have it |
+| `secrets:read` | Taking a value the caller holds a grant for (`get_secret`), every use with its reason. The `oncall` preset adds it |
+| `secrets:use` | Asking for grants (`request_secret`), renewing and releasing them, and the use paths (`run_command`'s `secrets`, `http_request`, `beacon run`). The `oncall` preset adds it |
+| `secrets:review` | Deciding requests on the review chain (`decide_request`, `pass_request`). The `operator` preset adds it |
+| `secrets:admin` | Changing the system settings the secrets work runs by ([below](#settings)), entitlements and the vault's keys, and reading them; every change is versioned, audited and echoed to the chat. An owner's by default |
 | `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
@@ -62,10 +67,10 @@ People and agents do not choose scopes one by one: a person's role gives them, a
 
 | Role | Agent preset | Scopes |
 | --- | --- | --- |
-| Viewer | Read only | `status:read`, `sessions:read` |
-| On call | On call | + `alerts:write`, `machines:ssh` |
-| Operator | Operator | + `maintenance:write`, `incidents:write`, `machines:write` |
-| Owner | | + `config:write`, `accounts:write` |
+| Viewer | Read only | `status:read`, `sessions:read`, `secrets:describe` |
+| On call | On call | + `alerts:write`, `machines:ssh`, `secrets:read`, `secrets:use` |
+| Operator | Operator | + `maintenance:write`, `incidents:write`, `machines:write`, `secrets:review` |
+| Owner | | + `config:write`, `accounts:write`, `secrets:admin` |
 
 An agent may use a scope when its preset gives it and its owner's role does too, checked on every request: demoting or disabling the owner limits the agent at once. An OAuth sign-in is held, besides, to the preset and machines the person allowed it. A refusal (`auth.scope`) says what the agent's preset within its owner's role allows.
 
@@ -105,7 +110,7 @@ An agent may use a scope when its preset gives it and its owner's role does too,
 | `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
-| `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
+| `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr. `secrets` injects `beacon://` values as the command's environment (`secrets:use`; each item must be bound to the machine); the output, recording and transcript are scrubbed |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | Write a whole file, at most 1 MiB, making its directory if needed |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | Replace an exact string, once or everywhere (`old_string`, `new_string`, `replace_all`); refused if the file changed since it was read |
@@ -147,6 +152,88 @@ What Beacon monitors, each item in the shape of its file ([What is checked, and 
 | `GET /api/v1/config/history` | `status:read` or `config:write` | Changes, newest first, without their values (`kind`, `key`, `before` a version, `limit` at most 1000); the latest 10,000 are kept |
 | `GET /api/v1/config/history/{version}` | `status:read` or `config:write` | One change, with every item's value before and after |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | Undo one change as a new change; `config.conflict` when a later change touched one of its items |
+
+## Settings {#settings}
+
+The system settings the secrets work runs by: request and grant limits, the review chain, rate limits and anomaly rules, retention, import levels, backup and the storage lease — each with a registered default, every change a version with who made it and why, revertible, every row signed so a change made straight in the database never takes effect ([Settings](settings.md) lists them all). Reads take `status:read` or `secrets:admin`; changes take `secrets:admin` and a `reason`. The same operations are the MCP configuration tools' `settings` kind.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/settings` | `status:read` or `secrets:admin` | Every setting: its default, the value in force at the system level, where that came from, who changed it, when and why; the other scopes' rows under `overrides`; rows that failed their signature under `bad_rows` (they are served as absent) |
+| `GET /api/v1/settings/{key}` | `status:read` or `secrets:admin` | One setting, resolved level by level for `?collection=`, `?tag=` (more than one), `?entitlement=`, `?request=`: the more specific level wins, tags take the stricter value, a request is clamped to the bound the level above gives; `levels` lists each level that was present |
+| `PUT /api/v1/settings/{key}` | `secrets:admin` | Change one setting. The body is `{"value": …, "reason": "…", "scope": "system", "target": ""}`; `scope` and `target` put the value at a collection, tag, entitlement or request instead. The value must fit (`settings.invalid`); `if_version` is refused with `settings.conflict` when the row moved |
+| `DELETE /api/v1/settings/{key}` | `secrets:admin` | Reset one setting to what the level above gives (the row goes away); `?scope=`, `?target=`, `?reason=`, `?if_version=` |
+| `GET /api/v1/settings/history` | `status:read` or `secrets:admin` | Changes, newest first (`key`, `scope`, `target`, `before` a version, `limit` at most 200) |
+| `GET /api/v1/settings/history/{version}` | `status:read` or `secrets:admin` | One change, with the value before and after |
+| `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | Undo one change as a new change; `settings.conflict` when a later change touched the same row |
+
+## The vault {#vault}
+
+The secrets vault: collections of items whose values Beacon keeps for you. The summary of an item — its title, category, tags, URLs and field names — sits in the clear, so search and policy can work; every value, username, note and one-time-passcode seed sits in the details, encrypted per version under the collection's key. Versions are kept with who changed what, when and why; attachments ride the same encryption, up to `attachments.max_size` (10 MB) each. Every policy row — a collection, a permission, a tag, an item — carries a signature derived from the root key, so a row changed straight in the database never takes effect: it is served as absent and reported (`rows_failed_signature` below). The same operations are the console's Secrets pages and the MCP tools of the same names; [config.yaml](config.md) says where the root key comes from.
+
+The item routes are for people, every change audited and echoed to the alert chat. A token that is not a person is refused (`secrets.person`), an agent outright (`secrets.agent`): agents reach items through grants. Viewing values needs the account's password again, valid for `reveal.reauth_window` (5 minutes by default), and is written to the audit log before the values leave — the same rule an agent taking a value works under. An owner holds `manage` on every collection; other people and roles hold what a collection gives them: `describe` (see the summary), `read` (view values, with the password check), `edit` (change items), `manage` (change permissions and the policy). While the vault is sealed — the passphrase mode, after a restart until an owner unseals it — these routes answer `secrets.sealed` and the alarm sounds; monitoring and the SSH channel carry on.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/vault` | any credential | The state: `sealed`, the `mode` (`file`, `passphrase`, `aws-kms`, `gcp-kms`, `transit`) and the policy `rows_failed_signature` |
+| `POST /api/v1/vault/init` | `secrets:admin` | Set the first passphrase of a passphrase-mode vault with `{"passphrase"}`. Later unseals open with that passphrase; they never take a new one. A vault that already has a passphrase is `secrets.conflict` |
+| `POST /api/v1/vault/unseal` | `secrets:admin` | Unseal the passphrase mode with `{"passphrase"}`; a wrong passphrase is `secrets.wrong_passphrase`; a vault that has never been initialised is `secrets.not_initialised` |
+| `POST /api/v1/vault/seal` | `secrets:admin` | Seal again (the passphrase mode): the key functions wait for the passphrase |
+| `POST /api/v1/vault/rotate-key` | `secrets:admin` | A new root key; every collection key is wrapped again, in seconds. `{"passphrase"}` names the new passphrase in that mode |
+| `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | One collection's key (`{"collection"}`); its items are encrypted again in the background. Removing a member needs no key: members never hold one |
+| `GET /api/v1/vault/collections` | any credential | The collections the caller may describe: name, description, approval level, key version |
+| `POST /api/v1/vault/collections` | `secrets:admin` | Make a collection (`name`, `description`, `level`: the approval its items inherit) |
+| `GET /api/v1/vault/collections/{id}` | a person | One collection, and whether the caller may read in it |
+| `PUT /api/v1/vault/collections/{id}` | `secrets:admin` | Change a collection's description or level |
+| `GET /api/v1/vault/collections/{id}/items` | a person, `describe` | The items (`?state=normal`, `archived` or `trash`): title, version, state, tags — the summary, never a value |
+| `POST /api/v1/vault/collections/{id}/items` | a person, `edit` | Add an item: `title`, `category`, `urls`, `tags`, `level` (empty inherits the collection's), `actions`, `fields` (each `section`, `name`, `type` — `concealed`, `string`, `email`, `url`, `otp`, `date`, `file` — `purpose`, `value`), `notes`, `attachments` (`name`, base64 `data`), `reason` |
+| `GET /api/v1/vault/collections/{id}/perms` | a person, `manage` | Who may do what in this collection |
+| `POST /api/v1/vault/collections/{id}/perms` | a person, `manage` | Give a person or a role a permission: `{"subject": "user:alice"}` or `role:oncall`, `perm` one of `describe`, `read`, `edit`, `manage` (empty removes it), `reason` |
+| `GET /api/v1/vault/items/{id}` | a person, `describe` | One item: its collection, its effective approval level, its versions (who, when, why, the field list — never the ciphertext), `who_can_get` (the grants) and its `ref`, `beacon://collection/item[/section/field]`. An item the caller may not even describe answers `secrets.not_found`, not a refusal |
+| `PUT /api/v1/vault/items/{id}` | a person, `edit` | Change an item; the same body as adding it, `reason` required in practice, a new version made |
+| `DELETE /api/v1/vault/items/{id}` | a person, `edit` | Move an item to the trash, where `retention.trash` (30 days) keeps it |
+| `POST /api/v1/vault/items/{id}/archive` | a person, `edit` | Archive an item: kept, out of the way |
+| `POST /api/v1/vault/items/{id}/restore` | a person, `edit` | Bring an item back from the archive or the trash |
+| `POST /api/v1/vault/items/{id}/rollback` | a person, `edit` | Make an old version the current one again (`version`, `reason`); the versions stay |
+| `POST /api/v1/vault/items/{id}/generate` | a person, `edit` | Have Beacon make a new value for a field (`field`, `section`, `length` — 24 by default — `charset`: `letters`, `alnum` or `all`, `reason`): stored as a new version, the value itself never returned; reveal it to see it |
+| `POST /api/v1/vault/items/{id}/reveal` | a person, `read` | The values (`fields` names, or every field; `password` of the account). An `otp` field answers the code that is current and the seconds it has left, never its seed. Audited before the values leave |
+| `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | a person, `read` | One attachment's bytes |
+| `GET /api/v1/vault/search` | a person, `describe` | Items whose title, category, tags or field names match `q` (`?collection=`, `?tag=` more than one), only in collections the caller may describe |
+| `GET /api/v1/vault/tags` | any credential | The tags: name (lower case, layered with `/`), approval level, description |
+| `POST /api/v1/vault/tags` | a person, an owner | Set a tag (`name`, `level`, `description`): a tag's level is policy — every item wearing it is at least that strict — so only an owner changes it |
+| `DELETE /api/v1/vault/tags/{name}` | a person, an owner | Delete a tag; items keep their names for it |
+
+There is no REST import: an export is parsed on the Beacon host by `beacon secret import` over the admin socket, or through the console wizard.
+
+## The grants {#grants}
+
+Agents reach items through grants: what an **entitlement** covers they may ask for, a **request** split by the approval each item needs — the `auto` part becomes grants at once, the rest waits on the review chain (rules, then a review agent, then a person: the console's **Secret approvals** page, or the Feishu card's *Approve as asked* / *Approve once* / *Deny*, each with the reason a decision must carry) — and a **grant** then hands the value over, every use with its reason, recorded before the value is given. The entitlements are policy rows, signed like the rest; a row changed straight in the database is served as absent and reported. `deny` entitlements match first, nothing outside an entitlement is even visible, `never` items reach no agent at all, and an agent asks for no more than its owner holds over the collection.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/secrets/search` | `secrets:describe` | An agent: what its entitlements reach — references, overviews, field names and types, the approval a request would need, whether it holds a grant. A person: the vault's own search |
+| `POST /api/v1/secrets/request` | `secrets:use` | An agent's ask (`items`, `tags`, `collection`, `fields`, `action` read or use, `reason`, `uses` 0 for unlimited, `duration` in seconds 0 for no expiry, `alert`, `entitlement`); the answer holds the grants already in force, the request waiting, and the refusals. A rule that denies settles as refused in the same answer |
+| `GET /api/v1/secrets/requests` | `secrets:describe` | The requests by `?status=`; an agent sees its own, a person sees them all |
+| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | One request: the items, the reason, the decisions and the review context |
+| `POST /api/v1/secrets/requests/{id}/decide` | a person (operator, owner or a named reviewer) or a review agent (`secrets:review`) | `{"approve", "note", "uses", "duration"}`; the requester itself never decides its own request (`secrets.self_approval`) |
+| `POST /api/v1/secrets/requests/{id}/pass` | a review agent (`secrets:review`) | `{"note"}`; hand the ask to the next layer of the chain without deciding it |
+| `POST /api/v1/secrets/requests/{id}/withdraw` | `secrets:use` | The agent that asked takes a waiting request back |
+| `POST /api/v1/secrets/get` | `secrets:read` | An agent takes a value by its `beacon://` reference (`ref`, `field`, `reason`); an otp field answers with the current code and the seconds it has left, never the seed |
+| `GET /api/v1/secrets/grants` | `secrets:describe` | An agent's own grants; a person sees them all by `?state=` |
+| `POST /api/v1/secrets/grants/{id}/renew` | `secrets:use` | Renew: auto-level grants at once, the rest ask again |
+| `POST /api/v1/secrets/grants/{id}/release` | `secrets:use` | Give a grant back early |
+| `POST /api/v1/secrets/grants/{id}/revoke` | `secrets:admin` | End a grant by hand |
+| `GET /api/v1/secrets/entitlements` | `secrets:admin` | The entitlements |
+| `POST /api/v1/secrets/entitlements` | `secrets:admin` | Put an entitlement: `principals` (`agents`, `agent_tags`, `agents_of`), `resources` (`collections`, `tags` patterns, `items`, `fields`), `actions`, the `approval` floor, `reviewers`, the `template` flag |
+| `DELETE /api/v1/secrets/entitlements/{name}` | `secrets:admin` | Remove one; the grants that reached through it are re-assessed |
+| `POST /api/v1/secrets/agent-tags` | `secrets:admin` | An agent's grouping tags (`role/on-call` and the like), which entitlements reach agents by |
+| `GET /api/v1/secrets/agents/{name}/scope` | the agent's owner, an admin | What the agent can reach (by the approval each item needs) and holds |
+| `POST /api/v1/secrets/agents/{name}/templates` | the agent's owner, an admin | Hand the agent the template entitlements named |
+| `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | Lift an anomaly rule's suspension of the agent |
+| `POST /api/v1/secrets/use` | `secrets:use` | An agent resolves `beacon://` references (`refs`, `reason`) through its use grants and receives the values for a local process (`beacon run`). Agents that must not see a value use `run_command`'s `secrets` or `http_request`. There is no MCP tool that returns those values |
+| `POST /api/v1/secrets/http-request` | `secrets:use` | Beacon fills `secret.beacon://` placeholders and sends HTTPS to a host the item is bound to (`method`, `url`, `headers`, `body`, `reason`); private addresses are `secrets.private_address` unless `http.allow_private`; the answer comes back scrubbed |
+| `GET /api/v1/secrets/hygiene` | `secrets:describe`, a person | The password health report (weak, repeated, old; leaked only when `hygiene.hibp_check` is on), the items whose rotation period ends soon or has passed, and the grants idle longer than `grant.unused_after`. Findings carry references and judgements, never values |
+| `POST /api/v1/secrets/rotate` | `secrets:use`, an agent | Turn an item's value: the server makes the next one by the spec (`length`, `charset`), stores it as a new version and answers with the version number — the value never travels. Needs a live `use` grant; a `read` grant is not enough |
 
 ## Status pages and maintenance
 
@@ -214,7 +301,8 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../guide/status-pages.md)); on a page's own host name, `/` and `/incidents/{id}` |
 | `GET /status.json`, `GET /status/{name}.json`, `GET /status/{name}/feed.atom`, `GET /status/{name}/badge.svg`, `GET /status/{name}/components/{component}/badge.svg` | A page's JSON, Atom feed and badges, public and cacheable |
 | `GET /robots.txt` | Lets search engines read `/`, `/status` and `/static/`, and keeps them out of `/console`, `/api/`, `/mcp`, `/alerts/` and `/sessions/` |
-| `GET /healthz` | Liveness: `ok` |
+| `GET /healthz` | For the load balancer: `ok` on the leader, `503 standby` on a standby |
+| `GET /livez` | For Docker's health check: `ok` on the leader, `standby` (200) on a healthy standby, `503 unhealthy` when this instance cannot reach PostgreSQL |
 | `GET /readyz` | Readiness: the Watchdog seen, the Feishu connection up, budget left |
 | `GET /metrics` | Beacon's own metrics in the Prometheus format, for direct connections only |
 | `POST /hooks/feishu` | Feishu's card callbacks, when `feishu.callback: http` |
@@ -251,6 +339,32 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `config.not_found` | 404 | No such configuration item or change |
 | `config.invalid` | 422 | The change would not pass the checks; the message says why, and nothing changed |
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |
+| `settings.not_found` | 404 | No settings change with this version, or the setting is not set at that scope |
+| `settings.unknown` | 404 | No setting of that key |
+| `settings.invalid` | 422 | The value does not fit the setting; the message says why, and nothing changed |
+| `settings.conflict` | 409 | A later change touched the same setting row; read it again and retry |
+| `secrets.sealed` | 503 | The vault is sealed (the passphrase mode, after a restart); an owner unseals it with the passphrase |
+| `secrets.wrong_passphrase` | 403 | The passphrase does not unseal this vault |
+| `secrets.not_initialised` | 409 | The passphrase-mode vault has never been given a passphrase; `POST /api/v1/vault/init` first |
+| `secrets.reauth` | 401 | Enter the account's password to view values (it opens the `reveal.reauth_window` again) |
+| `secrets.agent` | 403 | An agent asked; agents reach items through grants |
+| `secrets.person` | 403 | The vault's item routes are for people; sign in with an account |
+| `secrets.permission` | 403 | The caller may not do this in this collection |
+| `secrets.not_found` | 404 | No such collection, item, tag or field |
+| `secrets.exists` | 409 | A collection or tag of this name exists |
+| `secrets.conflict` | 409 | It changed since the caller saw it; read it again |
+| `secrets.attachment_too_large` | 413 | The attachment is over `attachments.max_size` |
+| `secrets.invalid` | 422 | The item does not fit (a level, a field, a value); the message says why, and nothing changed |
+| `secrets.bad_input` | 400 | The request is not what the route takes; the message says which |
+| `secrets.crypto` | 500 | The ciphertext does not authenticate under its key — the row is not what it claims to be |
+| `secrets.no_grant` | 403 | No live grant covers this ask; `request_secret` asks for one |
+| `secrets.not_bound` | 403 | The item is not bound to this machine or host |
+| `secrets.private_address` | 403 | `http_request` refuses a private address (`http.allow_private`) |
+| `secrets.redirect` | 400 | The redirect leaves where `http.follow_redirects` allows |
+| `secrets.throttled` | 429 | The agent passed `rate.per_agent_per_minute` and the setting says throttle |
+| `secrets.suspended` | 403 | An anomaly rule suspended the agent's grants; an operator lifts it |
+| `secrets.self_approval` | 403 | The requester cannot review its own request |
+| `secrets.error` | 500 | The grants' own failure, with no better name |
 | `status.not_found` | 404 | No status page of that name |
 | `maintenance.not_found` | 404 | No maintenance window with this id |
 | `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |

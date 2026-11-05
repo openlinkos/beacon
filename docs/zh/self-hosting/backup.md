@@ -1,10 +1,12 @@
 ---
-sourceHash: sha256-3689cf54
+sourceHash: sha256-1f88f914
 ---
 
 # 备份与恢复
 
 一个 Beacon 中心的备份要装下什么、每样东西放在哪里、用什么命令拷出来再倒回去。Beacon 自己按计划备份——加密、校验、有心跳盯着——本页从它讲起；后面的几节是手动的路，给 Beacon 不装的东西（主要是指标），也给想用自己的工具的部署。示例以[装在服务器上](install.md)的参考部署为准，在中心的 `/opt/beacon` 下以 root 执行。
+
+配置了 `backup:` 目的地时，Beacon 会自己做加密备份（`beacon backup now | ls | restore | drill | keygen`；见[命令行](../reference/cli.md)、[设置](../reference/settings.md#backup-and-storage)、[config.yaml](../reference/config.md)）。这些档案用 age 加密，清单有签名；恢复到正在用的数据目录需要 `-confirm`。单次 S3 PUT 最大 5 GiB。参考部署里可选的 Litestream 服务会持续运送 WAL，但**那份副本是明文**——把它当作热副本、靠存储自己的访问控制，而不是当作必须保密的异地备份。初始化时如果没给接收者公钥，Beacon 会生成一对，私钥只写一次到 `<data_dir>/backup/RECOVERY-MATERIAL.txt`（权限 0600），日志会一直提醒你取走；`beacon backup keygen` 也会把新私钥打印一次。
 
 ## 每样东西在哪里 {#what-lives-where}
 
@@ -25,7 +27,7 @@ Beacon 按计划给自己做备份，而且备份的写法让丢掉它只丢脸�
 - **发去哪里**：本地目录、S3 兼容存储（MinIO、R2、S3），或两者同时。目的地的凭据以文件放在 secrets 目录里，不放进密钥库——恢复的时候密钥库还没开。
 - **什么时候**：数据库每小时，录像和配置每天，升级或迁移之前必做；`beacon backup now` 随时来一次，`beacon backup ls` 列出留下了什么。
 - **留多久**：祖父—父—子——小时备份留 24 份、每天 14 份、每周 8 份、每月 12 份，大约一年深。满足任意一条规则的备份就保留。
-- **确认它成功**：加密前跑完整性检查、核对条数和链；上传后回读，比对大小和哈希。失败时隔着递增的间隔重试三次，再败就告警；告警之外要不要暂停密钥库的取用，是配置。
+- **确认它成功**：加密前跑完整性检查、核对条数和链；上传后回读，比对大小和哈希。失败时隔着递增的间隔重试三次，再败就告警（config.yaml 的 `backup.on_failure` 只有 `alert`；配 `alert_and_pause` 会被拒绝）。设置里也登记了 `backup.on_failure` 的 `alert` / `alert_pause_use`。
 - **确认它发生**：名为 `beacon-backup` 的心跳，像任何[心跳](../guide/heartbeats.md)一样被盯着——备份迟到两小时，`HeartbeatStale` 沿常规告警链路触发。
 
 ## 恢复，以及演练 {#restoring-and-rehearsing-it}

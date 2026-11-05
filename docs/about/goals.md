@@ -57,7 +57,7 @@ An operations engineer needs eyes (monitoring and alerts), hands (logging in to 
 ## Not doing
 
 - **Beacon is not an agent and calls no model.** It wakes agents, and `beacon-oncall` starts the agent program you name when one is woken; reasoning and reviewing are the agents' work. Beacon is where they work.
-- **No approval of what agents run.** Approval is for credentials, given once per grant and never per use: rules, a review agent or a person decide, and how they combine is configuration ([Secrets for agents](../guide/secrets.md)); a review agent runs outside Beacon, woken by a hook like an on-call agent. Deciding what to run stays the agent's job, done by its own harness. The pause switch remains the master brake, with each machine's access beside it.
+- **No approval of what agents run.** Approval is for credentials, given once per grant and never per use: rules, a review agent or a person decide, and how they combine is configuration ([Secrets for agents](../guide/secrets.md)); a review agent runs outside Beacon, woken by a hook like an on-call agent. Deciding what to run stays the agent's job, done by its own harness. Sealing the vault is the secrets brake; the SSH channel's pause switch remains the brake on machines, with each machine's access beside it.
 - **No log platform, tracing, APM or custom dashboards.** An agent reads logs through the SSH channel (journalctl and the like), the way it knows best.
 - **No time-series database of our own.** VictoriaMetrics stores and queries.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.

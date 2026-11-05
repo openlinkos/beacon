@@ -17,7 +17,7 @@ People and small teams who run their own machines and services with AI agents: f
 ## What Beacon is not
 
 - **Beacon is not an agent, and it calls no model.** It wakes your agent and hands it the evidence; deciding what to do is the agent's work. `beacon-oncall` is the small harness that starts the agent program you name when a hook fires.
-- **No approval workflow.** The pause switch and each machine's access are the only brakes; reviewing happens afterwards, by people, on the record.
+- **No approval of what agents run.** Approval is for credentials, once per grant. Sealing the vault is the secrets brake; the SSH channel's pause switch and each machine's access are the brakes on machines. Reviewing what ran happens afterwards, by people, on the record.
 - **No log platform, tracing, APM or dashboards of its own.** An agent reads logs through the SSH channel, with `journalctl` and the tools it already knows.
 - **No time-series database of its own.** VictoriaMetrics stores and queries the probes' results; vmalert evaluates the rules.
 - **No remote desktop and no deployment system.** Flux and its like stay; Beacon takes their change events.
