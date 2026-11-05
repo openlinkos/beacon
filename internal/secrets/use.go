@@ -11,6 +11,7 @@ import (
 	"github.com/openlinkos/beacon/internal/events"
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -62,6 +63,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 	if s.keys.sealed() {
 		s.anomalyFired("sealed_state", "a use came while the vault was sealed")
 		return out, ErrSealed
+	}
+	if err := s.refuseIfRotating(); err != nil {
+		return out, err
 	}
 	if s.agentSuspended(agentName) {
 		return out, ErrSuspendedAgent
@@ -120,12 +124,17 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 	if err := s.grantPolicyHolds(agent, grant, item, col); err != nil {
 		return out, err
 	}
-	// the transaction: the use record and the grant's counter commit together, or not at all
+	// the transaction: the use record and the grant's counter commit together, or not at all.
+	// Only this grant's row is named (or dropped) in the grants head; policy and eligibility stay.
 	firstUse := false
+	var committed signedhead.Head
 	err = s.d.Store.Storage().UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		v := tx.Get(bucketGrants, []byte(grant.ID))
 		var cur Grant
 		if v == nil || json.Unmarshal(v, &cur) != nil || !s.grantVerifies(cur) || cur.Status != GrantActive {
+			return ErrNoGrant
+		}
+		if !s.grantAccept(tx, cur.ID, v) {
 			return ErrNoGrant
 		}
 		if cur.Uses > 0 && cur.Used >= cur.Uses {
@@ -142,12 +151,15 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 		if cur.Uses > 0 && cur.Used >= cur.Uses {
 			cur.Status = GrantExhausted
 		}
-		if err := putGrantTx(tx, cur, sk); err != nil {
+		b, err := putGrantTx(tx, cur, sk)
+		if err != nil {
 			return err
 		}
-		if err := writePolicyHeadTx(tx, sk); err != nil {
+		h, err := s.commitGrantRow(tx, cur, b)
+		if err != nil {
 			return err
 		}
+		committed = h
 		// the record itself, in the same transaction: no record, no value
 		use := events.Event{Actor: agentName, OnBehalf: agent.Owner, Via: via, Action: "secret.read",
 			Object: item.Title, Detail: "read " + item.Title + " in " + col.Name, Reason: reason,
@@ -171,6 +183,7 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 	if err != nil {
 		return UseResult{}, err
 	}
+	s.afterHeads(committed)
 	// committed: the value may be given now
 	s.countUse(col.Name, agentName, ActRead)
 	if firstUse {
@@ -439,31 +452,48 @@ func (s *Service) suspendAgent(agent, rule string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return
 	}
 	n := 0
+	var committed signedhead.Head
 	_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		tx.Range(bucketGrants, kv.Range{}, func(k, v []byte) bool {
-			var g Grant
-			if json.Unmarshal(v, &g) != nil || g.Agent != agent || g.Status != GrantActive {
-				return true
+		res := s.loadGrants(tx)
+		var dels []string
+		if res.Status == signedhead.StatusOK || res.Status == signedhead.StatusCatchUp {
+			for id := range res.Head.Entries {
+				if isHeadKey([]byte(id)) {
+					continue
+				}
+				v := tx.Get(bucketGrants, []byte(id))
+				var g Grant
+				if json.Unmarshal(v, &g) != nil || g.Agent != agent || g.Status != GrantActive {
+					continue
+				}
+				g.Status = GrantRevoked
+				g.Reason = "suspended: " + rule
+				if _, err := putGrantTx(tx, g, sk); err != nil {
+					return err
+				}
+				dels = append(dels, g.ID)
+				n++
 			}
-			g.Status = GrantRevoked
-			g.Reason = "suspended: " + rule
-			_ = putGrantTx(tx, g, sk)
-			n++
-			return true
-		})
+		}
 		if tx.Get(bucketMeta, []byte("suspended\x00"+agent)) == nil {
 			_ = tx.Put(bucketMeta, []byte("suspended\x00"+agent), []byte(rule))
 		}
 		if n > 0 {
-			return writePolicyHeadTx(tx, sk)
+			h, err := s.commitGrants(tx, nil, dels)
+			committed = h
+			return err
 		}
 		return nil
 	})
+	s.afterHeads(committed)
 	if n > 0 {
 		s.sendSecretHook(agent, "secret.revoked", hookPayload{Reason: "suspended by the anomaly rule " + rule})
 	}

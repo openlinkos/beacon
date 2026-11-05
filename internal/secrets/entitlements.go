@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/kv"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -145,15 +146,18 @@ func denyAllEntitlement(name string) Entitlement {
 	return Entitlement{Name: name, Deny: true}
 }
 
-// entitlementsTx is the live entitlements inside a transaction: a row the head does not name, or
-// whose contents no longer match it, is absent; a deny the head names that is missing or stale
-// denies everything (the strictest).
+// entitlementsTx is the live entitlements inside a transaction. It walks the eligibility head's
+// named keys: a named deny that is missing or stale denies everything; a named allow that is
+// missing or stale is absent. The side (deny vs allow) comes from the head key, not the row.
 func (s *Service) entitlementsTx(tx kv.Tx) []Entitlement {
-	sk, err := s.sk()
-	if err != nil {
+	res := s.loadEligibility(tx)
+	if res.Status == signedhead.StatusFailsafe {
+		s.reportHeadBreak(kindEntitlement, "*")
+		return []Entitlement{denyAllEntitlement("*")}
+	}
+	if res.Status != signedhead.StatusOK && res.Status != signedhead.StatusCatchUp {
 		return nil
 	}
-	h, headOK := loadPolicyHead(tx, sk)
 	seen := map[string]bool{}
 	var out []Entitlement
 	takeDeny := func(name string) {
@@ -164,44 +168,44 @@ func (s *Service) entitlementsTx(tx kv.Tx) []Entitlement {
 		seen[name] = true
 		s.reportHeadBreak(kindEntitlement, name)
 	}
-	tx.Range(bucketEntitlements, kv.Range{}, func(_, v []byte) bool {
+	for rk := range res.Head.Entries {
+		deny, name, ok := parseEntitlementHeadKey(rk)
+		if !ok || !deny {
+			continue
+		}
+		v := tx.Get(bucketEntitlements, []byte(name))
+		if signedhead.Accept(res, rk, v) {
+			var e Entitlement
+			if json.Unmarshal(v, &e) == nil && e.Name == name && e.Deny && s.entitlementVerifies(e) {
+				out = append(out, e)
+				seen[name] = true
+				continue
+			}
+		}
+		takeDeny(name)
+	}
+	for rk := range res.Head.Entries {
+		deny, name, ok := parseEntitlementHeadKey(rk)
+		if !ok || deny {
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		v := tx.Get(bucketEntitlements, []byte(name))
+		if !signedhead.Accept(res, rk, v) {
+			s.reportHeadBreak(kindEntitlement, name)
+			seen[name] = true
+			continue
+		}
 		var e Entitlement
-		if json.Unmarshal(v, &e) != nil {
-			return true
-		}
-		ok, named := s.headMatch(tx, kindEntitlement, e.Name, e.signedParts(), entitlementHeadValue(e))
-		if named && !ok {
-			if ent, found := h.lookup(kindEntitlement, e.Name); found && ent.Value == "deny" {
-				takeDeny(e.Name)
-			} else {
-				s.reportHeadBreak(kindEntitlement, e.Name)
-				seen[e.Name] = true
-			}
-			return true
-		}
-		if headOK && !named {
-			return true
-		}
-		if !s.entitlementVerifies(e) {
-			if named {
-				if ent, found := h.lookup(kindEntitlement, e.Name); found && ent.Value == "deny" {
-					takeDeny(e.Name)
-					return true
-				}
-				s.reportHeadBreak(kindEntitlement, e.Name)
-			}
-			return true
+		if json.Unmarshal(v, &e) != nil || e.Name != name || e.Deny || !s.entitlementVerifies(e) {
+			s.reportHeadBreak(kindEntitlement, name)
+			seen[name] = true
+			continue
 		}
 		out = append(out, e)
-		seen[e.Name] = true
-		return true
-	})
-	if headOK {
-		for _, ent := range h.Rows {
-			if ent.Kind == kindEntitlement && ent.Value == "deny" && !seen[ent.Key] {
-				takeDeny(ent.Key)
-			}
-		}
+		seen[name] = true
 	}
 	return out
 }
@@ -214,36 +218,32 @@ func (s *Service) entitlementVerifies(e Entitlement) bool {
 	return verifyRow(sk, e.Sig, e.signedParts()...)
 }
 
-// TagsOfAgent lists one agent's grouping tags, verified against the signed head; nil when the
-// agent has none. A named row that is missing or stale keeps the tags the head last recorded, so
-// deleting the row cannot drop a deny that matches by tag, and adding tags cannot widen an allow.
+// TagsOfAgent lists one agent's grouping tags, verified against the eligibility head; nil when
+// the agent has none. A named row that is missing or stale gives no tags (the agent matches
+// nothing extra).
 func (s *Service) TagsOfAgent(agent string) []string {
 	var out []string
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		v := tx.Get(bucketAgentTags, []byte(agent))
-		var t AgentTags
-		live := v != nil && json.Unmarshal(v, &t) == nil && s.agentTagsVerify(t)
-		parts := []string{}
-		value := ""
-		if live {
-			parts, value = t.signedParts(), strings.Join(t.Tags, "\x01")
+		res := s.loadEligibility(tx)
+		if res.Status != signedhead.StatusOK && res.Status != signedhead.StatusCatchUp {
+			return nil
 		}
-		ok, named := s.headMatch(tx, kindAgentTags, agent, parts, value)
-		if named && !ok {
-			sk, err := s.sk()
-			if err != nil {
-				return err
-			}
-			if h, headOK := loadPolicyHead(tx, sk); headOK {
-				if ent, found := h.lookup(kindAgentTags, agent); found && ent.Value != "" {
-					out = strings.Split(ent.Value, "\x01")
-				}
+		rk := policyRowKey(kindAgentTags, agent)
+		v := tx.Get(bucketAgentTags, []byte(agent))
+		if !signedhead.Accept(res, rk, v) {
+			if _, named := res.Head.Entries[rk]; named {
+				s.reportHeadBreak(kindAgentTags, agent)
+			} else if len(v) > 0 {
+				s.reportUnnamed(kindAgentTags, agent)
 			}
 			return nil
 		}
-		if live && ok {
+		var t AgentTags
+		if json.Unmarshal(v, &t) == nil && s.agentTagsVerify(t) {
 			out = t.Tags
+			return nil
 		}
+		s.reportHeadBreak(kindAgentTags, agent)
 		return nil
 	})
 	return out
@@ -272,31 +272,46 @@ func (s *Service) SetEntitlement(who Actor, e Entitlement) (Entitlement, error) 
 	if err := checkEntitlement(e); err != nil {
 		return Entitlement{}, err
 	}
-	var putErr error
-	func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		sk, err := s.sk()
-		if err != nil {
-			putErr = err
-			return
-		}
-		e.Actor, e.Via, e.At = who.Name, who.Via, s.now()
-		e.Sig = signRow(sk, e.signedParts()...)
-		putErr = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-			b, err := json.Marshal(e)
-			if err != nil {
-				return err
-			}
-			if err := tx.Put(bucketEntitlements, []byte(e.Name), b); err != nil {
-				return err
-			}
-			return writePolicyHeadTx(tx, sk)
-		})
-	}()
-	if putErr != nil {
-		return Entitlement{}, putErr
+	s.mu.Lock()
+	if err := s.refuseIfRotating(); err != nil {
+		s.mu.Unlock()
+		return Entitlement{}, err
 	}
+	sk, err := s.sk()
+	if err != nil {
+		s.mu.Unlock()
+		return Entitlement{}, err
+	}
+	e.Actor, e.Via, e.At = who.Name, who.Via, s.now()
+	e.Sig = signRow(sk, e.signedParts()...)
+	var committed signedhead.Head
+	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		b, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		if err := tx.Put(bucketEntitlements, []byte(e.Name), b); err != nil {
+			return err
+		}
+		newKey := entitlementHeadKey(e.Deny, e.Name)
+		put := map[string][]byte{newKey: b}
+		var del []string
+		res := s.loadEligibility(tx)
+		if res.Status == signedhead.StatusOK || res.Status == signedhead.StatusCatchUp || res.Status == signedhead.StatusEmpty {
+			oldKey := entitlementHeadKey(!e.Deny, e.Name)
+			if _, named := res.Head.Entries[oldKey]; named {
+				del = []string{oldKey}
+			}
+		}
+		h, err := s.commitEligibility(tx, put, del)
+		committed = h
+		return err
+	})
+	s.mu.Unlock()
+	if err != nil {
+		return Entitlement{}, err
+	}
+	s.afterHeads(committed)
 	s.echo(who, "set the entitlement", e.Name, "secrets_entitlement_set")
 	s.reassessGrants() // outside the lock: it takes the lock itself per grant
 	return e, nil
@@ -307,28 +322,35 @@ func (s *Service) DeleteEntitlement(who Actor, name string) error {
 	if s.keys.sealed() {
 		return ErrSealed
 	}
-	var err error
-	func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		sk, e := s.sk()
-		if e != nil {
-			err = e
-			return
+	s.mu.Lock()
+	if err := s.refuseIfRotating(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if _, err := s.sk(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var committed signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		if len(tx.Get(bucketEntitlements, []byte(name))) == 0 {
+			return fmt.Errorf("%w: no entitlement %q", ErrNotFound, name)
 		}
-		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-			if tx.Get(bucketEntitlements, []byte(name)) == nil {
-				return fmt.Errorf("%w: no entitlement %q", ErrNotFound, name)
-			}
-			if err := tx.Delete(bucketEntitlements, []byte(name)); err != nil {
-				return err
-			}
-			return writePolicyHeadTx(tx, sk, policyRowKey(kindEntitlement, name))
+		if err := tx.Delete(bucketEntitlements, []byte(name)); err != nil {
+			return err
+		}
+		h, err := s.commitEligibility(tx, nil, []string{
+			entitlementHeadKey(true, name),
+			entitlementHeadKey(false, name),
 		})
-	}()
+		committed = h
+		return err
+	})
+	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
+	s.afterHeads(committed)
 	s.echo(who, "removed the entitlement", name, "secrets_entitlement_delete")
 	s.reassessGrants() // outside the lock: it takes the lock itself per grant
 	return nil
@@ -402,37 +424,45 @@ func (s *Service) SetAgentTags(who Actor, agent string, tags []string) error {
 			return fmt.Errorf("%w: the tag %q is not lower-case, layered with /", ErrBadInput, t)
 		}
 	}
-	var err error
-	func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		sk, e := s.sk()
-		if e != nil {
-			err = e
-			return
-		}
-		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-			if len(tags) == 0 {
-				if err := tx.Delete(bucketAgentTags, []byte(agent)); err != nil {
-					return err
-				}
-				return writePolicyHeadTx(tx, sk, policyRowKey(kindAgentTags, agent))
-			}
-			row := AgentTags{Agent: agent, Tags: tags, Actor: who.Name, Via: who.Via, At: s.now()}
-			row.Sig = signRow(sk, row.signedParts()...)
-			b, mErr := json.Marshal(row)
-			if mErr != nil {
-				return mErr
-			}
-			if err := tx.Put(bucketAgentTags, []byte(agent), b); err != nil {
+	s.mu.Lock()
+	if err := s.refuseIfRotating(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	sk, err := s.sk()
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var committed signedhead.Head
+	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		rk := policyRowKey(kindAgentTags, agent)
+		if len(tags) == 0 {
+			if err := tx.Delete(bucketAgentTags, []byte(agent)); err != nil {
 				return err
 			}
-			return writePolicyHeadTx(tx, sk)
-		})
-	}()
+			h, err := s.commitEligibility(tx, nil, []string{rk})
+			committed = h
+			return err
+		}
+		row := AgentTags{Agent: agent, Tags: tags, Actor: who.Name, Via: who.Via, At: s.now()}
+		row.Sig = signRow(sk, row.signedParts()...)
+		b, mErr := json.Marshal(row)
+		if mErr != nil {
+			return mErr
+		}
+		if err := tx.Put(bucketAgentTags, []byte(agent), b); err != nil {
+			return err
+		}
+		h, err := s.commitEligibility(tx, map[string][]byte{rk: b}, nil)
+		committed = h
+		return err
+	})
+	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
+	s.afterHeads(committed)
 	s.echo(who, "set the agent's tags", agent+" ("+strings.Join(tags, ", ")+")", "secrets_agent_tags_set")
 	s.reassessGrants() // outside the lock: it takes the lock itself per grant
 	return nil

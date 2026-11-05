@@ -22,7 +22,11 @@ func TestSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	svc, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN})
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	svc, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN, Key: key, EpochsDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,5 +78,8 @@ func TestSettings(t *testing.T) {
 	}
 	if _, err := c.RevertSetting(ctx, RevertSettingRequest{Version: 99, Reason: "because the test asks"}); err == nil || !strings.Contains(err.Error(), "version 99") {
 		t.Errorf("an unknown version says so: %v", err)
+	}
+	if err := c.RebuildSettingsHead(ctx); err != nil {
+		t.Fatalf("rebuild-head: %v", err)
 	}
 }

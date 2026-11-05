@@ -286,10 +286,12 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 				alert: in.Alert, level: a.level, entitlement: a.entitlement, reason: in.Reason,
 				approver: "policy", approverKind: "system",
 			})
-			if gerr == nil {
-				out.Granted = append(out.Granted, grant)
-				s.countRequest("granted", "policy") // the level itself decided: no person, no rule
+			if gerr != nil {
+				writeErr = gerr
+				return
 			}
+			out.Granted = append(out.Granted, grant)
+			s.countRequest("granted", "policy") // the level itself decided: no person, no rule
 		}
 		if len(waiting) > 0 {
 			req := Request{

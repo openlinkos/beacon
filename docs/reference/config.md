@@ -35,7 +35,7 @@ The secrets vault's root key: where it comes from, and what wraps it. Every coll
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
 | `vault.mode` | `file`, `passphrase`, `aws-kms`, `gcp-kms`, `transit` | `file` | Where the root key comes from, read at start: a file in the secrets directory (`file`); a passphrase an owner enters (`passphrase`, after a restart the vault stays sealed until then — monitoring and the SSH channel carry on); or a keeper that unwraps it (`aws-kms`, `gcp-kms`, `transit`). Rotate with `beacon key rotate` |
-| `vault.dir` | path | `<data_dir>/secrets` | The directory the key files live in, made at the first start with only-owner permissions |
+| `vault.dir` | path | `<data_dir>/secrets` | The directory the key files and the epochs file live in, made at the first start with only-owner permissions. Policy, items and settings heads share that epochs file |
 | `vault.aws_kms.region` | string | — | The AWS KMS mode: the region of the key |
 | `vault.aws_kms.key_id` | string | — | The key's id or alias (`alias/beacon`) |
 | `vault.aws_kms.endpoint` | URL | — | A KMS of one's own for the tests; empty is AWS's own |

@@ -26,7 +26,7 @@ docker exec beacon beacon token list
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
 | `storage` | The database's health: [check](#beacon-audit-storage) |
-| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, perms, tags](#beacon-secret) |
+| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, perms, tags, rebuild-head](#beacon-secret) |
 | `key` | The vault's keys: [status, unseal, seal, rotate](#beacon-key) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
@@ -45,7 +45,7 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 
 ### beacon settings
 
-The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`.
+The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`. A missing or unverifiable signed head is recovered with `rebuild-head`; Beacon does not rebuild it on a later write. The epochs file lives in the secrets directory, shared with the vault's policy, items, eligibility and grants heads.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -54,10 +54,11 @@ The `settings` command reads and changes the system settings the secrets work ru
 | `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
 | `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
 | `revert` VERSION | `-note` | Go back to a version from `history` |
+| `rebuild-head` | | Rebuild the signed head from the rows that still verify (owner recovery through the admin socket; audited) |
 
 ### beacon secret
 
-The vault, for a person's hands on the command line: the same operations the [console's Secrets pages](https://beacon.openlinkos.com/reference/vault) and the [REST routes](api.md#vault) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`.
+The vault, for a person's hands on the command line: the same operations the [console's Secrets pages](https://beacon.openlinkos.com/reference/vault) and the [REST routes](api.md#vault) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`. Policy, item, eligibility and grant rows are named in epoch-hashed signed heads; a missing or unverifiable head is recovered with `rebuild-head`. The epochs file lives in the secrets directory.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -75,6 +76,7 @@ The vault, for a person's hands on the command line: the same operations the [co
 | `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
 | `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
+| `rebuild-head` | `-user` | Rebuild the policy, items, eligibility and grants signed heads from the rows that still verify (owner recovery through the admin socket; audited). Beacon does not rebuild a missing head on a later write |
 
 ### beacon key
 
@@ -86,7 +88,7 @@ The vault's keys: where the root key comes from is [config.yaml's](config.md#the
 | `init` | `-passphrase-file`, `-passphrase-from-stdin` | Set the first passphrase of a passphrase-mode vault and unseal it. Later unseals open with that passphrase; they never take a new one. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
 | `unseal` | `-passphrase-file`, `-passphrase-from-stdin` | Unseal the passphrase mode after a restart. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
 | `seal` | | Seal again: the key functions wait for the passphrase; monitoring and the SSH channel carry on |
-| `rotate` [COLLECTION] | `-passphrase-file`, `-passphrase-from-stdin` | Without a name, a new root key: every collection key wrapped again, in seconds (in the passphrase mode, `-passphrase-file` names a file holding the new one). With a name, that collection's key: its items are encrypted again in the background. Removing a member needs no rotation — members never hold a key |
+| `rotate` [COLLECTION] | `-passphrase-file`, `-passphrase-from-stdin` | Without a name, a new root key: every collection key wrapped again, in seconds, the verified policy, items and settings heads re-signed in the same transaction (in the passphrase mode, `-passphrase-file` names a file holding the new one). A second rotation while one is in flight is refused. With a name, that collection's key: its items are encrypted again in the background. Removing a member needs no rotation — members never hold a key |
 
 ### beacon setup, user, agent
 
