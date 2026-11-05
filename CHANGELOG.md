@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **The database is its owner's alone again.** rc.17 created `beacon.db` and its `-wal` and `-shm` files with the process's umask, readable by every user on the host (0644), where the bbolt file had been 0600. Beacon now creates the database 0600 before SQLite opens it (SQLite gives the side files the database's mode) and narrows a database or side file it finds wider. A deployment that ran rc.17 is corrected on the next start.
+
 ## 0.3.0
 
 ### rc.17 (2026-11-06)
