@@ -291,9 +291,9 @@ func (s *Service) initPassphraseSeal() error {
 	if err := s.putKeyFile(saltPath, salt); err != nil {
 		return err
 	}
-	s.d.Log.Info("the vault made its passphrase halves; the first passphrase entered with `beacon key unseal` becomes the one",
+	s.d.Log.Info("the vault made its passphrase halves; the first passphrase entered with `beacon key init` becomes the one",
 		"mode", SealPassphrase)
-	return nil // sealed; the first Unseal sets the key check for the passphrase it is given
+	return nil // sealed; InitPassphrase sets the key check for the passphrase it is given
 }
 
 // initKMSSeal reads the wrapped root key and asks the KMS to unwrap it; a KMS that cannot be
