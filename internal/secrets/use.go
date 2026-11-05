@@ -148,6 +148,8 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 			return err
 		}
 		cur.Used++
+		cur.LastUsed = s.now() // the hygiene sweep reads this: a grant in use is not idle
+		cur.UnusedNoticedAt = time.Time{}
 		if cur.Uses > 0 && cur.Used >= cur.Uses {
 			cur.Status = GrantExhausted
 		}

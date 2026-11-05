@@ -51,6 +51,8 @@ func (s *Server) groupLabel(g string) string {
 		return s.t("Review")
 	case "use":
 		return s.t("Use, rate limits and anomalies")
+	case "hygiene":
+		return s.t("Hygiene")
 	case "retention":
 		return s.t("Retention")
 	case "import":

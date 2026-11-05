@@ -16,9 +16,14 @@ import (
 
 // ---- reading
 
-// Item finds an item by its ID, by "collection/item" or by its title inside a collection, always
-// through the signature check.
+// Item finds an item by its ID, by "collection/item", by a beacon:// reference, or by its title
+// inside a collection, always through the signature check.
 func (s *Service) Item(ref string) (Item, Collection, bool) {
+	if parsed, err := ParseRef(ref); err == nil {
+		ref = parsed.Collection + "/" + parsed.Item
+	} else if strings.HasPrefix(ref, RefPrefix) {
+		return Item{}, Collection{}, false
+	}
 	collectionRef, itemRef, hasCol := strings.Cut(ref, "/")
 	var col Collection
 	var ok bool

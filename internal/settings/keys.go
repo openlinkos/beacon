@@ -27,7 +27,7 @@ type Definition struct {
 }
 
 // Groups lists the groups in the order the console shows them.
-var Groups = []string{"requests", "review", "use", "retention", "import", "backup", "storage"}
+var Groups = []string{"requests", "review", "use", "hygiene", "retention", "import", "backup", "storage"}
 
 // Definitions, by key.
 var Definitions = map[string]*Definition{}
@@ -358,6 +358,8 @@ func init() {
 	registerAccess("grant.on_owner_access_lost", "requests", "what happens to grants when their owner loses access", enum("revoke", "keep_until_expiry", "notify"), `"revoke"`, `"revoke"`)
 	registerAccess("grant.on_item_changed", "requests", "what happens when an item's value changes under a grant", enum("notify_holders", "none"), `"notify_holders"`, `"notify_holders"`)
 	register("grant.alert_grace", "requests", "how long a grant bound to an alert still works after the alert resolves", durationKind(false, false), `"15m"`)
+	register("grant.unused_after", "requests", "how long a live grant may sit unused before the hygiene sweep acts", durationKind(false, false), `"30d"`)
+	register("grant.on_unused", "requests", "what happens to a grant that sat unused: marked in the console, the owner told, or released", enum("auto_release", "notify", "mark"), `"mark"`)
 	registerAccess("agents.default_entitlements", "requests", "the entitlement templates a new agent starts with", stringsKind(nil, stringsNone), `[]`, `[]`)
 
 	// ---- Review (the review chain)
@@ -387,6 +389,11 @@ func init() {
 	registerAccess("http.follow_redirects", "use", "the redirects http_request may follow", enum("none", "same_host", "any_bound"), `"same_host"`, `"none"`)
 	registerAccess("file.on_change", "use", "what happens to a delivered file when its item's value changes", enum("deliver", "next_window", "notify"), `"deliver"`, `"deliver"`)
 	registerAccess("sealed.on_request", "use", "what happens to requests while the vault is sealed", enum("refuse", "queue"), `"refuse"`, `"refuse"`)
+
+	// ---- Hygiene (the rotation notices, the password health report, the idle grants)
+	register("hygiene.hibp_check", "hygiene", "whether the health report also asks the leak corpus (HIBP's k-anonymity interface); it sends the first five characters of each password's hash outward", boolKind(tFalse), `false`)
+	register("hygiene.weak_min_length", "hygiene", "the shortest a password may be before the report calls it weak", intKind(true), `8`)
+	register("hygiene.password_age", "hygiene", "how old a password may be before the report calls it old", durationKind(false, false), `"90d"`)
 
 	// ---- Retention
 	register("retention.audit", "retention", "how long audit events are kept", durationKind(false, false), `"365d"`)

@@ -69,6 +69,12 @@ func fieldKey(section, name string) string {
 // keeps its value, so the details are decrypted from the current version inside the same
 // transaction and folded together before they are encrypted again.
 func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
+	return s.setItem(who, in, false)
+}
+
+// setItem is SetItem; rotation skips the people's edit check because RotateItem has already
+// verified a live use grant, and refuses a change to tags, level, actions or bindings.
+func (s *Service) setItem(who Actor, in ItemIn, rotation bool) (Item, error) {
 	if s.keys.sealed() {
 		return Item{}, ErrSealed
 	}
@@ -122,13 +128,20 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			exists = true
 			before = cur.Item // the overview as it stands, before this change folds in
 		}
-		// permissions: writing needs edit; tags, level, actions, machines and hosts are policy, so manage
+		// permissions: writing needs edit; tags, level, actions, machines and hosts are policy, so manage.
+		// a rotation already verified a live use grant and must not change policy.
 		policy := len(in.Tags) > 0 || in.Level != "" || len(in.Actions) > 0 || len(in.Machines) > 0 || len(in.Hosts) > 0
-		if policy && !s.mayTx(tx, who, col.ID, PermManage) {
-			return fmt.Errorf("%w: changing an item's tags, level, actions or bindings needs manage", ErrForbidden)
-		}
-		if !s.mayTx(tx, who, col.ID, PermEdit) {
-			return fmt.Errorf("%w: you may not write in this collection", ErrForbidden)
+		if rotation {
+			if policy {
+				return fmt.Errorf("%w: a rotation cannot change an item's tags, level, actions or bindings", ErrForbidden)
+			}
+		} else {
+			if policy && !s.mayTx(tx, who, col.ID, PermManage) {
+				return fmt.Errorf("%w: changing an item's tags, level, actions or bindings needs manage", ErrForbidden)
+			}
+			if !s.mayTx(tx, who, col.ID, PermEdit) {
+				return fmt.Errorf("%w: you may not write in this collection", ErrForbidden)
+			}
 		}
 		item := cur.Item
 		var details Details

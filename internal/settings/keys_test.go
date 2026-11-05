@@ -30,6 +30,8 @@ func TestDefaultsMatchThePlan(t *testing.T) {
 		"grant.on_owner_access_lost":  `"revoke"`,                                              // revoke
 		"grant.on_item_changed":       `"notify_holders"`,                                      // notify_holders
 		"grant.alert_grace":           `"15m"`,                                                 // 15 minutes
+		"grant.unused_after":          `"30d"`,                                                 // 30 days (the hygiene sweep: idle grants)
+		"grant.on_unused":             `"mark"`,                                                // marked in the console (notify / auto_release)
 		"agents.default_entitlements": `[]`,                                                    // empty
 
 		// ---- Review (the plan's review table)
@@ -58,6 +60,11 @@ func TestDefaultsMatchThePlan(t *testing.T) {
 		"http.follow_redirects": `"same_host"`,                    // same_host
 		"file.on_change":        `"deliver"`,                      // deliver
 		"sealed.on_request":     `"refuse"`,                       // refuse
+
+		// ---- Hygiene (§13): password health, leak corpus, idle grants (rotation uses grant.expiry_notice)
+		"hygiene.hibp_check":      `false`, // off: the k-anonymity interface sends a hash prefix outward
+		"hygiene.weak_min_length": `8`,     // shortest before the report calls a password weak
+		"hygiene.password_age":    `"90d"`, // how old before the report calls a password old
 
 		// ---- Retention (the plan's retention table)
 		"retention.audit":           `"365d"`,                            // 365 days

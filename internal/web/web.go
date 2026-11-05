@@ -131,6 +131,7 @@ type Server struct {
 	Settings  *settings.Service // the secrets work's settings (settingspage.go); nil: the console's settings page is empty
 	Vault     vaultUI           // the secrets vault (vaultpage.go); nil: the console's vault page is away
 	Secrets   secretsUI         // the vault's grants (secretsgrants.go); nil: those pages are away
+	Hygiene   hygieneUI         // the vault's hygiene (secretshygiene.go); nil: that page is away
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string

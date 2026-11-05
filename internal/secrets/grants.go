@@ -22,36 +22,39 @@ import (
 
 // Grant is one grant, signed.
 type Grant struct {
-	ID           string    `json:"id"`
-	Agent        string    `json:"agent"`
-	Owner        string    `json:"owner"`
-	Item         string    `json:"item"`       // the item's ID
-	Collection   string    `json:"collection"` // the collection's ID
-	Fields       []string  `json:"fields,omitempty"`
-	Action       string    `json:"action"` // read or use
-	Uses         int64     `json:"uses"`   // 0: unlimited
-	Used         int64     `json:"used"`
-	ExpiresAt    time.Time `json:"expires_at,omitzero"` // zero: never
-	Alert        string    `json:"alert,omitempty"`
-	Renewal      string    `json:"renewal"` // auto, request or none
-	Status       string    `json:"status"`
-	Request      string    `json:"request,omitempty"`
-	Approver     string    `json:"approver"`
-	ApproverKind string    `json:"approver_kind"`
-	Entitlement  string    `json:"entitlement,omitempty"`
-	Level        string    `json:"level"`
-	Reason       string    `json:"reason,omitempty"`
-	NoticedAt    time.Time `json:"noticed_at,omitzero"` // when the expiry notice went out
-	Actor        string    `json:"actor,omitempty"`
-	Via          string    `json:"via,omitempty"`
-	Created      time.Time `json:"created"`
-	Sig          []byte    `json:"sig"`
+	ID              string    `json:"id"`
+	Agent           string    `json:"agent"`
+	Owner           string    `json:"owner"`
+	Item            string    `json:"item"`       // the item's ID
+	Collection      string    `json:"collection"` // the collection's ID
+	Fields          []string  `json:"fields,omitempty"`
+	Action          string    `json:"action"` // read or use
+	Uses            int64     `json:"uses"`   // 0: unlimited
+	Used            int64     `json:"used"`
+	ExpiresAt       time.Time `json:"expires_at,omitzero"` // zero: never
+	Alert           string    `json:"alert,omitempty"`
+	Renewal         string    `json:"renewal"` // auto, request or none
+	Status          string    `json:"status"`
+	Request         string    `json:"request,omitempty"`
+	Approver        string    `json:"approver"`
+	ApproverKind    string    `json:"approver_kind"`
+	Entitlement     string    `json:"entitlement,omitempty"`
+	Level           string    `json:"level"`
+	Reason          string    `json:"reason,omitempty"`
+	NoticedAt       time.Time `json:"noticed_at,omitzero"`        // when the expiry notice went out
+	LastUsed        time.Time `json:"last_used,omitzero"`         // when the grant last moved a value; zero: never
+	UnusedNoticedAt time.Time `json:"unused_noticed_at,omitzero"` // when the hygiene sweep said the grant sat idle
+	Actor           string    `json:"actor,omitempty"`
+	Via             string    `json:"via,omitempty"`
+	Created         time.Time `json:"created"`
+	Sig             []byte    `json:"sig"`
 }
 
 func (g Grant) signedParts() []string {
 	return []string{g.ID, g.Agent, g.Owner, g.Item, g.Collection, strings.Join(g.Fields, "\x01"), g.Action,
 		i64(g.Uses), i64(g.Used), i64(g.ExpiresAt.UnixNano()), g.Alert, g.Renewal, g.Status, g.Request,
-		g.Approver, g.ApproverKind, g.Entitlement, g.Level, i64(g.NoticedAt.UnixNano()), g.Actor, g.Via, i64(g.Created.UnixNano())}
+		g.Approver, g.ApproverKind, g.Entitlement, g.Level, i64(g.NoticedAt.UnixNano()), i64(g.LastUsed.UnixNano()),
+		i64(g.UnusedNoticedAt.UnixNano()), g.Actor, g.Via, i64(g.Created.UnixNano())}
 }
 
 // Left is how many uses remain (0 with Uses 0 means unlimited, not none; -1 when used up).
