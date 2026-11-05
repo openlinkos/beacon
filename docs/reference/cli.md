@@ -135,8 +135,8 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | --- | --- | --- |
 | `backup now` | `-full` | One backup at once (a complete recordings set with `-full`): through the running service's admin socket when it is up, on its own otherwise |
 | `backup ls` | | What every destination holds, newest first |
-| `backup restore` FILE... | `-identity`, `-into`, `-dry-run` | Decrypt, verify every member against the manifest, check the database's integrity and audit chain, and put the database, recordings, configuration and secrets back; `-dry-run` proves it in a temporary directory and touches nothing. Give the full archive first, then the incrementals |
-| `backup drill` FILE... | `-identity`, `-keep` | Restore to a scratch directory, verify, and renew the built-in `recovery-drill` reminder; `-keep` prints where it stays |
+| `backup restore` FILE... | `-identity`, `-into`, `-dry-run`, `-confirm`, `-verify-key` | Decrypt, verify the manifest signature and every member against the manifest, check the database's integrity and audit chain, and put the database, recordings, configuration and secrets back; `-dry-run` proves it in a temporary directory and touches nothing. Restoring into the live `data_dir` needs `-confirm` (the current files are copied aside first). Give the full archive first, then the incrementals. `-verify-key` is the `sign1:…` line from the recovery material when `-identity` does not already hold it |
+| `backup drill` FILE... | `-identity`, `-keep`, `-verify-key` | Restore to a scratch directory, verify, and renew the built-in `recovery-drill` reminder; `-keep` prints where it stays |
 | `backup keygen` | | An age key pair: the private key prints once, alone, on stdout; the public key is for `backup.recipients` |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):

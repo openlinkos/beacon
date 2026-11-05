@@ -1,10 +1,12 @@
 ---
-sourceHash: sha256-ec026d61
+sourceHash: sha256-7b2132d6
 ---
 
 # 备份与恢复
 
 一个 Beacon 中心的备份要装下什么、每样东西放在哪里、用什么命令拷出来再倒回去。示例以[装在服务器上](install.md)的参考部署为准，在中心的 `/opt/beacon` 下以 root 执行。在一台新机器上恢复就是：装好、解开部署目录、把卷里的数据倒回去。
+
+配置了 `backup:` 目的地时，Beacon 会自己做加密备份（`beacon backup now | ls | restore | drill | keygen`；见[命令行](../reference/cli.md)、[config.yaml](../reference/config.md)）。这些档案用 age 加密，清单有签名；恢复到正在用的数据目录需要 `-confirm`。单次 S3 PUT 最大 5 GiB。参考部署里可选的 Litestream 服务会持续运送 WAL，但**那份副本是明文**——把它当作热副本、靠存储自己的访问控制，而不是当作必须保密的异地备份。
 
 ## 每样东西在哪里 {#what-lives-where}
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7ebb2f9e
+sourceHash: sha256-22ffb217
 ---
 
 # 命令行
@@ -139,8 +139,8 @@ docker exec beacon beacon token list
 | --- | --- | --- |
 | `backup now` | `-full` | 立刻做一次备份（`-full` 带完整录像集）：服务在运行时走它的管理套接字，否则自己完成 |
 | `backup ls` | | 列出每个目的地持有的备份，新的在前 |
-| `backup restore` FILE... | `-identity`、`-into`、`-dry-run` | 解密、逐成员对照清单校验、检查数据库完整性与审计链，再把数据库、录像、配置和 secrets 放回原处；`-dry-run` 只在临时目录里验证，不落任何东西。先给 full 档案，再给增量 |
-| `backup drill` FILE... | `-identity`、`-keep` | 恢复到临时目录并校验，顺延内置的 `recovery-drill` 提醒；`-keep` 打印保留位置 |
+| `backup restore` FILE... | `-identity`、`-into`、`-dry-run`、`-confirm`、`-verify-key` | 解密、核对清单签名、逐成员对照清单校验、检查数据库完整性与审计链，再把数据库、录像、配置和 secrets 放回原处；`-dry-run` 只在临时目录里验证，不落任何东西。恢复到正在用的 `data_dir` 需要 `-confirm`（会先把当前文件拷到一边）。先给 full 档案，再给增量。`-identity` 里没有恢复材料中的 `sign1:…` 时，用 `-verify-key` 给出 |
+| `backup drill` FILE... | `-identity`、`-keep`、`-verify-key` | 恢复到临时目录并校验，顺延内置的 `recovery-drill` 提醒；`-keep` 打印保留位置 |
 | `backup keygen` | | 生成 age 密钥对：私钥只打印一次、独占标准输出；公钥写进 `backup.recipients` |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：

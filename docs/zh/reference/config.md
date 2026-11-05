@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-6f8b30a1
+sourceHash: sha256-eb3ecf75
 ---
 
 # config.yaml
@@ -36,9 +36,9 @@ sourceHash: sha256-6f8b30a1
 | `backup.destinations.s3.endpoint` | URL | — | 存储地址，如 `https://s3.example.com:9000`（路径寻址） |
 | `backup.destinations.s3.region` | 区域 | `us-east-1` | 签名用；不区分区域的存储会忽略 |
 | `backup.destinations.s3.bucket` | 名字 | — | 备份落入的桶 |
-| `backup.destinations.s3.prefix` | 前缀 | — | 桶内前缀，如 `beacon/` |
+| `backup.destinations.s3.prefix` | 前缀 | — | 桶内前缀，如 `beacon/`。空前缀只列桶根下的对象，不会匹配其他前缀下的键 |
 | `backup.destinations.s3.access_key_file` | 路径 | — | 访问密钥，使用时从文件读取 |
-| `backup.destinations.s3.secret_key_file` | 路径 | — | 私有密钥，使用时从文件读取 |
+| `backup.destinations.s3.secret_key_file` | 路径 | — | 私有密钥，使用时从文件读取。单次 PUT 最大 5 GiB |
 | `backup.recipients` | 公钥列表 | 自动生成 | 备份加密给的 age（`age1…`）或 ssh-ed25519 公钥；Beacon 只持有这些，读不了自己写的备份。一个都不配时，首次启动生成密钥对，私钥只留在 `<data_dir>/backup/RECOVERY-MATERIAL.txt` |
 | `backup.recipients_file` | 路径 | — | 更多接收者，一行一个公钥 |
 | `backup.secrets_dir` | 路径 | `/etc/beacon/secrets` | 整个目录进每一份备份：快照与封装它的密钥同行 |
@@ -55,7 +55,7 @@ sourceHash: sha256-6f8b30a1
 | `backup.retries` | 次数 | `3` | 上传失败后再试几次 |
 | `backup.retry_wait` | 时长 | `1m` | 重试的首次间隔，之后每次翻四倍 |
 | `backup.verify_readback` | 布尔 | `true` | 每次上传后回读并核对大小与哈希 |
-| `backup.on_failure` | `alert` 或 `alert_and_pause` | `alert` | 一直失败的备份怎么办；暂停取用在保管库落地后生效 |
+| `backup.on_failure` | `alert` | `alert` | 一直失败的备份怎么办（`alert_and_pause` 尚未实现，配置此项会被拒绝） |
 
 ## 规则与路由 {#rules-and-routing}
 

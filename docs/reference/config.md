@@ -32,9 +32,9 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `backup.destinations.s3.endpoint` | URL | — | The store's address, such as `https://s3.example.com:9000` (path-style addressing) |
 | `backup.destinations.s3.region` | region | `us-east-1` | For signing; stores that ignore regions ignore it too |
 | `backup.destinations.s3.bucket` | name | — | The bucket backups land in |
-| `backup.destinations.s3.prefix` | prefix | — | Inside the bucket, such as `beacon/` |
+| `backup.destinations.s3.prefix` | prefix | — | Inside the bucket, such as `beacon/`. An empty prefix lists only objects at the bucket root, not keys under other prefixes |
 | `backup.destinations.s3.access_key_file` | path | — | The access key, read from its file at use |
-| `backup.destinations.s3.secret_key_file` | path | — | The secret key, read from its file at use |
+| `backup.destinations.s3.secret_key_file` | path | — | The secret key, read from its file at use. A single PUT is at most 5 GiB |
 | `backup.recipients` | list of public keys | generated | The age (`age1…`) or ssh-ed25519 public keys backups are encrypted to; Beacon holds only these and cannot read what it wrote. With none, the first start generates a pair and leaves the private half once in `<data_dir>/backup/RECOVERY-MATERIAL.txt` |
 | `backup.recipients_file` | path | — | More recipients, one public key per line |
 | `backup.secrets_dir` | path | `/etc/beacon/secrets` | Packed whole into every backup, so a snapshot and the keys it was sealed with travel together |
@@ -51,7 +51,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `backup.retries` | count | `3` | How many times a failed upload is tried again |
 | `backup.retry_wait` | duration | `1m` | The first wait between retries; it grows fourfold each time |
 | `backup.verify_readback` | boolean | `true` | Read every upload back and compare size and hash before it counts |
-| `backup.on_failure` | `alert` or `alert_and_pause` | `alert` | What a backup that keeps failing does; the pause acts once the vault exists |
+| `backup.on_failure` | `alert` | `alert` | What a backup that keeps failing does (`alert_and_pause` is not implemented and is rejected) |
 
 ## Rules and routing
 
