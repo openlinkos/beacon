@@ -364,9 +364,6 @@ func (s *Service) Set(ctx context.Context, who Actor, scope, target, key string,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.sealed {
-		return Change{}, fmt.Errorf("the vault is sealed; settings cannot be changed until it is unsealed")
-	}
 	var out Change
 	var committed signedhead.Head
 	var wrote bool
