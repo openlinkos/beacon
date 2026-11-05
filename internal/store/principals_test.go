@@ -59,7 +59,7 @@ func TestAgentsAndPrincipals(t *testing.T) {
 	if _, err := s.UpdateAccount("bob", func(x *Account) error { x.Role = "viewer"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := s.Authenticate(secret); p.Has("machines:ssh") || !p.Has("status:read") || !slices.Equal(p.Scopes, []string{"status:read", "sessions:read"}) {
+	if p, _ := s.Authenticate(secret); p.Has("machines:ssh") || !p.Has("status:read") || !slices.Equal(p.Scopes, []string{"status:read", "sessions:read", "secrets:describe"}) {
 		t.Errorf("after demoting the owner: %v", p.Scopes)
 	}
 	if p, ok := s.Principal("agent:claude-code"); !ok || p.Has("machines:ssh") {
@@ -139,7 +139,8 @@ func TestClaimToken(t *testing.T) {
 	s, _ := openTest(t)
 	owner(t, s, "alice")
 	invite(t, s, "carol", "oncall")
-	secret, legacy, _ := s.CreateToken("claude-code", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh"}, 30*24*time.Hour, "cli:root")
+	secret, legacy, _ := s.CreateToken("claude-code", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh",
+		"secrets:describe", "secrets:read", "secrets:use"}, 30*24*time.Hour, "cli:root")
 	_, _ = s.UpdateToken("claude-code", func(t *Token) error {
 		t.Machines = []string{"edge-1"}
 		t.SSHKeys = []SSHKey{{Key: "ssh-ed25519 AAAA", Fingerprint: "SHA256:k"}}
@@ -192,7 +193,8 @@ func TestClaimToken(t *testing.T) {
 	if _, _, err := s.ClaimToken("third", "carol", "claude-code", "", "alice"); err == nil || !strings.Contains(err.Error(), "may do more") {
 		t.Errorf("a status:read token into an on-call agent: %v", err)
 	}
-	_, _, _ = s.CreateToken("fourth", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh"}, 24*time.Hour, "cli:root")
+	_, _, _ = s.CreateToken("fourth", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh",
+		"secrets:describe", "secrets:read", "secrets:use"}, 24*time.Hour, "cli:root")
 	_, _ = s.UpdateToken("fourth", func(t *Token) error { t.Machines = []string{"edge-1", "edge-2"}; return nil })
 	if _, _, err := s.ClaimToken("fourth", "carol", "claude-code", "", "alice"); err != nil {
 		t.Errorf("into carol's own agent: %v", err)

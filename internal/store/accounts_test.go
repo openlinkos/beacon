@@ -300,7 +300,7 @@ func TestExpiredLinkOutlivesANewerOne(t *testing.T) {
 }
 
 func TestRoles(t *testing.T) {
-	if got := RoleScopes("viewer"); !slices.Equal(got, []string{"status:read", "sessions:read"}) {
+	if got := RoleScopes("viewer"); !slices.Equal(got, []string{"status:read", "sessions:read", "secrets:describe"}) {
 		t.Errorf("viewer: %v", got)
 	}
 	if got := RoleScopes("oncall"); !slices.Contains(got, "machines:ssh") || slices.Contains(got, "machines:write") {
@@ -320,7 +320,7 @@ func TestRoles(t *testing.T) {
 	if !PresetWithin("oncall", "operator") || PresetWithin("operator", "oncall") || !PresetWithin("operator", "owner") || PresetWithin("custom", "owner") {
 		t.Error("PresetWithin")
 	}
-	if ClosestPreset([]string{"sessions:read", "status:read"}) != "readonly" || ClosestPreset([]string{"status:read", "alerts:write", "machines:ssh"}) != PresetCustom {
+	if ClosestPreset([]string{"sessions:read", "status:read", "secrets:describe"}) != "readonly" || ClosestPreset([]string{"status:read", "alerts:write", "machines:ssh"}) != PresetCustom {
 		t.Error("ClosestPreset")
 	}
 	for in, want := range map[string]string{"Claude Code": "claude-code", "Codex CLI 1.0": "codex-cli-1-0", "": "agent", "  !!": "agent", "ÉÉ": "agent"} {
