@@ -134,7 +134,7 @@ func (s *Service) Attachment(who Actor, item string, version int64, name string)
 	if !s.May(who, col.ID, PermRead) {
 		return nil, 0, fmt.Errorf("%w: you may not read values in this collection", ErrForbidden)
 	}
-	if !s.reauthed(who.Name) {
+	if !s.reauthed(who) {
 		return nil, 0, ErrReauth
 	}
 	if err := s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_view",
@@ -527,9 +527,9 @@ func (s *Service) Reveal(who Actor, item string, fields []string, password strin
 			return nil, nil, ErrReauth
 		}
 		s.reauthMu.Lock()
-		s.reauth[who.Name] = s.now().Add(s.reauthWindow())
+		s.reauth[reauthKey(who)] = s.now().Add(s.reauthWindow())
 		s.reauthMu.Unlock()
-	} else if !s.reauthed(who.Name) {
+	} else if !s.reauthed(who) {
 		return nil, nil, ErrReauth
 	}
 	// the record comes first: no record, no value
@@ -593,11 +593,15 @@ func (s *Service) Reveal(who Actor, item string, fields []string, password strin
 	return out, list, nil
 }
 
-// reauthed reports whether the user re-entered their password within the window.
-func (s *Service) reauthed(user string) bool {
+// reauthKey is the re-authentication window's key: the account and how they came, so the console,
+// the API and MCP do not share a window.
+func reauthKey(who Actor) string { return who.Name + "\x00" + who.Via }
+
+// reauthed reports whether the actor re-entered their password within the window.
+func (s *Service) reauthed(who Actor) bool {
 	s.reauthMu.Lock()
 	defer s.reauthMu.Unlock()
-	return s.now().Before(s.reauth[user])
+	return s.now().Before(s.reauth[reauthKey(who)])
 }
 
 // ---- search

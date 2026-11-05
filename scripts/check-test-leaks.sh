@@ -19,7 +19,8 @@ fixture-value-API-zephyr-5c2d-grault
 fixture-notes-caboosetumbler
 fixture-attachment-tumbler-quartz
 fixture-user-zz31@example.com
-'
+GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
+}'
 
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT

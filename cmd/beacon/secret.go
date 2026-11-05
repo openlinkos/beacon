@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 )
 
 const vaultUsage = `secret ls [COLLECTION] [-state normal] | secret show REF | secret reveal REF [FIELD...] [-user NAME] [--password-file FILE | --password-from-stdin] |
-secret set COLLECTION/TITLE [FIELD=VALUE ...] [-note TEXT] [-tags a,b] [-level auto|review|person|never|-] [-category TEXT] [-url URL] [-user NAME] [-reason TEXT] |
+secret set COLLECTION/TITLE [FIELD=VALUE ...] [-note TEXT] [-tags a,b] [-level auto|review|person|never|-] [-category TEXT] [-url URL] [-user NAME] [-reason TEXT] [--value-from-stdin | --value-file FILE] |
 secret tag REF TAGS [-user NAME] [-reason TEXT] | secret level REF LEVEL [-user NAME] [-reason TEXT] |
 secret archive REF | secret rm REF | secret restore REF [-user NAME] |
 secret generate REF FIELD [-length 24] [-charset letters|alnum|all] [-user NAME] [-reason TEXT] |
@@ -48,6 +49,8 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 	description := fs.String("description", "", "a collection's or tag's description")
 	passwordFile := fs.String("password-file", "", "a file holding the account's password, for reveal")
 	passwordStdin := fs.Bool("password-from-stdin", false, "read the account's password from stdin (it shows; prefer the file)")
+	valueFile := fs.String("value-file", "", "a file holding a field's value for set (use FIELD=-); prefer this over putting the value on the command line")
+	valueStdin := fs.Bool("value-from-stdin", false, "read a field's value from stdin for set (use FIELD=-); prefer this over putting the value on the command line")
 	pos, ok := positional(fs, args[1:])
 	if !ok {
 		return 2
@@ -209,11 +212,21 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 		if *urlFlag != "" {
 			in.URLs = []string{*urlFlag}
 		}
+		fromStdin := 0
 		for _, f := range pos[1:] {
 			name, value, ok := strings.Cut(f, "=")
 			if !ok {
 				fmt.Fprintf(stderr, "a field is FIELD=VALUE, not %q\n", f)
 				return 2
+			}
+			if value == "-" && (*valueFile != "" || *valueStdin) {
+				fromStdin++
+				got, err := readFieldValue(os.Stdin, stderr, *valueFile, *valueStdin)
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					return 1
+				}
+				value = got
 			}
 			typ := secrets.FieldConcealed
 			if name == "username" {
@@ -225,6 +238,10 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 				field.Section, field.Name = section, name2
 			}
 			in.Fields = append(in.Fields, field)
+		}
+		if fromStdin > 1 {
+			fmt.Fprintln(stderr, "only one field may be FIELD=- with --value-from-stdin or --value-file")
+			return 2
 		}
 		item, err := c.VaultSetItem(ctx, *user, in)
 		if err != nil {
@@ -360,4 +377,26 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, vaultUsage)
 		return 2
 	}
+}
+
+// readFieldValue reads a field's value from a file or stdin, so `secret set` does not put the
+// secret on the command line.
+func readFieldValue(stdin *os.File, stderr io.Writer, file string, fromStdin bool) (string, error) {
+	if file != "" {
+		b, err := os.ReadFile(file) //nolint:gosec // the operator names the file
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	if !fromStdin {
+		return "", fmt.Errorf("name the file that holds it (--value-file FILE) or say --value-from-stdin")
+	}
+	fmt.Fprintln(stderr, "value: (it shows while you type; prefer --value-file)")
+	r := bufio.NewReader(stdin)
+	line, err := r.ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }

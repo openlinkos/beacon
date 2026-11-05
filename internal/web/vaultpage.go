@@ -103,10 +103,7 @@ func (s *Server) vaultPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Sealed, p.Mode, p.BadRows = s.Vault.Sealed(), s.Vault.SealModeName(), s.Vault.Bad()
 	p.CanUnseal = p.Sealed && p.Mode == secrets.SealPassphrase && v.has("secrets:admin")
 	p.CanManage = v.has("secrets:admin")
-	for _, col := range s.Vault.Collections() {
-		if !s.Vault.May(who, col.ID, secrets.PermDescribe) {
-			continue
-		}
+	for _, col := range s.Vault.CollectionsFor(who) {
 		p.Collections = append(p.Collections, vaultCollectionRow{Name: col.Name, Level: col.Level,
 			Href: consolePath("/secrets/" + col.ID), Items: len(s.Vault.Items(col.Name, "")),
 			MayRead: s.Vault.May(who, col.ID, secrets.PermRead)})

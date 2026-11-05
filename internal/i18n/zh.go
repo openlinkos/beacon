@@ -67,6 +67,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"%s %s \"%s\" via %s":           "%[1]s 经%[4]s对「%[3]s」%[2]s",
 	"%s viewed \"%s\" in %s via %s": "%[1]s 经%[4]s查看了 %[3]s 里的「%[2]s」",
 	"The vault's root key was %s.":  "保管库的根密钥已%s。",
+	"Vault policy rows are missing, stale or bad and are treated as the strictest: %s.": "保管库策略行缺失、过期或签名不符，按最严处理：%s。",
 	// what every page says of Beacon and where the project is
 	"Powered by Beacon, open source": "由开源的 Beacon 驱动",
 	"Beacon is open source.":         "Beacon 是开源软件。",

@@ -316,6 +316,17 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 
 // checkItemIn is the shape check done before any lock is taken.
 func checkItemIn(in ItemIn) error {
+	if hasNUL(in.Title, in.Category, in.Level, in.Source, in.Notes, in.Reason) {
+		return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+	}
+	if hasNUL(in.URLs...) || hasNUL(in.Tags...) || hasNUL(in.Actions...) || hasNUL(in.Machines...) || hasNUL(in.Hosts...) {
+		return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+	}
+	for _, f := range in.Fields {
+		if hasNUL(f.Section, f.Name, f.Type, f.Purpose, f.Value) {
+			return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+		}
+	}
 	if in.Title != "" && !nameRe.MatchString(in.Title) {
 		return fmt.Errorf("%w: an item's title is up to 64 letters, digits, spaces, - _ and ., starting with a letter or digit; the reference syntax needs this shape (or the ID)", ErrBadInput)
 	}
@@ -438,7 +449,7 @@ func getVersionTx(tx kv.Tx, item string, version int64) (ItemVersion, bool) {
 func (s *Service) collectionByIDTx(tx kv.Tx, id string) (Collection, bool) {
 	v := tx.Get(bucketCollections, []byte(id))
 	var r signedCollection
-	if v == nil || json.Unmarshal(v, &r) != nil || r.ID != id || !s.collectionVerifies(r) {
+	if v == nil || json.Unmarshal(v, &r) != nil || r.ID != id || !s.collectionLive(tx, r) {
 		return Collection{}, false
 	}
 	return r.Collection, true
@@ -499,18 +510,15 @@ func (s *Service) permOfTx(tx kv.Tx, who Actor, collectionID string) (string, bo
 	if !who.Person() || s.keys.sealed() {
 		return "", false
 	}
-	sk, err := s.sk()
-	if err != nil {
-		return "", false
-	}
 	best, found := "", false
 	for _, subject := range []string{permSubjectPrefix + who.Name, "role:" + who.Role} {
-		v := tx.Get(bucketPerms, permRowKey(collectionID, subject))
+		key := permRowKey(collectionID, subject)
+		v := tx.Get(bucketPerms, key)
 		if v == nil {
 			continue
 		}
 		var p Permission
-		if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !verifyRow(sk, p.Sig, p.signedParts()...) {
+		if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permLive(tx, key, p) {
 			continue // a row that does not verify, or that was copied under another key, is not there
 		}
 		if !found || permRank[p.Perm] > permRank[best] {
@@ -526,7 +534,7 @@ func (s *Service) itemVerifies(r signedItem) bool {
 	if err != nil {
 		return false
 	}
-	return verifyRow(sk, r.Sig, r.signedParts()...)
+	return verifyPolicy(sk, r.Sig, r.signedParts()...)
 }
 
 // attachmentMax is the attachment size limit, from the settings (10 MB by default).
