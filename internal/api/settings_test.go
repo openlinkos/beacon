@@ -14,7 +14,11 @@ import (
 
 func setupSettings(t *testing.T) (*testutil.Env, client, *settings.Service) {
 	e := testutil.New(t)
-	svc, err := settings.Open(settings.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN})
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	svc, err := settings.Open(settings.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN, Key: key, EpochsDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

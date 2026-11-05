@@ -45,7 +45,7 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 
 ### beacon settings
 
-The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`.
+The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`. A missing or unverifiable signed head is recovered with `rebuild-head`; Beacon does not rebuild it on a later write.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -54,6 +54,7 @@ The `settings` command reads and changes the system settings the secrets work ru
 | `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
 | `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
 | `revert` VERSION | `-note` | Go back to a version from `history` |
+| `rebuild-head` | | Rebuild the signed head from the rows that still verify (owner recovery through the admin socket; audited) |
 
 ### beacon secret
 

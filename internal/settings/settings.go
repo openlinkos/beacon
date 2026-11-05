@@ -2,19 +2,19 @@
 // work offers (request and grant limits, the review chain, rate limits, retention, import,
 // backup), each with a default value, versions, history and revert, and a signature on every row
 // so that someone holding the database file alone cannot widen a limit (the design's third
-// invariant). A signed head names the live rows; a missing, stale or unverifiable row is served
-// as the head's own value (fail closed), never as the looser default, and is reported to the
-// alert chat.
+// invariant). A signed head names the live rows by the hash of their stored bytes and a monotonic
+// epoch; an epochs file in the data directory is the rollback anchor. A missing, stale or
+// unverifiable row is served as that key's registered failsafe (never a looser default) and is
+// reported to the alert chat. The head is never rebuilt by scanning the bucket except on the
+// explicit RebuildHead command.
 //
 // Values live at one of five scopes, and the one in force is resolved level by level: system,
 // collection, tag, entitlement, request — the more specific wins, except that a request may only
 // tighten what the level above allows, and several tags on one item take the stricter value.
 // Approval levels do not travel this line; they take the strictest, as the design says elsewhere.
 //
-// The signature key is, for now, HKDF of the server-side secret the store keeps (store.Secret);
-// when the root key of the vault lands, it becomes SK = HKDF(RK, "beacon/policy-mac/v1") — the
-// same info string this package already uses, so the change is one re-signing pass over the rows
-// (W5's migration; the rows carry everything needed to verify and re-sign them).
+// The signature key is a 32-byte SK passed to Open (W4 writes it to <data_dir>/settings.sk).
+// W5 will call SetKey with the vault's SK. store.Secret("settings") is never a signing key.
 package settings
 
 import (
@@ -38,6 +38,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/kv"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -61,6 +62,7 @@ var Scopes = []string{ScopeSystem, ScopeCollection, ScopeTag, ScopeEntitlement, 
 var (
 	bucketSettings        = []byte("settings")
 	bucketSettingsChanges = []byte("settings_changes")
+	headKey               = []byte("\x00head")
 )
 
 // Errors the API, MCP and the admin socket turn into answers.
@@ -70,6 +72,7 @@ var (
 	ErrInvalid  = errors.New("the value does not fit this setting")
 	ErrConflict = errors.New("the setting changed")
 	ErrBadInput = errors.New("bad input")
+	ErrHead     = errors.New("the settings head is unusable")
 )
 
 // Row is one setting as stored: the value at a scope, with its version (the number of the change
@@ -120,39 +123,39 @@ type Poster interface {
 	Send(ctx context.Context, text string) error
 }
 
-// Deps are what the settings need. Bot may be nil.
+// Deps are what the settings need. Bot may be nil. Key is the 32-byte SK; empty until SetKey,
+// and every Value is the registered failsafe until then. EpochsDir is the directory of the
+// epochs file (the data directory).
 type Deps struct {
-	Store *store.Store
-	Bot   Poster
-	Lang  i18n.Lang
-	Log   *slog.Logger
-	Now   func() time.Time
+	Store     *store.Store
+	Bot       Poster
+	Lang      i18n.Lang
+	Log       *slog.Logger
+	Now       func() time.Time
+	Key       []byte
+	EpochsDir string
 }
 
-// Service holds the settings: the rows in the database, verified, and the defaults registered in
-// code (Definitions). Rows that fail their signature, or that the signed head names and the file
-// no longer holds, are served as the head's own value (fail closed), reported to the log, the
-// audit log and the alert chat, and listed by Bad for the console to show.
-//
-// The MAC key is the store's own secret until the vault's root key is there, and SK with it: the
-// wiring calls SetKey with SK as soon as the vault unseals, which re-signs the rows once and
-// deletes the store secret. While the vault is sealed the rows cannot be verified, so the
-// service serves the defaults and does not call sealed rows tampered, which they are not.
+// Service holds the settings: the rows in the database, verified against the signed head, and
+// the defaults registered in code (Definitions). Rows that fail Accept, or a head that is
+// missing, stale or unverifiable, are served as the registered failsafe, reported to the log,
+// the audit log and the alert chat, and listed by Bad for the console to show. With no Key
+// (the vault still sealed) every Value is the registered failsafe until SetKey.
 type Service struct {
-	d      Deps
-	mu     sync.Mutex // serialises changes
-	key    []byte     // the HMAC key in force
-	sealed bool       // the vault is sealed: the rows cannot be verified, the defaults answer
+	d     Deps
+	mu    sync.Mutex // serialises changes
+	key   []byte     // the HMAC key
+	table *signedhead.Table
 
-	rowsMtx  sync.Mutex
-	rows     map[string]Row     // by rowKey; only rows that verified and match the head
-	broken   map[string]HeadEnt // head entries whose live row is missing or bad; served fail-closed
-	bad      []string           // rows that did not verify, "scope/target/key"
-	migrated bool               // the MAC key is the vault's; store.Secret("settings") is gone
+	rowsMtx       sync.Mutex
+	rows          map[string]Row  // by rowKey; only rows that verified and Accept
+	broken        map[string]bool // live keys that did not Accept; served as failsafe
+	bad           []string        // rows that did not verify, "scope/target/key"
+	tableFailsafe bool            // whole table uses failsafe; Commit refuses writes
 }
 
-// Open loads the settings from the store. A store that cannot be read fails. After the vault
-// has taken over the MAC key, Open waits for SetKey; until then the defaults answer.
+// Open loads the settings from the store. A store that cannot be read fails. With no Key, every
+// Value is the registered failsafe until SetKey.
 func Open(d Deps) (*Service, error) {
 	if d.Now == nil {
 		d.Now = time.Now
@@ -161,139 +164,112 @@ func Open(d Deps) (*Service, error) {
 		d.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Service{d: d}
-	migrated, err := settingsKeyMigrated(d.Store)
-	if err != nil {
-		return nil, err
+	s.table = &signedhead.Table{
+		Name:    "settings",
+		Bucket:  bucketSettings,
+		HeadKey: headKey,
+		SK:      func() []byte { return s.key },
+		Anchor:  signedhead.FileAnchor{Dir: d.EpochsDir},
+		Alert:   func(msg string) { s.d.Log.Error(msg) },
 	}
-	s.migrated = migrated
-	if !migrated {
-		secret, err := d.Store.Secret("settings")
-		if err != nil {
-			return nil, err
-		}
-		s.key = macKey(secret)
-		s.reload()
+	if len(d.Key) == 32 {
+		s.key = append([]byte(nil), d.Key...)
+	} else if len(d.Key) != 0 {
+		return nil, fmt.Errorf("%w: the signature key is 32 bytes", ErrBadInput)
 	}
+	s.warnLeftovers()
+	s.reload()
 	return s, nil
 }
 
-func settingsKeyMigrated(st *store.Store) (bool, error) {
-	var found bool
-	err := st.Storage().View(func(tx kv.Tx) error {
-		found = tx.Get(bucketMetaSettings, []byte("mac-migrated")) != nil
-		return nil
-	})
-	return found, err
-}
-
-// bucketMetaSettings is a tiny marker bucket beside the rows, so a migrated MAC key is not
-// confused with a settings row.
-var bucketMetaSettings = []byte("settings_meta")
-
-// MarkSealed says the vault is sealed: no key can verify the rows, so the defaults answer and no
-// row is called tampered. The first SetKey lifts it.
+// MarkSealed drops the signature key so every Value is the registered failsafe. The vault
+// wiring calls this while the vault is sealed; SetKey lifts it.
 func (s *Service) MarkSealed() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.sealed {
-		return
-	}
-	s.sealed = true
+	s.key = nil
 	s.reload()
-	s.d.Log.Warn("the vault is sealed; the settings' rows cannot be verified and the defaults are in force")
 }
 
-// Sealed reports whether the settings run on defaults because the vault is sealed.
+// Sealed reports whether the settings have no signature key (the vault is sealed).
 func (s *Service) Sealed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.sealed
+	return len(s.key) == 0
 }
 
-// reload reads the signed head and every row. Only rows the head names, at the version it
-// names, and whose signature holds, are served. A named row that is missing or bad is kept
-// as broken: Value serves the head's value (fail closed) and the break is reported. While
-// the vault is sealed, the defaults answer and nothing is called tampered.
+// reload reads the signed head and every row. Only rows the head names whose stored bytes hash
+// as it records, and whose HMAC holds, are served. A named row that is missing or bad is
+// failsafe for that key. A missing, bad or stale head makes the whole table failsafe.
 func (s *Service) reload() {
 	if len(s.key) == 0 {
-		return
-	}
-	rows := map[string]Row{}
-	broken := map[string]HeadEnt{}
-	var bad []string
-	if s.sealed {
 		s.rowsMtx.Lock()
-		s.rows, s.broken, s.bad = rows, broken, nil
+		s.rows, s.broken, s.bad, s.tableFailsafe = map[string]Row{}, map[string]bool{}, nil, false
 		s.rowsMtx.Unlock()
 		return
 	}
+	rows := map[string]Row{}
+	broken := map[string]bool{}
+	var bad []string
+	var tableFailsafe bool
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		head, headOK := loadHead(tx, s.key)
-		live := map[string]Row{}
+		res := s.table.Load(tx)
+		if res.Status == signedhead.StatusFailsafe {
+			tableFailsafe = true
+			return nil
+		}
 		tx.Range(bucketSettings, kv.Range{}, func(k, v []byte) bool {
 			if string(k) == string(headKey) {
 				return true
 			}
+			rk := string(k)
+			if !signedhead.Accept(res, rk, v) {
+				if _, named := res.Head.Entries[rk]; named {
+					broken[rk] = true
+					bad = append(bad, labelFromRowKey(rk))
+				} else {
+					bad = append(bad, labelFromRowKey(rk)+" (not in head)")
+				}
+				return true
+			}
 			var r Row
-			if err := json.Unmarshal(v, &r); err != nil {
-				bad = append(bad, "unreadable row")
+			if err := json.Unmarshal(v, &r); err != nil || !hmac.Equal(r.Sig, sign(s.key, r)) {
+				broken[rk] = true
+				bad = append(bad, labelFromRowKey(rk))
 				return true
 			}
-			if !hmac.Equal(r.Sig, sign(s.key, r)) {
-				bad = append(bad, rowLabel(r))
-				return true
-			}
-			live[rowKey(r.Scope, r.Target, r.Key)] = r
+			rows[rk] = r
 			return true
 		})
-		if !headOK {
-			if anySignedChange(tx) {
-				// a head that should be there is gone or forged: nothing from the file is trusted
-				for k, r := range live {
-					broken[k] = HeadEnt{Scope: r.Scope, Target: r.Target, Key: r.Key, Version: r.Version, Value: strictestOf(r.Key)}
-					bad = append(bad, rowLabel(r)+" (head)")
-				}
-				tx.Range(bucketSettingsChanges, kv.Range{}, func(_, v []byte) bool {
-					var ch Change
-					if json.Unmarshal(v, &ch) != nil || absent(ch.After) {
-						return true
-					}
-					k := rowKey(ch.Scope, ch.Target, ch.Key)
-					if _, ok := broken[k]; ok {
-						return true
-					}
-					broken[k] = HeadEnt{Scope: ch.Scope, Target: ch.Target, Key: ch.Key, Version: ch.Version, Value: strictestOf(ch.Key)}
-					bad = append(bad, scopeName(ch.Scope, ch.Target)+" "+ch.Key+" (head)")
-					return true
-				})
-				return nil
-			}
-			// first start, or the upgrade from unsigned heads: take the verified rows
-			rows = live
-			return nil
-		}
-		for _, e := range head.Rows {
-			k := rowKey(e.Scope, e.Target, e.Key)
-			r, ok := live[k]
-			if !ok || r.Version != e.Version || string(r.Value) != string(e.Value) {
-				broken[k] = e
-				bad = append(bad, scopeName(e.Scope, e.Target)+" "+e.Key)
+		for rk := range res.Head.Entries {
+			if _, ok := rows[rk]; ok {
 				continue
 			}
-			rows[k] = r
+			if broken[rk] {
+				continue
+			}
+			broken[rk] = true
+			bad = append(bad, labelFromRowKey(rk))
 		}
 		return nil
 	})
 	ub := unique(bad)
 	s.rowsMtx.Lock()
-	s.rows, s.broken, s.bad = rows, broken, ub
+	s.rows, s.broken, s.bad, s.tableFailsafe = rows, broken, ub, tableFailsafe
 	s.rowsMtx.Unlock()
-	for _, b := range ub {
-		s.d.Log.Error("a settings row failed its signature and is served as the head's value", "row", b)
+	if tableFailsafe {
+		s.d.Log.Error("the settings head is unusable; every setting is served as its failsafe value")
+		_ = s.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "system", Action: "settings_head_failsafe",
+			Detail: "the settings head is unusable; every setting is served as its failsafe value"})
+		s.alertHead()
+		return
 	}
-	if len(bad) > 0 {
+	for _, b := range ub {
+		s.d.Log.Error("a settings row failed its signature and is served as its failsafe value", "row", b)
+	}
+	if len(ub) > 0 {
 		_ = s.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "system", Action: "settings_signature_invalid",
-			Detail: fmt.Sprintf("%d row(s) failed their signature and are served fail-closed", len(unique(bad)))})
+			Detail: fmt.Sprintf("%d row(s) failed their signature and are served as their failsafe values", len(ub))})
 		s.alertBroken(ub)
 	}
 }
@@ -315,7 +291,37 @@ func (s *Service) alertBroken(rows []string) {
 	if s.d.Bot == nil {
 		return
 	}
-	_ = s.d.Bot.Send(context.Background(), i18n.T(s.d.Lang, "Settings rows failed their signature and are served as the strictest held value: %s.", strings.Join(rows, ", ")))
+	_ = s.d.Bot.Send(context.Background(), i18n.T(s.d.Lang, "Settings rows failed their signature and are served as their failsafe values: %s.", strings.Join(rows, ", ")))
+}
+
+func (s *Service) alertHead() {
+	if s.d.Bot == nil {
+		return
+	}
+	_ = s.d.Bot.Send(context.Background(), i18n.T(s.d.Lang, "The settings head is unusable; every setting is served as its failsafe value."))
+}
+
+func (s *Service) warnLeftovers() {
+	var leftover bool
+	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
+		if tx.Get([]byte("settings_meta"), []byte("mac-migrated")) != nil {
+			leftover = true
+		}
+		if tx.Get([]byte("meta"), []byte("secret:settings")) != nil {
+			leftover = true
+		}
+		return nil
+	})
+	if !leftover {
+		return
+	}
+	s.d.Log.Error("ignored a leftover settings signing secret in the database; it is not a signing key")
+	_ = s.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "system", Action: "settings_secret_ignored",
+		Detail: "ignored a leftover settings signing secret in the database; it is not a signing key"})
+	if s.d.Bot == nil {
+		return
+	}
+	_ = s.d.Bot.Send(context.Background(), i18n.T(s.d.Lang, "Ignored a leftover settings signing secret in the database; it is not a signing key."))
 }
 
 // Bad lists the rows that failed their signature, as "scope/target/key", for the console to show.
@@ -323,6 +329,12 @@ func (s *Service) Bad() []string {
 	s.rowsMtx.Lock()
 	defer s.rowsMtx.Unlock()
 	return slices.Clone(s.bad)
+}
+
+func (s *Service) afterHead(h signedhead.Head) {
+	if err := s.table.AfterCommit(h); err != nil {
+		s.d.Log.Error("the settings epochs file could not be written", "err", err)
+	}
 }
 
 // Set writes value for key at scope (target names the collection, tag, entitlement or request;
@@ -356,6 +368,8 @@ func (s *Service) Set(ctx context.Context, who Actor, scope, target, key string,
 		return Change{}, fmt.Errorf("the vault is sealed; settings cannot be changed until it is unsealed")
 	}
 	var out Change
+	var committed signedhead.Head
+	var wrote bool
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		if err := s.checkLeasePair(tx, key, value); err != nil {
 			return err
@@ -376,7 +390,8 @@ func (s *Service) Set(ctx context.Context, who Actor, scope, target, key string,
 		row := Row{Key: key, Scope: scope, Target: target, Value: value, Version: int64(version),
 			Actor: who.Name, Via: who.Via, At: s.d.Now().UTC(), Reason: strings.TrimSpace(reason)}
 		row.Sig = sign(s.key, row)
-		if err := putRow(tx, row); err != nil {
+		b, err := putRow(tx, row)
+		if err != nil {
 			return err
 		}
 		var before json.RawMessage
@@ -388,15 +403,30 @@ func (s *Service) Set(ctx context.Context, who Actor, scope, target, key string,
 		if err := putChange(tx, s.key, out); err != nil {
 			return err
 		}
-		out.Hash, out.Sig = "", nil // filled by putChange; reload from caller uses Version
-		return writeHead(tx, s.key, out.Version)
+		out.Hash, out.Sig = "", nil
+		h, err := s.table.Commit(tx, map[string][]byte{rowKey(scope, target, key): b}, nil)
+		if err != nil {
+			return headErr(err)
+		}
+		committed, wrote = h, true
+		return nil
 	})
 	if err != nil {
 		return Change{}, err
 	}
+	if wrote {
+		s.afterHead(committed)
+	}
 	s.reload()
 	s.record(ctx, who, out)
 	return out, nil
+}
+
+func headErr(err error) error {
+	if errors.Is(err, signedhead.ErrFailsafe) {
+		return fmt.Errorf("%w: run beacon settings rebuild-head", ErrHead)
+	}
+	return err
 }
 
 // Reset removes the row for key at scope, so the value falls back to what the level above (or the
@@ -420,6 +450,7 @@ func (s *Service) Reset(ctx context.Context, who Actor, scope, target, key, reas
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out Change
+	var committed signedhead.Head
 	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		cur, ok := s.row(tx, scope, target, key)
 		if !ok {
@@ -440,11 +471,17 @@ func (s *Service) Reset(ctx context.Context, who Actor, scope, target, key, reas
 		if err := putChange(tx, s.key, out); err != nil {
 			return err
 		}
-		return writeHead(tx, s.key, out.Version, rowKey(scope, target, key))
+		h, err := s.table.Commit(tx, nil, []string{rowKey(scope, target, key)})
+		if err != nil {
+			return headErr(err)
+		}
+		committed = h
+		return nil
 	})
 	if err != nil {
 		return Change{}, err
 	}
+	s.afterHead(committed)
 	s.reload()
 	s.record(ctx, who, out)
 	return out, nil
@@ -464,6 +501,7 @@ func (s *Service) Revert(ctx context.Context, who Actor, version int64, reason s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out Change
+	var committed signedhead.Head
 	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		ch, ok := changeAt(tx, version)
 		if !ok {
@@ -493,13 +531,16 @@ func (s *Service) Revert(ctx context.Context, who Actor, version int64, reason s
 		}
 		row := Row{Key: ch.Key, Scope: ch.Scope, Target: ch.Target, Version: int64(next),
 			Actor: who.Name, Via: who.Via, At: s.d.Now().UTC(), Reason: strings.TrimSpace(reason)}
+		rk := rowKey(ch.Scope, ch.Target, ch.Key)
+		var put map[string][]byte
+		var del []string
 		if absent(ch.Before) {
-			// the change made the row: undoing it removes the row again
 			if ok {
 				if err := tx.Delete(bucketSettings, rowKeyBytes(ch.Scope, ch.Target, ch.Key)); err != nil {
 					return err
 				}
 			}
+			del = []string{rk}
 		} else {
 			back, err := def.canonical(ch.Before)
 			if err != nil {
@@ -507,23 +548,28 @@ func (s *Service) Revert(ctx context.Context, who Actor, version int64, reason s
 			}
 			row.Value = back
 			row.Sig = sign(s.key, row)
-			if err := putRow(tx, row); err != nil {
+			b, err := putRow(tx, row)
+			if err != nil {
 				return err
 			}
+			put = map[string][]byte{rk: b}
 		}
 		out = Change{Version: int64(next), Time: row.At, Actor: who.Name, Via: who.Via, Action: "revert",
 			Reverts: version, Key: ch.Key, Scope: ch.Scope, Target: ch.Target, Before: before, After: row.Value, Reason: row.Reason}
 		if err := putChange(tx, s.key, out); err != nil {
 			return err
 		}
-		if absent(ch.Before) {
-			return writeHead(tx, s.key, out.Version, rowKey(ch.Scope, ch.Target, ch.Key))
+		h, err := s.table.Commit(tx, put, del)
+		if err != nil {
+			return headErr(err)
 		}
-		return writeHead(tx, s.key, out.Version)
+		committed = h
+		return nil
 	})
 	if err != nil {
 		return Change{}, err
 	}
+	s.afterHead(committed)
 	s.reload()
 	s.record(ctx, who, out)
 	return out, nil
@@ -581,12 +627,15 @@ func (s *Service) row(tx kv.Tx, scope, target, key string) (Row, bool) {
 	return r, true
 }
 
-func putRow(tx kv.Tx, r Row) error {
+func putRow(tx kv.Tx, r Row) ([]byte, error) {
 	b, err := json.Marshal(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Put(bucketSettings, rowKeyBytes(r.Scope, r.Target, r.Key), b)
+	if err := tx.Put(bucketSettings, rowKeyBytes(r.Scope, r.Target, r.Key), b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func putChange(tx kv.Tx, key []byte, ch Change) error {
@@ -616,7 +665,13 @@ func rowKey(scope, target, key string) string { return scope + "\x00" + target +
 
 func rowKeyBytes(scope, target, key string) []byte { return []byte(rowKey(scope, target, key)) }
 
-func rowLabel(r Row) string { return scopeName(r.Scope, r.Target) + " " + r.Key }
+func labelFromRowKey(k string) string {
+	parts := strings.Split(k, "\x00")
+	if len(parts) != 3 {
+		return k
+	}
+	return scopeName(parts[0], parts[1]) + " " + parts[2]
+}
 
 func scopeName(scope, target string) string {
 	if target == "" {
@@ -671,10 +726,8 @@ func sign(key []byte, r Row) []byte {
 
 func strconvI64(v int64) string { return strconv.FormatInt(v, 10) }
 
-// macKey turns the store's secret into the signature key: HKDF-SHA256 with the info string the
-// design gives the policy signature key (SK = HKDF(RK, "beacon/policy-mac/v1")), so the same
-// construction holds when the root key lands and the rows are re-signed onto it (W5's migration:
-// read every row with the old key, write it with the new, one pass).
+// macKey turns a 32-byte secret into the old HKDF construction. Tests use it to mint a row that
+// only verifies under store.Secret("settings"), which Open and SetKey must ignore.
 func macKey(secret []byte) []byte {
 	prk := hkdf.Extract(sha256.New, secret, nil)
 	out := make([]byte, 32)
@@ -682,102 +735,127 @@ func macKey(secret []byte) []byte {
 	return out
 }
 
-// SetKey moves the rows onto a new MAC key (the vault's SK) once. Rows that verify under the
-// previous key are re-signed; store.Secret("settings") is deleted so a key that lived in the
-// same database cannot mint a row that the next start would accept. Later calls only accept
-// the current key: they never fall back to the deleted secret.
+// SetKey moves the rows onto a new MAC key (the vault's SK). Rows that verify under the current
+// key are re-signed; a row that only verifies under store.Secret("settings") stays invalid.
 func (s *Service) SetKey(key []byte) error {
 	if len(key) != 32 {
 		return fmt.Errorf("%w: the signature key is 32 bytes", ErrBadInput)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.warnLeftovers()
 	old := append([]byte(nil), s.key...)
-	resigned := 0
+	if len(old) == 0 {
+		s.key = append([]byte(nil), key...)
+		s.reload()
+		return nil
+	}
+	if hmac.Equal(old, key) {
+		s.reload()
+		return nil
+	}
+	var committed signedhead.Head
+	var wrote bool
 	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		prev, ok := loadHead(tx, old)
-		if !ok {
-			prev, _ = loadHead(tx, key)
+		res := s.table.Load(tx)
+		if res.Status == signedhead.StatusFailsafe {
+			s.key = append([]byte(nil), key...)
+			return nil
 		}
-		var keys [][]byte
-		tx.Range(bucketSettings, kv.Range{}, func(k, v []byte) bool {
-			if string(k) == string(headKey) {
-				return true
+		puts := map[string][]byte{}
+		for rk := range res.Head.Entries {
+			v := tx.Get(bucketSettings, []byte(rk))
+			if len(v) == 0 {
+				continue
 			}
 			var r Row
-			if json.Unmarshal(v, &r) != nil {
-				return true
-			}
-			if hmac.Equal(r.Sig, sign(key, r)) {
-				return true
-			}
-			if len(old) > 0 && hmac.Equal(r.Sig, sign(old, r)) {
-				keys = append(keys, append([]byte(nil), k...))
-			}
-			return true
-		})
-		for _, k := range keys {
-			v := tx.Get(bucketSettings, k)
-			var r Row
-			if json.Unmarshal(v, &r) != nil {
+			if json.Unmarshal(v, &r) != nil || !hmac.Equal(r.Sig, sign(old, r)) {
 				continue
 			}
 			r.Sig = sign(key, r)
-			if err := putRow(tx, r); err != nil {
+			b, err := json.Marshal(r)
+			if err != nil {
+				continue
+			}
+			if err := tx.Put(bucketSettings, []byte(rk), b); err != nil {
 				return err
 			}
-			resigned++
+			puts[rk] = b
 		}
-		var changeKeys [][]byte
 		tx.Range(bucketSettingsChanges, kv.Range{}, func(k, v []byte) bool {
 			var ch Change
 			if json.Unmarshal(v, &ch) != nil || ch.verifies(key) {
 				return true
 			}
-			if len(old) > 0 && ch.verifies(old) {
-				changeKeys = append(changeKeys, append([]byte(nil), k...))
-			}
-			return true
-		})
-		for _, k := range changeKeys {
-			v := tx.Get(bucketSettingsChanges, k)
-			var ch Change
-			if json.Unmarshal(v, &ch) != nil {
-				continue
+			if !ch.verifies(old) {
+				return true
 			}
 			ch.Sig = signChange(key, ch)
 			b, err := json.Marshal(ch)
 			if err != nil {
-				return err
+				return true
 			}
-			if err := tx.Put(bucketSettingsChanges, k, b); err != nil {
-				return err
-			}
+			_ = tx.Put(bucketSettingsChanges, k, b)
+			return true
+		})
+		s.key = append([]byte(nil), key...)
+		h, err := s.table.CommitFrom(tx, res, puts, nil)
+		if err != nil {
+			s.key = old
+			return headErr(err)
 		}
-		var latest int64
-		if ch, ok := lastChange(tx); ok {
-			latest = ch.Version
-		}
-		if err := writeHeadFrom(tx, key, latest, prev); err != nil {
-			return err
-		}
-		return tx.Put(bucketMetaSettings, []byte("mac-migrated"), []byte("1"))
+		committed, wrote = h, true
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	s.key = append([]byte(nil), key...)
-	if !s.migrated {
-		if err := s.d.Store.DeleteSecret("settings"); err != nil {
+	if wrote {
+		s.afterHead(committed)
+	}
+	s.reload()
+	return nil
+}
+
+// RebuildHead is owner-only recovery: it scans the rows that still verify, writes a new signed
+// head from them, and records the rebuild. Without it, a missing or bad head stays failsafe.
+func (s *Service) RebuildHead(ctx context.Context, who Actor) error {
+	if len(s.key) == 0 {
+		return fmt.Errorf("%w: the settings have no signature key", ErrBadInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var committed signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		rows := map[string][]byte{}
+		tx.Range(bucketSettings, kv.Range{}, func(k, v []byte) bool {
+			if string(k) == string(headKey) {
+				return true
+			}
+			var r Row
+			if json.Unmarshal(v, &r) != nil || !hmac.Equal(r.Sig, sign(s.key, r)) {
+				return true
+			}
+			rows[string(k)] = append([]byte(nil), v...)
+			return true
+		})
+		h, err := s.table.Rebuild(tx, rows)
+		if err != nil {
 			return err
 		}
+		committed = h
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	s.migrated = true
-	s.sealed = false
+	s.afterHead(committed)
+	_ = s.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "settings_head_rebuild",
+		Detail: "rebuilt the settings head from the rows that still verify"})
+	if s.d.Bot != nil {
+		_ = s.d.Bot.Send(ctx, i18n.T(s.d.Lang, "%s rebuilt the settings head via %s", who.Name, s.via(who.Via)))
+	}
 	s.reload()
-	if resigned > 0 {
-		s.d.Log.Info("the settings' rows were re-signed onto the vault's signature key", "rows", resigned)
-	}
 	return nil
 }
 
@@ -851,43 +929,4 @@ var requestMaySet = map[string]bool{
 
 var systemOnly = map[string]bool{
 	"retention": true, "backup": true, "storage": true, "import": true,
-}
-
-func strictestOf(key string) json.RawMessage {
-	d, ok := Definitions[key]
-	if !ok {
-		return nil
-	}
-	if d.kind.stricter == nil {
-		return d.Default
-	}
-	// the stricter of the default and a tight stand-in, when the kind orders it
-	tight := tightValue(d)
-	if tight == nil {
-		return d.Default
-	}
-	w, ok := d.stricter(d.Default, tight)
-	if !ok {
-		return tight
-	}
-	return w
-}
-
-func tightValue(d *Definition) json.RawMessage {
-	switch d.kind.name {
-	case "count":
-		return mustJSON(1)
-	case "int":
-		return mustJSON(1)
-	case "duration":
-		if d.Group == "retention" {
-			return mustJSON("24h")
-		}
-		return mustJSON("1s")
-	case "enum":
-		return d.Default // enum stricter is first in order; default may already be it
-	case "bool":
-		return mustJSON(false)
-	}
-	return d.Default
 }

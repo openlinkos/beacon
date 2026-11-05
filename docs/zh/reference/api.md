@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-46042630
+sourceHash: sha256-9bb6259e
 ---
 
 # REST API
@@ -155,11 +155,11 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 系统设置 {#settings}
 
-密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名，直接改数据库不会生效（控制台的「系统设置」页全部展示）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。
+密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值和故障保护值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名并记在带哈希的 head 里，直接改数据库不会生效（控制台的「系统设置」页全部展示）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。签名头缺失、过期或验不过时，用管理套接字上的 `beacon settings rebuild-head` 恢复；Beacon 不会自行重建。
 
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |
-| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（视为不存在） |
+| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（按登记的故障保护值生效，不会退回更松的默认值） |
 | `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
 | `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
 | `DELETE /api/v1/settings/{key}` | `secrets:admin` | 重置一个设置项，由上一级重新生效（该行删除）；`?scope=`、`?target=`、`?reason=`、`?if_version=` |

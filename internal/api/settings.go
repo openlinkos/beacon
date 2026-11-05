@@ -55,7 +55,7 @@ func (s *Server) settingsError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "settings.unknown", err.Error())
 	case errors.Is(err, settings.ErrInvalid):
 		writeError(w, http.StatusUnprocessableEntity, "settings.invalid", err.Error())
-	case errors.Is(err, settings.ErrConflict):
+	case errors.Is(err, settings.ErrConflict), errors.Is(err, settings.ErrHead):
 		writeError(w, http.StatusConflict, "settings.conflict", err.Error())
 	case errors.Is(err, settings.ErrBadInput):
 		writeError(w, http.StatusBadRequest, "bad_input", err.Error())

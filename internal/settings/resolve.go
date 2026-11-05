@@ -43,22 +43,27 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 	var out []Resolved
 	add := func(r Resolved) { out = append(out, r) }
 
+	s.rowsMtx.Lock()
+	defer s.rowsMtx.Unlock()
+	if len(s.key) == 0 || s.tableFailsafe {
+		r := Resolved{Key: key, Value: def.Failsafe, From: "failsafe"}
+		return r, []Resolved{r}, nil
+	}
+
 	// the default every level starts from
 	add(Resolved{Key: key, Value: def.Default, From: "default"})
 
-	s.rowsMtx.Lock()
-	defer s.rowsMtx.Unlock()
 	if row, ok := s.rows[rowKey(ScopeSystem, "", key)]; ok {
 		add(Resolved{Key: key, Value: row.Value, From: ScopeSystem, Row: &row})
-	} else if e, ok := s.broken[rowKey(ScopeSystem, "", key)]; ok {
-		add(Resolved{Key: key, Value: e.Value, From: ScopeSystem})
+	} else if s.broken[rowKey(ScopeSystem, "", key)] {
+		add(Resolved{Key: key, Value: def.Failsafe, From: "failsafe"})
 	}
 	if sel.Collection != "" {
 		if row, ok := s.rows[rowKey(ScopeCollection, sel.Collection, key)]; ok {
 			r := row
 			add(Resolved{Key: key, Value: r.Value, From: ScopeCollection, Target: sel.Collection, Row: &r})
-		} else if e, ok := s.broken[rowKey(ScopeCollection, sel.Collection, key)]; ok {
-			add(Resolved{Key: key, Value: e.Value, From: ScopeCollection, Target: sel.Collection})
+		} else if s.broken[rowKey(ScopeCollection, sel.Collection, key)] {
+			add(Resolved{Key: key, Value: def.Failsafe, From: "failsafe", Target: sel.Collection})
 		}
 	}
 	// several tags may cover one item: their rows are all at one level, and the stricter wins —
@@ -70,8 +75,8 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 			tagRows = append(tagRows, row)
 			continue
 		}
-		if e, ok := s.broken[rowKey(ScopeTag, t, key)]; ok {
-			tagRows = append(tagRows, Row{Key: key, Scope: ScopeTag, Target: t, Value: e.Value, Version: e.Version})
+		if s.broken[rowKey(ScopeTag, t, key)] {
+			tagRows = append(tagRows, Row{Key: key, Scope: ScopeTag, Target: t, Value: def.Failsafe})
 		}
 	}
 	if len(tagRows) > 0 {
@@ -93,8 +98,8 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 		if row, ok := s.rows[rowKey(ScopeEntitlement, sel.Entitlement, key)]; ok {
 			r := row
 			add(Resolved{Key: key, Value: r.Value, From: ScopeEntitlement, Target: sel.Entitlement, Row: &r})
-		} else if e, ok := s.broken[rowKey(ScopeEntitlement, sel.Entitlement, key)]; ok {
-			add(Resolved{Key: key, Value: e.Value, From: ScopeEntitlement, Target: sel.Entitlement})
+		} else if s.broken[rowKey(ScopeEntitlement, sel.Entitlement, key)] {
+			add(Resolved{Key: key, Value: def.Failsafe, From: "failsafe", Target: sel.Entitlement})
 		}
 	}
 	if sel.Request != "" && requestMaySet[key] {
@@ -102,8 +107,8 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 		var have bool
 		if row, ok := s.rows[rowKey(ScopeRequest, sel.Request, key)]; ok {
 			r, have = row, true
-		} else if e, ok := s.broken[rowKey(ScopeRequest, sel.Request, key)]; ok {
-			r, have = Row{Key: key, Scope: ScopeRequest, Target: sel.Request, Value: e.Value, Version: e.Version}, true
+		} else if s.broken[rowKey(ScopeRequest, sel.Request, key)] {
+			r, have = Row{Key: key, Scope: ScopeRequest, Target: sel.Request, Value: def.Failsafe}, true
 		}
 		if have {
 			// a request may only tighten: where the design orders the values, the request's
