@@ -154,6 +154,32 @@ func RecoveryMaterial(k GeneratedKey, host, signPub string) string {
 	return b.String()
 }
 
+// SignPublicMaterial is the recovery file written when backups encrypt to keys the operator
+// already named: there is no age private key to hand over, but a restore still needs this
+// Beacon's manifest signing public key.
+func SignPublicMaterial(host, signPub string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Beacon backup recovery material for %s\n", host)
+	fmt.Fprintf(&b, "=====================================================\n\n")
+	fmt.Fprintf(&b, "This deployment encrypts backups to keys you named in the configuration.\n")
+	fmt.Fprintf(&b, "Keep this file with those identities, somewhere that is not the server.\n")
+	fmt.Fprintf(&b, "A restore needs both: your identity and this Beacon's manifest signing public key.\n\n")
+	b.WriteString(signPublicSection(signPub))
+	fmt.Fprintf(&b, "To recover, on any machine with the backup file:\n\n")
+	fmt.Fprintf(&b, "    beacon backup restore beacon-<host>-<time>-<kind>.tar.zst.age \\\n")
+	fmt.Fprintf(&b, "        -identity <your age identity> -verify-key <this file> -into <empty directory> -confirm\n\n")
+	fmt.Fprintf(&b, "To prove the chain works before you need it, run a drill there:\n\n")
+	fmt.Fprintf(&b, "    beacon backup drill <the same file> -identity <your age identity> -verify-key <this file>\n")
+	return b.String()
+}
+
+func signPublicSection(signPub string) string {
+	if signPub == "" {
+		return ""
+	}
+	return fmt.Sprintf("Manifest signing public key (a restore checks each archive was written by\nthis Beacon; keep it with the identity):\n\n    %s\n\n", signPub)
+}
+
 // RecoveryInstructions is what keygen prints on stderr: how to use the pair, without repeating
 // the private key that already went to stdout.
 func RecoveryInstructions(public string) string {
@@ -161,6 +187,6 @@ func RecoveryInstructions(public string) string {
 	fmt.Fprintf(&b, "the age private key above is the recovery material: keep it off this machine.\n")
 	fmt.Fprintf(&b, "Put the public key in the configuration so backups are encrypted to it:\n")
 	fmt.Fprintf(&b, "  backup:\n    recipients: [%s]\n", public)
-	fmt.Fprintf(&b, "A restore also needs this Beacon's manifest signing public key (shown on the Backups page).\n")
+	fmt.Fprintf(&b, "A restore also needs this Beacon's manifest signing public key (in the recovery material, or -verify-key).\n")
 	return b.String()
 }

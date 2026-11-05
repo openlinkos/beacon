@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-eb3ecf75
+sourceHash: sha256-08f03c4a
 ---
 
 # config.yaml
@@ -39,7 +39,7 @@ sourceHash: sha256-eb3ecf75
 | `backup.destinations.s3.prefix` | 前缀 | — | 桶内前缀，如 `beacon/`。空前缀只列桶根下的对象，不会匹配其他前缀下的键 |
 | `backup.destinations.s3.access_key_file` | 路径 | — | 访问密钥，使用时从文件读取 |
 | `backup.destinations.s3.secret_key_file` | 路径 | — | 私有密钥，使用时从文件读取。单次 PUT 最大 5 GiB |
-| `backup.recipients` | 公钥列表 | 自动生成 | 备份加密给的 age（`age1…`）或 ssh-ed25519 公钥；Beacon 只持有这些，读不了自己写的备份。一个都不配时，首次启动生成密钥对，私钥只留在 `<data_dir>/backup/RECOVERY-MATERIAL.txt` |
+| `backup.recipients` | 公钥列表 | 自动生成 | 备份加密给的 age（`age1…`）或 ssh-ed25519 公钥；Beacon 只持有这些，读不了自己写的备份。一个都不配时，首次启动生成密钥对，私钥只留在 `<data_dir>/backup/RECOVERY-MATERIAL.txt`。清单签名公钥一定写进这份恢复材料，配了接收者时也是，服务器丢失后恢复仍拿得到（`-verify-key`；Beacon 自己生成密钥对时也在 `-identity` 里） |
 | `backup.recipients_file` | 路径 | — | 更多接收者，一行一个公钥 |
 | `backup.secrets_dir` | 路径 | `/etc/beacon/secrets` | 整个目录进每一份备份：快照与封装它的密钥同行 |
 | `backup.heartbeat.max_age` | 时长 | `2h` | 内置 `beacon-backup` 心跳的耐心；超过即走 `HeartbeatStale` 告警 |

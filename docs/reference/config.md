@@ -35,7 +35,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `backup.destinations.s3.prefix` | prefix | — | Inside the bucket, such as `beacon/`. An empty prefix lists only objects at the bucket root, not keys under other prefixes |
 | `backup.destinations.s3.access_key_file` | path | — | The access key, read from its file at use |
 | `backup.destinations.s3.secret_key_file` | path | — | The secret key, read from its file at use. A single PUT is at most 5 GiB |
-| `backup.recipients` | list of public keys | generated | The age (`age1…`) or ssh-ed25519 public keys backups are encrypted to; Beacon holds only these and cannot read what it wrote. With none, the first start generates a pair and leaves the private half once in `<data_dir>/backup/RECOVERY-MATERIAL.txt` |
+| `backup.recipients` | list of public keys | generated | The age (`age1…`) or ssh-ed25519 public keys backups are encrypted to; Beacon holds only these and cannot read what it wrote. With none, the first start generates a pair and leaves the private half once in `<data_dir>/backup/RECOVERY-MATERIAL.txt`. The manifest signing public key is always written into that recovery material, including when this list is set, so a restore after the server is gone still has it (`-verify-key`, or inside `-identity` when Beacon generated the pair) |
 | `backup.recipients_file` | path | — | More recipients, one public key per line |
 | `backup.secrets_dir` | path | `/etc/beacon/secrets` | Packed whole into every backup, so a snapshot and the keys it was sealed with travel together |
 | `backup.heartbeat.max_age` | duration | `2h` | The built-in `beacon-backup` heartbeat's patience; a backup older than this alerts through `HeartbeatStale` |

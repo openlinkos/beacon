@@ -474,8 +474,12 @@ func backupOptions(cfg *config.Config, cfgPath string, audit func(store.AuditEnt
 		return backup.Options{}, err
 	}
 	if generated {
-		fmt.Fprintf(os.Stderr, "backup: no recipients were configured, so a key pair was generated; the recovery material is in %s — take it off this machine\n",
-			filepath.Join(cfg.DataDir, "backup", "RECOVERY-MATERIAL.txt"))
+		material := filepath.Join(cfg.DataDir, "backup", "RECOVERY-MATERIAL.txt")
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "backup", "age-public.key")); err == nil {
+			fmt.Fprintf(os.Stderr, "backup: no recipients were configured, so a key pair was generated; the recovery material is in %s — take it off this machine\n", material)
+		} else {
+			fmt.Fprintf(os.Stderr, "backup: the manifest signing public key is in %s — keep it with the identities backups encrypt to, off this machine\n", material)
+		}
 	}
 	host, _ := os.Hostname()
 	dsts, err := backupDestinations(cfg)

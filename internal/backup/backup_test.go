@@ -252,6 +252,33 @@ func TestEnsureKeyWritesRecoveryMaterialOnce(t *testing.T) {
 	}
 }
 
+func TestEnsureKeyWritesVerifyKeyWhenRecipientsAreSet(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "backup")
+	own, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, generated, err := EnsureKey(dir, []age.Recipient{own.Recipient()})
+	if err != nil || !generated || len(rs) != 1 {
+		t.Fatalf("ensure with recipients: %d generated=%v %v", len(rs), generated, err)
+	}
+	material, err := os.ReadFile(filepath.Join(dir, "RECOVERY-MATERIAL.txt"))
+	if err != nil {
+		t.Fatal("configured recipients wrote no recovery material")
+	}
+	verify, err := ParseVerifyKey(material)
+	if err != nil || len(verify) == 0 {
+		t.Fatalf("the signing public key was not in the material: %v", err)
+	}
+	if _, err := ParseIdentities(material); err == nil {
+		t.Fatal("named-recipient material must not invent an age identity")
+	}
+	rs2, generated2, err := EnsureKey(dir, []age.Recipient{own.Recipient()})
+	if err != nil || generated2 || len(rs2) != 1 {
+		t.Fatalf("second ensure rewrote the material: generated=%v %v", generated2, err)
+	}
+}
+
 // The recovery material itself — prose and instructions around the key — is what an operator
 // hands to -identity; parsing it must find the key, and the key must open what the public half
 // sealed.

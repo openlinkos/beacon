@@ -143,3 +143,125 @@ func oneArchive(t *testing.T, dir string) (age.Recipient, age.Identity, string, 
 	_ = f.Close()
 	return id.Recipient(), id, out, signer
 }
+
+// TestRestoreAfterTheServerIsGone: the data directory is gone; the recovery material and the
+// archive are enough to restore, including when backups were encrypted to named recipients.
+func TestRestoreAfterTheServerIsGone(t *testing.T) {
+	server := t.TempDir()
+	backupDir := filepath.Join(server, "backup")
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, generated, err := EnsureKey(backupDir, []age.Recipient{id.Recipient()})
+	if err != nil || !generated || len(rs) != 1 {
+		t.Fatalf("ensure: generated=%v %d %v", generated, len(rs), err)
+	}
+	material, err := os.ReadFile(filepath.Join(backupDir, "RECOVERY-MATERIAL.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verify, err := ParseVerifyKey(material)
+	if err != nil || len(verify) == 0 {
+		t.Fatalf("the signing public key was not in the material: %v", err)
+	}
+	signer, err := EnsureSignKey(backupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(server, "beacon.db")
+	st := fixtureStore(t, dbPath)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := VerifyAudit(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := t.TempDir()
+	out := filepath.Join(keep, ArchiveName("srv", time.Now().UTC(), KindFull))
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(f, rs, signer, []Source{{Name: "db/beacon.db", Path: dbPath}},
+		Manifest{Kind: KindFull, Created: time.Now().UTC(), AuditHead: audit.Head, AuditSeq: audit.LastSeq}); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if err := os.RemoveAll(server); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backupDir); !os.IsNotExist(err) {
+		t.Fatal("the server data directory was not gone")
+	}
+	into := filepath.Join(keep, "restored")
+	if _, err := Restore(context.Background(), RestoreOpts{
+		Paths: []string{out}, Identities: []age.Identity{id}, Verify: verify, Dir: into,
+	}); err != nil {
+		t.Fatalf("restore with only the recovery material: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, "db", "beacon.db")); err != nil {
+		t.Fatal("the database was not restored")
+	}
+}
+
+// TestRestoreWithGeneratedMaterialAlone: Beacon generated the age pair; the recovery
+// material file is the identity and the verify key. After the data directory is gone, that
+// file and the archive are enough.
+func TestRestoreWithGeneratedMaterialAlone(t *testing.T) {
+	server := t.TempDir()
+	backupDir := filepath.Join(server, "backup")
+	rs, generated, err := EnsureKey(backupDir, nil)
+	if err != nil || !generated || len(rs) != 1 {
+		t.Fatalf("ensure: generated=%v %d %v", generated, len(rs), err)
+	}
+	material, err := os.ReadFile(filepath.Join(backupDir, "RECOVERY-MATERIAL.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := ParseIdentities(material)
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("identity from material: %d %v", len(ids), err)
+	}
+	verify, err := ParseVerifyKey(material)
+	if err != nil || len(verify) == 0 {
+		t.Fatalf("verify key from material: %v", err)
+	}
+	signer, err := EnsureSignKey(backupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(server, "beacon.db")
+	st := fixtureStore(t, dbPath)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := VerifyAudit(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := t.TempDir()
+	out := filepath.Join(keep, ArchiveName("srv", time.Now().UTC(), KindFull))
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(f, rs, signer, []Source{{Name: "db/beacon.db", Path: dbPath}},
+		Manifest{Kind: KindFull, Created: time.Now().UTC(), AuditHead: audit.Head, AuditSeq: audit.LastSeq}); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if err := os.RemoveAll(server); err != nil {
+		t.Fatal(err)
+	}
+	into := filepath.Join(keep, "restored")
+	if _, err := Restore(context.Background(), RestoreOpts{
+		Paths: []string{out}, Identities: ids, Verify: verify, Dir: into,
+	}); err != nil {
+		t.Fatalf("restore with only the recovery material: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, "db", "beacon.db")); err != nil {
+		t.Fatal("the database was not restored")
+	}
+}

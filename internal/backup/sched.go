@@ -232,7 +232,11 @@ func EnsureKey(dir string, fromConfig []age.Recipient) ([]age.Recipient, bool, e
 	}
 	signPub := FormatSignPublic(signPublicOf(sign))
 	if len(fromConfig) > 0 {
-		return fromConfig, false, nil
+		written, err := ensureVerifyKeyMaterial(dir, signPub)
+		if err != nil {
+			return nil, false, err
+		}
+		return fromConfig, written, nil
 	}
 	pub := filepath.Join(dir, "age-public.key")
 	if b, err := os.ReadFile(pub); err == nil { //nolint:gosec // the key Beacon itself wrote
@@ -263,6 +267,34 @@ func EnsureKey(dir string, fromConfig []age.Recipient) ([]age.Recipient, bool, e
 		return nil, false, err
 	}
 	return rs, true, nil
+}
+
+const recoveryMaterialName = "RECOVERY-MATERIAL.txt"
+
+// ensureVerifyKeyMaterial writes the manifest signing public key into the recovery material
+// even when the operator named their own recipients. A restore after the server is gone has
+// only this file (and their identity) to check the archive with.
+func ensureVerifyKeyMaterial(dir, signPub string) (written bool, err error) {
+	path := filepath.Join(dir, recoveryMaterialName)
+	if b, err := os.ReadFile(path); err == nil { //nolint:gosec // the file Beacon itself wrote
+		if pub, perr := ParseVerifyKey(b); perr == nil && pub != nil {
+			return false, nil
+		}
+		if err := writeFileAtomic(path, append(append([]byte{}, b...), []byte("\n"+signPublicSection(signPub))...)); err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return false, err
+	}
+	host, _ := os.Hostname()
+	if err := writeFileAtomic(path, []byte(SignPublicMaterial(host, signPub))); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ---- the admin socket's endpoint
