@@ -198,7 +198,11 @@ func TestOpenReadWith(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	r, err := OpenReadWith(Options{Path: path, Retention: 24 * time.Hour})
+	o := Options{Path: path, Retention: 24 * time.Hour}
+	if currentDSN != "" {
+		o.Driver, o.DSN, o.Path = "postgres", currentDSN, ""
+	}
+	r, err := OpenReadWith(o)
 	if err != nil {
 		t.Fatal(err)
 	}
