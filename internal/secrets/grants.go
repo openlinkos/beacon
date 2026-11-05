@@ -291,7 +291,14 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 		return Grant{}, nil, ErrSealed
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	held := true
+	unlock := func() {
+		if held {
+			s.mu.Unlock()
+			held = false
+		}
+	}
+	defer unlock()
 	if err := s.refuseIfRotating(); err != nil {
 		return Grant{}, nil, err
 	}
@@ -404,7 +411,10 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 	}
 	s.afterHeads(committed)
 	if outReq != nil {
-		s.pushApprovalCard(*outReq)
+		pending := *outReq
+		unlock()                            // enterRequest takes the lock itself
+		final, _ := s.enterRequest(pending) // the renewal walks the chain like any ask
+		outReq = &final
 		_ = s.auditEntry(store.AuditEntry{Actor: agentName, Via: via, Action: "secrets_grant_renew",
 			Target: id, Detail: "renewal asked again: " + reason})
 		return out, outReq, nil
@@ -792,7 +802,9 @@ func (s *Service) Sweep() int {
 		s.mu.Unlock()
 	}
 
-	// waiting requests: the pending TTL, and the ones queued while sealed
+	// waiting requests: the layers' own timeouts first, then the pending TTL, and the ones queued
+	// while sealed
+	changed += s.sweepReviewLayers(now)
 	onExpiry := s.settingString("request.on_pending_expiry", "expire")
 	var resolved, expired []Request
 	for _, r := range s.Requests(ReqPending) {

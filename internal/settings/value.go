@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -298,6 +299,116 @@ var approvalsKind = kind{
 		return raw, nil
 	},
 	stricter: levelsKind(intKind(true)).stricter,
+}
+
+// ruleNameRe is what a review rule may be called, the entitlements' own shape.
+var ruleNameRe = regexp.MustCompile(`^[a-z][a-z0-9._-]{1,39}$`)
+
+// ruleTagRe is a grouping-tag pattern a review rule may name: a tag's own shape, or the same with
+// a * standing for a layer's rest (the entitlements' tag patterns again).
+var (
+	ruleTagRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9 _\-]*(/[a-z0-9][a-z0-9 _\-]*)*$`)
+	ruleTagGlobRe = regexp.MustCompile(`^[a-z0-9][a-z0-9 _\-]*(/[a-z0-9][a-z0-9 _\-]*)*/\*$`)
+)
+
+// ruleDays are the days a review rule's window may name.
+var ruleDays = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+// ruleWindow is one review rule's time window, checked here in the shape the secrets package
+// reads it back: from and to as HH:MM (to may come before from, crossing midnight), and the days
+// it holds (empty: every day).
+type ruleWindow struct {
+	Days []string `json:"days,omitempty"`
+	From string   `json:"from"`
+	To   string   `json:"to"`
+}
+
+// ruleIn is one review rule as it arrives, in the shape review.rules stores it: the decision it
+// hands down (approve or deny), the levels it applies to (empty: the levels that wait — review and
+// person), and the conditions, every named one of which must hold.
+type ruleIn struct {
+	Name          string      `json:"name"`
+	Decide        string      `json:"decide"`
+	Disabled      bool        `json:"disabled,omitempty"`
+	Levels        []string    `json:"levels,omitempty"`
+	AgentTags     []string    `json:"agent_tags,omitempty"`
+	AlertService  bool        `json:"alert_service,omitempty"`
+	ReasonPattern string      `json:"reason_pattern,omitempty"`
+	Window        *ruleWindow `json:"window,omitempty"`
+	Fields        []string    `json:"fields,omitempty"`
+}
+
+// rulesKind is review.rules: the built-in review chain's deterministic conditions, a list of
+// rules. The design does not order the values (a deny wins over an approve whatever their
+// places), so a more specific level's row simply replaces the one above it.
+var rulesKind = kind{
+	name: "rules",
+	check: func(v json.RawMessage) (json.RawMessage, error) {
+		var in []ruleIn
+		if err := json.Unmarshal(v, &in); err != nil {
+			return nil, fmt.Errorf("a list of rules")
+		}
+		seen := map[string]bool{}
+		for i, r := range in {
+			what := fmt.Sprintf("rule %d", i)
+			if r.Name != "" {
+				what = r.Name
+			}
+			if !ruleNameRe.MatchString(r.Name) {
+				return nil, fmt.Errorf("%s: a rule's name is 2 to 40 lower-case letters, digits, dots, dashes and underscores", what)
+			}
+			if seen[r.Name] {
+				return nil, fmt.Errorf("%s: two rules of one name", r.Name)
+			}
+			seen[r.Name] = true
+			if r.Decide != "approve" && r.Decide != "deny" {
+				return nil, fmt.Errorf("%s: a rule decides approve or deny", r.Name)
+			}
+			for _, l := range r.Levels {
+				if l != "review" && l != "person" {
+					return nil, fmt.Errorf("%s: a rule's levels are review and person (the levels that wait)", r.Name)
+				}
+			}
+			for _, t := range r.AgentTags {
+				if !ruleTagRe.MatchString(t) && !ruleTagGlobRe.MatchString(t) {
+					return nil, fmt.Errorf("%s: the agent tag %q is not lower-case and layered with / (a * may stand for a layer's rest)", r.Name, t)
+				}
+			}
+			if r.ReasonPattern != "" {
+				if _, err := regexp.Compile(r.ReasonPattern); err != nil {
+					return nil, fmt.Errorf("%s: the reason pattern does not compile: %w", r.Name, err)
+				}
+			}
+			if r.Window != nil {
+				hhmm := func(s string) bool {
+					h, m, ok := strings.Cut(s, ":")
+					if !ok || len(h) != 2 || len(m) != 2 {
+						return false
+					}
+					hh, err1 := strconv.Atoi(h)
+					mm, err2 := strconv.Atoi(m)
+					return err1 == nil && err2 == nil && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59
+				}
+				if !hhmm(r.Window.From) || !hhmm(r.Window.To) || r.Window.From == r.Window.To {
+					return nil, fmt.Errorf("%s: a window's from and to are HH:MM and differ", r.Name)
+				}
+				for _, d := range r.Window.Days {
+					if !slices.Contains(ruleDays, d) {
+						return nil, fmt.Errorf("%s: a window's days are %s", r.Name, strings.Join(ruleDays, ", "))
+					}
+				}
+			}
+			for _, f := range r.Fields {
+				if strings.TrimSpace(f) == "" {
+					return nil, fmt.Errorf("%s: a rule's fields have names", r.Name)
+				}
+			}
+		}
+		if in == nil {
+			in = []ruleIn{}
+		}
+		return mustJSON(in), nil
+	},
 }
 
 // reasonKind is use.reason: required or optional, and the shortest it may be.

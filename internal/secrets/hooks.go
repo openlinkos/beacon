@@ -34,11 +34,14 @@ type CardSender interface {
 }
 
 // hookPayload is what a secret event carries. Nothing secret is ever in it: names, ids, reasons.
+// The secret.request event — the review chain waking its agent — carries the asker in Requester
+// and the action in Action; the full context of the ask is get_request's, a call away.
 type hookPayload struct {
 	Delivery  string    `json:"delivery"`
 	Event     string    `json:"event"`
 	At        time.Time `json:"at"`
 	Agent     string    `json:"agent,omitempty"`
+	Requester string    `json:"requester,omitempty"`
 	Request   string    `json:"request,omitempty"`
 	Grant     string    `json:"grant,omitempty"`
 	Item      string    `json:"item,omitempty"`
@@ -46,6 +49,7 @@ type hookPayload struct {
 	Uses      int64     `json:"uses,omitempty"`     // 0: unlimited
 	Duration  int64     `json:"duration,omitempty"` // seconds; 0: no expiry
 	Reason    string    `json:"reason,omitempty"`
+	Action    string    `json:"action,omitempty"`
 	Version   int64     `json:"version,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }

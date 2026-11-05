@@ -19,7 +19,7 @@ func secretsRoutes() []string {
 	return []string{
 		"GET /api/v1/secrets/search", "POST /api/v1/secrets/request", "GET /api/v1/secrets/requests",
 		"GET /api/v1/secrets/requests/{id}", "POST /api/v1/secrets/requests/{id}/decide",
-		"POST /api/v1/secrets/requests/{id}/withdraw",
+		"POST /api/v1/secrets/requests/{id}/pass", "POST /api/v1/secrets/requests/{id}/withdraw",
 		"POST /api/v1/secrets/get", "GET /api/v1/secrets/grants", "POST /api/v1/secrets/grants/{id}/renew",
 		"POST /api/v1/secrets/grants/{id}/release", "POST /api/v1/secrets/grants/{id}/revoke",
 		"GET /api/v1/secrets/entitlements", "POST /api/v1/secrets/entitlements", "DELETE /api/v1/secrets/entitlements/{name}",
@@ -38,6 +38,8 @@ type SecretsAPI interface {
 	Requests(state string) []secrets.Request
 	Withdraw(agent, id, via string) error
 	Decide(who secrets.DecideActor, requestID string, approve bool, note string, uses, duration *int64) (secrets.Request, secrets.Grant, error)
+	Pass(who secrets.DecideActor, requestID, note string) (secrets.Request, error)
+	ReviewContextOf(r secrets.Request) secrets.ReviewContext
 	GetSecret(agent, via, ref, field, reason, alert, context, ip, client string) (secrets.UseResult, error)
 	GrantsOf(agent string) []secrets.Grant
 	AllGrants(state string) []secrets.Grant
@@ -69,6 +71,7 @@ func (s *Server) registerSecrets(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/secrets/requests", s.withPrincipal("secrets:describe", s.listSecretRequests))
 	mux.Handle("GET /api/v1/secrets/requests/{id}", s.withPrincipal("secrets:describe", s.getSecretRequest))
 	mux.Handle("POST /api/v1/secrets/requests/{id}/decide", s.withPrincipal("", s.decideSecretRequest))
+	mux.Handle("POST /api/v1/secrets/requests/{id}/pass", s.withPrincipal("", s.passSecretRequest))
 	mux.Handle("POST /api/v1/secrets/requests/{id}/withdraw", s.withPrincipal("secrets:use", s.withdrawSecretRequest))
 	mux.Handle("POST /api/v1/secrets/get", s.withPrincipal("secrets:read", s.postGetSecret))
 	mux.Handle("GET /api/v1/secrets/grants", s.withPrincipal("secrets:describe", s.listSecretGrants))
@@ -143,41 +146,36 @@ func (s *Server) postSecretRequest(w http.ResponseWriter, r *http.Request, p sto
 
 func (s *Server) getSecretRequest(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	req, ok := s.Secrets.Request(r.PathValue("id"))
-	if !ok {
+	if !ok || !seesSecretRequest(p, req) {
 		writeError(w, http.StatusNotFound, "secrets.not_found", "no such request")
 		return
 	}
-	if name, isAgent := agentOf(p); isAgent && req.Agent != name {
-		writeError(w, http.StatusNotFound, "secrets.not_found", "no such request") // not the agent's own: not there
-		return
-	}
-	writeJSON(w, http.StatusOK, req)
+	ctx := s.Secrets.ReviewContextOf(req)
+	writeJSON(w, http.StatusOK, secrets.RequestWithContext{Request: req, Context: &ctx})
 }
 
 func (s *Server) listSecretRequests(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	state := r.URL.Query().Get("status")
-	if name, ok := agentOf(p); ok {
-		var out []secrets.Request
-		for _, req := range s.Secrets.Requests(state) {
-			if req.Agent == name {
-				out = append(out, req)
-			}
+	var out []secrets.Request
+	for _, req := range s.Secrets.Requests(state) {
+		if seesSecretRequest(p, req) {
+			out = append(out, req)
 		}
-		if out == nil {
-			out = []secrets.Request{}
-		}
-		writeJSON(w, http.StatusOK, out)
-		return
 	}
-	if !p.Person() {
-		writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants, not this door: request_secret asks, get_secret takes")
-		return
-	}
-	out := s.Secrets.Requests(state)
 	if out == nil {
 		out = []secrets.Request{}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// seesSecretRequest is who may read an ask: the agent that made it, a review agent working the
+// queue, or a person. Anyone else is told it is not there.
+func seesSecretRequest(p store.Principal, req secrets.Request) bool {
+	if p.Person() || p.Has("secrets:review") {
+		return true
+	}
+	name, ok := agentOf(p)
+	return ok && req.Agent == name
 }
 
 // decideIn is what a decision takes: the decision, its reason, and the uses and duration it may
@@ -210,6 +208,27 @@ func (s *Server) decideSecretRequest(w http.ResponseWriter, r *http.Request, p s
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"request": req, "grant": grant})
+}
+
+type passIn struct {
+	Note string `json:"note"`
+}
+
+func (s *Server) passSecretRequest(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	if p.Agent == "" {
+		writeError(w, http.StatusForbidden, "secrets.agent", "only a review agent passes a request on")
+		return
+	}
+	var in passIn
+	if !readBody(w, r, &in, 1<<16) {
+		return
+	}
+	req, err := s.Secrets.Pass(secrets.DecideActor{Name: p.Agent, Kind: "agent", Via: "api"}, r.PathValue("id"), in.Note)
+	if err != nil {
+		s.vaultError2(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"request": req})
 }
 
 func (s *Server) withdrawSecretRequest(w http.ResponseWriter, r *http.Request, p store.Principal) {

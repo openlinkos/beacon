@@ -29,7 +29,7 @@ var bucketAgents = []byte("agents")
 // in Scopes are machines', on the metrics gateway.
 var PeopleScopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
 	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write",
-	"secrets:admin", "secrets:describe", "secrets:read", "secrets:use"}
+	"secrets:admin", "secrets:describe", "secrets:read", "secrets:review", "secrets:use"}
 
 // Agent presets: what an agent may do, as a role says it for a person. An agent never does more than its
 // owner's role allows. PresetCustom keeps a list of scopes of its own (a claimed legacy token's, or one

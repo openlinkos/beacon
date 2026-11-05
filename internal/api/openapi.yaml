@@ -2635,7 +2635,7 @@ paths:
   /secrets/requests:
     get:
       summary: List secret requests
-      description: "The requests by state (query status; every state when empty). An agent sees its own; a person sees them all. The caller needs secrets:describe."
+      description: "The requests by state (query status; every state when empty). An agent sees its own; a person and a review agent see the queue. The caller needs secrets:describe."
       parameters:
         - {name: status, in: query, schema: {type: string, enum: [pending, granted, denied, expired, withdrawn]}}
       responses:
@@ -2643,11 +2643,11 @@ paths:
   /secrets/requests/{id}:
     get:
       summary: One secret request
-      description: "The items, the reason and the decisions so far. The agent that asked sees its own; a person sees any. The caller needs secrets:describe."
+      description: "The items, the reason, the decisions so far, and the review context (the chain, the alert it hangs on, the asker's recent record). The agent that asked sees its own; a person and a review agent see the queue. The caller needs secrets:describe."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
-        "200": {description: The request}
+        "200": {description: The request and its review context}
         "404": {description: secrets.not_found}
   /secrets/requests/{id}/decide:
     post:
@@ -2667,6 +2667,22 @@ paths:
                 duration: {type: integer, description: "seconds"}
       responses:
         "200": {description: "The request and the grant an approval made"}
+        "403": {description: "secrets.self_approval, secrets.permission or secrets.agent"}
+  /secrets/requests/{id}/pass:
+    post:
+      summary: Pass a secret request on
+      description: "Hand a waiting request to the next layer of its review chain without deciding it. Only a review agent at the agents layer may, and every pass carries a reason."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: {type: string, description: "the reason; required"}
+      responses:
+        "200": {description: The request as it stands at the next layer}
         "403": {description: "secrets.self_approval, secrets.permission or secrets.agent"}
   /secrets/requests/{id}/withdraw:
     post:

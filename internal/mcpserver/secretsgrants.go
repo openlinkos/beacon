@@ -14,8 +14,9 @@ import (
 
 // The grants' tools: the agent's door (search_secrets, request_secret, get_request, get_secret,
 // list_grants, renew_grant, release_grant) and the people's and reviewers' (list_requests,
-// decide_request, the entitlements, the revocation, an agent's scope). Both call the same vault
-// methods the REST routes call; the agent's tools take the agent from the credential itself.
+// decide_request, pass_request, the entitlements, the revocation, an agent's scope). Both call
+// the same vault methods the REST routes call; the agent's tools take the agent from the
+// credential itself.
 
 // agentPrincipal is the calling agent; ok false when the caller is not one.
 func agentPrincipal(ctx context.Context) (store.Principal, error) {
@@ -70,6 +71,20 @@ type decideRequestIn struct {
 	Duration *int64 `json:"duration,omitempty"`
 }
 
+type passRequestIn struct {
+	ID   string `json:"id"`
+	Note string `json:"note"`
+}
+
+// seesSecretRequest is who may read an ask: the agent that made it, a review agent working the
+// queue, or a person.
+func seesSecretRequest(p store.Principal, req secrets.Request) bool {
+	if p.Person() || p.Has("secrets:review") {
+		return true
+	}
+	return p.Agent != "" && req.Agent == p.Agent
+}
+
 type refReasonIn struct {
 	Ref     string `json:"ref"`
 	Field   string `json:"field,omitempty"`
@@ -108,18 +123,19 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_request", Title: "Secret request",
-		Description: "One request by its id: the items, the reason, and the decisions so far. The agent sees its own requests.",
+		Description: "One request by its id: the items, the reason, the decisions so far, and the review context (the chain, the alert it hangs on, the asker's recent record). The agent sees its own; a person and a review agent see the queue.",
 	},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, secrets.Request, error) {
+		func(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, secrets.RequestWithContext, error) {
 			p, err := grantPrincipal(ctx, "secrets:describe")
 			if err != nil {
-				return nil, secrets.Request{}, err
+				return nil, secrets.RequestWithContext{}, err
 			}
 			req, ok := v.Request(in.ID)
-			if !ok || (p.Agent != "" && req.Agent != p.Agent) {
-				return nil, secrets.Request{}, errors.New("no request " + in.ID)
+			if !ok || !seesSecretRequest(p, req) {
+				return nil, secrets.RequestWithContext{}, errors.New("no request " + in.ID)
 			}
-			return nil, req, nil
+			ctxv := v.ReviewContextOf(req)
+			return nil, secrets.RequestWithContext{Request: req, Context: &ctxv}, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_secret", Title: "Get a secret",
@@ -200,7 +216,7 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 			}
 			var out []secrets.Request
 			for _, r := range v.Requests(state) {
-				if p.Agent == "" || r.Agent == p.Agent {
+				if seesSecretRequest(p, r) {
 					out = append(out, r)
 				}
 			}
@@ -235,6 +251,21 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 			}
 			req, grant, err := v.Decide(who, in.ID, in.Approve, in.Note, in.Uses, in.Duration)
 			return nil, decidedOut{Request: req, Grant: grant}, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "pass_request", Title: "Pass a secret request on",
+		Description: "Hand a waiting request to the next layer of its review chain without deciding it. Only a review agent at the agents layer may, and every pass carries a reason.",
+	},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in passRequestIn) (*mcp.CallToolResult, passedOut, error) {
+			p, ok := principal(ctx)
+			if !ok {
+				return nil, passedOut{}, errors.New("no credential")
+			}
+			if p.Agent == "" {
+				return nil, passedOut{}, errors.New("only a review agent passes a request on")
+			}
+			req, err := v.Pass(secrets.DecideActor{Name: p.Agent, Kind: "agent", Via: "mcp"}, in.ID, in.Note)
+			return nil, passedOut{Request: req}, err
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_entitlements", Title: "Entitlements",
@@ -351,6 +382,10 @@ type requestsOut struct {
 type decidedOut struct {
 	Request secrets.Request `json:"request"`
 	Grant   secrets.Grant   `json:"grant"`
+}
+
+type passedOut struct {
+	Request secrets.Request `json:"request"`
 }
 
 type entitlementsOut struct {

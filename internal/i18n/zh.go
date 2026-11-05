@@ -824,6 +824,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"%s asks for %s":         "%s 申请 %s",
 	"**Why:** %s\n**Uses:** %s · **For:** %s\n**Level:** %s":             "**理由：**%s\n**次数：**%s · **期限：**%s\n**级别：**%s",
 	"The reason for the decision":                                        "决定的理由",
+	"The review agent %s %s %s's request for %s.":                        "审核 Agent %s %s了 %s 对 %s 的申请。",
 	"The policy around a grant tightened: %s":                            "某项授权周围的策略收紧了：%s",
 	"The secret \"%s\" changed; %d agent(s) were told to take it again.": "密钥「%s」已变更；已通知 %d 个 Agent 重新取用。",
 }
