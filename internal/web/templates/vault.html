@@ -2,6 +2,12 @@
   {{if .Sealed}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "triangle-alert"}}<div class="ol-alert-body">
     <p><strong>{{.L.Sealed}}</strong> <span class="ol-badge ol-badge-mono">{{.Mode}}</span></p>
     <p class="ol-hint">{{.L.SealedHint}}</p>
+    {{if .CanInit}}<form class="ol-stack" method="post" action="{{console "/secrets/init"}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <p class="ol-hint">{{.L.InitialiseHint}}</p>
+      <div class="ol-field"><label class="ol-label">{{.L.Passphrase}}</label><input class="ol-input ol-mono" type="password" name="passphrase" autocomplete="new-password"></div>
+      <button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "key-round"}}{{.L.Initialise}}</button>
+    </form>{{end}}
     {{if .CanUnseal}}<form class="ol-stack" method="post" action="{{console "/secrets/unseal"}}">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <div class="ol-field"><label class="ol-label">{{.L.Passphrase}}</label><input class="ol-input ol-mono" type="password" name="passphrase" autocomplete="current-password"></div>

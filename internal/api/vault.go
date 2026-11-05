@@ -147,6 +147,10 @@ func (s *Server) vaultError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "secrets.not_initialised", "this vault has no passphrase yet; POST /api/v1/vault/init first")
 	case errors.Is(err, secrets.ErrReauth):
 		writeError(w, http.StatusUnauthorized, "secrets.reauth", "enter your password to view values")
+	case errors.Is(err, secrets.ErrRevealLocked):
+		d := secrets.RevealLockedWait(err)
+		w.Header().Set("Retry-After", RetryAfter(d))
+		writeError(w, http.StatusTooManyRequests, "secrets.too_many_failures", "too many failed password checks; try again in "+WaitWords(d))
 	case errors.Is(err, secrets.ErrAgent):
 		writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants; until those arrive, the vault answers an agent with nothing")
 	case errors.Is(err, secrets.ErrForbidden):

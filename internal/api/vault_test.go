@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -122,5 +124,53 @@ func TestVaultUnsealNeedsAdminAndIsRateLimited(t *testing.T) {
 	}
 	if code, out := c.do("POST", "/api/v1/vault/unseal", admin, `{"passphrase":"wrong-passphrase-here"}`); code != 429 || out["code"] != "auth.too_many_failures" {
 		t.Fatalf("after many wrong passphrases: %d %v", code, out)
+	}
+}
+
+func TestRevealWrongPasswordIsRateLimitedHTTP(t *testing.T) {
+	e := testutil.New(t)
+	svc, err := secrets.Open(context.Background(), secrets.SealConfig{Mode: secrets.SealFile, Dir: filepath.Join(t.TempDir(), "secrets")},
+		secrets.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN, CheckPassword: func(string, string) error { return errors.New("no") }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = people(t, e)
+	alice, ok := e.Store.AccountPrincipal("alice")
+	if !ok {
+		t.Fatal("alice")
+	}
+	who := secrets.Actor{Name: "alice", Via: "api", Role: "owner"}
+	col, err := svc.CreateCollection(who, "Infra", "", secrets.LevelReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := svc.SetItem(who, secrets.ItemIn{Collection: col.Name, Title: "Example",
+		Fields: []secrets.FieldIn{{Name: "password", Type: secrets.FieldConcealed, Value: "x"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{Bridge: e.Bridge, Auth: &Auth{Store: e.Store}, Log: slog.Default(), Vault: svc}
+	post := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/vault/items/"+item.ID+"/reveal", strings.NewReader(`{"password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("id", item.ID)
+		srv.revealItem(rec, req, alice)
+		return rec
+	}
+	for i := 0; i < 9; i++ {
+		rec := post()
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("fail %d: %d %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	rec := post()
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != http.StatusTooManyRequests || out["code"] != "secrets.too_many_failures" {
+		t.Fatalf("the tenth wrong password: %d %v", rec.Code, out)
+	}
+	if wait, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || wait < 1 {
+		t.Fatalf("Retry-After: %q", rec.Header().Get("Retry-After"))
 	}
 }

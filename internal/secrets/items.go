@@ -139,7 +139,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			if err != nil {
 				return fmt.Errorf("the current version could not be opened: %w", err)
 			}
-			details, fields = *d, ver.Fields
+			details, fields = *d, d.Fields
 		} else {
 			id := in.ID
 			if id == "" {
@@ -218,7 +218,8 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			if !hasField(fields, f.Section, f.Name) {
 				fields = append(fields, Field{Section: f.Section, Name: f.Name, Type: typ, Purpose: f.Purpose})
 			} else {
-				fields = withFieldType(fields, f.Section, f.Name, typ, f.Purpose)
+				// the type is bound in the ciphertext; an edit may not swap otp to concealed
+				fields = withFieldPurpose(fields, f.Section, f.Name, f.Purpose)
 			}
 		}
 		if in.HasNotes {
@@ -373,15 +374,13 @@ func removeField(fields []Field, section, name string) []Field {
 	return out
 }
 
-func withFieldType(fields []Field, section, name, typ, purpose string) []Field {
+func withFieldPurpose(fields []Field, section, name, purpose string) []Field {
+	if purpose == "" {
+		return fields
+	}
 	for i, f := range fields {
 		if f.Section == section && f.Name == name {
-			if typ != "" {
-				fields[i].Type = typ
-			}
-			if purpose != "" {
-				fields[i].Purpose = purpose
-			}
+			fields[i].Purpose = purpose
 		}
 	}
 	return fields

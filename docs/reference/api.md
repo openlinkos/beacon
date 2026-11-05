@@ -192,7 +192,7 @@ The item routes are for people, every change audited and echoed to the alert cha
 | `POST /api/v1/vault/items/{id}/restore` | a person, `edit` | Bring an item back from the archive or the trash |
 | `POST /api/v1/vault/items/{id}/rollback` | a person, `edit` | Make an old version the current one again (`version`, `reason`); the versions stay |
 | `POST /api/v1/vault/items/{id}/generate` | a person, `edit` | Have Beacon make a new value for a field (`field`, `section`, `length` — 24 by default — `charset`: `letters`, `alnum` or `all`, `reason`): stored as a new version, the value itself never returned; reveal it to see it |
-| `POST /api/v1/vault/items/{id}/reveal` | a person, `read` | The values (`fields` names, or every field; `password` of the account). An `otp` field answers the code that is current and the seconds it has left, never its seed. Audited before the values leave |
+| `POST /api/v1/vault/items/{id}/reveal` | a person, `read` | The values (`fields` names, or every field; `password` of the account). An `otp` field answers the code that is current and the seconds it has left, never its seed. Audited before the values leave. Ten wrong passwords in ten minutes answer `secrets.too_many_failures` (429, with `Retry-After`) |
 | `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | a person, `read` | One attachment's bytes |
 | `GET /api/v1/vault/search` | a person, `describe` | Items whose title, category, tags or field names match `q` (`?collection=`, `?tag=` more than one), only in collections the caller may describe |
 | `GET /api/v1/vault/tags` | any credential | The tags: name (lower case, layered with `/`), approval level, description |
@@ -310,6 +310,7 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `secrets.wrong_passphrase` | 403 | The passphrase does not unseal this vault |
 | `secrets.not_initialised` | 409 | The passphrase-mode vault has never been given a passphrase; `POST /api/v1/vault/init` first |
 | `secrets.reauth` | 401 | Enter the account's password to view values (it opens the `reveal.reauth_window` again) |
+| `secrets.too_many_failures` | 429 | Too many wrong passwords on Reveal; wait as `Retry-After` says |
 | `secrets.agent` | 403 | An agent asked; agents reach items through grants, which arrive with a later release |
 | `secrets.person` | 403 | The vault's item routes are for people; sign in with an account |
 | `secrets.permission` | 403 | The caller may not do this in this collection |

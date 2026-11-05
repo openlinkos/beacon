@@ -101,8 +101,9 @@ type Service struct {
 
 	mu sync.Mutex // serialises writes
 
-	reauthMu sync.Mutex
-	reauth   map[string]time.Time // by user\0via: until when a reveal needs no password
+	reauthMu    sync.Mutex
+	reauth      map[string]time.Time            // by user\0via: until when a reveal needs no password
+	revealFails map[string]*revealFailWindowState // wrong passwords on Reveal, same window as the account lockout
 
 	rotating map[string]bool // collections whose key is being rotated
 	rotMu    sync.Mutex
@@ -174,7 +175,7 @@ func Open(ctx context.Context, cfg SealConfig, d Deps) (*Service, error) {
 	if cfg.Dir == "" {
 		return nil, errors.New("the vault needs its directory")
 	}
-	s := &Service{d: d, cfg: cfg, reauth: map[string]time.Time{}, rotating: map[string]bool{}}
+	s := &Service{d: d, cfg: cfg, reauth: map[string]time.Time{}, revealFails: map[string]*revealFailWindowState{}, rotating: map[string]bool{}}
 	s.initTables()
 	if d.CheckPassword == nil {
 		d.CheckPassword = func(username, password string) error {

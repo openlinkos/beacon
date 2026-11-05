@@ -19,8 +19,8 @@ import (
 // reveal, with its password and its record, in the answer of the form just sent.
 
 type vaultLabels struct {
-	Sealed, SealedHint, Unseal, Passphrase, Collection, Collections, Items, Item, NewCollection     string
-	Level, State, Version, Versions, Fields, Field, Type, Purpose, Notes                            string
+	Sealed, SealedHint, Unseal, Initialise, InitialiseHint, Passphrase, Collection, Collections, Items, Item, NewCollection string
+	Level, State, Version, Versions, Fields, Field, Type, Purpose, Notes                                                    string
 	WhoCanGet, WhoCanGetHint, Reveal, RevealPassword, RevealFields, RevealWhy, RevealWhat           string
 	Tags, AddTag, SetLevel, Archive, Remove, Restore, Rollback, RollbackTo, Generate, GenerateField string
 	Perms, PermsSubject, PermsLevel, PermsSet, Search, SearchPlaceholder, None, KeyVersion          string
@@ -30,7 +30,9 @@ type vaultLabels struct {
 func (s *Server) vaultLabels() vaultLabels {
 	return vaultLabels{
 		Sealed: s.t("The vault is sealed"), SealedHint: s.t("Enter the passphrase to unseal it. Monitoring and the SSH channel carry on while it waits."),
-		Unseal: s.t("Unseal"), Passphrase: s.t("Passphrase"),
+		Unseal: s.t("Unseal"), Initialise: s.t("Initialise"),
+		InitialiseHint: s.t("This vault has no passphrase yet. The first one you enter becomes it; later unseals open with that passphrase."),
+		Passphrase:     s.t("Passphrase"),
 		Collection: s.t("Collection"), Collections: s.t("Collections"), Items: s.t("Items"), Item: s.t("Item"),
 		NewCollection: s.t("New collection"), Level: s.t("Level"), State: s.t("State"), Version: s.t("Version"),
 		Versions: s.t("History"), Fields: s.t("Fields"), Field: s.t("Field"), Type: s.t("Type"), Purpose: s.t("Purpose"),
@@ -83,6 +85,7 @@ type vaultPage struct {
 	Sealed      bool
 	Mode        string
 	BadRows     []string
+	CanInit     bool
 	CanUnseal   bool
 	CanManage   bool
 	Collections []vaultCollectionRow
@@ -101,7 +104,10 @@ func (s *Server) vaultPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	who, _ := vaultActorOf(v)
 	p.Sealed, p.Mode, p.BadRows = s.Vault.Sealed(), s.Vault.SealModeName(), s.Vault.Bad()
-	p.CanUnseal = p.Sealed && p.Mode == secrets.SealPassphrase && v.has("secrets:admin")
+	passAdmin := p.Sealed && p.Mode == secrets.SealPassphrase && v.has("secrets:admin")
+	initd := s.Vault.Initialised()
+	p.CanInit = passAdmin && !initd
+	p.CanUnseal = passAdmin && initd
 	p.CanManage = v.has("secrets:admin")
 	for _, col := range s.Vault.CollectionsFor(who) {
 		p.Collections = append(p.Collections, vaultCollectionRow{Name: col.Name, Level: col.Level,
@@ -234,6 +240,10 @@ func (s *Server) vaultFail(w http.ResponseWriter, r *http.Request, v *viewer, it
 		msg = s.t("The vault is sealed")
 	} else if errors.Is(err, secrets.ErrReauth) {
 		msg = s.t("Enter your password to view values")
+	} else if errors.Is(err, secrets.ErrRevealLocked) {
+		msg = s.t("Too many failed password checks; try again in a few minutes")
+	} else if errors.Is(err, secrets.ErrNotInitialised) {
+		msg = s.t("This vault has no passphrase yet. The first one you enter becomes it; later unseals open with that passphrase.")
 	} else if errors.Is(err, secrets.ErrForbidden) {
 		msg = s.t("You may not do this here")
 	}
@@ -246,13 +256,16 @@ func (s *Server) vaultFail(w http.ResponseWriter, r *http.Request, v *viewer, it
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
-func (s *Server) vaultUnsealForm(w http.ResponseWriter, r *http.Request, v *viewer) {
-	pass := r.PostForm.Get("passphrase")
-	err := s.Vault.Unseal(pass)
-	if errors.Is(err, secrets.ErrNotInitialised) {
-		err = s.Vault.InitPassphrase(pass)
+func (s *Server) vaultInitForm(w http.ResponseWriter, r *http.Request, v *viewer) {
+	if err := s.Vault.InitPassphrase(r.PostForm.Get("passphrase")); err != nil {
+		s.vaultFail(w, r, v, "", err)
+		return
 	}
-	if err != nil {
+	http.Redirect(w, r, consolePath("/secrets"), http.StatusSeeOther)
+}
+
+func (s *Server) vaultUnsealForm(w http.ResponseWriter, r *http.Request, v *viewer) {
+	if err := s.Vault.Unseal(r.PostForm.Get("passphrase")); err != nil {
 		s.vaultFail(w, r, v, "", err)
 		return
 	}

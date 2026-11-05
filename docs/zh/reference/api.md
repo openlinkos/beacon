@@ -196,7 +196,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `POST /api/v1/vault/items/{id}/restore` | 人，`edit` | 从归档或回收站恢复条目 |
 | `POST /api/v1/vault/items/{id}/rollback` | 人，`edit` | 让旧版本重新成为当前版本（`version`、`reason`）；各版本仍在 |
 | `POST /api/v1/vault/items/{id}/generate` | 人，`edit` | 让 Beacon 为一个字段生成新值（`field`、`section`、`length`——默认 24——`charset`：`letters`、`alnum` 或 `all`、`reason`）：作为新版本保存，值本身不返回；要看就 reveal |
-| `POST /api/v1/vault/items/{id}/reveal` | 人，`read` | 值（`fields` 指定字段名，不给则全部；`password` 为账号密码）。`otp` 字段返回当前验证码与剩余秒数，绝无种子。先写审计，值才离开 |
+| `POST /api/v1/vault/items/{id}/reveal` | 人，`read` | 值（`fields` 指定字段名，不给则全部；`password` 为账号密码）。`otp` 字段返回当前验证码与剩余秒数，绝无种子。先写审计，值才离开。十分钟内十次密码错误返回 `secrets.too_many_failures`（429，带 `Retry-After`） |
 | `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | 人，`read` | 一个附件的字节 |
 | `GET /api/v1/vault/search` | 人，`describe` | 标题、类别、标签或字段名匹配 `q` 的条目（`?collection=`、`?tag=` 可多个），只在调用者有 describe 的库里找 |
 | `GET /api/v1/vault/tags` | 任意凭据 | 全部标签：名字（小写、`/` 分层）、审批级别、说明 |
@@ -314,6 +314,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `secrets.wrong_passphrase` | 403 | 口令打不开这个保管库 |
 | `secrets.not_initialised` | 409 | 口令模式保管库还没有口令；先 `POST /api/v1/vault/init` |
 | `secrets.reauth` | 401 | 查看值要重新输入账号密码（重新打开 `reveal.reauth_window` 窗口） |
+| `secrets.too_many_failures` | 429 | Reveal 密码连续输错太多次；等待时间见 `Retry-After` |
 | `secrets.agent` | 403 | Agent 来问；Agent 经由授权取条目，授权随后续版本到来 |
 | `secrets.person` | 403 | 保管库的条目路由给人用；请用账号登录 |
 | `secrets.permission` | 403 | 调用者在这个库里做不了这件事 |

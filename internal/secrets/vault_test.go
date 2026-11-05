@@ -1224,6 +1224,144 @@ func TestUnsealDoesNotTakeTheFirstPassphrase(t *testing.T) {
 	}
 }
 
+func TestEditDoesNotTakePlaintextFieldType(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "OTP",
+		Fields: []FieldIn{{Name: "otp", Type: FieldOTP, Value: fixtureOTPSeed}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetItem(owner, ItemIn{ID: item.ID, Collection: col.Name,
+		Fields: []FieldIn{{Name: "otp", Type: FieldConcealed, Value: fixtureOTPSeed}}}); err != nil {
+		t.Fatal(err)
+	}
+	values, fields, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["otp"] == fixtureOTPSeed {
+		t.Fatal("an edit must not take a swapped plaintext type and give the seed")
+	}
+	for _, f := range fields {
+		if f.Name == "otp" && f.Type != FieldOTP {
+			t.Fatalf("the ciphertext type stays otp, got %s", f.Type)
+		}
+	}
+}
+
+func TestRevealEmptyCiphertextFieldsDoNotFallBack(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "OTP",
+		Fields: []FieldIn{{Name: "otp", Type: FieldOTP, Value: fixtureOTPSeed}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		ver, ok := getVersionTx(tx, item.ID, 1)
+		if !ok {
+			return errors.New("the version is there")
+		}
+		d, err := s.decryptDetailsTx(tx, col, ver, item.ID, 1)
+		if err != nil {
+			return err
+		}
+		d.Fields = nil
+		ck, err := s.collectionKeyByVersionTx(tx, col.ID, col.KeyVersion)
+		if err != nil {
+			return err
+		}
+		defer clear(ck)
+		plain, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		ver.CT, err = wrap(ck, plain, itemAAD(item.ID, 1, col.ID, col.KeyVersion))
+		if err != nil {
+			return err
+		}
+		b, err := json.Marshal(ver)
+		if err != nil {
+			return err
+		}
+		return tx.Put(bucketVersions, versionRowKey(item.ID, 1), b)
+	})
+	values, _, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["otp"] == fixtureOTPSeed {
+		t.Fatal("empty ciphertext fields must not fall back to the plaintext field list")
+	}
+	if values["otp"] != "" {
+		t.Fatal("empty ciphertext fields must not mint a code from the plaintext list")
+	}
+}
+
+func TestRevealWrongPasswordIsRateLimited(t *testing.T) {
+	now := time.Now()
+	s, _ := newVault(t, SealFile, Deps{
+		Lang:          i18n.EN,
+		CheckPassword: func(string, string) error { return errors.New("no") },
+		Now:           func() time.Time { return now },
+	})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	for i := 0; i < maxRevealFails-1; i++ {
+		if _, _, err := s.Reveal(owner, item.ID, nil, "wrong"); !errors.Is(err, ErrReauth) {
+			t.Fatalf("fail %d: %v", i+1, err)
+		}
+	}
+	if _, _, err := s.Reveal(owner, item.ID, nil, "wrong"); !errors.Is(err, ErrRevealLocked) {
+		t.Fatalf("the tenth wrong password locks, got %v", err)
+	}
+	if _, _, err := s.Reveal(owner, item.ID, nil, "wrong"); !errors.Is(err, ErrRevealLocked) {
+		t.Fatalf("still locked, got %v", err)
+	}
+	if d := RevealLockedWait(&revealLockedError{wait: time.Minute}); d != time.Minute {
+		t.Fatalf("typed wait: %s", d)
+	}
+	now = now.Add(revealFailWindow)
+	if _, _, err := s.Reveal(owner, item.ID, nil, "wrong"); !errors.Is(err, ErrReauth) {
+		t.Fatalf("after the window a wrong password is reauth again, got %v", err)
+	}
+}
+
+func TestUnprefixedSignatureIsRefused(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	sk, err := s.sk()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var committed signedhead.Head
+	if err := st.Storage().Update(func(tx kv.Tx) error {
+		raw := tx.Get(bucketCollections, []byte(col.ID))
+		var r signedCollection
+		if json.Unmarshal(raw, &r) != nil {
+			t.Fatal("the collection row")
+		}
+		r.Sig = signRow(sk, r.ID, r.Name, r.Description, r.Level, i64(r.KeyVersion), r.CreatedBy, i64(r.Created.UnixNano()))
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		if err := tx.Put(bucketCollections, []byte(col.ID), b); err != nil {
+			return err
+		}
+		h, err := s.commitPolicy(tx, map[string][]byte{policyRowKey(kindCollection, col.ID): b}, nil)
+		committed = h
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.afterHeads(committed)
+	if _, ok := s.Collection(col.Name); ok {
+		t.Fatal("a row signed without the kind prefix must not verify")
+	}
+}
+
 func TestCopiedTagRowDoesNotApply(t *testing.T) {
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
 	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {

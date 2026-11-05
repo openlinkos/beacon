@@ -3,6 +3,7 @@ package secrets
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -558,9 +559,13 @@ func (s *Service) Reveal(who Actor, item string, fields []string, password strin
 		return nil, nil, fmt.Errorf("%w: you may not read values in this collection", ErrForbidden)
 	}
 	if password != "" {
-		if err := s.d.CheckPassword(who.Name, password); err != nil {
-			return nil, nil, ErrReauth
+		if err := s.revealLocked(who); err != nil {
+			return nil, nil, err
 		}
+		if err := s.d.CheckPassword(who.Name, password); err != nil {
+			return nil, nil, s.noteRevealFail(who)
+		}
+		s.clearRevealFails(who)
 		s.reauthMu.Lock()
 		s.reauth[reauthKey(who)] = s.now().Add(s.reauthWindow())
 		s.reauthMu.Unlock()
@@ -589,11 +594,7 @@ func (s *Service) Reveal(who Actor, item string, fields []string, password strin
 		}
 		out, list = map[string]string{}, nil
 		now := s.now()
-		useFields := d.Fields
-		if len(useFields) == 0 {
-			useFields = ver.Fields
-		}
-		for _, f := range useFields {
+		for _, f := range d.Fields {
 			if len(fields) > 0 && !containsString(fields, fieldKey(f.Section, f.Name)) && !containsString(fields, f.Name) {
 				continue
 			}
@@ -637,6 +638,69 @@ func (s *Service) reauthed(who Actor) bool {
 	s.reauthMu.Lock()
 	defer s.reauthMu.Unlock()
 	return s.now().Before(s.reauth[reauthKey(who)])
+}
+
+const (
+	maxRevealFails    = 10
+	revealFailWindow  = 10 * time.Minute
+)
+
+// ErrRevealLocked is Reveal after too many wrong passwords in the window.
+var ErrRevealLocked = errors.New("too many failed password checks; try again in a few minutes")
+
+type revealLockedError struct{ wait time.Duration }
+
+func (e *revealLockedError) Error() string { return ErrRevealLocked.Error() }
+func (e *revealLockedError) Unwrap() error { return ErrRevealLocked }
+
+// RevealLockedWait is how long Reveal stays locked after too many wrong passwords.
+func RevealLockedWait(err error) time.Duration {
+	var e *revealLockedError
+	if errors.As(err, &e) && e.wait > 0 {
+		return e.wait
+	}
+	return revealFailWindow
+}
+
+type revealFailWindowState struct {
+	n     int
+	start time.Time
+}
+
+func (s *Service) revealLocked(who Actor) error {
+	s.reauthMu.Lock()
+	defer s.reauthMu.Unlock()
+	w := s.revealFails[reauthKey(who)]
+	if w == nil || s.now().Sub(w.start) >= revealFailWindow {
+		return nil
+	}
+	if w.n >= maxRevealFails {
+		return &revealLockedError{wait: revealFailWindow - s.now().Sub(w.start)}
+	}
+	return nil
+}
+
+func (s *Service) noteRevealFail(who Actor) error {
+	s.reauthMu.Lock()
+	defer s.reauthMu.Unlock()
+	k := reauthKey(who)
+	w := s.revealFails[k]
+	now := s.now()
+	if w == nil || now.Sub(w.start) >= revealFailWindow {
+		w = &revealFailWindowState{start: now}
+		s.revealFails[k] = w
+	}
+	w.n++
+	if w.n >= maxRevealFails {
+		return &revealLockedError{wait: revealFailWindow - now.Sub(w.start)}
+	}
+	return ErrReauth
+}
+
+func (s *Service) clearRevealFails(who Actor) {
+	s.reauthMu.Lock()
+	delete(s.revealFails, reauthKey(who))
+	s.reauthMu.Unlock()
 }
 
 // ---- search

@@ -452,6 +452,16 @@ func (s *Service) Unseal(passphrase string) error {
 // ErrNotInitialised is Unseal before InitPassphrase has set the first passphrase.
 var ErrNotInitialised = errors.New("this vault has no passphrase yet; initialise it first")
 
+// Initialised reports whether a passphrase-mode vault has been given its first passphrase.
+// Other seal modes are initialised as soon as Open succeeds.
+func (s *Service) Initialised() bool {
+	if s.cfg.Mode != SealPassphrase {
+		return true
+	}
+	_, ok := s.metaGet(metaKeyCheck)
+	return ok
+}
+
 // InitPassphrase is the first passphrase a fresh passphrase-mode vault is given. Later Unseal
 // calls only open with that passphrase; they never take a new one.
 func (s *Service) InitPassphrase(passphrase string) error {

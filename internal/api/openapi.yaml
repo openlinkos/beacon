@@ -46,7 +46,7 @@ components:
             session.not_found,
             config.not_found, config.invalid, config.conflict,
             settings.not_found, settings.unknown, settings.invalid, settings.conflict,
-            secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
+            secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.too_many_failures, secrets.agent, secrets.person, secrets.permission,
             secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
             status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,

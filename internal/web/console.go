@@ -139,6 +139,7 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 		at("GET", "/secrets", s.console("", s.vaultPage))
 		at("GET", "/secrets/{id}", s.console("", s.vaultCollectionPage))
 		at("GET", "/secrets/item/{id}", s.console("", s.vaultItemPage))
+		at("POST", "/secrets/init", s.action("secrets:admin", s.vaultInitForm))
 		at("POST", "/secrets/unseal", s.action("secrets:admin", s.vaultUnsealForm))
 		at("POST", "/secrets/collection", s.action("secrets:admin", s.vaultCollectionForm))
 		at("POST", "/secrets/{id}/perms", s.action("secrets:admin", s.vaultPermForm))

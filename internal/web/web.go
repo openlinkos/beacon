@@ -82,6 +82,7 @@ type vaultUI interface {
 	Sealed() bool
 	SealModeName() string
 	Bad() []string
+	Initialised() bool
 	Unseal(passphrase string) error
 	InitPassphrase(passphrase string) error
 	Collections() []secrets.Collection
