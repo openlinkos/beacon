@@ -48,7 +48,7 @@ components:
             settings.not_found, settings.unknown, settings.invalid, settings.conflict,
             secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
             secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
-            secrets.no_grant, secrets.throttled, secrets.suspended, secrets.self_approval, secrets.error,
+            secrets.no_grant, secrets.not_bound, secrets.private_address, secrets.redirect, secrets.throttled, secrets.suspended, secrets.self_approval, secrets.error,
             status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
@@ -1330,7 +1330,7 @@ paths:
   /machines/{name}/run:
     post:
       summary: Run a command on a machine
-      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal; recorded as a session."
+      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal; recorded as a session. secrets injects beacon:// values as the command's environment (secrets:use; each item must be bound to the machine); the output, recording and transcript are scrubbed of those values."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -1346,6 +1346,16 @@ paths:
                 cwd: {type: string}
                 stdin: {type: string}
                 timeout: {type: integer, description: Seconds, default 120, at most 600}
+                secrets:
+                  type: array
+                  description: "beacon:// references injected as the command's environment; each item must be bound to the machine"
+                  items:
+                    type: object
+                    properties:
+                      name: {type: string}
+                      ref: {type: string}
+                      reason: {type: string}
+                reason: {type: string, description: Why the secrets are used}
       responses:
         "200":
           description: What the command did
@@ -2822,4 +2832,42 @@ paths:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         "200": {description: Lifted}
+  /secrets/use:
+    post:
+      summary: Use secrets in a local process
+      description: "An agent resolves beacon:// references through its use grants (secrets:use) and receives the values for a local process (beacon run). Agents that must not see a value use run_command's secrets or http_request instead. The use is recorded before the values are given."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refs, reason]
+              properties:
+                refs: {type: object, additionalProperties: {type: string}, description: "Environment names to beacon:// references"}
+                reason: {type: string}
+      responses:
+        "200": {description: "The values, keyed as the request named them"}
+        "403": {description: "secrets.no_grant, secrets.agent, secrets.suspended or secrets.permission"}
+        "423": {description: secrets.sealed}
+  /secrets/http-request:
+    post:
+      summary: Send an HTTPS request with secrets
+      description: "Beacon fills {{secret.beacon://…}} placeholders from the agent's use grants and sends the request to a host the item is bound to (secrets:use). Private addresses are refused unless http.allow_private says otherwise. The answer (status, headers, body) comes back scrubbed. The agent never sees a value."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, reason]
+              properties:
+                method: {type: string}
+                url: {type: string}
+                headers: {type: object, additionalProperties: {type: string}}
+                body: {type: string}
+                reason: {type: string}
+      responses:
+        "200": {description: "The scrubbed answer"}
+        "400": {description: "secrets.bad_input or secrets.redirect"}
+        "403": {description: "secrets.no_grant, secrets.not_bound, secrets.private_address, secrets.agent, secrets.suspended or secrets.permission"}
+        "423": {description: secrets.sealed}
 

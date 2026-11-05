@@ -52,7 +52,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. A 
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
-| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it |
+| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it. `secrets` injects `beacon://` values as the command's environment (`secrets:use`; each item must be bound to the machine); the output, recording and transcript are scrubbed |
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
 | `edit_file` | `machines:ssh` | Replace an exact string in a text file (`machine`, `path`, `old_string`, `new_string`, `replace_all`). `old_string` must occur once unless `replace_all` is set; refused, rather than overwrite, if the file changed meanwhile |
@@ -106,6 +106,7 @@ The secrets vault, under the same operations as the [REST routes](api.md#vault) 
 | `set_agent_tags` | `secrets:admin` | An agent's grouping tags (`agent`, `tags`), which entitlements reach agents by |
 | `revoke_grant` | `secrets:admin` | End a grant by hand (`id`, `reason`) |
 | `agent_secret_scope` | the agent's owner, an admin | What an agent can reach and holds (`agent`): entitlements, the reach by approval, grants, tags, templates |
+| `http_request` | `secrets:use` | Send an HTTPS request with `secret.beacon://` placeholders filled from the agent's use grants (`method`, `url`, `headers`, `body`, `reason`). Only hosts the item is bound to; private addresses are refused unless `http.allow_private`; the answer comes back scrubbed. The agent never sees a value |
 | `generate_item_value` | a person, `edit` | Make a new value for a field (`ref`, `field`, `length`, `charset`), stored as a new version; the value itself is never returned |
 | `archive_item` | a person, `edit` | Archive an item (`ref`, `reason`): kept, out of the way |
 | `remove_item` | a person, `edit` | Move an item to the trash (`ref`, `reason`), where retention keeps it |

@@ -26,6 +26,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/scrub"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -57,6 +58,10 @@ type Deps struct {
 	PublicAddress string
 	// Pages builds the signed links to sessions' pages, where people replay them; nil: no links.
 	Pages *link.Pages
+	// Scrub gives the scrubber of the values a machine may hold — the items bound to it, or with a
+	// file declared on it — for the file tools' answers (read_file, and a file read an edit makes);
+	// nil: nothing is scrubbed.
+	Scrub func(machine string) *scrub.Scrubber
 }
 
 // Gate is the SSH channel.

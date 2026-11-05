@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0babfe27
+sourceHash: sha256-7467e519
 ---
 
 # 命令行
@@ -31,6 +31,7 @@ docker exec beacon beacon token list
 | `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
 | `storage` | 数据库的健康检查：[check](#beacon-audit-storage) |
 | `secret` | 密钥保管库：[ls、collection、show、set、reveal、tag、level、archive、rm、restore、rollback、generate、perms、tags、rebuild-head](#beacon-secret) |
+| `run` | 把环境变量和 `.env` 文件里的 `beacon://` 引用注入子进程（`-agent`、`-reason`、`-env-file`、`-wait`）；值从不打印。见 [beacon run](#beacon-run) |
 | `key` | 保管库的密钥：[status、unseal、seal、rotate](#beacon-key) |
 | `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
 | `version` | 版本、提交和构建 |
@@ -81,6 +82,23 @@ docker exec beacon beacon token list
 | `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库里能做什么：不带第二参数时列出清单；`user:alice=read` 给人授 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
 | `tags` [NAME [LEVEL]] | `-description`、`-user` | 列出标签，或设置一个：标签的级别是策略（带它的条目至少那么严），只有 owner 账号可以 |
 | `rebuild-head` | `-user` | 用仍然验得过的行重建策略、条目、资格与授权签名头（经管理套接字的属主恢复；记审计）。Beacon 不会在之后的写入里自行重建缺失的头 |
+
+### beacon run
+
+`beacon run` 把进程环境和 `.env` 文件里的 `beacon://` 引用填成值，再启动子命令。值从不打印：只活在那个进程里，和 `op run` 一样。引用走点名 Agent 的 use 授权；没有覆盖某条引用时，`-wait` 会申请并等待那么久。
+
+```bash
+beacon run -agent claude-code -reason "fix the dns outage" --env-file .env -- printenv TOKEN
+```
+
+| 参数 | 作用 |
+| --- | --- |
+| `-agent` NAME | 引用所走的 Agent 的授权 |
+| `-reason` TEXT | 原因；每次取用都记下来 |
+| `-env-file` FILE | 一份 `.env`，其中的 `beacon://` 会被填上 |
+| `-wait` DURATION | 没有授权覆盖某条引用时等待多久（Go 时长，例如 `30s`） |
+
+`--` 之后是要执行的命令。`-env-file` 的值覆盖进程环境；解析后的 `beacon://` 再覆盖两者。
 
 ### beacon key
 

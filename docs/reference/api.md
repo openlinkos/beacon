@@ -51,7 +51,7 @@ A credential carries one or more scopes. The first thirteen are for people and a
 | `secrets:admin` | Changing the system settings the secrets work runs by ([below](#settings)), and reading them; every change is versioned, audited and echoed to the chat. An owner's by default |
 | `secrets:describe` | Seeing what the caller's entitlements reach: the items' summaries, field names, the approval a request would need. The `readonly` preset's, so a viewer's agents have it |
 | `secrets:read` | Taking a value the caller holds a grant for (`get_secret`), every use with its reason. The `oncall` preset adds it |
-| `secrets:use` | Asking for grants (`request_secret`), renewing and releasing them. The `oncall` preset adds it |
+| `secrets:use` | Asking for grants (`request_secret`), renewing and releasing them, and the use paths (`run_command`'s `secrets`, `http_request`, `beacon run`). The `oncall` preset adds it |
 | `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
@@ -109,7 +109,7 @@ An agent may use a scope when its preset gives it and its owner's role does too,
 | `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
-| `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
+| `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr. `secrets` injects `beacon://` values as the command's environment (`secrets:use`; each item must be bound to the machine); the output, recording and transcript are scrubbed |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | Write a whole file, at most 1 MiB, making its directory if needed |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | Replace an exact string, once or everywhere (`old_string`, `new_string`, `replace_all`); refused if the file changed since it was read |
@@ -226,6 +226,8 @@ Agents reach items through grants: what an **entitlement** covers they may ask f
 | `GET /api/v1/secrets/agents/{name}/scope` | the agent's owner, an admin | What the agent can reach (by the approval each item needs) and holds |
 | `POST /api/v1/secrets/agents/{name}/templates` | the agent's owner, an admin | Hand the agent the template entitlements named |
 | `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | Lift an anomaly rule's suspension of the agent |
+| `POST /api/v1/secrets/use` | `secrets:use` | An agent resolves `beacon://` references (`refs`, `reason`) through its use grants and receives the values for a local process (`beacon run`). Agents that must not see a value use `run_command`'s `secrets` or `http_request` |
+| `POST /api/v1/secrets/http-request` | `secrets:use` | Beacon fills `secret.beacon://` placeholders and sends HTTPS to a host the item is bound to (`method`, `url`, `headers`, `body`, `reason`); private addresses are `secrets.private_address` unless `http.allow_private`; the answer comes back scrubbed |
 
 ## Status pages and maintenance
 
@@ -349,6 +351,9 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `secrets.bad_input` | 400 | The request is not what the route takes; the message says which |
 | `secrets.crypto` | 500 | The ciphertext does not authenticate under its key — the row is not what it claims to be |
 | `secrets.no_grant` | 403 | No live grant covers this ask; `request_secret` asks for one |
+| `secrets.not_bound` | 403 | The item is not bound to this machine or host |
+| `secrets.private_address` | 403 | `http_request` refuses a private address (`http.allow_private`) |
+| `secrets.redirect` | 400 | The redirect leaves where `http.follow_redirects` allows |
 | `secrets.throttled` | 429 | The agent passed `rate.per_agent_per_minute` and the setting says throttle |
 | `secrets.suspended` | 403 | An anomaly rule suspended the agent's grants; an operator lifts it |
 | `secrets.self_approval` | 403 | The requester cannot review its own request |

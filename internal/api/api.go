@@ -255,7 +255,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/machines", s.with("status:read|machines:ssh", s.listMachines))
 	mux.Handle("POST /api/v1/machines", s.with("machines:write", s.addMachine))
 	mux.Handle("DELETE /api/v1/machines/{name}", s.with("machines:write", s.removeMachine))
-	mux.Handle("POST /api/v1/machines/{name}/run", s.with("machines:ssh", s.runCommand))
+	mux.Handle("POST /api/v1/machines/{name}/run", s.withPrincipal("machines:ssh", s.runCommand))
 	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
 	mux.Handle("PUT /api/v1/machines/{name}/file", s.with("machines:ssh", s.writeFile))
 	mux.Handle("PATCH /api/v1/machines/{name}/file", s.with("machines:ssh", s.editFile))

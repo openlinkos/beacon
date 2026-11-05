@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-691f0cbf
+sourceHash: sha256-6adf5677
 ---
 
 # REST API
@@ -55,7 +55,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `secrets:admin` | 修改密钥托管所依赖的系统设置（[见下](#settings)），也能读取；每次修改都有版本、有审计、有群内回声。默认只有所有者有 |
 | `secrets:describe` | 看到自己的资格能触及什么：条目概要、字段名、申请要过的审批。`readonly` 预设自带，viewer 的 Agent 因此有它 |
 | `secrets:read` | 取自己持有授权的值（`get_secret`），每次取用都带原因。`oncall` 预设增加 |
-| `secrets:use` | 申请授权（`request_secret`）、续期与释放。`oncall` 预设增加 |
+| `secrets:use` | 申请授权（`request_secret`）、续期与释放，以及使用路径（`run_command` 的 `secrets`、`http_request`、`beacon run`）。`oncall` 预设增加 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
@@ -113,7 +113,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 | `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置 |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
-| `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
+| `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr。`secrets` 把 `beacon://` 的值注入为命令的环境变量（`secrets:use`；条目必须绑定到这台机器）；输出、录像和转录都会打码 |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | 文本文件的若干行，带行号（`path`、`offset`、`limit`：默认 2000 行） |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | 写入整个文件，最多 1 MiB，需要时创建目录 |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | 替换一段完全一致的文本，一处或全部（`old_string`、`new_string`、`replace_all`）；读取之后文件变过则拒绝 |
@@ -230,6 +230,8 @@ Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它�
 | `GET /api/v1/secrets/agents/{name}/scope` | Agent 的所有者、管理员 | 这个 Agent 能触及什么（按审批级别分）、持有什么 |
 | `POST /api/v1/secrets/agents/{name}/templates` | Agent 的所有者、管理员 | 把勾选的资格模板交给这个 Agent |
 | `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | 解除异常规则对该 Agent 的暂停 |
+| `POST /api/v1/secrets/use` | `secrets:use` | Agent 按 `beacon://` 引用取值（`refs`、`reason`），用于本地进程（`beacon run`）。不应看见值的 Agent 用 `run_command` 的 `secrets` 或 `http_request` |
+| `POST /api/v1/secrets/http-request` | `secrets:use` | Beacon 填入 `secret.beacon://` 占位，向条目绑定的主机发 HTTPS（`method`、`url`、`headers`、`body`、`reason`）；私网地址是 `secrets.private_address`，除非 `http.allow_private`；回答打码后返回 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
@@ -353,6 +355,9 @@ Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它�
 | `secrets.bad_input` | 400 | 请求不是路由要的形状；消息说明是哪里 |
 | `secrets.crypto` | 500 | 密文在该密钥下验证不过——这一行不是它自称的那一行 |
 | `secrets.no_grant` | 403 | 没有生效中的授权覆盖这次取用；`request_secret` 可以申请 |
+| `secrets.not_bound` | 403 | 条目没有绑定到这台机器或这个主机 |
+| `secrets.private_address` | 403 | `http_request` 拒绝私网地址（`http.allow_private`） |
+| `secrets.redirect` | 400 | 重定向离开了 `http.follow_redirects` 允许的范围 |
 | `secrets.throttled` | 429 | Agent 超过 `rate.per_agent_per_minute`，且设置说限流 |
 | `secrets.suspended` | 403 | 异常规则暂停了该 Agent 的授权；由运维解除 |
 | `secrets.self_approval` | 403 | 申请人不能审自己的申请 |

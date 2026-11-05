@@ -107,6 +107,12 @@ type Deps struct {
 	// ReviewAgent tells whether the named agent may decide requests as a review agent
 	// (the secrets:review scope); nil: nobody does.
 	ReviewAgent func(agent string) bool
+	// Deliver writes a declared file to a machine, as the owner and with the mode given (the SSH
+	// channel's writer); nil: nothing is delivered, the state and the log say so.
+	Deliver FileDeliverer
+	// Maintenance says whether a maintenance window is on, for file.on_change's next_window; nil:
+	// no window ever is, and the delivery waits for one until the setting changes.
+	Maintenance func() bool
 }
 
 // Service is the vault: the collections with their keys, the items with their versions, the tags
@@ -355,7 +361,16 @@ type signedItem struct {
 func (i Item) signedParts() []string {
 	return []string{kindItem, i.ID, i.Collection, i.Title, i.Category, strings.Join(i.URLs, "\x01"), strings.Join(i.Tags, "\x01"),
 		i.Level, strings.Join(i.Actions, "\x01"), i.State, i64(i.Version), i.Source, i64(int64(i.RotateDays)),
-		strings.Join(i.Machines, "\x01"), strings.Join(i.Hosts, "\x01"), i.CreatedBy, i64(i.Created.UnixNano())}
+		strings.Join(i.Machines, "\x01"), strings.Join(i.Hosts, "\x01"), filesKey(i.Files), i.CreatedBy, i64(i.Created.UnixNano())}
+}
+
+// filesKey is the files of an item as one signed string.
+func filesKey(files []ItemFile) string {
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
+		parts = append(parts, strings.Join([]string{f.Machine, f.Path, f.Field, f.Owner, f.Mode}, "\x02"))
+	}
+	return strings.Join(parts, "\x01")
 }
 
 // signedTag is a tag row as stored, with its signature.

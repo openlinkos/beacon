@@ -328,6 +328,23 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 				Preview: v.PreviewForAgent(in.Agent), Grants: v.GrantsOf(in.Agent), Tags: v.TagsOfAgent(in.Agent),
 				Templates: v.TemplateEntitlements()}, nil
 		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "http_request", Title: "HTTP request with secrets",
+		Description: "Send an HTTPS request with {{secret.beacon://…}} placeholders filled from the agent's use grants. " +
+			"Only hosts the item is bound to; private addresses are refused unless http.allow_private says otherwise; " +
+			"the answer (status, headers, body) comes back scrubbed of the values. The agent never sees a value.",
+	},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in secrets.HTTPRequestIn) (*mcp.CallToolResult, secrets.HTTPResponse, error) {
+			p, err := agentPrincipal(ctx)
+			if err != nil {
+				return nil, secrets.HTTPResponse{}, err
+			}
+			if !p.Has("secrets:use") {
+				return nil, secrets.HTTPResponse{}, errors.New(api.ScopeProblem(p, "secrets:use"))
+			}
+			out, err := v.HTTPRequest(p.Agent, "mcp", in, "", "mcp")
+			return nil, out, err
+		})
 }
 
 // the tools' answer shapes

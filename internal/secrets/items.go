@@ -48,6 +48,7 @@ type ItemIn struct {
 	RotateDays  int            `json:"rotate_days,omitempty"`
 	Machines    []string       `json:"machines,omitempty"`
 	Hosts       []string       `json:"hosts,omitempty"`
+	Files       []ItemFile     `json:"files,omitempty"`
 	Fields      []FieldIn      `json:"fields,omitempty"`
 	Notes       string         `json:"notes,omitempty"`
 	HasNotes    bool           `json:"has_notes,omitempty"`
@@ -203,6 +204,14 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		if len(in.Hosts) > 0 {
 			item.Hosts = compact(in.Hosts)
 		}
+		if len(in.Files) > 0 {
+			// the files the value is delivered as; the whole list is replaced, for a file left out
+			// is a delivery no longer wanted
+			if err := checkFiles(in.Files); err != nil {
+				return err
+			}
+			item.Files = in.Files
+		}
 		// fold the caller's fields and notes into the details
 		for _, f := range in.Fields {
 			typ := f.Type
@@ -323,6 +332,10 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 	}
 	if valueChanged {
 		s.notifyItemChanged(out, before.Version)
+	}
+	if len(out.Files) > 0 {
+		// a new item's files go out at once; a changed value's as file.on_change says
+		s.deliverFiles(out, col)
 	}
 	return out, nil
 }

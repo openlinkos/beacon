@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/secrets"
 )
@@ -47,6 +48,8 @@ type Vault interface {
 	DeleteTag(who secrets.Actor, name string) error
 	Search(who secrets.Actor, query, collection string, tags []string) []secrets.SearchResult
 	EffectiveLevel(item secrets.Item) string
+	UseForProcess(agentName, via string, refs map[string]string, reason, ip, client string) (map[string]string, error)
+	RequestSecret(agentName, via string, in secrets.RequestIn) (secrets.RequestOutcome, error)
 }
 
 // VaultHandler serves the vault's routes under /v1/secrets/, beside Handler.
@@ -65,8 +68,15 @@ func VaultHandler(v Vault) http.Handler {
 			code = http.StatusNotFound
 		case errors.Is(err, secrets.ErrExists), errors.Is(err, secrets.ErrConflict), errors.Is(err, secrets.ErrHead):
 			code = http.StatusConflict
-		case errors.Is(err, secrets.ErrInvalid), errors.Is(err, secrets.ErrBadInput):
+		case errors.Is(err, secrets.ErrInvalid), errors.Is(err, secrets.ErrBadInput), errors.Is(err, secrets.ErrRedirect):
 			code = http.StatusBadRequest
+		case errors.Is(err, secrets.ErrNotBound), errors.Is(err, secrets.ErrNoGrant),
+			errors.Is(err, secrets.ErrSuspendedAgent), errors.Is(err, secrets.ErrPrivateAddress):
+			code = http.StatusForbidden
+		}
+		var ng *secrets.NoGrantsError
+		if errors.As(err, &ng) {
+			code = http.StatusForbidden
 		}
 		fail(w, code, err)
 	}
@@ -391,6 +401,53 @@ func VaultHandler(v Vault) http.Handler {
 			Results []secrets.SearchResult `json:"results"`
 		}{Results: v.Search(who, r.URL.Query().Get("q"), r.URL.Query().Get("collection"), r.URL.Query()["tag"])})
 	})
+	mux.HandleFunc("POST /v1/secrets/use", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Agent  string            `json:"agent"`
+			Refs   map[string]string `json:"refs"`
+			Reason string            `json:"reason"`
+			Wait   string            `json:"wait,omitempty"`
+		}
+		if !readBody(w, r, &in) {
+			return
+		}
+		if in.Agent == "" {
+			fail(w, http.StatusBadRequest, errors.New("name the agent: -agent NAME"))
+			return
+		}
+		values, err := v.UseForProcess(in.Agent, "cli", in.Refs, in.Reason, "", "cli")
+		var ng *secrets.NoGrantsError
+		if errors.As(err, &ng) && in.Wait != "" {
+			d, perr := time.ParseDuration(in.Wait)
+			if perr != nil {
+				fail(w, http.StatusBadRequest, perr)
+				return
+			}
+			var items []string
+			for _, ref := range ng.Refs {
+				if parsed, perr := secrets.ParseRef(ref); perr == nil {
+					items = append(items, parsed.Collection+"/"+parsed.Item)
+				} else {
+					items = append(items, ref)
+				}
+			}
+			if _, rerr := v.RequestSecret(in.Agent, "cli", secrets.RequestIn{
+				Items: items, Action: secrets.ActUse, Reason: in.Reason, Wait: d,
+			}); rerr != nil {
+				failVault(w, rerr)
+				return
+			}
+			values, err = v.UseForProcess(in.Agent, "cli", in.Refs, in.Reason, "", "cli")
+		}
+		if err != nil {
+			failVault(w, err)
+			return
+		}
+		if values == nil {
+			values = map[string]string{}
+		}
+		writeJSON(w, http.StatusOK, values)
+	})
 	return mux
 }
 
@@ -572,4 +629,16 @@ func (c *Client) VaultSearch(ctx context.Context, user, query, collection string
 		url += "&tag=" + t
 	}
 	return out.Results, c.do(ctx, "GET", url, nil, &out)
+}
+
+// VaultUse resolves beacon:// references for a local process, as `beacon run` does. Wait is a
+// Go duration; when a grant is missing the socket asks and waits that long, then tries again.
+func (c *Client) VaultUse(ctx context.Context, agent string, refs map[string]string, reason, wait string) (map[string]string, error) {
+	var out map[string]string
+	return out, c.do(ctx, "POST", "/v1/secrets/use", struct {
+		Agent  string            `json:"agent"`
+		Refs   map[string]string `json:"refs"`
+		Reason string            `json:"reason"`
+		Wait   string            `json:"wait,omitempty"`
+	}{Agent: agent, Refs: refs, Reason: reason, Wait: wait}, &out)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/secrets"
+	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -52,6 +53,15 @@ func reviewAgentOf(st *store.Store) func(string) bool {
 		p, ok := st.Principal("agent:" + agent)
 		return ok && p.Has("secrets:review")
 	}
+}
+
+// gateDeliver adapts the SSH channel's DeliverFile (which answers with a session id) to the
+// vault's FileDeliverer (which wants only an error).
+type gateDeliver struct{ g *sshgate.Gate }
+
+func (d gateDeliver) DeliverFile(ctx context.Context, machine, path, content, owner, mode string) error {
+	_, err := d.g.DeliverFile(ctx, machine, path, content, owner, mode)
+	return err
 }
 
 // grantsDepsOf gathers the vault's grants dependencies the configuration and the store give.

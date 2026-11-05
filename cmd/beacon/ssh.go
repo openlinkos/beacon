@@ -20,6 +20,7 @@ import (
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
@@ -57,7 +58,7 @@ func shellCommands(gate *sshgate.Gate) func(string) []bridge.ShellCommand {
 
 // newGate builds the SSH channel when the configuration turns it on; nil otherwise. pages builds the
 // links to sessions' replays for the chat.
-func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *link.Pages, m *metrics.Metrics, log *slog.Logger) (*sshgate.Gate, error) {
+func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *link.Pages, m *metrics.Metrics, log *slog.Logger, vault *secrets.Service) (*sshgate.Gate, error) {
 	if cfg.SSH.CAKeyFile == "" {
 		return nil, nil
 	}
@@ -69,9 +70,13 @@ func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *lin
 	if cfg.Language == "en" {
 		lang = i18n.EN
 	}
-	return sshgate.New(sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
+	d := sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
 		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log,
-		PublicAddress: cfg.SSH.PublicAddress, Pages: pages})
+		PublicAddress: cfg.SSH.PublicAddress, Pages: pages}
+	if vault != nil {
+		d.Scrub = vault.MachineScrubber
+	}
+	return sshgate.New(d)
 }
 
 // keyArg is a public key given on the command line, or @FILE to read it from a file.

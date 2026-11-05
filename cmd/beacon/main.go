@@ -78,6 +78,8 @@ func usage(w io.Writer) {
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
   beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags|rebuild-head
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
+  beacon run -agent NAME -reason TEXT [--env-file FILE] [--wait DURATION] -- CMD [ARG...]
+                                              inject beacon:// references into a child process (the values never print)
   beacon key status|init|unseal|seal|rotate   the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
@@ -140,6 +142,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return settingsCmd(args[1:], stdout, stderr)
 	case "secret":
 		return secretCmd(args[1:], stdout, stderr)
+	case "run":
+		return runSecretCmd(args[1:], stdout, stderr)
 	case "key":
 		return keyCmd(args[1:], stdout, stderr)
 	case "token":
@@ -423,7 +427,7 @@ func serve(args []string, stderr io.Writer) int {
 		deps.ProbeNow = board
 	}
 	deps.Secrets = vault // the Feishu cards' secret buttons decide through the vault
-	gate, err := newGate(cfg, st, deps.Bot, pages, m, log)
+	gate, err := newGate(cfg, st, deps.Bot, pages, m, log, vault)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
@@ -432,6 +436,9 @@ func serve(args []string, stderr io.Writer) int {
 		deps.ShellCommands = shellCommands(gate)
 		deps.SSHConfig = sshConfig(gate, cfg.SSH.PublicAddress)
 		deps.Recheck = gate.Recheck
+		if vault != nil {
+			vault.SetUseDeps(secrets.UseDeps{Deliver: gateDeliver{g: gate}})
+		}
 	}
 	br = bridge.New(deps)
 	announceSetup(br, st, log) // before the admin socket opens, so that beacon setup comes after it
