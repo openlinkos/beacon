@@ -85,7 +85,7 @@ func (l *safeLog) WithGroup(string) slog.Handler      { return l }
 // newCollection makes a collection and returns its name.
 func newCollection(t *testing.T, s *Service, name string) Collection {
 	t.Helper()
-	col, err := s.CreateCollection(owner, name, "", LevelReview)
+	col, err := s.CreateCollection(owner, name, "", LevelReview, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestEffectiveLevel(t *testing.T) {
 	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
 	col := newCollection(t, s, "Infra") // review
 	var err error
-	if _, err := s.SetTag(owner, "env/prod", LevelPerson, "production is personal"); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelPerson, "production is personal", nil); err != nil {
 		t.Fatal(err)
 	}
 	item := putItem(t, s, col.Name, "", "password", fixturePassword)
@@ -624,7 +624,7 @@ func TestEffectiveLevel(t *testing.T) {
 		t.Fatalf("the item's own override wins, got %s", got)
 	}
 	// the strictest of several tags
-	if _, err := s.SetTag(owner, "kind/personal", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "kind/personal", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if item, err = s.SetItem(owner, ItemIn{ID: item.ID, Collection: col.Name, Level: "-", Tags: []string{"env/prod", "kind/personal"}}); err != nil {
@@ -921,7 +921,7 @@ func TestSealedVaultRefusesKeyWork(t *testing.T) {
 	if err := s.Seal(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateCollection(owner, "Another", "", LevelAuto); !errors.Is(err, ErrSealed) {
+	if _, err := s.CreateCollection(owner, "Another", "", LevelAuto, nil); !errors.Is(err, ErrSealed) {
 		t.Fatalf("a sealed vault makes no collections, got %v", err)
 	}
 	if _, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Nope", Fields: []FieldIn{{Name: "password", Value: "x"}}}); !errors.Is(err, ErrSealed) {
