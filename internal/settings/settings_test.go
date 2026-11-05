@@ -156,8 +156,10 @@ func TestSetChecks(t *testing.T) {
 		{ScopeSystem, "", "no.such.key", `1`, ErrUnknown},
 		{ScopeSystem, "Infra", "request.max_uses", `5`, ErrBadInput},
 		{ScopeCollection, "", "request.max_uses", `5`, ErrBadInput},
-		{ScopeCollection, "Infra", "request.max_uses", `5`, nil},
-		{ScopeCollection, "infra", "request.max_uses", `5`, nil},
+		{ScopeCollection, "Infra", "request.max_uses", `5`, ErrBadInput},
+		{ScopeCollection, "infra", "request.max_uses", `5`, ErrBadInput},
+		{ScopeCollection, "Infra Team", "request.max_uses", `5`, ErrBadInput},
+		{ScopeCollection, "0123456789abcdef", "request.max_uses", `5`, nil},
 		{ScopeTag, "env/prod", "request.max_uses", `5`, nil},
 		{ScopeEntitlement, "oncall-dns", "request.max_uses", `5`, nil},
 		{ScopeRequest, "r-1234", "request.max_uses", `5`, nil},
@@ -637,11 +639,55 @@ func TestDurationUnlimitedIsNotZero(t *testing.T) {
 
 func TestRetentionAndImportStayAtSystem(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.s.Set(ctx, api, ScopeCollection, "infra", "retention.trash", raw(`"7d"`), why, 0); err == nil {
+	if _, err := e.s.Set(ctx, api, ScopeCollection, "0123456789abcdef", "retention.trash", raw(`"7d"`), why, 0); err == nil {
 		t.Fatal("retention is system-only")
 	}
 	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "backup.retries", raw("1"), why, 0); err == nil {
 		t.Fatal("backup is system-only")
+	}
+}
+
+func TestDangerousKeysStayAtSystemOrCollection(t *testing.T) {
+	e := newEnv(t)
+	col := "0123456789abcdef"
+	for _, key := range []string{"otp.seed_to_agents", "http.allow_private", "review.chain"} {
+		val := raw("true")
+		if key == "review.chain" {
+			val = raw(`["rules"]`)
+		}
+		if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", key, val, why, 0); err == nil {
+			t.Fatalf("entitlement must not set %s", key)
+		}
+		if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", key, val, why, 0); err == nil {
+			t.Fatalf("a tag must not set %s", key)
+		}
+		if _, err := e.s.Set(ctx, api, ScopeRequest, "r-1", key, val, why, 0); err == nil {
+			t.Fatalf("a request must not set %s", key)
+		}
+		if _, err := e.s.Set(ctx, api, ScopeCollection, col, key, val, why, 0); err != nil {
+			t.Fatalf("collection may set %s: %v", key, err)
+		}
+		if _, err := e.s.Set(ctx, api, ScopeSystem, "", key, val, why, 0); err != nil {
+			t.Fatalf("system may set %s: %v", key, err)
+		}
+	}
+}
+
+func TestBoundsRefuseProtectionOff(t *testing.T) {
+	e := newEnv(t)
+	for _, tc := range []struct{ key, value string }{
+		{"retention.uses", `"1s"`},
+		{"retention.requests", `"1s"`},
+		{"retention.trash", `"1s"`},
+		{"retention.item_versions", `{"keep":"0s","min_versions":10}`},
+		{"retention.item_versions", `{"keep":"365d","min_versions":0}`},
+		{"storage.lease.renew", `"1ns"`},
+		{"audit.checkpoint_interval", `"1ns"`},
+		{"request.reason_min_length", "1000000000"},
+	} {
+		if _, err := e.s.Set(ctx, api, ScopeSystem, "", tc.key, raw(tc.value), why, 0); err == nil {
+			t.Errorf("%s %s should not fit", tc.key, tc.value)
+		}
 	}
 }
 

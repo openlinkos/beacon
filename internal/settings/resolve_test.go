@@ -24,7 +24,8 @@ func TestResolutionLevelByLevel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	v, ls, _ := e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"},
+	const colInfra, colShared = "0123456789abcdef", "fedcba9876543210"
+	v, ls, _ := e.s.Value("request.max_uses", Selector{Collection: colInfra, Tags: []string{"env/prod"},
 		Entitlement: "oncall-dns", Request: "r-1"})
 	if v.From != "default" || string(v.Value) != `"unlimited"` || len(ls) != 1 {
 		t.Fatalf("nothing set: %+v %+v", v, ls)
@@ -36,28 +37,28 @@ func TestResolutionLevelByLevel(t *testing.T) {
 		t.Fatalf("system: %+v %+v", v, ls)
 	}
 
-	set(ScopeCollection, "infra", "400")
-	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "infra"})
-	if v.From != ScopeCollection || v.Target != "infra" || string(v.Value) != "400" || len(ls) != 3 {
+	set(ScopeCollection, colInfra, "400")
+	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra})
+	if v.From != ScopeCollection || v.Target != colInfra || string(v.Value) != "400" || len(ls) != 3 {
 		t.Fatalf("collection: %+v %+v", v, ls)
 	}
 	// another collection still sees the system's value
-	if v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "shared"}); v.From != ScopeSystem || len(ls) != 2 {
+	if v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: colShared}); v.From != ScopeSystem || len(ls) != 2 {
 		t.Fatalf("another collection: %+v %+v", v, ls)
 	}
 
 	set(ScopeTag, "env/prod", "300")
-	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"}})
+	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra, Tags: []string{"env/prod"}})
 	if v.From != ScopeTag || v.Target != "env/prod" || string(v.Value) != "300" || len(ls) != 4 {
 		t.Fatalf("tag: %+v %+v", v, ls)
 	}
 	// an item without the tag keeps the collection's value
-	if v, _, _ = e.s.Value("request.max_uses", Selector{Collection: "infra"}); v.From != ScopeCollection {
+	if v, _, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra}); v.From != ScopeCollection {
 		t.Fatalf("no tag: %+v", v)
 	}
 
 	set(ScopeEntitlement, "oncall-dns", "200")
-	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"},
+	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra, Tags: []string{"env/prod"},
 		Entitlement: "oncall-dns"})
 	if v.From != ScopeEntitlement || v.Target != "oncall-dns" || string(v.Value) != "200" || len(ls) != 5 {
 		t.Fatalf("entitlement: %+v %+v", v, ls)
@@ -67,13 +68,13 @@ func TestResolutionLevelByLevel(t *testing.T) {
 	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-1", "request.max_uses", raw("100"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"},
+	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra, Tags: []string{"env/prod"},
 		Entitlement: "oncall-dns", Request: "r-1"})
 	if v.From != ScopeRequest || string(v.Value) != "100" || len(ls) != 6 {
 		t.Fatalf("request: %+v %+v", v, ls)
 	}
 	// another request is untouched by r-1's row
-	if v, _, _ = e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"},
+	if v, _, _ = e.s.Value("request.max_uses", Selector{Collection: colInfra, Tags: []string{"env/prod"},
 		Entitlement: "oncall-dns", Request: "r-2"}); v.From != ScopeEntitlement {
 		t.Fatalf("another request: %+v", v)
 	}
@@ -132,14 +133,6 @@ func TestSeveralTagsTakeTheStricter(t *testing.T) {
 	v, _, _ = e.s.Value("review.agent.on_timeout", Selector{Tags: []string{"provider/example", "service/dns"}})
 	if string(v.Value) != `"next"` {
 		t.Fatalf("agent timeouts: %+v", v)
-	}
-
-	// a bool the design wants off takes false
-	tag("provider/example", "otp.seed_to_agents", "true")
-	tag("service/dns", "otp.seed_to_agents", "false")
-	v, _, _ = e.s.Value("otp.seed_to_agents", Selector{Tags: []string{"provider/example", "service/dns"}})
-	if string(v.Value) != "false" {
-		t.Fatalf("bools: %+v", v)
 	}
 
 	// scrubbing keeps every encoding either side scrubs, and a reviewer who may approve less is

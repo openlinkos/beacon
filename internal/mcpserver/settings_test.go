@@ -93,6 +93,30 @@ func TestConfigToolsSettingsKind(t *testing.T) {
 	}
 }
 
+// kind settings with a version that is not a settings change must error, even when that number
+// is a catalogue change — it must not fall through and revert the catalogue.
+func TestRevertSettingsMissingVersionDoesNotFallThrough(t *testing.T) {
+	e, _, url := setupSettings(t)
+	admin := connect(t, url, e.Token(t, "claude-code", "secrets:admin", "config:write"))
+	if res, text := call(t, admin, "put_config", map[string]any{"kind": "locations", "key": "edge-1", "note": "a catalogue node",
+		"value": map[string]any{"name": "United States - Los Angeles", "region": "overseas", "probe": map[string]any{"timeout": "30s"}}}); res.IsError {
+		t.Fatalf("catalogue change: %s", text)
+	}
+	if res, text := call(t, admin, "put_config", map[string]any{"kind": "settings", "key": "request.max_uses", "value": 50, "note": "tighter while testing"}); res.IsError {
+		t.Fatalf("settings change: %s", text)
+	}
+	if res, text := call(t, admin, "put_config", map[string]any{"kind": "locations", "key": "edge-2", "note": "another node",
+		"value": map[string]any{"name": "United States - New York", "region": "overseas", "probe": map[string]any{"timeout": "30s"}}}); res.IsError {
+		t.Fatalf("second catalogue change: %s", text)
+	}
+	if res, text := call(t, admin, "get_config_change", map[string]any{"kind": "settings", "version": 2}); !res.IsError || !strings.Contains(text, "settings") {
+		t.Fatalf("get_config_change kind settings of a missing version: %s", text)
+	}
+	if res, text := call(t, admin, "revert_config_change", map[string]any{"kind": "settings", "version": 2, "note": "must not touch the catalogue"}); !res.IsError || !strings.Contains(text, "settings") {
+		t.Fatalf("revert kind settings of a missing version must not fall through: %s", text)
+	}
+}
+
 // Without the settings option the tools answer as they always did: the settings kind is refused.
 func TestConfigToolsWithoutSettings(t *testing.T) {
 	e := testutil.New(t)

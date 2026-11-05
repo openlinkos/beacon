@@ -73,7 +73,7 @@ func TestDefaultsMatchThePlan(t *testing.T) {
 		"import.levels.by_source": `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`, // 1Password Personal and Private -> person; Chrome -> person; every other vault -> review
 		"import.levels.by_category": `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never",` +
 			`"social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`, // the identity and finance categories -> never
-		"import.on_conflict":   `"ask"`,    // ask
+		"import.on_conflict":   `"skip"`,   // skip
 		"attachments.max_size": `10485760`, // 10 MB
 
 		// ---- Backup (§11): schedule, retention, checks, retries, failure, heartbeat, pg_dump
@@ -214,7 +214,15 @@ func TestValuesAreChecked(t *testing.T) {
 		{"retention.audit", `"1h"`},
 		{"backup.retention.hourly", `0`},
 		{"storage.lease.renew", `"0s"`},
+		{"storage.lease.renew", `"1ns"`},
+		{"audit.checkpoint_interval", `"1ns"`},
+		{"retention.uses", `"1s"`},
+		{"retention.requests", `"1s"`},
+		{"retention.trash", `"1s"`},
 		{"retention.item_versions", `{"keep": "365d"}`},
+		{"retention.item_versions", `{"keep":"0s","min_versions":10}`},
+		{"retention.item_versions", `{"keep":"365d","min_versions":0}`},
+		{"request.reason_min_length", `1000000000`},
 		{"audit.export", `"email"`},
 		{"import.levels.by_source", `{"chrome": "sometimes"}`},
 		{"attachments.max_size", `"10 MB"`},

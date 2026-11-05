@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-35692041
+sourceHash: sha256-96fdafb0
 ---
 
 # 命令行
@@ -52,7 +52,7 @@ docker exec beacon beacon token list
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
 | `get` [KEY] | | 全部设置项的值、默认值、覆盖层级与谁改的，随后是其他作用域的覆盖；带 KEY 时只看这一项及其生效情况 |
-| `set` KEY VALUE | `-scope`、`-target`、`-reason` | 修改一个设置项。`-reason` 写明原因，随修改保存并显示在告警群；`-scope`（默认 `system`）与 `-target` 把值放到库、标签、资格或申请上 |
+| `set` KEY VALUE | `-scope`、`-target`、`-reason` | 修改一个设置项。`-reason` 写明原因，随修改保存并显示在告警群；`-scope`（默认 `system`）与 `-target` 把值放到库（库的 16 位十六进制 id）、标签、资格或申请上 |
 | `reset` KEY | `-scope`、`-target`、`-reason` | 去掉这层覆盖，由上一级（或默认值）重新生效 |
 | `history` | `-limit` | 修改历史：版本、时间、谁、途径、动作、设置项、备注 |
 | `revert` VERSION | `-note` | 回到 `history` 里的一个版本 |

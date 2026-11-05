@@ -152,10 +152,10 @@ func revertSettingIfSettings(ctx context.Context, svc *settings.Service, in reve
 		return nil, false, nil
 	}
 	if _, err := need(ctx, "secrets:admin"); err != nil {
-		return nil, false, nil //nolint:nilerr // not a settings caller: the configuration's own path answers
+		return nil, true, err
 	}
 	if _, ok := svc.ChangeAt(in.Version); !ok {
-		return nil, false, nil
+		return nil, true, fmt.Errorf("no settings change at version %d", in.Version)
 	}
 	who, err := settingsActor(ctx)
 	if err != nil {

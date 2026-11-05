@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7c07ae87
+sourceHash: sha256-b9bfcc05
 ---
 
 # REST API
@@ -160,8 +160,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |
 | `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（按登记的故障保护值生效，不会退回更松的默认值） |
-| `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
-| `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
+| `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`（库的 16 位十六进制 id）、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
+| `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。库级覆盖的 `target` 是库的 16 位十六进制 id。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
 | `DELETE /api/v1/settings/{key}` | `secrets:admin` | 重置一个设置项，由上一级重新生效（该行删除）；`?scope=`、`?target=`、`?reason=`、`?if_version=` |
 | `GET /api/v1/settings/history` | `status:read` 或 `secrets:admin` | 修改历史，最新在前（`key`、`scope`、`target`、`before` 某版本、`limit` 至多 200） |
 | `GET /api/v1/settings/history/{version}` | `status:read` 或 `secrets:admin` | 一次修改，含改前与改后的值 |

@@ -42,8 +42,9 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// The scopes a value may sit at, least specific first. Collection, tag and entitlement name their
-// target (a collection's name, a tag's name, an entitlement's name); request names the request.
+// The scopes a value may sit at, least specific first. Collection names its target by the
+// collection's 16-hex ID (so a deleted collection's overlay does not attach to a new one of the
+// same name); tag and entitlement name theirs by name; request names the request.
 const (
 	ScopeSystem      = "system"
 	ScopeCollection  = "collection"
@@ -669,10 +670,10 @@ func versionKeyBytes(v int64) []byte {
 	return b[:]
 }
 
-// nameRe is what a scope's target may be called: the design's names are lower-case, layered with
-// slashes for tags. Collections, entitlements and requests are named by whoever makes them (W5,
-// W7); they are checked there, against what exists — here only the shape is checked.
+// nameRe is what a tag, entitlement or request target may be called: letters, digits, and the
+// separators the design uses. A collection overlay sits on the collection's 16-hex ID.
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
+var collectionIDRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 func checkScopeTarget(scope, target string) error {
 	if _, ok := levels[scope]; !ok {
@@ -681,13 +682,20 @@ func checkScopeTarget(scope, target string) error {
 	if scope == ScopeSystem && target != "" {
 		return fmt.Errorf("%w: the system scope has no target", ErrBadInput)
 	}
-	if scope != ScopeSystem {
-		if target == "" {
-			return fmt.Errorf("%w: the %s scope names what it applies to", ErrBadInput, scope)
+	if scope == ScopeSystem {
+		return nil
+	}
+	if target == "" {
+		return fmt.Errorf("%w: the %s scope names what it applies to", ErrBadInput, scope)
+	}
+	if scope == ScopeCollection {
+		if !collectionIDRe.MatchString(target) {
+			return fmt.Errorf("%w: a collection overlay names the collection by its 16-hex id", ErrBadInput)
 		}
-		if len(target) > 128 || !nameRe.MatchString(target) {
-			return fmt.Errorf("%w: %q is not a name a setting may sit on", ErrBadInput, target)
-		}
+		return nil
+	}
+	if len(target) > 128 || !nameRe.MatchString(target) {
+		return fmt.Errorf("%w: %q is not a name a setting may sit on", ErrBadInput, target)
 	}
 	return nil
 }
@@ -897,6 +905,9 @@ func checkKeyScope(key, scope string) error {
 	if systemOnly[def.Group] && scope != ScopeSystem {
 		return fmt.Errorf("%w: %s is set only at the system level", ErrBadInput, key)
 	}
+	if systemOrCollection[key] && scope != ScopeSystem && scope != ScopeCollection {
+		return fmt.Errorf("%w: %s is set only at the system or collection level", ErrBadInput, key)
+	}
 	return nil
 }
 
@@ -909,4 +920,12 @@ var requestMaySet = map[string]bool{
 
 var systemOnly = map[string]bool{
 	"retention": true, "backup": true, "storage": true, "import": true,
+}
+
+// systemOrCollection are the keys that widen access if a tag, entitlement or request could set
+// them: the OTP seed, private HTTP, and the review chain. Only system and collection may.
+var systemOrCollection = map[string]bool{
+	"otp.seed_to_agents": true,
+	"http.allow_private": true,
+	"review.chain":       true,
 }

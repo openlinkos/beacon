@@ -48,7 +48,7 @@ The `settings` command reads and changes the system settings the secrets work ru
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
 | `get` [KEY] | | Every setting with its value, default, where the value was overridden and who changed it, then the other scopes' overrides; with KEY, that one and where its value stands |
-| `set` KEY VALUE | `-scope`, `-target`, `-reason` | Change one setting. `-reason` says why, kept with the change and shown in the alert chat; `-scope` (default `system`) and `-target` put the value at a collection, tag, entitlement or request |
+| `set` KEY VALUE | `-scope`, `-target`, `-reason` | Change one setting. `-reason` says why, kept with the change and shown in the alert chat; `-scope` (default `system`) and `-target` put the value at a collection (the collection's 16-hex id), tag, entitlement or request |
 | `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
 | `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
 | `revert` VERSION | `-note` | Go back to a version from `history` |

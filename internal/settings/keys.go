@@ -63,9 +63,19 @@ func (d *Definition) canonical(v json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	if d.Key == "retention.audit" {
+	switch d.Key {
+	case "retention.audit", "retention.uses", "retention.requests", "retention.trash":
 		if dur, err := ParseDuration(jsonString(cv)); err == nil && dur < 24*time.Hour {
-			return nil, fmt.Errorf("retention.audit is at least 24h")
+			return nil, fmt.Errorf("%s is at least 24h", d.Key)
+		}
+	case "storage.lease.renew", "audit.checkpoint_interval":
+		if dur, err := ParseDuration(jsonString(cv)); err == nil && dur < time.Second {
+			return nil, fmt.Errorf("%s is at least 1s", d.Key)
+		}
+	case "request.reason_min_length":
+		n, err := asInt(cv)
+		if err != nil || n > 500 {
+			return nil, fmt.Errorf("request.reason_min_length is at most 500")
 		}
 	}
 	if d.Key == "review.chain" {
@@ -239,11 +249,12 @@ var itemVersionsKind = kind{
 		if err := json.Unmarshal(v, &in); err != nil || in.Keep == nil || in.MinVersions == nil {
 			return nil, fmt.Errorf(`{"keep": "365d", "min_versions": 10}`)
 		}
-		if _, err := ParseDuration(*in.Keep); err != nil {
-			return nil, fmt.Errorf("keep: a duration such as 365d")
+		d, err := ParseDuration(*in.Keep)
+		if err != nil || d < 24*time.Hour {
+			return nil, fmt.Errorf("keep is at least 24h")
 		}
-		if *in.MinVersions < 0 || *in.MinVersions > 10000 {
-			return nil, fmt.Errorf("min_versions is 0 to 10000")
+		if *in.MinVersions < 1 || *in.MinVersions > 10000 {
+			return nil, fmt.Errorf("min_versions is 1 to 10000")
 		}
 		return mustJSON(map[string]any{"keep": *in.Keep, "min_versions": *in.MinVersions}), nil
 	},
@@ -405,7 +416,7 @@ func init() {
 	registerAccess("import.levels.by_category", "import", "the approval level items start with, by category (the identity and finance categories start never)",
 		levelsMapKind(), `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`,
 		`{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`)
-	registerAccess("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("ask", "new_version", "skip", "keep_both"), `"ask"`, `"ask"`)
+	registerAccess("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("new_version", "skip", "keep_both"), `"skip"`, `"skip"`)
 	register("attachments.max_size", "import", "the largest an attachment may be, in bytes (10 MB)", intKind(false), `10485760`)
 
 	// ---- Backup (the design's backup table). Recipients and destination credentials are read at
