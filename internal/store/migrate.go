@@ -39,6 +39,12 @@ var ErrDiverged = errors.New("the bbolt file and the SQL database both exist and
 // copy, "after-commit" after the SQL transaction is in place). Production never sets it.
 var migrateFailAt string
 
+// openBolt is kv.OpenBolt; tests replace it to count opens. Production never sets it.
+var openBolt = kv.OpenBolt
+
+// syncDirectory is syncDir; tests replace it to count the directory fsync. Production never sets it.
+var syncDirectory = syncDir
+
 // Migrate copies the bbolt database at boltPath into the SQL database o names (SQLite or
 // PostgreSQL, whichever the options' driver says), when there is a bbolt file to copy and the SQL
 // database holds nothing yet. It reports whether it migrated; a missing bbolt file or a database
@@ -89,7 +95,7 @@ func Migrate(boltPath string, o Options) (bool, error) {
 			_ = os.Remove(boltPath + ".pre-sql")
 		}
 	}()
-	src, err := kv.OpenBolt(kv.BoltOptions{Path: boltPath})
+	src, err := openBolt(kv.BoltOptions{Path: boltPath})
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
@@ -186,7 +192,7 @@ func finishOrRefuse(db kv.SQL, sqlPath, boltPath string) (bool, error) {
 		return false, fmt.Errorf("%w: the SQL database at %s is not empty and has no migration genesis, while %s is still there. If the SQL database is the one to keep, move the bbolt file aside. To remigrate, move the SQL database aside and start again",
 			ErrDiverged, sqlPath, boltPath)
 	}
-	src, err := kv.OpenBolt(kv.BoltOptions{Path: boltPath})
+	src, err := openBolt(kv.BoltOptions{Path: boltPath})
 	if err != nil {
 		return false, err
 	}
@@ -200,7 +206,7 @@ func finishOrRefuse(db kv.SQL, sqlPath, boltPath string) (bool, error) {
 			ErrDiverged, boltPath)
 	}
 	if _, err := os.Stat(boltPath + ".pre-sql"); errors.Is(err, os.ErrNotExist) {
-		src, err := kv.OpenBolt(kv.BoltOptions{Path: boltPath})
+		src, err := openBolt(kv.BoltOptions{Path: boltPath})
 		if err != nil {
 			return false, err
 		}
@@ -247,7 +253,7 @@ func writeBoltBackup(src *kv.Bolt, dest string) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return syncDir(dest)
+	return syncDirectory(dest)
 }
 
 func syncDir(path string) error {

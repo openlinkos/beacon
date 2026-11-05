@@ -212,6 +212,25 @@ func TestOpenReadWith(t *testing.T) {
 	}
 }
 
+// TestStoreOpenWithBusyTimeout: OpenWith passes Options.BusyTimeout through to SQLite.
+// Red-before: Options had no field / OpenWith did not pass it, so the pragma stayed the
+// driver default.
+func TestStoreOpenWithBusyTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "beacon.db")
+	st, err := OpenWith(Options{Path: path, BusyTimeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var ms int
+	if err := st.Storage().Handle().QueryRow("PRAGMA busy_timeout").Scan(&ms); err != nil {
+		t.Fatal(err)
+	}
+	if ms != 3000 {
+		t.Errorf("busy_timeout: %d, want 3000", ms)
+	}
+}
+
 func TestAuditAndMeta(t *testing.T) {
 	s, _ := open(t)
 	for i := range 3 {

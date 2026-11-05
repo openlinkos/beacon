@@ -466,3 +466,123 @@ func copyFile(src, dst string) error {
 	}
 	return os.WriteFile(dst, in, 0o600)
 }
+
+// TestMigrateOpensBoltOnce: backup and copy share the one kv.OpenBolt handle.
+// Red-before: the backup opened its own handle (bolt.Open a second time), so the count was 2.
+func TestMigrateOpensBoltOnce(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	orig := openBolt
+	t.Cleanup(func() { openBolt = orig })
+	n := 0
+	openBolt = func(o kv.BoltOptions) (*kv.Bolt, error) {
+		n++
+		return orig(o)
+	}
+	migrated, err := Migrate(boltPath, Options{Path: filepath.Join(dir, "beacon.db")})
+	if err != nil || !migrated {
+		t.Fatalf("migrate: %v %v", migrated, err)
+	}
+	if n != 1 {
+		t.Errorf("openBolt called %d times, want 1", n)
+	}
+}
+
+// TestWriteBoltBackupSyncsTheDirectory: after the backup file is written, the directory is fsynced.
+// Red-before: only the file was synced.
+func TestWriteBoltBackupSyncsTheDirectory(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	db, err := bolt.Open(boltPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("meta"))
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte("k"), []byte("v"))
+	})
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := kv.OpenBolt(kv.BoltOptions{Path: boltPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	dest := boltPath + ".pre-sql"
+	orig := syncDirectory
+	t.Cleanup(func() { syncDirectory = orig })
+	var got []string
+	syncDirectory = func(path string) error {
+		got = append(got, path)
+		return orig(path)
+	}
+	if err := writeBoltBackup(src, dest); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != dest {
+		t.Fatalf("syncDirectory: %v, want [%s]", got, dest)
+	}
+}
+
+// TestMigrateSkipsUndecodableAudit: a garbage audit value is skipped, not a migration failure.
+// Red-before: a bad audit JSON made Migrate/start fail with no way around.
+func TestMigrateSkipsUndecodableAudit(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	db, err := bolt.Open(boltPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	err = db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("audit"))
+		if err != nil {
+			return err
+		}
+		good, err := json.Marshal(AuditEntry{Time: now, Actor: "alice", Via: "api", Action: "ack", Target: "g-01"})
+		if err != nil {
+			return err
+		}
+		if err := b.Put(seqKey(1), good); err != nil {
+			return err
+		}
+		return b.Put(seqKey(2), []byte("not-json"))
+	})
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "beacon.db")
+	migrated, err := Migrate(boltPath, Options{Path: dbPath})
+	if err != nil || !migrated {
+		t.Fatalf("migrate: %v %v", migrated, err)
+	}
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	entries, total, err := st.AuditQuery(AuditFilter{Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("audit events: %d, want 2 (genesis and the good entry)", total)
+	}
+	var genesis string
+	for _, e := range entries {
+		if e.Action == "migrate" {
+			genesis = e.Detail
+			break
+		}
+	}
+	if !strings.Contains(genesis, "skipped 1") {
+		t.Errorf("genesis should note the skipped entry: %q", genesis)
+	}
+}
