@@ -124,13 +124,19 @@ type Service struct {
 	mu sync.Mutex // serialises writes
 
 	reauthMu sync.Mutex
-	reauth   map[string]time.Time // by user name: until when a reveal needs no password
+	reauth   map[string]time.Time // by user\0via: until when a reveal needs no password
 
 	rotating map[string]bool // collections whose key is being rotated
 	rotMu    sync.Mutex
 
 	badMu sync.Mutex
-	bad   []string // rows that failed their signature, for the console and the log
+	bad   []string // rows that failed their signature or the policy head, for the console and the log
+
+	// hooks the rotation tests stand in with: a KMS wrap that fails, a file write that fails, a
+	// replace that never happens (a crash between the commit and the rename).
+	writeKeyFileFn func(path string, b []byte) error
+	replaceFileFn  func(tmp, dest string) error
+	keeperFn       func() (kmsClient, error)
 }
 
 // GrantsDeps is the grants' own dependencies, set after the vault opens (SetGrantsDeps): the
@@ -220,6 +226,9 @@ func Open(ctx context.Context, cfg SealConfig, d Deps) (*Service, error) {
 	s.ctx = ctx
 	if err := s.initSeal(); err != nil {
 		return nil, err
+	}
+	if !s.keys.sealed() {
+		s.ensurePolicyHead()
 	}
 	s.reloadSignedRows()
 	return s, nil
@@ -318,7 +327,7 @@ type signedCollection struct {
 }
 
 func (c Collection) signedParts() []string {
-	return []string{c.ID, c.Name, c.Description, c.Level, strings.Join(c.Actions, "\x01"), i64(c.KeyVersion), c.CreatedBy, i64(c.Created.UnixNano())}
+	return []string{kindCollection, c.ID, c.Name, c.Description, c.Level, strings.Join(c.Actions, "\x01"), i64(c.KeyVersion), c.CreatedBy, i64(c.Created.UnixNano())}
 }
 
 // signedItem is an item overview row as stored, with its signature.
@@ -328,7 +337,7 @@ type signedItem struct {
 }
 
 func (i Item) signedParts() []string {
-	return []string{i.ID, i.Collection, i.Title, i.Category, strings.Join(i.URLs, "\x01"), strings.Join(i.Tags, "\x01"),
+	return []string{kindItem, i.ID, i.Collection, i.Title, i.Category, strings.Join(i.URLs, "\x01"), strings.Join(i.Tags, "\x01"),
 		i.Level, strings.Join(i.Actions, "\x01"), i.State, i64(i.Version), i.Source, i64(int64(i.RotateDays)),
 		strings.Join(i.Machines, "\x01"), strings.Join(i.Hosts, "\x01"), filesKey(i.Files), i.CreatedBy, i64(i.Created.UnixNano())}
 }
@@ -349,11 +358,11 @@ type signedTag struct {
 }
 
 func (t Tag) signedParts() []string {
-	return []string{t.Name, t.Level, strings.Join(t.Actions, "\x01"), t.Description, i64(t.Created.UnixNano())}
+	return []string{kindTag, t.Name, t.Level, strings.Join(t.Actions, "\x01"), t.Description, i64(t.Created.UnixNano())}
 }
 
 func (p Permission) signedParts() []string {
-	return []string{p.Collection, p.Subject, p.Perm, p.Actor, p.Via, i64(p.At.UnixNano()), p.Reason}
+	return []string{kindPerm, p.Collection, p.Subject, p.Perm, p.Actor, p.Via, i64(p.At.UnixNano()), p.Reason}
 }
 
 // reloadSignedRows reads every policy row, verifies each signature and keeps what verified in the
@@ -374,7 +383,7 @@ func (s *Service) reloadSignedRows() {
 				report("collection", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
 				report("collection", r.Name)
 			}
 			return true
@@ -385,7 +394,7 @@ func (s *Service) reloadSignedRows() {
 				report("item", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
 				report("item", r.Title)
 			}
 			return true
@@ -396,7 +405,7 @@ func (s *Service) reloadSignedRows() {
 				report("tag", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
 				report("tag", r.Name)
 			}
 			return true
@@ -407,7 +416,7 @@ func (s *Service) reloadSignedRows() {
 				report("permission", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
 				report("permission", r.Subject+" on "+r.Collection)
 			}
 			return true

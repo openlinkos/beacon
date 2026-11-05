@@ -175,7 +175,8 @@ The item routes are for people, every change audited and echoed to the alert cha
 | Route | Scope | What |
 | --- | --- | --- |
 | `GET /api/v1/vault` | any credential | The state: `sealed`, the `mode` (`file`, `passphrase`, `aws-kms`, `gcp-kms`, `transit`) and the policy `rows_failed_signature` |
-| `POST /api/v1/vault/unseal` | any credential | Unseal the passphrase mode with `{"passphrase"}`; a wrong passphrase is `secrets.wrong_passphrase` |
+| `POST /api/v1/vault/init` | `secrets:admin` | Set the first passphrase of a passphrase-mode vault with `{"passphrase"}`. Later unseals open with that passphrase; they never take a new one. A vault that already has a passphrase is `secrets.conflict` |
+| `POST /api/v1/vault/unseal` | `secrets:admin` | Unseal the passphrase mode with `{"passphrase"}`; a wrong passphrase is `secrets.wrong_passphrase`; a vault that has never been initialised is `secrets.not_initialised` |
 | `POST /api/v1/vault/seal` | `secrets:admin` | Seal again (the passphrase mode): the key functions wait for the passphrase |
 | `POST /api/v1/vault/rotate-key` | `secrets:admin` | A new root key; every collection key is wrapped again, in seconds. `{"passphrase"}` names the new passphrase in that mode |
 | `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | One collection's key (`{"collection"}`); its items are encrypted again in the background. Removing a member needs no key: members never hold one |
@@ -335,6 +336,7 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `settings.conflict` | 409 | A later change touched the same setting row; read it again and retry |
 | `secrets.sealed` | 503 | The vault is sealed (the passphrase mode, after a restart); an owner unseals it with the passphrase |
 | `secrets.wrong_passphrase` | 403 | The passphrase does not unseal this vault |
+| `secrets.not_initialised` | 409 | The passphrase-mode vault has never been given a passphrase; `POST /api/v1/vault/init` first |
 | `secrets.reauth` | 401 | Enter the account's password to view values (it opens the `reveal.reauth_window` again) |
 | `secrets.agent` | 403 | An agent asked; agents reach items through grants, which arrive with a later release |
 | `secrets.person` | 403 | The vault's item routes are for people; sign in with an account |

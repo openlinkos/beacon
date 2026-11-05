@@ -145,6 +145,7 @@ type Details struct {
 	Values      map[string]string `json:"values,omitempty"`
 	Notes       string            `json:"notes,omitempty"`
 	Attachments []string          `json:"attachments,omitempty"`
+	Fields      []Field           `json:"fields,omitempty"` // inside the ciphertext, so a type cannot be swapped in the clear
 }
 
 // ItemVersion is one version of an item: the ciphertext of its details under the collection key

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d0f7bc75
+sourceHash: sha256-86ea7953
 ---
 
 # MCP 工具
@@ -104,11 +104,11 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `release_grant` | `secrets:use` | 提前释放授权（`id`） |
 | `list_requests` | `secrets:describe` | 按 `state` 列申请（默认等待中）；Agent 看自己的，人和审核 Agent 看队列 |
 | `decide_request` | 人（operator、owner 或资格点名的审核人）、审核 Agent | `{"id", "approve", "note", "uses", "duration"}`——必须写理由，申请人自己不能审自己 |
-| `list_entitlements` | 人 | 资格清单：谁能申请什么 |
-| `put_entitlement` | 人 | 新增或修改资格（适用对象、范围、动作、审批下限、审核人、模板标记） |
-| `delete_entitlement` | 人 | 删除一条资格（`name`）；借它生效的授权会被重新评估 |
-| `set_agent_tags` | 人 | Agent 的分组标签（`agent`、`tags`），资格按它们圈定 Agent |
-| `revoke_grant` | 人 | 由人吊销授权（`id`、`reason`） |
+| `list_entitlements` | `secrets:admin` | 资格清单：谁能申请什么 |
+| `put_entitlement` | `secrets:admin` | 新增或修改资格（适用对象、范围、动作、审批下限、审核人、模板标记） |
+| `delete_entitlement` | `secrets:admin` | 删除一条资格（`name`）；借它生效的授权会被重新评估 |
+| `set_agent_tags` | `secrets:admin` | Agent 的分组标签（`agent`、`tags`），资格按它们圈定 Agent |
+| `revoke_grant` | `secrets:admin` | 由人吊销授权（`id`、`reason`） |
 | `agent_secret_scope` | Agent 的所有者、管理员 | 一个 Agent 能触及什么、持有什么（`agent`）：资格、按审批级别的覆盖、授权、标签、模板 |
 | `generate_item_value` | 人，`edit` | 为一个字段生成新值（`ref`、`field`、`length`、`charset`），存为新版本；值本身不返回 |
 | `archive_item` | 人，`edit` | 归档条目（`ref`、`reason`）：保留、让开 |

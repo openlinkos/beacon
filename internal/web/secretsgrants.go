@@ -36,6 +36,7 @@ type secretsUI interface {
 	ApplyTemplates(who secrets.Actor, agent string, names []string) error
 	SuspendedAgents() map[string]string
 	UnsuspendAgent(who secrets.Actor, agent string) error
+	AgentOwner(name string) (string, bool)
 }
 
 var (
@@ -302,7 +303,7 @@ func (s *Server) agentSecretsPage(w http.ResponseWriter, r *http.Request, v *vie
 		notFound(w)
 		return
 	}
-	if name != v.Principal.User && (v.Account == nil || v.Account.Role != "owner") && !v.hasAny("secrets:admin") {
+	if !s.ownsOrAdminsAgent(v, name) {
 		s.forbidden(w, r, v, "secrets:admin")
 		return
 	}
@@ -333,7 +334,7 @@ type agentSecretsPageData struct {
 // secretTemplatesForm hands an agent the template entitlements named.
 func (s *Server) secretTemplatesForm(w http.ResponseWriter, r *http.Request, v *viewer) {
 	name := r.PathValue("name")
-	if name != v.Principal.User && (v.Account == nil || v.Account.Role != "owner") && !v.hasAny("secrets:admin") {
+	if !s.ownsOrAdminsAgent(v, name) {
 		s.forbidden(w, r, v, "secrets:admin")
 		return
 	}
@@ -353,6 +354,21 @@ func (s *Server) secretTemplatesForm(w http.ResponseWriter, r *http.Request, v *
 		return
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther) //nolint:gosec // G710: name is a validated agent name and the path stays on the console
+}
+
+// ownsOrAdminsAgent says whether the viewer owns the agent, holds secrets:admin, or is an owner.
+func (s *Server) ownsOrAdminsAgent(v *viewer, name string) bool {
+	if v.hasAny("secrets:admin") {
+		return true
+	}
+	if v.Account != nil && v.Account.Role == "owner" {
+		return true
+	}
+	if s.Secrets == nil {
+		return false
+	}
+	owner, ok := s.Secrets.AgentOwner(name)
+	return ok && owner == v.Principal.User
 }
 
 // secretUnsuspendForm lifts a suspension.

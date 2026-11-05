@@ -92,10 +92,10 @@ func (s *Service) decidePolicy(agent agentInfo, item Item, col Collection, actio
 	if !containsString(actions, action) {
 		return policyDecision{OK: false, NotFound: true, Reason: "the action is not among what the item allows"}
 	}
-	// step 3: never is not given to any agent, whatever covers it
+	// step 3: never is not given to any agent, whatever covers it — and looks like it is not there
 	level := s.EffectiveLevel(item)
 	if level == LevelNever {
-		return policyDecision{OK: false, NotFound: false, Reason: "this item is never given to an agent"}
+		return policyDecision{OK: false, NotFound: true, Reason: "there is no such item"}
 	}
 	// step 4: the approval is the stricter of the item's level and the entitlement's floor
 	chosen := selectEntitlement(s, covering, level)
@@ -222,6 +222,28 @@ func (s *Service) ownerMayRead(owner, collectionID string) bool {
 		return false
 	}
 	return s.May(Actor{Name: owner, Role: acc.Role}, collectionID, PermRead)
+}
+
+// grantFields is the fields a grant may carry: the intersection of what the ask named and what
+// the entitlement allows. An empty ask takes the entitlement's fields; an empty entitlement
+// allows every field the ask named (or every field, when the ask named none). outOfRange is true
+// when the ask named a field the entitlement does not allow — the whole item is then refused.
+func grantFields(asked, allowed []string) (fields []string, outOfRange bool) {
+	if len(allowed) == 0 {
+		return append([]string(nil), asked...), false
+	}
+	if len(asked) == 0 {
+		return append([]string(nil), allowed...), false
+	}
+	var out []string
+	for _, f := range asked {
+		if containsString(allowed, f) {
+			out = append(out, f)
+		} else {
+			outOfRange = true
+		}
+	}
+	return out, outOfRange
 }
 
 // settingCountAt reads a count setting with a selector (0: unlimited); def when there are no

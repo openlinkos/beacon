@@ -113,15 +113,19 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			if !s.itemVerifies(cur) {
 				return fmt.Errorf("%w: the item's row does not verify", ErrNotFound)
 			}
+			if cur.ID != in.ID {
+				return fmt.Errorf("%w: the item's row does not match its key", ErrNotFound)
+			}
 			if cur.Collection != col.ID {
 				return fmt.Errorf("%w: the item belongs to another collection", ErrBadInput)
 			}
 			exists = true
 			before = cur.Item // the overview as it stands, before this change folds in
 		}
-		// permissions: writing needs edit; changing the tags or the level is policy, so manage
-		if exists && (len(in.Tags) > 0 || in.Level != "") && !s.mayTx(tx, who, col.ID, PermManage) {
-			return fmt.Errorf("%w: changing an item's tags or level needs manage", ErrForbidden)
+		// permissions: writing needs edit; tags, level, actions, machines and hosts are policy, so manage
+		policy := len(in.Tags) > 0 || in.Level != "" || len(in.Actions) > 0 || len(in.Machines) > 0 || len(in.Hosts) > 0
+		if policy && !s.mayTx(tx, who, col.ID, PermManage) {
+			return fmt.Errorf("%w: changing an item's tags, level, actions or bindings needs manage", ErrForbidden)
 		}
 		if !s.mayTx(tx, who, col.ID, PermEdit) {
 			return fmt.Errorf("%w: you may not write in this collection", ErrForbidden)
@@ -135,7 +139,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			if !ok {
 				return fmt.Errorf("%w: the item's current version is missing", ErrNotFound)
 			}
-			d, err := s.decryptDetailsTx(tx, col, ver)
+			d, err := s.decryptDetailsTx(tx, col, ver, cur.ID, cur.Version)
 			if err != nil {
 				return fmt.Errorf("the current version could not be opened: %w", err)
 			}
@@ -233,6 +237,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			details.Notes = in.Notes
 		}
 		next := item.Version + 1
+		details.Fields = fields
 		ver := ItemVersion{Item: item.ID, Version: next, Fields: fields, KeyVersion: col.KeyVersion,
 			Actor: who.Name, Via: who.Via, At: s.now(), Reason: in.Reason}
 		ck, err := s.collectionKeyByVersionTx(tx, col.ID, col.KeyVersion)
@@ -339,6 +344,17 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 
 // checkItemIn is the shape check done before any lock is taken.
 func checkItemIn(in ItemIn) error {
+	if hasNUL(in.Title, in.Category, in.Level, in.Source, in.Notes, in.Reason) {
+		return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+	}
+	if hasNUL(in.URLs...) || hasNUL(in.Tags...) || hasNUL(in.Actions...) || hasNUL(in.Machines...) || hasNUL(in.Hosts...) {
+		return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+	}
+	for _, f := range in.Fields {
+		if hasNUL(f.Section, f.Name, f.Type, f.Purpose, f.Value) {
+			return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+		}
+	}
 	if in.Title != "" && !nameRe.MatchString(in.Title) {
 		return fmt.Errorf("%w: an item's title is up to 64 letters, digits, spaces, - _ and ., starting with a letter or digit; the reference syntax needs this shape (or the ID)", ErrBadInput)
 	}
@@ -461,7 +477,7 @@ func getVersionTx(tx kv.Tx, item string, version int64) (ItemVersion, bool) {
 func (s *Service) collectionByIDTx(tx kv.Tx, id string) (Collection, bool) {
 	v := tx.Get(bucketCollections, []byte(id))
 	var r signedCollection
-	if v == nil || json.Unmarshal(v, &r) != nil || !s.collectionVerifies(r) {
+	if v == nil || json.Unmarshal(v, &r) != nil || r.ID != id || !s.collectionLive(tx, r) {
 		return Collection{}, false
 	}
 	return r.Collection, true
@@ -484,14 +500,21 @@ func (s *Service) collectionKeyByVersionTx(tx kv.Tx, collection string, version 
 	return unwrap(rk, kr.Wrapped, keyWrapAAD(collection, version))
 }
 
-// decryptDetailsTx opens a version's details with the key of the version's own key version.
-func (s *Service) decryptDetailsTx(tx kv.Tx, col Collection, ver ItemVersion) (*Details, error) {
+// decryptDetailsTx opens a version's details. AAD is the caller's expected item and version, not
+// whatever the stored row claims, so a ciphertext copied onto another item does not open.
+func (s *Service) decryptDetailsTx(tx kv.Tx, col Collection, ver ItemVersion, item string, version int64) (*Details, error) {
+	if ver.Item != "" && ver.Item != item {
+		return nil, fmt.Errorf("%w: the version row names another item", ErrCrypto)
+	}
+	if ver.Version != 0 && ver.Version != version {
+		return nil, fmt.Errorf("%w: the version row names another version", ErrCrypto)
+	}
 	ck, err := s.collectionKeyByVersionTx(tx, col.ID, ver.KeyVersion)
 	if err != nil {
 		return nil, err
 	}
 	defer clear(ck)
-	plain, err := unwrap(ck, ver.CT, itemAAD(ver.Item, ver.Version, col.ID, ver.KeyVersion))
+	plain, err := unwrap(ck, ver.CT, itemAAD(item, version, col.ID, ver.KeyVersion))
 	if err != nil {
 		return nil, err
 	}
@@ -515,19 +538,16 @@ func (s *Service) permOfTx(tx kv.Tx, who Actor, collectionID string) (string, bo
 	if !who.Person() || s.keys.sealed() {
 		return "", false
 	}
-	sk, err := s.sk()
-	if err != nil {
-		return "", false
-	}
 	best, found := "", false
 	for _, subject := range []string{permSubjectPrefix + who.Name, "role:" + who.Role} {
-		v := tx.Get(bucketPerms, permRowKey(collectionID, subject))
+		key := permRowKey(collectionID, subject)
+		v := tx.Get(bucketPerms, key)
 		if v == nil {
 			continue
 		}
 		var p Permission
-		if json.Unmarshal(v, &p) != nil || !verifyRow(sk, p.Sig, p.signedParts()...) {
-			continue // a row that does not verify is not there
+		if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permLive(tx, key, p) {
+			continue // a row that does not verify, or that was copied under another key, is not there
 		}
 		if !found || permRank[p.Perm] > permRank[best] {
 			best, found = p.Perm, true
@@ -542,7 +562,7 @@ func (s *Service) itemVerifies(r signedItem) bool {
 	if err != nil {
 		return false
 	}
-	return verifyRow(sk, r.Sig, r.signedParts()...)
+	return verifyPolicy(sk, r.Sig, r.signedParts()...)
 }
 
 // attachmentMax is the attachment size limit, from the settings (10 MB by default).

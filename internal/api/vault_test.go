@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -50,5 +51,76 @@ func TestVaultRoutesState(t *testing.T) {
 	// the seal answers with its stable code and the HTTP status that says to try later
 	if err := svc.Unseal("nothing"); err == nil || !strings.Contains(err.Error(), "only the passphrase mode") {
 		t.Fatalf("unseal outside the passphrase mode is refused, got %v", err)
+	}
+}
+
+func TestVaultCollectionsHiddenWithoutDescribe(t *testing.T) {
+	e, c, svc := setupVault(t)
+	agent := people(t, e)
+	if _, err := svc.CreateCollection(secrets.Actor{Name: "alice", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := c.do("GET", "/api/v1/vault/collections", agent, ""); code != 403 || out["code"] != "secrets.agent" {
+		t.Fatalf("an agent listing collections: %d %v", code, out)
+	}
+	if code, out := c.do("GET", "/api/v1/vault/tags", agent, ""); code != 403 || out["code"] != "secrets.agent" {
+		t.Fatalf("an agent listing tags: %d %v", code, out)
+	}
+	srv := &Server{Bridge: e.Bridge, Auth: &Auth{Store: e.Store}, Log: slog.Default(), Vault: svc}
+	bob, ok := e.Store.AccountPrincipal("bob")
+	if !ok {
+		t.Fatal("bob")
+	}
+	rec := httptest.NewRecorder()
+	srv.listCollections(rec, httptest.NewRequest(http.MethodGet, "/api/v1/vault/collections", nil), bob)
+	var got struct {
+		Collections []secrets.Collection `json:"collections"`
+	}
+	if rec.Code != 200 {
+		t.Fatalf("bob lists collections: %d %s", rec.Code, rec.Body.String())
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Collections) != 0 {
+		t.Fatalf("without describe bob sees no collections, got %v", got.Collections)
+	}
+	alice, _ := e.Store.AccountPrincipal("alice")
+	rec = httptest.NewRecorder()
+	srv.listCollections(rec, httptest.NewRequest(http.MethodGet, "/api/v1/vault/collections", nil), alice)
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Collections) != 1 || got.Collections[0].Name != "Infra" {
+		t.Fatalf("the owner sees the collection, got %v", got.Collections)
+	}
+}
+
+func TestVaultUnsealNeedsAdminAndIsRateLimited(t *testing.T) {
+	restore := secrets.UseCheapPassphraseForTest()
+	t.Cleanup(restore)
+	e := testutil.New(t)
+	svc, err := secrets.Open(context.Background(), secrets.SealConfig{Mode: secrets.SealPassphrase, Dir: filepath.Join(t.TempDir(), "secrets")},
+		secrets.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN, CheckPassword: func(string, string) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	(&Server{Bridge: e.Bridge, Auth: &Auth{Store: e.Store}, Log: slog.Default(), Vault: svc}).Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := client{t, srv}
+	reader := e.Token(t, "reader", "status:read")
+	if code, out := c.do("POST", "/api/v1/vault/unseal", reader, `{"passphrase":"x"}`); code != 403 || out["code"] != "auth.scope" {
+		t.Fatalf("unseal without secrets:admin: %d %v", code, out)
+	}
+	if err := svc.InitPassphrase("correct-horse-battery-staple-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	admin := e.Token(t, "admin", "secrets:admin")
+	for range 20 {
+		c.do("POST", "/api/v1/vault/unseal", admin, `{"passphrase":"wrong-passphrase-here"}`)
+	}
+	if code, out := c.do("POST", "/api/v1/vault/unseal", admin, `{"passphrase":"wrong-passphrase-here"}`); code != 429 || out["code"] != "auth.too_many_failures" {
+		t.Fatalf("after many wrong passphrases: %d %v", code, out)
 	}
 }

@@ -41,7 +41,7 @@ func TestSettings(t *testing.T) {
 	if err != nil || res.From != "default" {
 		t.Fatalf("get: %+v %v", res, err)
 	}
-	ch, err := c.SetSetting(ctx, SetSettingRequest{Key: "request.max_uses", Value: json.RawMessage("50"), Reason: "tighter"})
+	ch, err := c.SetSetting(ctx, SetSettingRequest{Key: "request.max_uses", Value: json.RawMessage("50"), Reason: "tighter while we test"})
 	if err != nil || ch.Version != 1 || ch.Via != "cli" || !strings.HasPrefix(ch.Actor, "cli:") || ch.Action != "set" {
 		t.Fatalf("set: %+v %v", ch, err)
 	}
@@ -58,21 +58,21 @@ func TestSettings(t *testing.T) {
 	if err != nil || len(h) != 1 || h[0].Key != "request.max_uses" {
 		t.Fatalf("history: %+v %v", h, err)
 	}
-	rst, err := c.ResetSetting(ctx, ResetSettingRequest{Key: "request.max_uses", Reason: "done"})
+	rst, err := c.ResetSetting(ctx, ResetSettingRequest{Key: "request.max_uses", Reason: "done with the test"})
 	if err != nil || rst.Action != "reset" {
 		t.Fatalf("reset: %+v %v", rst, err)
 	}
 	if res, _ := c.GetSetting(ctx, "request.max_uses"); res.From != "default" {
 		t.Fatalf("after reset: %+v", res)
 	}
-	back, err := c.RevertSetting(ctx, RevertSettingRequest{Version: 2}) // the reset: its value comes back
+	back, err := c.RevertSetting(ctx, RevertSettingRequest{Version: 2, Reason: "because the test reverts"}) // the reset: its value comes back
 	if err != nil || back.Reverts != 2 || string(back.After) != "50" {
 		t.Fatalf("revert: %+v %v", back, err)
 	}
 	if res, _ := c.GetSetting(ctx, "request.max_uses"); res.From != "system" || string(res.Value) != "50" {
 		t.Fatalf("after revert: %+v", res)
 	}
-	if _, err := c.RevertSetting(ctx, RevertSettingRequest{Version: 99}); err == nil || !strings.Contains(err.Error(), "version 99") {
+	if _, err := c.RevertSetting(ctx, RevertSettingRequest{Version: 99, Reason: "because the test asks"}); err == nil || !strings.Contains(err.Error(), "version 99") {
 		t.Errorf("an unknown version says so: %v", err)
 	}
 }
