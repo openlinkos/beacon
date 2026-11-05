@@ -21,8 +21,9 @@ and storage leases — each with a registered default, changed values kept as ve
 changed them and why, revertible. get_config with kind "settings" and a key shows one resolved for
 a collection, tag, entitlement or request: the more specific level wins, tags take the stricter
 value, and a request is clamped to the bound the level above gives. Changing one needs the
-secrets:admin scope and a reason; rows that fail their signature are served as absent and
-reported, so a change made straight in the database never takes effect.`
+secrets:admin scope and a reason; rows that fail their signature are served as the last signed
+value (never a looser default) and reported, so a change made straight in the database never
+widens a limit.`
 
 // settingsKind is the configuration kind that addresses the settings.
 const settingsKind = "settings"
@@ -38,14 +39,24 @@ func settingsActor(ctx context.Context) (settings.Actor, error) {
 
 // getSettings is get_config's settings kind: everything, or one resolved for a selector.
 func getSettings(ctx context.Context, svc *settings.Service, in configIn) (any, error) {
-	if _, err := need(ctx, "status:read", "secrets:admin"); err != nil {
+	override := in.Collection != "" || in.Entitlement != "" || in.Request != "" || len(in.Tag) > 0
+	if override {
+		if _, err := need(ctx, "secrets:admin"); err != nil {
+			return nil, err
+		}
+	} else if _, err := need(ctx, "status:read", "secrets:admin"); err != nil {
 		return nil, err
 	}
 	if in.Key == "" {
-		if in.Collection != "" || in.Entitlement != "" || in.Request != "" || len(in.Tag) > 0 {
+		if override {
 			return nil, errors.New("name the setting too (key), when you name where it applies")
 		}
-		return svc.List(), nil
+		listing := svc.List()
+		if p, ok := principal(ctx); ok && !p.Has("secrets:admin") {
+			listing.Overrides = nil
+			listing.BadRows = nil
+		}
+		return listing, nil
 	}
 	d, ok := settings.Get(in.Key)
 	if !ok {
@@ -94,7 +105,7 @@ func deleteSettings(ctx context.Context, svc *settings.Service, in deleteConfigI
 
 // settingsChanges is list_config_changes' settings kind.
 func settingsChanges(ctx context.Context, svc *settings.Service, in configChangesIn) (any, error) {
-	if _, err := need(ctx, "status:read", "secrets:admin"); err != nil {
+	if _, err := need(ctx, "secrets:admin"); err != nil {
 		return nil, err
 	}
 	limit := in.Limit
@@ -115,12 +126,18 @@ func mustJSON(v any) []byte {
 // configuration versions are their own sequences, so the version is looked for among the settings
 // first, and a caller who may read the status may read either.
 func settingChangeIfSettings(ctx context.Context, svc *settings.Service, in versionIn) (any, bool, error) {
-	if _, err := need(ctx, "status:read"); err != nil {
-		return nil, false, nil //nolint:nilerr // no read scope at all: the configuration's own check answers
+	if in.Kind != "" && in.Kind != settingsKind {
+		return nil, false, nil
+	}
+	if in.Kind == "" {
+		return nil, false, nil
+	}
+	if _, err := need(ctx, "secrets:admin"); err != nil {
+		return nil, false, err
 	}
 	ch, ok := svc.ChangeAt(in.Version)
 	if !ok {
-		return nil, false, nil
+		return nil, true, fmt.Errorf("no settings change at version %d", in.Version)
 	}
 	return ch, true, nil
 }
@@ -128,6 +145,12 @@ func settingChangeIfSettings(ctx context.Context, svc *settings.Service, in vers
 // revertSettingIfSettings answers revert_config_change for a settings change, when the caller may
 // change the settings; otherwise the configuration's own path answers.
 func revertSettingIfSettings(ctx context.Context, svc *settings.Service, in revertIn) (any, bool, error) {
+	if in.Kind != "" && in.Kind != settingsKind {
+		return nil, false, nil
+	}
+	if in.Kind == "" {
+		return nil, false, nil
+	}
 	if _, err := need(ctx, "secrets:admin"); err != nil {
 		return nil, false, nil //nolint:nilerr // not a settings caller: the configuration's own path answers
 	}
