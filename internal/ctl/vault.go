@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/openlinkos/beacon/internal/secrets"
+	"github.com/openlinkos/beacon/internal/secrets/importer"
 )
 
 // Vault is the service the socket serves for `beacon secret …` and `beacon key …`. The command line
@@ -31,6 +32,7 @@ type Vault interface {
 
 	Items(collection, state string) []secrets.Item
 	Item(ref string) (secrets.Item, secrets.Collection, bool)
+	Import(who secrets.Actor, batch importer.Batch, opts secrets.ImportOptions) (secrets.ImportReport, error)
 	Versions(item string) []secrets.ItemVersion
 	SetItem(who secrets.Actor, in secrets.ItemIn) (secrets.Item, error)
 	ArchiveItem(who secrets.Actor, item string) (secrets.Item, error)
@@ -135,6 +137,7 @@ func VaultHandler(v Vault) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, struct{ Rotated bool }{true})
 	})
+	mux.HandleFunc("POST /v1/secrets/import", importRoute(v, fail))
 	mux.HandleFunc("GET /v1/secrets/collections", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, struct {
 			Collections []secrets.Collection `json:"collections"`
