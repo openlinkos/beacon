@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c111d2e3
+sourceHash: sha256-05dbd168
 ---
 
 # config.yaml
@@ -31,6 +31,32 @@ sourceHash: sha256-c111d2e3
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
+| `backup.host` | 主机名 | 首次主机名，持久化 | 档案名里的稳定实例名（`beacon-<host>-…`）。不配时，把第一次有效的主机名存在 `<data_dir>/backup/instance-name`，容器重建后仍用它。字母、数字、点、下划线和短横线；须以字母或数字开头 |
+| `backup.destinations` | 列表 | — | 每份备份同时写往哪里：`{dir: 路径}` 是本地目录，`{s3: …}` 是 S3 兼容存储。至少一个目的地即开启备份 |
+| `backup.destinations.dir` | 路径 | — | 本地目录，不存在则创建 |
+| `backup.destinations.s3.endpoint` | URL | — | 存储地址，如 `https://s3.example.com:9000`（路径寻址） |
+| `backup.destinations.s3.region` | 区域 | `us-east-1` | 签名用；不区分区域的存储会忽略 |
+| `backup.destinations.s3.bucket` | 名字 | — | 备份落入的桶 |
+| `backup.destinations.s3.prefix` | 前缀 | — | 桶内前缀，如 `beacon/`。空前缀只列桶根下的对象，不会匹配其他前缀下的键 |
+| `backup.destinations.s3.access_key_file` | 路径 | — | 访问密钥，使用时从文件读取 |
+| `backup.destinations.s3.secret_key_file` | 路径 | — | 私有密钥，使用时从文件读取。单次 PUT 最大 5 GiB |
+| `backup.recipients` | 公钥列表 | 自动生成 | 备份加密给的 age（`age1…`）或 ssh-ed25519 公钥；Beacon 只持有这些，读不了自己写的备份。一个都不配时，首次启动生成密钥对，私钥只留在 `<data_dir>/backup/RECOVERY-MATERIAL.txt`。清单签名公钥一定写进这份恢复材料，配了接收者时也是，服务器丢失后恢复仍拿得到（`-verify-key`；Beacon 自己生成密钥对时也在 `-identity` 里） |
+| `backup.recipients_file` | 路径 | — | 更多接收者，一行一个公钥 |
+| `backup.secrets_dir` | 路径 | `/etc/beacon/secrets` | 整个目录进每一份备份：快照与封装它的密钥同行 |
+| `backup.heartbeat.max_age` | 时长 | `2h` | 内置 `beacon-backup` 心跳的耐心；超过即走 `HeartbeatStale` 告警 |
+| `backup.heartbeat.severity` | 级别 | `warning` | 该告警的级别 |
+| `backup.drill_expiry` | 时长 | `2160h` | 恢复演练的有效期：内置 `recovery-drill` 资源在上次演练后这么久到期 |
+| `backup.schedule.database` | 时长 | `1h` | 多久单做一次数据库快照 |
+| `backup.schedule.files` | 时长 | `24h` | 多久带上录像、配置和 secrets |
+| `backup.schedule.files_full` | 时长 | `168h` | 多久做一次完整而非增量的录像集，让链条始终可恢复 |
+| `backup.retention.hourly` | 个数 | `24` | 祖父—父—子：保留最近 N 个小时里每个小时最新的一份；满足任一规则即保留 |
+| `backup.retention.daily` | 个数 | `14` | ……最近 N 天 |
+| `backup.retention.weekly` | 个数 | `8` | ……最近 N 周 |
+| `backup.retention.monthly` | 个数 | `12` | ……最近 N 月 |
+| `backup.retries` | 次数 | `3` | 上传失败后再试几次 |
+| `backup.retry_wait` | 时长 | `1m` | 重试的首次间隔，之后每次翻四倍 |
+| `backup.verify_readback` | 布尔 | `true` | 每次上传后回读并核对大小与哈希 |
+| `backup.on_failure` | `alert` | `alert` | 一直失败的备份怎么办（`alert_and_pause` 尚未实现，配置此项会被拒绝） |
 
 ## 规则与路由 {#rules-and-routing}
 

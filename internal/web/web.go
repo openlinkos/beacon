@@ -98,6 +98,10 @@ type Server struct {
 	Status   *status.Service
 	Branding config.Branding
 
+	// Backups is the backup manager for the console's backups page (the recovery material,
+	// once); nil means backups are off and the page says so.
+	Backups BackupConsole
+
 	// OAuth is Beacon's authorization server for MCP clients (package oauth); nil leaves /oauth/authorize out.
 	OAuth *oauth.Server
 }

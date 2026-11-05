@@ -1,0 +1,29 @@
+# Litestream's configuration for the optional service in compose.yaml: it continuously copies
+# the database's write-ahead log to an S3-compatible store, so the database's recovery point is
+# seconds where Beacon's own backups are an hour (the plan's §11: the two together).
+#
+# The replica is plaintext. Litestream does not encrypt; whoever can read the store can read
+# the database, including the audit signing key. Beacon's own backups are age-encrypted; use
+# those as the off-site copy that must stay secret, and treat this replica as a hot WAL that
+# needs the store's own access control. The compose service mounts the data volume read-only.
+#
+# Fill in the endpoint, bucket and path, put the access keys in the files named (the same
+# *_file convention as Beacon's own configuration), uncomment the litestream service in
+# compose.yaml, and start it. Restore is Litestream's own:
+#
+#   litestream restore -o beacon.db s3://<bucket>/<path>/beacon.db
+#
+# The recordings and the configuration are not in the WAL; they come from Beacon's backups.
+# Docs: https://litestream.io/
+#
+dbs:
+  - path: /var/lib/beacon/beacon.db
+    replicas:
+      - url: s3://backups.example.com/beacon-litestream/beacon.db
+        # access-key-id and secret-access-key are read from the files below (Litestream takes
+        # them from the environment or its own flags; an entrypoint wrapper reads the files):
+        #   LITESTREAM_ACCESS_KEY_ID=<contents of backup-s3-access-key>
+        #   LITESTREAM_SECRET_ACCESS_KEY=<contents of backup-s3-secret-key>
+        # sync-interval: 1s        # how often the WAL is shipped (default 1s)
+        # retention: 720h          # how long replica generations are kept (default 24h)
+        # snapshot-interval: 24h   # how often a full snapshot is base for the WAL (default 24h)

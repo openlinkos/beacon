@@ -30,8 +30,30 @@ sudo ./install.sh        # asks for the two names and the address; or STATUS_HOS
 | `Caddyfile`, `metrics/scrape.yml` | The edge, and what VictoriaMetrics scrapes about the centre itself |
 | `secrets/` | Made by `install.sh`; add the chat's and the phones' secret files here (owner 65532, mode 0400) |
 | `probe/` | For each probe machine: `install.sh`, the systemd unit, `beacon-heartbeat` |
-| Docker volumes `beacon-data`, `victoriametrics-data`, `caddy-data` | Beacon's database and session recordings; the metrics; the certificates |
+| `litestream.yml` | The optional continuous-WAL-replication service's configuration (see Backups below) |
+| Docker volumes `beacon-data`, `beacon-backups`, `victoriametrics-data`, `caddy-data` | Beacon's database and session recordings; its backups; the metrics; the certificates |
 
 Everyday commands run inside the Beacon container: `docker exec beacon beacon token list`, `… enroll probe edge-1`, `… machine add NAME HOST`, `… silence list`, `… drill fail 15m`, `… config history`. VictoriaMetrics' own UI is at `http://127.0.0.1:8428/vmui` on the host (through an SSH tunnel from elsewhere), vmalert's at `:8880`.
 
 After the first start the catalogue and targets live in Beacon's database and are changed through the API, MCP or `beacon config`; the files here are for `config import` and `config export`, so you can still keep them in git.
+
+## Backups
+
+Beacon backs itself up (the `backup:` section of `config.yaml`, on in this reference deployment): the database snapshot every hour, the recordings, the configuration and the secrets directory every day, each one file under the `beacon-backups` volume, encrypted to public keys Beacon holds — it cannot read what it wrote. With no recipients configured, the first start generates a key pair and leaves the private key in `/var/lib/beacon/backup/RECOVERY-MATERIAL.txt`; the log keeps reminding you to take it off the machine until you do. A backup that stops succeeding goes quiet on the built-in `beacon-backup` heartbeat and alerts like any other job that stopped reporting.
+
+```bash
+docker exec beacon beacon backup now          # one at once (everything it is due)
+docker exec beacon beacon backup ls           # what the destinations hold, newest first
+docker cp beacon:/var/lib/beacon/backups/. .  # take a copy off the machine (or add an s3: destination)
+```
+
+Recovery, on any machine with the backup file and the recovery material:
+
+```bash
+beacon backup restore beacon-<host>-<time>-full.tar.zst.age -identity recovery.txt -into <empty dir>
+beacon backup restore <the same file> -identity recovery.txt -dry-run   # prove it without touching anything
+```
+
+Prove the chain before you need it, and renew the `recovery-drill` reminder while you are there: `beacon backup drill <file> -identity <the same file>`. To send a copy off the machine as it is made, add an `s3:` destination (MinIO, R2, S3) to `backup.destinations` — the credentials go in files under `secrets/`, like every other secret.
+
+For a recovery point of seconds rather than an hour, uncomment the `litestream` service in `compose.yaml` and fill in `litestream.yml`: it ships the database's write-ahead log to an S3-compatible store continuously. **The replica is plaintext** (Litestream does not encrypt); whoever can read that store can read the database. Beacon's own backups stay age-encrypted. The recordings and the configuration still come from those. A single S3 PUT of a Beacon backup is at most 5 GiB.

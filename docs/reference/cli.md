@@ -129,6 +129,16 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
 | `storage check` | | The database's health: SQLite's own integrity check, what each bucket holds, and the audit chain's verification |
 
+**`beacon backup`** — Beacon's own backups, under the command `backup`; every subcommand takes `-config`. The subcommands are `now`, `ls`, `restore`, `drill` (the backups' own drill, below) and `keygen`:
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `backup now` | `-full` | One backup at once (a complete recordings set with `-full`): through the running service's admin socket when it is up, on its own otherwise |
+| `backup ls` | | What every destination holds, newest first |
+| `backup restore` FILE... | `-identity`, `-into`, `-dry-run`, `-confirm`, `-verify-key` | Decrypt, verify the manifest signature and every member against the manifest, check the database's integrity and audit chain, and put the database, recordings, configuration and secrets back; `-dry-run` proves it in a temporary directory and touches nothing. Restoring into the live `data_dir` needs `-confirm` (the current files are copied aside first). Give the full archive first, then the incrementals. `-verify-key` is the `sign1:…` line from the recovery material when `-identity` does not already hold it |
+| `backup drill` FILE... | `-identity`, `-keep`, `-verify-key` | Restore to a scratch directory, verify, and renew the built-in `recovery-drill` reminder; `-keep` prints where it stays |
+| `backup keygen` | | An age key pair: the private key prints once, alone, on stdout; the public key is for `backup.recipients` |
+
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 
 | Subcommand | What it does |

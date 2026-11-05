@@ -2,6 +2,8 @@
 
 What a Beacon centre's backup must hold, where each piece lives, and the commands to take it and pour it back. The examples assume the reference deployment from [On a server](install.md), run from `/opt/beacon` on the centre as root. A restore onto a fresh machine is: install, unpack the deployment, pour the volumes back.
 
+With a `backup:` destination in the configuration, Beacon takes its own encrypted backups (`beacon backup now | ls | restore | drill | keygen`; [the command line](../reference/cli.md), [config.yaml](../reference/config.md)). Those archives are age-encrypted and the manifest is signed; restoring into the live data directory needs `-confirm`. A single S3 PUT is at most 5 GiB. The optional Litestream service in the reference deployment ships the WAL continuously, but **that replica is plaintext** — treat it as a hot copy behind the store's access control, not as the secret off-site copy. Litestream's data volume is mounted writable so it can keep replica state; it does not encrypt, so the recovery material on that volume is visible to the Litestream container.
+
 ## What lives where
 
 | Piece | Where | If it is lost |

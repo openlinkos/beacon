@@ -147,6 +147,9 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 		settings = append(settings, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
 	}
 	settings = append(settings, navItem{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)})
+	if s.Backups != nil {
+		settings = append(settings, navItem{Key: "backups", Label: s.t("Backups"), Href: consolePath("/backup"), Icon: "hard-drive"})
+	}
 	groups := []navGroup{
 		{Items: []navItem{
 			{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"},
@@ -223,6 +226,8 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("SSH key added"), "success"
 	case "key_removed":
 		return s.t("SSH key removed"), "success"
+	case "recovery_removed":
+		return s.t("Recovery material removed; only the public key remains"), "success"
 	case "grant_revoked":
 		return s.t("OAuth sign-in revoked"), "success"
 	case "agent_deleted":

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d7ab3bef
+sourceHash: sha256-22ffb217
 ---
 
 # 命令行
@@ -132,6 +132,16 @@ docker exec beacon beacon token list
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | 校验审计日志的哈希链——从覆盖 `-from-seq` 的检查点起，或校验现存的全部——链在哪里断就报哪里（退出码 1），否则报告校验了多少条 |
 | `storage check` | | 数据库的健康：SQLite 自身的一致性检查、每个桶各存了多少、审计链的校验 |
+
+**`beacon backup`** —— Beacon 自己的备份，命令为 `backup`；每个子命令都接受 `-config`。子命令为 `now`、`ls`、`restore`、`drill`（备份自己的演练，见下）与 `keygen`：
+
+| 子命令 | 参数 | 作用 |
+| --- | --- | --- |
+| `backup now` | `-full` | 立刻做一次备份（`-full` 带完整录像集）：服务在运行时走它的管理套接字，否则自己完成 |
+| `backup ls` | | 列出每个目的地持有的备份，新的在前 |
+| `backup restore` FILE... | `-identity`、`-into`、`-dry-run`、`-confirm`、`-verify-key` | 解密、核对清单签名、逐成员对照清单校验、检查数据库完整性与审计链，再把数据库、录像、配置和 secrets 放回原处；`-dry-run` 只在临时目录里验证，不落任何东西。恢复到正在用的 `data_dir` 需要 `-confirm`（会先把当前文件拷到一边）。先给 full 档案，再给增量。`-identity` 里没有恢复材料中的 `sign1:…` 时，用 `-verify-key` 给出 |
+| `backup drill` FILE... | `-identity`、`-keep`、`-verify-key` | 恢复到临时目录并校验，顺延内置的 `recovery-drill` 提醒；`-keep` 打印保留位置 |
+| `backup keygen` | | 生成 age 密钥对：私钥只打印一次、独占标准输出；公钥写进 `backup.recipients` |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：
 

@@ -74,6 +74,12 @@ type Config struct {
 			BusyTimeout Duration `yaml:"busy_timeout"` // default 15s
 		} `yaml:"sqlite"`
 	} `yaml:"storage"`
+	// Backup is Beacon's own backups, and it is bootstrap-level on purpose: the recipients and
+	// the destinations must be knowable before the database is open, because a restore has to
+	// reach its destination with no database to read settings from (the plan's §9.1). Backups
+	// are on when there is a destination; the recipients may be left out, in which case Beacon
+	// generates a key pair once and hands the private half over as recovery material.
+	Backup Backup `yaml:"backup"`
 	// SSH is the channel through which agents reach machines with their own ssh, or with the MCP and
 	// REST tools; it is on when CAKeyFile is set. PublicAddress (host:port) is where agents reach it,
 	// for the ssh configuration Beacon hands them. SourceAddresses (CIDRs), when set, go into every
@@ -130,6 +136,78 @@ type Branding struct {
 type OAuth struct {
 	ClientIDDocuments *bool `yaml:"client_id_documents"`
 }
+
+// Backup is the backup section: where backups go, who can read them, how often and how long they
+// are kept. Enabled means at least one destination; everything else has a working default.
+type Backup struct {
+	// Host is the stable instance name in archive names. Empty persists the first hostname
+	// under <data_dir>/backup/instance-name so a container recreate keeps it.
+	Host string `yaml:"host"`
+	// Recipients are public keys backups are encrypted to: age (age1…) or ssh-ed25519, inline.
+	// The server holds only these; it cannot read what it wrote.
+	Recipients     []string `yaml:"recipients"`
+	RecipientsFile string   `yaml:"recipients_file"` // more of them, one per line
+	// SecretsDir is packed whole into every backup (it holds the root key the database's
+	// encrypted halves need, so a snapshot and its secrets belong together). Default
+	// /etc/beacon/secrets; empty means nothing is packed for it.
+	SecretsDir string `yaml:"secrets_dir"`
+	// Heartbeat is the built-in beacon-backup heartbeat: a backup that has not succeeded within
+	// MaxAge alerts through the ordinary HeartbeatStale path.
+	Heartbeat struct {
+		MaxAge   Duration `yaml:"max_age"`  // default 2h
+		Severity string   `yaml:"severity"` // default warning
+	} `yaml:"heartbeat"`
+	// DrillExpiry is how long a recovery drill's proof lasts: the built-in recovery-drill
+	// resource expires this long after the last drill and reminds before it does. Default 90d.
+	DrillExpiry Duration `yaml:"drill_expiry"`
+	Schedule    struct {
+		Database  Duration `yaml:"database"`   // the database snapshot alone; default 1h
+		Files     Duration `yaml:"files"`      // recordings, configuration, secrets; default 24h
+		FilesFull Duration `yaml:"files_full"` // a complete recordings set every so often; default 168h
+	} `yaml:"schedule"`
+	Retention struct {
+		Hourly  int `yaml:"hourly"`  // default 24
+		Daily   int `yaml:"daily"`   // default 14
+		Weekly  int `yaml:"weekly"`  // default 8
+		Monthly int `yaml:"monthly"` // default 12
+	} `yaml:"retention"`
+	// Retries is how many times a failed upload is tried again, the wait growing fourfold each
+	// time from RetryWait (default 3, from 1m).
+	Retries        int      `yaml:"retries"`
+	RetryWait      Duration `yaml:"retry_wait"`
+	VerifyReadback *bool    `yaml:"verify_readback"` // read every upload back and compare; default true
+	// OnFailure is what a backup that keeps failing does: alert (the default, through the
+	// heartbeat going stale). alert_and_pause is rejected until it does something.
+	OnFailure    string              `yaml:"on_failure"`
+	Destinations []BackupDestination `yaml:"destinations"`
+}
+
+// BackupDestination is one place backups are written: a local directory, or an S3-compatible
+// store. Exactly one of the two.
+type BackupDestination struct {
+	Dir string    `yaml:"dir"` // a local directory, made when missing
+	S3  *BackupS3 `yaml:"s3"`
+}
+
+// BackupS3 is an S3-compatible destination (MinIO, R2, S3), addressed path-style. The
+// credentials are read from their files at use, so a rotated key needs no restart.
+type BackupS3 struct {
+	Endpoint      string `yaml:"endpoint"` // such as https://s3.example.com:9000
+	Region        string `yaml:"region"`   // for signing; us-east-1 when the store ignores it
+	Bucket        string `yaml:"bucket"`
+	Prefix        string `yaml:"prefix"` // inside the bucket, such as beacon/
+	AccessKeyFile string `yaml:"access_key_file"`
+	SecretKeyFile string `yaml:"secret_key_file"`
+}
+
+// backupHostRe is the hostname-safe form archive names accept, including dashes.
+var backupHostRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// Enabled reports whether backups are on: at least one destination.
+func (b Backup) Enabled() bool { return len(b.Destinations) > 0 }
+
+// VerifyReadbackOn reports the read-back check's setting (on unless said otherwise).
+func (b Backup) VerifyReadbackOn() bool { return b.VerifyReadback == nil || *b.VerifyReadback }
 
 // Documents reports whether Beacon takes clients by their metadata documents.
 func (o OAuth) Documents() bool { return o.ClientIDDocuments == nil || *o.ClientIDDocuments }
@@ -343,6 +421,35 @@ func (c *Config) defaults() {
 	if c.Storage.Audit.Retention == 0 {
 		c.Storage.Audit.Retention = Duration(365 * 24 * time.Hour)
 	}
+	set(&c.Backup.SecretsDir, "/etc/beacon/secrets")
+	if c.Backup.Heartbeat.MaxAge == 0 {
+		c.Backup.Heartbeat.MaxAge = Duration(2 * time.Hour)
+	}
+	set(&c.Backup.Heartbeat.Severity, "warning")
+	if c.Backup.DrillExpiry == 0 {
+		c.Backup.DrillExpiry = Duration(90 * 24 * time.Hour)
+	}
+	if c.Backup.Schedule.Database == 0 {
+		c.Backup.Schedule.Database = Duration(time.Hour)
+	}
+	if c.Backup.Schedule.Files == 0 {
+		c.Backup.Schedule.Files = Duration(24 * time.Hour)
+	}
+	if c.Backup.Schedule.FilesFull == 0 {
+		c.Backup.Schedule.FilesFull = Duration(7 * 24 * time.Hour)
+	}
+	if c.Backup.Retention.Hourly == 0 && c.Backup.Retention.Daily == 0 &&
+		c.Backup.Retention.Weekly == 0 && c.Backup.Retention.Monthly == 0 {
+		c.Backup.Retention.Hourly, c.Backup.Retention.Daily = 24, 14
+		c.Backup.Retention.Weekly, c.Backup.Retention.Monthly = 8, 12
+	}
+	if c.Backup.Retries == 0 {
+		c.Backup.Retries = 3
+	}
+	if c.Backup.RetryWait == 0 {
+		c.Backup.RetryWait = Duration(time.Minute)
+	}
+	set(&c.Backup.OnFailure, "alert")
 	set(&c.Language, "zh")
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
@@ -454,6 +561,77 @@ func (c *Config) validate() error {
 	}
 	if t := c.Storage.Audit.Retention.D(); t < 24*time.Hour {
 		bad("storage.audit.retention is at least 24h")
+	}
+
+	if c.Backup.Host != "" && !backupHostRe.MatchString(c.Backup.Host) {
+		bad("backup.host is a hostname ([A-Za-z0-9][A-Za-z0-9._-]*)")
+	}
+	if c.Backup.Enabled() {
+		for i, d := range c.Backup.Destinations {
+			switch {
+			case d.Dir != "" && d.S3 != nil:
+				bad("backup.destinations[%d]: dir and s3 are alternatives, not both", i)
+			case d.Dir == "" && d.S3 == nil:
+				bad("backup.destinations[%d]: either dir or s3 is needed", i)
+			case d.S3 != nil:
+				s := d.S3
+				if s.Endpoint == "" || s.Bucket == "" {
+					bad("backup.destinations[%d].s3 needs endpoint and bucket", i)
+				}
+				if u, err := url.Parse(s.Endpoint); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+					bad("backup.destinations[%d].s3.endpoint %q is not an http(s) URL", i, s.Endpoint)
+				}
+				if s.AccessKeyFile == "" || s.SecretKeyFile == "" {
+					bad("backup.destinations[%d].s3 needs access_key_file and secret_key_file", i)
+				}
+				for _, f := range []struct{ path, what string }{
+					{s.AccessKeyFile, "access_key_file"}, {s.SecretKeyFile, "secret_key_file"},
+				} {
+					if f.path != "" {
+						if _, err := os.Stat(f.path); err != nil {
+							bad("backup.destinations[%d].s3.%s: %v", i, f.what, err)
+						}
+					}
+				}
+			}
+		}
+		if c.Backup.RecipientsFile != "" {
+			if _, err := os.Stat(c.Backup.RecipientsFile); err != nil {
+				bad("backup.recipients_file: %v", err)
+			}
+		}
+		for i, r := range c.Backup.Recipients {
+			if !strings.HasPrefix(r, "age1") && !strings.HasPrefix(r, "ssh-ed25519 ") {
+				bad("backup.recipients[%d] is an age public key (age1…) or an ssh-ed25519 line", i)
+			}
+		}
+		if t := c.Backup.Heartbeat.MaxAge.D(); t < time.Minute {
+			bad("backup.heartbeat.max_age is at least 1m")
+		}
+		if !slices.Contains(Severities, c.Backup.Heartbeat.Severity) {
+			bad("backup.heartbeat.severity must be one of %s", strings.Join(Severities, ", "))
+		}
+		if t := c.Backup.Schedule.Database.D(); t < 5*time.Minute {
+			bad("backup.schedule.database is at least 5m")
+		}
+		if t := c.Backup.Schedule.Files.D(); t < time.Hour {
+			bad("backup.schedule.files is at least 1h")
+		}
+		if c.Backup.Schedule.FilesFull.D() < c.Backup.Schedule.Files.D() {
+			bad("backup.schedule.files_full is at least backup.schedule.files")
+		}
+		if c.Backup.OnFailure != "alert" {
+			bad("backup.on_failure is alert, not %q (alert_and_pause is not implemented)", c.Backup.OnFailure)
+		}
+		if c.Storage.Driver == "postgres" || c.Storage.Driver == "postgresql" {
+			bad("backup does not snapshot PostgreSQL yet; use the database's own backup or keep storage.driver as sqlite")
+		}
+		if c.Backup.Retries < 0 || c.Backup.Retries > 10 {
+			bad("backup.retries is between 0 and 10")
+		}
+		if c.Backup.RetryWait.D() < time.Second {
+			bad("backup.retry_wait is at least 1s")
+		}
 	}
 
 	if c.Gateway.Listen != "" {
