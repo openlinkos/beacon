@@ -369,6 +369,17 @@ func (l *Lease) Run(ctx context.Context) {
 	}
 }
 
+// GoRun starts Run in a goroutine and returns a function that waits until Run has
+// returned: leader-only work has stopped and the lease row is deleted.
+func (l *Lease) GoRun(ctx context.Context) (wait func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		l.Run(ctx)
+	}()
+	return func() { <-done }
+}
+
 // Leader reports whether this instance holds the lease and the local deadline has not passed.
 // /healthz answers 503 when it does not, and the front sends its traffic elsewhere.
 func (l *Lease) Leader() bool {

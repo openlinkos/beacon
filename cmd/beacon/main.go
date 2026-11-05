@@ -418,6 +418,7 @@ func serve(args []string, stderr io.Writer) int {
 	// over when the lease expires. What the pair shares is in the database (and, for recordings, in
 	// S3-compatible storage); a loop restarts from it as after a restart.
 	var lease *ha.Lease
+	var waitLease func()
 	single := func(fn func(context.Context)) {
 		go fn(ctx)
 	}
@@ -433,7 +434,7 @@ func serve(args []string, stderr io.Writer) int {
 			return 1
 		}
 		st.SetWriteGuard(lease.CheckWrite)
-		go lease.Run(ctx)
+		waitLease = lease.GoRun(ctx)
 		single = func(fn func(context.Context)) {
 			go ha.Single(ctx, lease, fn)
 		}
@@ -563,19 +564,27 @@ func serve(args []string, stderr io.Writer) int {
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cdb.Catalog().Locations),
 		"gateway", cfg.Gateway.Listen, "targets", cdb.Targets().Count(), "config_version", cdb.Version(),
 		"ssh", map[bool]string{true: cfg.SSH.Listen, false: "off"}[gate != nil], "agent_hooks", len(cfg.Agents))
+	code := 0
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server failed", "err", err)
-			return 1
+			code = 1
 		}
+	}
+	stop()
+	if waitLease != nil {
+		waitLease()
 	}
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = hs.Shutdown(sctx)
 	if gs != nil {
 		_ = gs.Shutdown(sctx)
+	}
+	if code != 0 {
+		return code
 	}
 	log.Info("beacon stopped")
 	return 0

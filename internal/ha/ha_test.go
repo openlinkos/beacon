@@ -408,6 +408,78 @@ func TestRunReleasesAfterLeaderWork(t *testing.T) {
 	}
 }
 
+// TestGoRunWaitsForLeaderWork: GoRun's wait does not return until Single's fn has
+// returned, and the leader row is gone afterwards.
+//
+// Red-before: without GoRun, main started `go lease.Run(ctx)` and returned from
+// run() (and logged "beacon stopped") while Single was still in the 200ms sleep
+// after inner.Done(); Run's defer had already deleted the lease row. The old
+// `go lease.Run(ctx)` plus returning from run() did not wait.
+func TestGoRunWaitsForLeaderWork(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	one, err := Open(admin, Options{Name: "wait-gorun", ID: "primary", Renew: 80 * time.Millisecond, Expire: 400 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wait := one.GoRun(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the instance never took the lease")
+	}
+	started := make(chan struct{})
+	left := make(chan time.Time, 1)
+	Single(ctx, one, func(inner context.Context) {
+		close(started)
+		<-inner.Done()
+		time.Sleep(200 * time.Millisecond)
+		left <- time.Now()
+	})
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Single never started")
+	}
+	cancel()
+	waited := make(chan time.Time, 1)
+	go func() {
+		wait()
+		waited <- time.Now()
+	}()
+	var waitAt time.Time
+	select {
+	case waitAt = <-waited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("wait() never returned")
+	}
+	select {
+	case doneAt := <-left:
+		if waitAt.Before(doneAt.Add(-30 * time.Millisecond)) {
+			t.Errorf("wait() returned at %s before the leader's work returned at %s", waitAt.Format(time.RFC3339Nano), doneAt.Format(time.RFC3339Nano))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the leader's work never returned")
+	}
+	var n int
+	if err := admin.QueryRow(`SELECT COUNT(*) FROM leader WHERE name = $1 AND holder = $2`, "wait-gorun", "primary").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatal("the leader row was still there after wait() returned")
+	}
+}
+
 // TestRunReleasesWhenStopHitsATake: cancelling during a renewal still deletes the row.
 // A take that sees ctx.Done() returns leader=false; that must not skip release, or the
 // standby waits the full expiry for a holder that has already stopped.
