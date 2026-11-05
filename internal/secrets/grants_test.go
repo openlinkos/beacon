@@ -904,8 +904,8 @@ func TestGrantLifecycle(t *testing.T) {
 	if err := read(); !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("the third read is past the uses, got %v", err)
 	}
-	if grants := g.GrantsOf("worker"); len(grants) != 1 || grants[0].Status != GrantExhausted {
-		t.Fatalf("the grant is exhausted, got %+v", grants)
+	if grants := g.GrantsOf("worker"); len(grants) != 0 {
+		t.Fatalf("an exhausted grant is no longer named, got %+v", grants)
 	}
 
 	// a grant with an expiry ends with it, and the notice goes ahead of the end
@@ -1049,8 +1049,8 @@ func TestPolicyTightened(t *testing.T) {
 	if err := read(); !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("the revoked grant reads nothing, got %v", err)
 	}
-	if grants := g.GrantsOf("worker"); len(grants) != 1 || grants[0].Status != GrantRevoked {
-		t.Fatalf("the grant is revoked, got %+v", grants)
+	if grants := g.GrantsOf("worker"); len(grants) != 0 {
+		t.Fatalf("a revoked grant is no longer named, got %+v", grants)
 	}
 	// keep_until_expiry: the grant stands until its own end
 	g.setSetting(t, "grant.on_policy_tightened", "keep_until_expiry")
@@ -1135,8 +1135,8 @@ func TestOwnerAccessLost(t *testing.T) {
 	if err := s.SetPermission(own, col.Name, "user:ops", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if grants := s.GrantsOf("worker"); len(grants) != 1 || grants[0].Status != GrantRevoked {
-		t.Fatalf("the owner losing access revokes the grants, got %+v", grants)
+	if grants := s.GrantsOf("worker"); len(grants) != 0 {
+		t.Fatalf("the owner losing access drops the grants from the head, got %+v", grants)
 	}
 	if _, err := s.GetSecret("worker", "test", "Shared/Token item", "password", "reading", "", "", "", ""); !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("a read after the loss has no grant, got %v", err)
@@ -1276,8 +1276,8 @@ func TestAnomalies(t *testing.T) {
 	if _, err := g.GetSecret("spender", "test", "Infra/"+token.Title, "password", "reading", "", "", "", ""); !errors.Is(err, ErrSuspendedAgent) {
 		t.Fatalf("the suspended agent reads nothing, got %v", err)
 	}
-	if grants := g.GrantsOf("spender"); len(grants) == 0 || grants[0].Status != GrantRevoked {
-		t.Fatalf("the grants were suspended (revoked), got %+v", grants)
+	if grants := g.GrantsOf("spender"); len(grants) != 0 {
+		t.Fatalf("suspended grants drop out of the head, got %+v", grants)
 	}
 	// a signature failure notifies rather than suspends: it names no agent
 	g.ent(t, Entitlement{Name: "broken", Principals: Principals{Agents: []string{"worker"}},

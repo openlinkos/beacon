@@ -45,7 +45,7 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 
 ### beacon settings
 
-The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`. A missing or unverifiable signed head is recovered with `rebuild-head`; Beacon does not rebuild it on a later write. The epochs file lives in the secrets directory, shared with the vault's policy and items heads.
+The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`. A missing or unverifiable signed head is recovered with `rebuild-head`; Beacon does not rebuild it on a later write. The epochs file lives in the secrets directory, shared with the vault's policy, items, eligibility and grants heads.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ The `settings` command reads and changes the system settings the secrets work ru
 
 ### beacon secret
 
-The vault, for a person's hands on the command line: the same operations the [console's Secrets pages](https://beacon.openlinkos.com/reference/vault) and the [REST routes](api.md#vault) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`. Policy and item rows are named in epoch-hashed signed heads; a missing or unverifiable head is recovered with `rebuild-head`. The epochs file lives in the secrets directory.
+The vault, for a person's hands on the command line: the same operations the [console's Secrets pages](https://beacon.openlinkos.com/reference/vault) and the [REST routes](api.md#vault) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`. Policy, item, eligibility and grant rows are named in epoch-hashed signed heads; a missing or unverifiable head is recovered with `rebuild-head`. The epochs file lives in the secrets directory.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -76,7 +76,7 @@ The vault, for a person's hands on the command line: the same operations the [co
 | `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
 | `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
-| `rebuild-head` | `-user` | Rebuild the policy and items signed heads from the rows that still verify (owner recovery through the admin socket; audited). Beacon does not rebuild a missing head on a later write |
+| `rebuild-head` | `-user` | Rebuild the policy, items, eligibility and grants signed heads from the rows that still verify (owner recovery through the admin socket; audited). Beacon does not rebuild a missing head on a later write |
 
 ### beacon key
 

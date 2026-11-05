@@ -9,6 +9,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/settings"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -72,6 +73,9 @@ type grantSpec struct {
 
 // createGrant writes one grant row, signed. The caller holds the service's write lock.
 func (s *Service) createGrant(agent agentInfo, item Item, col Collection, spec grantSpec) (Grant, error) {
+	if err := s.refuseIfRotating(); err != nil {
+		return Grant{}, err
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return Grant{}, err
@@ -87,6 +91,7 @@ func (s *Service) createGrant(agent agentInfo, item Item, col Collection, spec g
 		g.ExpiresAt = g.Created.Add(time.Duration(spec.duration) * time.Second)
 	}
 	g.Sig = signRow(sk, g.signedParts()...)
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		b, err := json.Marshal(g)
 		if err != nil {
@@ -95,24 +100,38 @@ func (s *Service) createGrant(agent agentInfo, item Item, col Collection, spec g
 		if err := tx.Put(bucketGrants, []byte(g.ID), b); err != nil {
 			return err
 		}
-		return writePolicyHeadTx(tx, sk)
+		h, err := s.commitGrantRow(tx, g, b)
+		committed = h
+		return err
 	})
 	if err != nil {
 		return Grant{}, err
 	}
+	s.afterHeads(committed)
 	_ = s.auditEntry(store.AuditEntry{Actor: spec.approver, Via: "system", Action: "secrets_grant",
 		Target: item.Title, Detail: fmt.Sprintf("a grant for %s over %s in %s (%s)", agent.Name, item.Title, col.Name, spec.level)})
 	return g, nil
 }
 
-// putGrantTx writes a grant row inside a transaction the caller holds.
-func putGrantTx(tx kv.Tx, g Grant, sk []byte) error {
+// putGrantTx writes a grant row inside a transaction the caller holds and returns the stored bytes.
+func putGrantTx(tx kv.Tx, g Grant, sk []byte) ([]byte, error) {
 	g.Sig = signRow(sk, g.signedParts()...)
 	b, err := json.Marshal(g)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Put(bucketGrants, []byte(g.ID), b)
+	if err := tx.Put(bucketGrants, []byte(g.ID), b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// commitGrantRow names an active grant in the grants head, or drops it when it is no longer active.
+func (s *Service) commitGrantRow(tx kv.Tx, g Grant, raw []byte) (signedhead.Head, error) {
+	if g.Status == GrantActive {
+		return s.commitGrants(tx, map[string][]byte{g.ID: raw}, nil)
+	}
+	return s.commitGrants(tx, nil, []string{g.ID})
 }
 
 // grantVerifies is the signature check a grant passes to be served at all.
@@ -124,20 +143,29 @@ func (s *Service) grantVerifies(g Grant) bool {
 	return verifyRow(sk, g.Sig, g.signedParts()...)
 }
 
-// grants walks the grant rows the signed head still names, verified ones only.
+// grants walks the active grant rows the grants head still names, verified ones only.
 func (s *Service) grants(fn func(g Grant) bool) {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketGrants, kv.Range{}, func(_, v []byte) bool {
+		res := s.loadGrants(tx)
+		if res.Status != signedhead.StatusOK && res.Status != signedhead.StatusCatchUp {
+			return nil
+		}
+		for id := range res.Head.Entries {
+			if isHeadKey([]byte(id)) {
+				continue
+			}
+			v := tx.Get(bucketGrants, []byte(id))
+			if !s.grantAccept(tx, id, v) {
+				continue
+			}
 			var g Grant
-			if json.Unmarshal(v, &g) != nil || !s.grantVerifies(g) {
-				return true
+			if json.Unmarshal(v, &g) != nil || !s.grantVerifies(g) || g.Status != GrantActive {
+				continue
 			}
-			ok, named := s.headMatch(tx, kindGrant, g.ID, g.signedParts(), g.Status)
-			if !named || !ok {
-				return true
+			if !fn(g) {
+				return nil
 			}
-			return fn(g)
-		})
+		}
 		return nil
 	})
 }
@@ -188,7 +216,8 @@ func (s *Service) GrantsOf(agent string) []Grant {
 	return out
 }
 
-// AllGrants lists every grant, newest first, with a state filter (every state when empty).
+// AllGrants lists the grants the signed head still names (active grants), newest first, with a
+// state filter (every named grant when empty).
 func (s *Service) AllGrants(state string) []Grant {
 	var out []Grant
 	s.grants(func(g Grant) bool {
@@ -263,6 +292,9 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return Grant{}, nil, err
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return Grant{}, nil, err
@@ -295,6 +327,9 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 	if err := s.grantPolicyHolds(ag, g, item, col); err != nil {
 		return Grant{}, nil, err
 	}
+	if !s.ownerMayRead(ag.Owner, col.ID) {
+		return Grant{}, nil, fmt.Errorf("%w: the agent's owner may no longer read this collection", ErrForbidden)
+	}
 	if reason == "" {
 		reason = g.Reason // a renewal may ride on the reason it started with
 	}
@@ -304,6 +339,7 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 	}
 	var out Grant
 	var outReq *Request
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketGrants, []byte(id))
 		var cur Grant
@@ -324,13 +360,15 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 				cur.ExpiresAt = time.Time{}
 			}
 			cur.NoticedAt = time.Time{}
-			if err := putGrantTx(tx, cur, sk); err != nil {
+			b, err := putGrantTx(tx, cur, sk)
+			if err != nil {
 				return err
 			}
-			if err := writePolicyHeadTx(tx, sk); err != nil {
+			h, err := s.commitGrantRow(tx, cur, b)
+			if err != nil {
 				return err
 			}
-			out = cur
+			committed, out = h, cur
 			return nil
 		default: // request: a new ask, decided like any other
 			item, _, ok := s.itemTx(tx, cur.Item)
@@ -364,6 +402,7 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 	if err != nil {
 		return Grant{}, nil, err
 	}
+	s.afterHeads(committed)
 	if outReq != nil {
 		s.pushApprovalCard(*outReq)
 		_ = s.auditEntry(store.AuditEntry{Actor: agentName, Via: via, Action: "secrets_grant_renew",
@@ -379,11 +418,15 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 func (s *Service) ReleaseGrant(agentName, id, via string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return err
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return err
 	}
 	var released Grant
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketGrants, []byte(id))
 		var g Grant
@@ -394,18 +437,21 @@ func (s *Service) ReleaseGrant(agentName, id, via string) error {
 			return fmt.Errorf("%w: the grant is %s", ErrConflict, g.Status)
 		}
 		g.Status = GrantReleased
-		if err := putGrantTx(tx, g, sk); err != nil {
+		b, err := putGrantTx(tx, g, sk)
+		if err != nil {
 			return err
 		}
-		if err := writePolicyHeadTx(tx, sk); err != nil {
+		h, err := s.commitGrantRow(tx, g, b)
+		if err != nil {
 			return err
 		}
-		released = g
+		committed, released = h, g
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	s.afterHeads(committed)
 	_ = s.auditEntry(store.AuditEntry{Actor: agentName, Via: via, Action: "secrets_grant_release", Target: id,
 		Detail: "the grant was released"})
 	s.sendSecretHook(released.Agent, "secret.revoked", hookPayload{Grant: released.ID, Item: released.Item, Reason: "released"})
@@ -419,11 +465,15 @@ func (s *Service) RevokeGrant(who Actor, id, reason string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return err
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return err
 	}
 	var revoked Grant
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketGrants, []byte(id))
 		var g Grant
@@ -434,18 +484,21 @@ func (s *Service) RevokeGrant(who Actor, id, reason string) error {
 			return fmt.Errorf("%w: the grant is %s", ErrConflict, g.Status)
 		}
 		g.Status = GrantRevoked
-		if err := putGrantTx(tx, g, sk); err != nil {
+		b, err := putGrantTx(tx, g, sk)
+		if err != nil {
 			return err
 		}
-		if err := writePolicyHeadTx(tx, sk); err != nil {
+		h, err := s.commitGrantRow(tx, g, b)
+		if err != nil {
 			return err
 		}
-		revoked = g
+		committed, revoked = h, g
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	s.afterHeads(committed)
 	_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_grant_revoke", Target: id,
 		Detail: "revoked: " + reason})
 	s.sendSecretHook(revoked.Agent, "secret.revoked", hookPayload{Grant: revoked.ID, Item: revoked.Item, Reason: reason})
@@ -500,11 +553,17 @@ func (s *Service) reassessGrants() {
 		mode string
 		why  string
 	}
-	var queue []toTighten
+	// snapshot first: Item, decidePolicy and ownerMayRead each open their own View, and a
+	// nested View under grants() waits on the SQLite read pool
+	var live []Grant
 	s.grants(func(g Grant) bool {
-		if g.Status != GrantActive {
-			return true
+		if g.Status == GrantActive {
+			live = append(live, g)
 		}
+		return true
+	})
+	var queue []toTighten
+	for _, g := range live {
 		item, col, ok := s.Item(g.Item)
 		agent, agentOK := s.agentInfoOf(g.Agent)
 		var why string
@@ -538,8 +597,7 @@ func (s *Service) reassessGrants() {
 		if why != "" {
 			queue = append(queue, toTighten{g: g, mode: mode, why: why})
 		}
-		return true
-	})
+	}
 	for _, t := range queue {
 		s.tightenGrant(t.g, t.mode, t.why)
 	}
@@ -549,11 +607,15 @@ func (s *Service) reassessGrants() {
 func (s *Service) tightenGrant(g Grant, mode, why string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return
+	}
 	sk, err := s.sk()
 	if err != nil {
 		return
 	}
 	var revoked Grant
+	var committed signedhead.Head
 	_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketGrants, []byte(g.ID))
 		var cur Grant
@@ -571,16 +633,19 @@ func (s *Service) tightenGrant(g Grant, mode, why string) {
 			// the grant stands; the change is said, and the audit carries why
 		default: // revoke
 			cur.Status = GrantRevoked
-			if err := putGrantTx(tx, cur, sk); err != nil {
+			b, err := putGrantTx(tx, cur, sk)
+			if err != nil {
 				return err
 			}
-			if err := writePolicyHeadTx(tx, sk); err != nil {
+			h, err := s.commitGrantRow(tx, cur, b)
+			if err != nil {
 				return err
 			}
-			revoked = cur
+			committed, revoked = h, cur
 		}
 		return nil
 	})
+	s.afterHeads(committed)
 	// the record and the echo go out after the transaction: the audit log shares the one write
 	// connection, so it is never written inside one
 	if revoked.ID != "" {
@@ -672,9 +737,12 @@ func (s *Service) Sweep() int {
 	if len(endIDs)+len(noticeIDs) > 0 {
 		s.mu.Lock()
 		sk, err := s.sk()
-		if err == nil {
+		if err == nil && s.refuseIfRotating() == nil {
 			var ended, noticed []Grant
+			var committed signedhead.Head
 			_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+				puts := map[string][]byte{}
+				var dels []string
 				for _, id := range endIDs {
 					v := tx.Get(bucketGrants, []byte(id))
 					var g Grant
@@ -682,9 +750,10 @@ func (s *Service) Sweep() int {
 						continue
 					}
 					g.Status = GrantExpired
-					if err := putGrantTx(tx, g, sk); err != nil {
+					if _, err := putGrantTx(tx, g, sk); err != nil {
 						return err
 					}
+					dels = append(dels, g.ID)
 					ended = append(ended, g)
 				}
 				for _, id := range noticeIDs {
@@ -694,16 +763,21 @@ func (s *Service) Sweep() int {
 						continue
 					}
 					g.NoticedAt = now
-					if err := putGrantTx(tx, g, sk); err != nil {
+					b, err := putGrantTx(tx, g, sk)
+					if err != nil {
 						return err
 					}
+					puts[g.ID] = b
 					noticed = append(noticed, g)
 				}
 				if len(ended)+len(noticed) == 0 {
 					return nil
 				}
-				return writePolicyHeadTx(tx, sk)
+				h, err := s.commitGrants(tx, puts, dels)
+				committed = h
+				return err
 			})
+			s.afterHeads(committed)
 			for _, g := range ended {
 				_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_grant_end",
 					Target: g.ID, Detail: "the grant ended"})

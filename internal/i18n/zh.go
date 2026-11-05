@@ -69,8 +69,12 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"The vault's root key was %s.":  "保管库的根密钥已%s。",
 	"The vault policy head is unusable; collections, tags and permissions are treated as the strictest.": "保管库策略头不可用；库、标签和权限按最严处理。",
 	"The vault items head is unusable; items are treated as not found.":                                  "保管库条目头不可用；条目视为不存在。",
+	"The vault eligibility head is unusable; every entitlement is treated as deny-all.":                  "保管库资格头不可用；每条资格按全部拒绝处理。",
+	"The vault grants head is unusable; no grant is treated as active.":                                  "保管库授权头不可用；没有任何授权视为有效。",
 	"Vault policy rows are missing, stale or bad and are treated as the strictest: %s.":                  "保管库策略行缺失、过期或签名不符，按最严处理：%s。",
 	"Vault item rows are missing, stale or bad and are treated as not found: %s.":                        "保管库条目行缺失、过期或签名不符，视为不存在：%s。",
+	"Vault eligibility rows are missing, stale or bad and are treated as the strictest: %s.":             "保管库资格行缺失、过期或签名不符，按最严处理：%s。",
+	"Vault grant rows are missing, stale or bad and are treated as not active: %s.":                      "保管库授权行缺失、过期或签名不符，视为无效：%s。",
 	"%s rebuilt the vault signed heads via %s":                                                           "%[1]s 经%[2]s重建了保管库签名头",
 	// what every page says of Beacon and where the project is
 	"Powered by Beacon, open source": "由开源的 Beacon 驱动",

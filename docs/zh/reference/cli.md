@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-140c3695
+sourceHash: sha256-0babfe27
 ---
 
 # 命令行
@@ -49,7 +49,7 @@ docker exec beacon beacon token list
 
 ### beacon settings
 
-`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。签名头缺失或验不过时用 `rebuild-head` 恢复；Beacon 不会在之后的写入里自行重建。epochs 文件在 secrets 目录，与保管库的策略头和条目头共用。
+`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。签名头缺失或验不过时用 `rebuild-head` 恢复；Beacon 不会在之后的写入里自行重建。epochs 文件在 secrets 目录，与保管库的策略、条目、资格和授权头共用。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ docker exec beacon beacon token list
 
 ### beacon secret
 
-保管库，给人的双手在命令行上用：与控制台的「保管库」页和 [REST 路由](api.md#vault)同一套操作、同一套权限与审计。每次修改都以某个账号做出（`-user`，默认是你自己），查看值要重新输入该账号的密码，任何值都不会出现在日志或审计文本里。条目用它的 `beacon://` 引用或 `库/标题` 指代。策略行与条目行记在带纪元哈希的签名头里；头缺失或验不过时用 `rebuild-head` 恢复。epochs 文件在 secrets 目录。
+保管库，给人的双手在命令行上用：与控制台的「保管库」页和 [REST 路由](api.md#vault)同一套操作、同一套权限与审计。每次修改都以某个账号做出（`-user`，默认是你自己），查看值要重新输入该账号的密码，任何值都不会出现在日志或审计文本里。条目用它的 `beacon://` 引用或 `库/标题` 指代。策略、条目、资格与授权行记在带纪元哈希的签名头里；头缺失或验不过时用 `rebuild-head` 恢复。epochs 文件在 secrets 目录。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ docker exec beacon beacon token list
 | `generate` REF FIELD | `-length`、`-charset`、`-user`、`-reason` | 让 Beacon 生成新值（`-length` 默认 24，`-charset` 为 `letters`、`alnum` 或 `all`），存为新版本。值不显示；要看就 reveal |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库里能做什么：不带第二参数时列出清单；`user:alice=read` 给人授 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
 | `tags` [NAME [LEVEL]] | `-description`、`-user` | 列出标签，或设置一个：标签的级别是策略（带它的条目至少那么严），只有 owner 账号可以 |
-| `rebuild-head` | `-user` | 用仍然验得过的行重建策略与条目签名头（经管理套接字的属主恢复；记审计）。Beacon 不会在之后的写入里自行重建缺失的头 |
+| `rebuild-head` | `-user` | 用仍然验得过的行重建策略、条目、资格与授权签名头（经管理套接字的属主恢复；记审计）。Beacon 不会在之后的写入里自行重建缺失的头 |
 
 ### beacon key
 

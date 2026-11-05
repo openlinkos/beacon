@@ -131,12 +131,16 @@ type Service struct {
 	rotRootMu    sync.Mutex
 	rotatingRoot bool // a root-key rotation is in flight; a second call refuses
 
-	policy *signedhead.Table
-	items  *signedhead.Table
+	policy      *signedhead.Table
+	items       *signedhead.Table
+	eligibility *signedhead.Table
+	grantHead   *signedhead.Table
 
-	headMu         sync.Mutex
-	policyFailsafe bool // sticky until RebuildHead or a write this service committed
-	itemsFailsafe  bool
+	headMu              sync.Mutex
+	policyFailsafe      bool // sticky until RebuildHead or a write this service committed
+	itemsFailsafe       bool
+	eligibilityFailsafe bool
+	grantsFailsafe      bool
 
 	badMu sync.Mutex
 	bad   []string // rows that failed their signature or the signed head, for the console and the log
@@ -427,7 +431,10 @@ func (s *Service) reloadSignedRows() {
 			}
 			return true
 		})
-		tx.Range(bucketEntitlements, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketEntitlements, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
 			var r Entitlement
 			if json.Unmarshal(v, &r) != nil {
 				report("entitlement", "unreadable")
@@ -438,7 +445,10 @@ func (s *Service) reloadSignedRows() {
 			}
 			return true
 		})
-		tx.Range(bucketGrants, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketGrants, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
 			var r Grant
 			if json.Unmarshal(v, &r) != nil {
 				report("grant", "unreadable")

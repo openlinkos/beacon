@@ -284,7 +284,7 @@ func serve(args []string, stderr io.Writer) int {
 		echoBot = bot
 	}
 	// no Key until the vault unseals: every setting is its failsafe. Epochs live in the secrets
-	// directory with the vault's policy and items heads.
+	// directory with the vault's policy, items, eligibility and grants heads.
 	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log, EpochsDir: cfg.Vault.Dir})
 	if err != nil {
 		log.Error("cannot start", "err", err)
