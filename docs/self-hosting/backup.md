@@ -6,7 +6,7 @@ What a Beacon centre's backup must hold, where each piece lives, and the command
 
 | Piece | Where | If it is lost |
 | --- | --- | --- |
-| Beacon's state | The `beacon-data` volume, at `/var/lib/beacon` in the `beacon` container: `status.db`, one bbolt file, and `recordings/`, the sessions' recordings (asciicast v3) and transcripts, a directory per day | The accounts, agents and tokens, the catalogue, probe targets and modules (they live in the database, not only in the files), alert groups and their notes, the audit log, the index of sessions, the recordings |
+| Beacon's state | The `beacon-data` volume, at `/var/lib/beacon` in the `beacon` container: `beacon.db`, one SQLite database (with its `-wal` and `-shm` files while it runs), and `recordings/`, the sessions' recordings (asciicast v3) and transcripts, a directory per day | The accounts, agents and tokens, the catalogue, probe targets and modules (they live in the database, not only in the files), alert groups and their notes, the audit log, the index of sessions, the recordings |
 | The metrics | The `victoriametrics-data` volume, at `/storage` in the `beacon-victoriametrics` container; 400 days of retention | The history behind the status pages' 90-day bars and the evidence's probe windows |
 | The certificates | The `caddy-data` volume | Nothing that matters: Caddy asks Let's Encrypt again |
 | The deployment | `/opt/beacon`: `.env`, `config.yaml`, `secrets/`, `catalog/`, `targets/`, `rules/` | Your configuration, and the SSH channel's keys |
@@ -15,7 +15,7 @@ Two things about the secrets, which `install.sh` makes on the machine and which 
 
 ## Back up
 
-Beacon's own image is distroless — no shell, no tar — so a helper container reads each volume, through the stopped container that owns it. Beacon keeps `status.db` open and locked while it runs, and a copy taken underneath a writing process is not guaranteed to be whole, hence the stops. They cost seconds: while the gateway is down, each probe queues its results on disk and sends them when it answers again, and open SSH sessions end (with what they did on record).
+Beacon's own image is distroless — no shell, no tar — so a helper container reads each volume, through the stopped container that owns it. Beacon keeps `beacon.db` open and locked while it runs, and a copy taken underneath a writing process is not guaranteed to be whole, hence the stops; stopped cleanly, everything is in `beacon.db` itself. They cost seconds: while the gateway is down, each probe queues its results on disk and sends them when it answers again, and open SSH sessions end (with what they did on record).
 
 1. **Beacon's state and recordings** — a few seconds:
 
@@ -24,7 +24,7 @@ Beacon's own image is distroless — no shell, no tar — so a helper container 
    cd /opt/beacon
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     tar -C /var/lib/beacon -czf /backup/beacon-$(date +%F).tgz status.db recordings
+     sh -c 'cd /var/lib/beacon && tar -czf /backup/beacon-$(date +%F).tgz beacon.db* recordings'
    ```
 
 2. **The metrics**, the same way, as long as the copy takes (this is the big one):
@@ -85,7 +85,7 @@ Onto the same machine with an emptied volume, or onto a fresh one.
 
 ## The catalogue, as files
 
-The catalogue is inside `status.db`, so every backup of the state holds it. To also keep the in-force configuration as files — for git, or to move it between centres:
+The catalogue is inside `beacon.db`, so every backup of the state holds it. To also keep the in-force configuration as files — for git, or to move it between centres:
 
 ```bash
 docker exec beacon beacon config export /var/lib/beacon/export

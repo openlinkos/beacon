@@ -46,7 +46,7 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 
 ## 状态存在哪里 {#where-state-lives}
 
-- **一个 bbolt 文件**：数据目录（`data_dir`，即 `/var/lib/beacon`）里的 `status.db`。里面有告警组及其备注和唤醒 Agent 的记录、静默、成员的账号（密码只存 argon2id 哈希）、他们的 Agent、令牌和 OAuth 登录（只存 SHA-256 哈希）、机器、SSH 会话的索引、变更事件、配置及其历史、控制台的登录，以及审计日志。
+- **一个 SQLite 数据库**：数据目录（`data_dir`，即 `/var/lib/beacon`；`storage.path`）里的 `beacon.db`，以 WAL 模式写入（所以旁边有它的 `-wal` 和 `-shm` 文件）。里面有告警组及其备注和唤醒 Agent 的记录、静默、成员的账号（密码只存 argon2id 哈希）、他们的 Agent、令牌和 OAuth 登录（只存 SHA-256 哈希）、机器、SSH 会话的索引、变更事件、配置及其历史、控制台的登录，按原来的桶存成键和值；还有审计日志，是一张带哈希链和签名检查点的事件表。跑过早先版本的中心，首次启动时把 bbolt 文件 `status.db` 迁进来，旧文件保留为 `status.db.pre-sql`。
 - **SSH 会话的录像**：放在它旁边的 `recordings/YYYY/MM/DD/` 下，保留 `ssh.keep` 这么久（默认 180 天）。
 - **管理套接字**：同一目录下的 `ctl.sock`，权限 0600。命令行通过它连到运行中的服务，所以 `setup`、`user`、`agent`、`token`、`enroll`、`machine`、`ssh`、`silence`、`config` 和 `drill` 既不需要网络，也不需要令牌；只有服务自己的用户和 root 能连上。机器的令牌在这里创建，创建第一个账号用的初始化链接也从这里来。
 - **指标和规则不归 Beacon 管**：检测结果由 VictoriaMetrics 存储和查询（参考部署保留 400 天），规则由 vmalert 计算。
@@ -102,7 +102,8 @@ Agent 用在 Beacon 上登记的自己的密钥登录 SSH 通道，登录用的�
 | `internal/status` | 公开状态页：组件、组件现在的状态和根据检测点一致判断算出的 90 天历史、来自告警组的事件、维护窗口 |
 | `internal/web`、`internal/web/link` | 控制台（包括登录、初始化、邀请和重设密码、成员、Agent 和 OAuth 授权页面）和公开状态页，基于 `@openlinkos/ui` 的工作台框架（内置在 `static/ol` 下，用 `scripts/update-ui.sh` 更新；asciinema-player 在 `static/` 下），以及卡片打开这些页面用的签名链接 |
 | `internal/sshgate` | SSH 通道：Agent 凭自己的密钥登录、访问结束时关闭打开着的一切、给机器的证书、转接会话和转发的端口、录像（asciicast v3）和文字记录、工具（执行、读、写、改）、NAT 后面机器的连接器、暂停、回显到告警群 |
-| `internal/store` | bbolt 数据库：告警组（带备注和唤醒记录）、静默、账号和一次性链接、Agent 及其预设、令牌（只存哈希，带作用域、主体、有效期、SSH 密钥和机器）、OAuth 客户端和授权、机器、SSH 会话的索引、变更事件、控制台登录、审计日志、演练 |
+| `internal/kv`、`internal/events` | store 的底层：SQLite 上按桶存放的键和值（以及迁移时读一次的 bbolt 文件）；带哈希链、签名检查点的事件表，清理后剩下的链仍能校验 |
+| `internal/store` | 在它们之上的状态：告警组（带备注和唤醒记录）、静默、账号和一次性链接、Agent 及其预设、令牌（只存哈希，带作用域、主体、有效期、SSH 密钥和机器）、OAuth 客户端和授权、机器、SSH 会话的索引、变更事件、控制台登录、审计日志、演练 |
 | `internal/ctl` | 数据目录里的管理套接字，命令行的 `setup`、`user`、`agent`、`token`、`enroll`、`machine`、`ssh`、`silence`、`config` 和 `drill` 都通过它 |
 | `internal/catalog`、`internal/targets` | 检测点、心跳、到期资源和状态页；检测目标文件和检测协议的类型；每次修改都要通过的校验 |
 | `internal/configdb` | 数据库里的目录、检测目标集和检测模块文件：带版本的修改、历史和撤销、导入和导出、网关读取的当前配置 |

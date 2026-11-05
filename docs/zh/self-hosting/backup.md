@@ -10,7 +10,7 @@ sourceHash: sha256-ec026d61
 
 | 东西 | 位置 | 丢了会怎样 |
 | --- | --- | --- |
-| Beacon 的状态 | `beacon-data` 卷，`beacon` 容器内的 `/var/lib/beacon`：`status.db`（一个 bbolt 文件）和 `recordings/`（会话的录像 asciicast v3 与文字稿，按天一个目录） | 账号、Agent 和令牌；目录、检测目标和模块（在数据库里，不只是那几个文件）；告警组和备注；审计日志；会话索引；录像 |
+| Beacon 的状态 | `beacon-data` 卷，`beacon` 容器内的 `/var/lib/beacon`：`beacon.db`（一个 SQLite 数据库，运行时旁边有 `-wal` 和 `-shm` 文件）和 `recordings/`（会话的录像 asciicast v3 与文字稿，按天一个目录） | 账号、Agent 和令牌；目录、检测目标和模块（在数据库里，不只是那几个文件）；告警组和备注；审计日志；会话索引；录像 |
 | 指标 | `victoriametrics-data` 卷，`beacon-victoriametrics` 容器内的 `/storage`；保留 400 天 | 状态页 90 天历史条背后的数据，证据里的检测窗口 |
 | 证书 | `caddy-data` 卷 | 不要紧：Caddy 会再向 Let's Encrypt 申请 |
 | 部署 | `/opt/beacon`：`.env`、`config.yaml`、`secrets/`、`catalog/`、`targets/`、`rules/` | 你的配置，SSH 通道的密钥 |
@@ -19,7 +19,7 @@ sourceHash: sha256-ec026d61
 
 ## 备份 {#back-up}
 
-Beacon 自己的镜像是 distroless——没有 shell，也没有 tar——所以用一个临时容器读卷，从持有卷的那个停掉的容器挂过去。Beacon 运行期间一直打开并锁着 `status.db`，在它底下拷出来的文件不保证完整，所以要停服务。停的代价是几秒钟：网关停着的时间里，每个检测点把结果暂存在磁盘上，恢复了就补发；开着的 SSH 会话会结束（做过的事已有记录）。
+Beacon 自己的镜像是 distroless——没有 shell，也没有 tar——所以用一个临时容器读卷，从持有卷的那个停掉的容器挂过去。Beacon 运行期间一直打开并锁着 `beacon.db`，在它底下拷出来的文件不保证完整，所以要停服务；正常停下以后，所有内容都在 `beacon.db` 本身里。停的代价是几秒钟：网关停着的时间里，每个检测点把结果暂存在磁盘上，恢复了就补发；开着的 SSH 会话会结束（做过的事已有记录）。
 
 1. **Beacon 的状态和录像**——几秒钟：
 
@@ -28,7 +28,7 @@ Beacon 自己的镜像是 distroless——没有 shell，也没有 tar——所�
    cd /opt/beacon
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     tar -C /var/lib/beacon -czf /backup/beacon-$(date +%F).tgz status.db recordings
+     sh -c 'cd /var/lib/beacon && tar -czf /backup/beacon-$(date +%F).tgz beacon.db* recordings'
    ```
 
 2. **指标**，同样的做法，拷多久取决于数据有多大（这是大头）：
@@ -86,7 +86,7 @@ Beacon 自己的镜像是 distroless——没有 shell，也没有 tar——所�
 
 ## 目录，以文件形式 {#the-catalogue-as-files}
 
-目录在 `status.db` 里，所以每次状态的备份都装着它。要把生效的配置也留成文件——放进 git，或者在两个中心之间搬——用：
+目录在 `beacon.db` 里，所以每次状态的备份都装着它。要把生效的配置也留成文件——放进 git，或者在两个中心之间搬——用：
 
 ```bash
 docker exec beacon beacon config export /var/lib/beacon/export
