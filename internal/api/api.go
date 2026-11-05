@@ -222,6 +222,7 @@ type Server struct {
 	Config     *configdb.Service
 	Settings   *settings.Service // the secrets work's settings (settings.go); nil: none
 	Vault      vault             // the secrets vault (vault.go); nil: none
+	Secrets    SecretsAPI        // the vault's grants (secrets.go); nil: none
 	Status     *status.Service   // the public status pages (status.go); nil: none
 }
 
@@ -234,6 +235,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	s.registerConfig(mux)
 	s.registerSettings(mux)
 	s.registerVault(mux)
+	s.registerSecrets(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))

@@ -265,7 +265,7 @@ func (s *Server) vaultCollectionForm(w http.ResponseWriter, r *http.Request, v *
 		s.forbidden(w, r, v, "secrets:admin")
 		return
 	}
-	col, err := s.Vault.CreateCollection(who, r.PostForm.Get("name"), r.PostForm.Get("description"), r.PostForm.Get("level"))
+	col, err := s.Vault.CreateCollection(who, r.PostForm.Get("name"), r.PostForm.Get("description"), r.PostForm.Get("level"), nil)
 	if err != nil {
 		s.vaultFail(w, r, v, "", err)
 		return

@@ -284,7 +284,7 @@ func serve(args []string, stderr io.Writer) int {
 		echoBot = bot
 	}
 	// no Key until the vault unseals: every setting is its failsafe. Epochs live in the secrets
-	// directory with the vault's policy and items heads.
+	// directory with the vault's policy, items, eligibility and grants heads.
 	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log, EpochsDir: cfg.Vault.Dir})
 	if err != nil {
 		log.Error("cannot start", "err", err)
@@ -310,6 +310,7 @@ func serve(args []string, stderr io.Writer) int {
 			log.Error("the settings could not move onto the new signature key", "err", err)
 		}
 	})
+	vault.SetGrantsDeps(grantsDepsOf(cfg, st, nil))
 	purgeTrash := func() {
 		if n := vault.PurgeTrash(); n > 0 {
 			log.Info("the vault's trash was purged", "items", n)
@@ -324,6 +325,14 @@ func serve(args []string, stderr io.Writer) int {
 		}
 	}()
 	m := metrics.New(version.Version)
+	registerSecretMetrics(m, vault)
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for range t.C {
+			sweepSecrets(vault, log)
+		}
+	}()
 	catalog.Register(m, cdb.Catalog)
 	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample
@@ -389,6 +398,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	if sec.FeishuAppID != "" {
 		deps.Feishu = feishu.New(sec.FeishuAppID, sec.FeishuAppSecret, cfg.Feishu.Domain, log, func() { br.CountFeishuCall() })
+		vault.SetGrantsDeps(grantsDepsOf(cfg, st, deps.Feishu)) // the approval cards, now that the app is there
 	}
 	if bot != nil {
 		deps.Bot = bot
@@ -412,6 +422,7 @@ func serve(args []string, stderr io.Writer) int {
 		board = probenow.New(probenow.Deps{Catalog: cdb.Catalog, Targets: cdb.Targets, Metrics: m})
 		deps.ProbeNow = board
 	}
+	deps.Secrets = vault // the Feishu cards' secret buttons decide through the vault
 	gate, err := newGate(cfg, st, deps.Bot, pages, m, log)
 	if err != nil {
 		log.Error("cannot start", "err", err)
@@ -436,12 +447,12 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	pagesOut := status.New(sdeps)
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Settings: sset, Vault: vault, Status: pagesOut},
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Settings: sset, Vault: vault, Secrets: vault, Status: pagesOut},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
 			mcpserver.WithSettings(sset), mcpserver.WithVault(vault), mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Settings: sset, Vault: vault, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Settings: sset, Vault: vault, Secrets: vault, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway

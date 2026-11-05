@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/events"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/settings"
@@ -24,14 +26,18 @@ import (
 // The buckets, beside the store's own. The names carry the "secret_" prefix so they cannot meet
 // another package's.
 var (
-	bucketCollections = []byte("secret_collections")
-	bucketKeys        = []byte("secret_keys")        // the wrapped collection keys, every version
-	bucketItems       = []byte("secret_items")       // the overviews, signed
-	bucketVersions    = []byte("secret_versions")    // a version's fields and ciphertext
-	bucketFiles       = []byte("secret_attachments") // the attachments' ciphertexts
-	bucketTags        = []byte("secret_tags")        // the tags, signed
-	bucketPerms       = []byte("secret_perms")       // the people permissions, signed
-	bucketMeta        = []byte("secret_meta")        // the key check and the like
+	bucketCollections  = []byte("secret_collections")
+	bucketKeys         = []byte("secret_keys")         // the wrapped collection keys, every version
+	bucketItems        = []byte("secret_items")        // the overviews, signed
+	bucketVersions     = []byte("secret_versions")     // a version's fields and ciphertext
+	bucketFiles        = []byte("secret_attachments")  // the attachments' ciphertexts
+	bucketTags         = []byte("secret_tags")         // the tags, signed
+	bucketPerms        = []byte("secret_perms")        // the people permissions, signed
+	bucketMeta         = []byte("secret_meta")         // the key check and the like
+	bucketEntitlements = []byte("secret_entitlements") // the agents' entitlements, signed
+	bucketAgentTags    = []byte("secret_agent_tags")   // the agents' grouping tags, signed
+	bucketRequests     = []byte("secret_requests")     // the requests and their decisions
+	bucketGrants       = []byte("secret_grants")       // the grants, signed
 )
 
 // The keys of the meta bucket.
@@ -59,7 +65,7 @@ var (
 	ErrBadInput   = errors.New("bad input")
 	ErrForbidden  = errors.New("you may not do this here")
 	ErrReauth     = errors.New("enter your password to view values")
-	ErrAgent      = errors.New("agents reach items through grants; until those arrive, the vault answers an agent with nothing")
+	ErrAgent      = errors.New("agents reach items through grants, not this door: request_secret asks, get_secret takes")
 	ErrSealedUp   = ErrSealed
 	ErrAttachment = errors.New("the attachment is too large")
 	ErrHead       = errors.New("the signed head is unusable")
@@ -84,8 +90,23 @@ type Deps struct {
 	// store's own sign-in.
 	CheckPassword func(username, password string) error
 	// Audit writes an audit entry; nil: the store's own. A test can refuse one, which is how the
-	// record-before-give rule (no record, no value) is checked.
+	// record-before-give rule (no record, no value) is checked for people's views.
 	Audit func(e store.AuditEntry) error
+	// AppendUse writes a use record inside the transaction a get commits by (the agents' half of
+	// the record-before-give rule); nil: the store's uses log. A test can refuse one.
+	AppendUse func(tx *sql.Tx, e *events.Event) error
+	// Hooks pushes the secret events to an agent's hook (secret.granted, secret.denied,
+	// secret.expiring, secret.changed, secret.revoked), signed and delivered the way the on-call
+	// hooks are; nil: no agent is woken.
+	Hooks HookSender
+	// Cards posts the Feishu card a person decides a request on; nil: the chat only hears of it.
+	Cards CardSender
+	// AlertState tells whether the alert group a grant is bound to is firing, and when it
+	// resolved; nil: no grant is bound to an alert's grace.
+	AlertState func(group string) (firing bool, resolvedAt time.Time, ok bool)
+	// ReviewAgent tells whether the named agent may decide requests as a review agent
+	// (the secrets:review scope); nil: nobody does.
+	ReviewAgent func(agent string) bool
 }
 
 // Service is the vault: the collections with their keys, the items with their versions, the tags
@@ -110,12 +131,16 @@ type Service struct {
 	rotRootMu    sync.Mutex
 	rotatingRoot bool // a root-key rotation is in flight; a second call refuses
 
-	policy *signedhead.Table
-	items  *signedhead.Table
+	policy      *signedhead.Table
+	items       *signedhead.Table
+	eligibility *signedhead.Table
+	grantHead   *signedhead.Table
 
-	headMu         sync.Mutex
-	policyFailsafe bool // sticky until RebuildHead or a write this service committed
-	itemsFailsafe  bool
+	headMu              sync.Mutex
+	policyFailsafe      bool // sticky until RebuildHead or a write this service committed
+	itemsFailsafe       bool
+	eligibilityFailsafe bool
+	grantsFailsafe      bool
 
 	badMu sync.Mutex
 	bad   []string // rows that failed their signature or the signed head, for the console and the log
@@ -129,6 +154,32 @@ type Service struct {
 	afterCommitFn  func() error
 	afterRenameFn  func() error
 	keeperFn       func() (kmsClient, error)
+}
+
+// GrantsDeps is the grants' own dependencies, set after the vault opens (SetGrantsDeps): the
+// events' delivery, the approval cards, the alert state a bound grant outlives, and the
+// review-agent check. A nil field leaves what was set before.
+type GrantsDeps struct {
+	Hooks       HookSender
+	Cards       CardSender
+	AlertState  func(group string) (firing bool, resolvedAt time.Time, ok bool)
+	ReviewAgent func(agent string) bool
+}
+
+// SetGrantsDeps fills the grants' dependencies; only the fields that are set move.
+func (s *Service) SetGrantsDeps(d GrantsDeps) {
+	if d.Hooks != nil {
+		s.d.Hooks = d.Hooks
+	}
+	if d.Cards != nil {
+		s.d.Cards = d.Cards
+	}
+	if d.AlertState != nil {
+		s.d.AlertState = d.AlertState
+	}
+	if d.ReviewAgent != nil {
+		s.d.ReviewAgent = d.ReviewAgent
+	}
 }
 
 // OnKeyChange registers what runs when the signature key changes — the settings re-sign onto the
@@ -292,7 +343,7 @@ type signedCollection struct {
 }
 
 func (c Collection) signedParts() []string {
-	return []string{kindCollection, c.ID, c.Name, c.Description, c.Level, i64(c.KeyVersion), c.CreatedBy, i64(c.Created.UnixNano())}
+	return []string{kindCollection, c.ID, c.Name, c.Description, c.Level, strings.Join(c.Actions, "\x01"), i64(c.KeyVersion), c.CreatedBy, i64(c.Created.UnixNano())}
 }
 
 // signedItem is an item overview row as stored, with its signature.
@@ -314,7 +365,7 @@ type signedTag struct {
 }
 
 func (t Tag) signedParts() []string {
-	return []string{kindTag, t.Name, t.Level, t.Description, i64(t.Created.UnixNano())}
+	return []string{kindTag, t.Name, t.Level, strings.Join(t.Actions, "\x01"), t.Description, i64(t.Created.UnixNano())}
 }
 
 func (p Permission) signedParts() []string {
@@ -380,6 +431,45 @@ func (s *Service) reloadSignedRows() {
 			}
 			return true
 		})
+		tx.Range(bucketEntitlements, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
+			var r Entitlement
+			if json.Unmarshal(v, &r) != nil {
+				report("entitlement", "unreadable")
+				return true
+			}
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+				report("entitlement", r.Name)
+			}
+			return true
+		})
+		tx.Range(bucketGrants, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
+			var r Grant
+			if json.Unmarshal(v, &r) != nil {
+				report("grant", "unreadable")
+				return true
+			}
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+				report("grant", r.ID)
+			}
+			return true
+		})
+		tx.Range(bucketAgentTags, kv.Range{}, func(_, v []byte) bool {
+			var r AgentTags
+			if json.Unmarshal(v, &r) != nil {
+				report("agent tags", "unreadable")
+				return true
+			}
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
+				report("agent tags", r.Agent)
+			}
+			return true
+		})
 		return nil
 	})
 	s.badMu.Lock()
@@ -389,6 +479,7 @@ func (s *Service) reloadSignedRows() {
 		_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_signature_invalid",
 			Detail: fmt.Sprintf("%d vault row(s) failed their signature and are treated as absent", len(bad))})
 		_ = s.alarm("vault rows failed their signature", fmt.Sprintf("%d row(s) are treated as absent; see the console", len(bad)))
+		s.anomalyFired("signature_failure", fmt.Sprintf("%d row(s) failed their signature", len(bad)))
 	}
 }
 

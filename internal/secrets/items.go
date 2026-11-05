@@ -83,11 +83,12 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		return Item{}, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.refuseIfRotating(); err != nil {
+		s.mu.Unlock()
 		return Item{}, err
 	}
 	if _, err := s.sk(); err != nil {
+		s.mu.Unlock()
 		return Item{}, err
 	}
 	maxSize := s.attachmentMax()
@@ -97,6 +98,8 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		}
 	}
 	var out Item
+	var policyTightened, valueChanged bool
+	var before Item
 	created := false
 	var committed signedhead.Head
 	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
@@ -117,6 +120,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 				return fmt.Errorf("%w: the item belongs to another collection", ErrBadInput)
 			}
 			exists = true
+			before = cur.Item // the overview as it stands, before this change folds in
 		}
 		// permissions: writing needs edit; tags, level, actions, machines and hosts are policy, so manage
 		policy := len(in.Tags) > 0 || in.Level != "" || len(in.Actions) > 0 || len(in.Machines) > 0 || len(in.Hosts) > 0
@@ -291,6 +295,10 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			}
 		}
 		item.Version = next
+		if exists {
+			policyTightened = before.Level != item.Level || !equalStrings(before.Tags, item.Tags) || !equalStrings(before.Actions, item.Actions)
+			valueChanged = true // a new version is a new value, whatever else changed
+		}
 		h, err := s.putItemTx(tx, item)
 		if err != nil {
 			return err
@@ -300,6 +308,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		s.pruneVersions(tx, item.ID, next)
 		return nil
 	})
+	s.mu.Unlock()
 	if err != nil {
 		return Item{}, err
 	}
@@ -309,6 +318,12 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 		verb, action = "created the item", "secrets_item_create"
 	}
 	s.echo(who, verb, out.Title+" in "+col.Name+" (version "+i64(out.Version)+")", action)
+	if policyTightened {
+		s.reassessGrants() // outside the lock: it takes the lock itself per grant
+	}
+	if valueChanged {
+		s.notifyItemChanged(out, before.Version)
+	}
 	return out, nil
 }
 

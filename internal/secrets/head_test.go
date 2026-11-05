@@ -37,7 +37,7 @@ func TestReplayOldItemRowDoesNotRestorePassword(t *testing.T) {
 	if !bot.heard("not found") && !bot.heard("strictest") && len(s.Bad()) == 0 && !bot.heard("stale") {
 		t.Error("the stale item was reported")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if values, _, err := s.Reveal(owner, item.ID, nil, "pw"); err == nil && values["password"] == fixturePassword {
@@ -80,7 +80,7 @@ func TestReplayRevokedManagePermStaysAbsent(t *testing.T) {
 	if !bot.heard("strictest") && !bot.heard("not in head") && len(s.Bad()) == 0 {
 		t.Error("the leftover permission was reported")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.May(bob, col.ID, PermManage) {
@@ -106,7 +106,7 @@ func TestDeletedItemRowStaysMissing(t *testing.T) {
 	if !bot.heard("not found") && !bot.heard("stale") && !bot.heard("missing") {
 		t.Error("the missing item was reported")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok := s.Item(item.ID); ok {
@@ -123,7 +123,7 @@ func TestCorruptPolicyHeadRefusesWrite(t *testing.T) {
 	bot := &testBot{}
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
 	col := newCollection(t, s, "Infra")
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Tagged", Tags: []string{"env/prod"},
@@ -137,14 +137,14 @@ func TestCorruptPolicyHeadRefusesWrite(t *testing.T) {
 		}
 		return tx.Delete(bucketTags, []byte("env/prod"))
 	})
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); !errors.Is(err, ErrHead) {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); !errors.Is(err, ErrHead) {
 		t.Fatalf("an unrelated write must refuse while the head is missing, got %v", err)
 	}
 	if got := s.EffectiveLevel(item); got != LevelNever {
 		t.Fatalf("failsafe holds, got %s", got)
 	}
 	s2 := reopenVault(t, s, st)
-	if _, err := s2.CreateCollection(owner, "Later", "", LevelReview); !errors.Is(err, ErrHead) {
+	if _, err := s2.CreateCollection(owner, "Later", "", LevelReview, nil); !errors.Is(err, ErrHead) {
 		t.Fatalf("open again still refuses writes, got %v", err)
 	}
 	if got := s2.EffectiveLevel(item); got != LevelNever {
@@ -178,7 +178,7 @@ func TestCorruptItemsHeadRefusesWrite(t *testing.T) {
 
 func TestStalePolicyHeadAndRowsAreFailsafe(t *testing.T) {
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
-	if _, err := s.SetTag(owner, "env/prod", LevelAuto, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelAuto, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	var oldHead, oldRow []byte
@@ -187,7 +187,7 @@ func TestStalePolicyHeadAndRowsAreFailsafe(t *testing.T) {
 		oldRow = append([]byte(nil), tx.Get(bucketTags, []byte("env/prod"))...)
 		return nil
 	})
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s, "Infra")
@@ -243,7 +243,7 @@ func TestStaleItemsHeadAndRowsAreFailsafe(t *testing.T) {
 func TestTamperThenUnrelatedWriteStaysInvalid(t *testing.T) {
 	bot := &testBot{}
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s, "Infra")
@@ -260,7 +260,7 @@ func TestTamperThenUnrelatedWriteStaysInvalid(t *testing.T) {
 	if got := s.EffectiveLevel(item); got != LevelNever {
 		t.Fatalf("tampered tag stays never, got %s", got)
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.EffectiveLevel(item); got != LevelNever {
@@ -279,7 +279,7 @@ func TestRebuildHeadRestoresAccept(t *testing.T) {
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
 	col := newCollection(t, s, "Infra")
 	item := putItem(t, s, col.Name, "", "password", fixturePassword)
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Storage().Update(func(tx kv.Tx) error {
@@ -291,19 +291,19 @@ func TestRebuildHeadRestoresAccept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s2.CreateCollection(owner, "Other", "", LevelReview); !errors.Is(err, ErrHead) {
+	if _, err := s2.CreateCollection(owner, "Other", "", LevelReview, nil); !errors.Is(err, ErrHead) {
 		t.Fatalf("without rebuild writes refuse, got %v", err)
 	}
 	if err := s2.RebuildHead(owner); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s2.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s2.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok := s2.Item(item.ID); !ok {
 		t.Fatal("after rebuild the item is there")
 	}
-	if _, err := sStay.CreateCollection(owner, "Later", "", LevelReview); !errors.Is(err, ErrHead) {
+	if _, err := sStay.CreateCollection(owner, "Later", "", LevelReview, nil); !errors.Is(err, ErrHead) {
 		t.Fatalf("a service that did not rebuild stays failsafe, got %v", err)
 	}
 	entries, _, err := st.AuditQuery(store.AuditFilter{Action: "secrets_head_rebuild"})
@@ -314,7 +314,7 @@ func TestRebuildHeadRestoresAccept(t *testing.T) {
 
 func TestWriteDoesNotScanSneakedRow(t *testing.T) {
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	sk, err := s.sk()
@@ -331,7 +331,7 @@ func TestWriteDoesNotScanSneakedRow(t *testing.T) {
 	_ = st.Storage().Update(func(tx kv.Tx) error {
 		return tx.Put(bucketTags, []byte(sneak.Name), b)
 	})
-	if _, err := s.SetTag(owner, "env/stage", LevelReview, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/stage", LevelReview, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := s.tagByName("env/dev"); ok {

@@ -39,8 +39,8 @@ var Roles = []string{"viewer", "oncall", "operator", "owner"}
 
 // roleAdds is what each role adds to the one before it.
 var roleAdds = map[string][]string{
-	"viewer":   {"status:read", "sessions:read"},
-	"oncall":   {"alerts:write", "machines:ssh"},
+	"viewer":   {"status:read", "sessions:read", "secrets:describe"},
+	"oncall":   {"alerts:write", "machines:ssh", "secrets:read", "secrets:use"},
 	"operator": {"maintenance:write", "incidents:write", "machines:write"},
 	"owner":    {"config:write", "accounts:write", "secrets:admin"},
 }

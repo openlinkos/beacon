@@ -36,7 +36,7 @@ func TestVaultRoutesState(t *testing.T) {
 	e, c, svc := setupVault(t)
 	reader := e.Token(t, "reader", "status:read")
 	_ = e
-	if _, err := svc.CreateCollection(secrets.Actor{Name: "owner", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview); err != nil {
+	if _, err := svc.CreateCollection(secrets.Actor{Name: "owner", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if code, out := c.do("GET", "/api/v1/vault", reader, ""); code != 200 || out["mode"] != "file" || out["sealed"] != false {
@@ -57,7 +57,7 @@ func TestVaultRoutesState(t *testing.T) {
 func TestVaultCollectionsHiddenWithoutDescribe(t *testing.T) {
 	e, c, svc := setupVault(t)
 	agent := people(t, e)
-	if _, err := svc.CreateCollection(secrets.Actor{Name: "alice", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview); err != nil {
+	if _, err := svc.CreateCollection(secrets.Actor{Name: "alice", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if code, out := c.do("GET", "/api/v1/vault/collections", agent, ""); code != 403 || out["code"] != "secrets.agent" {

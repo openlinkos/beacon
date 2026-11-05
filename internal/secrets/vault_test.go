@@ -106,7 +106,7 @@ func (l *safeLog) WithGroup(string) slog.Handler { return l }
 // newCollection makes a collection and returns its name.
 func newCollection(t *testing.T, s *Service, name string) Collection {
 	t.Helper()
-	col, err := s.CreateCollection(owner, name, "", LevelReview)
+	col, err := s.CreateCollection(owner, name, "", LevelReview, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +647,7 @@ func TestEffectiveLevel(t *testing.T) {
 	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
 	col := newCollection(t, s, "Infra") // review
 	var err error
-	if _, err := s.SetTag(owner, "env/prod", LevelPerson, "production is personal"); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelPerson, "production is personal", nil); err != nil {
 		t.Fatal(err)
 	}
 	item := putItem(t, s, col.Name, "", "password", fixturePassword)
@@ -668,7 +668,7 @@ func TestEffectiveLevel(t *testing.T) {
 		t.Fatalf("the item's own override wins, got %s", got)
 	}
 	// the strictest of several tags
-	if _, err := s.SetTag(owner, "kind/personal", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "kind/personal", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if item, err = s.SetItem(owner, ItemIn{ID: item.ID, Collection: col.Name, Level: "-", Tags: []string{"env/prod", "kind/personal"}}); err != nil {
@@ -978,7 +978,7 @@ func TestSealedVaultRefusesKeyWork(t *testing.T) {
 	if err := s.Seal(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateCollection(owner, "Another", "", LevelAuto); !errors.Is(err, ErrSealed) {
+	if _, err := s.CreateCollection(owner, "Another", "", LevelAuto, nil); !errors.Is(err, ErrSealed) {
 		t.Fatalf("a sealed vault makes no collections, got %v", err)
 	}
 	if _, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Nope", Fields: []FieldIn{{Name: "password", Value: "x"}}}); !errors.Is(err, ErrSealed) {
@@ -1140,7 +1140,7 @@ func TestCopiedPermissionRowDoesNotGrant(t *testing.T) {
 	if s.May(viewer, prod.ID, PermDescribe) {
 		t.Fatal("a copied permission row must not grant anything on another collection")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.May(viewer, prod.ID, PermManage) {
@@ -1226,7 +1226,7 @@ func TestUnsealDoesNotTakeTheFirstPassphrase(t *testing.T) {
 
 func TestCopiedTagRowDoesNotApply(t *testing.T) {
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Storage().Update(func(tx kv.Tx) error {
@@ -1260,7 +1260,7 @@ func TestReplayOldTagRowStaysStrict(t *testing.T) {
 	bot := &testBot{}
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
 	col := newCollection(t, s, "Infra")
-	if _, err := s.SetTag(owner, "env/prod", LevelAuto, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelAuto, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	var loose []byte
@@ -1268,7 +1268,7 @@ func TestReplayOldTagRowStaysStrict(t *testing.T) {
 		loose = append([]byte(nil), tx.Get(bucketTags, []byte("env/prod"))...)
 		return nil
 	})
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Tagged", Tags: []string{"env/prod"},
@@ -1288,7 +1288,7 @@ func TestReplayOldTagRowStaysStrict(t *testing.T) {
 	if !bot.heard("strictest") {
 		t.Error("the stale tag was reported")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.EffectiveLevel(item); got != LevelNever {
@@ -1310,7 +1310,7 @@ func TestDeletedTagRowStaysStrict(t *testing.T) {
 	bot := &testBot{}
 	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
 	col := newCollection(t, s, "Infra")
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Tagged", Tags: []string{"env/prod"},
@@ -1327,7 +1327,7 @@ func TestDeletedTagRowStaysStrict(t *testing.T) {
 	if !bot.heard("strictest") {
 		t.Error("the missing tag was reported")
 	}
-	if _, err := s.CreateCollection(owner, "Other", "", LevelReview); err != nil {
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.EffectiveLevel(item); got != LevelNever {
@@ -1343,7 +1343,7 @@ func TestDeletedTagRowStaysStrict(t *testing.T) {
 	}
 	s = s2
 	// DeleteTag records the drop in the head, so the name becomes a label
-	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteTag(owner, "env/prod"); err != nil {
@@ -1512,7 +1512,7 @@ func TestEditCannotSetPolicyOnCreate(t *testing.T) {
 
 func TestNULInSignedFieldsIsRefused(t *testing.T) {
 	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
-	if _, err := s.CreateCollection(owner, "Infra", "desc\x00oops", LevelReview); !errors.Is(err, ErrBadInput) {
+	if _, err := s.CreateCollection(owner, "Infra", "desc\x00oops", LevelReview, nil); !errors.Is(err, ErrBadInput) {
 		t.Fatalf("a NUL in a signed field is refused, got %v", err)
 	}
 }

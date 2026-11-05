@@ -635,8 +635,9 @@ func (s *Service) RotateRootKey(newPassphrase string) error {
 }
 
 // rewrapAllTx wraps every collection key of every version under newRK, re-signs the rows the
-// verified heads name, re-signs settings in the same transaction, writes the new key check and
-// the in-progress mark. The collection keys themselves do not change, so no item ciphertext moves.
+// verified policy, items, eligibility and grants heads name, re-signs settings in the same
+// transaction, writes the new key check and the in-progress mark. The collection keys themselves
+// do not change, so no item ciphertext moves.
 func (s *Service) rewrapAllTx(tx kv.Tx, newRK, oldRK, oldSK, newSK []byte) ([]signedhead.Head, error) {
 	type pair struct {
 		collection string
@@ -688,6 +689,16 @@ func (s *Service) rewrapAllTx(tx kv.Tx, newRK, oldRK, oldSK, newSK []byte) ([]si
 		return nil, err
 	}
 	heads = append(heads, itemsH)
+	eligH, err := s.resignEligibilityNamedTx(tx, oldSK, newSK)
+	if err != nil {
+		return nil, err
+	}
+	heads = append(heads, eligH)
+	grantsH, err := s.resignGrantsNamedTx(tx, oldSK, newSK)
+	if err != nil {
+		return nil, err
+	}
+	heads = append(heads, grantsH)
 	if s.d.Settings != nil {
 		sh, err := s.d.Settings.ResignInTx(tx, newSK)
 		if err != nil {

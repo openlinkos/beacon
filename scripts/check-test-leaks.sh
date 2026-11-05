@@ -20,7 +20,9 @@ fixture-notes-caboosetumbler
 fixture-attachment-tumbler-quartz
 fixture-user-zz31@example.com
 GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
-}'
+fixture-value-grant-plugh-xyzzy-7
+fixture-value-rotated-thud-wombat-31
+'
 
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
