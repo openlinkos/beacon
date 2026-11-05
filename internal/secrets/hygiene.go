@@ -180,8 +180,8 @@ func (s *Service) RotateItem(agentName, via, ref, reason string, spec GenSpec) (
 		return Item{}, err
 	}
 	who := Actor{Name: agentName, Via: via}
-	out, err := s.SetItem(who, ItemIn{ID: item.ID, Collection: col.ID, Reason: reason,
-		Fields: []FieldIn{{Name: s.rotationField(item), Type: FieldConcealed, Purpose: PurposePassword, Value: value}}})
+	out, err := s.setItem(who, ItemIn{ID: item.ID, Collection: col.ID, Reason: reason,
+		Fields: []FieldIn{{Name: s.rotationField(item), Type: FieldConcealed, Purpose: PurposePassword, Value: value}}}, true)
 	if err != nil {
 		return Item{}, err
 	}
@@ -344,9 +344,9 @@ func (s *Service) SweepHygiene() int {
 		if len(idle) > 0 {
 			s.mu.Lock()
 			sk, err := s.sk()
+			var noticed []Grant
 			if err == nil {
-				var noticed []Grant
-				_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+				err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 					for _, g := range idle {
 						v := tx.Get(bucketGrants, []byte(g.ID))
 						var cur Grant
@@ -359,8 +359,16 @@ func (s *Service) SweepHygiene() int {
 						}
 						noticed = append(noticed, cur)
 					}
-					return nil
+					if len(noticed) == 0 {
+						return nil
+					}
+					// UnusedNoticedAt is in signedParts(); the head has to name the new hash
+					// or grants() drops the row as stale.
+					return writePolicyHeadTx(tx, sk)
 				})
+			}
+			s.mu.Unlock()
+			if err == nil {
 				for _, g := range noticed {
 					_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_grant_unused",
 						Target: g.ID, Detail: fmt.Sprintf("the grant of %s has sat idle since %s", g.Agent, grantIdleSince(g).Format(time.RFC3339))})
@@ -370,7 +378,6 @@ func (s *Service) SweepHygiene() int {
 					changed++
 				}
 			}
-			s.mu.Unlock()
 		}
 	case "auto_release":
 		after := s.unusedAfter()
@@ -386,7 +393,7 @@ func (s *Service) SweepHygiene() int {
 			sk, err := s.sk()
 			var released []Grant
 			if err == nil {
-				_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+				err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 					for _, g := range idle {
 						v := tx.Get(bucketGrants, []byte(g.ID))
 						var cur Grant
@@ -402,10 +409,16 @@ func (s *Service) SweepHygiene() int {
 						}
 						released = append(released, cur)
 					}
-					return nil
+					if len(released) == 0 {
+						return nil
+					}
+					return writePolicyHeadTx(tx, sk)
 				})
 			}
 			s.mu.Unlock()
+			if err != nil {
+				released = nil
+			}
 			for _, g := range released {
 				_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_grant_unused",
 					Target: g.ID, Detail: fmt.Sprintf("the grant of %s had sat idle since %s and was released (grant.on_unused: auto_release)",

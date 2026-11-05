@@ -112,6 +112,8 @@ The secrets vault, under the same operations as the [REST routes](api.md#vault) 
 | `restore_item` | a person, `edit` | Bring an item back from the archive or the trash (`ref`) |
 | `rollback_item` | a person, `edit` | Make an old version current again (`ref`, `version`, `reason`) |
 | `list_tags` | any credential, a person | The tags: name, approval level, description |
+| `health_report` | a person, `secrets:describe` | The vault's hygiene: password fields judged weak, repeated, old, or in the leak corpus (only when `hygiene.hibp_check` is on); items whose rotation period ends soon; grants idle longer than `grant.unused_after`. Judgements and references, never values |
+| `rotate_secret` | `secrets:use`, an agent | Turn an item (`ref`, `reason`, `length`, `charset`): the server makes the next value, stores it as a new version and answers with the version number. Needs a live `use` grant; work the new value into the target through the use action |
 
 ## Status pages and maintenance
 

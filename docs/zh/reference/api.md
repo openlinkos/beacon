@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ad8685a6
+sourceHash: sha256-c45167b0
 ---
 
 # REST API
@@ -230,6 +230,8 @@ Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它�
 | `GET /api/v1/secrets/agents/{name}/scope` | Agent 的所有者、管理员 | 这个 Agent 能触及什么（按审批级别分）、持有什么 |
 | `POST /api/v1/secrets/agents/{name}/templates` | Agent 的所有者、管理员 | 把勾选的资格模板交给这个 Agent |
 | `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | 解除异常规则对该 Agent 的暂停 |
+| `GET /api/v1/secrets/hygiene` | `secrets:describe`，人 | 口令健康报告（弱、重复、过旧；仅当 `hygiene.hibp_check` 开启时查泄露库）、轮换周期即将到期或已过期的条目、闲置超过 `grant.unused_after` 的授权。报告只带引用和判断，绝不带值 |
+| `POST /api/v1/secrets/rotate` | `secrets:use`，Agent | 轮换条目的值：服务端按规格（`length`、`charset`）生成下一个值，存成新版本，回答里只有版本号——值本身不离开。需要生效的 `use` 授权；仅有 `read` 不够 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 

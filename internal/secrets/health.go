@@ -30,7 +30,8 @@ const (
 
 // hibpBaseURL is the leak corpus's k-anonymity interface. Only the first five characters of a
 // password's SHA-1 hash ever travel: the range asked for and nothing of the password itself.
-const hibpBaseURL = "https://api.pwnedpasswords.com"
+// Tests point it at a local server.
+var hibpBaseURL = "https://api.pwnedpasswords.com"
 
 // commonPasswords is the local weak list: the worn-out ones every guesser tries first. It is
 // public knowledge, kept short on purpose; the length and the looks-alike rules around it do the
@@ -133,9 +134,9 @@ type HealthFinding struct {
 // HealthReport is the console's report over the collections the reader may read.
 type HealthReport struct {
 	Findings   []HealthFinding `json:"findings"`
-	Passwords  int             `json:"passwords"` // the password fields judged
-	Items      int             `json:"items"`     // the items walked
-	HIBP       bool            `json:"hibp"`      // whether the leak corpus was asked
+	Passwords  int             `json:"passwords"`             // the password fields judged
+	Items      int             `json:"items"`                 // the items walked
+	HIBP       bool            `json:"hibp"`                  // whether the leak corpus was asked
 	HIBPFailed int             `json:"hibp_failed,omitempty"` // values the corpus did not answer
 }
 

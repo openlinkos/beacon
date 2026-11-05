@@ -61,6 +61,11 @@ func (p *poster) all() []string {
 	defer p.mu.Unlock()
 	return append([]string(nil), p.msgs...)
 }
+func (p *poster) clear() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.msgs = nil
+}
 
 // hookCatcher collects the events the hooks would deliver.
 type hookCatcher struct {

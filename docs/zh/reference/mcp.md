@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-86ea7953
+sourceHash: sha256-0a66d1dd
 ---
 
 # MCP 工具
@@ -116,6 +116,8 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `restore_item` | 人，`edit` | 从归档或回收站恢复条目（`ref`） |
 | `rollback_item` | 人，`edit` | 让旧版本重新成为当前版本（`ref`、`version`、`reason`） |
 | `list_tags` | 任意凭据，人 | 全部标签：名字、审批级别、说明 |
+| `health_report` | 人，`secrets:describe` | 保管库卫生：口令被判断为弱、重复、过旧，或出现在泄露库中（仅当 `hygiene.hibp_check` 开启）；轮换周期即将到期的条目；闲置超过 `grant.unused_after` 的授权。只有判断和引用，绝无值 |
+| `rotate_secret` | `secrets:use`，Agent | 轮换条目（`ref`、`reason`、`length`、`charset`）：服务端生成下一个值，存成新版本，回答里只有版本号。需要生效的 `use` 授权；用 use 动作把新值写进目标系统 |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 

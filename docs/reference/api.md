@@ -226,6 +226,8 @@ Agents reach items through grants: what an **entitlement** covers they may ask f
 | `GET /api/v1/secrets/agents/{name}/scope` | the agent's owner, an admin | What the agent can reach (by the approval each item needs) and holds |
 | `POST /api/v1/secrets/agents/{name}/templates` | the agent's owner, an admin | Hand the agent the template entitlements named |
 | `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | Lift an anomaly rule's suspension of the agent |
+| `GET /api/v1/secrets/hygiene` | `secrets:describe`, a person | The password health report (weak, repeated, old; leaked only when `hygiene.hibp_check` is on), the items whose rotation period ends soon or has passed, and the grants idle longer than `grant.unused_after`. Findings carry references and judgements, never values |
+| `POST /api/v1/secrets/rotate` | `secrets:use`, an agent | Turn an item's value: the server makes the next one by the spec (`length`, `charset`), stores it as a new version and answers with the version number — the value never travels. Needs a live `use` grant; a `read` grant is not enough |
 
 ## Status pages and maintenance
 

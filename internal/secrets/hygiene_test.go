@@ -2,14 +2,17 @@ package secrets
 
 import (
 	"context"
-	"crypto/sha1" //nolint:gosec // the leak corpus's interface is defined over SHA-1
+	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The hygiene's tests: the rotation notices on a settable clock, the server-side rotation that an
@@ -24,33 +27,26 @@ const (
 	fixtureHIBPPwned = "fixture-value-hibp-pwned-77"
 )
 
-// putPassword makes an item whose single field is a password, with the rotation period given.
-func putPassword(t *testing.T, s *Service, col Collection, title string, value string, rotateDays int) Item {
-	t.Helper()
-	item, err := s.SetItem(s.(*Service).d.Store != nil && false, ItemIn{}) // never; replaced below
-	_ = item
-	_ = err
-	return Item{}
-}
-
 // TestRotationNoticeOnTime is the acceptance test for the rotation notices: an item with a
 // rotation period is announced when its period ends inside the notice window (the same window the
 // grants' expiry notices take), once per version, to the chat, the audit log and the agents
 // holding a live grant — and never for an item without a period.
 func TestRotationNoticeOnTime(t *testing.T) {
 	g := newGrantsVault(t)
-	infra, plain, _, _, _, _ := g.standardShape(t)
+	infra, _, _, token, _, _ := g.standardShape(t)
 	worker := g.newAgent(t, "worker", "own")
-	g.ent(t, oncallEnt())
-	// the item carries a 30-day period; the agent holds a live grant over it, so its hook hears
-	if _, err := g.SetItem(g.owner, ItemIn{ID: plain.ID, Collection: infra.Name, RotateDays: 30,
+	g.ent(t, oncallEnt(ActDescribe, ActRead, ActUse))
+	// the auto-level item carries a 30-day period; the agent holds a live use grant over it, so its hook hears
+	if _, err := g.SetItem(g.owner, ItemIn{ID: token.ID, Collection: infra.Name, Level: LevelAuto, RotateDays: 30,
 		Fields: []FieldIn{{Name: "password", Type: FieldConcealed, Purpose: PurposePassword, Value: fixtureToken}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := g.RequestSecret(worker, "test", RequestIn{Items: []string{RefOfItem(infra.Name, plain.Title)}, Action: ActRead, Reason: "the on-call work needs it"}); err != nil {
+	if _, err := g.RequestSecret(worker, "test", RequestIn{Items: []string{RefOfItem(infra.Name, token.Title)}, Action: ActUse, Reason: "the on-call work needs it"}); err != nil {
 		t.Fatal(err)
 	}
+	g.hooks.waitHooks(t, 1) // the grant's own event went out
 	g.hooks.clear()
+	g.bot.clear()
 
 	// day 20 of 30: outside the 3-day window, nothing is said
 	g.clk.Add(20 * 24 * time.Hour)
@@ -73,7 +69,7 @@ func TestRotationNoticeOnTime(t *testing.T) {
 	if !strings.Contains(entries[0].Detail, "ends in 2 day(s)") {
 		t.Errorf("the audit detail says %q, want the two days left", entries[0].Detail)
 	}
-	if got := g.bot.all(); len(got) != 1 || !strings.Contains(got[0], plain.Title) {
+	if got := g.bot.all(); len(got) != 1 || !strings.Contains(got[0], token.Title) {
 		t.Fatalf("the chat heard %v, want one notice naming the item", got)
 	}
 	events := g.hooks.waitHooks(t, 1)
@@ -102,7 +98,7 @@ func TestRotationNoticeOnTime(t *testing.T) {
 
 	// a new version resets the clock: 28 days later the notice goes out again
 	g.clk.Add(25 * 24 * time.Hour)
-	if _, err := g.RotateItem(worker, "test", RefOfItem(infra.Name, plain.Title), "the period ended; turning it", GenSpec{Length: 24, Charset: "alnum"}); err != nil {
+	if _, err := g.RotateItem(worker, "test", RefOfItem(infra.Name, token.Title), "the period ended; turning it", GenSpec{Length: 24, Charset: "alnum"}); err != nil {
 		t.Fatalf("the agent could not turn the item: %v", err)
 	}
 	g.clk.Add(28 * 24 * time.Hour)
@@ -123,17 +119,21 @@ func TestRotationNoticeOnTime(t *testing.T) {
 // take. An agent with a read grant does see the new value, which proves it was stored.
 func TestRotateItemServerSide(t *testing.T) {
 	g := newGrantsVault(t)
-	infra, plain, _, _, _, _ := g.standardShape(t)
+	infra, _, _, token, _, _ := g.standardShape(t)
 	worker := g.newAgent(t, "worker", "own")
 	reader := g.newAgent(t, "reader", "own")
-	// worker may only use; reader may read
+	// worker may only use; reader may read. token is auto-level so the grants land at once.
 	g.ent(t, Entitlement{Name: "use-only", Principals: Principals{Agents: []string{"worker"}},
-		Resources:  Resources{Collections: []string{infra.Name}}, Actions: []string{ActUse}})
+		Resources: Resources{Collections: []string{infra.Name}}, Actions: []string{ActUse}})
 	g.ent(t, Entitlement{Name: "read-only", Principals: Principals{Agents: []string{"reader"}},
-		Resources:  Resources{Collections: []string{infra.Name}}, Actions: []string{ActRead}})
-	ref := RefOfItem(infra.Name, plain.Title)
+		Resources: Resources{Collections: []string{infra.Name}}, Actions: []string{ActRead}})
+	if _, err := g.SetItem(g.owner, ItemIn{ID: token.ID, Collection: infra.Name, Level: LevelAuto}); err != nil {
+		t.Fatal(err)
+	}
+	token, _, _ = g.Item(token.ID)
+	ref := RefOfItem(infra.Name, token.Title)
 	for _, a := range []string{worker, reader} {
-		if _, _, err := g.RequestSecret(a, "test", RequestIn{Items: []string{ref},
+		if _, err := g.RequestSecret(a, "test", RequestIn{Items: []string{ref},
 			Action: map[string]string{worker: ActUse, reader: ActRead}[a], Reason: "the on-call work needs it"}); err != nil {
 			t.Fatal(err)
 		}
@@ -153,15 +153,15 @@ func TestRotateItemServerSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Version != plain.Version+1 {
-		t.Fatalf("the answer's version is %d, want %d", out.Version, plain.Version+1)
+	if out.Version != token.Version+1 {
+		t.Fatalf("the answer's version is %d, want %d", out.Version, token.Version+1)
 	}
-	if _, _, total := g.st.AuditQuery(store.AuditFilter{Action: "secrets_item_rotate", Limit: 10}); total != 1 {
-		t.Fatalf("%d rotate audit entries, want 1", total)
+	if _, total, err := g.st.AuditQuery(store.AuditFilter{Action: "secrets_item_rotate", Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("%d rotate audit entries, want 1 (%v)", total, err)
 	}
 
 	// the use agent cannot read the value it just turned
-	if _, err := g.GetSecret(worker, "test", ref, "", "checking", "", "", "", "test"); err == nil || err != ErrNoGrant {
+	if _, err := g.GetSecret(worker, "test", ref, "", "checking", "", "", "", "test"); !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("the use agent read the value: %v", err)
 	}
 	// its use grant is still live over the item: the use path stands ready
@@ -186,11 +186,11 @@ func TestWeakPassword(t *testing.T) {
 		min                    int64
 		want                   bool
 	}{
-		{"qwerty", "", "", 8, true},               // in the common list
-		{"password1", "", "", 8, true},            // in the common list
-		{"short", "", "", 8, true},                // too short
-		{"a-long-one-indeed", "", "", 8, false},   // none of the rules
-		{"Tumbler Quokka", "", "tumbler quokka", 8, true}, // wears the title
+		{"qwerty", "", "", 8, true},                             // in the common list
+		{"password1", "", "", 8, true},                          // in the common list
+		{"short", "", "", 8, true},                              // too short
+		{"a-long-one-indeed", "", "", 8, false},                 // none of the rules
+		{"Tumbler Quokka", "", "tumbler quokka", 8, true},       // wears the title
 		{"a-long-one-indeed", "a-long-one-indeed", "", 8, true}, // wears the user name
 		{"a-long-one-indeed", "someone-else", "", 8, false},
 	} {
@@ -305,7 +305,7 @@ func (g *grantsVault) makeItemWithValue(t *testing.T, col Collection, title, val
 // home.
 func TestHIBPRangeCount(t *testing.T) {
 	value := fixtureHIBPPwned
-	sum := sha1.Sum([]byte(value)) //nolint:gosec // the interface is defined over SHA-1
+	sum := sha1.Sum([]byte(value))
 	hexed := strings.ToUpper(hex.EncodeToString(sum[:]))
 	prefix, suffix := hexed[:5], hexed[5:]
 	seen := map[string]bool{}
@@ -358,7 +358,7 @@ func TestHealthReportHIBP(t *testing.T) {
 	g.makeItemWithValue(t, infra, "Pwned service", fixtureHIBPPwned)
 	g.makeItemWithValue(t, infra, "Clean service", fixtureStrong)
 
-	sum := sha1.Sum([]byte(fixtureHIBPPwned)) //nolint:gosec // the interface is defined over SHA-1
+	sum := sha1.Sum([]byte(fixtureHIBPPwned))
 	suffix := strings.ToUpper(hex.EncodeToString(sum[:]))[5:]
 	asked := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -366,9 +366,9 @@ func TestHealthReportHIBP(t *testing.T) {
 		fmt.Fprintf(w, "%s:%d\n", suffix, 9)
 	}))
 	defer srv.Close()
-	g.Service.d.HTTP = srv.Client()
-	hibpBase = srv.URL
-	defer func() { hibpBase = "https://api.pwnedpasswords.com" }()
+	g.d.HTTP = srv.Client()
+	hibpBaseURL = srv.URL
+	defer func() { hibpBaseURL = "https://api.pwnedpasswords.com" }()
 
 	// off (the default): the report stands entirely local
 	report, err := g.HealthReport(g.owner)
@@ -415,14 +415,18 @@ func TestUnusedGrantConsequences(t *testing.T) {
 	// ---- mark, the default
 	g := newGrantsVault(t)
 	g.setSetting(t, "grant.unused_after", "2h")
-	infra, plain, _, _, _, _ := g.standardShape(t)
+	infra, _, _, token, _, _ := g.standardShape(t)
 	worker := g.newAgent(t, "worker", "own")
 	g.ent(t, oncallEnt())
-	ref := RefOfItem(infra.Name, plain.Title)
-	out, _, err := g.RequestSecret(worker, "test", RequestIn{Items: []string{ref}, Action: ActRead, Reason: "the on-call work needs it"})
+	if _, err := g.SetItem(g.owner, ItemIn{ID: token.ID, Collection: infra.Name, Level: LevelAuto}); err != nil {
+		t.Fatal(err)
+	}
+	ref := RefOfItem(infra.Name, token.Title)
+	out, err := g.RequestSecret(worker, "test", RequestIn{Items: []string{ref}, Action: ActRead, Reason: "the on-call work needs it"})
 	if err != nil || len(out.Granted) != 1 {
 		t.Fatalf("the grant did not come: %v %+v", err, out)
 	}
+	g.bot.clear()
 	g.clk.Add(3 * time.Hour)
 	if rows := g.UnusedGrants(); len(rows) != 1 || rows[0].Agent != worker {
 		t.Fatalf("the idle grants are %+v, want worker's", rows)
@@ -453,13 +457,17 @@ func TestUnusedGrantConsequences(t *testing.T) {
 	g2 := newGrantsVault(t)
 	g2.setSetting(t, "grant.unused_after", "2h")
 	g2.setSetting(t, "grant.on_unused", "notify")
-	infra2, plain2, _, _, _, _ := g2.standardShape(t)
+	infra2, _, _, token2, _, _ := g2.standardShape(t)
 	worker2 := g2.newAgent(t, "worker", "own")
 	g2.ent(t, oncallEnt())
-	ref2 := RefOfItem(infra2.Name, plain2.Title)
-	if _, _, err := g2.RequestSecret(worker2, "test", RequestIn{Items: []string{ref2}, Action: ActRead, Reason: "the on-call work needs it"}); err != nil {
+	if _, err := g2.SetItem(g2.owner, ItemIn{ID: token2.ID, Collection: infra2.Name, Level: LevelAuto}); err != nil {
 		t.Fatal(err)
 	}
+	ref2 := RefOfItem(infra2.Name, token2.Title)
+	if _, err := g2.RequestSecret(worker2, "test", RequestIn{Items: []string{ref2}, Action: ActRead, Reason: "the on-call work needs it"}); err != nil {
+		t.Fatal(err)
+	}
+	g2.bot.clear()
 	g2.clk.Add(3 * time.Hour)
 	if n := g2.SweepHygiene(); n != 1 {
 		t.Fatalf("notify changed %d things, want 1", n)
@@ -493,7 +501,7 @@ func TestUnusedGrantConsequences(t *testing.T) {
 	if len(events) != 1 || !strings.Contains(events[0], "secret.revoked") {
 		t.Fatalf("the hooks got %v, want one secret.revoked", events)
 	}
-	if _, err := g2.GetSecret(worker2, "test", ref2, "", "checking", "", "", "", "test"); err != ErrNoGrant {
+	if _, err := g2.GetSecret(worker2, "test", ref2, "", "checking", "", "", "", "test"); !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("the released grant still took a value: %v", err)
 	}
 }

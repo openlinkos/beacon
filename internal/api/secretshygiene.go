@@ -52,9 +52,9 @@ func (s *Server) getHygiene(w http.ResponseWriter, r *http.Request, p store.Prin
 		unused = []secrets.Grant{}
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Health   secrets.HealthReport `json:"health"`
+		Health   secrets.HealthReport  `json:"health"`
 		Rotation []secrets.RotationRow `json:"rotation"`
-		Unused   []secrets.Grant      `json:"unused_grants"`
+		Unused   []secrets.Grant       `json:"unused_grants"`
 	}{Health: report, Rotation: rotation, Unused: unused})
 }
 
