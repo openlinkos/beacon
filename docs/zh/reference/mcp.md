@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0bffbffe
+sourceHash: sha256-d0f7bc75
 ---
 
 # MCP 工具
@@ -95,7 +95,21 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `get_item` | 人，`describe` | 一个条目（`ref`）：所在库、生效级别、各版本（谁、何时、为何、字段名）与它的 `beacon://` 引用 |
 | `put_item` | 人，`edit` | 新增或改写条目（`collection`、`title`、带值的 `fields`、`tags`、`level`、`notes`、`reason`）；产生新版本，绝不返回值 |
 | `reveal_item` | 人，`read` | 查看值（`ref`、`fields`、账号的 `password`；先写审计再返回）。`otp` 字段给当前验证码与剩余秒数，不给种子 |
-| `search_secrets` | 人，`describe` | 标题、类别、标签或字段名匹配的条目（`query`、`collection`、`tags`）——「哪个密码在哪」，不带值 |
+| `search_secrets` | `secrets:describe` | 人：自己有 describe 权限的条目（`query`、`collection`、`tags`）。Agent：资格能触及的条目，带字段、申请要过的审批、是否已持有授权——「哪个密码在哪」，不带值 |
+| `request_secret` | `secrets:use` | Agent 的申请（`items`、`tags`、`collection`、`fields`、`action`、`reason`、`uses`、`duration`、`alert`、`entitlement`、`wait` 秒）；回答按审批拆分：已生效的授权、等待中的申请、被拒的部分 |
+| `get_request` | `secrets:describe` | 按 `id` 查一个申请：条目、原因、决定 |
+| `get_secret` | `secrets:read` | Agent 按 `beacon://` 引用取值（`ref`、`field`、`reason`）；先记录后给值；otp 字段只给当前码和剩余秒数 |
+| `list_grants` | Agent | 调用 Agent 自己的授权：条目、字段、剩余次数、有效至、绑定的告警 |
+| `renew_grant` | `secrets:use` | 续期（`id`、`reason`）：auto 级立刻续，其余重新申请 |
+| `release_grant` | `secrets:use` | 提前释放授权（`id`） |
+| `list_requests` | `secrets:describe` | 按 `state` 列申请（默认等待中）；Agent 看自己的，人和审核 Agent 看队列 |
+| `decide_request` | 人（operator、owner 或资格点名的审核人）、审核 Agent | `{"id", "approve", "note", "uses", "duration"}`——必须写理由，申请人自己不能审自己 |
+| `list_entitlements` | 人 | 资格清单：谁能申请什么 |
+| `put_entitlement` | 人 | 新增或修改资格（适用对象、范围、动作、审批下限、审核人、模板标记） |
+| `delete_entitlement` | 人 | 删除一条资格（`name`）；借它生效的授权会被重新评估 |
+| `set_agent_tags` | 人 | Agent 的分组标签（`agent`、`tags`），资格按它们圈定 Agent |
+| `revoke_grant` | 人 | 由人吊销授权（`id`、`reason`） |
+| `agent_secret_scope` | Agent 的所有者、管理员 | 一个 Agent 能触及什么、持有什么（`agent`）：资格、按审批级别的覆盖、授权、标签、模板 |
 | `generate_item_value` | 人，`edit` | 为一个字段生成新值（`ref`、`field`、`length`、`charset`），存为新版本；值本身不返回 |
 | `archive_item` | 人，`edit` | 归档条目（`ref`、`reason`）：保留、让开 |
 | `remove_item` | 人，`edit` | 把条目移入回收站（`ref`、`reason`），按保留期存放 |

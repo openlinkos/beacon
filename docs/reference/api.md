@@ -38,7 +38,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## Scopes
 
-A credential carries one or more scopes. The first ten are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
+A credential carries one or more scopes. The first thirteen are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
 
 | Scope | What it allows |
 | --- | --- |
@@ -49,6 +49,9 @@ A credential carries one or more scopes. The first ten are for people and agents
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
 | `secrets:admin` | Changing the system settings the secrets work runs by ([below](#settings)), and reading them; every change is versioned, audited and echoed to the chat. An owner's by default |
+| `secrets:describe` | Seeing what the caller's entitlements reach: the items' summaries, field names, the approval a request would need. The `readonly` preset's, so a viewer's agents have it |
+| `secrets:read` | Taking a value the caller holds a grant for (`get_secret`), every use with its reason. The `oncall` preset adds it |
+| `secrets:use` | Asking for grants (`request_secret`), renewing and releasing them. The `oncall` preset adds it |
 | `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
@@ -198,6 +201,31 @@ The item routes are for people, every change audited and echoed to the alert cha
 | `POST /api/v1/vault/tags` | a person, an owner | Set a tag (`name`, `level`, `description`): a tag's level is policy — every item wearing it is at least that strict — so only an owner changes it |
 | `DELETE /api/v1/vault/tags/{name}` | a person, an owner | Delete a tag; items keep their names for it |
 
+## The grants {#grants}
+
+Agents reach items through grants: what an **entitlement** covers they may ask for, a **request** split by the approval each item needs — the `auto` part becomes grants at once, the rest waits for a person's decision (the console's **Secret approvals** page, or the Feishu card's *Approve as asked* / *Approve once* / *Deny*, each with the reason a decision must carry) — and a **grant** then hands the value over, every use with its reason, recorded before the value is given. The entitlements are policy rows, signed like the rest; a row changed straight in the database is served as absent and reported. `deny` entitlements match first, nothing outside an entitlement is even visible, `never` items reach no agent at all, and an agent asks for no more than its owner holds over the collection.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/secrets/search` | `secrets:describe` | An agent: what its entitlements reach — references, overviews, field names and types, the approval a request would need, whether it holds a grant. A person: the vault's own search |
+| `POST /api/v1/secrets/request` | `secrets:use` | An agent's ask (`items`, `tags`, `collection`, `fields`, `action` read or use, `reason`, `uses` 0 for unlimited, `duration` in seconds 0 for no expiry, `alert`, `entitlement`); the answer holds the grants already in force, the request waiting, and the refusals |
+| `GET /api/v1/secrets/requests` | `secrets:describe` | The requests by `?status=`; an agent sees its own, a person sees them all |
+| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | One request: the items, the reason, the decisions |
+| `POST /api/v1/secrets/requests/{id}/decide` | a person, an operator or owner or a named reviewer | `{"approve", "note", "uses", "duration"}`; the requester itself never decides its own request (`secrets.self_approval`) |
+| `POST /api/v1/secrets/requests/{id}/withdraw` | `secrets:use` | The agent that asked takes a waiting request back |
+| `POST /api/v1/secrets/get` | `secrets:read` | An agent takes a value by its `beacon://` reference (`ref`, `field`, `reason`); an otp field answers with the current code and the seconds it has left, never the seed |
+| `GET /api/v1/secrets/grants` | `secrets:describe` | An agent's own grants; a person sees them all by `?state=` |
+| `POST /api/v1/secrets/grants/{id}/renew` | `secrets:use` | Renew: auto-level grants at once, the rest ask again |
+| `POST /api/v1/secrets/grants/{id}/release` | `secrets:use` | Give a grant back early |
+| `POST /api/v1/secrets/grants/{id}/revoke` | `secrets:admin` | End a grant by hand |
+| `GET /api/v1/secrets/entitlements` | `secrets:admin` | The entitlements |
+| `POST /api/v1/secrets/entitlements` | `secrets:admin` | Put an entitlement: `principals` (`agents`, `agent_tags`, `agents_of`), `resources` (`collections`, `tags` patterns, `items`, `fields`), `actions`, the `approval` floor, `reviewers`, the `template` flag |
+| `DELETE /api/v1/secrets/entitlements/{name}` | `secrets:admin` | Remove one; the grants that reached through it are re-assessed |
+| `POST /api/v1/secrets/agent-tags` | `secrets:admin` | An agent's grouping tags (`role/on-call` and the like), which entitlements reach agents by |
+| `GET /api/v1/secrets/agents/{name}/scope` | the agent's owner, an admin | What the agent can reach (by the approval each item needs) and holds |
+| `POST /api/v1/secrets/agents/{name}/templates` | the agent's owner, an admin | Hand the agent the template entitlements named |
+| `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | Lift an anomaly rule's suspension of the agent |
+
 ## Status pages and maintenance
 
 The public pages themselves need no token ([below](#other-routes-on-port-17001)); these routes give agents the same and let them plan work ([Status pages](../guide/status-pages.md)).
@@ -318,6 +346,11 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `secrets.invalid` | 422 | The item does not fit (a level, a field, a value); the message says why, and nothing changed |
 | `secrets.bad_input` | 400 | The request is not what the route takes; the message says which |
 | `secrets.crypto` | 500 | The ciphertext does not authenticate under its key — the row is not what it claims to be |
+| `secrets.no_grant` | 403 | No live grant covers this ask; `request_secret` asks for one |
+| `secrets.throttled` | 429 | The agent passed `rate.per_agent_per_minute` and the setting says throttle |
+| `secrets.suspended` | 403 | An anomaly rule suspended the agent's grants; an operator lifts it |
+| `secrets.self_approval` | 403 | The requester cannot review its own request |
+| `secrets.error` | 500 | The grants' own failure, with no better name |
 | `status.not_found` | 404 | No status page of that name |
 | `maintenance.not_found` | 404 | No maintenance window with this id |
 | `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |

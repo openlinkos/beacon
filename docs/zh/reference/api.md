@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a6f90ae4
+sourceHash: sha256-3b55de8e
 ---
 
 # REST API
@@ -42,7 +42,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 作用域 {#scopes}
 
-一个凭据带一个或多个作用域。前十个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
+一个凭据带一个或多个作用域。前十三个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
 
 | 作用域 | 允许做什么 |
 | --- | --- |
@@ -53,6 +53,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
 | `secrets:admin` | 修改密钥托管所依赖的系统设置（[见下](#settings)），也能读取；每次修改都有版本、有审计、有群内回声。默认只有所有者有 |
+| `secrets:describe` | 看到自己的资格能触及什么：条目概要、字段名、申请要过的审批。`readonly` 预设自带，viewer 的 Agent 因此有它 |
+| `secrets:read` | 取自己持有授权的值（`get_secret`），每次取用都带原因。`oncall` 预设增加 |
+| `secrets:use` | 申请授权（`request_secret`）、续期与释放。`oncall` 预设增加 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
@@ -202,6 +205,31 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `POST /api/v1/vault/tags` | 人，owner | 设置标签（`name`、`level`、`description`）：标签的级别是策略——带它的条目至少那么严——所以只有 owner 能改 |
 | `DELETE /api/v1/vault/tags/{name}` | 人，owner | 删除标签；条目上的名字保留 |
 
+## 授权 {#grants}
+
+Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余等人决定（控制台的「密钥审批」页，或飞书卡片的「按申请批准 / 只批一次 / 拒绝」，每个决定都带理由）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和其余策略行一样带签名，直接改数据库的行会被视为不存在并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/secrets/search` | `secrets:describe` | Agent：资格能触及什么——引用、概要、字段名与类型、申请要过的审批、是否已持有授权。人：保管库自己的搜索 |
+| `POST /api/v1/secrets/request` | `secrets:use` | Agent 的申请（`items`、`tags`、`collection`、`fields`、`action`（read 或 use）、`reason`、`uses`（0 为不限）、`duration` 秒（0 为不过期）、`alert`、`entitlement`）；回答分三部分：已生效的授权、等待中的申请、被拒的部分 |
+| `GET /api/v1/secrets/requests` | `secrets:describe` | 按 `?status=` 列申请；Agent 看自己的，人看全部 |
+| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | 一个申请：条目、原因、决定 |
+| `POST /api/v1/secrets/requests/{id}/decide` | 人（operator、owner 或资格点名的审核人） | `{"approve", "note", "uses", "duration"}`；申请人自己不能审自己的申请（`secrets.self_approval`） |
+| `POST /api/v1/secrets/requests/{id}/withdraw` | `secrets:use` | 提出申请的 Agent 撤回等待中的申请 |
+| `POST /api/v1/secrets/get` | `secrets:read` | Agent 按 `beacon://` 引用取值（`ref`、`field`、`reason`）；otp 字段只给当前码和剩余秒数，不给种子 |
+| `GET /api/v1/secrets/grants` | `secrets:describe` | Agent 自己的授权；人按 `?state=` 看全部 |
+| `POST /api/v1/secrets/grants/{id}/renew` | `secrets:use` | 续期：auto 级立刻续，其余重新申请 |
+| `POST /api/v1/secrets/grants/{id}/release` | `secrets:use` | 提前释放授权 |
+| `POST /api/v1/secrets/grants/{id}/revoke` | `secrets:admin` | 由人吊销授权 |
+| `GET /api/v1/secrets/entitlements` | `secrets:admin` | 资格清单 |
+| `POST /api/v1/secrets/entitlements` | `secrets:admin` | 写一条资格：`principals`（`agents`、`agent_tags`、`agents_of`）、`resources`（`collections`、`tags` 模式、`items`、`fields`）、`actions`、`approval` 下限、`reviewers`、`template` 标记 |
+| `DELETE /api/v1/secrets/entitlements/{name}` | `secrets:admin` | 删除一条资格；借它生效的授权会被重新评估 |
+| `POST /api/v1/secrets/agent-tags` | `secrets:admin` | Agent 的分组标签（`role/on-call` 一类），资格按它们圈定 Agent |
+| `GET /api/v1/secrets/agents/{name}/scope` | Agent 的所有者、管理员 | 这个 Agent 能触及什么（按审批级别分）、持有什么 |
+| `POST /api/v1/secrets/agents/{name}/templates` | Agent 的所有者、管理员 | 把勾选的资格模板交给这个 Agent |
+| `POST /api/v1/secrets/agents/{name}/unsuspend` | `secrets:admin` | 解除异常规则对该 Agent 的暂停 |
+
 ## 状态页与维护 {#status-pages-and-maintenance}
 
 公开页面本身不需要令牌（[见下文](#other-routes-on-port-17001)）；这些接口把同样的内容给 Agent，并让它安排维护（[状态页](../guide/status-pages.md)）。
@@ -322,6 +350,11 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `secrets.invalid` | 422 | 条目不符合要求（级别、字段、值）；消息说明原因，什么都没有改 |
 | `secrets.bad_input` | 400 | 请求不是路由要的形状；消息说明是哪里 |
 | `secrets.crypto` | 500 | 密文在该密钥下验证不过——这一行不是它自称的那一行 |
+| `secrets.no_grant` | 403 | 没有生效中的授权覆盖这次取用；`request_secret` 可以申请 |
+| `secrets.throttled` | 429 | Agent 超过 `rate.per_agent_per_minute`，且设置说限流 |
+| `secrets.suspended` | 403 | 异常规则暂停了该 Agent 的授权；由运维解除 |
+| `secrets.self_approval` | 403 | 申请人不能审自己的申请 |
+| `secrets.error` | 500 | 授权自身的失败，没有更具体的名字 |
 | `status.not_found` | 404 | 没有这个名字的状态页 |
 | `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |
