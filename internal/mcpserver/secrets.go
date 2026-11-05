@@ -37,7 +37,7 @@ func vaultActor(ctx context.Context) (secrets.Actor, error) {
 		return secrets.Actor{}, errors.New(api.ScopeProblem(p, ""))
 	}
 	if p.Agent != "" {
-		return secrets.Actor{}, errors.New("agents reach items through grants; until those arrive, the vault answers an agent with nothing")
+		return secrets.Actor{}, errors.New("agents reach items through grants, not this door: request_secret asks, get_secret takes")
 	}
 	return secrets.Actor{Name: p.User, Via: "mcp", Role: roleOf(p)}, nil
 }
@@ -169,17 +169,29 @@ func registerSecretsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "search_secrets", Title: "Search the vault", Annotations: read,
-		Description: "Items the caller may describe, by a word in the title, category, URLs or tags, narrowed by tags, inside one collection when it names one. Answers references and overviews, never values. An agent is refused until grants arrive."},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, searchOut, error) {
+		Description: "Items the caller may describe, by a word in the title, category, URLs or tags, narrowed by tags, inside one collection when it names one. " +
+			"Answers references and overviews, never values. A person sees what their permissions describe; an agent sees what its entitlements reach, with the fields, the approval a request would need, and whether it holds a grant."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, any, error) {
+			p, ok := principal(ctx)
+			if ok && p.Agent != "" {
+				if !p.Has("secrets:describe") {
+					return nil, nil, errors.New(api.ScopeProblem(p, "secrets:describe"))
+				}
+				out := v.SearchForAgent(p.Agent, in.Query, in.Collection, in.Tags)
+				if out == nil {
+					out = []secrets.AgentSearchResult{}
+				}
+				return nil, out, nil
+			}
 			who, err := vaultActor(ctx)
 			if err != nil {
-				return nil, searchOut{}, err
+				return nil, nil, err
 			}
 			out := v.Search(who, in.Query, in.Collection, in.Tags)
 			if out == nil {
 				out = []secrets.SearchResult{}
 			}
-			return nil, searchOut{Results: out}, nil
+			return nil, out, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "generate_item_value", Title: "Generate a value",
@@ -320,9 +332,6 @@ type (
 		Query      string   `json:"query,omitempty"`
 		Collection string   `json:"collection,omitempty"`
 		Tags       []string `json:"tags,omitempty"`
-	}
-	searchOut struct {
-		Results []secrets.SearchResult `json:"results"`
 	}
 	generateIn struct {
 		Ref     string `json:"ref" jsonschema:"the item's ID or collection/title"`
