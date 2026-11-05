@@ -101,8 +101,9 @@ type Options struct {
 	// CheckpointInterval is how often a checkpoint is written as records arrive; 24h by default.
 	// A checkpoint is written no sooner than this since the last one.
 	CheckpointInterval time.Duration
-	// Retention is how long records are kept. When set, Verify refuses a prune whose cut still
-	// falls inside it — a gap whose records should still be there. Zero leaves that check off.
+	// Retention is how long Prune keeps records. Verify treats signed prune marks as the
+	// authority for gaps; it does not re-check them against the current retention, so raising
+	// retention does not rewrite history.
 	Retention time.Duration
 	// Now is the clock; tests move it.
 	Now func() time.Time
@@ -771,14 +772,10 @@ func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 		return l.verifyEmpty(from, checkpoints, prunes)
 	}
 	firstPresent := uint64(minSeq.Int64)
-	for seq, p := range prunes {
+	for seq := range prunes {
 		if firstPresent <= seq {
 			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, seq,
 				"a prune at %d still has records at or before it", seq)
-		}
-		if l.retention > 0 && l.now().Sub(p.CutTime) < l.retention {
-			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, seq,
-				"records before %d are still inside the retention", seq+1)
 		}
 	}
 

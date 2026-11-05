@@ -328,6 +328,34 @@ func TestVerifySinceAfterPruneFromALaterCheckpoint(t *testing.T) {
 	}
 }
 
+// TestVerifyStaysWholeAfterRaisingRetention: a prune under a short retention stays a
+// valid gap after the operator raises retention. Verify used to compare prune marks
+// against the current retention and report a break.
+func TestVerifyStaysWholeAfterRaisingRetention(t *testing.T) {
+	f := open(t, Options{})
+	base := f.now
+	for i := range 12 {
+		f.now = base.Add(time.Duration(i) * time.Hour)
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := f.log.Prune(8 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("prune deleted nothing")
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatalf("verify after prune: %v", err)
+	}
+	f.log.retention = 365 * 24 * time.Hour
+	if res, err := f.log.Verify(); err != nil {
+		t.Fatalf("verify after raising retention: %v %+v", err, res)
+	}
+}
+
 func TestReadOnlyLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "beacon.db")
 	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path})
