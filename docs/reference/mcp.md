@@ -100,11 +100,11 @@ The secrets vault, under the same operations as the [REST routes](api.md#vault) 
 | `release_grant` | `secrets:use` | Give a grant back early (`id`) |
 | `list_requests` | `secrets:describe` | The requests by `state` (pending by default); an agent sees its own, a person and a review agent the queue |
 | `decide_request` | a person (operator, owner or a named reviewer), a review agent | `{"id", "approve", "note", "uses", "duration"}` — the reason is required, and the requester never decides its own request |
-| `list_entitlements` | a person | The entitlements: who may ask for what |
-| `put_entitlement` | a person | Add or change an entitlement (principals, resources, actions, the approval floor, reviewers, the template flag) |
-| `delete_entitlement` | a person | Remove one (`name`); the grants that reached through it are re-assessed |
-| `set_agent_tags` | a person | An agent's grouping tags (`agent`, `tags`), which entitlements reach agents by |
-| `revoke_grant` | a person | End a grant by hand (`id`, `reason`) |
+| `list_entitlements` | `secrets:admin` | The entitlements: who may ask for what |
+| `put_entitlement` | `secrets:admin` | Add or change an entitlement (principals, resources, actions, the approval floor, reviewers, the template flag) |
+| `delete_entitlement` | `secrets:admin` | Remove one (`name`); the grants that reached through it are re-assessed |
+| `set_agent_tags` | `secrets:admin` | An agent's grouping tags (`agent`, `tags`), which entitlements reach agents by |
+| `revoke_grant` | `secrets:admin` | End a grant by hand (`id`, `reason`) |
 | `agent_secret_scope` | the agent's owner, an admin | What an agent can reach and holds (`agent`): entitlements, the reach by approval, grants, tags, templates |
 | `generate_item_value` | a person, `edit` | Make a new value for a field (`ref`, `field`, `length`, `charset`), stored as a new version; the value itself is never returned |
 | `archive_item` | a person, `edit` | Archive an item (`ref`, `reason`): kept, out of the way |

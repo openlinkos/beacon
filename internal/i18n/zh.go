@@ -67,6 +67,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"%s %s \"%s\" via %s":           "%[1]s 经%[4]s对「%[3]s」%[2]s",
 	"%s viewed \"%s\" in %s via %s": "%[1]s 经%[4]s查看了 %[3]s 里的「%[2]s」",
 	"The vault's root key was %s.":  "保管库的根密钥已%s。",
+	"Vault policy rows are missing, stale or bad and are treated as the strictest: %s.": "保管库策略行缺失、过期或签名不符，按最严处理：%s。",
 	// what every page says of Beacon and where the project is
 	"Powered by Beacon, open source": "由开源的 Beacon 驱动",
 	"Beacon is open source.":         "Beacon 是开源软件。",
@@ -718,7 +719,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Reset":            "重置",
 	"Resetting takes the override away, so the level above (or the default) answers again.": "重置会去掉这层覆盖，由上一级（或默认值）重新生效。",
 	"Rows that failed their signature": "签名不符的配置行",
-	"A row that fails its signature is treated as absent (the level above, or the default, answers again) and reported to the log and the audit log.": "签名不符的行视为不存在（由上一级或默认值重新生效），并已报告到日志和审计日志。",
+	"A row that fails its signature is served as the last signed value (never a looser default) and reported to the log, the audit log and the alert chat.": "签名不符的行按上次签过名的值生效（不会退回更松的默认值），并已报告到日志、审计日志和告警群。",
+	"Settings rows failed their signature and are served as the strictest held value: %s.":                                                                  "设置行签名不符，按已记录的最严值生效：%s。",
 	"Overrides at other levels": "其他层级的覆盖",
 	"Scope":                     "作用域",
 	"The more specific level wins; tags take the stricter value; a request is clamped to the bound the level above gives.": "越具体的层级越优先；多个标签取更严的值；申请被夹在上一级给出的上限之内。",

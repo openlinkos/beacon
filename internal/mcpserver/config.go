@@ -91,10 +91,12 @@ type (
 		Changes []store.ConfigChange `json:"changes"`
 	}
 	versionIn struct {
-		Version int64 `json:"version" jsonschema:"the change's version, as list_config_changes gives it"`
+		Version int64  `json:"version" jsonschema:"the change's version, as list_config_changes gives it"`
+		Kind    string `json:"kind,omitempty" jsonschema:"settings or empty for the catalogue"`
 	}
 	revertIn struct {
 		Version int64  `json:"version" jsonschema:"the version of the change to undo"`
+		Kind    string `json:"kind,omitempty" jsonschema:"settings or empty for the catalogue"`
 		Note    string `json:"note,omitempty" jsonschema:"why"`
 	}
 )

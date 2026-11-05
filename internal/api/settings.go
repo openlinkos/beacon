@@ -8,6 +8,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/settings"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The settings' routes: every knob the secrets work offers, read whole or one by one, changed one
@@ -32,11 +33,11 @@ func (s *Server) registerSettings(mux *http.ServeMux) {
 	if s.Settings == nil {
 		return
 	}
-	mux.Handle("GET /api/v1/settings", s.with(settingsRead, s.listSettings))
-	mux.Handle("GET /api/v1/settings/history", s.with(settingsRead, s.settingsHistory))
-	mux.Handle("GET /api/v1/settings/history/{version}", s.with(settingsRead, s.settingsChange))
+	mux.Handle("GET /api/v1/settings", s.withPrincipal(settingsRead, s.listSettings))
+	mux.Handle("GET /api/v1/settings/history", s.with("secrets:admin", s.settingsHistory))
+	mux.Handle("GET /api/v1/settings/history/{version}", s.with("secrets:admin", s.settingsChange))
 	mux.Handle("POST /api/v1/settings/history/{version}/revert", s.with("secrets:admin", s.revertSetting))
-	mux.Handle("GET /api/v1/settings/{key}", s.with(settingsRead, s.getSetting))
+	mux.Handle("GET /api/v1/settings/{key}", s.withPrincipal(settingsRead, s.getSetting))
 	mux.Handle("PUT /api/v1/settings/{key}", s.with("secrets:admin", s.putSetting))
 	mux.Handle("DELETE /api/v1/settings/{key}", s.with("secrets:admin", s.deleteSetting))
 }
@@ -71,17 +72,36 @@ func selectorOf(r *http.Request) settings.Selector {
 		Entitlement: r.URL.Query().Get("entitlement"), Request: r.URL.Query().Get("request")}
 }
 
-func (s *Server) listSettings(w http.ResponseWriter, _ *http.Request, _ bridge.Actor) {
-	writeJSON(w, http.StatusOK, s.Settings.List())
+func selEmpty(s settings.Selector) bool {
+	return s.Collection == "" && s.Entitlement == "" && s.Request == "" && len(s.Tags) == 0
 }
 
-func (s *Server) getSetting(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+func (s *Server) listSettings(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	sel := selectorOf(r)
+	if !selEmpty(sel) && !p.Has("secrets:admin") {
+		writeError(w, http.StatusForbidden, "auth.scope", "reading an override needs secrets:admin")
+		return
+	}
+	listing := s.Settings.List()
+	if !p.Has("secrets:admin") {
+		listing.Overrides = nil
+		listing.BadRows = nil
+	}
+	writeJSON(w, http.StatusOK, listing)
+}
+
+func (s *Server) getSetting(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	d, ok := settings.Get(r.PathValue("key"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "settings.unknown", "no setting called "+r.PathValue("key"))
 		return
 	}
-	res, levels, err := s.Settings.Value(d.Key, selectorOf(r))
+	sel := selectorOf(r)
+	if !selEmpty(sel) && !p.Has("secrets:admin") {
+		writeError(w, http.StatusForbidden, "auth.scope", "reading an override needs secrets:admin")
+		return
+	}
+	res, levels, err := s.Settings.Value(d.Key, sel)
 	if err != nil {
 		s.settingsError(w, err)
 		return

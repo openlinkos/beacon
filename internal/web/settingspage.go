@@ -14,7 +14,8 @@ import (
 // The console's settings page: every setting with the value in force, the registered default,
 // where the value was overridden, who changed it and when; a change form and a reset for whoever
 // holds secrets:admin; the history with revert. Rows that failed their signature are shown as a
-// warning: they are served as absent, and were reported to the log and the audit log.
+// warning: they are served as the last signed value, and were reported to the log, the audit log
+// and the alert chat.
 
 type settingsLabels struct {
 	Group, Key, What, Value, Default, From, Who, When, Reason    string
@@ -34,7 +35,7 @@ func (s *Server) settingsLabels() settingsLabels {
 		History: s.t("History"), Version: s.t("Version"), Time: s.t("Time"), Via: s.t("Via"), Action: s.t("Action"),
 		Revert: s.t("Revert this change"), RevertWhy: s.t("Why revert it"),
 		Empty: s.t("None"), BadRows: s.t("Rows that failed their signature"), Overrides: s.t("Overrides at other levels"),
-		BadRowsHint: s.t("A row that fails its signature is treated as absent (the level above, or the default, answers again) and reported to the log and the audit log."),
+		BadRowsHint: s.t("A row that fails its signature is served as the last signed value (never a looser default) and reported to the log, the audit log and the alert chat."),
 		Scope:       s.t("Scope"), Target: s.t("Target"), Level: s.t("Level"), LevelHint: s.t("The more specific level wins; tags take the stricter value; a request is clamped to the bound the level above gives."),
 		Requests: s.t("Requests and grants"), Review: s.t("Review"), Use: s.t("Use, rate limits and anomalies"),
 		Retention: s.t("Retention"), ImportX: s.t("Import"), Backup: s.t("Backup"), Storage: s.t("Storage"), None: s.t("None"),
@@ -129,16 +130,16 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, v *viewer)
 		}
 		p.Groups = append(p.Groups, group)
 	}
-	for _, o := range listing.Overrides {
-		when := ""
-		if t, err := time.Parse(time.RFC3339, o.At); err == nil {
-			when = s.clock(t)
-		}
-		p.Overrides = append(p.Overrides, overrideRow{Scope: o.Scope, Target: o.Target, Key: o.Key,
-			Value: compactJSON(o.Value), Who: o.Actor + " (" + o.Via + ")", When: when})
-	}
-	p.BadRows = listing.BadRows
 	if p.CanChange {
+		for _, o := range listing.Overrides {
+			when := ""
+			if t, err := time.Parse(time.RFC3339, o.At); err == nil {
+				when = s.clock(t)
+			}
+			p.Overrides = append(p.Overrides, overrideRow{Scope: o.Scope, Target: o.Target, Key: o.Key,
+				Value: compactJSON(o.Value), Who: o.Actor + " (" + o.Via + ")", When: when})
+		}
+		p.BadRows = listing.BadRows
 		for _, ch := range s.Settings.History("", "", "", 0, 50) {
 			row := settingsChangeRow{Version: strconv.FormatInt(ch.Version, 10), Time: s.clock(ch.Time),
 				Who: ch.Actor, Via: ch.Via, Action: ch.Action, Why: ch.Reason, Reverts: ch.Reverts,

@@ -97,9 +97,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 	if !ok {
 		return out, fmt.Errorf("%w: no item %q", ErrNotFound, ref)
 	}
-	// never is never given to an agent, whatever covers it (the fourth invariant)
+	// never is never given to an agent, and looks like it is not there (the fourth invariant)
 	if s.EffectiveLevel(item) == LevelNever {
-		return out, fmt.Errorf("%w: this item is not given to agents", ErrForbidden)
+		return out, fmt.Errorf("%w: there is no such item", ErrNotFound)
 	}
 	if field != "" && len(section) == 0 {
 		// a bare field name may still carry a section once the item's fields are known; left empty
@@ -116,6 +116,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 	// the owner cap holds at every use, not only at the ask
 	if !s.ownerMayRead(agent.Owner, col.ID) {
 		return out, fmt.Errorf("%w: the agent's owner may no longer read this collection", ErrForbidden)
+	}
+	if err := s.grantPolicyHolds(agent, grant, item, col); err != nil {
+		return out, err
 	}
 	// the transaction: the use record and the grant's counter commit together, or not at all
 	firstUse := false
@@ -142,6 +145,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 			cur.Status = GrantExhausted
 		}
 		if err := putGrantTx(tx, cur, sk); err != nil {
+			return err
+		}
+		if err := writePolicyHeadTx(tx, sk); err != nil {
 			return err
 		}
 		// the record itself, in the same transaction: no record, no value
@@ -186,6 +192,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 		if field != "" && f.Name != field && fieldKey(f.Section, f.Name) != field && fieldKey(f.Section, f.Name) != fieldKey(section, field) {
 			continue
 		}
+		if len(grant.Fields) > 0 && !containsString(grant.Fields, f.Name) && !containsString(grant.Fields, fieldKey(f.Section, f.Name)) {
+			continue
+		}
 		value, okV := d.Values[fieldKey(f.Section, f.Name)]
 		if !okV {
 			continue
@@ -204,7 +213,9 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 		fields = append(fields, fv)
 	}
 	out.Fields = fields
-	out.Notes = d.Notes
+	if len(grant.Fields) == 0 || containsString(grant.Fields, "notes") {
+		out.Notes = d.Notes
+	}
 	_ = alert // the grant's alert binding is set at the ask; a use naming one only reaches the record
 	s.anomalyUsageSpike(agentName)
 	return out, nil
@@ -214,7 +225,7 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 func (s *Service) decryptDetailsOf(col Collection, ver ItemVersion) (*Details, error) {
 	var out *Details
 	err := s.d.Store.Storage().View(func(tx kv.Tx) error {
-		d, err := s.decryptDetailsTx(tx, col, ver)
+		d, err := s.decryptDetailsTx(tx, col, ver, ver.Item, ver.Version)
 		out = d
 		return err
 	})
@@ -449,6 +460,9 @@ func (s *Service) suspendAgent(agent, rule string) {
 		})
 		if tx.Get(bucketMeta, []byte("suspended\x00"+agent)) == nil {
 			_ = tx.Put(bucketMeta, []byte("suspended\x00"+agent), []byte(rule))
+		}
+		if n > 0 {
+			return writePolicyHeadTx(tx, sk)
 		}
 		return nil
 	})

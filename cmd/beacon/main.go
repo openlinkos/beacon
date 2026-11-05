@@ -78,7 +78,7 @@ func usage(w io.Writer) {
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
   beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
-  beacon key status|unseal|seal|rotate        the vault's root key
+  beacon key status|init|unseal|seal|rotate   the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
                                               the catalogue, probe targets and modules, as one change

@@ -94,6 +94,12 @@ func (s *Service) SearchForAgent(agentName, query, collection string, tags []str
 					return true // a deny matching keeps it out of sight
 				}
 			}
+			if s.EffectiveLevel(r.Item) == LevelNever {
+				return true
+			}
+			if !s.ownerMayRead(agent.Owner, col.ID) {
+				return true
+			}
 			res := AgentSearchResult{Ref: RefOfItem(col.Name, r.Title), Collection: col.Name, Item: r.Item,
 				Level: s.EffectiveLevel(r.Item), HasGrant: s.holdsGrant(agentName, r.ID)}
 			if ver, ok := getVersionTx(tx, r.ID, r.Version); ok {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-3b55de8e
+sourceHash: sha256-ad8685a6
 ---
 
 # REST API
@@ -179,7 +179,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |
 | `GET /api/v1/vault` | 任意凭据 | 状态：`sealed`、`mode`（`file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit`）与签名不符的策略行 `rows_failed_signature` |
-| `POST /api/v1/vault/unseal` | 任意凭据 | 用 `{"passphrase"}` 启封口令模式；口令不对是 `secrets.wrong_passphrase` |
+| `POST /api/v1/vault/init` | `secrets:admin` | 给口令模式保管库设第一道口令，请求体 `{"passphrase"}`。之后的启封用这道口令，不会再接受新口令。已经有口令时是 `secrets.conflict` |
+| `POST /api/v1/vault/unseal` | `secrets:admin` | 用 `{"passphrase"}` 启封口令模式；口令不对是 `secrets.wrong_passphrase`；从未初始化过是 `secrets.not_initialised` |
 | `POST /api/v1/vault/seal` | `secrets:admin` | 重新封存（口令模式）：密钥功能等待口令 |
 | `POST /api/v1/vault/rotate-key` | `secrets:admin` | 换根密钥：全部库密钥重新包裹，秒级完成。口令模式下 `{"passphrase"}` 是新口令 |
 | `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | 换一个库的密钥（`{"collection"}`）；该库条目在后台重新加密。移除成员不需要换钥：成员从来不经手密钥 |
@@ -339,6 +340,7 @@ Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它�
 | `settings.conflict` | 409 | 之后的修改动过同一设置行；重新读取后再试 |
 | `secrets.sealed` | 503 | 保管库处于封存状态（口令模式重启后）；owner 输入口令启封 |
 | `secrets.wrong_passphrase` | 403 | 口令打不开这个保管库 |
+| `secrets.not_initialised` | 409 | 口令模式保管库还没有口令；先 `POST /api/v1/vault/init` |
 | `secrets.reauth` | 401 | 查看值要重新输入账号密码（重新打开 `reveal.reauth_window` 窗口） |
 | `secrets.agent` | 403 | Agent 来问；Agent 经由授权取条目，授权随后续版本到来 |
 | `secrets.person` | 403 | 保管库的条目路由给人用；请用账号登录 |
