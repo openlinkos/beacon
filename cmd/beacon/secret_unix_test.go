@@ -33,8 +33,8 @@ func (b *vaultLogs) String() string {
 
 // TestServePassphraseVault runs the service with the vault in the passphrase mode, the way a
 // deployment would: the first start is sealed (the key functions wait; the rest of the service —
-// the configuration, monitoring's world — carries on), the passphrase unseals it through the admin
-// socket, sealing again works, and the passphrase never shows in the log.
+// the configuration, monitoring's world — carries on), key init sets the first passphrase through
+// the admin socket, sealing again and unsealing work, and the passphrase never shows in the log.
 func TestServePassphraseVault(t *testing.T) {
 	d := t.TempDir()
 	put := func(path, body string) {
@@ -86,12 +86,12 @@ func TestServePassphraseVault(t *testing.T) {
 	if code, out := wait("key status", func() (int, string) { return cli("key", "status") }); code != 0 || !strings.HasPrefix(out, "sealed\t") {
 		t.Fatalf("key status: %d %q", code, out)
 	}
-	// the passphrase unseals it
-	if code, out := cli("key", "unseal", "--passphrase-file", passFile); code != 0 || !strings.Contains(out, "unsealed: true") {
-		t.Fatalf("key unseal: %d %s", code, out)
+	// a fresh passphrase vault has no passphrase yet: init sets it and unseals
+	if code, out := cli("key", "init", "--passphrase-file", passFile); code != 0 || !strings.Contains(out, "unsealed: true") {
+		t.Fatalf("key init: %d %s", code, out)
 	}
 	if code, out := cli("key", "status"); code != 0 || !strings.HasPrefix(out, "unsealed\t") {
-		t.Fatalf("key status after the unseal: %d %q", code, out)
+		t.Fatalf("key status after init: %d %q", code, out)
 	}
 	// the passphrase is never echoed
 	if strings.Contains(logs.String(), "correct horse battery fixture") {

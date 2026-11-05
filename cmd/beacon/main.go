@@ -80,7 +80,7 @@ func usage(w io.Writer) {
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
   beacon secret import SOURCE -file PATH [-dry-run]
                                               bring an export in (1pux, 1password-csv, op, chrome, bitwarden, csv)
-  beacon key status|unseal|seal|rotate        the vault's root key
+  beacon key status|init|unseal|seal|rotate   the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
                                               the catalogue, probe targets and modules, as one change

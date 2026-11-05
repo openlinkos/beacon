@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f910a663
+sourceHash: sha256-9235aaa4
 ---
 
 # 命令行
@@ -68,7 +68,7 @@ docker exec beacon beacon token list
 | `ls` [COLLECTION] | `-state` | 全部库及其级别与条目数；带库时列它的条目（`-state`：`normal`、`archived` 或 `trash`）：标题、版本、状态、级别、标签 |
 | `collection` NAME | `-level`、`-description` | 建库；`-level`（默认 `review`）是条目继承的审批级别 |
 | `show` REF | | 一个条目：版本、级别、状态、标签、`beacon://` 引用、字段（名字、类型、用途）与版本数——绝无值 |
-| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`、`-level`、`-category`、`-url`、`-set-note`、`-reason` | 新增条目或写它的下一个版本。字段写作 `名字=值` 或 `小节/名字=值`；`username` 是明文字段，其余为 concealed。`-level` `-` 清掉条目自己的级别；`-reason` 写明原因，随版本保存 |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`、`-level`、`-category`、`-url`、`-set-note`、`-reason`、`-value-file`、`-value-from-stdin` | 新增条目或写它的下一个版本。字段写作 `名字=值` 或 `小节/名字=值`；`username` 是明文字段，其余为 concealed。`FIELD=-` 配合 `-value-file` 或 `-value-from-stdin` 从文件或标准输入读值，不必写在命令行上。`-level` `-` 清掉条目自己的级别；`-reason` 写明原因，随版本保存 |
 | `reveal` REF [FIELD …] | `-user`、`-password-file`、`-password-from-stdin` | 查看值：账号密码从文件（`-password-file`）或标准输入（`-password-from-stdin`；输入时可见）来。`otp` 字段给当前验证码与剩余秒数。先写审计，值才打印 |
 | `tag` REF TAGS | `-user`、`-reason` | 改条目的标签（逗号分隔）——这是策略修改，要库上的 `manage` |
 | `level` REF LEVEL | `-user`、`-reason` | 设条目自己的审批级别（`auto`、`review`、`person`、`never`，或 `-` 继承库的）——同样要 `manage` |
@@ -83,12 +83,13 @@ docker exec beacon beacon token list
 
 ### beacon key
 
-保管库的密钥：根密钥从哪来由 [config.yaml](config.md#the-vault) 的 `vault` 段决定。`file`、`aws-kms`、`gcp-kms` 与 `transit` 模式下密钥启动即可用；`passphrase` 模式重启后保管库保持封存，直到 owner 启封。
+保管库的密钥：根密钥从哪来由 [config.yaml](config.md#the-vault) 的 `vault` 段决定。`file`、`aws-kms`、`gcp-kms` 与 `transit` 模式下密钥启动即可用；`passphrase` 模式重启后保管库保持封存，直到 owner 第一次 `key init` 设口令，之后再用 `key unseal` 启封。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
 | `status` | | `sealed` 或 `unsealed`、模式，以及每条签名不符的策略行的告警（视为不存在） |
-| `unseal` | `-passphrase-file`、`-passphrase-from-stdin` | 启封口令模式。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
+| `init` | `-passphrase-file`、`-passphrase-from-stdin` | 给口令模式保管库设第一道口令并启封。之后的启封用这道口令，不会再接受新口令。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
+| `unseal` | `-passphrase-file`、`-passphrase-from-stdin` | 重启后启封口令模式。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
 | `seal` | | 重新封存：密钥功能等待口令；监控与 SSH 通道照常 |
 | `rotate` [COLLECTION] | `-passphrase-file`、`-passphrase-from-stdin` | 不带名字：换根密钥，全部库密钥重新包裹，秒级完成（口令模式下 `-passphrase-file` 指向装新口令的文件）。带名字：换那个库的密钥，条目在后台重新加密。移除成员不需要轮换——成员从来不经手密钥 |
 
