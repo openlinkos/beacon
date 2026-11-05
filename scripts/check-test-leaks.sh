@@ -3,8 +3,11 @@
 #
 # It runs the vault's tests with everything they print captured, then greps the output for the
 # fixture values the tests use (made up, never a real export; the list is internal/secrets/
-# vault_test.go's fixtureValues). A value that reaches a log line, an error, an audit text or a
-# test's own output is a leak: the check fails and prints where.
+# vault_test.go's fixtureValues and internal/secrets/importer/importer_test.go's fxMarkers). A
+# value that reaches a log line, an error, an audit text or a test's own output is a leak: the
+# check fails and prints where. The import's own dry-run check is here too: the report a dry-run
+# answers must carry no value, which the import tests assert and this script re-checks over the
+# whole output.
 #
 # Usage: scripts/check-test-leaks.sh [package...]   (default: ./internal/secrets/...)
 
@@ -12,13 +15,25 @@ set -eu
 
 PACKAGES=${*:-./internal/secrets/...}
 
-# the fixture markers, kept in step with internal/secrets/vault_test.go
+# the fixture markers, kept in step with internal/secrets/vault_test.go and
+# internal/secrets/importer/importer_test.go
 MARKERS='
 fixture-value-Xk7-plugh-Quixote-9b
 fixture-value-API-zephyr-5c2d-grault
 fixture-notes-caboosetumbler
 fixture-attachment-tumbler-quartz
 fixture-user-zz31@example.com
+fixture-import-1pux-value-xyzzy-frobnicate
+fixture-import-1pux-notes-tumbler
+fixture-import-1pux-attachment-quartz
+fixture-import-1pux-old-value-grault
+fixture-import-chrome-value-plugh-quux9
+fixture-import-bitwarden-value-cleesh3
+fixture-import-op-value-frotz5blorb
+fixture-import-csv-value-waldo-fred7
+fixture-import-1pux-user@example.com
+fixture-import-chrome-user@example.com
+fixture-import-web-value-3
 '
 
 OUT=$(mktemp)
