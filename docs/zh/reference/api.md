@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ad8685a6
+sourceHash: sha256-df11292a
 ---
 
 # REST API
@@ -56,6 +56,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `secrets:describe` | 看到自己的资格能触及什么：条目概要、字段名、申请要过的审批。`readonly` 预设自带，viewer 的 Agent 因此有它 |
 | `secrets:read` | 取自己持有授权的值（`get_secret`），每次取用都带原因。`oncall` 预设增加 |
 | `secrets:use` | 申请授权（`request_secret`）、续期与释放。`oncall` 预设增加 |
+| `secrets:review` | 作为审核 Agent 决定等待中的申请（`decide_request`、`pass_request`），在审核链的 Agent 层。`operator` 预设增加；`person` 级按定义只能人批 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
@@ -72,7 +73,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | --- | --- | --- |
 | 查看者 | 只读 | `status:read`、`sessions:read` |
 | 值班 | 值班 | + `alerts:write`、`machines:ssh` |
-| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write` |
+| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write`、`secrets:review` |
 | 所有者 | | + `config:write`、`accounts:write` |
 
 Agent 要用一个作用域，得它的预设给了、它的所有者的角色也给了，每次请求时都会检查：降低或停用所有者，会立即限制这个 Agent。OAuth 登录还另外受成员当初允许的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
@@ -208,15 +209,16 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 授权 {#grants}
 
-Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余等人决定（控制台的「密钥审批」页，或飞书卡片的「按申请批准 / 只批一次 / 拒绝」，每个决定都带理由）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和其余策略行一样带签名，直接改数据库的行会被视为不存在并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
+Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余走**审核链**（`review.chain`：规则、持有 `secrets:review` 的审核 Agent、然后是控制台「密钥审批」页或飞书卡片上的人）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和其余策略行一样带签名，直接改数据库的行会被视为不存在并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
 
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |
 | `GET /api/v1/secrets/search` | `secrets:describe` | Agent：资格能触及什么——引用、概要、字段名与类型、申请要过的审批、是否已持有授权。人：保管库自己的搜索 |
 | `POST /api/v1/secrets/request` | `secrets:use` | Agent 的申请（`items`、`tags`、`collection`、`fields`、`action`（read 或 use）、`reason`、`uses`（0 为不限）、`duration` 秒（0 为不过期）、`alert`、`entitlement`）；回答分三部分：已生效的授权、等待中的申请、被拒的部分 |
-| `GET /api/v1/secrets/requests` | `secrets:describe` | 按 `?status=` 列申请；Agent 看自己的，人看全部 |
-| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | 一个申请：条目、原因、决定 |
-| `POST /api/v1/secrets/requests/{id}/decide` | 人（operator、owner 或资格点名的审核人） | `{"approve", "note", "uses", "duration"}`；申请人自己不能审自己的申请（`secrets.self_approval`） |
+| `GET /api/v1/secrets/requests` | `secrets:describe` | 按 `?status=` 列申请；Agent 看自己的，人和审核 Agent 看队列 |
+| `GET /api/v1/secrets/requests/{id}` | `secrets:describe` | 一个申请及其审核上下文：条目、原因、决定、审核链、挂着的告警、申请人近期记录 |
+| `POST /api/v1/secrets/requests/{id}/decide` | 人（operator、owner 或资格点名的审核人）、审核 Agent | `{"approve", "note", "uses", "duration"}`；申请人自己不能审自己的申请（`secrets.self_approval`）；审核 Agent 不能批 `person` 级 |
+| `POST /api/v1/secrets/requests/{id}/pass` | 审核 Agent | `{"note"}`；不决定，把申请交给审核链的下一层 |
 | `POST /api/v1/secrets/requests/{id}/withdraw` | `secrets:use` | 提出申请的 Agent 撤回等待中的申请 |
 | `POST /api/v1/secrets/get` | `secrets:read` | Agent 按 `beacon://` 引用取值（`ref`、`field`、`reason`）；otp 字段只给当前码和剩余秒数，不给种子 |
 | `GET /api/v1/secrets/grants` | `secrets:describe` | Agent 自己的授权；人按 `?state=` 看全部 |

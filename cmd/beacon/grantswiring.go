@@ -54,12 +54,41 @@ func reviewAgentOf(st *store.Store) func(string) bool {
 	}
 }
 
+// reviewAgentsOf lists the agents that hold the review scope, so the chain keeps its agents
+// layer when someone can actually decide there, and so a waiting ask can wake them.
+func reviewAgentsOf(st *store.Store) func() []string {
+	return func() []string {
+		var names []string
+		for _, a := range st.Agents("") {
+			p, ok := st.Principal("agent:" + a.Name)
+			if ok && p.Has("secrets:review") {
+				names = append(names, a.Name)
+			}
+		}
+		return names
+	}
+}
+
+// alertInfoOf is the alert digest the review context and the rules layer's service condition
+// read: whether the group is firing, and the labels it carries.
+func alertInfoOf(st *store.Store) func(string) (bool, map[string]string, bool) {
+	return func(id string) (bool, map[string]string, bool) {
+		g, ok := st.Group(id)
+		if !ok {
+			return false, nil, false
+		}
+		return g.Firing(), g.Labels, true
+	}
+}
+
 // grantsDepsOf gathers the vault's grants dependencies the configuration and the store give.
 func grantsDepsOf(cfg *config.Config, st *store.Store, app feishu.API) secrets.GrantsDeps {
 	d := secrets.GrantsDeps{
-		Hooks:       &secretHookSender{hooks: cfg.Agents},
-		AlertState:  alertStateOf(st),
-		ReviewAgent: reviewAgentOf(st),
+		Hooks:        &secretHookSender{hooks: cfg.Agents},
+		AlertState:   alertStateOf(st),
+		AlertInfo:    alertInfoOf(st),
+		ReviewAgent:  reviewAgentOf(st),
+		ReviewAgents: reviewAgentsOf(st),
 	}
 	if app != nil && cfg.Feishu.ChatID != "" {
 		d.Cards = &secrets.CardOverFeishu{API: app, ChatID: cfg.Feishu.ChatID}

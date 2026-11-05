@@ -321,9 +321,22 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 		// ask the rules settle comes back granted in this very answer, and the rest stands at the
 		// layer that decides it (the review agent's hook, or the card)
 		final, granted := s.enterRequest(pendingReq)
-		if final.Status == ReqGranted && granted != nil {
+		switch {
+		case final.Status == ReqGranted && granted != nil:
 			out.Granted = append(out.Granted, *granted)
-		} else {
+		case final.Status == ReqDenied:
+			why := "denied"
+			if n := len(final.Decisions); n > 0 {
+				why = final.Decisions[n-1].Note
+			}
+			for _, it := range final.Items {
+				ref := it.Ref
+				if ref == "" {
+					ref = RefOfItem(it.Collection, it.Title)
+				}
+				out.Refused = append(out.Refused, Refusal{Ref: ref, Reason: why})
+			}
+		default:
 			out.Pending = &final
 			if in.Wait > 0 {
 				out.Pending = s.waitRequest(pendingID, in.Wait)

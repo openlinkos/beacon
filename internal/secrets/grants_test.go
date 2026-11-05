@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -141,6 +142,7 @@ type grantsVault struct {
 	viewer     Actor
 	alertOn    map[string]bool
 	resolvedAt map[string]time.Time
+	reviewers  map[string]bool
 }
 
 func newGrantsVault(t *testing.T) *grantsVault {
@@ -175,7 +177,7 @@ func newGrantsVault(t *testing.T) *grantsVault {
 	}
 	g := &grantsVault{st: st, sset: sset, clk: clk, bot: &poster{}, hooks: &hookCatcher{}, cards: &cardCatcher{},
 		owner: Actor{Name: "own", Via: "test", Role: "owner"}, viewer: Actor{Name: "vie", Via: "test", Role: "viewer"},
-		alertOn: map[string]bool{}}
+		alertOn: map[string]bool{}, reviewers: map[string]bool{}}
 	g.alertOn["alert-1"] = true
 	g.resolvedAt = map[string]time.Time{}
 	s, err := Open(context.Background(), SealConfig{Mode: SealFile, Dir: filepath.Join(dir, "secrets")},
@@ -191,6 +193,17 @@ func newGrantsVault(t *testing.T) *grantsVault {
 					return false, g.clk.Now(), true
 				}
 				return on, time.Time{}, ok
+			},
+			ReviewAgent: func(name string) bool { return g.reviewers[name] },
+			ReviewAgents: func() []string {
+				var names []string
+				for n, ok := range g.reviewers {
+					if ok {
+						names = append(names, n)
+					}
+				}
+				sort.Strings(names)
+				return names
 			}})
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +226,14 @@ func (g *grantsVault) newAgent(t *testing.T, name, ownerAcc string, tags ...stri
 			t.Fatal(err)
 		}
 	}
+	return name
+}
+
+// addReviewer makes an agent that holds the review scope for the chain's agents layer.
+func (g *grantsVault) addReviewer(t *testing.T, name, ownerAcc string) string {
+	t.Helper()
+	g.newAgent(t, name, ownerAcc)
+	g.reviewers[name] = true
 	return name
 }
 

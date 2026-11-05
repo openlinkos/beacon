@@ -93,13 +93,14 @@ The secrets vault, under the same operations as the [REST routes](api.md#vault) 
 | `reveal_item` | a person, `read` | The values (`ref`, `fields`, the account's `password`; audited before they leave). An `otp` field gives the current code and the seconds left, not the seed |
 | `search_secrets` | `secrets:describe` | A person: items they may describe (`query`, `collection`, `tags`). An agent: what its entitlements reach, with the fields, the approval a request would need, and whether it holds a grant — "where is the password for…", without the values |
 | `request_secret` | `secrets:use` | An agent's ask (`items`, `tags`, `collection`, `fields`, `action`, `reason`, `uses`, `duration`, `alert`, `entitlement`, `wait` seconds); the answer splits by the approval each item needs: the grants already in force, the request waiting, the refusals |
-| `get_request` | `secrets:describe` | One request by `id`: the items, the reason, the decisions |
+| `get_request` | `secrets:describe` | One request by `id`: the items, the reason, the decisions, and the review context (the chain, the alert, the asker's recent record) |
 | `get_secret` | `secrets:read` | An agent takes a value by its `beacon://` reference (`ref`, `field`, `reason`); the use is recorded before the value is given; an otp field answers with the current code and the seconds left |
 | `list_grants` | an agent | The calling agent's grants: items, fields, uses left, until when, bound to which alert |
 | `renew_grant` | `secrets:use` | Renew a grant (`id`, `reason`): auto-level at once, the rest ask again |
 | `release_grant` | `secrets:use` | Give a grant back early (`id`) |
 | `list_requests` | `secrets:describe` | The requests by `state` (pending by default); an agent sees its own, a person and a review agent the queue |
 | `decide_request` | a person (operator, owner or a named reviewer), a review agent | `{"id", "approve", "note", "uses", "duration"}` — the reason is required, and the requester never decides its own request |
+| `pass_request` | a review agent (`secrets:review`) | `{"id", "note"}` — hand the ask to the next layer of the chain without deciding it |
 | `list_entitlements` | `secrets:admin` | The entitlements: who may ask for what |
 | `put_entitlement` | `secrets:admin` | Add or change an entitlement (principals, resources, actions, the approval floor, reviewers, the template flag) |
 | `delete_entitlement` | `secrets:admin` | Remove one (`name`); the grants that reached through it are re-assessed |
