@@ -16,10 +16,14 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+// tagNameRe is the vault's tag shape: lower-case, layered with slashes.
+var tagNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9 _\-]*(/[a-z0-9][a-z0-9 _\-]*)*$`)
 
 // The sources, as the reports and the source tags name them. Source1Password covers 1PUX, the
 // 1Password CSV and the op connector: they are one keeper, and its vaults arrive keyed for the
@@ -256,9 +260,12 @@ func hostOf(normalized string) string {
 // writes its CSV differently enough (field counts, quoting) that the standard reader with fields
 // as they come is the honest parser.
 func readCSV(r io.Reader) ([][]string, error) {
-	all, err := io.ReadAll(io.LimitReader(r, 64<<20))
+	all, err := io.ReadAll(io.LimitReader(r, 64<<20+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(all) > 64<<20 {
+		return nil, fmt.Errorf("the CSV is larger than 64 MiB")
 	}
 	all = bytes.TrimPrefix(all, []byte{0xEF, 0xBB, 0xBF})
 	rd := csv.NewReader(bytes.NewReader(all))
@@ -329,8 +336,8 @@ func cleanTags(in []string, extra ...string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(t string) {
-		t = strings.ToLower(strings.TrimSpace(t))
-		if t == "" || seen[t] {
+		t = strings.ToLower(strings.ToValidUTF8(strings.TrimSpace(t), ""))
+		if t == "" || seen[t] || !tagNameRe.MatchString(t) {
 			return
 		}
 		seen[t] = true
@@ -351,7 +358,7 @@ func dedupeURLs(in []string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, u := range in {
-		u = strings.TrimSpace(u)
+		u = strings.ToValidUTF8(strings.TrimSpace(u), "")
 		if u == "" || seen[u] {
 			continue
 		}
@@ -365,15 +372,16 @@ func dedupeURLs(in []string) []string {
 // caller's fallback name comes in already). The reference syntax addresses items by ID when a
 // title has other shapes, which a real export's titles often do.
 func titleOf(in, fallback string) string {
-	t := strings.TrimSpace(in)
+	t := strings.ToValidUTF8(strings.TrimSpace(in), "")
 	if t == "" {
-		t = strings.TrimSpace(fallback)
+		t = strings.ToValidUTF8(strings.TrimSpace(fallback), "")
 	}
 	if t == "" {
 		return "Untitled"
 	}
-	if len(t) > 128 {
-		t = t[:128]
+	runes := []rune(t)
+	if len(runes) > 128 {
+		t = string(runes[:128])
 	}
 	return t
 }

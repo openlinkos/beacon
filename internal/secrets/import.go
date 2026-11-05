@@ -256,7 +256,7 @@ func (s *Service) conflictIndexOf(collectionID string) *conflictIndex {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) || r.Collection != collectionID {
+			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) || r.Collection != collectionID || r.State == StateTrash {
 				return true
 			}
 			ver, ok := getVersionTx(tx, r.ID, r.Version)
@@ -267,7 +267,7 @@ func (s *Service) conflictIndexOf(collectionID string) *conflictIndex {
 			if !ok {
 				return true
 			}
-			d, err := s.decryptDetailsTx(tx, col, ver)
+			d, err := s.decryptDetailsTx(tx, col, ver, r.ID, r.Version)
 			if err != nil {
 				return true
 			}
@@ -351,6 +351,20 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 		}
 		targets = append(targets, t)
 	}
+	if !opts.DryRun {
+		maxSize := s.attachmentMax()
+		for _, t := range targets {
+			for _, item := range t.imported.Items {
+				for _, a := range item.Attachments {
+					if int64(len(a.Data)) > maxSize {
+						return ImportReport{}, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
+					}
+				}
+			}
+		}
+		_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_import_begin",
+			Detail: fmt.Sprintf("import from %s into %d collection(s)", batch.Source, len(targets))})
+	}
 	report := ImportReport{Source: batch.Source, DryRun: opts.DryRun, Merged: batch.Merged}
 	for i := range targets {
 		t := &targets[i]
@@ -398,6 +412,8 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 				}
 				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
 				report.Created++
+				_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_create",
+					Target: written.Title, Detail: "imported into " + t.col.Name})
 			case onConflict == "new_version":
 				written, err := s.importNewVersion(who, hit.item, item, opts)
 				if err != nil {
@@ -405,6 +421,8 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 				}
 				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
 				report.Versions++
+				_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_update",
+					Target: written.Title, Detail: "imported a new version in " + t.col.Name})
 			case onConflict == "skip":
 				report.Skipped++
 			case onConflict == "keep_both":
@@ -567,7 +585,7 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 		version := int64(0)
 		write := func(values map[string]string, at time.Time, why string) error {
 			version++
-			details := Details{Values: values, Notes: item.notes}
+			details := Details{Values: values, Notes: item.notes, Fields: item.fields}
 			plain, err := json.Marshal(details)
 			if err != nil {
 				return err
@@ -624,7 +642,7 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 					names = append(names, a.Name)
 				}
 			}
-			plain, err := json.Marshal(Details{Values: item.values, Notes: item.notes, Attachments: names})
+			plain, err := json.Marshal(Details{Values: item.values, Notes: item.notes, Attachments: names, Fields: item.fields})
 			if err != nil {
 				return err
 			}
@@ -707,7 +725,7 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 		if !ok {
 			return fmt.Errorf("%w: the item's current version is missing", ErrNotFound)
 		}
-		d, err := s.decryptDetailsTx(tx, colRow, cur)
+		d, err := s.decryptDetailsTx(tx, colRow, cur, row.ID, row.Version)
 		if err != nil {
 			return fmt.Errorf("the item's current version could not be opened: %w", err)
 		}
@@ -719,9 +737,14 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 		if s.rotatingNow(colRow.ID) {
 			return fmt.Errorf("%w: the collection's key is being rotated; try again shortly", ErrConflict)
 		}
-		// the overview joins: places and tags together, the category when the item had none
+		if row.State == StateTrash {
+			return fmt.Errorf("%w: a trashed item is not updated by an import", ErrNotFound)
+		}
+		// the overview joins: places together; tags only when the caller may manage (they change who can reach the item)
 		row.URLs = compact(append(row.URLs, item.urls...))
-		row.Tags = compactLower(append(row.Tags, item.tags...))
+		if s.mayManageTx(tx, who, colRow.ID) {
+			row.Tags = compactLower(append(row.Tags, item.tags...))
+		}
 		if row.Category == "" && item.category != "" {
 			row.Category = item.category
 		}
@@ -736,6 +759,9 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 		}
 		for _, f := range item.fields {
 			key := fieldKey(f.Section, f.Name)
+			if item.values[key] == "" {
+				continue // an empty import must not blank a value that is already there
+			}
 			values[key] = item.values[key]
 			if !hasField(fields, f.Section, f.Name) {
 				fields = append(fields, f)
@@ -752,7 +778,7 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 		next := row.Version + 1
 		ver := ItemVersion{Item: row.ID, Version: next, Fields: fields, KeyVersion: colRow.KeyVersion,
 			Actor: who.Name, Via: who.Via, At: now, Reason: reason}
-		plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: attachments})
+		plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: attachments, Fields: fields})
 		if err != nil {
 			return err
 		}

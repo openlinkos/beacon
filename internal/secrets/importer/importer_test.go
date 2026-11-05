@@ -265,6 +265,35 @@ func TestParse1PUXRejectsAZiplessFile(t *testing.T) {
 	}
 }
 
+func TestParse1PUXRefusesAnOversizedEntry(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("export.data")
+	_, _ = w.Write([]byte(`{"accounts":[{"vaults":[{"attrs":{"name":"Private","type":"P"},"items":[
+	  {"uuid":"i1","categoryUuid":"006","overview":{"title":"Doc"},
+	   "details":{"documentAttributes":{"fileName":"big.bin","documentId":"bomb"}}}]}]}]}`))
+	w, _ = zw.Create("files/bomb___big.bin")
+	_, _ = w.Write(bytes.Repeat([]byte("0"), 65<<20))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse1PUX(bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatal("an oversized zip entry must be refused")
+	}
+}
+
+func TestTitleOfCutsOnRuneBoundary(t *testing.T) {
+	han := strings.Repeat("密", 50)
+	got := titleOf(han, "")
+	if got != han {
+		t.Fatalf("fifty han characters fit: %q", got)
+	}
+	got = titleOf(han+"\xff", "")
+	if got != han {
+		t.Fatalf("invalid bytes are dropped: %q", got)
+	}
+}
+
 // ---- Chrome
 
 const chromeFixture = `name,url,username,password,note

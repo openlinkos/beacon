@@ -309,7 +309,7 @@ func (s *Server) importAction(h func(http.ResponseWriter, *http.Request, *viewer
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 256<<20)
-		if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) { //nolint:gosec // G120: bounded by the MaxBytesReader above
+		if err := r.ParseMultipartForm(256 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) { //nolint:gosec // G120: MaxBytesReader already caps the body at 256 MiB, so this stays in memory
 			s.message(w, r, v, http.StatusForbidden, s.t("The form has expired"), s.t("Reload the page and try again."))
 			return
 		}

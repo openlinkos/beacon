@@ -143,37 +143,72 @@ func Parse1PUX(r io.Reader) (Batch, error) {
 	if err != nil {
 		return Batch{}, fmt.Errorf("the 1PUX file is not a zip: %w", err)
 	}
-	var data []byte
-	files := map[string][]byte{}
+	const maxEntry = 64 << 20
+	var dataFile *zip.File
+	fileIndex := map[string]*zip.File{}
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
 		name := f.Name
-		if !strings.HasPrefix(name, "files/") && !strings.Contains(name, "/files/") && name != "export.data" && name != "export.attributes" {
-			continue // custom icons and anything else: not the import's business
+		switch {
+		case name == "export.data":
+			dataFile = f
+		case strings.HasPrefix(name, "files/") || strings.Contains(name, "/files/"):
+			if i := strings.LastIndexByte(name, '/'); i >= 0 {
+				name = name[i+1:]
+			}
+			fileIndex[name] = f
 		}
-		rc, err := f.Open()
-		if err != nil {
-			continue
-		}
-		b, _ := io.ReadAll(rc)
-		_ = rc.Close()
-		if name == "export.data" {
-			data = b
-			continue
-		}
-		if i := strings.LastIndexByte(name, '/'); i >= 0 {
-			name = name[i+1:] // files/<id>___<name>, by the file's own name
-		}
-		files[name] = b
 	}
-	if len(data) == 0 {
+	if dataFile == nil {
 		return Batch{}, fmt.Errorf("the 1PUX file has no export.data")
+	}
+	data, err := readZipEntry(dataFile, maxEntry)
+	if err != nil {
+		return Batch{}, fmt.Errorf("export.data: %w", err)
 	}
 	var export onepux
 	if err := json.Unmarshal(data, &export); err != nil {
 		return Batch{}, fmt.Errorf("the 1PUX export.data could not be read: %w", err)
+	}
+	needed := map[string]bool{}
+	for _, acc := range export.Accounts {
+		for _, v := range acc.Vaults {
+			for _, it := range v.Items {
+				if da := it.Details.DocumentAttr; da != nil && da.ID != "" {
+					needed[da.ID] = true
+					if da.FileName != "" {
+						needed[da.ID+"___"+da.FileName] = true
+					}
+				}
+			}
+		}
+	}
+	files := map[string][]byte{}
+	var total int64
+	for name, f := range fileIndex {
+		want := needed[name]
+		if !want {
+			for id := range needed {
+				if strings.HasPrefix(name, id+"___") {
+					want = true
+					break
+				}
+			}
+		}
+		if !want {
+			continue
+		}
+		b, err := readZipEntry(f, maxEntry)
+		if err != nil {
+			return Batch{}, fmt.Errorf("%s: %w", name, err)
+		}
+		total += int64(len(b))
+		if total > 256<<20 {
+			return Batch{}, fmt.Errorf("the 1PUX attachments together are too large")
+		}
+		files[name] = b
 	}
 	out := Batch{Source: Source1Password}
 	for _, acc := range export.Accounts {
@@ -384,6 +419,25 @@ func attachmentBytes(files map[string][]byte, id, name string) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+func readZipEntry(f *zip.File, max int64) ([]byte, error) {
+	if f.UncompressedSize64 > uint64(max) {
+		return nil, fmt.Errorf("the entry is larger than %d bytes", max)
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	b, err := io.ReadAll(io.LimitReader(rc, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("the entry is larger than %d bytes", max)
+	}
+	return b, nil
 }
 
 // bytesReader is the whole export, as zip.NewReader wants it.

@@ -447,7 +447,7 @@ func TestImportRefusesAnAgentAndASealedVault(t *testing.T) {
 		t.Fatalf("the system itself is not a person here, got %v", err)
 	}
 	ss, _ := newVault(t, SealPassphrase, Deps{Lang: i18n.EN})
-	if err := ss.Unseal("fixture-passphrase-hush-puppy"); err != nil {
+	if err := ss.InitPassphrase("fixture-passphrase-hush-puppy"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ss.Seal(); err != nil {
@@ -492,5 +492,61 @@ func TestImportWritesItsAuditEntry(t *testing.T) {
 	detail := entries[len(entries)-1].Detail
 	if !strings.Contains(detail, "chrome") || strings.Contains(detail, "fixture-import") {
 		t.Fatalf("the audit says the source and the counts, never a value: %q", detail)
+	}
+}
+
+func TestImportNewVersionEditDoesNotAddTags(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	item := makeConflicting(t, s)
+	col, _ := s.Collection("Infra")
+	if err := s.SetPermission(owner, col.Name, "user:bob", PermEdit, "bob edits"); err != nil {
+		t.Fatal(err)
+	}
+	bob := Actor{Name: "bob", Via: "test", Role: "viewer"}
+	batch := importConflictBatch("https://example.com/other", "fixture-import-conflict-user@example.com")
+	batch.Collections[0].Items[0].Tags = []string{"agents/prod"}
+	if _, err := s.Import(bob, batch, ImportOptions{OnConflict: "new_version"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, ok := s.Item(item.ID)
+	if !ok {
+		t.Fatal("the item is there")
+	}
+	for _, tag := range got.Tags {
+		if tag == "agents/prod" {
+			t.Fatal("edit must not add tags through import")
+		}
+	}
+}
+
+func TestImportNewVersionSkipsEmptyValues(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	item := makeConflicting(t, s)
+	batch := importConflictBatch("https://www.example.com/login", "fixture-import-conflict-user@example.com")
+	batch.Collections[0].Items[0].Fields[1].Value = ""
+	if _, err := s.Import(owner, batch, ImportOptions{OnConflict: "new_version"}); err != nil {
+		t.Fatal(err)
+	}
+	values, _, err := s.Reveal(owner, item.ID, nil, "fixture-password-entry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["password"] != "fixture-import-conflict-old-value" {
+		t.Fatalf("an empty import must not blank the password, got %q", values["password"])
+	}
+}
+
+func TestImportDoesNotIndexTrashedItems(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	item := makeConflicting(t, s)
+	if _, err := s.TrashItem(owner, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.Import(owner, importConflictBatch("https://www.example.com/login", "fixture-import-conflict-user@example.com"), ImportOptions{OnConflict: "new_version"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Created != 1 || report.Versions != 0 {
+		t.Fatalf("a trashed item is not a conflict: %+v", report)
 	}
 }
