@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -435,5 +436,107 @@ func TestVerifyRejectsGapWithoutPrune(t *testing.T) {
 	tamper(t, f.db, `DELETE FROM audit_events WHERE seq <= 9`)
 	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
 		t.Fatalf("a gap with only scheduled checkpoints: %v", err)
+	}
+}
+
+// TestUpdateBothRollsBackBothSides: a kv put and an audit append in one UpdateBoth must both
+// vanish when the callback fails.
+func TestUpdateBothRollsBackBothSides(t *testing.T) {
+	f := open(t, Options{})
+	err := f.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		if err := tx.Put([]byte("meta"), []byte("token"), []byte("secret")); err != nil {
+			return err
+		}
+		e := Event{Actor: "alice", Action: "secrets_item_use", Object: "item-1"}
+		if err := f.log.AppendTx(raw, &e); err != nil {
+			return err
+		}
+		return errors.New("caller failed after both writes")
+	})
+	if err == nil {
+		t.Fatal("UpdateBoth should return the callback's error")
+	}
+	if err := f.db.View(func(tx kv.Tx) error {
+		if v := tx.Get([]byte("meta"), []byte("token")); v != nil {
+			t.Errorf("kv write survived the rollback: %q", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, total, err := f.log.Query(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Fatalf("event write survived the rollback: %d %+v", total, got)
+	}
+}
+
+// TestConcurrentAppendVerifyPrune runs append, verify and prune together. Verify must not
+// report a break; the chain that remains must still hold.
+func TestConcurrentAppendVerifyPrune(t *testing.T) {
+	f := open(t, Options{Now: time.Now, CheckpointInterval: 40 * time.Millisecond})
+	old := time.Now().Add(-48 * time.Hour)
+	for i := range 20 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "old", Time: old.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const writers = 3
+	const per = 25
+	var writersWg, helpersWg sync.WaitGroup
+	errCh := make(chan error, 8)
+	writersWg.Add(writers)
+	for w := range writers {
+		go func(id int) {
+			defer writersWg.Done()
+			for i := range per {
+				if _, err := f.log.Append(Event{Actor: "alice", Action: "new", Object: fmt.Sprintf("%d-%d", id, i)}); err != nil {
+					errCh <- fmt.Errorf("append: %w", err)
+					return
+				}
+			}
+		}(w)
+	}
+	done := make(chan struct{})
+	helpersWg.Add(2)
+	go func() {
+		defer helpersWg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				if _, err := f.log.Verify(); err != nil {
+					errCh <- fmt.Errorf("verify: %w", err)
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		defer helpersWg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				if _, err := f.log.Prune(24 * time.Hour); err != nil {
+					errCh <- fmt.Errorf("prune: %w", err)
+					return
+				}
+			}
+		}
+	}()
+	writersWg.Wait()
+	close(done)
+	helpersWg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatalf("final verify: %v", err)
 	}
 }
