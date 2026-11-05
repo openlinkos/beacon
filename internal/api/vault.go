@@ -47,8 +47,8 @@ type vault interface {
 
 	Collections() []secrets.Collection
 	Collection(nameOrID string) (secrets.Collection, bool)
-	CreateCollection(who secrets.Actor, name, description, level string) (secrets.Collection, error)
-	UpdateCollection(who secrets.Actor, id, description, level string) (secrets.Collection, error)
+	CreateCollection(who secrets.Actor, name, description, level string, actions []string) (secrets.Collection, error)
+	UpdateCollection(who secrets.Actor, id, description, level string, actions []string) (secrets.Collection, error)
 	Permissions(collection string) []secrets.Permission
 	SetPermission(who secrets.Actor, collection, subject, perm, reason string) error
 
@@ -65,7 +65,7 @@ type vault interface {
 	Attachment(item string, version int64, name string) ([]byte, int64, error)
 
 	Tags() []secrets.Tag
-	SetTag(who secrets.Actor, name, level, description string) (secrets.Tag, error)
+	SetTag(who secrets.Actor, name, level, description string, actions []string) (secrets.Tag, error)
 	DeleteTag(who secrets.Actor, name string) error
 	EffectiveLevel(item secrets.Item) string
 	WhoCanGet(collection string) []string
@@ -124,7 +124,7 @@ func (s *Server) needPerson(w http.ResponseWriter, p store.Principal) (secrets.A
 	if !ok {
 		if p.Agent != "" {
 			writeError(w, http.StatusForbidden, "secrets.agent",
-				"agents reach items through grants; until those arrive, the vault answers an agent with nothing")
+				"agents reach items through grants, not this door: request_secret asks, get_secret takes")
 			return secrets.Actor{}, false
 		}
 		writeError(w, http.StatusForbidden, "secrets.person", "the vault is for people; sign in with an account")
@@ -143,7 +143,7 @@ func (s *Server) vaultError(w http.ResponseWriter, err error) {
 	case errors.Is(err, secrets.ErrReauth):
 		writeError(w, http.StatusUnauthorized, "secrets.reauth", "enter your password to view values")
 	case errors.Is(err, secrets.ErrAgent):
-		writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants; until those arrive, the vault answers an agent with nothing")
+		writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants, not this door: request_secret asks, get_secret takes")
 	case errors.Is(err, secrets.ErrForbidden):
 		writeError(w, http.StatusForbidden, "secrets.permission", "you may not do this here")
 	case errors.Is(err, secrets.ErrNotFound):
@@ -242,9 +242,10 @@ func (s *Server) listCollections(w http.ResponseWriter, _ *http.Request, _ bridg
 }
 
 type collectionIn struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Level       string `json:"level"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Level       string   `json:"level"`
+	Actions     []string `json:"actions,omitempty"` // describe, read, use; "-" clears the restriction
 }
 
 func (s *Server) createCollection(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
@@ -252,7 +253,7 @@ func (s *Server) createCollection(w http.ResponseWriter, r *http.Request, _ brid
 	if !readBody(w, r, &in, 1<<16) {
 		return
 	}
-	col, err := s.Vault.CreateCollection(secrets.Actor{Via: "api"}, in.Name, in.Description, in.Level)
+	col, err := s.Vault.CreateCollection(secrets.Actor{Via: "api"}, in.Name, in.Description, in.Level, in.Actions)
 	if err != nil {
 		s.vaultError(w, err)
 		return
@@ -278,13 +279,14 @@ func (s *Server) getCollection(w http.ResponseWriter, r *http.Request, p store.P
 
 func (s *Server) putCollection(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
 	var in struct {
-		Description string `json:"description"`
-		Level       string `json:"level"`
+		Description string   `json:"description"`
+		Level       string   `json:"level"`
+		Actions     []string `json:"actions,omitempty"`
 	}
 	if !readBody(w, r, &in, 1<<16) {
 		return
 	}
-	col, err := s.Vault.UpdateCollection(secrets.Actor{Via: "api"}, r.PathValue("id"), in.Description, in.Level)
+	col, err := s.Vault.UpdateCollection(secrets.Actor{Via: "api"}, r.PathValue("id"), in.Description, in.Level, in.Actions)
 	if err != nil {
 		s.vaultError(w, err)
 		return
@@ -620,14 +622,15 @@ func (s *Server) postTag(w http.ResponseWriter, r *http.Request, p store.Princip
 		return
 	}
 	var in struct {
-		Name        string `json:"name"`
-		Level       string `json:"level,omitempty"`
-		Description string `json:"description,omitempty"`
+		Name        string   `json:"name"`
+		Level       string   `json:"level,omitempty"`
+		Description string   `json:"description,omitempty"`
+		Actions     []string `json:"actions,omitempty"`
 	}
 	if !readBody(w, r, &in, 1<<16) {
 		return
 	}
-	if _, err := s.Vault.SetTag(who, in.Name, in.Level, in.Description); err != nil {
+	if _, err := s.Vault.SetTag(who, in.Name, in.Level, in.Description, in.Actions); err != nil {
 		s.vaultError(w, err)
 		return
 	}

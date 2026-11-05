@@ -48,6 +48,7 @@ components:
             settings.not_found, settings.unknown, settings.invalid, settings.conflict,
             secrets.sealed, secrets.wrong_passphrase, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
             secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
+            secrets.no_grant, secrets.throttled, secrets.suspended, secrets.self_approval, secrets.error,
             status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
@@ -2581,3 +2582,229 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Maintenance"}
         default: {$ref: "#/components/responses/Error"}
+  /secrets/search:
+    get:
+      summary: Search the secrets
+      description: "An agent sees what its entitlements reach (references, overviews, field names and types, the approval a request would need, whether it holds a grant); nothing outside is there at all. A person sees what their permissions describe, the vault's own search. The caller needs secrets:describe."
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: collection, in: query, schema: {type: string}}
+        - {name: tag, in: query, description: "More than one may be given", schema: {type: string}}
+      responses:
+        "200": {description: The results}
+        "403": {description: "secrets.agent or secrets.permission, when the caller is neither an agent with the scope nor a person"}
+  /secrets/request:
+    post:
+      summary: Request secret access
+      description: "An agent's ask (secrets:use): items by reference or picked by tags, with a reason. The answer splits by the approval each item needs (the auto part is granted at once, the rest waits for a decision) and says which is which. The uses and duration are clamped by the settings at every level; the owner caps what the agent may ask for."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items: {type: array, items: {type: string}}
+                tags: {type: array, items: {type: string}}
+                collection: {type: string}
+                fields: {type: array, items: {type: string}}
+                action: {type: string, enum: [read, use], description: "read, by default"}
+                reason: {type: string}
+                uses: {type: integer, description: "0: unlimited"}
+                duration: {type: integer, description: "seconds; 0: no expiry"}
+                alert: {type: string}
+                entitlement: {type: string, description: "the entitlement the request means to use"}
+      responses:
+        "200": {description: "The grants already in force, the request waiting, and the refusals"}
+        "403": {description: "secrets.agent (only an agent asks), secrets.suspended"}
+        "423": {description: secrets.sealed}
+  /secrets/requests:
+    get:
+      summary: List secret requests
+      description: "The requests by state (query status; every state when empty). An agent sees its own; a person sees them all. The caller needs secrets:describe."
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [pending, granted, denied, expired, withdrawn]}}
+      responses:
+        "200": {description: The requests}
+  /secrets/requests/{id}:
+    get:
+      summary: One secret request
+      description: "The items, the reason and the decisions so far. The agent that asked sees its own; a person sees any. The caller needs secrets:describe."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: The request}
+        "404": {description: secrets.not_found}
+  /secrets/requests/{id}/decide:
+    post:
+      summary: Decide a secret request
+      description: "Approve or deny a waiting request, with the reason a decision must carry; approving may set the uses and duration, inside the ceilings. The requester itself never decides its own request. People of the operator and owner roles and the reviewers an entitlement names may decide; a review agent may for the levels it is allowed."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approve: {type: boolean}
+                note: {type: string, description: "the reason; required"}
+                uses: {type: integer}
+                duration: {type: integer, description: "seconds"}
+      responses:
+        "200": {description: "The request and the grant an approval made"}
+        "403": {description: "secrets.self_approval, secrets.permission or secrets.agent"}
+  /secrets/requests/{id}/withdraw:
+    post:
+      summary: Withdraw a secret request
+      description: "The agent that asked takes a waiting request back (secrets:use)."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Withdrawn}
+        "409": {description: secrets.conflict}
+  /secrets/get:
+    post:
+      summary: Get a secret
+      description: "An agent takes the value of a field it holds a grant for (secrets:read), by its beacon:// reference. Every use carries a reason; the use is recorded before the value is given, so a use that cannot be recorded gives nothing. An otp field answers with the current code and the seconds it has left."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ref, reason]
+              properties:
+                ref: {type: string}
+                field: {type: string}
+                reason: {type: string}
+                alert: {type: string}
+                context: {type: string}
+      responses:
+        "200": {description: "The values, the uses left, the expiry"}
+        "403": {description: "secrets.no_grant, secrets.throttled, secrets.suspended or secrets.permission"}
+        "423": {description: secrets.sealed}
+  /secrets/grants:
+    get:
+      summary: List grants
+      description: "An agent's own grants (secrets:describe); a person sees them all (query state)."
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+      responses:
+        "200": {description: The grants}
+  /secrets/grants/{id}/renew:
+    post:
+      summary: Renew a grant
+      description: "The agent that holds it renews (secrets:use): auto-level grants renew at once, the rest ask again."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: "The grant, and the request a renewal made when it asks again"}
+  /secrets/grants/{id}/release:
+    post:
+      summary: Release a grant
+      description: "The agent that holds it gives it back early (secrets:use)."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Released}
+  /secrets/grants/{id}/revoke:
+    post:
+      summary: Revoke a grant
+      description: "An operator's hand ends a grant (secrets:admin)."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Revoked}
+  /secrets/entitlements:
+    get:
+      summary: List entitlements
+      description: "Who may ask for what, with which actions and approval floor (secrets:admin)."
+      responses:
+        "200": {description: The entitlements}
+    post:
+      summary: Put an entitlement
+      description: "Add or change an entitlement (secrets:admin): principals (agents, agent tags, agents of someone), resources (collections, tag patterns, items, fields), actions, the approval floor, the reviewers, the template flag, the expiry."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                description: {type: string}
+                deny: {type: boolean}
+                principals:
+                  type: object
+                  properties:
+                    agents: {type: array, items: {type: string}}
+                    agent_tags: {type: array, items: {type: string}}
+                    agents_of: {type: array, items: {type: string}}
+                resources:
+                  type: object
+                  properties:
+                    collections: {type: array, items: {type: string}}
+                    tags: {type: array, items: {type: string}}
+                    items: {type: array, items: {type: string}}
+                    fields: {type: array, items: {type: string}}
+                actions: {type: array, items: {type: string, enum: [describe, read, use]}}
+                approval: {type: string, enum: [auto, review, person, never]}
+                reviewers: {type: array, items: {type: string}}
+                template: {type: boolean}
+      responses:
+        "200": {description: The entitlement as stored}
+  /secrets/entitlements/{name}:
+    delete:
+      summary: Delete an entitlement
+      description: "Remove one; the grants that reached through it are re-assessed (secrets:admin)."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Deleted}
+  /secrets/agent-tags:
+    post:
+      summary: Set an agent's tags
+      description: "The grouping tags entitlements reach agents by (secrets:admin); an empty list clears them."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent]
+              properties:
+                agent: {type: string}
+                tags: {type: array, items: {type: string}}
+      responses:
+        "200": {description: "The tags as stored"}
+  /secrets/agents/{name}/scope:
+    get:
+      summary: An agent's secret scope
+      description: "The entitlements that take the agent in, what they reach by the approval each item needs, its grants and its tags. The agent's owner or an admin."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: The scope}
+        "403": {description: secrets.permission}
+  /secrets/agents/{name}/templates:
+    post:
+      summary: Apply entitlement templates
+      description: "Hand the agent the template entitlements named (the owner or an admin)."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                names: {type: array, items: {type: string}}
+      responses:
+        "200": {description: "The scope after applying"}
+  /secrets/agents/{name}/unsuspend:
+    post:
+      summary: Lift an agent's suspension
+      description: "An anomaly rule's suspension, lifted by an operator (secrets:admin)."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Lifted}
+

@@ -35,7 +35,7 @@ func TestVaultRoutesState(t *testing.T) {
 	e, c, svc := setupVault(t)
 	reader := e.Token(t, "reader", "status:read")
 	_ = e
-	if _, err := svc.CreateCollection(secrets.Actor{Name: "owner", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview); err != nil {
+	if _, err := svc.CreateCollection(secrets.Actor{Name: "owner", Via: "test", Role: "owner"}, "Infra", "", secrets.LevelReview, nil); err != nil {
 		t.Fatal(err)
 	}
 	if code, out := c.do("GET", "/api/v1/vault", reader, ""); code != 200 || out["mode"] != "file" || out["sealed"] != false {

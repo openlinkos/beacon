@@ -24,8 +24,8 @@ type Vault interface {
 	ActorForUser(name string) (secrets.Actor, bool)
 	Collections() []secrets.Collection
 	Collection(nameOrID string) (secrets.Collection, bool)
-	CreateCollection(who secrets.Actor, name, description, level string) (secrets.Collection, error)
-	UpdateCollection(who secrets.Actor, id, description, level string) (secrets.Collection, error)
+	CreateCollection(who secrets.Actor, name, description, level string, actions []string) (secrets.Collection, error)
+	UpdateCollection(who secrets.Actor, id, description, level string, actions []string) (secrets.Collection, error)
 	Permissions(collection string) []secrets.Permission
 	SetPermission(who secrets.Actor, collection, subject, perm, reason string) error
 
@@ -41,7 +41,7 @@ type Vault interface {
 	Reveal(who secrets.Actor, item string, fields []string, password string) (map[string]string, []secrets.Field, error)
 
 	Tags() []secrets.Tag
-	SetTag(who secrets.Actor, name, level, description string) (secrets.Tag, error)
+	SetTag(who secrets.Actor, name, level, description string, actions []string) (secrets.Tag, error)
 	DeleteTag(who secrets.Actor, name string) error
 	Search(who secrets.Actor, query, collection string, tags []string) []secrets.SearchResult
 	EffectiveLevel(item secrets.Item) string
@@ -146,14 +146,15 @@ func VaultHandler(v Vault) http.Handler {
 			return
 		}
 		var in struct {
-			Name        string `json:"name"`
-			Description string `json:"description,omitempty"`
-			Level       string `json:"level,omitempty"`
+			Name        string   `json:"name"`
+			Description string   `json:"description,omitempty"`
+			Level       string   `json:"level,omitempty"`
+			Actions     []string `json:"actions,omitempty"`
 		}
 		if !readBody(w, r, &in) {
 			return
 		}
-		col, err := v.CreateCollection(who, in.Name, in.Description, in.Level)
+		col, err := v.CreateCollection(who, in.Name, in.Description, in.Level, in.Actions)
 		if err != nil {
 			failVault(w, err)
 			return
@@ -322,14 +323,15 @@ func VaultHandler(v Vault) http.Handler {
 			return
 		}
 		var in struct {
-			Name        string `json:"name"`
-			Level       string `json:"level,omitempty"`
-			Description string `json:"description,omitempty"`
+			Name        string   `json:"name"`
+			Level       string   `json:"level,omitempty"`
+			Description string   `json:"description,omitempty"`
+			Actions     []string `json:"actions,omitempty"`
 		}
 		if !readBody(w, r, &in) {
 			return
 		}
-		if _, err := v.SetTag(who, in.Name, in.Level, in.Description); err != nil {
+		if _, err := v.SetTag(who, in.Name, in.Level, in.Description, in.Actions); err != nil {
 			failVault(w, err)
 			return
 		}
