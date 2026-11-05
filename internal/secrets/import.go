@@ -9,6 +9,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/secrets/importer"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -257,9 +258,9 @@ func appendUnique(in []string, s string) []string {
 func (s *Service) conflictIndexOf(collectionID string) *conflictIndex {
 	idx := newConflictIndex()
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) || r.Collection != collectionID || r.State == StateTrash {
+			if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) || r.Collection != collectionID || r.State == StateTrash {
 				return true
 			}
 			ver, ok := getVersionTx(tx, r.ID, r.Version)
@@ -569,8 +570,10 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := s.refuseIfRotating(); err != nil {
+		return Item{}, err
+	}
+	if _, err := s.sk(); err != nil {
 		return Item{}, err
 	}
 	id, err := newID()
@@ -586,6 +589,7 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 		reason = "import from " + batchSource(in.Source)
 	}
 	var out Item
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		ck, err := s.collectionKeyByVersionTx(tx, col.ID, col.KeyVersion)
 		if err != nil {
@@ -669,15 +673,11 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 			}
 		}
 		row.Version = version
-		r := signedItem{Item: row}
-		r.Sig = signRow(sk, row.signedParts()...)
-		b, err := json.Marshal(r)
+		h, err := s.putItemTx(tx, row)
 		if err != nil {
 			return err
 		}
-		if err := tx.Put(bucketItems, []byte(id), b); err != nil {
-			return err
-		}
+		committed = h
 		out = row
 		s.pruneVersions(tx, id, version)
 		return nil
@@ -685,6 +685,7 @@ func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport
 	if err != nil {
 		return Item{}, err
 	}
+	s.afterHeads(committed)
 	return out, nil
 }
 
@@ -716,8 +717,10 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := s.refuseIfRotating(); err != nil {
+		return Item{}, err
+	}
+	if _, err := s.sk(); err != nil {
 		return Item{}, err
 	}
 	now := s.now()
@@ -726,6 +729,7 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 		reason = "import from " + batchSource(in.Source) + ": a newer value"
 	}
 	var out Item
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		row, colRow, ok := s.itemTx(tx, itemID)
 		if !ok {
@@ -834,15 +838,11 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 			}
 		}
 		row.Version = next
-		r := signedItem{Item: row}
-		r.Sig = signRow(sk, row.signedParts()...)
-		b, err := json.Marshal(r)
+		h, err := s.putItemTx(tx, row)
 		if err != nil {
 			return err
 		}
-		if err := tx.Put(bucketItems, []byte(row.ID), b); err != nil {
-			return err
-		}
+		committed = h
 		out = row
 		s.pruneVersions(tx, row.ID, next)
 		return nil
@@ -850,5 +850,6 @@ func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImp
 	if err != nil {
 		return Item{}, err
 	}
+	s.afterHeads(committed)
 	return out, nil
 }

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b52e00bb
+sourceHash: sha256-4c1e14fb
 ---
 
 # config.yaml
@@ -39,7 +39,7 @@ sourceHash: sha256-b52e00bb
 | 键 | 类型 | 默认 | 是什么 |
 | --- | --- | --- | --- |
 | `vault.mode` | `file`、`passphrase`、`aws-kms`、`gcp-kms`、`transit` | `file` | 根密钥从哪来，启动时读取：secrets 目录里的文件（`file`）；owner 输入的口令（`passphrase`，重启后保管库封存直到输入——监控与 SSH 通道照常）；或代为解开它的保管方（`aws-kms`、`gcp-kms`、`transit`）。轮换用 `beacon key rotate` |
-| `vault.dir` | 路径 | `<data_dir>/secrets` | 密钥文件所在目录，首次启动创建，仅属主可读 |
+| `vault.dir` | 路径 | `<data_dir>/secrets` | 密钥文件与 epochs 文件所在目录，首次启动创建，仅属主可读。策略、条目与设置项的 head 共用这份 epochs 文件 |
 | `vault.aws_kms.region` | 字符串 | — | AWS KMS 模式：密钥所在区域 |
 | `vault.aws_kms.key_id` | 字符串 | — | 密钥的 id 或别名（`alias/beacon`） |
 | `vault.aws_kms.endpoint` | URL | — | 自建 KMS，测试用；留空是 AWS 自己的 |

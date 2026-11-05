@@ -33,6 +33,7 @@ func TestSettingsUsage(t *testing.T) {
 		{"settings", "reset", "request.max_uses"},
 		{"settings", "history"},
 		{"settings", "revert", "3"},
+		{"settings", "rebuild-head"},
 	} {
 		out.Reset()
 		errb.Reset()
