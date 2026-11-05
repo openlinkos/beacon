@@ -55,10 +55,10 @@ func TestSettingsRoutes(t *testing.T) {
 		out["from"] != "system" || out["actor"] != "claude-code" || out["reason"] != "tighter while we test" {
 		t.Fatalf("after put: %d %v", code, out)
 	}
-	if code, out := c.do("PUT", "/api/v1/settings/request.max_uses", admin, `{"value": "many", "reason": "x"}`); code != 422 || out["code"] != "settings.invalid" {
+	if code, out := c.do("PUT", "/api/v1/settings/request.max_uses", admin, `{"value": "many", "reason": "because it does not fit"}`); code != 422 || out["code"] != "settings.invalid" {
 		t.Fatalf("a value that does not fit: %d %v", code, out)
 	}
-	if code, out := c.do("PUT", "/api/v1/settings/request.max_uses", admin, `{"value": 60, "reason": "x", "if_version": 99}`); code != 409 || out["code"] != "settings.conflict" {
+	if code, out := c.do("PUT", "/api/v1/settings/request.max_uses", admin, `{"value": 60, "reason": "because the version is stale", "if_version": 99}`); code != 409 || out["code"] != "settings.conflict" {
 		t.Fatalf("a stale version: %d %v", code, out)
 	}
 
@@ -66,19 +66,30 @@ func TestSettingsRoutes(t *testing.T) {
 	if code, tagOut := c.do("PUT", "/api/v1/settings/request.max_uses", admin, `{"value": 30, "scope": "tag", "target": "env/prod", "reason": "prod is tighter"}`); code != 200 {
 		t.Fatalf("tag row: %d %v", code, tagOut)
 	}
-	if code, out := c.do("GET", "/api/v1/settings/request.max_uses?tag=env/prod", read, ""); code != 200 || out["value"] != float64(30) ||
+	if code, out := c.do("GET", "/api/v1/settings/request.max_uses?tag=env/prod", read, ""); code != 403 {
+		t.Fatalf("a reader cannot probe overrides: %d %v", code, out)
+	}
+	if code, out := c.do("GET", "/api/v1/settings/request.max_uses?tag=env/prod", admin, ""); code != 200 || out["value"] != float64(30) ||
 		out["from"] != "tag" || out["target"] != "env/prod" || len(out["levels"].([]any)) != 3 { // default, system, tag
 		t.Fatalf("resolved for a tag: %d %v", code, out)
 	}
-	if code, out := c.do("GET", "/api/v1/settings", read, ""); code != 200 || len(out["overrides"].([]any)) != 1 {
-		t.Fatalf("overrides listed: %d %v", code, out)
+	if code, out := c.do("GET", "/api/v1/settings", read, ""); code != 200 {
+		t.Fatalf("list as reader: %d %v", code, out)
+	} else if _, ok := out["overrides"]; ok {
+		t.Fatalf("a reader must not see overrides: %v", out)
+	}
+	if code, out := c.do("GET", "/api/v1/settings", admin, ""); code != 200 || len(out["overrides"].([]any)) != 1 {
+		t.Fatalf("overrides listed for admin: %d %v", code, out)
 	}
 
 	// reset, history, revert
-	if code, out := c.do("DELETE", "/api/v1/settings/request.max_uses?scope=tag&target=env/prod&reason=done", admin, ""); code != 200 || out["action"] != "reset" {
+	if code, out := c.do("DELETE", "/api/v1/settings/request.max_uses?scope=tag&target=env/prod&reason=finished-now", admin, ""); code != 200 || out["action"] != "reset" {
 		t.Fatalf("reset: %d %v", code, out)
 	}
-	if code, out := c.do("GET", "/api/v1/settings/history", read, ""); code != 200 || len(out["changes"].([]any)) != 3 {
+	if code, out := c.do("GET", "/api/v1/settings/history", read, ""); code != 403 {
+		t.Fatalf("a reader cannot read history: %d %v", code, out)
+	}
+	if code, out := c.do("GET", "/api/v1/settings/history", admin, ""); code != 200 || len(out["changes"].([]any)) != 3 {
 		t.Fatalf("history: %d %v", code, out)
 	}
 	if code, out := c.do("POST", "/api/v1/settings/history/1/revert", admin, `{"reason": "back to the default"}`); code != 200 || out["action"] != "revert" {

@@ -48,14 +48,17 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 
 	s.rowsMtx.Lock()
 	defer s.rowsMtx.Unlock()
-	row, ok := s.rows[rowKey(ScopeSystem, "", key)]
-	if ok {
+	if row, ok := s.rows[rowKey(ScopeSystem, "", key)]; ok {
 		add(Resolved{Key: key, Value: row.Value, From: ScopeSystem, Row: &row})
+	} else if e, ok := s.broken[rowKey(ScopeSystem, "", key)]; ok {
+		add(Resolved{Key: key, Value: e.Value, From: ScopeSystem})
 	}
 	if sel.Collection != "" {
 		if row, ok := s.rows[rowKey(ScopeCollection, sel.Collection, key)]; ok {
 			r := row
 			add(Resolved{Key: key, Value: r.Value, From: ScopeCollection, Target: sel.Collection, Row: &r})
+		} else if e, ok := s.broken[rowKey(ScopeCollection, sel.Collection, key)]; ok {
+			add(Resolved{Key: key, Value: e.Value, From: ScopeCollection, Target: sel.Collection})
 		}
 	}
 	// several tags may cover one item: their rows are all at one level, and the stricter wins —
@@ -65,6 +68,10 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 	for _, t := range slices.Sorted(slices.Values(sel.Tags)) {
 		if row, ok := s.rows[rowKey(ScopeTag, t, key)]; ok {
 			tagRows = append(tagRows, row)
+			continue
+		}
+		if e, ok := s.broken[rowKey(ScopeTag, t, key)]; ok {
+			tagRows = append(tagRows, Row{Key: key, Scope: ScopeTag, Target: t, Value: e.Value, Version: e.Version})
 		}
 	}
 	if len(tagRows) > 0 {
@@ -86,11 +93,19 @@ func (s *Service) Value(key string, sel Selector) (Resolved, []Resolved, error) 
 		if row, ok := s.rows[rowKey(ScopeEntitlement, sel.Entitlement, key)]; ok {
 			r := row
 			add(Resolved{Key: key, Value: r.Value, From: ScopeEntitlement, Target: sel.Entitlement, Row: &r})
+		} else if e, ok := s.broken[rowKey(ScopeEntitlement, sel.Entitlement, key)]; ok {
+			add(Resolved{Key: key, Value: e.Value, From: ScopeEntitlement, Target: sel.Entitlement})
 		}
 	}
-	if sel.Request != "" {
+	if sel.Request != "" && requestMaySet[key] {
+		var r Row
+		var have bool
 		if row, ok := s.rows[rowKey(ScopeRequest, sel.Request, key)]; ok {
-			r := row
+			r, have = row, true
+		} else if e, ok := s.broken[rowKey(ScopeRequest, sel.Request, key)]; ok {
+			r, have = Row{Key: key, Scope: ScopeRequest, Target: sel.Request, Value: e.Value, Version: e.Version}, true
+		}
+		if have {
 			// a request may only tighten: where the design orders the values, the request's
 			// choice holds only when it is the stricter of it and the level above; where it does
 			// not, the request's value simply wins, being the more specific
@@ -170,16 +185,27 @@ func compare(a, b string) int {
 }
 
 // Duration reads a setting that holds a duration, for the code that runs by it. A value that does
-// not fit is the default, so a setting nobody could set wrongly stops nothing.
+// not fit is the default, so a setting nobody could set wrongly stops nothing. unlimited and never
+// are not durations: ok is false, so a ticker or a deadline is not created with zero.
 func (s *Service) Duration(key string, sel Selector) (d int64, ok bool) {
 	r, _, err := s.Value(key, sel)
 	if err != nil {
 		return 0, false
 	}
-	v, err := ParseDuration(jsonString(r.Value))
-	if err != nil {
-		def := Definitions[key]
-		v, _ = ParseDuration(jsonString(def.Default))
+	parse := func(raw json.RawMessage) (int64, bool) {
+		word := jsonString(raw)
+		if word == "unlimited" || word == "never" {
+			return 0, false
+		}
+		v, err := ParseDuration(word)
+		if err != nil {
+			return 0, false
+		}
+		return int64(v), true
 	}
-	return int64(v), true
+	if n, ok := parse(r.Value); ok {
+		return n, true
+	}
+	def := Definitions[key]
+	return parse(def.Default)
 }

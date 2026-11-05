@@ -31,3 +31,12 @@ func (s *Store) Secret(name string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// DeleteSecret removes the named secret. The settings use this once, after their rows have
+// moved onto the vault's signature key, so a key that lived in the same database cannot
+// re-sign a forged row on the next start.
+func (s *Store) DeleteSecret(name string) error {
+	return s.db.Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketMeta, []byte("secret:"+name))
+	})
+}

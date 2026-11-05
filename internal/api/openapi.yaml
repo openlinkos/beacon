@@ -46,7 +46,7 @@ components:
             session.not_found,
             config.not_found, config.invalid, config.conflict,
             settings.not_found, settings.unknown, settings.invalid, settings.conflict,
-            secrets.sealed, secrets.wrong_passphrase, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
+            secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
             secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
             status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
@@ -1781,7 +1781,7 @@ paths:
   /settings:
     get:
       summary: "Every setting: its default, the value in force, and where that came from"
-      description: "Scope: status:read or secrets:admin. The settings of the secrets work (requests and grants, review, use and rate limits, retention, import, backup, storage), each with the value in force at the system level, the registered default, where the value was overridden, and who changed it, when and why. Rows whose signature does not verify are served as absent and listed under bad_rows, having been reported to the log and the audit log."
+      description: "Scope: status:read or secrets:admin. The settings of the secrets work (requests and grants, review, use and rate limits, retention, import, backup, storage), each with the value in force at the system level and the registered default. Overrides, bad_rows and who changed a row are only in the answer for secrets:admin. Rows whose signature does not verify are served as the last signed value (never a looser default) and listed under bad_rows, having been reported to the log, the audit log and the alert chat."
       responses:
         "200":
           description: The settings
@@ -1799,13 +1799,13 @@ paths:
                     items: {$ref: "#/components/schemas/SettingRow"}
                   bad_rows:
                     type: array
-                    description: Rows that failed their signature and are treated as absent
+                    description: Rows that failed their signature and are served as the last signed value
                     items: {type: string}
         default: {$ref: "#/components/responses/Error"}
   /settings/{key}:
     get:
       summary: One setting, resolved level by level
-      description: "Scope: status:read or secrets:admin. The query places the setting: collection, tag (more than one), entitlement and request. The value in force is the most specific level's, tags taking the stricter value and a request clamped to the bound the level above gives; levels lists each level that was present, least specific first."
+      description: "Scope: status:read or secrets:admin. Without a selector, the system-level value. collection, tag, entitlement and request need secrets:admin. The value in force is the most specific level's, tags taking the stricter value and a request clamped to the bound the level above gives; levels lists each level that was present, least specific first."
       parameters:
         - {name: key, in: path, required: true, schema: {type: string}}
         - {name: collection, in: query, schema: {type: string}}
@@ -1857,7 +1857,7 @@ paths:
   /settings/history:
     get:
       summary: Changes to the settings, newest first
-      description: "Scope: status:read or secrets:admin"
+      description: "Scope: secrets:admin"
       parameters:
         - {name: key, in: query, description: "Only this setting's changes", schema: {type: string}}
         - {name: scope, in: query, schema: {type: string}}
@@ -1877,7 +1877,7 @@ paths:
   /settings/history/{version}:
     get:
       summary: One change to the settings
-      description: "Scope: status:read or secrets:admin"
+      description: "Scope: secrets:admin"
       parameters: [{$ref: "#/components/parameters/Version"}]
       responses:
         "200": {$ref: "#/components/responses/SettingChange"}
@@ -1945,10 +1945,25 @@ paths:
                   mode: {type: string, enum: [file, passphrase, aws-kms, gcp-kms, transit]}
                   rows_failed_signature: {type: array, items: {type: string}}
         default: {$ref: "#/components/responses/Error"}
+  /vault/init:
+    post:
+      summary: Set the first passphrase of a passphrase-mode vault
+      description: "Scope: secrets:admin. The passphrase mode only, and only when the vault has never been given a passphrase. Later unseals open with that passphrase; they never take a new one."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: {type: string}
+      responses:
+        "200":
+          description: Initialised and unsealed
+        default: {$ref: "#/components/responses/Error"}
   /vault/unseal:
     post:
       summary: Unseal the vault with the passphrase
-      description: "The passphrase mode only. The passphrase and the file key in the secrets directory derive the root key (argon2id then HKDF, two halves, so the disk alone is not enough); the key check tells a right passphrase from a wrong one (secrets.wrong_passphrase). With it the signature key returns, and the settings' rows are re-signed onto it. The caller must be a person; an agent gets secrets.agent."
+      description: "Scope: secrets:admin. The passphrase mode only. The passphrase and the file key in the secrets directory derive the root key (argon2id then HKDF, two halves, so the disk alone is not enough); the key check tells a right passphrase from a wrong one (secrets.wrong_passphrase). A vault that has never been initialised answers secrets.not_initialised. Wrong passphrases count toward the address lockout."
       requestBody:
         content:
           application/json:

@@ -315,3 +315,123 @@ func TestMigrateFailsClean(t *testing.T) {
 		t.Fatalf("after the block cleared: %v %v", migrated, err)
 	}
 }
+
+func TestMigrateFailsInside(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	dbPath := filepath.Join(dir, "beacon.db")
+	migrateFailAt = "inside"
+	t.Cleanup(func() { migrateFailAt = "" })
+	if _, err := Migrate(boltPath, Options{Path: dbPath}); err == nil {
+		t.Fatal("an injected failure should fail the migration")
+	}
+	if _, err := os.Stat(dbPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a failed migration should not leave the SQL database")
+	}
+	if _, err := os.Stat(boltPath); err != nil {
+		t.Fatal("the bbolt file should still be there")
+	}
+	migrateFailAt = ""
+	migrated, err := Migrate(boltPath, Options{Path: dbPath})
+	if err != nil || !migrated {
+		t.Fatalf("retry: %v %v", migrated, err)
+	}
+}
+
+func TestMigrateCrashAfterCommit(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	dbPath := filepath.Join(dir, "beacon.db")
+	migrateFailAt = "after-commit"
+	t.Cleanup(func() { migrateFailAt = "" })
+	if _, err := Migrate(boltPath, Options{Path: dbPath}); err == nil {
+		t.Fatal("the injected crash should come back")
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatal("the SQL database should be in place")
+	}
+	if _, err := os.Stat(boltPath); err != nil {
+		t.Fatal("the bbolt file should still be there")
+	}
+	migrateFailAt = ""
+	migrated, err := Migrate(boltPath, Options{Path: dbPath})
+	if err != nil || !migrated {
+		t.Fatalf("finishing the leftover file: %v %v", migrated, err)
+	}
+	if _, err := os.Stat(boltPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the leftover bbolt file should have gone")
+	}
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if gs := st.Groups(); len(gs) != 30 {
+		t.Errorf("groups after finishing: %d", len(gs))
+	}
+}
+
+func TestMigrateBothFilesMatch(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	dbPath := filepath.Join(dir, "beacon.db")
+	if _, err := Migrate(boltPath, Options{Path: dbPath}); err != nil {
+		t.Fatal(err)
+	}
+	pre := boltPath + ".pre-sql"
+	if err := copyFile(pre, boltPath); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := Migrate(boltPath, Options{Path: dbPath})
+	if err != nil || !migrated {
+		t.Fatalf("matching leftover: %v %v", migrated, err)
+	}
+	if _, err := os.Stat(boltPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the matching leftover should have gone")
+	}
+}
+
+func TestMigrateBothFilesDiverge(t *testing.T) {
+	dir := t.TempDir()
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	dbPath := filepath.Join(dir, "beacon.db")
+	if _, err := Migrate(boltPath, Options{Path: dbPath}); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(boltPath+".pre-sql", boltPath); err != nil {
+		t.Fatal(err)
+	}
+	bdb, err := bolt.Open(boltPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bdb.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("tokens"))
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte("tok-new"), []byte(`{"name":"tok-new"}`))
+	})
+	_ = bdb.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(boltPath, Options{Path: dbPath}); !errors.Is(err, ErrDiverged) {
+		t.Fatalf("diverged files: %v", err)
+	}
+	if _, err := os.Stat(boltPath); err != nil {
+		t.Fatal("the bbolt file should still be there")
+	}
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, in, 0o600)
+}

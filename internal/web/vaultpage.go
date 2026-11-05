@@ -106,6 +106,9 @@ func (s *Server) vaultPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.CanUnseal = p.Sealed && p.Mode == secrets.SealPassphrase && v.has("secrets:admin")
 	p.CanManage = v.has("secrets:admin")
 	for _, col := range s.Vault.Collections() {
+		if !s.Vault.May(who, col.ID, secrets.PermDescribe) {
+			continue
+		}
 		p.Collections = append(p.Collections, vaultCollectionRow{Name: col.Name, Level: col.Level,
 			Href: consolePath("/secrets/" + col.ID), Items: len(s.Vault.Items(col.Name, "")),
 			MayRead: s.Vault.May(who, col.ID, secrets.PermRead)})
@@ -130,13 +133,21 @@ type vaultCollectionPage struct {
 var vaultCollectionTmpl = parse("vaultcollection.html")
 
 func (s *Server) vaultCollectionPage(w http.ResponseWriter, r *http.Request, v *viewer) {
-	col, _ := s.Vault.Collection(r.PathValue("id"))
+	col, found := s.Vault.Collection(r.PathValue("id"))
 	who, _ := vaultActorOf(v)
+	if !found || !s.Vault.May(who, col.ID, secrets.PermDescribe) {
+		http.Redirect(w, r, consolePath("/secrets"), http.StatusSeeOther)
+		return
+	}
 	p := vaultCollectionPage{shell: s.shellFor(r, v, "secrets", s.t("Secrets")+" · "+col.Name, crumb{Label: s.t("Secrets"), Href: consolePath("/secrets")}),
-		L: s.vaultLabels(), Col: col, Perms: s.Vault.Permissions(col.ID), WhoCanGet: s.Vault.WhoCanGet(col.ID)}
+		L: s.vaultLabels(), Col: col}
 	p.CanRead = s.Vault.May(who, col.ID, secrets.PermRead)
 	p.CanEdit = s.Vault.May(who, col.ID, secrets.PermEdit)
 	p.CanManage = s.Vault.May(who, col.ID, secrets.PermManage)
+	if p.CanManage {
+		p.Perms = s.Vault.Permissions(col.ID)
+		p.WhoCanGet = s.Vault.WhoCanGet(col.ID)
+	}
 	for _, it := range s.Vault.Items(col.Name, r.URL.Query().Get("state")) {
 		p.Items = append(p.Items, vaultItemRow{Title: it.Title, Level: s.Vault.EffectiveLevel(it), State: it.State,
 			Version: it.Version, Href: consolePath("/secrets/item/" + it.ID), Tags: strings.Join(it.Tags, ", ")})
@@ -174,6 +185,10 @@ func (s *Server) vaultItemPage(w http.ResponseWriter, r *http.Request, v *viewer
 		return
 	}
 	who, _ := vaultActorOf(v)
+	if !s.Vault.May(who, col.ID, secrets.PermDescribe) {
+		http.Redirect(w, r, consolePath("/secrets"), http.StatusSeeOther)
+		return
+	}
 	p := vaultItemPage{shell: s.shellFor(r, v, "secrets", s.t("Secrets")+" · "+item.Title,
 		crumb{Label: s.t("Secrets"), Href: consolePath("/secrets")},
 		crumb{Label: col.Name, Href: consolePath("/secrets/" + col.ID)}),
@@ -237,7 +252,12 @@ func (s *Server) vaultFail(w http.ResponseWriter, r *http.Request, v *viewer, it
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
 func (s *Server) vaultUnsealForm(w http.ResponseWriter, r *http.Request, v *viewer) {
-	if err := s.Vault.Unseal(r.PostForm.Get("passphrase")); err != nil {
+	pass := r.PostForm.Get("passphrase")
+	err := s.Vault.Unseal(pass)
+	if errors.Is(err, secrets.ErrNotInitialised) {
+		err = s.Vault.InitPassphrase(pass)
+	}
+	if err != nil {
 		s.vaultFail(w, r, v, "", err)
 		return
 	}

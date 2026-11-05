@@ -49,9 +49,9 @@ var tagRe = regexp.MustCompile(`^[a-z0-9][a-z0-9 _\-]*(/[a-z0-9][a-z0-9 _\-]*)*$
 func (s *Service) Collections() []Collection {
 	var out []Collection
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketCollections, kv.Range{}, func(k, v []byte) bool {
 			var r signedCollection
-			if json.Unmarshal(v, &r) == nil && s.collectionVerifies(r) {
+			if json.Unmarshal(v, &r) == nil && string(k) == r.ID && s.collectionVerifies(r) {
 				out = append(out, r.Collection)
 			}
 			return true
@@ -67,9 +67,9 @@ func (s *Service) Collection(nameOrID string) (Collection, bool) {
 	var out Collection
 	found := false
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketCollections, kv.Range{}, func(k, v []byte) bool {
 			var r signedCollection
-			if json.Unmarshal(v, &r) != nil || !s.collectionVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || string(k) != r.ID || !s.collectionVerifies(r) {
 				return true
 			}
 			if r.Name == nameOrID || r.ID == nameOrID {
@@ -243,7 +243,7 @@ func (s *Service) tagByName(name string) (Tag, bool) {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		v := tx.Get(bucketTags, []byte(name))
 		var r signedTag
-		if v != nil && json.Unmarshal(v, &r) == nil && s.tagVerifies(r) {
+		if v != nil && json.Unmarshal(v, &r) == nil && r.Name == name && s.tagVerifies(r) {
 			out, ok = r.Tag, true
 		}
 		return nil
@@ -326,12 +326,19 @@ func (s *Service) EffectiveLevel(item Item) string {
 		return item.Level
 	}
 	col, ok := s.Collection(item.Collection)
-	level := LevelAuto
-	if ok {
-		level = col.Level
+	if !ok {
+		return LevelNever // a missing or unverifiable collection does not fall back to auto
+	}
+	level := col.Level
+	if level == "" {
+		level = LevelNever
 	}
 	for _, t := range item.Tags {
-		if tag, ok := s.tagByName(t); ok && tag.Level != "" {
+		tag, ok := s.tagByName(t)
+		if !ok {
+			return LevelNever // a tag that is gone or unknown is never, not skipped
+		}
+		if tag.Level != "" {
 			level = StrictestLevel(level, tag.Level)
 		}
 	}
@@ -462,8 +469,8 @@ func (s *Service) permOf(who Actor, collectionID string) (string, bool) {
 				continue
 			}
 			var p Permission
-			if json.Unmarshal(v, &p) != nil || !s.permVerifies(p) {
-				continue // a row that does not verify is not there
+			if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permVerifies(p) {
+				continue // a row that does not verify, or that was copied under another key, is not there
 			}
 			if !found || permRank[p.Perm] > permRank[best] {
 				best, found = p.Perm, true
@@ -492,7 +499,8 @@ func (s *Service) mayManageTx(tx kv.Tx, who Actor, collectionID string) bool {
 			continue
 		}
 		var p Permission
-		if json.Unmarshal(v, &p) == nil && verifyRow(sk, p.Sig, p.signedParts()...) && PermAtLeast(p.Perm, PermManage) {
+		if json.Unmarshal(v, &p) == nil && p.Collection == collectionID && p.Subject == subject &&
+			verifyRow(sk, p.Sig, p.signedParts()...) && PermAtLeast(p.Perm, PermManage) {
 			return true
 		}
 	}

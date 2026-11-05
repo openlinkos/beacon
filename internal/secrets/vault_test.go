@@ -30,7 +30,7 @@ const (
 )
 
 // fixtureValues are the strings the leak check greps the tests' output for.
-var fixtureValues = []string{fixturePassword, fixtureAPIKey, fixtureNotes, fixtureAttach, fixtureUsername}
+var fixtureValues = []string{fixturePassword, fixtureAPIKey, fixtureNotes, fixtureAttach, fixtureUsername, fixtureOTPSeed}
 
 var (
 	owner  = Actor{Name: "owner", Via: "test", Role: "owner"}
@@ -76,7 +76,18 @@ type safeLog struct{ t *testing.T }
 
 func (l *safeLog) Enabled(_ context.Context, level slog.Level) bool { return true }
 func (l *safeLog) Handle(_ context.Context, r slog.Record) error {
-	l.t.Logf("%s %s", r.Level, r.Message)
+	var b strings.Builder
+	b.WriteString(r.Level.String())
+	b.WriteByte(' ')
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		b.WriteByte(' ')
+		b.WriteString(a.Key)
+		b.WriteByte('=')
+		b.WriteString(a.Value.String())
+		return true
+	})
+	l.t.Log(b.String())
 	return nil
 }
 func (l *safeLog) WithAttrs([]slog.Attr) slog.Handler { return l }
@@ -196,7 +207,7 @@ func TestPassphraseModeSealsOnRestart(t *testing.T) {
 	}
 	// a fresh passphrase-mode vault takes the first passphrase it is given as its own (it holds
 	// nothing yet; the log said to set one before putting anything in)
-	if err := s1.Unseal("correct-horse-battery-staple-fixture"); err != nil {
+	if err := s1.InitPassphrase("correct-horse-battery-staple-fixture"); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s1, "Infra")
@@ -299,6 +310,12 @@ func TestPermissions(t *testing.T) {
 	editor := Actor{Name: "nurse", Via: "test", Role: "oncall"}
 	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Tags: []string{"env/prod"}}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("changing tags with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Actions: []string{"describe"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("changing actions with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Machines: []string{"edge-1"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("changing machines with edit only is refused, got %v", err)
 	}
 	if _, err := s.SetItem(owner, ItemIn{ID: item.ID, Collection: col.Name, Tags: []string{"env/prod"}}); err != nil {
 		t.Fatal(err)
@@ -549,7 +566,10 @@ func TestItemLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _, err := s.Attachment(item.ID, item.Version, "note.txt")
+	if _, _, err := s.Reveal(owner, item.ID, nil, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	data, _, err := s.Attachment(owner, item.ID, item.Version, "note.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +934,7 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 
 func TestSealedVaultRefusesKeyWork(t *testing.T) {
 	s, _ := newVault(t, SealPassphrase, Deps{Lang: i18n.EN})
-	if err := s.Unseal("fixture-passphrase-hush-puppy"); err != nil {
+	if err := s.InitPassphrase("fixture-passphrase-hush-puppy"); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s, "Infra")
@@ -1059,5 +1079,114 @@ func TestFileModeFirstAndSecondStart(t *testing.T) {
 	}
 	if _, _, ok := s2.Item(item.ID); !ok {
 		t.Fatal("with the right key back, the item is there")
+	}
+}
+
+func TestCopiedPermissionRowDoesNotGrant(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	sandbox := newCollection(t, s, "Sandbox")
+	prod := newCollection(t, s, "Prod")
+	if err := s.SetPermission(owner, sandbox.Name, "user:bob", PermManage, "bob manages sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	bob := Actor{Name: "bob", Via: "test", Role: "viewer"}
+	if !s.May(bob, sandbox.ID, PermManage) {
+		t.Fatal("the grant works on sandbox")
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		row := tx.Get(bucketPerms, permRowKey(sandbox.ID, "user:bob"))
+		return tx.Put(bucketPerms, permRowKey(prod.ID, "role:viewer"), row)
+	})
+	if s.May(viewer, prod.ID, PermManage) {
+		t.Fatal("a copied permission row must not grant manage on another collection")
+	}
+	if s.May(viewer, prod.ID, PermDescribe) {
+		t.Fatal("a copied permission row must not grant anything on another collection")
+	}
+}
+
+func TestCopiedVersionDoesNotReveal(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	a := putItem(t, s, col.Name, "", "password", fixturePassword)
+	b := putItem(t, s, col.Name, "", "password", fixtureAPIKey)
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		va, _ := getVersionTx(tx, a.ID, 1)
+		raw, _ := json.Marshal(va)
+		return tx.Put(bucketVersions, versionRowKey(b.ID, 1), raw)
+	})
+	if _, _, err := s.Reveal(owner, b.ID, nil, "pw"); err == nil {
+		t.Fatal("a version copied onto another item must not open")
+	}
+}
+
+func TestFieldTypeSwapDoesNotRevealSeed(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "OTP",
+		Fields: []FieldIn{{Name: "otp", Type: FieldOTP, Value: fixtureOTPSeed}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		ver, _ := getVersionTx(tx, item.ID, 1)
+		for i := range ver.Fields {
+			ver.Fields[i].Type = FieldConcealed
+		}
+		b, _ := json.Marshal(ver)
+		return tx.Put(bucketVersions, versionRowKey(item.ID, 1), b)
+	})
+	values, _, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["otp"] == fixtureOTPSeed {
+		t.Fatal("swapping the field type in the clear must not give the seed")
+	}
+}
+
+func TestUnknownCollectionAndTagAreNever(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	item.Collection = "gone"
+	item.Level = ""
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("a missing collection is never, got %s", got)
+	}
+	item.Collection = col.ID
+	item.Tags = []string{"no/such"}
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("an unknown tag is never, got %s", got)
+	}
+}
+
+func TestUnsealDoesNotTakeTheFirstPassphrase(t *testing.T) {
+	s, _ := newVault(t, SealPassphrase, Deps{Lang: i18n.EN})
+	if err := s.Unseal("first-passphrase-here"); !errors.Is(err, ErrNotInitialised) {
+		t.Fatalf("Unseal before init: %v", err)
+	}
+	if !s.Sealed() {
+		t.Fatal("a refused Unseal must leave the vault sealed")
+	}
+	if err := s.InitPassphrase("first-passphrase-here"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Unseal("other-passphrase-here"); !errors.Is(err, ErrWrongPassphrase) {
+		t.Fatalf("a later passphrase is not taken as a new init: %v", err)
+	}
+}
+
+func TestCopiedTagRowDoesNotApply(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		row := tx.Get(bucketTags, []byte("env/prod"))
+		return tx.Put(bucketTags, []byte("env/dev"), row)
+	})
+	if _, ok := s.tagByName("env/dev"); ok {
+		t.Fatal("a tag copied under another name must not apply")
 	}
 }

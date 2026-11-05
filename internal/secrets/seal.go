@@ -300,8 +300,8 @@ func (s *Service) takeRootKey(rk []byte, mode string) error {
 }
 
 // Unseal takes the passphrase, derives the root key from it with the file halves and unseals the
-// vault when it opens the key check. The first passphrase a fresh passphrase-mode vault is given
-// becomes its passphrase (the key check is made for it).
+// vault when it opens the key check. A vault that has never been given a passphrase is refused
+// (InitPassphrase is that first step).
 func (s *Service) Unseal(passphrase string) error {
 	if s.cfg.Mode != SealPassphrase {
 		return errors.New("only the passphrase mode is unsealed with a passphrase")
@@ -315,23 +315,50 @@ func (s *Service) Unseal(passphrase string) error {
 		return err
 	}
 	rk := rootKeyFromPassphrase(argonPassphrase(passphrase, salt), fileKey)
-	if ct, ok := s.metaGet(metaKeyCheck); ok {
-		if _, err := unwrap(rk, ct, keyCheckAAD()); err != nil {
-			return ErrWrongPassphrase
-		}
-	} else {
-		// never unsealed before: this passphrase becomes the one
-		check, err := wrap(rk, []byte(adKeyCheckV1), keyCheckAAD())
-		if err != nil {
-			return err
-		}
-		if err := s.metaPut(metaKeyCheck, check); err != nil {
-			return err
-		}
+	ct, ok := s.metaGet(metaKeyCheck)
+	if !ok {
+		return ErrNotInitialised
+	}
+	if _, err := unwrap(rk, ct, keyCheckAAD()); err != nil {
+		return ErrWrongPassphrase
 	}
 	s.keys.set(rk)
 	s.keyChanged()
 	s.auditKey("unseal", "the vault was unsealed with the passphrase")
+	return nil
+}
+
+// ErrNotInitialised is Unseal before InitPassphrase has set the first passphrase.
+var ErrNotInitialised = errors.New("this vault has no passphrase yet; initialise it first")
+
+// InitPassphrase is the first passphrase a fresh passphrase-mode vault is given. Later Unseal
+// calls only open with that passphrase; they never take a new one.
+func (s *Service) InitPassphrase(passphrase string) error {
+	if s.cfg.Mode != SealPassphrase {
+		return errors.New("only the passphrase mode is initialised with a passphrase")
+	}
+	if _, ok := s.metaGet(metaKeyCheck); ok {
+		return errors.New("this vault already has a passphrase")
+	}
+	fileKey, err := os.ReadFile(filepath.Join(s.cfg.Dir, filePassKey))
+	if err != nil {
+		return err
+	}
+	salt, err := os.ReadFile(filepath.Join(s.cfg.Dir, filePassSalt))
+	if err != nil {
+		return err
+	}
+	rk := rootKeyFromPassphrase(argonPassphrase(passphrase, salt), fileKey)
+	check, err := wrap(rk, []byte(adKeyCheckV1), keyCheckAAD())
+	if err != nil {
+		return err
+	}
+	if err := s.metaPut(metaKeyCheck, check); err != nil {
+		return err
+	}
+	s.keys.set(rk)
+	s.keyChanged()
+	s.auditKey("init", "the vault's passphrase was set")
 	return nil
 }
 
@@ -408,12 +435,14 @@ func (s *Service) RotateRootKey(newPassphrase string) error {
 		}
 	}
 	newSK := policyKey(newRK)
-	if err := s.rewrapAll(newRK, oldRK, oldSK, newSK); err != nil {
-		return err
-	}
+	// wrap and stage the new root key before the database commit, so a crash after rewrap
+	// still has a file that can open the new wraps
+	var staged, dest string
 	switch s.cfg.Mode {
 	case SealFile:
-		if err := writeKeyFile(filepath.Join(s.cfg.Dir, fileRootKey), newRK); err != nil {
+		dest = filepath.Join(s.cfg.Dir, fileRootKey)
+		staged = dest + ".new"
+		if err := writeKeyFile(staged, newRK); err != nil {
 			return err
 		}
 	case SealPassphrase:
@@ -427,7 +456,20 @@ func (s *Service) RotateRootKey(newPassphrase string) error {
 		if err != nil {
 			return fmt.Errorf("the KMS could not wrap the rotated root key: %w", err)
 		}
-		if err := writeKeyFile(filepath.Join(s.cfg.Dir, fileRKWrapped), w); err != nil {
+		dest = filepath.Join(s.cfg.Dir, fileRKWrapped)
+		staged = dest + ".new"
+		if err := writeKeyFile(staged, w); err != nil {
+			return err
+		}
+	}
+	if err := s.rewrapAll(newRK, oldRK, oldSK, newSK); err != nil {
+		if staged != "" {
+			_ = os.Remove(staged)
+		}
+		return err
+	}
+	if staged != "" {
+		if err := replaceFile(staged, dest); err != nil {
 			return err
 		}
 	}
@@ -718,4 +760,15 @@ func writeKeyFile(path string, b []byte) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0o600)
+}
+
+// replaceFile moves tmp onto dest, replacing dest when the operating system allows it.
+func replaceFile(tmp, dest string) error {
+	if err := os.Rename(tmp, dest); err == nil {
+		return nil
+	}
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(tmp, dest)
 }

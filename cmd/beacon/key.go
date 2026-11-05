@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const keyUsage = "key status | key unseal [--passphrase-file FILE | --passphrase-from-stdin] | key seal | key rotate [--passphrase-file FILE | --passphrase-from-stdin] | key rotate COLLECTION"
+const keyUsage = "key status | key init [--passphrase-file FILE | --passphrase-from-stdin] | key unseal [--passphrase-file FILE | --passphrase-from-stdin] | key seal | key rotate [--passphrase-file FILE | --passphrase-from-stdin] | key rotate COLLECTION"
 
 // keyCmd tends the vault's root key through the running service's socket: its state, unsealing the
 // passphrase mode, sealing again, rotating the root key (every collection key wrapped again) or one
@@ -30,7 +30,7 @@ func keyCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx := context.Background()
 	passphrase := ""
-	needPass := args[0] == "unseal" || args[0] == "rotate" && len(pos) == 0
+	needPass := args[0] == "init" || args[0] == "unseal" || args[0] == "rotate" && len(pos) == 0
 	if needPass {
 		p, err := readSecretInput(os.Stdin, stderr, *passFile, *fromStdin)
 		if err != nil {
@@ -58,6 +58,14 @@ func keyCmd(args []string, stdout, stderr io.Writer) int {
 		for _, b := range st.Bad {
 			fmt.Fprintf(stdout, "warning: a row failed its signature and is treated as absent: %s\n", b)
 		}
+		return 0
+	case "init":
+		st, err := c.VaultInit(ctx, passphrase)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "unsealed: %t\n", !st.Sealed)
 		return 0
 	case "unseal":
 		st, err := c.VaultUnseal(ctx, passphrase)
