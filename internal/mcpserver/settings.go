@@ -21,8 +21,8 @@ and storage leases — each with a registered default, changed values kept as ve
 changed them and why, revertible. get_config with kind "settings" and a key shows one resolved for
 a collection, tag, entitlement or request: the more specific level wins, tags take the stricter
 value, and a request is clamped to the bound the level above gives. Changing one needs the
-secrets:admin scope and a reason; rows that fail their signature are served as the last signed
-value (never a looser default) and reported, so a change made straight in the database never
+secrets:admin scope and a reason; rows that fail their signature are served as their failsafe
+values (never a looser default) and reported, so a change made straight in the database never
 widens a limit.`
 
 // settingsKind is the configuration kind that addresses the settings.

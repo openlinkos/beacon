@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-3fce4198
+sourceHash: sha256-35692041
 ---
 
 # 命令行
@@ -47,7 +47,7 @@ docker exec beacon beacon token list
 
 ### beacon settings
 
-`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。
+`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。签名头缺失或验不过时用 `rebuild-head` 恢复；Beacon 不会在之后的写入里自行重建。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -56,6 +56,7 @@ docker exec beacon beacon token list
 | `reset` KEY | `-scope`、`-target`、`-reason` | 去掉这层覆盖，由上一级（或默认值）重新生效 |
 | `history` | `-limit` | 修改历史：版本、时间、谁、途径、动作、设置项、备注 |
 | `revert` VERSION | `-note` | 回到 `history` 里的一个版本 |
+| `rebuild-head` | | 用仍然验得过的行重建签名头（经管理套接字的属主恢复；记审计） |
 
 ### beacon setup, user, agent
 

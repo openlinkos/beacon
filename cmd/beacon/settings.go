@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -14,7 +17,7 @@ import (
 	"github.com/openlinkos/beacon/internal/settings"
 )
 
-const settingsUsage = "settings [get [KEY]] | settings set KEY VALUE [-scope system] [-target NAME] [-reason TEXT] | settings reset KEY [-scope system] [-target NAME] [-reason TEXT] | settings history [-limit 20] | settings revert VERSION [-note TEXT]"
+const settingsUsage = "settings [get [KEY]] | settings set KEY VALUE [-scope system] [-target NAME] [-reason TEXT] | settings reset KEY [-scope system] [-target NAME] [-reason TEXT] | settings history [-limit 20] | settings revert VERSION [-note TEXT] | settings rebuild-head"
 
 // settingsCmd reads and changes the settings the secrets work runs by, through the running
 // service's socket, as `beacon settings …`. Values are JSON, as they are stored: 50, "30d",
@@ -66,7 +69,7 @@ func settingsCmd(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "override\t%s\t%s\t%s\t%s\n", o.Scope, o.Target, o.Key, compactJSON(o.Value))
 			}
 			for _, b := range out.BadRows {
-				fmt.Fprintf(stdout, "warning: a row failed its signature and is served as the last signed value: %s\n", b)
+				fmt.Fprintf(stdout, "warning: a row failed its signature and is served as its failsafe value: %s\n", b)
 			}
 			return 0
 		}
@@ -158,9 +161,49 @@ func settingsCmd(args []string, stdout, stderr io.Writer) int {
 		}
 		printSettingChange(stdout, ch)
 		return 0
+	case "rebuild-head":
+		if len(pos) != 0 {
+			fmt.Fprintln(stderr, settingsUsage)
+			return 2
+		}
+		c, ok := dial(stderr)
+		if !ok {
+			return 1
+		}
+		if err := c.RebuildSettingsHead(ctx); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "rebuilt the settings head from the rows that still verify")
+		return 0
 	}
 	fmt.Fprintln(stderr, settingsUsage)
 	return 2
+}
+
+func loadSettingsKey(dir string) ([]byte, error) {
+	path := filepath.Join(dir, "settings.sk")
+	b, err := os.ReadFile(path) //nolint:gosec // our own settings.sk in the data directory
+	if err == nil {
+		if len(b) != 32 {
+			return nil, fmt.Errorf("settings.sk must be 32 bytes")
+		}
+		return b, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	b = make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // resDefault is a key's registered default, for the line under a setting's value.

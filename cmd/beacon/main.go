@@ -73,7 +73,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   beacon serve [-config path]                 run the service
   beacon check-config [-config path]          validate the configuration, its files and the database
-  beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION
+  beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION | rebuild-head
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
@@ -269,7 +269,12 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	sset, err := settings.Open(settings.Deps{Store: st, Bot: bot, Lang: language(cfg), Log: log})
+	sk, err := loadSettingsKey(cfg.DataDir)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	sset, err := settings.Open(settings.Deps{Store: st, Bot: bot, Lang: language(cfg), Log: log, Key: sk, EpochsDir: cfg.DataDir})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
