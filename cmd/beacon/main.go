@@ -76,8 +76,10 @@ func usage(w io.Writer) {
   beacon check-config [-config path]          validate the configuration, its files and the database
   beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
-  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags
+  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags|import
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
+  beacon secret import SOURCE -file PATH [-dry-run]
+                                              bring an export in (1pux, 1password-csv, op, chrome, bitwarden, csv)
   beacon key status|unseal|seal|rotate        the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
