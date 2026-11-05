@@ -99,9 +99,15 @@ type Deps struct {
 	// AlertState tells whether the alert group a grant is bound to is firing, and when it
 	// resolved; nil: no grant is bound to an alert's grace.
 	AlertState func(group string) (firing bool, resolvedAt time.Time, ok bool)
+	// AlertInfo tells whether an alert group is firing and the labels it carries — the rules
+	// layer's service condition and the review context read them; nil: the condition cannot hold.
+	AlertInfo func(group string) (firing bool, labels map[string]string, ok bool)
 	// ReviewAgent tells whether the named agent may decide requests as a review agent
 	// (the secrets:review scope); nil: nobody does.
 	ReviewAgent func(agent string) bool
+	// ReviewAgents lists the agents that hold the review scope, so the chain can wake them and
+	// know whether its agents layer has a decider at all; nil: none.
+	ReviewAgents func() []string
 }
 
 // Service is the vault: the collections with their keys, the items with their versions, the tags
@@ -125,16 +131,22 @@ type Service struct {
 
 	badMu sync.Mutex
 	bad   []string // rows that failed their signature, for the console and the log
+
+	hoursMu    sync.Mutex
+	useHours   map[string]map[int]bool // by agent: the hours it used secrets in, this week
+	useHoursAt map[string]time.Time    // by agent: when those hours were read
 }
 
 // GrantsDeps is the grants' own dependencies, set after the vault opens (SetGrantsDeps): the
-// events' delivery, the approval cards, the alert state a bound grant outlives, and the
-// review-agent check. A nil field leaves what was set before.
+// events' delivery, the approval cards, the alert state a bound grant outlives, the alert info the
+// rules layer reads, and the review-agent checks. A nil field leaves what was set before.
 type GrantsDeps struct {
-	Hooks       HookSender
-	Cards       CardSender
-	AlertState  func(group string) (firing bool, resolvedAt time.Time, ok bool)
-	ReviewAgent func(agent string) bool
+	Hooks        HookSender
+	Cards        CardSender
+	AlertState   func(group string) (firing bool, resolvedAt time.Time, ok bool)
+	AlertInfo    func(group string) (firing bool, labels map[string]string, ok bool)
+	ReviewAgent  func(agent string) bool
+	ReviewAgents func() []string
 }
 
 // SetGrantsDeps fills the grants' dependencies; only the fields that are set move.
@@ -148,8 +160,14 @@ func (s *Service) SetGrantsDeps(d GrantsDeps) {
 	if d.AlertState != nil {
 		s.d.AlertState = d.AlertState
 	}
+	if d.AlertInfo != nil {
+		s.d.AlertInfo = d.AlertInfo
+	}
 	if d.ReviewAgent != nil {
 		s.d.ReviewAgent = d.ReviewAgent
+	}
+	if d.ReviewAgents != nil {
+		s.d.ReviewAgents = d.ReviewAgents
 	}
 }
 

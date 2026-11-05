@@ -323,6 +323,7 @@ func init() {
 	register("review.approvals_required", "review", "approvals a request needs (a number, or one for each level)", approvalsKind, `1`)
 	register("review.separation", "review", "who may not review: the requester, or anyone of the requester's owner", enum("owner", "requester"), `"requester"`)
 	register("review.notify_decisions", "review", "where a review agent's decisions are pushed", stringsKind(nil, stringsNone), `["feishu"]`)
+	register("review.rules", "review", "the rules layer's conditions: what a request must look like to be approved or denied outright, deny first", rulesKind, `[]`)
 
 	// ---- Use, rate limits and anomalies
 	register("rate.per_agent_per_minute", "use", "the uses an agent may make each minute", intKind(false), `600`)

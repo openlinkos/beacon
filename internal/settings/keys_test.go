@@ -44,6 +44,7 @@ func TestDefaultsMatchThePlan(t *testing.T) {
 		"review.approvals_required": `1`,                           // 1 (settable per level)
 		"review.separation":         `"requester"`,                 // requester
 		"review.notify_decisions":   `["feishu"]`,                  // Feishu
+		"review.rules":              `[]`,                          // none (the plan's 6.2: the rules are configurable; none are on out of the box)
 
 		// ---- Use, rate limits and anomalies (the plan's use table)
 		"rate.per_agent_per_minute": `600`,        // 600
@@ -170,6 +171,10 @@ func TestValuesAreChecked(t *testing.T) {
 		{"use.reason", `{"mode": "sometimes"}`},
 		{"review.approvals_required", `0`},
 		{"review.approvals_required", `{"auto": 2, "guest": 1}`},
+		{"review.rules", `[{"name": "r", "decide": "maybe"}]`},
+		{"review.rules", `[{"name": "oncall-ok", "decide": "approve", "window": {"from": "9:00", "to": "17:30"}}]`},
+		{"review.rules", `[{"name": "oncall-ok", "decide": "approve", "reason_pattern": "("}]`},
+		{"review.rules", `[{"name": "oncall-ok", "decide": "deny", "agent_tags": ["OnCall"]}]`},
 		{"retention.item_versions", `{"keep": "365d"}`},
 		{"audit.export", `"email"`},
 		{"import.levels.by_source", `{"chrome": "sometimes"}`},

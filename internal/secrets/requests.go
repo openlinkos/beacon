@@ -60,7 +60,12 @@ type ReqItem struct {
 }
 
 // Request is one ask, with its items, its reason and its decisions. Level empty means the request
-// was queued while the vault was sealed and has not been resolved against the policy yet.
+// was queued while the vault was sealed and has not been resolved against the policy yet. The
+// chain fields carry the review chain the ask walks: the layers (snapshotted when the ask was
+// made, so a change of the setting moves the asks that come later, not the one in flight), the
+// layer it stands at, the approvals that counted, how many it needs, and when the layer it stands
+// at runs out of time. Rows from before the chain arrived carry none of these, and are decided
+// the old way: one decision of a person or a review agent closes them.
 type Request struct {
 	ID          string     `json:"id"`
 	Agent       string     `json:"agent"`
@@ -81,6 +86,11 @@ type Request struct {
 	GrantID     string     `json:"grant_id,omitempty"`
 	Created     time.Time  `json:"created"`
 	ExpiresAt   time.Time  `json:"expires_at,omitzero"` // the pending TTL
+	Chain       []string   `json:"chain,omitempty"`     // the layers this ask walks
+	Step        int        `json:"step,omitempty"`      // where in the chain it stands
+	Approvals   int        `json:"approvals,omitempty"` // approvals that counted
+	Needed      int        `json:"needed,omitempty"`    // approvals it needs
+	Deadline    time.Time  `json:"deadline,omitzero"`   // when the layer it stands at runs out
 }
 
 // RequestIn is what request_secret takes: items by reference or by tags, the fields, the action,
@@ -290,7 +300,6 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 					Target: req.Items[0].Title,
 					Detail: fmt.Sprintf("%s asked for %d item(s) at %s: %s", agent.Name, len(req.Items), level, in.Reason)})
 				s.countRequest("pending", "agent")
-				s.pushApprovalCard(req)
 			}
 		}
 	}()
@@ -298,9 +307,17 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 		return out, writeErr
 	}
 	if pendingID != "" {
-		out.Pending = &pendingReq
-		if in.Wait > 0 {
-			out.Pending = s.waitRequest(pendingID, in.Wait)
+		// the review chain takes the waiting part from here: the rules layer runs at once, so an
+		// ask the rules settle comes back granted in this very answer, and the rest stands at the
+		// layer that decides it (the review agent's hook, or the card)
+		final, granted := s.enterRequest(pendingReq)
+		if final.Status == ReqGranted && granted != nil {
+			out.Granted = append(out.Granted, *granted)
+		} else {
+			out.Pending = &final
+			if in.Wait > 0 {
+				out.Pending = s.waitRequest(pendingID, in.Wait)
+			}
 		}
 	}
 	// the auto part's grants are in place; the hooks go out
@@ -468,12 +485,22 @@ type DecideActor struct {
 	Role string // a person's role
 }
 
-// Decide closes a waiting request. Who may: a person of the operator or owner role, a person the
-// entitlement's reviewers name, or a review agent (the next package's chain, wired through the
-// same door). The requester itself never decides its own request — the design's second invariant
-// — and with review.separation at owner, neither does the requester's owner. Every decision
-// carries its reason. Approving may set the uses and duration, inside the ceilings the settings
-// give; uses 1 is the card's "approve once".
+// Decide closes or moves a waiting request. Who may, at which layer of the ask's chain:
+//
+//   - a review agent (the secrets:review scope), at the chain's agents layer — the levels
+//     review.agent.may_approve names, within the uses and duration ceilings of its own. person-level
+//     asks are people's by definition, so no agent approves them;
+//   - a person of the operator or owner role, or a reviewer the entitlement names, at the people
+//     layer — the card's and the console's decisions;
+//   - the system, when a layer ran out of time and its setting says what to do then.
+//
+// The requester itself never decides its own request — the design's second invariant — and with
+// review.separation at owner, neither does the requester's owner, nor a review agent of that
+// owner. Every decision carries its reason. A denial ends the ask whoever it came from. An
+// approval counts toward the ask's threshold (review.approvals_required): the last one needed
+// makes the grants, the rest move the ask to the next layer. Approving may set the uses and
+// duration, inside the ceilings the settings give; uses 1 is the card's "approve once". Requests
+// from before the chain arrived (no layers on the row) close on one decision, the old way.
 func (s *Service) Decide(who DecideActor, requestID string, approve bool, note string, uses, duration *int64) (Request, Grant, error) {
 	if s.keys.sealed() {
 		return Request{}, Grant{}, ErrSealed
@@ -493,14 +520,26 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 	if strings.TrimSpace(note) == "" {
 		return Request{}, Grant{}, fmt.Errorf("%w: a decision says why", ErrBadInput)
 	}
-	// the invariant: the requester cannot review its own request
-	if who.Kind == "agent" && who.Name == r.Agent {
-		return Request{}, Grant{}, ErrSelfApproval
-	}
+	layer := r.layer()
 	switch who.Kind {
 	case "agent":
+		// the invariant: the requester cannot review its own request
+		if who.Name == r.Agent {
+			return Request{}, Grant{}, ErrSelfApproval
+		}
 		if s.d.ReviewAgent == nil || !s.d.ReviewAgent(who.Name) {
 			return Request{}, Grant{}, fmt.Errorf("%w: only a review agent decides for agents", ErrForbidden)
+		}
+		if s.separationOwner() {
+			if a, ok := s.agentInfoOf(who.Name); ok && a.Owner == r.Owner {
+				return Request{}, Grant{}, ErrSelfApproval
+			}
+		}
+		if layer != "" && layer != LayerAgents {
+			return Request{}, Grant{}, fmt.Errorf("%w: the chain is at its %s layer, not the review agent's", ErrConflict, layer)
+		}
+		if approve && !s.agentMayApprove(r.Level) {
+			return Request{}, Grant{}, fmt.Errorf("%w: the %s level is not one a review agent may approve", ErrForbidden, r.Level)
 		}
 	case "person":
 		if !s.personMayDecide(who, r) {
@@ -510,6 +549,9 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 		if s.separationOwner() && who.Name == r.Owner {
 			return Request{}, Grant{}, ErrSelfApproval
 		}
+		if layer != "" && layer != LayerPeople {
+			return Request{}, Grant{}, fmt.Errorf("%w: the chain is at its %s layer, not people's", ErrConflict, layer)
+		}
 	case "system":
 		// the timeout's consequences (the sweep), acting as the configuration says
 	default:
@@ -518,17 +560,14 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 	if !approve {
 		r.Status = ReqDenied
 		r.Decisions = append(r.Decisions, Decision{By: who.Name, Kind: who.Kind, Via: who.Via, At: s.now(), Note: note})
-		if err := s.putRequest(r); err != nil {
-			return r, Grant{}, err
+		s.closeDenied(r)
+		if who.Kind == "agent" {
+			s.notifyDecision("denied", who.Name, r)
 		}
-		s.countRequest("denied", who.Kind)
-		_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_request_deny", Target: r.ID,
-			Detail: fmt.Sprintf("denied %s's request for %d item(s): %s", r.Agent, len(r.Items), note)})
-		s.sendSecretHook(r.Agent, "secret.denied", hookPayload{Request: r.ID, Item: r.Items[0].Ref, Reason: note})
-		s.anomalyDenial(r.Agent)
 		return r, Grant{}, nil
 	}
-	// the uses and duration the decision gives, inside the ceilings
+	// the uses and duration the decision gives, inside the ceilings — and, for a review agent,
+	// inside its own as well
 	in := RequestIn{Uses: &r.Uses, Duration: &r.Duration}
 	if uses != nil {
 		in.Uses = uses
@@ -541,6 +580,34 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 	if err != nil {
 		return r, Grant{}, err
 	}
+	if who.Kind == "agent" {
+		maxUses, maxDuration := s.agentCeilings()
+		outUses, outDuration = clampAgentGrant(outUses, outDuration, maxUses, maxDuration)
+	}
+	// the threshold: one more approval may not be the one the ask waits for
+	if layer != "" && r.Approvals+1 < r.Needed {
+		r.Approvals++
+		r.Decisions = append(r.Decisions, Decision{By: who.Name, Kind: who.Kind, Via: who.Via, At: s.now(),
+			Approve: true, Note: note, Uses: outUses, Duration: outDuration})
+		s.nextLayer(&r)
+		_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_request_approve",
+			Target: r.ID,
+			Detail: fmt.Sprintf("approved %s's request for %d item(s) (%d of %d approvals): %s",
+				r.Agent, len(r.Items), r.Approvals, r.Needed, note)})
+		s.countRequest("pending", who.Kind)
+		if who.Kind == "agent" {
+			s.notifyDecision("approved", who.Name, r)
+		}
+		return r, Grant{}, nil
+	}
+	return s.grantRequest(who, r, note, outUses, outDuration)
+}
+
+// grantRequest makes the grants a settled request turns into and closes it granted: the policy is
+// re-run over each item (it may have tightened while the ask waited), the uses and duration are
+// what the settling decision gives, and the agent's hook hears of the grant. The caller holds the
+// write lock.
+func (s *Service) grantRequest(who DecideActor, r Request, note string, uses, duration int64) (Request, Grant, error) {
 	agent, ok := s.agentInfoOf(r.Agent)
 	if !ok {
 		return r, Grant{}, fmt.Errorf("%w: the requesting agent is gone", ErrNotFound)
@@ -557,7 +624,7 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 			return r, Grant{}, fmt.Errorf("%w: the policy tightened while the request waited; ask again", ErrConflict)
 		}
 		grant, err := s.createGrant(agent, item, col, grantSpec{
-			action: r.Action, fields: r.Fields, uses: outUses, duration: outDuration,
+			action: r.Action, fields: r.Fields, uses: uses, duration: duration,
 			alert: r.Alert, level: pol.Level, entitlement: r.Entitlement, reason: r.Reason,
 			approver: who.Name, approverKind: who.Kind, request: r.ID,
 		})
@@ -569,10 +636,10 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 		}
 	}
 	r.Status = ReqGranted
-	r.Uses, r.Duration = outUses, outDuration
+	r.Uses, r.Duration = uses, duration
 	r.GrantID = first.ID
 	r.Decisions = append(r.Decisions, Decision{By: who.Name, Kind: who.Kind, Via: who.Via, At: s.now(), Approve: true,
-		Note: note, Uses: outUses, Duration: outDuration})
+		Note: note, Uses: uses, Duration: duration})
 	if err := s.putRequest(r); err != nil {
 		return r, Grant{}, err
 	}
@@ -580,8 +647,29 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 	_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_request_approve", Target: r.ID,
 		Detail: fmt.Sprintf("approved %s's request for %d item(s): %s", r.Agent, len(r.Items), note)})
 	s.sendSecretHook(r.Agent, "secret.granted", hookPayload{Request: r.ID, Grant: first.ID,
-		Item: r.Items[0].Ref, Level: r.Level, Uses: outUses, Duration: outDuration, Reason: note})
+		Item: r.Items[0].Ref, Level: r.Level, Uses: uses, Duration: duration, Reason: note})
+	if who.Kind == "agent" {
+		s.notifyDecision("approved", who.Name, r)
+	}
 	return r, first, nil
+}
+
+// closeDenied writes a denied request away: the row, the counters, the audit entry, the agent's
+// hook and the denial-spike anomaly. The caller holds the write lock and has set the status and
+// appended the decision.
+func (s *Service) closeDenied(r Request) {
+	if err := s.putRequest(r); err != nil {
+		s.d.Log.Warn("a denied request could not be written", "request", r.ID, "err", err)
+	}
+	if len(r.Decisions) == 0 {
+		return
+	}
+	last := r.Decisions[len(r.Decisions)-1]
+	s.countRequest("denied", last.Kind)
+	_ = s.auditEntry(store.AuditEntry{Actor: last.By, Via: last.Via, Action: "secrets_request_deny", Target: r.ID,
+		Detail: fmt.Sprintf("denied %s's request for %d item(s): %s", r.Agent, len(r.Items), last.Note)})
+	s.sendSecretHook(r.Agent, "secret.denied", hookPayload{Request: r.ID, Item: r.Items[0].Ref, Reason: last.Note})
+	s.anomalyDenial(r.Agent)
 }
 
 // personMayDecide says whether the person may decide this request: an operator or an owner, or a
