@@ -46,7 +46,7 @@ components:
             session.not_found,
             config.not_found, config.invalid, config.conflict,
             settings.not_found, settings.unknown, settings.invalid, settings.conflict,
-            secrets.sealed, secrets.wrong_passphrase, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
+            secrets.sealed, secrets.wrong_passphrase, secrets.not_initialised, secrets.reauth, secrets.agent, secrets.person, secrets.permission,
             secrets.not_found, secrets.exists, secrets.conflict, secrets.attachment_too_large, secrets.invalid, secrets.bad_input, secrets.crypto,
             status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
@@ -1890,10 +1890,25 @@ paths:
                   mode: {type: string, enum: [file, passphrase, aws-kms, gcp-kms, transit]}
                   rows_failed_signature: {type: array, items: {type: string}}
         default: {$ref: "#/components/responses/Error"}
+  /vault/init:
+    post:
+      summary: Set the first passphrase of a passphrase-mode vault
+      description: "Scope: secrets:admin. The passphrase mode only, and only when the vault has never been given a passphrase. Later unseals open with that passphrase; they never take a new one."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passphrase: {type: string}
+      responses:
+        "200":
+          description: Initialised and unsealed
+        default: {$ref: "#/components/responses/Error"}
   /vault/unseal:
     post:
       summary: Unseal the vault with the passphrase
-      description: "The passphrase mode only. The passphrase and the file key in the secrets directory derive the root key (argon2id then HKDF, two halves, so the disk alone is not enough); the key check tells a right passphrase from a wrong one (secrets.wrong_passphrase). With it the signature key returns, and the settings' rows are re-signed onto it. The caller must be a person; an agent gets secrets.agent."
+      description: "Scope: secrets:admin. The passphrase mode only. The passphrase and the file key in the secrets directory derive the root key (argon2id then HKDF, two halves, so the disk alone is not enough); the key check tells a right passphrase from a wrong one (secrets.wrong_passphrase). A vault that has never been initialised answers secrets.not_initialised. Wrong passphrases count toward the address lockout."
       requestBody:
         content:
           application/json:

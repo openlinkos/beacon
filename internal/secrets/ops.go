@@ -30,9 +30,9 @@ func (s *Service) Item(ref string) (Item, Collection, bool) {
 	var out Item
 	found := false
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || string(k) != r.ID || !s.itemVerifies(r) {
 				return true
 			}
 			match := r.ID == ref || r.Title == ref
@@ -118,12 +118,28 @@ func (s *Service) Versions(item string) []ItemVersion {
 	return out
 }
 
-// Attachment reads one attachment of a version, decrypted under the key version the version's own
-// row names.
-func (s *Service) Attachment(item string, version int64, name string) ([]byte, int64, error) {
+// Attachment reads one attachment of a version. It takes the same path as Reveal: a person with
+// read, a re-entered password (or the window), and a record of the view before the bytes.
+func (s *Service) Attachment(who Actor, item string, version int64, name string) ([]byte, int64, error) {
+	if !who.Person() {
+		return nil, 0, ErrAgent
+	}
+	if s.keys.sealed() {
+		return nil, 0, ErrSealed
+	}
 	itemRow, col, ok := s.Item(item)
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: no item %q", ErrNotFound, item)
+	}
+	if !s.May(who, col.ID, PermRead) {
+		return nil, 0, fmt.Errorf("%w: you may not read values in this collection", ErrForbidden)
+	}
+	if !s.reauthed(who.Name) {
+		return nil, 0, ErrReauth
+	}
+	if err := s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_view",
+		Target: itemRow.Title, Detail: "viewed the attachment " + name + " of " + col.Name}); err != nil {
+		return nil, 0, fmt.Errorf("the view could not be recorded, so the attachment is not given: %w", err)
 	}
 	var out []byte
 	var size int64
@@ -348,7 +364,7 @@ func (s *Service) RollbackItem(who Actor, item string, version int64, reason str
 		if old.Version == row.Version {
 			return fmt.Errorf("%w: version %d is the current one", ErrBadInput, version)
 		}
-		d, err := s.decryptDetailsTx(tx, col, old)
+		d, err := s.decryptDetailsTx(tx, col, old, row.ID, version)
 		if err != nil {
 			return fmt.Errorf("the version could not be opened: %w", err)
 		}
@@ -532,13 +548,17 @@ func (s *Service) Reveal(who Actor, item string, fields []string, password strin
 		if !ok {
 			return fmt.Errorf("%w: the item's current version is missing", ErrNotFound)
 		}
-		d, err := s.decryptDetailsTx(tx, col, ver)
+		d, err := s.decryptDetailsTx(tx, col, ver, row.ID, row.Version)
 		if err != nil {
 			return err
 		}
 		out, list = map[string]string{}, nil
 		now := s.now()
-		for _, f := range ver.Fields {
+		useFields := d.Fields
+		if len(useFields) == 0 {
+			useFields = ver.Fields
+		}
+		for _, f := range useFields {
 			if len(fields) > 0 && !containsString(fields, fieldKey(f.Section, f.Name)) && !containsString(fields, f.Name) {
 				continue
 			}
