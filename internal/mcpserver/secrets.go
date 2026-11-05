@@ -76,10 +76,11 @@ func registerSecretsTools(s *mcp.Server, v *secrets.Service) {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_collections", Title: "Collections", Annotations: read,
 		Description: "The vault's collections, with their default approval level. People only; an agent is refused (grants come with a later package)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, collectionsOut, error) {
-			if _, err := vaultActor(ctx); err != nil {
+			who, err := vaultActor(ctx)
+			if err != nil {
 				return nil, collectionsOut{}, err
 			}
-			cols := v.Collections()
+			cols := v.CollectionsFor(who)
 			if cols == nil {
 				cols = []secrets.Collection{}
 			}

@@ -212,7 +212,7 @@ func (s *Service) GetSecret(agentName, via, ref, field, reason, alert, context, 
 func (s *Service) decryptDetailsOf(col Collection, ver ItemVersion) (*Details, error) {
 	var out *Details
 	err := s.d.Store.Storage().View(func(tx kv.Tx) error {
-		d, err := s.decryptDetailsTx(tx, col, ver)
+		d, err := s.decryptDetailsTx(tx, col, ver, ver.Item, ver.Version)
 		out = d
 		return err
 	})

@@ -30,7 +30,7 @@ const (
 )
 
 // fixtureValues are the strings the leak check greps the tests' output for.
-var fixtureValues = []string{fixturePassword, fixtureAPIKey, fixtureNotes, fixtureAttach, fixtureUsername}
+var fixtureValues = []string{fixturePassword, fixtureAPIKey, fixtureNotes, fixtureAttach, fixtureUsername, fixtureOTPSeed}
 
 var (
 	owner  = Actor{Name: "owner", Via: "test", Role: "owner"}
@@ -72,15 +72,35 @@ func testLog(t *testing.T) *slog.Logger {
 
 // safeLog is a slog handler that writes to the test log — so a value that leaks into a log line
 // shows up in the output the leak check greps.
-type safeLog struct{ t *testing.T }
+type safeLog struct {
+	t     *testing.T
+	attrs []slog.Attr
+}
 
 func (l *safeLog) Enabled(_ context.Context, level slog.Level) bool { return true }
 func (l *safeLog) Handle(_ context.Context, r slog.Record) error {
-	l.t.Logf("%s %s", r.Level, r.Message)
+	var b strings.Builder
+	b.WriteString(r.Level.String())
+	b.WriteByte(' ')
+	b.WriteString(r.Message)
+	write := func(a slog.Attr) bool {
+		b.WriteByte(' ')
+		b.WriteString(a.Key)
+		b.WriteByte('=')
+		b.WriteString(a.Value.String())
+		return true
+	}
+	for _, a := range l.attrs {
+		write(a)
+	}
+	r.Attrs(write)
+	l.t.Log(b.String())
 	return nil
 }
-func (l *safeLog) WithAttrs([]slog.Attr) slog.Handler { return l }
-func (l *safeLog) WithGroup(string) slog.Handler      { return l }
+func (l *safeLog) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &safeLog{t: l.t, attrs: append(append([]slog.Attr(nil), l.attrs...), attrs...)}
+}
+func (l *safeLog) WithGroup(string) slog.Handler { return l }
 
 // newCollection makes a collection and returns its name.
 func newCollection(t *testing.T, s *Service, name string) Collection {
@@ -196,7 +216,7 @@ func TestPassphraseModeSealsOnRestart(t *testing.T) {
 	}
 	// a fresh passphrase-mode vault takes the first passphrase it is given as its own (it holds
 	// nothing yet; the log said to set one before putting anything in)
-	if err := s1.Unseal("correct-horse-battery-staple-fixture"); err != nil {
+	if err := s1.InitPassphrase("correct-horse-battery-staple-fixture"); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s1, "Infra")
@@ -286,7 +306,7 @@ func TestPermissions(t *testing.T) {
 	}
 	// after the window, it is needed again
 	s.reauthMu.Lock()
-	s.reauth[reader.Name] = s.now().Add(-time.Hour)
+	s.reauth[reauthKey(reader)] = s.now().Add(-time.Hour)
 	s.reauthMu.Unlock()
 	if _, _, err := s.Reveal(reader, item.ID, nil, ""); !errors.Is(err, ErrReauth) {
 		t.Fatalf("after the window the password is needed again, got %v", err)
@@ -299,6 +319,23 @@ func TestPermissions(t *testing.T) {
 	editor := Actor{Name: "nurse", Via: "test", Role: "oncall"}
 	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Tags: []string{"env/prod"}}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("changing tags with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Actions: []string{"describe"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("changing actions with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Machines: []string{"edge-1"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("changing machines with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{ID: item.ID, Collection: col.Name, Hosts: []string{"example.com"}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("changing hosts with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{Collection: col.Name, Title: "Policy new", Level: LevelNever,
+		Fields: []FieldIn{{Name: "password", Value: "x"}}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("creating with a level with edit only is refused, got %v", err)
+	}
+	if _, err := s.SetItem(editor, ItemIn{Collection: col.Name, Title: "Tagged new", Tags: []string{"env/prod"},
+		Fields: []FieldIn{{Name: "password", Value: "x"}}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("creating with tags with edit only is refused, got %v", err)
 	}
 	if _, err := s.SetItem(owner, ItemIn{ID: item.ID, Collection: col.Name, Tags: []string{"env/prod"}}); err != nil {
 		t.Fatal(err)
@@ -549,7 +586,10 @@ func TestItemLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _, err := s.Attachment(item.ID, item.Version, "note.txt")
+	if _, _, err := s.Reveal(owner, item.ID, nil, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	data, _, err := s.Attachment(owner, item.ID, item.Version, "note.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +954,7 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 
 func TestSealedVaultRefusesKeyWork(t *testing.T) {
 	s, _ := newVault(t, SealPassphrase, Deps{Lang: i18n.EN})
-	if err := s.Unseal("fixture-passphrase-hush-puppy"); err != nil {
+	if err := s.InitPassphrase("fixture-passphrase-hush-puppy"); err != nil {
 		t.Fatal(err)
 	}
 	col := newCollection(t, s, "Infra")
@@ -1059,5 +1099,384 @@ func TestFileModeFirstAndSecondStart(t *testing.T) {
 	}
 	if _, _, ok := s2.Item(item.ID); !ok {
 		t.Fatal("with the right key back, the item is there")
+	}
+}
+
+func TestCopiedPermissionRowDoesNotGrant(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	sandbox := newCollection(t, s, "Sandbox")
+	prod := newCollection(t, s, "Prod")
+	if err := s.SetPermission(owner, sandbox.Name, "user:bob", PermManage, "bob manages sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	bob := Actor{Name: "bob", Via: "test", Role: "viewer"}
+	if !s.May(bob, sandbox.ID, PermManage) {
+		t.Fatal("the grant works on sandbox")
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		row := tx.Get(bucketPerms, permRowKey(sandbox.ID, "user:bob"))
+		return tx.Put(bucketPerms, permRowKey(prod.ID, "role:viewer"), row)
+	})
+	if s.May(viewer, prod.ID, PermManage) {
+		t.Fatal("a copied permission row must not grant manage on another collection")
+	}
+	if s.May(viewer, prod.ID, PermDescribe) {
+		t.Fatal("a copied permission row must not grant anything on another collection")
+	}
+}
+
+func TestCopiedVersionDoesNotReveal(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	a := putItem(t, s, col.Name, "", "password", fixturePassword)
+	b := putItem(t, s, col.Name, "", "password", fixtureAPIKey)
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		va, _ := getVersionTx(tx, a.ID, 1)
+		raw, _ := json.Marshal(va)
+		return tx.Put(bucketVersions, versionRowKey(b.ID, 1), raw)
+	})
+	if _, _, err := s.Reveal(owner, b.ID, nil, "pw"); err == nil {
+		t.Fatal("a version copied onto another item must not open")
+	}
+}
+
+func TestFieldTypeSwapDoesNotRevealSeed(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "OTP",
+		Fields: []FieldIn{{Name: "otp", Type: FieldOTP, Value: fixtureOTPSeed}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		ver, _ := getVersionTx(tx, item.ID, 1)
+		for i := range ver.Fields {
+			ver.Fields[i].Type = FieldConcealed
+		}
+		b, _ := json.Marshal(ver)
+		return tx.Put(bucketVersions, versionRowKey(item.ID, 1), b)
+	})
+	values, _, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["otp"] == fixtureOTPSeed {
+		t.Fatal("swapping the field type in the clear must not give the seed")
+	}
+}
+
+func TestUnknownCollectionAndTagAreNever(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	item.Collection = "gone"
+	item.Level = ""
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("a missing collection is never, got %s", got)
+	}
+	item.Collection = col.ID
+	item.Tags = []string{"no/such"}
+	if got := s.EffectiveLevel(item); got != col.Level {
+		t.Fatalf("a tag that was never a policy tag is a label, got %s", got)
+	}
+}
+
+func TestUnsealDoesNotTakeTheFirstPassphrase(t *testing.T) {
+	s, _ := newVault(t, SealPassphrase, Deps{Lang: i18n.EN})
+	if err := s.Unseal("first-passphrase-here"); !errors.Is(err, ErrNotInitialised) {
+		t.Fatalf("Unseal before init: %v", err)
+	}
+	if !s.Sealed() {
+		t.Fatal("a refused Unseal must leave the vault sealed")
+	}
+	if err := s.InitPassphrase("first-passphrase-here"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Unseal("other-passphrase-here"); !errors.Is(err, ErrWrongPassphrase) {
+		t.Fatalf("a later passphrase is not taken as a new init: %v", err)
+	}
+}
+
+func TestCopiedTagRowDoesNotApply(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		row := tx.Get(bucketTags, []byte("env/prod"))
+		return tx.Put(bucketTags, []byte("env/dev"), row)
+	})
+	if _, ok := s.tagByName("env/dev"); ok {
+		t.Fatal("a tag copied under another name must not apply")
+	}
+}
+
+type testBot struct{ texts []string }
+
+func (b *testBot) Send(_ context.Context, t string) error {
+	b.texts = append(b.texts, t)
+	return nil
+}
+
+func (b *testBot) heard(part string) bool {
+	for _, t := range b.texts {
+		if strings.Contains(t, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestReplayOldTagRowStaysStrict is the anti-replay of a looser tag: the head still names never,
+// so putting the earlier auto row back does not loosen the item.
+func TestReplayOldTagRowStaysStrict(t *testing.T) {
+	bot := &testBot{}
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
+	col := newCollection(t, s, "Infra")
+	if _, err := s.SetTag(owner, "env/prod", LevelAuto, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	var loose []byte
+	_ = st.Storage().View(func(tx kv.Tx) error {
+		loose = append([]byte(nil), tx.Get(bucketTags, []byte("env/prod"))...)
+		return nil
+	})
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Tagged", Tags: []string{"env/prod"},
+		Fields: []FieldIn{{Name: "password", Value: fixturePassword}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("after the stricter tag, got %s", got)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Put(bucketTags, []byte("env/prod"), loose)
+	})
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("replaying the looser tag row must stay never, got %s", got)
+	}
+	if !bot.heard("strictest") {
+		t.Error("the stale tag was reported")
+	}
+}
+
+// TestDeletedTagRowStaysStrict is deleting a stricter tag row from the file without DeleteTag:
+// the head still names it, so the item stays never.
+func TestDeletedTagRowStaysStrict(t *testing.T) {
+	bot := &testBot{}
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN, Bot: bot})
+	col := newCollection(t, s, "Infra")
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "Tagged", Tags: []string{"env/prod"},
+		Fields: []FieldIn{{Name: "password", Value: fixturePassword}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketTags, []byte("env/prod"))
+	})
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("a deleted stricter tag row must stay never, got %s", got)
+	}
+	if !bot.heard("strictest") {
+		t.Error("the missing tag was reported")
+	}
+	// DeleteTag records the drop in the head, so the name becomes a label
+	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteTag(owner, "env/prod"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.EffectiveLevel(item); got != col.Level {
+		t.Fatalf("after DeleteTag the name is a label, got %s", got)
+	}
+}
+
+func TestAttachmentNeedsReauthAndRecord(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "beacon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	var refuse bool
+	d := Deps{Store: st, Lang: i18n.EN, Log: testLog(t), CheckPassword: func(string, string) error { return nil }}
+	d.Audit = func(e store.AuditEntry) error {
+		if refuse && e.Action == "secrets_item_view" {
+			return errors.New("the audit log is not taking writes")
+		}
+		return st.Audit(e)
+	}
+	s, err := Open(context.Background(), SealConfig{Mode: SealFile, Dir: filepath.Join(dir, "secrets")}, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := newCollection(t, s, "Infra")
+	item, err := s.SetItem(owner, ItemIn{Collection: col.Name, Title: "File",
+		Fields:      []FieldIn{{Name: "password", Value: fixturePassword}},
+		Attachments: []AttachmentIn{{Name: "note.txt", Data: []byte("ok")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.reauthMu.Lock()
+	s.reauth = map[string]time.Time{}
+	s.reauthMu.Unlock()
+	if _, _, err := s.Attachment(owner, item.ID, 1, "note.txt"); !errors.Is(err, ErrReauth) {
+		t.Fatalf("download without reauth is refused, got %v", err)
+	}
+	if _, _, err := s.Reveal(owner, item.ID, nil, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	refuse = true
+	data, _, err := s.Attachment(owner, item.ID, 1, "note.txt")
+	if err == nil {
+		t.Fatal("a download whose record cannot be written must refuse the bytes")
+	}
+	if len(data) != 0 {
+		t.Fatal("no bytes are returned when the record cannot be written")
+	}
+}
+
+func TestRotateRootKeyWriteFailureKeepsTheVault(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	s.writeKeyFileFn = func(string, []byte) error { return errors.New("the disk is full") }
+	if err := s.RotateRootKey(""); err == nil {
+		t.Fatal("a write failure must refuse the rotation")
+	}
+	values, _, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil || values["password"] != fixturePassword {
+		t.Fatalf("the vault still opens with the original key: %v", err)
+	}
+}
+
+func TestRotateRootKeyCrashAfterCommitOpensWithStagedKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "beacon.db")
+	seal := SealConfig{Mode: SealFile, Dir: filepath.Join(dir, "secrets")}
+	open := func() (*Service, *store.Store) {
+		st, err := store.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := Open(context.Background(), seal, Deps{Store: st, Lang: i18n.EN, Log: testLog(t),
+			CheckPassword: func(string, string) error { return nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s, st
+	}
+	s, st := open()
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	s.replaceFileFn = func(string, string) error { return nil } // the rename never happens
+	if err := s.RotateRootKey(""); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	_ = st.Close()
+	s2, st2 := open()
+	defer func() { _ = st2.Close() }()
+	values, _, err := s2.Reveal(owner, item.ID, nil, "pw")
+	if err != nil || values["password"] != fixturePassword {
+		t.Fatalf("a crash between commit and replace must still open the vault: %v", err)
+	}
+}
+
+func TestRotateRootKeyKMSWrapFailureKeepsTheVault(t *testing.T) {
+	dir := t.TempDir()
+	cfg := SealConfig{Mode: SealTransit, Dir: filepath.Join(dir, "secrets")}
+	server, _ := fakeKeepers(t, &cfg, dir)
+	defer server.Close()
+	st := newTestStore(t, filepath.Join(dir, "beacon.db"))
+	s, err := Open(context.Background(), cfg, Deps{Store: st, Lang: i18n.EN, Log: testLog(t),
+		CheckPassword: func(string, string) error { return nil }, HTTP: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	s.keeperFn = func() (kmsClient, error) {
+		return failEncrypt{}, nil
+	}
+	if err := s.RotateRootKey(""); err == nil {
+		t.Fatal("a KMS wrap failure must refuse the rotation")
+	}
+	values, _, err := s.Reveal(owner, item.ID, nil, "pw")
+	if err != nil || values["password"] != fixturePassword {
+		t.Fatalf("the vault still opens with the original key: %v", err)
+	}
+}
+
+type failEncrypt struct{}
+
+func (failEncrypt) encrypt(context.Context, []byte) ([]byte, error) {
+	return nil, errors.New("the key keeper refused")
+}
+func (failEncrypt) decrypt(context.Context, []byte) ([]byte, error) {
+	return nil, errors.New("the key keeper refused")
+}
+
+func TestEditCannotSetPolicyOnCreate(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	if err := s.SetPermission(owner, col.Name, "user:nurse", PermEdit, "edits"); err != nil {
+		t.Fatal(err)
+	}
+	editor := Actor{Name: "nurse", Via: "test", Role: "oncall"}
+	if _, err := s.SetItem(editor, ItemIn{Collection: col.Name, Title: "Plain",
+		Fields: []FieldIn{{Name: "password", Value: "x"}}}); err != nil {
+		t.Fatalf("edit may create an item without policy fields: %v", err)
+	}
+}
+
+func TestNULInSignedFieldsIsRefused(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	if _, err := s.CreateCollection(owner, "Infra", "desc\x00oops", LevelReview, nil); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("a NUL in a signed field is refused, got %v", err)
+	}
+}
+
+func TestReauthWindowIsPerVia(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	console := Actor{Name: "owner", Via: "console", Role: "owner"}
+	api := Actor{Name: "owner", Via: "api", Role: "owner"}
+	if _, _, err := s.Reveal(console, item.ID, nil, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Reveal(api, item.ID, nil, ""); !errors.Is(err, ErrReauth) {
+		t.Fatalf("the API does not share the console's window, got %v", err)
+	}
+}
+
+func TestCollectionKeyRotationFailsClosed(t *testing.T) {
+	s, st := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	col := newCollection(t, s, "Infra")
+	item := putItem(t, s, col.Name, "", "password", fixturePassword)
+	_ = st.Storage().Update(func(tx kv.Tx) error {
+		ver, _ := getVersionTx(tx, item.ID, 1)
+		ver.CT = append([]byte{0}, ver.CT...)
+		b, _ := json.Marshal(ver)
+		return tx.Put(bucketVersions, versionRowKey(item.ID, 1), b)
+	})
+	if err := s.RotateCollectionKey(col.Name); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); s.rotatingNow(col.ID); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the rotation did not finish")
+		}
+	}
+	if after, _ := s.Collection(col.Name); after.KeyVersion != 1 {
+		t.Fatalf("a rotation that cannot open a version must roll back, key version %d", after.KeyVersion)
 	}
 }

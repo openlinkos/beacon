@@ -223,7 +223,7 @@ func (g *grantsVault) setSetting(t *testing.T, key string, value any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"}, settings.ScopeSystem, "", key, b, "test", 0); err != nil {
+	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"}, settings.ScopeSystem, "", key, b, "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -456,11 +456,11 @@ func TestEntitlementSelection(t *testing.T) {
 	// at equal floors the larger ceilings win: oncall-dns may grant 100 uses, wide may grant 10
 	g.setSetting(t, "request.max_uses", "unlimited")
 	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"},
-		settings.ScopeEntitlement, "oncall-dns", "request.max_uses", json.RawMessage("100"), "test", 0); err != nil {
+		settings.ScopeEntitlement, "oncall-dns", "request.max_uses", json.RawMessage("100"), "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"},
-		settings.ScopeEntitlement, "wide", "request.max_uses", json.RawMessage("10"), "test", 0); err != nil {
+		settings.ScopeEntitlement, "wide", "request.max_uses", json.RawMessage("10"), "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 	g.ent(t, Entitlement{Name: "wide", Principals: Principals{Agents: []string{"worker"}},

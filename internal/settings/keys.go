@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Definitions are every setting there is, with the value it starts with. They are the design's
@@ -53,12 +54,33 @@ func Get(key string) (*Definition, bool) {
 
 // canonical fits a value to the definition's kind and returns it as it is stored.
 func (d *Definition) canonical(v json.RawMessage) (json.RawMessage, error) {
-	if len(v) == 0 {
+	if len(v) == 0 || string(v) == "null" && d.Key != "audit.export" {
 		return nil, fmt.Errorf("%w: no value", ErrBadInput)
 	}
 	cv, err := d.kind.check(v)
 	if err != nil {
 		return nil, err
+	}
+	if d.Key == "retention.audit" {
+		if dur, err := ParseDuration(jsonString(cv)); err == nil && dur < 24*time.Hour {
+			return nil, fmt.Errorf("retention.audit is at least 24h")
+		}
+	}
+	if d.Key == "review.chain" {
+		if len(jsonStringList(cv)) == 0 {
+			return nil, fmt.Errorf("the review chain names at least one layer")
+		}
+	}
+	if d.Key == "scrub.encodings" {
+		if !slices.Contains(jsonStringList(cv), "plain") {
+			return nil, fmt.Errorf("scrub.encodings always includes plain")
+		}
+	}
+	if strings.HasPrefix(d.Key, "backup.retention.") {
+		n, err := asInt(cv)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("keep at least one backup")
+		}
 	}
 	return cv, nil
 }
@@ -117,8 +139,13 @@ var anomalyKind = kind{
 	name: "anomaly",
 	check: func(v json.RawMessage) (json.RawMessage, error) {
 		var in map[string]json.RawMessage
-		if err := json.Unmarshal(v, &in); err != nil || len(in) == 0 {
+		if err := json.Unmarshal(v, &in); err != nil {
 			return nil, fmt.Errorf("the rules: first_collection_use, usage_spike, denial_spike, signature_failure, sealed_state")
+		}
+		for _, name := range []string{"first_collection_use", "usage_spike", "denial_spike", "signature_failure", "sealed_state"} {
+			if _, ok := in[name]; !ok {
+				return nil, fmt.Errorf("the rules: first_collection_use, usage_spike, denial_spike, signature_failure, sealed_state")
+			}
 		}
 		bounds := map[string]bool{"first_collection_use": true, "usage_spike": true, "denial_spike": true,
 			"signature_failure": true, "sealed_state": true}

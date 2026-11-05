@@ -50,9 +50,9 @@ var tagRe = regexp.MustCompile(`^[a-z0-9][a-z0-9 _\-]*(/[a-z0-9][a-z0-9 _\-]*)*$
 func (s *Service) Collections() []Collection {
 	var out []Collection
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketCollections, kv.Range{}, func(k, v []byte) bool {
 			var r signedCollection
-			if json.Unmarshal(v, &r) == nil && s.collectionVerifies(r) {
+			if json.Unmarshal(v, &r) == nil && string(k) == r.ID && s.collectionLive(tx, r) {
 				out = append(out, r.Collection)
 			}
 			return true
@@ -63,14 +63,25 @@ func (s *Service) Collections() []Collection {
 	return out
 }
 
+// CollectionsFor lists the collections the actor may describe.
+func (s *Service) CollectionsFor(who Actor) []Collection {
+	var out []Collection
+	for _, col := range s.Collections() {
+		if s.May(who, col.ID, PermDescribe) {
+			out = append(out, col)
+		}
+	}
+	return out
+}
+
 // Collection finds a collection by its name or its ID.
 func (s *Service) Collection(nameOrID string) (Collection, bool) {
 	var out Collection
 	found := false
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketCollections, kv.Range{}, func(k, v []byte) bool {
 			var r signedCollection
-			if json.Unmarshal(v, &r) != nil || !s.collectionVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || string(k) != r.ID || !s.collectionLive(tx, r) {
 				return true
 			}
 			if r.Name == nameOrID || r.ID == nameOrID {
@@ -90,7 +101,20 @@ func (s *Service) collectionVerifies(r signedCollection) bool {
 	if err != nil {
 		return false // sealed: nothing is served, which is the safe side
 	}
-	return verifyRow(sk, r.Sig, r.signedParts()...)
+	return verifyPolicy(sk, r.Sig, r.signedParts()...)
+}
+
+// collectionLive is the signature check plus the signed head: a row the head does not name, or
+// whose contents no longer match it, is not served.
+func (s *Service) collectionLive(tx kv.Tx, r signedCollection) bool {
+	if !s.collectionVerifies(r) {
+		return false
+	}
+	ok, named := s.headMatch(tx, kindCollection, r.ID, r.signedParts(), r.Level)
+	if !named {
+		return false
+	}
+	return ok
 }
 
 // checkActions checks an action restriction (describe, read, use).
@@ -108,6 +132,9 @@ func checkActions(actions []string) error {
 func (s *Service) CreateCollection(who Actor, name, description, level string, actions []string) (Collection, error) {
 	if s.keys.sealed() {
 		return Collection{}, ErrSealed
+	}
+	if hasNUL(name, description, level) {
+		return Collection{}, fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
 	}
 	if !nameRe.MatchString(name) {
 		return Collection{}, fmt.Errorf("%w: a collection's name is up to 64 letters, digits, spaces, - _ and ., starting with a letter or digit", ErrBadInput)
@@ -137,7 +164,10 @@ func (s *Service) CreateCollection(who Actor, name, description, level string, a
 		if findCollectionByName(tx, name) != nil {
 			return fmt.Errorf("%w: a collection is called %q already", ErrExists, name)
 		}
-		return putCollectionTx(tx, col, sk)
+		if err := putCollectionTx(tx, col, sk); err != nil {
+			return err
+		}
+		return writePolicyHeadTx(tx, sk)
 	})
 	if err != nil {
 		return Collection{}, err
@@ -154,6 +184,9 @@ func (s *Service) CreateCollection(who Actor, name, description, level string, a
 func (s *Service) UpdateCollection(who Actor, nameOrID, description string, level string, actions []string) (Collection, error) {
 	if s.keys.sealed() {
 		return Collection{}, ErrSealed
+	}
+	if hasNUL(nameOrID, description, level) {
+		return Collection{}, fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
 	}
 	if level != "" && !ValidLevel(level) {
 		return Collection{}, fmt.Errorf("%w: a level is one of %s", ErrBadInput, joinStrings(Levels))
@@ -209,7 +242,10 @@ func (s *Service) UpdateCollection(who Actor, nameOrID, description string, leve
 				r.Actions = compact(actions)
 			}
 			out = r.Collection
-			return putCollectionTx(tx, r.Collection, sk)
+			if err := putCollectionTx(tx, r.Collection, sk); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk)
 		})
 	}()
 	if err != nil {
@@ -253,7 +289,7 @@ func (s *Service) Tags() []Tag {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		tx.Range(bucketTags, kv.Range{}, func(_, v []byte) bool {
 			var r signedTag
-			if json.Unmarshal(v, &r) == nil && s.tagVerifies(r) {
+			if json.Unmarshal(v, &r) == nil && s.tagLive(tx, r) {
 				out = append(out, r.Tag)
 			}
 			return true
@@ -269,21 +305,85 @@ func (s *Service) tagVerifies(r signedTag) bool {
 	if err != nil {
 		return false
 	}
-	return verifyRow(sk, r.Sig, r.signedParts()...)
+	return verifyPolicy(sk, r.Sig, r.signedParts()...)
+}
+
+func (s *Service) tagLive(tx kv.Tx, r signedTag) bool {
+	if !s.tagVerifies(r) {
+		return false
+	}
+	ok, named := s.headMatch(tx, kindTag, r.Name, r.signedParts(), r.Level)
+	if !named {
+		return false
+	}
+	return ok
 }
 
 func (s *Service) tagByName(name string) (Tag, bool) {
 	var out Tag
 	ok := false
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		v := tx.Get(bucketTags, []byte(name))
-		var r signedTag
-		if v != nil && json.Unmarshal(v, &r) == nil && s.tagVerifies(r) {
-			out, ok = r.Tag, true
-		}
+		out, ok = s.tagByNameTx(tx, name)
 		return nil
 	})
 	return out, ok
+}
+
+func (s *Service) tagByNameTx(tx kv.Tx, name string) (Tag, bool) {
+	v := tx.Get(bucketTags, []byte(name))
+	var r signedTag
+	if v == nil || json.Unmarshal(v, &r) != nil || r.Name != name || !s.tagLive(tx, r) {
+		return Tag{}, false
+	}
+	return r.Tag, true
+}
+
+// tagStatus is how a name on an item counts toward the approval level: a policy tag the head
+// names and that matches, a broken row the head names (strictest), or a label the head does not.
+func (s *Service) tagStatus(name string) (level string, broken, label bool) {
+	var outLevel string
+	var isBroken, isLabel bool
+	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
+		sk, err := s.sk()
+		if err != nil {
+			isBroken = true
+			return err
+		}
+		h, headOK := loadPolicyHead(tx, sk)
+		v := tx.Get(bucketTags, []byte(name))
+		var r signedTag
+		live := v != nil && json.Unmarshal(v, &r) == nil && r.Name == name && s.tagVerifies(r)
+		if !headOK {
+			if policyHeadPresent(tx) || anyPolicyTx(tx) {
+				if live {
+					s.reportHeadBreak(kindTag, name)
+					isBroken = true
+				} else {
+					isLabel = true
+				}
+				return nil
+			}
+			if live {
+				outLevel = r.Level
+				return nil
+			}
+			isLabel = true
+			return nil
+		}
+		ent, named := h.lookup(kindTag, name)
+		if !named {
+			isLabel = true
+			return nil
+		}
+		if !live || ent.Hash != partsHash(r.signedParts()) || ent.Value != r.Level {
+			s.reportHeadBreak(kindTag, name)
+			isBroken = true
+			return nil
+		}
+		outLevel = r.Level
+		return nil
+	})
+	return outLevel, isBroken, isLabel
 }
 
 // SetTag adds or changes a tag. A tag's level is policy (it makes every item wearing the tag at
@@ -294,6 +394,9 @@ func (s *Service) SetTag(who Actor, name, level, description string, actions []s
 		return Tag{}, ErrSealed
 	}
 	name = strings.ToLower(strings.TrimSpace(name))
+	if hasNUL(name, level, description) {
+		return Tag{}, fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
+	}
 	if !tagRe.MatchString(name) {
 		return Tag{}, fmt.Errorf("%w: a tag is lower-case, layered with / (env/prod, service/dns)", ErrBadInput)
 	}
@@ -340,7 +443,10 @@ func (s *Service) SetTag(who Actor, name, level, description string, actions []s
 			if mErr != nil {
 				return mErr
 			}
-			return tx.Put(bucketTags, []byte(tag.Name), b)
+			if err := tx.Put(bucketTags, []byte(tag.Name), b); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk)
 		})
 	}()
 	if err != nil {
@@ -364,18 +470,30 @@ func (s *Service) DeleteTag(who Actor, name string) error {
 	if !who.Owner() {
 		return fmt.Errorf("%w: tags change what items they touch need, which only the owner does", ErrForbidden)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		if tx.Get(bucketTags, []byte(name)) == nil {
-			return fmt.Errorf("%w: no tag %q", ErrNotFound, name)
+	var err error
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		sk, lockErr := s.sk()
+		if lockErr != nil {
+			err = lockErr
+			return
 		}
-		return tx.Delete(bucketTags, []byte(name))
-	})
+		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+			if tx.Get(bucketTags, []byte(name)) == nil {
+				return fmt.Errorf("%w: no tag %q", ErrNotFound, name)
+			}
+			if err := tx.Delete(bucketTags, []byte(name)); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk, policyRowKey(kindTag, name))
+		})
+	}()
 	if err != nil {
 		return err
 	}
 	s.echo(who, "removed the tag", name, "secrets_tag_delete")
+	s.reassessGrants()
 	return nil
 }
 
@@ -386,13 +504,23 @@ func (s *Service) EffectiveLevel(item Item) string {
 		return item.Level
 	}
 	col, ok := s.Collection(item.Collection)
-	level := LevelAuto
-	if ok {
-		level = col.Level
+	if !ok {
+		return LevelNever // a missing or unverifiable collection does not fall back to auto
+	}
+	level := col.Level
+	if level == "" {
+		level = LevelNever
 	}
 	for _, t := range item.Tags {
-		if tag, ok := s.tagByName(t); ok && tag.Level != "" {
-			level = StrictestLevel(level, tag.Level)
+		tagLevel, broken, label := s.tagStatus(t)
+		if broken {
+			return LevelNever
+		}
+		if label {
+			continue // a name the head does not record as policy is a label
+		}
+		if tagLevel != "" {
+			level = StrictestLevel(level, tagLevel)
 		}
 	}
 	return level
@@ -409,6 +537,9 @@ func (s *Service) SetPermission(who Actor, collection, subject, perm, reason str
 	col, ok := s.Collection(collection)
 	if !ok {
 		return fmt.Errorf("%w: no collection %q", ErrNotFound, collection)
+	}
+	if hasNUL(collection, subject, perm, reason) {
+		return fmt.Errorf("%w: a value may not hold a NUL", ErrBadInput)
 	}
 	if perm != "" && !ValidPerm(perm) {
 		return fmt.Errorf("%w: a permission is one of %s", ErrBadInput, joinStrings(Perms))
@@ -430,7 +561,10 @@ func (s *Service) SetPermission(who Actor, collection, subject, perm, reason str
 		}
 		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 			if perm == "" {
-				return tx.Delete(bucketPerms, permRowKey(col.ID, subject))
+				if err := tx.Delete(bucketPerms, permRowKey(col.ID, subject)); err != nil {
+					return err
+				}
+				return writePolicyHeadTx(tx, sk, policyRowKey(kindPerm, col.ID+"\x00"+subject))
 			}
 			p := Permission{Collection: col.ID, Subject: subject, Perm: perm,
 				Actor: who.Name, Via: who.Via, At: s.now(), Reason: reason}
@@ -439,7 +573,10 @@ func (s *Service) SetPermission(who Actor, collection, subject, perm, reason str
 			if err != nil {
 				return err
 			}
-			return tx.Put(bucketPerms, permRowKey(col.ID, subject), b)
+			if err := tx.Put(bucketPerms, permRowKey(col.ID, subject), b); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk)
 		})
 	}()
 	if err != nil {
@@ -459,9 +596,9 @@ func (s *Service) Permissions(collection string) []Permission {
 	var out []Permission
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		prefix := []byte(col.ID + "\x00")
-		tx.Range(bucketPerms, kv.Range{Prefix: prefix}, func(_, v []byte) bool {
+		tx.Range(bucketPerms, kv.Range{Prefix: prefix}, func(k, v []byte) bool {
 			var p Permission
-			if json.Unmarshal(v, &p) == nil && s.permVerifies(p) {
+			if json.Unmarshal(v, &p) == nil && s.permLive(tx, k, p) {
 				out = append(out, p)
 			}
 			return true
@@ -477,7 +614,18 @@ func (s *Service) permVerifies(p Permission) bool {
 	if err != nil {
 		return false
 	}
-	return verifyRow(sk, p.Sig, p.signedParts()...)
+	return verifyPolicy(sk, p.Sig, p.signedParts()...)
+}
+
+func (s *Service) permLive(tx kv.Tx, key []byte, p Permission) bool {
+	if string(key) != string(permRowKey(p.Collection, p.Subject)) || !s.permVerifies(p) {
+		return false
+	}
+	ok, named := s.headMatch(tx, kindPerm, p.Collection+"\x00"+p.Subject, p.signedParts(), p.Perm)
+	if !named {
+		return false
+	}
+	return ok
 }
 
 func permRowKey(collection, subject string) []byte { return []byte(collection + "\x00" + subject) }
@@ -522,13 +670,17 @@ func (s *Service) permOf(who Actor, collectionID string) (string, bool) {
 	best, found := "", false
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		for _, subject := range []string{permSubjectPrefix + who.Name, "role:" + who.Role} {
-			v := tx.Get(bucketPerms, permRowKey(collectionID, subject))
+			key := permRowKey(collectionID, subject)
+			v := tx.Get(bucketPerms, key)
 			if v == nil {
+				if _, named := s.headMatch(tx, kindPerm, collectionID+"\x00"+subject, nil, ""); named {
+					s.reportHeadBreak(kindPerm, collectionID+"\x00"+subject)
+				}
 				continue
 			}
 			var p Permission
-			if json.Unmarshal(v, &p) != nil || !s.permVerifies(p) {
-				continue // a row that does not verify is not there
+			if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permLive(tx, key, p) {
+				continue // a row that does not verify, that was copied, or that the head does not name, is not there
 			}
 			if !found || permRank[p.Perm] > permRank[best] {
 				best, found = p.Perm, true
@@ -547,17 +699,15 @@ func (s *Service) mayManageTx(tx kv.Tx, who Actor, collectionID string) bool {
 	if !who.Person() || s.keys.sealed() {
 		return false
 	}
-	sk, err := s.sk()
-	if err != nil {
-		return false
-	}
 	for _, subject := range []string{permSubjectPrefix + who.Name, "role:" + who.Role} {
-		v := tx.Get(bucketPerms, permRowKey(collectionID, subject))
+		key := permRowKey(collectionID, subject)
+		v := tx.Get(bucketPerms, key)
 		if v == nil {
 			continue
 		}
 		var p Permission
-		if json.Unmarshal(v, &p) == nil && verifyRow(sk, p.Sig, p.signedParts()...) && PermAtLeast(p.Perm, PermManage) {
+		if json.Unmarshal(v, &p) == nil && p.Collection == collectionID && p.Subject == subject &&
+			s.permLive(tx, key, p) && PermAtLeast(p.Perm, PermManage) {
 			return true
 		}
 	}

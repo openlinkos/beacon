@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,7 +230,8 @@ func TestPruneKeepsTheChain(t *testing.T) {
 	if res, err := f.log.Verify(); err != nil || res.Events != 1 || res.Head == "" {
 		t.Fatalf("verify after pruning the rest: %v %+v", err, res)
 	}
-	// verify from any checkpoint whose records are still there
+	// verify from any checkpoint, including one whose records were pruned: the prune mark
+	// re-anchors the walk
 	cps, _ := f.log.Checkpoints()
 	if len(cps) == 0 {
 		t.Fatal("the prune left no checkpoints")
@@ -238,10 +240,8 @@ func TestPruneKeepsTheChain(t *testing.T) {
 	if res, err := f.log.VerifySince(last.Seq); err != nil {
 		t.Fatalf("verify since %d: %v %+v", last.Seq, err, res)
 	}
-	// a checkpoint whose records were pruned cannot be verified from: the walk starts where it
-	// left off and finds the records gone
-	if _, err := f.log.VerifySince(cps[0].Seq); !errors.Is(err, ErrBrokenChain) {
-		t.Errorf("verify since a pruned checkpoint %d: %v", cps[0].Seq, err)
+	if res, err := f.log.VerifySince(cps[0].Seq); err != nil {
+		t.Errorf("verify since a pruned checkpoint %d: %v %+v", cps[0].Seq, err, res)
 	}
 	if _, err := f.log.VerifySince(999); err == nil {
 		t.Error("verify since a seq that is no checkpoint should say so")
@@ -363,5 +363,180 @@ func TestOpenRejectsBadNames(t *testing.T) {
 		if _, err := Open(f.db.Handle(), f.db.WriteHandle(), name, Options{}); err == nil {
 			t.Errorf("name %q should be refused", name)
 		}
+	}
+}
+
+// TestPruneMultipleCheckpoints is the default schedule: hourly records, a checkpoint every
+// 24 hours. Prune of 24 hours used to underflow the checkpoint count because the newest
+// checkpoint sat after the cut.
+func TestPruneMultipleCheckpoints(t *testing.T) {
+	f := open(t, Options{CheckpointInterval: 24 * time.Hour})
+	base := f.now
+	for i := range 72 {
+		f.now = base.Add(time.Duration(i) * time.Hour)
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cps, err := f.log.Checkpoints()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cps) < 3 || cps[0].Seq != 1 || cps[1].Seq != 25 || cps[2].Seq != 49 {
+		t.Fatalf("checkpoints: %+v", cps)
+	}
+	n, err := f.log.Prune(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("prune deleted nothing")
+	}
+	if res, err := f.log.Verify(); err != nil {
+		t.Fatalf("verify after prune: %v %+v", err, res)
+	}
+}
+
+// TestPruneBackdatedTime: a record stamped in the past must not take newer records with it.
+func TestPruneBackdatedTime(t *testing.T) {
+	f := open(t, Options{})
+	base := f.now
+	for range 5 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+		f.now = f.now.Add(time.Hour)
+	}
+	if _, err := f.log.Append(Event{Actor: "alice", Action: "a", Time: base.Add(-48 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := f.log.Prune(24 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("pruned %d, want 0: a backdated tail must not drop the newer prefix", n)
+	}
+}
+
+// TestVerifyRejectsGapWithoutPrune: deleting records that a scheduled checkpoint covered, without
+// a prune mark, is a break. Verify used to treat the checkpoint as an anchor and say OK.
+func TestVerifyRejectsGapWithoutPrune(t *testing.T) {
+	f := open(t, Options{})
+	for i := range 10 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+		if (i+1)%2 == 1 {
+			if _, err := f.log.Checkpoint(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	tamper(t, f.db, `DELETE FROM audit_events WHERE seq <= 9`)
+	if _, err := f.log.Verify(); !errors.Is(err, ErrBrokenChain) {
+		t.Fatalf("a gap with only scheduled checkpoints: %v", err)
+	}
+}
+
+// TestUpdateBothRollsBackBothSides: a kv put and an audit append in one UpdateBoth must both
+// vanish when the callback fails.
+func TestUpdateBothRollsBackBothSides(t *testing.T) {
+	f := open(t, Options{})
+	err := f.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		if err := tx.Put([]byte("meta"), []byte("token"), []byte("secret")); err != nil {
+			return err
+		}
+		e := Event{Actor: "alice", Action: "secrets_item_use", Object: "item-1"}
+		if err := f.log.AppendTx(raw, &e); err != nil {
+			return err
+		}
+		return errors.New("caller failed after both writes")
+	})
+	if err == nil {
+		t.Fatal("UpdateBoth should return the callback's error")
+	}
+	if err := f.db.View(func(tx kv.Tx) error {
+		if v := tx.Get([]byte("meta"), []byte("token")); v != nil {
+			t.Errorf("kv write survived the rollback: %q", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, total, err := f.log.Query(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Fatalf("event write survived the rollback: %d %+v", total, got)
+	}
+}
+
+// TestConcurrentAppendVerifyPrune runs append, verify and prune together. Verify must not
+// report a break; the chain that remains must still hold.
+func TestConcurrentAppendVerifyPrune(t *testing.T) {
+	f := open(t, Options{Now: time.Now, CheckpointInterval: 40 * time.Millisecond})
+	old := time.Now().Add(-48 * time.Hour)
+	for i := range 20 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "old", Time: old.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const writers = 3
+	const per = 25
+	var writersWg, helpersWg sync.WaitGroup
+	errCh := make(chan error, 8)
+	writersWg.Add(writers)
+	for w := range writers {
+		go func(id int) {
+			defer writersWg.Done()
+			for i := range per {
+				if _, err := f.log.Append(Event{Actor: "alice", Action: "new", Object: fmt.Sprintf("%d-%d", id, i)}); err != nil {
+					errCh <- fmt.Errorf("append: %w", err)
+					return
+				}
+			}
+		}(w)
+	}
+	done := make(chan struct{})
+	helpersWg.Add(2)
+	go func() {
+		defer helpersWg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				if _, err := f.log.Verify(); err != nil {
+					errCh <- fmt.Errorf("verify: %w", err)
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		defer helpersWg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				if _, err := f.log.Prune(24 * time.Hour); err != nil {
+					errCh <- fmt.Errorf("prune: %w", err)
+					return
+				}
+			}
+		}
+	}()
+	writersWg.Wait()
+	close(done)
+	helpersWg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if _, err := f.log.Verify(); err != nil {
+		t.Fatalf("final verify: %v", err)
 	}
 }

@@ -17,6 +17,7 @@ type Vault interface {
 	SealModeName() string
 	Bad() []string
 	Unseal(passphrase string) error
+	InitPassphrase(passphrase string) error
 	Seal() error
 	RotateRootKey(newPassphrase string) error
 	RotateCollectionKey(collection string) error
@@ -57,6 +58,8 @@ func VaultHandler(v Vault) http.Handler {
 			code = http.StatusServiceUnavailable
 		case errors.Is(err, secrets.ErrWrongPassphrase), errors.Is(err, secrets.ErrReauth), errors.Is(err, secrets.ErrForbidden):
 			code = http.StatusForbidden
+		case errors.Is(err, secrets.ErrNotInitialised):
+			code = http.StatusConflict
 		case errors.Is(err, secrets.ErrNotFound):
 			code = http.StatusNotFound
 		case errors.Is(err, secrets.ErrExists), errors.Is(err, secrets.ErrConflict):
@@ -92,6 +95,19 @@ func VaultHandler(v Vault) http.Handler {
 			Mode   string   `json:"mode"`
 			Bad    []string `json:"rows_failed_signature,omitempty"`
 		}{Sealed: v.Sealed(), Mode: v.SealModeName(), Bad: v.Bad()})
+	})
+	mux.HandleFunc("POST /v1/secrets/init", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Passphrase string `json:"passphrase"`
+		}
+		if !readBody(w, r, &in) {
+			return
+		}
+		if err := v.InitPassphrase(in.Passphrase); err != nil {
+			failVault(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct{ Sealed bool }{v.Sealed()})
 	})
 	mux.HandleFunc("POST /v1/secrets/unseal", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -379,6 +395,12 @@ type VaultState struct {
 func (c *Client) VaultState(ctx context.Context) (VaultState, error) {
 	var out VaultState
 	return out, c.do(ctx, "GET", "/v1/secrets/state", nil, &out)
+}
+
+// VaultInit sets the first passphrase of a passphrase-mode vault.
+func (c *Client) VaultInit(ctx context.Context, passphrase string) (VaultState, error) {
+	var out VaultState
+	return out, c.do(ctx, "POST", "/v1/secrets/init", map[string]string{"passphrase": passphrase}, &out)
 }
 
 // VaultUnseal unseals with the passphrase.

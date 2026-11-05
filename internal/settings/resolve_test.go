@@ -20,7 +20,7 @@ func TestResolutionLevelByLevel(t *testing.T) {
 	e := newEnv(t)
 	set := func(scope, target, value string) {
 		t.Helper()
-		if _, err := e.s.Set(ctx, api, scope, target, "request.max_uses", raw(value), "", 0); err != nil {
+		if _, err := e.s.Set(ctx, api, scope, target, "request.max_uses", raw(value), why, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +64,7 @@ func TestResolutionLevelByLevel(t *testing.T) {
 	}
 
 	// the request wins where it tightens
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-1", "request.max_uses", raw("100"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-1", "request.max_uses", raw("100"), why, 0); err != nil {
 		t.Fatal(err)
 	}
 	v, ls, _ = e.s.Value("request.max_uses", Selector{Collection: "infra", Tags: []string{"env/prod"},
@@ -87,7 +87,7 @@ func TestSeveralTagsTakeTheStricter(t *testing.T) {
 	e := newEnv(t)
 	tag := func(tag, key, value string) {
 		t.Helper()
-		if _, err := e.s.Set(ctx, api, ScopeTag, tag, key, raw(value), "", 0); err != nil {
+		if _, err := e.s.Set(ctx, api, ScopeTag, tag, key, raw(value), why, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -173,23 +173,23 @@ func TestSeveralTagsTakeTheStricter(t *testing.T) {
 // not order takes the request's value, the more specific one.
 func TestRequestIsClampedToTheBound(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.max_uses", raw("30"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.max_uses", raw("30"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.max_duration", raw(`"7d"`), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.max_duration", raw(`"7d"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.on_pending_expiry", raw(`"deny"`), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeEntitlement, "oncall-dns", "request.on_pending_expiry", raw(`"deny"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_uses", raw("50"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_uses", raw("50"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_duration", raw(`"30d"`), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_duration", raw(`"30d"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.on_pending_expiry", raw(`"approve"`), "", 0); err != nil {
-		t.Fatal(err)
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.on_pending_expiry", raw(`"approve"`), why, 0); err == nil {
+		t.Fatal("a request must not set review consequences")
 	}
 	sel := Selector{Entitlement: "oncall-dns", Request: "r-9"}
 	v, _, _ := e.s.Value("request.max_uses", sel)
@@ -202,21 +202,18 @@ func TestRequestIsClampedToTheBound(t *testing.T) {
 	}
 	v, _, _ = e.s.Value("request.on_pending_expiry", sel)
 	if string(v.Value) != `"deny"` {
-		t.Fatalf("consequence clamped: %+v", v)
+		t.Fatalf("consequence from the entitlement: %+v", v)
 	}
 
-	// a stricter request holds, and an unordered setting takes the request's own value
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_uses", raw("10"), "", 0); err != nil {
+	// a stricter request holds; an unordered setting is not a request's to set
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "request.max_uses", raw("10"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "review.notify_decisions", raw(`[]`), "", 0); err != nil {
-		t.Fatal(err)
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-9", "review.notify_decisions", raw(`[]`), why, 0); err == nil {
+		t.Fatal("a request must not drop notify_decisions")
 	}
 	if v, _, _ = e.s.Value("request.max_uses", sel); string(v.Value) != "10" || v.From != ScopeRequest {
 		t.Fatalf("stricter request: %+v", v)
-	}
-	if v, _, _ = e.s.Value("review.notify_decisions", sel); v.From != ScopeRequest {
-		t.Fatalf("unordered request value: %+v", v)
 	}
 }
 
@@ -224,15 +221,19 @@ func TestRequestIsClampedToTheBound(t *testing.T) {
 func TestLevelsMapsTakeTheStricterPerLevel(t *testing.T) {
 	e := newEnv(t)
 	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "request.default_duration",
-		raw(`{"auto":"never","review":"30d","person":"7d"}`), "", 0); err != nil {
+		raw(`{"auto":"never","review":"30d","person":"7d"}`), why, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.s.Set(ctx, api, ScopeTag, "service/dns", "request.default_duration",
-		raw(`{"auto":"2d","review":"3d"}`), "", 0); err != nil {
+		raw(`{"auto":"2d","review":"3d"}`), why, 0); err == nil {
+		t.Fatal("a per-level map must name every level")
+	}
+	if _, err := e.s.Set(ctx, api, ScopeTag, "service/dns", "request.default_duration",
+		raw(`{"auto":"2d","review":"3d","person":"1d"}`), why, 0); err != nil {
 		t.Fatal(err)
 	}
 	v, _, _ := e.s.Value("request.default_duration", Selector{Tags: []string{"env/prod", "service/dns"}})
-	for level, want := range map[string]string{"auto": `"2d"`, "review": `"3d"`, "person": `"7d"`} {
+	for level, want := range map[string]string{"auto": `"2d"`, "review": `"3d"`, "person": `"1d"`} {
 		if got := string(jsonAt(v.Value, level)); got != want {
 			t.Fatalf("level %s: %s, want %s", level, got, want)
 		}
