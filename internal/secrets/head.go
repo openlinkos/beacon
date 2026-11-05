@@ -7,16 +7,26 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// The signed head of the vault's policy: which collections, tag-policy rows and people-permission
-// rows are current, at which contents. A row the head names that is missing, stale or whose
-// signature fails is treated as the strictest (a collection or tag as never, a permission as
-// absent) and reported. A tag the head does not name is an ordinary label, even if a leftover row
-// sits in the file — imported names that were never registered as policy stay labels.
+func entitlementHeadValue(e Entitlement) string {
+	if e.Deny {
+		return "deny"
+	}
+	return "allow"
+}
+
+// The signed head of the vault's policy: which collections, tag-policy rows, people-permission
+// rows, entitlements, grants and agent-tag rows are current, at which contents. A row the head
+// names that is missing, stale or whose signature fails is treated as the strictest (a collection
+// or tag as never, a permission as absent, an allowing entitlement or grant as absent, a deny
+// entitlement as denying everything) and reported. A tag the head does not name is an ordinary
+// label, even if a leftover row sits in the file — imported names that were never registered as
+// policy stay labels.
 //
 // Changing the database file alone cannot widen access (the design's section 8): deleting a
 // stricter tag row, or putting an older looser one back, is seen against the head.
@@ -24,10 +34,13 @@ import (
 var policyHeadKey = []byte("\x00head")
 
 const (
-	kindCollection = "collection"
-	kindTag        = "tag"
-	kindPerm       = "perm"
-	kindItem       = "item"
+	kindCollection  = "collection"
+	kindTag         = "tag"
+	kindPerm        = "perm"
+	kindItem        = "item"
+	kindEntitlement = "entitlement"
+	kindGrant       = "grant"
+	kindAgentTags   = "agent-tags"
 )
 
 // policyHeadEnt is one live policy row as the head records it.
@@ -132,6 +145,9 @@ func anyPolicyTx(tx kv.Tx) bool {
 	check(bucketCollections)
 	check(bucketTags)
 	check(bucketPerms)
+	check(bucketEntitlements)
+	check(bucketGrants)
+	check(bucketAgentTags)
 	return found
 }
 
@@ -184,6 +200,39 @@ func writePolicyHeadTx(tx kv.Tx, sk []byte, drop ...string) error {
 			return true
 		}
 		add(kindPerm, p.Collection+"\x00"+p.Subject, partsHash(p.signedParts()), p.Perm)
+		return true
+	})
+	tx.Range(bucketEntitlements, kv.Range{}, func(k, v []byte) bool {
+		var e Entitlement
+		if json.Unmarshal(v, &e) != nil || string(k) != e.Name {
+			return true
+		}
+		if !verifyRow(sk, e.Sig, e.signedParts()...) {
+			return true
+		}
+		add(kindEntitlement, e.Name, partsHash(e.signedParts()), entitlementHeadValue(e))
+		return true
+	})
+	tx.Range(bucketGrants, kv.Range{}, func(k, v []byte) bool {
+		var g Grant
+		if json.Unmarshal(v, &g) != nil || string(k) != g.ID {
+			return true
+		}
+		if !verifyRow(sk, g.Sig, g.signedParts()...) {
+			return true
+		}
+		add(kindGrant, g.ID, partsHash(g.signedParts()), g.Status)
+		return true
+	})
+	tx.Range(bucketAgentTags, kv.Range{}, func(k, v []byte) bool {
+		var t AgentTags
+		if json.Unmarshal(v, &t) != nil || string(k) != t.Agent {
+			return true
+		}
+		if !verifyRow(sk, t.Sig, t.signedParts()...) {
+			return true
+		}
+		add(kindAgentTags, t.Agent, partsHash(t.signedParts()), strings.Join(t.Tags, "\x01"))
 		return true
 	})
 	var ents []policyHeadEnt

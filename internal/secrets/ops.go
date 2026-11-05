@@ -193,9 +193,9 @@ func (s *Service) changeState(who Actor, item, state, verb, action string) (Item
 		return Item{}, ErrSealed
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	sk, err := s.sk()
 	if err != nil {
+		s.mu.Unlock()
 		return Item{}, err
 	}
 	var out Item
@@ -219,10 +219,12 @@ func (s *Service) changeState(who Actor, item, state, verb, action string) (Item
 		out = row
 		return nil
 	})
+	s.mu.Unlock()
 	if err != nil {
 		return Item{}, err
 	}
 	s.echo(who, verb, out.Title+" in "+s.collectionName(out.Collection), action)
+	s.reassessGrants() // outside the lock: it takes the lock itself per grant
 	return out, nil
 }
 

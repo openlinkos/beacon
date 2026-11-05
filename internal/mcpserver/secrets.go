@@ -42,6 +42,19 @@ func vaultActor(ctx context.Context) (secrets.Actor, error) {
 	return secrets.Actor{Name: p.User, Via: "mcp", Role: roleOf(p)}, nil
 }
 
+// vaultAdmin is vaultActor plus the secrets:admin scope: entitlements, agent tags and revocation.
+func vaultAdmin(ctx context.Context) (secrets.Actor, error) {
+	who, err := vaultActor(ctx)
+	if err != nil {
+		return secrets.Actor{}, err
+	}
+	p, ok := principal(ctx)
+	if !ok || !p.Has("secrets:admin") {
+		return secrets.Actor{}, errors.New(api.ScopeProblem(p, "secrets:admin"))
+	}
+	return who, nil
+}
+
 func roleOf(p store.Principal) string {
 	switch {
 	case p.Has("accounts:write"):
