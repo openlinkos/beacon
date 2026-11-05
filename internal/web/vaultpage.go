@@ -24,6 +24,7 @@ type vaultLabels struct {
 	WhoCanGet, WhoCanGetHint, Reveal, RevealPassword, RevealFields, RevealWhy, RevealWhat           string
 	Tags, AddTag, SetLevel, Archive, Remove, Restore, Rollback, RollbackTo, Generate, GenerateField string
 	Perms, PermsSubject, PermsLevel, PermsSet, Search, SearchPlaceholder, None, KeyVersion          string
+	Import                                                                                          string
 	Normal, Archived, Trash, CreatedBy, Reason, Ref, Concealed                                      string
 }
 
@@ -45,6 +46,7 @@ func (s *Server) vaultLabels() vaultLabels {
 		PermsSet: s.t("Set"), Search: s.t("Search"), SearchPlaceholder: s.t("Search the vault"),
 		None: s.t("None"), KeyVersion: s.t("Key version"), Normal: s.t("Normal"), Archived: s.t("Archived"),
 		Trash: s.t("Trash"), CreatedBy: s.t("By"), Reason: s.t("Why"), Ref: s.t("Reference"), Concealed: s.t("hidden until revealed"),
+		Import: s.t("Import secrets"),
 	}
 }
 

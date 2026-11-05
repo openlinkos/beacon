@@ -1,0 +1,87 @@
+{{define "content"}}<div class="ol-stack">
+  {{if .Problem}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.Problem}}</p></div></div>{{end}}
+
+  {{if not .DryRunDone}}{{if not .Done}}<section class="ol-section">
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Choose}}</h2></div>
+    <form class="ol-stack" method="post" action="{{console "/secrets/import/dry-run"}}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="ol-field"><label class="ol-label">{{.L.Source}}</label>
+        <select class="ol-input" name="source">
+          <option value="1pux">1PUX (1Password export)</option>
+          <option value="1password-csv">1Password CSV</option>
+          <option value="chrome">Chrome CSV</option>
+          <option value="bitwarden">Bitwarden JSON</option>
+          <option value="csv">CSV</option>
+        </select>
+        <p class="ol-hint">{{.L.SourceHint}}</p></div>
+      <div class="ol-field"><label class="ol-label">{{.L.File}}</label>
+        <input class="ol-input" type="file" name="file">
+        <p class="ol-hint">{{.L.FileHint}}</p></div>
+      <div class="ol-field"><label class="ol-label">{{.L.Collection}}</label>
+        <input class="ol-input" name="collection" maxlength="64">
+        <p class="ol-hint">{{.L.CollectionHint}}</p></div>
+      <button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "search"}}{{.L.DryRun}}</button>
+    </form>
+  </section>{{end}}{{end}}
+
+  {{if .DryRunDone}}<section class="ol-section">
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Report}}</h2></div>
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.VL.Collection}}</th><th>{{.VL.Level}}</th><th>{{.VL.Items}}</th><th>{{.VL.Fields}}</th><th>{{.L.OTPs}}</th><th>{{.L.Attachments}}</th><th>{{.VL.Archived}}</th><th>{{.L.AtNever}}</th><th>{{.L.Categories}}</th></tr></thead>
+      <tbody>{{range .Report}}<tr>
+        <td>{{.Name}}{{if .New}} <span class="ol-badge ol-badge-mono">{{$.L.New}}</span>{{end}}</td>
+        <td data-label="{{$.VL.Level}}"><span class="ol-badge ol-badge-mono">{{.Level}}</span></td>
+        <td data-label="{{$.VL.Items}}">{{.Items}}</td>
+        <td data-label="{{$.VL.Fields}}">{{.Fields}}</td>
+        <td data-label="{{$.L.OTPs}}">{{.OTPs}}</td>
+        <td data-label="{{$.L.Attachments}}">{{.Attachments}}</td>
+        <td data-label="{{$.VL.Archived}}">{{.Archived}}</td>
+        <td data-label="{{$.L.AtNever}}">{{.Never}}</td>
+        <td data-label="{{$.L.Categories}}" class="ol-cell-wrap">{{.Categories}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>
+    {{if .Conflicts}}<h3 class="ol-section-title">{{.L.Conflicts}}</h3>
+    <p class="ol-hint">{{.L.ConflictsHint}}</p>
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.VL.Collection}}</th><th>{{.L.Incoming}}</th><th>{{.L.AlreadyThere}}</th><th>{{.L.SharedURLs}}</th></tr></thead>
+      <tbody>{{range .Conflicts}}<tr>
+        <td>{{.Collection}}</td><td data-label="{{$.L.Incoming}}">{{.Incoming}}</td>
+        <td data-label="{{$.L.AlreadyThere}}">{{.Existing}}</td>
+        <td data-label="{{$.L.SharedURLs}}">{{.SharedURLs}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>{{end}}
+    <form class="ol-stack" method="post" action="{{console "/secrets/import/commit"}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="token" value="{{.Token}}">
+      <div class="ol-field"><label class="ol-label">{{.L.OnConflict}}</label>
+        <select class="ol-input" name="on_conflict">
+          <option value="ask">{{.L.AskWord}}</option>
+          <option value="new_version">new_version</option>
+          <option value="skip">skip</option>
+          <option value="keep_both">keep_both</option>
+        </select></div>
+      {{range .Report}}<div class="ol-field"><label class="ol-label">{{.Name}} · {{$.VL.Level}}</label>
+        <select class="ol-input" name="level-{{.Name}}">
+          <option value="">{{.Level}}</option>
+          <option value="review">review</option><option value="auto">auto</option>
+          <option value="person">person</option><option value="never">never</option>
+        </select></div>{{end}}
+      <div class="ol-field"><label class="ol-label">{{.L.Reason}}</label><input class="ol-input" name="reason" maxlength="200"></div>
+      <button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "check"}}{{.L.Do}}</button>
+    </form>
+  </section>{{end}}
+
+  {{if .Done}}<section class="ol-section">
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Done}}</h2></div>
+    <p>{{.CreatedLine}}</p>
+    <div class="ol-alert ol-alert-info" role="alert">{{icon "circle-check"}}<div class="ol-alert-body">
+      <p>{{.L.DeleteExport}}</p>
+    </div></div>
+    <h3 class="ol-section-title">{{.L.Followups}}</h3>
+    <ul class="ol-stack">
+      <li>{{.L.FollowupLevels}}</li>
+      <li>{{.L.FollowupNever}}</li>
+      <li>{{.L.FollowupEntitlements}}</li>
+    </ul>
+  </section>{{end}}
+</div>{{end}}
