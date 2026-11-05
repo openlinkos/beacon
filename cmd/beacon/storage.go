@@ -35,7 +35,9 @@ func storeOptions(cfg *config.Config) store.Options {
 		Path:               storagePath(cfg),
 		JournalMode:        cfg.Storage.SQLite.JournalMode,
 		Synchronous:        cfg.Storage.SQLite.Synchronous,
+		BusyTimeout:        cfg.Storage.SQLite.BusyTimeout.D(),
 		CheckpointInterval: cfg.Storage.Audit.CheckpointInterval.D(),
+		Retention:          cfg.Storage.Audit.Retention.D(),
 	}
 }
 

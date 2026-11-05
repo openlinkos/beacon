@@ -47,7 +47,7 @@ func TestConfigToolsSettingsKind(t *testing.T) {
 	if res.IsError || !strings.Contains(text, `"version":1`) || !strings.Contains(text, `"action":"set"`) || !strings.Contains(text, `"via":"mcp"`) {
 		t.Fatalf("put_config of a setting: %s", text)
 	}
-	if res, text := call(t, admin, "put_config", map[string]any{"kind": "settings", "key": "request.max_uses", "value": "many", "note": "x"}); !res.IsError || !strings.Contains(text, "unlimited") {
+	if res, text := call(t, admin, "put_config", map[string]any{"kind": "settings", "key": "request.max_uses", "value": "many", "note": "because it does not fit"}); !res.IsError || !strings.Contains(text, "unlimited") {
 		t.Errorf("a value that does not fit: %s", text)
 	}
 	// resolution through the tool: a tag's row, and the level-by-level answer
@@ -55,20 +55,26 @@ func TestConfigToolsSettingsKind(t *testing.T) {
 		"scope": "tag", "target": "env/prod", "note": "prod is tighter"}); res.IsError {
 		t.Fatalf("a tag's row: %s", text)
 	}
-	if _, text := call(t, read, "get_config", map[string]any{"kind": "settings", "key": "request.max_uses", "tag": []string{"env/prod"}}); !strings.Contains(text, `"from":"tag"`) || !strings.Contains(text, `"target":"env/prod"`) {
+	if _, text := call(t, admin, "get_config", map[string]any{"kind": "settings", "key": "request.max_uses", "tag": []string{"env/prod"}}); !strings.Contains(text, `"from":"tag"`) || !strings.Contains(text, `"target":"env/prod"`) {
 		t.Errorf("resolved for a tag: %s", text)
 	}
-	if _, text := call(t, read, "list_config_changes", map[string]any{"kind": "settings"}); !strings.Contains(text, `"key":"request.max_uses"`) {
+	if _, text := call(t, admin, "list_config_changes", map[string]any{"kind": "settings"}); !strings.Contains(text, `"key":"request.max_uses"`) {
 		t.Errorf("list_config_changes of the settings: %s", text)
 	}
-	if _, text := call(t, read, "get_config_change", map[string]any{"version": 1}); !strings.Contains(text, `"after":50`) {
+	if _, text := call(t, admin, "get_config_change", map[string]any{"kind": "settings", "version": 1}); !strings.Contains(text, `"after":50`) {
 		t.Errorf("get_config_change of a settings change: %s", text)
 	}
-	if res, text := call(t, admin, "revert_config_change", map[string]any{"version": 1}); res.IsError || !strings.Contains(text, `"reverts":1`) {
+	if res, text := call(t, admin, "revert_config_change", map[string]any{"kind": "settings", "version": 1, "note": "because the test reverts"}); res.IsError || !strings.Contains(text, `"reverts":1`) {
 		t.Fatalf("revert_config_change of a settings change: %s", text)
 	}
+	if res, text := call(t, read, "list_config_changes", map[string]any{"kind": "settings"}); !res.IsError {
+		t.Errorf("a reader cannot list settings history: %s", text)
+	}
+	if res, text := call(t, admin, "get_config_change", map[string]any{"version": 1}); !res.IsError && strings.Contains(text, `"key":"request.max_uses"`) {
+		t.Errorf("get_config_change without kind must not steal a settings change: %s", text)
+	}
 	if res, text := call(t, admin, "delete_config", map[string]any{"kind": "settings", "key": "request.max_uses",
-		"scope": "tag", "target": "env/prod", "note": "done"}); res.IsError || !strings.Contains(text, `"action":"reset"`) {
+		"scope": "tag", "target": "env/prod", "note": "done with the tag"}); res.IsError || !strings.Contains(text, `"action":"reset"`) {
 		t.Fatalf("delete_config resets a setting: %s", text)
 	}
 	if strings.Join(e.Bot.Texts, "\n") == "" || !strings.Contains(strings.Join(e.Bot.Texts, "\n"), "request.max_uses") {
