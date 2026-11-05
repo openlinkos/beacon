@@ -268,6 +268,7 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 			})
 			if gerr == nil {
 				out.Granted = append(out.Granted, grant)
+				s.countRequest("granted", "policy") // the level itself decided: no person, no rule
 			}
 		}
 		if len(waiting) > 0 {

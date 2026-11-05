@@ -146,6 +146,7 @@ type grantsVault struct {
 func newGrantsVault(t *testing.T) *grantsVault {
 	t.Helper()
 	RateReset()
+	MetricsReset()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "beacon.db"))
 	if err != nil {

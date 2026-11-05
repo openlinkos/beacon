@@ -134,7 +134,7 @@ func TestPeopleCommands(t *testing.T) {
 	}
 
 	// a legacy token, claimed
-	if code, _, errOut := cli("token", "create", "old-bot", "-scopes", "status:read,sessions:read", "-expires", "30d"); code != 0 {
+	if code, _, errOut := cli("token", "create", "old-bot", "-scopes", "status:read,sessions:read,secrets:describe", "-expires", "30d"); code != 0 {
 		t.Fatalf("token create: %d %s", code, errOut)
 	}
 	if code, out, _ := cli("token", "claim", "old-bot", "-owner", "alice"); code != 0 || !strings.Contains(out, "alice / old-bot") || !strings.Contains(out, "readonly") {

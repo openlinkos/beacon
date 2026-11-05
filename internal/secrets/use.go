@@ -291,6 +291,14 @@ func RateReset() {
 	rate = map[string]*rateWindow{}
 }
 
+// MetricsReset drops the counters (the tests' helper between cases; the shuffle runs them in any
+// order, so a case must not see another's uses).
+func MetricsReset() {
+	metricsMu.Lock()
+	defer metricsMu.Unlock()
+	usesTotal, reqsTotal = map[string]uint64{}, map[string]uint64{}
+}
+
 // ---- anomalies
 
 // markFirstCollection marks that the agent has used the collection, inside the use's own
