@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-86ea7953
+sourceHash: sha256-9ceb9c37
 ---
 
 # MCP 工具
@@ -56,7 +56,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
-| `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
+| `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部。`secrets` 把 `beacon://` 的值注入为命令的环境变量（`secrets:use`；条目必须绑定到这台机器）；输出、录像和转录都会打码 |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
@@ -110,6 +110,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `set_agent_tags` | `secrets:admin` | Agent 的分组标签（`agent`、`tags`），资格按它们圈定 Agent |
 | `revoke_grant` | `secrets:admin` | 由人吊销授权（`id`、`reason`） |
 | `agent_secret_scope` | Agent 的所有者、管理员 | 一个 Agent 能触及什么、持有什么（`agent`）：资格、按审批级别的覆盖、授权、标签、模板 |
+| `http_request` | `secrets:use` | 用 Agent 的 use 授权填入 `secret.beacon://` 占位后发 HTTPS（`method`、`url`、`headers`、`body`、`reason`）。只发往条目绑定的主机；私网地址默认拒绝（`http.allow_private`）；回答打码后返回。Agent 看不见值 |
 | `generate_item_value` | 人，`edit` | 为一个字段生成新值（`ref`、`field`、`length`、`charset`），存为新版本；值本身不返回 |
 | `archive_item` | 人，`edit` | 归档条目（`ref`、`reason`）：保留、让开 |
 | `remove_item` | 人，`edit` | 把条目移入回收站（`ref`、`reason`），按保留期存放 |

@@ -15,9 +15,14 @@ import (
 
 // ---- reading
 
-// Item finds an item by its ID, by "collection/item" or by its title inside a collection, always
-// through the signature check.
+// Item finds an item by its ID, by "collection/item", by a beacon:// reference, or by its title
+// inside a collection, always through the signature check.
 func (s *Service) Item(ref string) (Item, Collection, bool) {
+	if parsed, err := ParseRef(ref); err == nil {
+		ref = parsed.Collection + "/" + parsed.Item
+	} else if strings.HasPrefix(ref, RefPrefix) {
+		return Item{}, Collection{}, false
+	}
 	collectionRef, itemRef, hasCol := strings.Cut(ref, "/")
 	var col Collection
 	var ok bool
@@ -169,6 +174,40 @@ func (s *Service) Attachment(who Actor, item string, version int64, name string)
 		return nil
 	})
 	return out, size, err
+}
+
+// attachmentPlain decrypts one attachment for a use path that has already recorded the use. It
+// does not re-authenticate and does not write another audit entry: resolveUses recorded the use
+// in the same transaction the grant moved, and only then calls this. An agent never goes through
+// Attachment, which is a person's view.
+func (s *Service) attachmentPlain(itemID string, col Collection, version int64, name string) ([]byte, error) {
+	var out []byte
+	err := s.d.Store.Storage().View(func(tx kv.Tx) error {
+		ver, ok := getVersionTx(tx, itemID, version)
+		if !ok {
+			return fmt.Errorf("%w: no version %d", ErrNotFound, version)
+		}
+		v := tx.Get(bucketFiles, attachmentRowKey(itemID, version, name))
+		if v == nil {
+			return fmt.Errorf("%w: no attachment %q", ErrNotFound, name)
+		}
+		var att Attachment
+		if json.Unmarshal(v, &att) != nil {
+			return fmt.Errorf("%w: the attachment's row is unreadable", ErrNotFound)
+		}
+		ck, err := s.collectionKeyByVersionTx(tx, col.ID, ver.KeyVersion)
+		if err != nil {
+			return err
+		}
+		defer clear(ck)
+		plain, err := unwrap(ck, att.CT, attachmentAAD(itemID, version, col.ID, ver.KeyVersion, name))
+		if err != nil {
+			return err
+		}
+		out = plain
+		return nil
+	})
+	return out, err
 }
 
 // ---- state changes

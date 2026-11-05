@@ -190,7 +190,9 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 				return fmt.Errorf("the use could not be recorded, so the value is not given: %w", err)
 			}
 		}
-		return nil
+		// Used and Status sit in the grant's signed parts: the head must name this row or the
+		// grant vanishes the moment grants() walks it (kind=grant, missing, stale or bad).
+		return writePolicyHeadTx(tx, sk)
 	})
 	if err != nil {
 		return out, nil, nil, err
@@ -212,7 +214,7 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 			// a bare name may sit in a section; the attachment of that name may also be what is meant
 			value, okV = valueByName(d.Values, parsed.Field)
 			if !okV {
-				data, _, err := s.Attachment(u.item.ID, u.item.Version, parsed.Field)
+				data, err := s.attachmentPlain(u.item.ID, u.col, u.item.Version, parsed.Field)
 				if err != nil || data == nil {
 					return out, nil, nil, fmt.Errorf("%w: the item has no field or attachment %q", ErrNotFound, parsed.Field)
 				}
@@ -368,6 +370,12 @@ func (s *Service) HTTPRequest(agentName, via string, in HTTPRequestIn, ip, clien
 	if target.Scheme != "https" {
 		return HTTPResponse{}, fmt.Errorf("%w: http_request sends https only", ErrBadInput)
 	}
+	allowPrivate := s.settingBool("http.allow_private", false)
+	if !allowPrivate {
+		if ip := net.ParseIP(target.Hostname()); ip != nil && isPrivateIP(ip) {
+			return HTTPResponse{}, fmt.Errorf("%w: %s is a private address", ErrPrivateAddress, target.Hostname())
+		}
+	}
 	names := make([]string, 0, len(refs))
 	for r := range refs {
 		names = append(names, r)
@@ -411,9 +419,8 @@ func (s *Service) HTTPRequest(agentName, via string, in HTTPRequestIn, ip, clien
 	for k, v := range in.Headers {
 		req.Header.Set(fillSecrets(k, valueOf), fillSecrets(v, valueOf))
 	}
-	// the policy: redirects and private addresses
+	// the policy: redirects and private addresses (literal private hosts were refused above)
 	follow := s.settingString("http.follow_redirects", "same_host")
-	allowPrivate := s.settingBool("http.allow_private", false)
 	redirects := 0
 	hc := s.useHTTPClient(follow, allowPrivate, func() { redirects++ })
 	started := s.now()

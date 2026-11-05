@@ -27,6 +27,7 @@ docker exec beacon beacon token list
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
 | `storage` | The database's health: [check](#beacon-audit-storage) |
 | `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, perms, tags](#beacon-secret) |
+| `run` | Inject `beacon://` references from the environment and a `.env` file into a child process (`-agent`, `-reason`, `-env-file`, `-wait`); the values never print. See [beacon run](#beacon-run) |
 | `key` | The vault's keys: [status, unseal, seal, rotate](#beacon-key) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
@@ -75,6 +76,23 @@ The vault, for a person's hands on the command line: the same operations the [co
 | `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
 | `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
+
+### beacon run
+
+`beacon run` fills `beacon://` references in the process environment and in a `.env` file, then starts a child command with the values. They never print: they live only in that process, the way `op run` does. The references ride the named agent's use grants; `--wait` asks for a grant and waits that long when none covers a reference.
+
+```bash
+beacon run -agent claude-code -reason "fix the dns outage" --env-file .env -- printenv TOKEN
+```
+
+| Flag | What it does |
+| --- | --- |
+| `-agent` NAME | The agent whose grants the references ride |
+| `-reason` TEXT | Why; recorded with every use |
+| `-env-file` FILE | A `.env` file whose `beacon://` values are filled |
+| `-wait` DURATION | How long to wait for a grant when none covers a reference (a Go duration, such as `30s`) |
+
+Everything after `--` is the command. Values from `-env-file` overlay the process environment; resolved `beacon://` values overlay both.
 
 ### beacon key
 

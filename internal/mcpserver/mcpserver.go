@@ -22,6 +22,7 @@ import (
 	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
@@ -212,11 +213,13 @@ type (
 		Total   int                `json:"total"`
 	}
 	runIn struct {
-		Machine string `json:"machine" jsonschema:"the machine, as list_machines names it"`
-		Command string `json:"command" jsonschema:"the command; it runs in sh as the machine's user, without a terminal"`
-		Cwd     string `json:"cwd,omitempty" jsonschema:"directory to run it in"`
-		Stdin   string `json:"stdin,omitempty" jsonschema:"text for the command's standard input"`
-		Timeout int    `json:"timeout,omitempty" jsonschema:"seconds before it is killed; default 120, at most 600"`
+		Machine string           `json:"machine" jsonschema:"the machine, as list_machines names it"`
+		Command string           `json:"command" jsonschema:"the command; it runs in sh as the machine's user, without a terminal"`
+		Cwd     string           `json:"cwd,omitempty" jsonschema:"directory to run it in"`
+		Stdin   string           `json:"stdin,omitempty" jsonschema:"text for the command's standard input"`
+		Timeout int              `json:"timeout,omitempty" jsonschema:"seconds before it is killed; default 120, at most 600"`
+		Secrets []secrets.UseAsk `json:"secrets,omitempty" jsonschema:"beacon:// references to inject as the command's environment; each item must be bound to the machine"`
+		Reason  string           `json:"reason,omitempty" jsonschema:"why the secrets are used; required when secrets is set"`
 	}
 	readIn struct {
 		Machine string `json:"machine" jsonschema:"the machine"`
@@ -408,14 +411,14 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	addPeopleTools(s, b)
 	addProbeNowTools(s, b)
 	addStatusTools(s, b, o.status)
-	addMachineTools(s, g)
+	addMachineTools(s, g, o.vault)
 	if o.config != nil {
 		addConfigTools(s, o.config, o.settings)
 	}
 	return s
 }
 
-func addMachineTools(s *mcp.Server, g SSH) {
+func addMachineTools(s *mcp.Server, g SSH, v *secrets.Service) {
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(true)}
 	acts := &mcp.ToolAnnotations{DestructiveHint: t(true), OpenWorldHint: t(true)}
 
@@ -431,11 +434,29 @@ func addMachineTools(s *mcp.Server, g SSH) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "run_command", Title: "Run a command on a machine", Annotations: acts,
-		Description: "Run a shell command on a machine, as its user, without a terminal, and get its exit code, stdout and stderr as plain text. Long output keeps its start and end; get_session returns all of it. Recorded and shown to people."},
+		Description: "Run a shell command on a machine, as its user, without a terminal, and get its exit code, stdout and stderr as plain text. Long output keeps its start and end; get_session returns all of it. Recorded and shown to people. secrets injects beacon:// values as the command's environment (the item must be bound to the machine); the output, recording and transcript are scrubbed of those values."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, sshgate.RunResult, error) {
 			who, err := gate(ctx, "machines:ssh")
 			if err != nil {
 				return nil, sshgate.RunResult{}, err
+			}
+			if len(in.Secrets) > 0 {
+				p, ok := principal(ctx)
+				if !ok || p.Agent == "" {
+					return nil, sshgate.RunResult{}, errors.New("agents reach items through grants, not this door: request_secret asks, run_command's secrets take")
+				}
+				if !p.Has("secrets:use") {
+					return nil, sshgate.RunResult{}, errors.New(api.ScopeProblem(p, "secrets:use"))
+				}
+				if v == nil {
+					return nil, sshgate.RunResult{}, errors.New("the vault is not wired")
+				}
+				env, sc, err := v.UseForMachine(p.Agent, in.Machine, in.Secrets, in.Reason, "", "mcp")
+				if err != nil {
+					return nil, sshgate.RunResult{}, err
+				}
+				r, err := g.Gate.RunWithEnv(ctx, who, in.Machine, sshgate.RunInput{Command: in.Command, Cwd: in.Cwd, Stdin: in.Stdin, Timeout: in.Timeout}, env, sc)
+				return nil, r, err
 			}
 			r, err := g.Gate.Run(ctx, who, in.Machine, sshgate.RunInput{Command: in.Command, Cwd: in.Cwd, Stdin: in.Stdin, Timeout: in.Timeout})
 			return nil, r, err

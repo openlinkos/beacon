@@ -38,7 +38,7 @@ type FileDeliverer interface {
 // are delivered, and whether a maintenance window is on (the next_window policy of file.on_change).
 // A nil field leaves what was set before.
 type UseDeps struct {
-	Deliver    FileDeliverer
+	Deliver     FileDeliverer
 	Maintenance func() bool
 }
 
@@ -57,11 +57,11 @@ func (s *Service) SetUseDeps(d UseDeps) {
 // fileState is what became of one declared file: which version was delivered, when, whether a newer
 // one waits for its moment, and the last error when it could not be written.
 type fileState struct {
-	Version   int64     `json:"version"`
-	At        time.Time `json:"at"`
-	Pending   int64     `json:"pending,omitempty"` // the version waiting for its window
-	LastErr   string    `json:"last_error,omitempty"`
-	FailedAt  time.Time `json:"failed_at,omitzero"`
+	Version  int64     `json:"version"`
+	At       time.Time `json:"at"`
+	Pending  int64     `json:"pending,omitempty"` // the version waiting for its window
+	LastErr  string    `json:"last_error,omitempty"`
+	FailedAt time.Time `json:"failed_at,omitzero"`
 }
 
 func fileStateKey(item, machine, path string) []byte {
@@ -177,7 +177,7 @@ func (s *Service) deliverOneFile(item Item, col Collection, f ItemFile, st fileS
 // is new (the sweep keeps trying; the chat need not hear every try).
 func (s *Service) fileFailed(item Item, f ItemFile, st fileState, msg string) {
 	newErr := st.LastErr != msg
-	st.LastErr, st.FailedAt, st.Version = msg, s.now(), st.Version
+	st.LastErr, st.FailedAt = msg, s.now()
 	if st.Pending == 0 {
 		st.Pending = item.Version
 	}

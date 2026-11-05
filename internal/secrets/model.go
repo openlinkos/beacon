@@ -106,7 +106,7 @@ type Item struct {
 	Level      string     `json:"level,omitempty"` // empty: inherit
 	Actions    []string   `json:"actions,omitempty"`
 	State      string     `json:"state"`
-	Version    int64     `json:"version"`          // the current version
+	Version    int64      `json:"version"`          // the current version
 	Source     string     `json:"source,omitempty"` // 1password:<uuid>, chrome
 	RotateDays int        `json:"rotate_days,omitempty"`
 	Machines   []string   `json:"machines,omitempty"` // bound machines, for use
