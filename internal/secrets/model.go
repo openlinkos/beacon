@@ -10,8 +10,9 @@
 // People hold four permissions per collection — describe, read, edit, manage — and an owner holds
 // manage on every collection. Reading a value needs the account password re-entered, within a
 // window the settings give, and every view is recorded before the value is returned. Agents reach
-// items only through the grants a later package brings; until then the vault answers an agent with
-// nothing.
+// items through the grants: what an entitlement covers they may ask for, a request split by the
+// level each item needs, and a grant then hands the value over — every use recorded, in the same
+// transaction the grant's counter moves in, before the value is given.
 package secrets
 
 import (
@@ -76,12 +77,13 @@ var (
 // Collection is a library of items (1Password's vault): its default approval level, the people and
 // roles allowed in, and which version of its key is in force. KeyVersion only moves when the
 // collection key is rotated; the wrapped key of every version is kept, so old item versions stay
-// readable.
+// readable. Actions, when set, narrows every item in the collection to the actions named.
 type Collection struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Level       string    `json:"level"` // the default approval level of the collection
+	Actions     []string  `json:"actions,omitempty"`
 	KeyVersion  int64     `json:"key_version"`
 	Created     time.Time `json:"created"`
 	CreatedBy   string    `json:"created_by,omitempty"`
@@ -156,10 +158,12 @@ type Attachment struct {
 }
 
 // Tag is a layered, lower-case label that items and agents carry ("env/prod", "service/dns"); its
-// level, when set, makes every item wearing it at least that strict.
+// level, when set, makes every item wearing it at least that strict, and its actions, when set,
+// narrow every item wearing it to the actions named.
 type Tag struct {
 	Name        string    `json:"name"` // lower-case, layered with /
 	Level       string    `json:"level,omitempty"`
+	Actions     []string  `json:"actions,omitempty"`
 	Description string    `json:"description,omitempty"`
 	Created     time.Time `json:"created"`
 }

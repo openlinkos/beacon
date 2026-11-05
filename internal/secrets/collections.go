@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -92,9 +93,19 @@ func (s *Service) collectionVerifies(r signedCollection) bool {
 	return verifyRow(sk, r.Sig, r.signedParts()...)
 }
 
+// checkActions checks an action restriction (describe, read, use).
+func checkActions(actions []string) error {
+	for _, a := range actions {
+		if !ValidAction(a) {
+			return fmt.Errorf("%w: an action is one of %s", ErrBadInput, joinStrings(Actions))
+		}
+	}
+	return nil
+}
+
 // CreateCollection makes a collection with its first key version. Only the deployment's owner (or
 // whoever the wiring lets act for the system) makes collections.
-func (s *Service) CreateCollection(who Actor, name, description, level string) (Collection, error) {
+func (s *Service) CreateCollection(who Actor, name, description, level string, actions []string) (Collection, error) {
 	if s.keys.sealed() {
 		return Collection{}, ErrSealed
 	}
@@ -107,13 +118,16 @@ func (s *Service) CreateCollection(who Actor, name, description, level string) (
 	if !ValidLevel(level) {
 		return Collection{}, fmt.Errorf("%w: a level is one of %s", ErrBadInput, joinStrings(Levels))
 	}
+	if err := checkActions(actions); err != nil {
+		return Collection{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id, err := newID()
 	if err != nil {
 		return Collection{}, err
 	}
-	col := Collection{ID: id, Name: name, Description: description, Level: level, KeyVersion: 1,
+	col := Collection{ID: id, Name: name, Description: description, Level: level, Actions: compact(actions), KeyVersion: 1,
 		Created: s.now(), CreatedBy: who.Name} // the first key version arrives with the row
 	sk, err := s.sk()
 	if err != nil {
@@ -135,55 +149,76 @@ func (s *Service) CreateCollection(who Actor, name, description, level string) (
 	return col, nil
 }
 
-// UpdateCollection changes a collection's description or default level; the level is policy, so it
-// needs manage.
-func (s *Service) UpdateCollection(who Actor, nameOrID, description string, level string) (Collection, error) {
+// UpdateCollection changes a collection's description, default level or action restriction; the
+// level and the actions are policy, so they need manage.
+func (s *Service) UpdateCollection(who Actor, nameOrID, description string, level string, actions []string) (Collection, error) {
 	if s.keys.sealed() {
 		return Collection{}, ErrSealed
 	}
 	if level != "" && !ValidLevel(level) {
 		return Collection{}, fmt.Errorf("%w: a level is one of %s", ErrBadInput, joinStrings(Levels))
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := checkActions(actions); err != nil {
 		return Collection{}, err
 	}
 	var out Collection
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		var r *signedCollection
-		tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
-			var c signedCollection
-			if json.Unmarshal(v, &c) == nil && (c.Name == nameOrID || c.ID == nameOrID) {
-				cc := c
-				r = &cc
-				return false
+	var levelChanged bool
+	var err error
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		sk, lockErr := s.sk()
+		if lockErr != nil {
+			err = lockErr
+			return
+		}
+		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+			var r *signedCollection
+			tx.Range(bucketCollections, kv.Range{}, func(_, v []byte) bool {
+				var c signedCollection
+				if json.Unmarshal(v, &c) == nil && (c.Name == nameOrID || c.ID == nameOrID) {
+					cc := c
+					r = &cc
+					return false
+				}
+				return true
+			})
+			if r == nil {
+				return fmt.Errorf("%w: no collection %q", ErrNotFound, nameOrID)
 			}
-			return true
+			if !s.collectionVerifies(*r) {
+				return fmt.Errorf("%w: the collection's row does not verify", ErrNotFound)
+			}
+			if !s.mayManageTx(tx, who, r.ID) {
+				return fmt.Errorf("%w: changing a collection's policy needs manage", ErrForbidden)
+			}
+			if description != "" {
+				r.Description = description
+			}
+			if level != "" && level != r.Level {
+				levelChanged = true
+				r.Level = level
+			}
+			switch {
+			case len(actions) == 1 && actions[0] == "-":
+				if r.Actions != nil {
+					levelChanged = true // the policy around the items changed
+				}
+				r.Actions = nil
+			case len(actions) > 0:
+				r.Actions = compact(actions)
+			}
+			out = r.Collection
+			return putCollectionTx(tx, r.Collection, sk)
 		})
-		if r == nil {
-			return fmt.Errorf("%w: no collection %q", ErrNotFound, nameOrID)
-		}
-		if !s.collectionVerifies(*r) {
-			return fmt.Errorf("%w: the collection's row does not verify", ErrNotFound)
-		}
-		if !s.mayManageTx(tx, who, r.ID) {
-			return fmt.Errorf("%w: changing a collection's policy needs manage", ErrForbidden)
-		}
-		if description != "" {
-			r.Description = description
-		}
-		if level != "" {
-			r.Level = level
-		}
-		out = r.Collection
-		return putCollectionTx(tx, r.Collection, sk)
-	})
+	}()
 	if err != nil {
 		return Collection{}, err
 	}
 	s.echo(who, "changed the collection", out.Name, "secrets_collection_update")
+	if levelChanged {
+		s.reassessGrants() // outside the lock: it takes the lock itself per grant
+	}
 	return out, nil
 }
 
@@ -252,8 +287,9 @@ func (s *Service) tagByName(name string) (Tag, bool) {
 }
 
 // SetTag adds or changes a tag. A tag's level is policy (it makes every item wearing the tag at
-// least that strict), so this needs an owner's hand, and every change is recorded.
-func (s *Service) SetTag(who Actor, name, level, description string) (Tag, error) {
+// least that strict), so this needs an owner's hand, and every change is recorded. Its actions,
+// when set, narrow every item wearing it.
+func (s *Service) SetTag(who Actor, name, level, description string, actions []string) (Tag, error) {
 	if s.keys.sealed() {
 		return Tag{}, ErrSealed
 	}
@@ -264,37 +300,61 @@ func (s *Service) SetTag(who Actor, name, level, description string) (Tag, error
 	if level != "" && !ValidLevel(level) {
 		return Tag{}, fmt.Errorf("%w: a level is one of %s", ErrBadInput, joinStrings(Levels))
 	}
+	if err := checkActions(actions); err != nil {
+		return Tag{}, err
+	}
 	if !who.Owner() {
 		return Tag{}, fmt.Errorf("%w: tags change what items they touch need, which only the owner does", ErrForbidden)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
-		return Tag{}, err
-	}
-	old, existed := s.tagByName(name)
-	tag := Tag{Name: name, Level: level, Description: description}
-	if existed {
-		tag.Created = old.Created
-	} else {
-		tag.Created = s.now()
-	}
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		r := signedTag{Tag: tag}
-		r.Sig = signRow(sk, tag.signedParts()...)
-		b, err := json.Marshal(r)
-		if err != nil {
-			return err
+	var err error
+	var old Tag
+	var existed bool
+	var tag Tag
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		sk, lockErr := s.sk()
+		if lockErr != nil {
+			err = lockErr
+			return
 		}
-		return tx.Put(bucketTags, []byte(tag.Name), b)
-	})
+		old, existed = s.tagByName(name)
+		tag = Tag{Name: name, Level: level, Description: description}
+		switch {
+		case len(actions) == 1 && actions[0] == "-":
+			tag.Actions = nil // "-" clears the restriction
+		case len(actions) > 0:
+			tag.Actions = compact(actions)
+		case existed:
+			tag.Actions = old.Actions // nothing named: the restriction stays
+		}
+		if existed {
+			tag.Created = old.Created
+		} else {
+			tag.Created = s.now()
+		}
+		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+			r := signedTag{Tag: tag}
+			r.Sig = signRow(sk, tag.signedParts()...)
+			b, mErr := json.Marshal(r)
+			if mErr != nil {
+				return mErr
+			}
+			return tx.Put(bucketTags, []byte(tag.Name), b)
+		})
+	}()
 	if err != nil {
 		return Tag{}, err
 	}
 	s.echo(who, "set the tag", name, "secrets_tag_set")
+	if existed && (old.Level != tag.Level || !equalStrings(old.Actions, tag.Actions)) {
+		s.reassessGrants() // outside the lock: it takes the lock itself per grant
+	}
 	return tag, nil
 }
+
+// equalStrings says whether two lists hold the same strings.
+func equalStrings(a, b []string) bool { return slices.Equal(a, b) }
 
 // DeleteTag removes a tag; items wearing it keep the string but lose the level it carried.
 func (s *Service) DeleteTag(who Actor, name string) error {
@@ -359,29 +419,34 @@ func (s *Service) SetPermission(who Actor, collection, subject, perm, reason str
 	if !s.May(who, col.ID, PermManage) {
 		return fmt.Errorf("%w: managing a collection's people needs manage", ErrForbidden)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
-		return err
-	}
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		if perm == "" {
-			return tx.Delete(bucketPerms, permRowKey(col.ID, subject))
+	var err error
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		sk, lockErr := s.sk()
+		if lockErr != nil {
+			err = lockErr
+			return
 		}
-		p := Permission{Collection: col.ID, Subject: subject, Perm: perm,
-			Actor: who.Name, Via: who.Via, At: s.now(), Reason: reason}
-		p.Sig = signRow(sk, p.signedParts()...)
-		b, err := json.Marshal(p)
-		if err != nil {
-			return err
-		}
-		return tx.Put(bucketPerms, permRowKey(col.ID, subject), b)
-	})
+		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+			if perm == "" {
+				return tx.Delete(bucketPerms, permRowKey(col.ID, subject))
+			}
+			p := Permission{Collection: col.ID, Subject: subject, Perm: perm,
+				Actor: who.Name, Via: who.Via, At: s.now(), Reason: reason}
+			p.Sig = signRow(sk, p.signedParts()...)
+			b, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			return tx.Put(bucketPerms, permRowKey(col.ID, subject), b)
+		})
+	}()
 	if err != nil {
 		return err
 	}
 	s.echo(who, "set who may use the collection", col.Name+" ("+subject+" → "+perm+")", "secrets_permission_set")
+	s.reassessGrants() // a permission change may leave owners without access they had
 	return nil
 }
 
