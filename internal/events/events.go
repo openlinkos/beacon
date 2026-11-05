@@ -710,8 +710,10 @@ func (l *Log) Checkpoints() ([]Checkpoint, error) {
 func (l *Log) Verify() (Result, error) { return l.verify(0) }
 
 // VerifySince verifies the chain from the checkpoint at seq onwards (the records it covered may
-// be gone); there must be a checkpoint at seq. A prune mark in the range re-anchors the walk so
-// a verify from before a prune still holds.
+// be gone); there must be a checkpoint at seq. The walk starts after that checkpoint, not at the
+// first record still present: an unpruned log must still verify from a mid-chain checkpoint, and
+// a prune that left later records must still verify from a checkpoint among them. A prune mark
+// in the range re-anchors the walk so a verify from before a prune still holds.
 func (l *Log) VerifySince(seq uint64) (Result, error) { return l.verify(seq) }
 
 func (l *Log) verify(from uint64) (Result, error) {
@@ -795,7 +797,6 @@ func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, firstPresent,
 				"record %d follows records that are gone without a prune checkpoint", firstPresent)
 		}
-		start = firstPresent
 	} else if firstPresent > 1 {
 		p, ok := prunes[firstPresent-1]
 		if !ok {

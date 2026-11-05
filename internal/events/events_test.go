@@ -255,6 +255,79 @@ func TestPruneKeepsTheChain(t *testing.T) {
 	}
 }
 
+// TestVerifySinceFromAMidChainCheckpoint: a log that has never been pruned still verifies
+// from a checkpoint in the middle. Walking from the first record present with that
+// checkpoint's head as the expected previous hash is the regression: record 1 "does not
+// continue the chain".
+func TestVerifySinceFromAMidChainCheckpoint(t *testing.T) {
+	f := open(t, Options{})
+	for range 3 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at3, err := f.log.Checkpoint()
+	if err != nil || at3.Seq != 3 {
+		t.Fatalf("checkpoint at 3: %+v %v", at3, err)
+	}
+	for range 7 {
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := f.log.VerifySince(3)
+	if err != nil {
+		t.Fatalf("verify from seq 3 on an unpruned log: %v %+v", err, res)
+	}
+	if res.FirstSeq != 4 || res.Events != 7 || res.LastSeq != 10 {
+		t.Fatalf("walked %+v, want seq 4–10", res)
+	}
+}
+
+// TestVerifySinceAfterPruneFromALaterCheckpoint: after a prune leaves records 26–72,
+// VerifySince(49) must walk from 49, not report a break at 26.
+func TestVerifySinceAfterPruneFromALaterCheckpoint(t *testing.T) {
+	f := open(t, Options{})
+	base := f.now
+	var at49 Checkpoint
+	for i := range 72 {
+		f.now = base.Add(time.Duration(i) * time.Hour)
+		if _, err := f.log.Append(Event{Actor: "alice", Action: "a"}); err != nil {
+			t.Fatal(err)
+		}
+		if i+1 == 25 || i+1 == 49 {
+			cp, err := f.log.Checkpoint()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if i+1 == 49 {
+				at49 = cp
+			}
+		}
+	}
+	if at49.Seq != 49 {
+		t.Fatalf("checkpoint at 49: %+v", at49)
+	}
+	// now is base+71h; retention 47h cuts at base+24h, so seq 26 (at +25h) stays and 1–25 go.
+	n, err := f.log.Prune(47 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 25 {
+		t.Fatalf("pruned %d, want 25 (records 1–25)", n)
+	}
+	if res, err := f.log.Verify(); err != nil || res.FirstSeq != 26 {
+		t.Fatalf("verify after prune: %v %+v", err, res)
+	}
+	res, err := f.log.VerifySince(49)
+	if err != nil {
+		t.Fatalf("verify from seq 49 after prune: %v %+v", err, res)
+	}
+	if res.FirstSeq != 50 || res.LastSeq != 72 {
+		t.Fatalf("walked %+v, want seq 50–72", res)
+	}
+}
+
 func TestReadOnlyLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "beacon.db")
 	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path})
