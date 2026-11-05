@@ -10,6 +10,7 @@ package backup
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,6 +31,7 @@ import (
 type Options struct {
 	Host        string
 	Version     string // the running Beacon, for manifests and the upgrade trigger
+	Driver      string // sqlite (the default); postgres is refused until it has its own snapshot
 	DBPath      string // the SQL database; a pre-migration run points at the bbolt file with Bbolt
 	Bbolt       bool   // DBPath is the old bbolt file (the migration's before-backup)
 	DataDir     string // <data>/backup holds the state and the recovery material
@@ -72,14 +74,17 @@ type State struct {
 	NextFull   time.Time `json:"next_full"`
 	LastBackup time.Time `json:"last_backup"`
 	LastDrill  time.Time `json:"last_drill"`
+	Failures   int       `json:"failures,omitempty"`
+	RetryAfter time.Time `json:"retry_after,omitempty"`
 }
 
 // Manager runs the backups: one at a time (a lock of its own), on its schedules and on demand.
 type Manager struct {
-	opts Options
-	dir  string // <data>/backup
-	log  *slog.Logger
-	now  func() time.Time
+	opts   Options
+	dir    string // <data>/backup
+	log    *slog.Logger
+	now    func() time.Time
+	signer ed25519.PrivateKey
 
 	mu    sync.Mutex
 	state State
@@ -88,6 +93,9 @@ type Manager struct {
 
 // New reads (or begins) the state beside the data directory and returns the manager.
 func New(o Options) (*Manager, error) {
+	if postgresDriver(o.Driver) {
+		return nil, fmt.Errorf("backup: a PostgreSQL database cannot be snapshotted yet; turn backups off or keep storage.driver as sqlite")
+	}
 	if len(o.Destinations) == 0 {
 		return nil, fmt.Errorf("backup: no destinations")
 	}
@@ -104,10 +112,24 @@ func New(o Options) (*Manager, error) {
 	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return nil, err
 	}
+	signer, err := EnsureSignKey(m.dir)
+	if err != nil {
+		return nil, err
+	}
+	m.signer = signer
 	if err := m.load(); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func postgresDriver(d string) bool {
+	switch strings.ToLower(strings.TrimSpace(d)) {
+	case "postgres", "postgresql":
+		return true
+	default:
+		return false
+	}
 }
 
 // RecoveryFile is where the one-time recovery material waits for its owner; PublicKeyFile is
@@ -167,8 +189,7 @@ func (m *Manager) Run(ctx context.Context, trigger, actor string, files, full bo
 
 	man, err := m.build(ctx, trigger, files, full)
 	if err != nil {
-		m.audit(store.AuditEntry{Actor: actorOrSystem(actor), Via: "system", Action: "backup.failed",
-			Target: trigger, Detail: err.Error()})
+		m.noteFailure(actor, trigger, err)
 		return man, err
 	}
 	m.audit(store.AuditEntry{Actor: actorOrSystem(actor), Via: "system", Action: "backup.done",
@@ -176,6 +197,39 @@ func (m *Manager) Run(ctx context.Context, trigger, actor string, files, full bo
 		Detail: fmt.Sprintf("%d members, %d recordings, audit head %s", len(man.Members), man.Recordings, short(man.AuditHead))})
 	m.pushHeartbeat(ctx)
 	return man, nil
+}
+
+func failBackoff(first time.Duration, n int) time.Duration {
+	if first <= 0 {
+		first = time.Minute
+	}
+	wait := first
+	for i := 1; i < n && i < 8; i++ {
+		if wait > time.Hour/4 {
+			return time.Hour
+		}
+		wait *= 4
+	}
+	if wait > time.Hour {
+		return time.Hour
+	}
+	return wait
+}
+
+func (m *Manager) noteFailure(actor, trigger string, err error) {
+	m.mu.Lock()
+	m.state.Failures++
+	n := m.state.Failures
+	wait := failBackoff(m.opts.RetryWait, n)
+	m.state.RetryAfter = m.now().UTC().Add(wait)
+	_ = m.save()
+	m.mu.Unlock()
+	if n == 1 {
+		m.audit(store.AuditEntry{Actor: actorOrSystem(actor), Via: "system", Action: "backup.failed",
+			Target: trigger, Detail: err.Error()})
+		return
+	}
+	m.log.Error("backup failed", "trigger", trigger, "attempt", n, "retry_after", wait.String(), "err", err)
 }
 
 // build is the backup itself: snapshot, check, pack, upload, read back, retain, record state.
@@ -187,7 +241,7 @@ func (m *Manager) build(ctx context.Context, trigger string, files, full bool) (
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	man := Manifest{Format: FormatVersion, Beacon: m.opts.Version, Host: m.opts.Host, Created: started}
+	man := Manifest{Format: FormatVersion, DataVersion: DataVersion, Beacon: m.opts.Version, Host: m.opts.Host, Created: started}
 
 	// the database: a consistent snapshot, checked before it is encrypted
 	var sources []Source
@@ -226,14 +280,17 @@ func (m *Manager) build(ctx context.Context, trigger string, files, full bool) (
 		sources = append(sources, s)
 	}
 
-	// the recordings and the configuration: the daily set
-	kind := "incr"
+	// the recordings and the configuration: the daily set. Database-only hourly runs are kind
+	// db, not incr: GFS over a shared incr kind kept the newest of the day (the hourly) and
+	// dropped the recordings.
+	kind := KindDB
 	if files {
 		m.mu.Lock()
 		watermark, nextFull := m.state.Watermark, m.state.NextFull
 		m.mu.Unlock()
+		kind = KindIncr
 		if full || watermark.IsZero() || !nextFull.After(started) {
-			kind = "full"
+			kind = KindFull
 		}
 		recs, mods, err := walkFiles(filepath.Join(m.opts.DataDir, "recordings"))
 		if err != nil {
@@ -266,7 +323,7 @@ func (m *Manager) build(ctx context.Context, trigger string, files, full bool) (
 	if err != nil {
 		return Manifest{}, err
 	}
-	written, err := Create(f, m.opts.Recipients, sources, man)
+	written, err := Create(f, m.opts.Recipients, m.signer, sources, man)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -297,9 +354,11 @@ func (m *Manager) build(ctx context.Context, trigger string, files, full bool) (
 	// state: the watermark covers what this run packed
 	m.mu.Lock()
 	m.state.LastBackup = started
+	m.state.Failures = 0
+	m.state.RetryAfter = time.Time{}
 	if files {
 		m.state.Watermark = started
-		if kind == "full" {
+		if kind == KindFull {
 			m.state.NextFull = started.Add(m.opts.ScheduleFull)
 		}
 	}
@@ -369,7 +428,9 @@ func (m *Manager) put(ctx context.Context, dst Destination, name, path string, s
 	return fmt.Errorf("gave up after %d tries: %w", m.opts.Retries+1, lastErr)
 }
 
-// prune applies the retention at every destination.
+// prune applies the retention at every destination, only to this host's backups (a shared
+// destination must not have one Beacon delete another's). An empty S3 prefix is handled by
+// List, which refuses keys with extra path components.
 func (m *Manager) prune(ctx context.Context) error {
 	now := m.now()
 	for _, dst := range m.opts.Destinations {
@@ -379,17 +440,31 @@ func (m *Manager) prune(ctx context.Context) error {
 		}
 		var list []Backup
 		for _, e := range entries {
-			list = append(list, Backup{Name: e.Name, Time: e.When, Kind: e.Kind})
-		}
-		keep := Plan(list, m.opts.Retention, now)
-		for _, e := range entries {
-			if keep[e.Name] {
+			host, _, _, ok := ParseName(e.Name)
+			if !ok {
 				continue
 			}
-			if err := dst.Delete(ctx, e.Name); err != nil {
-				return fmt.Errorf("delete %s from %s: %w", e.Name, dst.Name, err)
+			if m.opts.Host != "" && host != m.opts.Host {
+				continue
 			}
-			m.log.Info("backup pruned", "name", e.Name, "destination", dst.Name)
+			list = append(list, Backup{Name: e.Name, Time: e.When, Kind: e.Kind, Host: host})
+		}
+		keep, skew := Plan(list, m.opts.Retention, now)
+		if skew {
+			m.log.Error("backup retention skipped: the clock is behind the newest backup",
+				"destination", dst.Name, "now", now.UTC().Format(time.RFC3339))
+			m.audit(store.AuditEntry{Actor: "system", Via: "system", Action: "backup.retention_skipped",
+				Target: dst.Name, Detail: "the clock is behind the newest backup; nothing was pruned"})
+			continue
+		}
+		for _, b := range list {
+			if keep[b.Name] {
+				continue
+			}
+			if err := dst.Delete(ctx, b.Name); err != nil {
+				return fmt.Errorf("delete %s from %s: %w", b.Name, dst.Name, err)
+			}
+			m.log.Info("backup pruned", "name", b.Name, "destination", dst.Name)
 		}
 	}
 	return nil
@@ -487,6 +562,23 @@ func (m *Manager) RecoveryMaterial() (b []byte, ok bool) {
 	return b, true
 }
 
+// ConsumeRecoveryMaterial returns the recovery material and deletes it: the first download is
+// the last. The rename is the consume, so two requests cannot both read it.
+func (m *Manager) ConsumeRecoveryMaterial() ([]byte, error) {
+	path := m.RecoveryFile()
+	taken := path + ".taken"
+	if err := os.Rename(path, taken); err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(taken) //nolint:gosec // just renamed off the waiting path
+	if err != nil {
+		_ = os.Rename(taken, path)
+		return nil, err
+	}
+	_ = os.Remove(taken)
+	return b, nil
+}
+
 // RemoveRecoveryMaterial deletes the recovery material: from then on the server holds only the
 // public key, and the page cannot show what it no longer has.
 func (m *Manager) RemoveRecoveryMaterial() error {
@@ -497,7 +589,7 @@ func (m *Manager) RemoveRecoveryMaterial() error {
 	return err
 }
 
-// PublicKey is the public half the server keeps (empty when the configuration named its own
+// PublicKey is the age public half the server keeps (empty when the configuration named its own
 // recipients and none was generated here).
 func (m *Manager) PublicKey() string {
 	b, err := os.ReadFile(m.publicFile())
@@ -505,4 +597,21 @@ func (m *Manager) PublicKey() string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// SignPublicKey is the manifest-signing public key a restore verifies with.
+func (m *Manager) SignPublicKey() string {
+	if len(m.signer) == ed25519.PrivateKeySize {
+		return FormatSignPublic(signPublicOf(m.signer))
+	}
+	b, err := os.ReadFile(filepath.Join(m.dir, signPubFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// VerifyKey is the ed25519 public half of the server's signing key.
+func (m *Manager) VerifyKey() ed25519.PublicKey {
+	return signPublicOf(m.signer)
 }

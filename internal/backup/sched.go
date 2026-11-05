@@ -65,8 +65,12 @@ func (m *Manager) Start(ctx context.Context) {
 		case <-tick.C:
 			now := m.now().UTC()
 			m.mu.Lock()
+			waiting := !m.state.RetryAfter.IsZero() && now.Before(m.state.RetryAfter)
 			dbDue, filesDue := !m.state.NextDB.After(now), !m.state.NextFiles.After(now)
 			m.mu.Unlock()
+			if waiting {
+				continue
+			}
 			if filesDue {
 				run("schedule", true)
 			} else if dbDue {
@@ -222,6 +226,11 @@ func actorOrSystem(by string) string {
 // to the recovery material file for the owner to take away (the server keeps the public half
 // only). The second return says the material is newly written and waiting to be collected.
 func EnsureKey(dir string, fromConfig []age.Recipient) ([]age.Recipient, bool, error) {
+	sign, err := EnsureSignKey(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	signPub := FormatSignPublic(signPublicOf(sign))
 	if len(fromConfig) > 0 {
 		return fromConfig, false, nil
 	}
@@ -243,7 +252,7 @@ func EnsureKey(dir string, fromConfig []age.Recipient) ([]age.Recipient, bool, e
 		return nil, false, err
 	}
 	host, _ := os.Hostname()
-	if err := writeFileAtomic(filepath.Join(dir, "RECOVERY-MATERIAL.txt"), []byte(RecoveryMaterial(k, host))); err != nil {
+	if err := writeFileAtomic(filepath.Join(dir, "RECOVERY-MATERIAL.txt"), []byte(RecoveryMaterial(k, host, signPub))); err != nil {
 		return nil, false, err
 	}
 	if err := writeFileAtomic(pub, []byte(k.Public+"\n")); err != nil {

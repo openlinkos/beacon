@@ -174,8 +174,7 @@ type Backup struct {
 	RetryWait      Duration `yaml:"retry_wait"`
 	VerifyReadback *bool    `yaml:"verify_readback"` // read every upload back and compare; default true
 	// OnFailure is what a backup that keeps failing does: alert (the default, through the
-	// heartbeat going stale) or alert_and_pause (also pause the serving of secret values once
-	// the vault exists).
+	// heartbeat going stale). alert_and_pause is rejected until it does something.
 	OnFailure    string              `yaml:"on_failure"`
 	Destinations []BackupDestination `yaml:"destinations"`
 }
@@ -612,8 +611,11 @@ func (c *Config) validate() error {
 		if c.Backup.Schedule.FilesFull.D() < c.Backup.Schedule.Files.D() {
 			bad("backup.schedule.files_full is at least backup.schedule.files")
 		}
-		if c.Backup.OnFailure != "alert" && c.Backup.OnFailure != "alert_and_pause" {
-			bad("backup.on_failure is alert or alert_and_pause, not %q", c.Backup.OnFailure)
+		if c.Backup.OnFailure != "alert" {
+			bad("backup.on_failure is alert, not %q (alert_and_pause is not implemented)", c.Backup.OnFailure)
+		}
+		if c.Storage.Driver == "postgres" || c.Storage.Driver == "postgresql" {
+			bad("backup does not snapshot PostgreSQL yet; use the database's own backup or keep storage.driver as sqlite")
 		}
 		if c.Backup.Retries < 0 || c.Backup.Retries > 10 {
 			bad("backup.retries is between 0 and 10")

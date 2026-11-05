@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,10 +33,11 @@ import (
 
 const backupUsage = `backup now [-config PATH]                     one backup at once (everything it is due)
 backup ls [-config PATH]                       what every destination holds, newest first
-backup restore FILE... -identity KEY [-into DIR] [-dry-run]
+backup restore FILE... -identity KEY [-into DIR] [-dry-run] [-confirm] [-verify-key KEY]
                                               decrypt, verify, put the database, recordings,
                                               configuration and secrets back; -dry-run verifies
-                                              in a temporary directory and touches nothing
+                                              in a temporary directory and touches nothing;
+                                              restoring into the live data directory needs -confirm
 backup drill FILE... -identity KEY [-keep]     restore to a scratch directory, verify, report
                                               the drill to the running service when reachable
 backup keygen                                  a key pair; the private key prints once, alone`
@@ -208,14 +210,21 @@ func backupRestore(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfig, "configuration file")
 	identity := fs.String("identity", "", "the private key (an age key, or @FILE holding it or an ssh-ed25519 key)")
+	verifyKey := fs.String("verify-key", "", "the manifest signing public key (a sign1:… line, or @FILE); default: from -identity")
 	into := fs.String("into", "", "the directory to restore into (default: the configured data_dir)")
 	dry := fs.Bool("dry-run", false, "verify in a temporary directory and change nothing")
+	confirm := fs.Bool("confirm", false, "required when restoring into the live data directory")
 	pos, ok := positional(fs, args)
 	if !ok || len(pos) == 0 || *identity == "" {
-		fmt.Fprintln(stderr, "backup restore FILE... -identity KEY|@FILE [-into DIR] [-dry-run]")
+		fmt.Fprintln(stderr, "backup restore FILE... -identity KEY|@FILE [-into DIR] [-dry-run] [-confirm] [-verify-key KEY|@FILE]")
 		return 2
 	}
-	ids, err := loadIdentities(*identity)
+	ids, identityBytes, err := loadIdentitiesRaw(*identity)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	verify, err := loadVerifyKey(*verifyKey, identityBytes)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -229,6 +238,7 @@ func backupRestore(args []string, stdout, stderr io.Writer) int {
 	if dir == "" {
 		dir = cfg.DataDir
 	}
+	live := !*dry && backup.SameDataDir(dir, cfg.DataDir)
 	if *dry {
 		tmp, err := os.MkdirTemp("", "beacon-restore-")
 		if err != nil {
@@ -237,10 +247,13 @@ func backupRestore(args []string, stdout, stderr io.Writer) int {
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		dir = filepath.Join(tmp, "restored")
+		live = false
 	} else if err := checkServiceStopped(cfg, stderr); err != nil {
 		return 1
 	}
-	res, err := backup.Restore(context.Background(), pos, ids, dir)
+	res, err := backup.Restore(context.Background(), backup.RestoreOpts{
+		Paths: pos, Identities: ids, Verify: verify, Dir: dir, Live: live, Confirm: *confirm,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -252,41 +265,22 @@ func backupRestore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "verified in %s: the database and its audit chain hold, every member matches the manifest\n", dir)
 		return 0
 	}
-	// place the database where the service opens it, clearing the WAL side files of the one it replaces
+	if res.Aside != "" {
+		fmt.Fprintf(stdout, "live data copied aside: %s\n", res.Aside)
+	}
+	// place the database where the service opens it, through a temporary, reporting WAL failures
 	db := filepath.Join(dir, "db", "beacon.db")
 	if _, err := os.Stat(db); err == nil {
-		dst := filepath.Join(dir, "beacon.db")
-		if err := copyRestore(db, dst); err != nil {
+		if err := backup.PlaceDatabase(db, dir); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		for _, side := range []string{dst + "-wal", dst + "-shm"} {
-			_ = os.Remove(side)
-		}
-		fmt.Fprintf(stdout, "database: %s\n", dst)
+		fmt.Fprintf(stdout, "database: %s\n", filepath.Join(dir, "beacon.db"))
 	}
 	fmt.Fprintf(stdout, "recordings: %s\n", filepath.Join(dir, "recordings"))
 	fmt.Fprintf(stdout, "configuration: %s (place it as the deployment's files)\n", filepath.Join(dir, "config"))
 	fmt.Fprintf(stdout, "secrets: %s (place it as the deployment's secrets directory)\n", filepath.Join(dir, "secrets"))
 	return 0
-}
-
-// copyRestore moves the restored database member to where the service opens it.
-func copyRestore(src, dst string) error {
-	in, err := os.Open(src) //nolint:gosec // the member the restore just verified
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600) //nolint:gosec // the data directory the configuration names
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }
 
 // checkServiceStopped refuses to restore over a running service: it holds the database's lock
@@ -308,18 +302,24 @@ func backupDrill(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfig, "configuration file")
 	identity := fs.String("identity", "", "the private key (an age key, or @FILE holding it or an ssh-ed25519 key)")
+	verifyKey := fs.String("verify-key", "", "the manifest signing public key (a sign1:… line, or @FILE); default: from -identity")
 	keep := fs.Bool("keep", false, "keep the restored directory and print where")
 	pos, ok := positional(fs, args)
 	if !ok || len(pos) == 0 || *identity == "" {
-		fmt.Fprintln(stderr, "backup drill FILE... -identity KEY|@FILE [-keep]")
+		fmt.Fprintln(stderr, "backup drill FILE... -identity KEY|@FILE [-keep] [-verify-key KEY|@FILE]")
 		return 2
 	}
-	ids, err := loadIdentities(*identity)
+	ids, identityBytes, err := loadIdentitiesRaw(*identity)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	res, took, err := backup.Drill(context.Background(), pos, ids, *keep)
+	verify, err := loadVerifyKey(*verifyKey, identityBytes)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	res, took, err := backup.Drill(context.Background(), pos, ids, verify, *keep)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -363,28 +363,53 @@ func backupKeygen(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	host, _ := os.Hostname()
 	fmt.Fprintln(stdout, k.Private) // the secret, alone on stdout, for a script to take; shown once
-	fmt.Fprintln(stderr, "the age private key above is the recovery material: keep it off this machine.")
-	fmt.Fprintln(stderr, "Put it in the configuration so backups are encrypted to it:")
-	fmt.Fprintf(stderr, "  backup:\n    recipients: [%s]\n", k.Public)
-	fmt.Fprintf(stderr, "The recovery instructions it comes with:\n%s", backup.RecoveryMaterial(k, host))
+	fmt.Fprint(stderr, backup.RecoveryInstructions(k.Public))
 	return 0
 }
 
-// loadIdentities takes -identity: a literal AGE-SECRET-KEY or ssh key, or @FILE.
-func loadIdentities(s string) ([]age.Identity, error) {
+// loadIdentitiesRaw takes -identity: a literal AGE-SECRET-KEY or ssh key, or @FILE. The bytes
+// are kept so a recovery-material file can also yield the manifest signing public key.
+func loadIdentitiesRaw(s string) ([]age.Identity, []byte, error) {
 	path, isFile := strings.CutPrefix(s, "@")
 	if !isFile {
-		// a bare path to an existing file reads as one; anything else is the key itself
 		if st, err := os.Stat(s); err == nil && !st.IsDir() {
 			path, isFile = s, true
 		}
 	}
 	if isFile {
-		return backup.LoadIdentity(path)
+		b, err := os.ReadFile(path) //nolint:gosec // the operator names the file
+		if err != nil {
+			return nil, nil, err
+		}
+		ids, err := backup.ParseIdentities(b)
+		return ids, b, err
 	}
-	return backup.ParseIdentities([]byte(s))
+	ids, err := backup.ParseIdentities([]byte(s))
+	return ids, []byte(s), err
+}
+
+func loadVerifyKey(flag string, identityBytes []byte) (ed25519.PublicKey, error) {
+	if flag != "" {
+		path, isFile := strings.CutPrefix(flag, "@")
+		if !isFile {
+			if st, err := os.Stat(flag); err == nil && !st.IsDir() {
+				path, isFile = flag, true
+			}
+		}
+		if isFile {
+			return backup.LoadVerifyKey(path)
+		}
+		return backup.ParseSignPublic(flag)
+	}
+	pub, err := backup.ParseVerifyKey(identityBytes)
+	if err != nil {
+		return nil, err
+	}
+	if pub == nil {
+		return nil, fmt.Errorf("a restore needs the manifest signing public key (in the recovery material, or -verify-key)")
+	}
+	return pub, nil
 }
 
 // backupDestinations is the configuration's destinations as the backup package's.
@@ -462,7 +487,7 @@ func backupOptions(cfg *config.Config, cfgPath string, audit func(store.AuditEnt
 		db = filepath.Join(cfg.DataDir, "beacon.db")
 	}
 	return backup.Options{
-		Host: host, Version: version.Version, DBPath: db, DataDir: cfg.DataDir,
+		Host: host, Version: version.Version, Driver: cfg.Storage.Driver, DBPath: db, DataDir: cfg.DataDir,
 		ConfigFile: cfgPath, CatalogDir: cfg.CatalogDir,
 		TargetsDir: cfg.Gateway.TargetsDir, ModulesFile: cfg.Gateway.ModulesFile,
 		SecretsDir:    cfg.Backup.SecretsDir,

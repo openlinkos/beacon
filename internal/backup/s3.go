@@ -299,8 +299,15 @@ func (s *S3) List(ctx context.Context) ([]S3Entry, error) {
 	}
 }
 
+// MaxS3PutBytes is the largest single PUT AWS S3 and R2 accept (5 GiB). Larger archives need
+// a local destination, or a later multipart upload.
+const MaxS3PutBytes = 5 << 30
+
 // Put streams src (size bytes) under name.
 func (s *S3) Put(ctx context.Context, name string, src io.Reader, size int64) (string, error) {
+	if size > MaxS3PutBytes {
+		return "", fmt.Errorf("an S3 PUT is at most 5 GiB (%d bytes given); use a local destination or split the backup", size)
+	}
 	r, err := s.build(ctx, http.MethodPut, s.key(name), nil, src, size, "UNSIGNED-PAYLOAD",
 		map[string]string{"Content-Type": "application/octet-stream"})
 	if err != nil {

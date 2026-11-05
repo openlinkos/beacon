@@ -111,8 +111,8 @@ func usage(w io.Writer) {
   beacon storage check                        the database's health: integrity, buckets, audit chain
   beacon backup now [-full]                   one backup at once (a complete set with -full)
   beacon backup ls                            what every destination holds, newest first
-  beacon backup restore FILE... -identity KEY|@FILE [-into DIR] [-dry-run]
-                                              decrypt, verify, put the database and what surrounds it back
+  beacon backup restore FILE... -identity KEY|@FILE [-into DIR] [-dry-run] [-confirm] [-verify-key KEY]
+                                              decrypt, verify, put the database and what surrounds it back; live data_dir needs -confirm
   beacon backup drill FILE... -identity KEY|@FILE
                                               restore to a scratch directory, verify, report the drill
   beacon backup keygen                        a key pair; the private key prints once, alone

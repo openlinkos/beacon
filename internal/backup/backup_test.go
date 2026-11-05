@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +146,10 @@ func TestBackupAndRestoreRoundTrip(t *testing.T) {
 	}
 	fullPath := filepath.Join(destDir, entries[1].Name) // newest first
 	incrPath := filepath.Join(destDir, entries[0].Name)
-	res, err := Restore(context.Background(), []string{fullPath, incrPath}, []age.Identity{id}, filepath.Join(dataDir, "recovered"))
+	res, err := Restore(context.Background(), RestoreOpts{
+		Paths: []string{fullPath, incrPath}, Identities: []age.Identity{id}, Verify: mgr.VerifyKey(),
+		Dir: filepath.Join(dataDir, "recovered"),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,9 +260,16 @@ func TestIdentityFromRecoveryMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids, err := ParseIdentities([]byte(RecoveryMaterial(k, "host-1")))
+	signer := testSigner(t)
+	signPub := FormatSignPublic(signPublicOf(signer))
+	material := []byte(RecoveryMaterial(k, "host-1", signPub))
+	ids, err := ParseIdentities(material)
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("the material parsed: %d %v", len(ids), err)
+	}
+	verify, err := ParseVerifyKey(material)
+	if err != nil || len(verify) == 0 {
+		t.Fatalf("the signing public key was not in the material: %v", err)
 	}
 	dir := t.TempDir()
 	src := writeSource(t, dir, "db/beacon.db", "fixture")
@@ -271,11 +282,11 @@ func TestIdentityFromRecoveryMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Create(f, recs, []Source{src}, Manifest{Kind: "full", Created: timeNow().UTC()}); err != nil {
+	if _, err := Create(f, recs, signer, []Source{src}, Manifest{Kind: KindFull, Created: timeNow().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	_ = f.Close()
-	if _, err := Extract(out, ids, filepath.Join(dir, "out")); err != nil {
+	if _, err := Extract(out, ids, verify, filepath.Join(dir, "out")); err != nil {
 		t.Fatalf("the material's key did not open the archive: %v", err)
 	}
 }
@@ -321,5 +332,182 @@ func TestSnapshotAndIntegrity(t *testing.T) {
 	// a snapshot over an existing file refuses, rather than half-writing
 	if _, _, err := Snapshot(context.Background(), filepath.Join(dataDir, "beacon.db"), snap); err == nil {
 		t.Fatal("a snapshot over an existing file was taken")
+	}
+}
+
+func TestNewRefusesPostgres(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := testOptions(t, t.TempDir(), t.TempDir(), []age.Recipient{id.Recipient()})
+	opts.Driver = "postgres"
+	_, err = New(opts)
+	if err == nil || !strings.Contains(err.Error(), "PostgreSQL") {
+		t.Fatalf("postgres was accepted: %v", err)
+	}
+}
+
+func TestHourlyRunIsKindDB(t *testing.T) {
+	dataDir := t.TempDir()
+	destDir := t.TempDir()
+	fixtureTree(t, dataDir)
+	st := fixtureStore(t, filepath.Join(dataDir, "beacon.db"))
+	_ = st.Close()
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := New(testOptions(t, dataDir, destDir, []age.Recipient{id.Recipient()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.Run(context.Background(), "first", "tester", true, false); err != nil {
+		t.Fatal(err)
+	}
+	man, err := mgr.Run(context.Background(), "schedule", "system", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if man.Kind != KindDB {
+		t.Fatalf("the hourly run was %s, not db", man.Kind)
+	}
+}
+
+func TestFailedRunBacksOffAndAuditsOnce(t *testing.T) {
+	dataDir := t.TempDir()
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := testOptions(t, dataDir, t.TempDir(), []age.Recipient{id.Recipient()})
+	opts.DBPath = filepath.Join(dataDir, "missing.db")
+	opts.RetryWait = time.Hour
+	var audits []string
+	opts.Audit = func(e store.AuditEntry) error {
+		audits = append(audits, e.Action)
+		return nil
+	}
+	mgr, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.Run(context.Background(), "schedule", "system", false, false); err == nil {
+		t.Fatal("a missing database succeeded")
+	}
+	if _, err := mgr.Run(context.Background(), "schedule", "system", false, false); err == nil {
+		t.Fatal("the second try succeeded")
+	}
+	failed := 0
+	for _, a := range audits {
+		if a == "backup.failed" {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("backup.failed was written %d times, want 1: %v", failed, audits)
+	}
+	mgr.mu.Lock()
+	n, retry := mgr.state.Failures, mgr.state.RetryAfter
+	mgr.mu.Unlock()
+	if n != 2 || retry.Before(mgr.now().Add(time.Minute)) {
+		t.Fatalf("backoff: failures %d retry %v", n, retry)
+	}
+}
+
+func TestPruneLeavesAnotherHostsBackups(t *testing.T) {
+	dest := t.TempDir()
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	ours := ArchiveName("test-host", now.Add(-2*time.Hour), KindFull)
+	other := ArchiveName("other-host", now.Add(-3*time.Hour), KindFull)
+	for _, name := range []string{ours, other} {
+		if err := os.WriteFile(filepath.Join(dest, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := testOptions(t, t.TempDir(), dest, []age.Recipient{id.Recipient()})
+	opts.Retention = Keep{Hourly: 1, Daily: 1, Weekly: 1, Monthly: 1}
+	mgr, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.now = func() time.Time { return now }
+	if err := mgr.prune(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, other)); err != nil {
+		t.Fatalf("the other host's backup was deleted: %v", err)
+	}
+}
+
+func TestPruneSkipsWhenTheClockIsBehind(t *testing.T) {
+	dest := t.TempDir()
+	when := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	name := ArchiveName("test-host", when, KindFull)
+	if err := os.WriteFile(filepath.Join(dest, name), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var audits []string
+	opts := testOptions(t, t.TempDir(), dest, []age.Recipient{id.Recipient()})
+	opts.Audit = func(e store.AuditEntry) error {
+		audits = append(audits, e.Action)
+		return nil
+	}
+	mgr, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.now = func() time.Time { return time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC) }
+	if err := mgr.prune(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, name)); err != nil {
+		t.Fatalf("a clock in 2000 deleted the backup: %v", err)
+	}
+	found := false
+	for _, a := range audits {
+		if a == "backup.retention_skipped" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the skipped prune was not audited: %v", audits)
+	}
+}
+
+func TestConsumeRecoveryMaterialOnce(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "backup")
+	rs, generated, err := EnsureKey(dir, nil)
+	if err != nil || !generated || len(rs) != 1 {
+		t.Fatalf("ensure: %d %v %v", len(rs), generated, err)
+	}
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := New(testOptions(t, filepath.Dir(dir), t.TempDir(), []age.Recipient{id.Recipient()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mgr.RecoveryMaterial(); !ok {
+		t.Fatal("the material was not waiting")
+	}
+	b, err := mgr.ConsumeRecoveryMaterial()
+	if err != nil || !strings.Contains(string(b), "AGE-SECRET-KEY-") {
+		t.Fatalf("consume: %v", err)
+	}
+	if _, ok := mgr.RecoveryMaterial(); ok {
+		t.Fatal("the material was still there after the first take")
+	}
+	if _, err := mgr.ConsumeRecoveryMaterial(); err == nil {
+		t.Fatal("a second consume succeeded")
 	}
 }

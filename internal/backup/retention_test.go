@@ -43,7 +43,10 @@ func TestRetentionKeepsEachGeneration(t *testing.T) {
 		list = append(list, Backup{Name: name, Time: at})
 	}
 
-	keep := Plan(list, DefaultKeep(), now)
+	keep, skew := Plan(list, DefaultKeep(), now)
+	if skew {
+		t.Fatal("a clock on the newest backup's day read as behind")
+	}
 	if len(keep) == 0 || len(keep) >= len(list) {
 		t.Fatalf("kept %d of %d", len(keep), len(list))
 	}
@@ -78,9 +81,9 @@ func TestRetentionPrunesWhatFitsNoRule(t *testing.T) {
 	var list []Backup
 	for i := 1; i <= 40; i++ {
 		at := now.Add(time.Duration(-i) * time.Hour)
-		list = append(list, Backup{Name: ArchiveName("srv", at, "incr"), Time: at})
+		list = append(list, Backup{Name: ArchiveName("srv", at, KindDB), Time: at, Kind: KindDB})
 	}
-	keep := Plan(list, DefaultKeep(), now)
+	keep, _ := Plan(list, DefaultKeep(), now)
 	if got := len(keep); got > 26 {
 		t.Errorf("kept %d of 40 hourly backups; the rules should hold it near 24", got)
 	}
@@ -95,7 +98,7 @@ func TestRetentionPrunesWhatFitsNoRule(t *testing.T) {
 func TestRetentionNeverDeletesWhatItCannotRead(t *testing.T) {
 	now := time.Now().UTC()
 	list := []Backup{{Name: "beacon-srv-20260101-000000-full" + Suffix}, {Name: "not-a-backup-at-all"}}
-	keep := Plan(list, DefaultKeep(), now)
+	keep, _ := Plan(list, DefaultKeep(), now)
 	for _, b := range list {
 		if !keep[b.Name] {
 			t.Errorf("an unreadable name was deleted: %s", b.Name)
@@ -118,7 +121,7 @@ func TestRetentionKeepsTheIncrementalChain(t *testing.T) {
 	}
 	// a tight policy: one hourly, one daily, one weekly — the two older fulls do not fit, and
 	// their incrementals must go with them, while the newest full stays whatever the rules say
-	keep := Plan(list, Keep{Hourly: 1, Daily: 1, Weekly: 1}, now)
+	keep, _ := Plan(list, Keep{Hourly: 1, Daily: 1, Weekly: 1}, now)
 	newestFull := list[6].Name
 	if !keep[newestFull] {
 		t.Fatal("the newest full was pruned")
@@ -126,8 +129,8 @@ func TestRetentionKeepsTheIncrementalChain(t *testing.T) {
 	if !keep[list[8].Name] {
 		t.Error("the newest incremental was pruned")
 	}
-	if keep[list[7].Name] {
-		t.Error("an older incremental of the same day survived a one-hourly policy")
+	if !keep[list[7].Name] {
+		t.Error("an incremental after the newest full was pruned")
 	}
 	for _, old := range []int{0, 1, 2, 3, 4, 5} {
 		if keep[list[old].Name] {
@@ -136,11 +139,59 @@ func TestRetentionKeepsTheIncrementalChain(t *testing.T) {
 	}
 }
 
+func TestRetentionDoesNotPruneWhenTheClockIsBehind(t *testing.T) {
+	now := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	var list []Backup
+	for i := 0; i < 1440; i++ {
+		at := start.Add(-time.Duration(i) * time.Hour)
+		kind := KindIncr
+		if i%24 == 0 {
+			kind = KindFull
+		}
+		list = append(list, Backup{Name: ArchiveName("srv", at, kind), Time: at, Kind: kind})
+	}
+	keep, skew := Plan(list, DefaultKeep(), now)
+	if !skew {
+		t.Fatal("a clock in 2000 did not see the backups as in the future")
+	}
+	if len(keep) != len(list) {
+		t.Fatalf("kept %d of %d; a clock in the past must not wipe history", len(keep), len(list))
+	}
+}
+
+func TestRetentionKeepsRecordingIncrementalsAmongDBSnapshots(t *testing.T) {
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	fullAt := now.Add(-7 * 24 * time.Hour)
+	list := []Backup{{Name: ArchiveName("srv", fullAt, KindFull), Time: fullAt, Kind: KindFull}}
+	var incrs []string
+	for d := 6; d >= 0; d-- {
+		day := now.Add(-time.Duration(d) * 24 * time.Hour)
+		recAt := time.Date(day.Year(), day.Month(), day.Day(), 1, 0, 0, 0, time.UTC)
+		incr := Backup{Name: ArchiveName("srv", recAt, KindIncr), Time: recAt, Kind: KindIncr}
+		list = append(list, incr)
+		incrs = append(incrs, incr.Name)
+		for h := 2; h < 24; h++ {
+			at := time.Date(day.Year(), day.Month(), day.Day(), h, 0, 0, 0, time.UTC)
+			if !at.Before(now) {
+				continue
+			}
+			list = append(list, Backup{Name: ArchiveName("srv", at, KindDB), Time: at, Kind: KindDB})
+		}
+	}
+	keep, _ := Plan(list, DefaultKeep(), now)
+	for _, n := range incrs {
+		if !keep[n] {
+			t.Errorf("a recording incremental was pruned: %s", n)
+		}
+	}
+}
+
 func TestParseName(t *testing.T) {
 	at := time.Date(2026, 11, 5, 7, 8, 9, 0, time.UTC)
-	name := ArchiveName("srv-edge-1", at, "incr")
+	name := ArchiveName("srv-edge-1", at, KindIncr)
 	host, when, kind, ok := ParseName(name)
-	if !ok || host != "srv-edge-1" || !when.Equal(at) || kind != "incr" {
+	if !ok || host != "srv-edge-1" || !when.Equal(at) || kind != KindIncr {
 		t.Fatalf("parse %q: %q %v %q %v", name, host, when, kind, ok)
 	}
 	for _, bad := range []string{"beacon-x.tar.zst.age", "x-full" + Suffix, "beacon-h-20260101-full" + Suffix} {

@@ -71,6 +71,7 @@ func TestBackupValidation(t *testing.T) {
 		"tight files":        "backup: {destinations: [{dir: /tmp}], schedule: {files: 5m}}\n",
 		"full under files":   "backup: {destinations: [{dir: /tmp}], schedule: {files: 24h, files_full: 2h}}\n",
 		"bad on failure":     "backup: {destinations: [{dir: /tmp}], on_failure: ignore}\n",
+		"alert and pause":    "backup: {destinations: [{dir: /tmp}], on_failure: alert_and_pause}\n",
 		"recipients missing": "backup: {destinations: [{dir: /tmp}], recipients_file: " + filepath.ToSlash(filepath.Join(dir, "nope")) + "}\n",
 	} {
 		if _, err := Parse([]byte(tok + y)); err == nil {

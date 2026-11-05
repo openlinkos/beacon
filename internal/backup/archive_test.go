@@ -4,10 +4,12 @@ import (
 	"archive/tar"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +35,15 @@ func testKeys(t *testing.T) (age.Recipient, age.Identity, age.Identity) {
 	return a.Recipient(), a, b
 }
 
+func testSigner(t *testing.T) ed25519.PrivateKey {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv
+}
+
 func writeSource(t *testing.T, dir, name, content string) Source {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -48,6 +59,7 @@ func writeSource(t *testing.T, dir, name, content string) Source {
 func TestArchiveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	rec, mine, other := testKeys(t)
+	signer := testSigner(t)
 	src := writeSource(t, dir, "db/beacon.db", "a database fixture")
 	src2 := writeSource(t, dir, "secrets/root-key", fixtureSecret)
 	created := time.Date(2026, 11, 5, 6, 0, 0, 0, time.UTC)
@@ -56,7 +68,7 @@ func TestArchiveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	man, err := Create(f, []age.Recipient{rec}, []Source{src, src2},
+	man, err := Create(f, []age.Recipient{rec}, signer, []Source{src, src2},
 		Manifest{Beacon: "test", Host: "srv", Created: created, Kind: "full", Schema: 7})
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -77,11 +89,11 @@ func TestArchiveRoundTrip(t *testing.T) {
 	}
 
 	// with the right identity: the members and the manifest come back, and match
-	ar, err := Extract(out, []age.Identity{mine}, filepath.Join(dir, "out"))
+	ar, err := Extract(out, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "out"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ar.Manifest.Schema != 7 || ar.Manifest.Created != created || len(ar.Manifest.Members) != 2 {
+	if ar.Manifest.Schema != 7 || !ar.Manifest.Created.Equal(created) || len(ar.Manifest.Members) != 2 {
 		t.Fatalf("manifest %+v", ar.Manifest)
 	}
 	got, err := os.ReadFile(filepath.Join(ar.Dir, "secrets/root-key"))
@@ -91,10 +103,10 @@ func TestArchiveRoundTrip(t *testing.T) {
 
 	// with no identity: nothing; with the wrong identity: nothing either — the encryption is
 	// real, not a costume
-	if _, err := Extract(out, nil, filepath.Join(dir, "out2")); err == nil {
+	if _, err := Extract(out, nil, signPublicOf(signer), filepath.Join(dir, "out2")); err == nil {
 		t.Fatal("an archive without an identity opened")
 	}
-	if _, err := Extract(out, []age.Identity{other}, filepath.Join(dir, "out3")); err == nil {
+	if _, err := Extract(out, []age.Identity{other}, signPublicOf(signer), filepath.Join(dir, "out3")); err == nil {
 		t.Fatal("an archive opened with the wrong identity")
 	}
 
@@ -106,7 +118,7 @@ func TestArchiveRoundTrip(t *testing.T) {
 	if err := os.WriteFile(bad, flip, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Extract(bad, []age.Identity{mine}, filepath.Join(dir, "out4")); err == nil {
+	if _, err := Extract(bad, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "out4")); err == nil {
 		t.Fatal("a changed archive opened")
 	}
 }
@@ -140,9 +152,9 @@ func ed25519Key(t *testing.T) (pub string, priv []byte, err error) {
 	return string(ssh.MarshalAuthorizedKey(sshPub)), priv, nil
 }
 
-// packForTest writes an archive the way Create does, but with the manifest handed in verbatim —
-// how a tamperer would replay a manifest over changed members.
-func packForTest(t *testing.T, out string, rec age.Recipient, sources []Source, manifest []byte) {
+// packForTest writes an archive the way Create does, but with the manifest (and optional
+// signature) handed in verbatim — how a tamperer would replay a manifest over changed members.
+func packForTest(t *testing.T, out string, rec age.Recipient, sources []Source, manifest, sig []byte) {
 	t.Helper()
 	f, err := os.Create(out)
 	if err != nil {
@@ -170,11 +182,19 @@ func packForTest(t *testing.T, out string, rec age.Recipient, sources []Source, 
 			t.Fatal(err)
 		}
 	}
-	if err := tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(manifest))}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: manifestName, Mode: 0o600, Size: int64(len(manifest))}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write(manifest); err != nil {
 		t.Fatal(err)
+	}
+	if sig != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: manifestSigName, Mode: 0o600, Size: int64(len(sig))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(sig); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
@@ -187,49 +207,56 @@ func packForTest(t *testing.T, out string, rec age.Recipient, sources []Source, 
 	}
 }
 
+func mustSign(t *testing.T, signer ed25519.PrivateKey, manifest []byte) []byte {
+	t.Helper()
+	sig, err := signManifestBytes(signer, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sig
+}
+
 func TestArchiveTamperedMemberIsSeen(t *testing.T) {
 	dir := t.TempDir()
 	rec, mine, _ := testKeys(t)
+	signer := testSigner(t)
 	src := writeSource(t, dir, "db/beacon.db", "fixture")
 	out := filepath.Join(dir, "a"+Suffix)
 	f, err := os.Create(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Create(f, []age.Recipient{rec}, []Source{src}, Manifest{Kind: "full", Created: time.Now().UTC()})
+	_, err = Create(f, []age.Recipient{rec}, signer, []Source{src}, Manifest{Kind: "full", Created: time.Now().UTC()})
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	ar, err := Extract(out, []age.Identity{mine}, filepath.Join(dir, "good"))
+	ar, err := Extract(out, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "good"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the original manifest, replayed over a changed member: the honest reader refuses it
-	manifestPath := filepath.Join(dir, "manifest.json")
-	if err := os.WriteFile(manifestPath, jsonMarshalIndent(ar.Manifest), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	mb := jsonMarshalIndent(ar.Manifest)
+	sig := mustSign(t, signer, mb)
 	p := filepath.Join(dir, "changed")
 	if err := os.WriteFile(p, []byte("changed after the fact"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	tampered := filepath.Join(dir, "b"+Suffix)
-	packForTest(t, tampered, rec, []Source{{Name: "db/beacon.db", Path: p}}, jsonMarshalIndent(ar.Manifest))
-	if _, err := Extract(tampered, []age.Identity{mine}, filepath.Join(dir, "check")); err == nil || !errors.Is(err, ErrTampered) {
+	packForTest(t, tampered, rec, []Source{{Name: "db/beacon.db", Path: p}}, mb, sig)
+	if _, err := Extract(tampered, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "check")); err == nil || !errors.Is(err, ErrTampered) {
 		t.Fatalf("a changed member passed: %v", err)
 	}
 	// a member the manifest does not know is refused too
-	extra := writeSource(t, dir, "extra", "smuggled")
-	packForTest(t, tampered, rec, []Source{src, extra}, jsonMarshalIndent(ar.Manifest))
-	if _, err := Extract(tampered, []age.Identity{mine}, filepath.Join(dir, "check2")); err == nil || !errors.Is(err, ErrTampered) {
+	extra := writeSource(t, dir, "secrets/extra", "smuggled")
+	packForTest(t, tampered, rec, []Source{src, extra}, mb, sig)
+	if _, err := Extract(tampered, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "check2")); err == nil || !errors.Is(err, ErrTampered) {
 		t.Fatalf("a smuggled member passed: %v", err)
 	}
 	// and a member that vanished
-	packForTest(t, tampered, rec, nil, jsonMarshalIndent(ar.Manifest))
-	if _, err := Extract(tampered, []age.Identity{mine}, filepath.Join(dir, "check3")); err == nil || !errors.Is(err, ErrTampered) {
+	packForTest(t, tampered, rec, nil, mb, sig)
+	if _, err := Extract(tampered, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "check3")); err == nil || !errors.Is(err, ErrTampered) {
 		t.Fatalf("a missing member passed: %v", err)
 	}
 }
@@ -265,16 +292,151 @@ func TestRecipientsAndIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Create(f, recs, []Source{src}, Manifest{Kind: "full", Created: time.Now().UTC()}); err != nil {
+	signer := testSigner(t)
+	if _, err := Create(f, recs, signer, []Source{src}, Manifest{Kind: "full", Created: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	_ = f.Close()
 	for name, list := range map[string][]age.Identity{"age": ids, "ssh": sshIDs} {
-		if _, err := Extract(out, list, filepath.Join(dir, "out-"+name)); err != nil {
+		if _, err := Extract(out, list, signPublicOf(signer), filepath.Join(dir, "out-"+name)); err != nil {
 			t.Fatalf("the %s identity could not open the archive: %v", name, err)
 		}
 	}
 	if _, err := ParseRecipients([]string{"not-a-key"}); err == nil {
 		t.Fatal("a bad recipient parsed")
 	}
+}
+
+func TestExtractReadsAManifestLargerThanOneMiB(t *testing.T) {
+	dir := t.TempDir()
+	rec, mine, _ := testKeys(t)
+	signer := testSigner(t)
+	src := writeSource(t, dir, "db/beacon.db", "fixture")
+	man := Manifest{
+		Format: FormatVersion, Kind: KindFull, Created: time.Now().UTC().Truncate(time.Second),
+		Note:    strings.Repeat("n", 2<<20), // 2 MiB: the old 1 MiB cap refused this
+		Members: []Member{{Name: "db/beacon.db", Size: 7, SHA: "placeholder"}},
+	}
+	st, err := os.Stat(src.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256File(t, src.Path)
+	man.Members[0].Size, man.Members[0].SHA = st.Size(), sum
+	mb, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mb) <= 1<<20 {
+		t.Fatalf("the fixture is %d bytes, need more than 1 MiB", len(mb))
+	}
+	out := filepath.Join(dir, "big"+Suffix)
+	packForTest(t, out, rec, []Source{src}, mb, mustSign(t, signer, mb))
+	ar, err := Extract(out, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatalf("a 2 MiB manifest was refused: %v", err)
+	}
+	if ar.Manifest.Note != man.Note {
+		t.Fatal("the large note did not come back")
+	}
+}
+
+func TestCreateRefusesAnOversizedManifest(t *testing.T) {
+	dir := t.TempDir()
+	rec, _, _ := testKeys(t)
+	src := writeSource(t, dir, "db/beacon.db", "fixture")
+	out := filepath.Join(dir, "a"+Suffix)
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	_, err = Create(f, []age.Recipient{rec}, testSigner(t), []Source{src},
+		Manifest{Kind: KindFull, Created: time.Now().UTC(), Note: strings.Repeat("x", MaxManifestBytes+1)})
+	if err == nil || !errors.Is(err, ErrManifestSize) {
+		t.Fatalf("an oversized manifest was written: %v", err)
+	}
+}
+
+func TestExtractRefusesUnsignedAndWrongKey(t *testing.T) {
+	dir := t.TempDir()
+	rec, mine, _ := testKeys(t)
+	signer := testSigner(t)
+	other := testSigner(t)
+	src := writeSource(t, dir, "db/beacon.db", "fixture")
+	man := Manifest{Format: FormatVersion, Kind: KindFull, Created: time.Now().UTC().Truncate(time.Second),
+		Members: []Member{{Name: "db/beacon.db", Size: 7, SHA: sha256File(t, src.Path)}}}
+	st, _ := os.Stat(src.Path)
+	man.Members[0].Size = st.Size()
+	mb := jsonMarshalIndent(man)
+	unsigned := filepath.Join(dir, "u"+Suffix)
+	packForTest(t, unsigned, rec, []Source{src}, mb, nil)
+	if _, err := Extract(unsigned, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "u")); err == nil || !errors.Is(err, ErrUnsigned) {
+		t.Fatalf("an unsigned archive opened: %v", err)
+	}
+	wrong := filepath.Join(dir, "w"+Suffix)
+	packForTest(t, wrong, rec, []Source{src}, mb, mustSign(t, other, mb))
+	if _, err := Extract(wrong, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "w")); err == nil || !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("a wrongly-signed archive opened: %v", err)
+	}
+}
+
+func TestExtractRefusesDisallowedMemberPrefixes(t *testing.T) {
+	dir := t.TempDir()
+	rec, mine, _ := testKeys(t)
+	signer := testSigner(t)
+	db := writeSource(t, dir, "db/beacon.db", "fixture")
+	for _, name := range []string{"beacon.db", "backup/age-public.key", "../outside", "recordings/../../etc/passwd", "etc/passwd"} {
+		evil := writeSource(t, dir, "evil", "no")
+		evil.Name = name
+		man := Manifest{Format: FormatVersion, Kind: KindFull, Created: time.Now().UTC().Truncate(time.Second),
+			Members: []Member{{Name: name, Size: 2, SHA: sha256File(t, evil.Path)}}}
+		mb := jsonMarshalIndent(man)
+		out := filepath.Join(dir, "e"+Suffix)
+		packForTest(t, out, rec, []Source{evil}, mb, mustSign(t, signer, mb))
+		_, err := Extract(out, []age.Identity{mine}, signPublicOf(signer), filepath.Join(dir, "x-"+strings.Map(func(r rune) rune {
+			if r == '/' || r == '.' || r == ':' || r == '\\' {
+				return '-'
+			}
+			return r
+		}, name)))
+		if err == nil || (!errors.Is(err, ErrMemberName) && !errors.Is(err, ErrFormat)) {
+			t.Errorf("member %q was accepted: %v", name, err)
+		}
+	}
+	if _, err := Create(mustCreate(t, filepath.Join(dir, "c"+Suffix)), []age.Recipient{rec}, signer,
+		[]Source{{Name: "beacon.db", Path: db.Path}}, Manifest{Kind: KindFull, Created: time.Now().UTC()}); err == nil || !errors.Is(err, ErrMemberName) {
+		t.Fatalf("Create packed a root member: %v", err)
+	}
+}
+
+func TestParseNameRejectsAnotherPrefix(t *testing.T) {
+	at := time.Date(2026, 11, 5, 7, 8, 9, 0, time.UTC)
+	if _, _, _, ok := ParseName("other/" + ArchiveName("srv", at, KindFull)); ok {
+		t.Fatal("a key under another prefix parsed as a backup")
+	}
+	name := ArchiveName("srv-edge-1", at, KindDB)
+	host, when, kind, ok := ParseName(name)
+	if !ok || host != "srv-edge-1" || !when.Equal(at) || kind != KindDB {
+		t.Fatalf("parse db %q: %q %v %q %v", name, host, when, kind, ok)
+	}
+}
+
+func sha256File(t *testing.T, path string) string {
+	t.Helper()
+	h, err := hashFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func mustCreate(t *testing.T, path string) *os.File {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
 }

@@ -1,14 +1,19 @@
 package backup
 
 // The retention: grandfather–father–son, as restic's forget does it (the plan's §11), over a
-// history that is full backups and incremental ones. A backup is kept when it fits any rule:
-// the newest of each of the last N hours, the last N days, the last N weeks and the last N
-// months; the counting is on distinct buckets, so an hour with three backups keeps one of them.
+// history that is full backups, file incrementals and database-only snapshots. A full or a
+// database-only backup is kept when it fits any rule: the newest of each of the last N hours,
+// the last N days, the last N weeks and the last N months; the counting is on distinct buckets,
+// so an hour with three backups keeps one of them.
 //
-// The chain matters as much as the count: an incremental is restorable only beside the full it
-// follows, so the rules run over the fulls and the incrementals separately, an incremental
-// older than the oldest kept full goes even when a rule would keep it, and the newest full
-// always stays.
+// File incrementals (kind incr) are restorable only beside the full they follow, and thinning
+// them by GFS would drop the day's recordings in favour of a later database-only snapshot of
+// the same kind. Every incremental at or after the oldest kept full is therefore kept. The
+// newest full always stays.
+//
+// A clock behind the newest backup would otherwise skip every dated archive (they look like
+// they are in the future) and then delete them. When now is before the newest dated backup,
+// Plan keeps everything and reports the skew so the caller does not prune.
 
 import (
 	"fmt"
@@ -29,25 +34,45 @@ func DefaultKeep() Keep { return Keep{Hourly: 24, Daily: 14, Weekly: 8, Monthly:
 type Backup struct {
 	Name string
 	Time time.Time
-	Kind string // full or incr; empty reads as full (a name that could not be parsed)
+	Kind string // full, incr or db; empty reads as full (a name that could not be parsed)
+	Host string
 }
 
 // Plan marks which backups survive. A backup whose time cannot be read is always kept:
-// retention never deletes what it cannot place.
-func Plan(backups []Backup, keep Keep, now time.Time) map[string]bool {
+// retention never deletes what it cannot place. clockSkew is true when now is before the
+// newest dated backup: the caller must not prune, and every name is kept.
+func Plan(backups []Backup, keep Keep, now time.Time) (kept map[string]bool, clockSkew bool) {
 	out := map[string]bool{}
 	if keep == (Keep{}) {
 		keep = DefaultKeep()
 	}
-	var fulls, incrs []Backup
+	newest := time.Time{}
+	for _, b := range backups {
+		if b.Time.IsZero() {
+			continue
+		}
+		if newest.IsZero() || b.Time.After(newest) {
+			newest = b.Time
+		}
+	}
+	if !newest.IsZero() && now.Before(newest) {
+		for _, b := range backups {
+			out[b.Name] = true
+		}
+		return out, true
+	}
+	var fulls, incrs, dbs []Backup
 	for _, b := range backups {
 		if b.Time.IsZero() {
 			out[b.Name] = true
 			continue
 		}
-		if b.Kind == "incr" {
+		switch b.Kind {
+		case KindIncr:
 			incrs = append(incrs, b)
-		} else {
+		case KindDB:
+			dbs = append(dbs, b)
+		default:
 			fulls = append(fulls, b)
 		}
 	}
@@ -69,22 +94,18 @@ func Plan(backups []Backup, keep Keep, now time.Time) map[string]bool {
 			oldestKept = b.Time
 		}
 	}
-	if len(fulls) == 0 {
-		oldestKept = time.Time{} // no fulls at all: the incrementals stand on their own
-	}
-	for n := range keepG(incrs) {
-		for _, b := range incrs {
-			if b.Name == n {
-				// names carry the second, so an incremental of the same second as its full
-				// counts as following it
-				if oldestKept.IsZero() || !b.Time.Before(oldestKept) {
-					out[n] = true
-				}
-				break
-			}
+	// every file incremental at or after that full stays: GFS over mixed kinds used to keep
+	// the newest of the day, which is the hourly database-only snapshot, and drop the
+	// recordings
+	for _, b := range incrs {
+		if oldestKept.IsZero() || !b.Time.Before(oldestKept) {
+			out[b.Name] = true
 		}
 	}
-	return out
+	for n := range keepG(dbs) {
+		out[n] = true
+	}
+	return out, false
 }
 
 // planGFS is the generational rule over one list, newest first.
@@ -109,7 +130,10 @@ func planGFS(list []Backup, keep Keep, now time.Time) map[string]bool {
 		seen := map[string]bool{}
 		for _, bk := range sorted {
 			if bk.Time.After(now) {
-				continue // a clock ahead of today's is not a generation to count
+				// a clock behind this backup: keep it (Plan has already short-circuited
+				// when the newest is in the future; this is the remainder)
+				out[bk.Name] = true
+				continue
 			}
 			k := b.key(bk.Time)
 			if seen[k] {

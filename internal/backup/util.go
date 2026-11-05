@@ -29,7 +29,7 @@ func writeFileAtomic(path string, b []byte) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil { //nolint:gosec // path is a file Beacon named beside its own state
 		return err
 	}
 	return os.Rename(tmp, path)

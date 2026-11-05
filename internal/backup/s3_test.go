@@ -172,3 +172,29 @@ func TestS3SignatureIsSigV4(t *testing.T) {
 		t.Fatal("two secrets produced one signature")
 	}
 }
+
+func TestS3PutRefusesAboveFiveGiB(t *testing.T) {
+	s3, stub := stubS3(t)
+	_, err := s3.Put(context.Background(), "too-big", strings.NewReader("x"), MaxS3PutBytes+1)
+	if err == nil || !strings.Contains(err.Error(), "5 GiB") {
+		t.Fatalf("a 5 GiB+ put: %v", err)
+	}
+	if len(stub.objects) != 0 {
+		t.Fatal("a too-large put reached the store")
+	}
+}
+
+func TestS3ListEmptyPrefixDoesNotSeeOtherPrefixes(t *testing.T) {
+	s3, stub := stubS3(t)
+	s3.Prefix = ""
+	ours := ArchiveName("srv", timeNow().UTC(), KindFull)
+	stub.objects[ours] = []byte("ours")
+	stub.objects["other/"+ours] = []byte("theirs")
+	entries, err := Destination{S3: s3}.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != ours {
+		t.Fatalf("empty prefix listed %+v", entries)
+	}
+}

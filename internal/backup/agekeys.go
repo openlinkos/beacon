@@ -128,23 +128,39 @@ func GenerateKey() (GeneratedKey, error) {
 }
 
 // RecoveryMaterial is the text handed to the owner exactly once when Beacon generates the key
-// pair itself: the private key, the public key, and how to recover with them.
-func RecoveryMaterial(k GeneratedKey, host string) string {
+// pair itself: the private key, the public keys, and how to recover with them. signPub is the
+// manifest-signing public key a restore verifies with (empty omits it).
+func RecoveryMaterial(k GeneratedKey, host, signPub string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Beacon backup recovery material for %s\n", host)
 	fmt.Fprintf(&b, "=====================================================\n\n")
 	fmt.Fprintf(&b, "Keep this file somewhere safe that is not the server (a password manager,\n")
 	fmt.Fprintf(&b, "an offline drive). Whoever holds it can read every backup; the server itself\n")
-	fmt.Fprintf(&b, "holds only the public key and cannot.\n\n")
+	fmt.Fprintf(&b, "holds only the public keys and cannot.\n\n")
 	fmt.Fprintf(&b, "Private key (the identity a restore decrypts with):\n\n    %s\n\n", k.Private)
 	fmt.Fprintf(&b, "Public key (already recorded on the server):\n\n    %s\n\n", k.Public)
+	if signPub != "" {
+		fmt.Fprintf(&b, "Manifest signing public key (a restore checks each archive was written by\n")
+		fmt.Fprintf(&b, "this Beacon; keep it with the private key):\n\n    %s\n\n", signPub)
+	}
 	fmt.Fprintf(&b, "To recover, on any machine with the backup file:\n\n")
 	fmt.Fprintf(&b, "    beacon backup restore beacon-<host>-<time>-<kind>.tar.zst.age \\\n")
-	fmt.Fprintf(&b, "        -identity <file with the private key above> -into <empty directory>\n\n")
+	fmt.Fprintf(&b, "        -identity <this file> -into <empty directory> -confirm\n\n")
 	fmt.Fprintf(&b, "To prove the chain works before you need it, run a drill there:\n\n")
-	fmt.Fprintf(&b, "    beacon backup drill <the same file> -identity <the same file>\n\n")
+	fmt.Fprintf(&b, "    beacon backup drill <the same file> -identity <this file>\n\n")
 	fmt.Fprintf(&b, "The archive carries the database, the configuration and the secrets directory,\n")
-	fmt.Fprintf(&b, "so this key and one backup file are all a recovery needs. Delete this file from\n")
-	fmt.Fprintf(&b, "the server once you have stored it elsewhere; Beacon reminds you until you do.\n")
+	fmt.Fprintf(&b, "so this file and one backup are all a recovery needs. The first download from\n")
+	fmt.Fprintf(&b, "the console deletes this file on the server; Beacon reminds you until then.\n")
+	return b.String()
+}
+
+// RecoveryInstructions is what keygen prints on stderr: how to use the pair, without repeating
+// the private key that already went to stdout.
+func RecoveryInstructions(public string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "the age private key above is the recovery material: keep it off this machine.\n")
+	fmt.Fprintf(&b, "Put the public key in the configuration so backups are encrypted to it:\n")
+	fmt.Fprintf(&b, "  backup:\n    recipients: [%s]\n", public)
+	fmt.Fprintf(&b, "A restore also needs this Beacon's manifest signing public key (shown on the Backups page).\n")
 	return b.String()
 }

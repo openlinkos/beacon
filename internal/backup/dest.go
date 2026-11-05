@@ -79,14 +79,26 @@ func (d Destination) List(ctx context.Context) ([]Entry, error) {
 	return out, nil
 }
 
-// sortEntries orders newest first, incrementals before fulls of the same second.
+// sortEntries orders newest first; of the same second, file incrementals then database-only
+// snapshots then fulls, so a listing reads as the chain a restore wants.
 func sortEntries(out []Entry) {
 	sort.SliceStable(out, func(i, j int) bool {
 		if !out[i].When.Equal(out[j].When) {
 			return out[i].When.After(out[j].When)
 		}
-		return out[i].Kind == "incr" && out[j].Kind == "full"
+		return kindRank(out[i].Kind) < kindRank(out[j].Kind)
 	})
+}
+
+func kindRank(kind string) int {
+	switch kind {
+	case KindIncr:
+		return 0
+	case KindDB:
+		return 1
+	default:
+		return 2
+	}
 }
 
 // Put streams src (size bytes) under name and reports the hash it landed with.
