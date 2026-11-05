@@ -207,6 +207,33 @@ func TestReloadTakesTheDatabase(t *testing.T) {
 	}
 }
 
+// TestReloadKeepsTheCatalogueWhenTheReadFails: a single failed read must not replace the
+// catalogue in memory with an empty one at version 0.
+func TestReloadKeepsTheCatalogueWhenTheReadFails(t *testing.T) {
+	e := imported(t)
+	if _, ok := e.s.Catalog().Location("cdn-pre-us1"); !ok {
+		t.Fatal("setup")
+	}
+	version := e.s.Version()
+	summary := e.s.Summary()
+	if err := e.st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e.s.Reload()
+	if e.s.Version() != version {
+		t.Fatalf("Reload emptied the catalogue: version %d, want %d", e.s.Version(), version)
+	}
+	if _, ok := e.s.Catalog().Location("cdn-pre-us1"); !ok {
+		t.Fatal("Reload dropped a location after a read failure")
+	}
+	if e.s.Summary() != summary {
+		t.Fatalf("Reload changed the catalogue after a read failure: %s", e.s.Summary())
+	}
+	if !strings.Contains(e.bot.last(), "could not reload") {
+		t.Fatalf("the failure was not said: %q", e.bot.last())
+	}
+}
+
 func slicesOf(f Files) []string { return sortedKeys(f) }
 
 func TestReadFiles(t *testing.T) {

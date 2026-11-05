@@ -59,10 +59,11 @@ type ConfigWrite struct {
 }
 
 // Config returns the configuration's entries and its version: 0 when it was never changed.
-func (s *Store) Config() (map[string][]byte, int64) {
+// A read error is returned; the maps are empty then, and must not be taken as an empty catalogue.
+func (s *Store) Config() (map[string][]byte, int64, error) {
 	out := map[string][]byte{}
 	var version int64
-	_ = s.db.View(func(tx kv.Tx) error {
+	err := s.db.View(func(tx kv.Tx) error {
 		tx.Range(bucketConfig, kv.Range{}, func(k, v []byte) bool {
 			out[string(k)] = bytes.Clone(v)
 			return true
@@ -70,7 +71,10 @@ func (s *Store) Config() (map[string][]byte, int64) {
 		version = int64(tx.Sequence(bucketConfigChanges))
 		return nil
 	})
-	return out, version
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, version, nil
 }
 
 // CommitConfig applies writes and records c as the next version, all or nothing: when an entry no

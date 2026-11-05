@@ -59,6 +59,7 @@ func OpenPostgres(o PostgresOptions) (*Postgres, error) {
 	}
 	if o.StatementTimeout > 0 {
 		cfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(o.StatementTimeout.Milliseconds(), 10)
+		applySessionGuards(cfg, o.StatementTimeout)
 	}
 	cfg.RuntimeParams["application_name"] = "beacon"
 	if cfg.ConnectTimeout == 0 {
@@ -96,6 +97,28 @@ func OpenPostgres(o PostgresOptions) (*Postgres, error) {
 		return nil, err
 	}
 	return p, nil
+}
+
+// applySessionGuards bounds an idle-in-transaction session, a lock wait, and a dead TCP
+// connection by timeout, so a paused or partitioned writer cannot hold a row lock until the
+// server's keepalive gives up (about two hours by default).
+func applySessionGuards(cfg *pgx.ConnConfig, timeout time.Duration) {
+	if timeout <= 0 || cfg == nil {
+		return
+	}
+	ms := timeout.Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	cfg.RuntimeParams["idle_in_transaction_session_timeout"] = strconv.FormatInt(ms, 10)
+	cfg.RuntimeParams["lock_timeout"] = strconv.FormatInt(ms, 10)
+	sec := int((timeout + time.Second - 1) / time.Second)
+	if sec < 1 {
+		sec = 1
+	}
+	cfg.RuntimeParams["tcp_keepalives_idle"] = strconv.Itoa(sec)
+	cfg.RuntimeParams["tcp_keepalives_interval"] = "1"
+	cfg.RuntimeParams["tcp_keepalives_count"] = "3"
 }
 
 // timeoutCtx bounds a client-side wait a little past the server's statement_timeout, so a

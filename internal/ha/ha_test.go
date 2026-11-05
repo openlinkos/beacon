@@ -284,6 +284,71 @@ func TestWriteChecksTheLease(t *testing.T) {
 	}
 }
 
+// TestIdleWriteDoesNotBlockTakeover: a write transaction that holds FOR SHARE on the lease
+// row (a paused or partitioned primary) is killed at the lease's expiry, so a standby can take
+// over instead of waiting on the lock until TCP keepalive gives up.
+func TestIdleWriteDoesNotBlockTakeover(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	expire := time.Second
+	one, err := Open(admin, Options{Name: "idle", ID: "primary", Renew: 200 * time.Millisecond, Expire: expire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Open(admin, Options{Name: "idle", ID: "standby", Renew: 200 * time.Millisecond, Expire: expire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oneCtx, stopOne := context.WithCancel(context.Background())
+	defer stopOne()
+	go one.Run(oneCtx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the first instance never took the lease")
+	}
+	tx, err := admin.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := one.CheckWrite(context.Background(), tx); err != nil {
+		t.Fatalf("the holder should write: %v", err)
+	}
+	stopOne()
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	took := false
+	for !took && ctx.Err() == nil {
+		held, _, err := two.take(ctx)
+		if err != nil && ctx.Err() == nil {
+			t.Logf("take: %v", err)
+		}
+		if held {
+			took = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	elapsed := time.Since(started)
+	if !took {
+		t.Fatalf("the standby never took the lease while a write held FOR SHARE; waited %s", elapsed)
+	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("takeover took %s, want around the lease expiry (%s)", elapsed, expire)
+	}
+	t.Logf("takeover with an idle write holding FOR SHARE: %s", elapsed)
+}
+
 // TestRunReleasesAfterLeaderWork: the lease stays until Single's fn returns.
 func TestRunReleasesAfterLeaderWork(t *testing.T) {
 	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {

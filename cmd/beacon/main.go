@@ -406,7 +406,7 @@ func serve(args []string, stderr io.Writer) int {
 		go fn(ctx)
 	}
 	if cfg.HA.Enabled {
-		pool, err := ha.OpenPool(sec.StorageDSN)
+		pool, err := ha.OpenPool(sec.StorageDSN, cfg.HA.Expire.D())
 		if err != nil {
 			log.Error("cannot start", "err", err)
 			return 1

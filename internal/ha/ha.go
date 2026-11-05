@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -324,10 +325,20 @@ func (l *Lease) Epoch() int64 { return l.epoch.Load() }
 
 // CheckWrite looks at the leader row inside a write transaction (FOR SHARE) and refuses the write
 // when this instance is not the holder at the epoch it last took. Call it at the start of every
-// write transaction when high availability is on.
+// write transaction when high availability is on. The transaction is given the lease's expiry as
+// idle_in_transaction_session_timeout and lock_timeout, so a paused or partitioned primary cannot
+// hold the row lock past the expiry and block a standby's take.
 func (l *Lease) CheckWrite(ctx context.Context, tx *sql.Tx) error {
 	if l == nil {
 		return nil
+	}
+	ms := l.o.Expire.Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	timeout := strconv.FormatInt(ms, 10)
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('idle_in_transaction_session_timeout', $1, true), set_config('lock_timeout', $1, true)`, timeout); err != nil {
+		return err
 	}
 	var holder string
 	var epoch int64
@@ -397,15 +408,16 @@ func Single(ctx context.Context, l *Lease, fn func(context.Context)) {
 }
 
 // OpenPool opens the lease's own small pool over the DSN: one connection, for a renewal is one
-// statement that must never wait behind the store's writes. A statement timeout bounds a hung
-// take so it cannot sit until TCP keepalive gives up.
-func OpenPool(dsn string) (*sql.DB, error) {
+// statement that must never wait behind the store's writes. A statement and lock timeout of 2s
+// bounds a hung take so it cannot sit until TCP keepalive gives up. expire is the lease's
+// expiry: idle-in-transaction and TCP keepalives are set from it so a write that holds FOR SHARE
+// cannot block a take past the switch.
+func OpenPool(dsn string, expire time.Duration) (*sql.DB, error) {
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return nil, errors.New("postgres: the DSN is not valid")
 	}
-	cfg.RuntimeParams["application_name"] = "beacon-lease"
-	cfg.RuntimeParams["statement_timeout"] = "2000"
+	applyLeaseTimeouts(cfg, expire)
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 5 * time.Second
 	}
@@ -419,4 +431,28 @@ func OpenPool(dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("postgres %s:%d/%s: %w", cfg.Host, cfg.Port, cfg.Database, err)
 	}
 	return db, nil
+}
+
+// applyLeaseTimeouts sets the lease pool's statement and lock timeouts short (a hung take
+// must fail in 2s), and idle-in-transaction plus TCP keepalives from the lease's expiry so a
+// write holding FOR SHARE cannot outlast the switch.
+func applyLeaseTimeouts(cfg *pgx.ConnConfig, expire time.Duration) {
+	if expire <= 0 {
+		expire = 15 * time.Second
+	}
+	cfg.RuntimeParams["application_name"] = "beacon-lease"
+	cfg.RuntimeParams["statement_timeout"] = "2000"
+	cfg.RuntimeParams["lock_timeout"] = "2000"
+	ms := expire.Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	cfg.RuntimeParams["idle_in_transaction_session_timeout"] = strconv.FormatInt(ms, 10)
+	sec := int((expire + time.Second - 1) / time.Second)
+	if sec < 1 {
+		sec = 1
+	}
+	cfg.RuntimeParams["tcp_keepalives_idle"] = strconv.Itoa(sec)
+	cfg.RuntimeParams["tcp_keepalives_interval"] = "1"
+	cfg.RuntimeParams["tcp_keepalives_count"] = "3"
 }
