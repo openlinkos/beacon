@@ -78,6 +78,11 @@ func OpenSQLite(o SQLiteOptions) (*SQLite, error) {
 	if o.Path == "" {
 		return nil, errors.New("sqlite: a path is needed")
 	}
+	if !o.ReadOnly {
+		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
+			return nil, err
+		}
+	}
 	dsn := func(kv ...[2]string) string {
 		q := url.Values{}
 		for _, p := range kv {
@@ -185,7 +190,13 @@ func (s *SQLite) View(fn func(Tx) error) error {
 	if err != nil {
 		return err
 	}
-	if err := fn(&sqliteTx{tx: tx}); err != nil {
+	st := &sqliteTx{tx: tx}
+	err = fn(st)
+	if st.err != nil {
+		_ = tx.Rollback()
+		return st.err
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -201,7 +212,13 @@ func (s *SQLite) Update(fn func(Tx) error) error {
 	if err != nil {
 		return lockError(err)
 	}
-	if err := fn(&sqliteTx{tx: tx, write: true}); err != nil {
+	st := &sqliteTx{tx: tx, write: true}
+	err = fn(st)
+	if st.err != nil {
+		_ = tx.Rollback()
+		return st.err
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -219,7 +236,13 @@ func (s *SQLite) UpdateBoth(fn func(tx Tx, raw *sql.Tx) error) error {
 	if err != nil {
 		return lockError(err)
 	}
-	if err := fn(&sqliteTx{tx: tx, write: true}, tx); err != nil {
+	st := &sqliteTx{tx: tx, write: true}
+	err = fn(st, tx)
+	if st.err != nil {
+		_ = tx.Rollback()
+		return st.err
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -322,9 +345,20 @@ func (s *SQLite) WriteHandle() *sql.DB { return s.write }
 type sqliteTx struct {
 	tx    *sql.Tx
 	write bool
+	err   error // first read or write that failed; later calls no-op and Update/View return it
+}
+
+func (t *sqliteTx) fail(err error) error {
+	if t.err == nil {
+		t.err = err
+	}
+	return t.err
 }
 
 func (t *sqliteTx) Get(bucket, key []byte) []byte {
+	if t.err != nil {
+		return nil
+	}
 	ctx := context.Background()
 	var v []byte
 	err := t.tx.QueryRowContext(ctx, "SELECT v FROM kv WHERE bucket = ? AND k = ?", string(bucket), key).Scan(&v)
@@ -332,22 +366,41 @@ func (t *sqliteTx) Get(bucket, key []byte) []byte {
 		return nil
 	}
 	if err != nil {
-		return nil // as bbolt: a read that fails is a missing key
+		_ = t.fail(err)
+		return nil
+	}
+	if v == nil {
+		return []byte{} // an empty blob is a value, not a missing key
 	}
 	return v
 }
 
 func (t *sqliteTx) Put(bucket, key, value []byte) error {
+	if t.err != nil {
+		return t.err
+	}
+	if value == nil {
+		value = []byte{}
+	}
 	ctx := context.Background()
 	_, err := t.tx.ExecContext(ctx, "INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?) ON CONFLICT (bucket, k) DO UPDATE SET v = excluded.v",
 		string(bucket), key, value)
-	return err
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 func (t *sqliteTx) Delete(bucket, key []byte) error {
+	if t.err != nil {
+		return t.err
+	}
 	ctx := context.Background()
 	_, err := t.tx.ExecContext(ctx, "DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
-	return err
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 // prefixEnd is the key just past every key with this prefix; nil when the prefix covers to the end.
@@ -363,6 +416,9 @@ func prefixEnd(prefix []byte) []byte {
 }
 
 func (t *sqliteTx) Range(bucket []byte, r Range, fn func(k, v []byte) bool) {
+	if t.err != nil {
+		return
+	}
 	ctx := context.Background()
 	q := "SELECT k, v FROM kv WHERE bucket = ?"
 	args := []any{string(bucket)}
@@ -389,30 +445,45 @@ func (t *sqliteTx) Range(bucket []byte, r Range, fn func(k, v []byte) bool) {
 	}
 	rows, err := t.tx.QueryContext(ctx, q, args...)
 	if err != nil {
+		_ = t.fail(err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var k, v []byte
 		if err := rows.Scan(&k, &v); err != nil {
+			_ = t.fail(err)
 			return
+		}
+		if v == nil {
+			v = []byte{}
 		}
 		if !fn(k, v) {
 			return
 		}
 	}
+	if err := rows.Err(); err != nil {
+		_ = t.fail(err)
+	}
 }
 
 func (t *sqliteTx) Count(bucket []byte) int {
+	if t.err != nil {
+		return 0
+	}
 	ctx := context.Background()
 	var n int
 	if err := t.tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM kv WHERE bucket = ?", string(bucket)).Scan(&n); err != nil {
+		_ = t.fail(err)
 		return 0
 	}
 	return n
 }
 
 func (t *sqliteTx) NextSequence(bucket []byte) (uint64, error) {
+	if t.err != nil {
+		return 0, t.err
+	}
 	ctx := context.Background()
 	if !t.write {
 		return 0, errors.New("a sequence advances only in an Update")
@@ -420,29 +491,49 @@ func (t *sqliteTx) NextSequence(bucket []byte) (uint64, error) {
 	var seq uint64
 	err := t.tx.QueryRowContext(ctx, `INSERT INTO sequences (bucket, seq) VALUES (?, 1)
 		ON CONFLICT (bucket) DO UPDATE SET seq = seq + 1 RETURNING seq`, string(bucket)).Scan(&seq)
-	return seq, err
+	if err != nil {
+		return 0, t.fail(err)
+	}
+	return seq, nil
 }
 
 func (t *sqliteTx) SetSequence(bucket []byte, seq uint64) error {
+	if t.err != nil {
+		return t.err
+	}
 	ctx := context.Background()
 	if !t.write {
 		return errors.New("a sequence is set only in an Update")
 	}
 	_, err := t.tx.ExecContext(ctx, `INSERT INTO sequences (bucket, seq) VALUES (?, ?)
 		ON CONFLICT (bucket) DO UPDATE SET seq = excluded.seq`, string(bucket), seq)
-	return err
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 func (t *sqliteTx) Sequence(bucket []byte) uint64 {
+	if t.err != nil {
+		return 0
+	}
 	ctx := context.Background()
 	var seq uint64
-	if err := t.tx.QueryRowContext(ctx, "SELECT seq FROM sequences WHERE bucket = ?", string(bucket)).Scan(&seq); err != nil {
+	err := t.tx.QueryRowContext(ctx, "SELECT seq FROM sequences WHERE bucket = ?", string(bucket)).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0
+	}
+	if err != nil {
+		_ = t.fail(err)
 		return 0
 	}
 	return seq
 }
 
 func (t *sqliteTx) CompareAndSwap(bucket, key, old, value []byte) error {
+	if t.err != nil {
+		return t.err
+	}
 	ctx := context.Background()
 	if !t.write {
 		return errors.New("a compare-and-swap runs only in an Update")
@@ -450,8 +541,14 @@ func (t *sqliteTx) CompareAndSwap(bucket, key, old, value []byte) error {
 	switch {
 	case old == nil && value == nil:
 		_, err := t.tx.ExecContext(ctx, "DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
-		return err // absent already: nothing to hold
+		if err != nil {
+			return t.fail(err)
+		}
+		return nil // absent already: nothing to hold
 	case old == nil:
+		if value == nil {
+			value = []byte{}
+		}
 		_, err := t.tx.ExecContext(ctx, "INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?)", string(bucket), key, value)
 		if err != nil { // the key is there: not the absent value the caller expected
 			return fmt.Errorf("%w: %s", ErrCompareFailed, "the key exists")
@@ -460,7 +557,7 @@ func (t *sqliteTx) CompareAndSwap(bucket, key, old, value []byte) error {
 	case value == nil:
 		res, err := t.tx.ExecContext(ctx, "DELETE FROM kv WHERE bucket = ? AND k = ? AND v = ?", string(bucket), key, old)
 		if err != nil {
-			return err
+			return t.fail(err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrCompareFailed
@@ -469,7 +566,7 @@ func (t *sqliteTx) CompareAndSwap(bucket, key, old, value []byte) error {
 	default:
 		res, err := t.tx.ExecContext(ctx, "UPDATE kv SET v = ? WHERE bucket = ? AND k = ? AND v = ?", value, string(bucket), key, old)
 		if err != nil {
-			return err
+			return t.fail(err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrCompareFailed

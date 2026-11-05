@@ -203,8 +203,12 @@ type Options struct {
 	PoolSize int
 	// StatementTimeout bounds each PostgreSQL statement; 15s by default, zero turns it off.
 	StatementTimeout time.Duration
+	// BusyTimeout is how long a SQLite statement waits for a lock; 15s by default.
+	BusyTimeout time.Duration
 	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
 	CheckpointInterval time.Duration
+	// Retention is how long audit records are kept; Verify refuses a prune still inside it.
+	Retention time.Duration
 	// SignKey signs the checkpoints (nil: one is generated and kept in the database; the key
 	// hierarchy that comes with the vault will pass its own).
 	SignKey []byte
@@ -261,7 +265,7 @@ func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
 		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
 			return nil, nil, err
 		}
-		sq, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, ReadOnly: ro})
+		sq, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout, ReadOnly: ro})
 		if err != nil {
 			if errors.Is(err, kv.ErrLocked) {
 				return nil, nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
@@ -283,7 +287,7 @@ func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
 	if !ro {
 		write = db.WriteHandle()
 	}
-	eo := events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: s.now}
+	eo := events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Retention: o.Retention, Now: s.now}
 	audit, err := events.Open(db.Handle(), write, "audit_events", eo)
 	if err != nil {
 		_ = db.Close()

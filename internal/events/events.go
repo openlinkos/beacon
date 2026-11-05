@@ -105,6 +105,19 @@ type Checkpoint struct {
 	Signature string    `json:"signature"`
 }
 
+// PruneMark is the signed record that a prefix of the log was dropped on purpose. Verify treats a
+// gap as a break unless a prune mark sits at the last dropped sequence: a scheduled checkpoint
+// alone is not permission to have deleted the records it covered.
+type PruneMark struct {
+	Log            string    `json:"log"`
+	Seq            uint64    `json:"seq"`
+	CutTime        time.Time `json:"cut_time"`
+	RemainingFirst time.Time `json:"remaining_first,omitzero"`
+	Head           string    `json:"head"`
+	Hash           string    `json:"hash"`
+	Signature      string    `json:"signature"`
+}
+
 // Filter narrows a Query. Empty strings and zero times leave that part open; Limit is capped at
 // 1000 and defaults to 100; Offset pages through. Records come back newest first.
 type Filter struct {
@@ -127,6 +140,9 @@ type Options struct {
 	// CheckpointInterval is how often a checkpoint is written as records arrive; 24h by default.
 	// A checkpoint is written no sooner than this since the last one.
 	CheckpointInterval time.Duration
+	// Retention is how long records are kept. When set, Verify refuses a prune whose cut still
+	// falls inside it. Zero leaves that check off.
+	Retention time.Duration
 	// Now is the clock; tests move it.
 	Now func() time.Time
 }
@@ -159,6 +175,7 @@ type Log struct {
 	key         []byte
 	signer      string
 	interval    time.Duration
+	retention   time.Duration
 	now         func() time.Time
 }
 
@@ -178,7 +195,7 @@ func Open(read, write *sql.DB, name string, o Options) (*Log, error) {
 	if o.SignerID == "" {
 		o.SignerID = "generated"
 	}
-	l := &Log{read: read, write: write, table: name, dialect: o.Dialect, interval: o.CheckpointInterval, now: o.Now}
+	l := &Log{read: read, write: write, table: name, dialect: o.Dialect, interval: o.CheckpointInterval, retention: o.Retention, now: o.Now}
 	if err := l.create(); err != nil {
 		return nil, err
 	}
@@ -255,6 +272,16 @@ func (l *Log) create() error {
 		`CREATE TABLE IF NOT EXISTS event_keys (
 			log TEXT NOT NULL PRIMARY KEY,
 			key ` + blob + ` NOT NULL
+		)` + rowid,
+		`CREATE TABLE IF NOT EXISTS event_prunes (
+			log TEXT NOT NULL,
+			seq ` + integer + ` NOT NULL,
+			cut_time ` + integer + ` NOT NULL,
+			remaining_first ` + integer + ` NOT NULL DEFAULT 0,
+			head TEXT NOT NULL,
+			hash TEXT NOT NULL,
+			signature TEXT NOT NULL,
+			PRIMARY KEY (log, seq)
 		)` + rowid,
 	}
 	for _, s := range stmts {
@@ -355,6 +382,32 @@ func sign(key []byte, c *Checkpoint) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
+func canonicalPrune(p *PruneMark) []byte {
+	out := make([]byte, 0, 160)
+	out = append(out, "beacon/prune/v1\x00"...)
+	out = append(out, p.Log...)
+	out = append(out, 0)
+	var b8 [8]byte
+	binary.BigEndian.PutUint64(b8[:], p.Seq)
+	out = append(out, b8[:]...)
+	binary.BigEndian.PutUint64(b8[:], uint64(p.CutTime.UnixNano()))
+	out = append(out, b8[:]...)
+	var remaining uint64
+	if !p.RemainingFirst.IsZero() {
+		remaining = uint64(p.RemainingFirst.UnixNano())
+	}
+	binary.BigEndian.PutUint64(b8[:], remaining)
+	out = append(out, b8[:]...)
+	out = append(out, p.Head...)
+	return out
+}
+
+func signPrune(key []byte, p *PruneMark) string {
+	m := hmac.New(sha256.New, key)
+	m.Write(canonicalPrune(p))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
 // head is where the chain stands: the newest record, or the newest checkpoint when pruning has
 // taken the records it covered. Anything appended continues from there.
 func (l *Log) head(q interface {
@@ -450,6 +503,9 @@ func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 // is one.
 func (l *Log) checkpointTx(tx *sql.Tx, seq uint64, hash string, last Checkpoint) (Checkpoint, error) {
 	ctx := context.Background()
+	if last.Seq > seq {
+		return Checkpoint{}, fmt.Errorf("checkpoint at %d cannot follow one at %d", seq, last.Seq)
+	}
 	first, count := uint64(1), seq
 	if last.Seq > 0 {
 		first, count = last.Seq+1, seq-last.Seq
@@ -555,6 +611,9 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 
 // Prune removes the records older than retention, writing a checkpoint over them first so the
 // chain that remains still verifies, and reports how many went. Checkpoints are never removed.
+// The cut is a prefix of the sequence: only records before the earliest record still inside
+// the window. When a later checkpoint already sits past that prefix, the cut moves back to the
+// newest checkpoint at or before it.
 func (l *Log) Prune(retention time.Duration) (int, error) {
 	ctx := context.Background()
 	if l.write == nil {
@@ -566,28 +625,36 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 	cutoff := l.now().Add(-retention).UnixNano()
 	deleted := 0
 	err := withTx(l.write, func(tx *sql.Tx) error {
-		var last int64
-		err := tx.QueryRowContext(ctx, l.q(`SELECT seq FROM "`+l.table+`" WHERE time <= ? ORDER BY seq DESC LIMIT 1`), cutoff).Scan(&last)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil // nothing that old
+		cutSeq, err := l.pruneCutSeq(tx, cutoff)
+		if err != nil || cutSeq == 0 {
+			return err
 		}
+		last, _, err := l.lastCheckpoint(tx)
 		if err != nil {
 			return err
 		}
-		var hash string
-		if err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), last).Scan(&hash); err != nil {
-			return err
-		}
-		prev, _, err := l.lastCheckpoint(tx)
+		prev, err := l.checkpointAtOrBefore(tx, cutSeq)
 		if err != nil {
 			return err
 		}
-		if prev.Seq != uint64(last) { // a checkpoint at the cut is already the anchor
-			if _, err := l.checkpointTx(tx, uint64(last), hash, prev); err != nil {
+		if last.Seq > cutSeq {
+			if prev.Seq == 0 {
+				return nil
+			}
+			cutSeq = prev.Seq
+		} else if prev.Seq != cutSeq {
+			var hash string
+			if err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), cutSeq).Scan(&hash); err != nil {
+				return err
+			}
+			if _, err := l.checkpointTx(tx, cutSeq, hash, prev); err != nil {
 				return err
 			}
 		}
-		res, err := tx.ExecContext(ctx, l.q(`DELETE FROM "`+l.table+`" WHERE seq <= ?`), last)
+		if err := l.writePruneMark(tx, cutSeq, cutoff); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, l.q(`DELETE FROM "`+l.table+`" WHERE seq <= ?`), cutSeq)
 		if err != nil {
 			return err
 		}
@@ -596,6 +663,74 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 		return nil
 	})
 	return deleted, err
+}
+
+func (l *Log) pruneCutSeq(tx *sql.Tx, cutoff int64) (uint64, error) {
+	ctx := context.Background()
+	var minAfter sql.NullInt64
+	if err := tx.QueryRowContext(ctx, l.q(`SELECT MIN(seq) FROM "`+l.table+`" WHERE time > ?`), cutoff).Scan(&minAfter); err != nil {
+		return 0, err
+	}
+	if minAfter.Valid {
+		if minAfter.Int64 <= 1 {
+			return 0, nil
+		}
+		return uint64(minAfter.Int64) - 1, nil
+	}
+	var maxSeq sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(seq) FROM "`+l.table+`"`).Scan(&maxSeq); err != nil {
+		return 0, err
+	}
+	if !maxSeq.Valid {
+		return 0, nil
+	}
+	return uint64(maxSeq.Int64), nil
+}
+
+func (l *Log) checkpointAtOrBefore(tx *sql.Tx, seq uint64) (Checkpoint, error) {
+	var c Checkpoint
+	var when int64
+	err := tx.QueryRowContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? AND seq <= ? ORDER BY seq DESC LIMIT 1`), l.table, seq).
+		Scan(&c.Seq, &c.FirstSeq, &c.Count, &c.Head, &when, &c.Prev, &c.Hash, &c.Signer, &c.Signature)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Checkpoint{}, nil
+	}
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	c.Log, c.Time = l.table, time.Unix(0, when).UTC()
+	return c, nil
+}
+
+func (l *Log) writePruneMark(tx *sql.Tx, cutSeq uint64, cutoff int64) error {
+	ctx := context.Background()
+	var head string
+	err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), cutSeq).Scan(&head)
+	if err != nil {
+		if err := tx.QueryRowContext(ctx, l.q(`SELECT head FROM event_checkpoints WHERE log = ? AND seq = ?`), l.table, cutSeq).Scan(&head); err != nil {
+			return err
+		}
+	}
+	var remaining int64
+	if err := tx.QueryRowContext(ctx, l.q(`SELECT COALESCE(MIN(time), 0) FROM "`+l.table+`" WHERE seq > ?`), cutSeq).Scan(&remaining); err != nil {
+		return err
+	}
+	p := PruneMark{Log: l.table, Seq: cutSeq, CutTime: time.Unix(0, cutoff).UTC(), Head: head}
+	if remaining > 0 {
+		p.RemainingFirst = time.Unix(0, remaining).UTC()
+	}
+	sum := sha256.Sum256(canonicalPrune(&p))
+	p.Hash = hex.EncodeToString(sum[:])
+	p.Signature = signPrune(l.key, &p)
+	_, err = tx.ExecContext(ctx, l.q(`INSERT INTO event_prunes
+		(log, seq, cut_time, remaining_first, head, hash, signature)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (log, seq) DO UPDATE SET
+			cut_time = excluded.cut_time, remaining_first = excluded.remaining_first,
+			head = excluded.head, hash = excluded.hash, signature = excluded.signature`),
+		p.Log, p.Seq, p.CutTime.UnixNano(), remaining, p.Head, p.Hash, p.Signature)
+	return err
 }
 
 // Checkpoints lists them, oldest first.
@@ -619,23 +754,35 @@ func (l *Log) Checkpoints() ([]Checkpoint, error) {
 	return out, rows.Err()
 }
 
-// Verify walks the whole chain of the records still present, from the checkpoint that anchors
-// them, checking every hash and every checkpoint's signature. It holds when pruning has taken the
-// old records: the first record present must continue from the checkpoint that covered what went,
-// and records before the first one present without such a checkpoint mean the chain was tampered
-// with — pruning never leaves that state.
+// Verify walks the whole chain of the records still present. A gap is a break unless a signed
+// prune mark sits at the last dropped sequence. VerifySince re-anchors at those marks.
 func (l *Log) Verify() (Result, error) { return l.verify(0) }
 
-// VerifySince verifies the chain from the checkpoint at seq onwards (the records it covered may
-// be gone); there must be a checkpoint at seq.
 func (l *Log) VerifySince(seq uint64) (Result, error) { return l.verify(seq) }
 
 func (l *Log) verify(from uint64) (Result, error) {
-	checkpoints, err := l.Checkpoints()
+	db := l.read
+	if db == nil {
+		db = l.write
+	}
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return Result{}, err
 	}
-	// every checkpoint is well-formed, signed by this log's key, and chained to the one before
+	defer func() { _ = tx.Rollback() }()
+	return l.verifyTx(tx, from)
+}
+
+func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
+	ctx := context.Background()
+	checkpoints, err := l.checkpointsTx(tx)
+	if err != nil {
+		return Result{}, err
+	}
+	prunes, err := l.prunesTx(tx)
+	if err != nil {
+		return Result{}, err
+	}
 	bySeq := map[uint64]Checkpoint{}
 	var prevC Checkpoint
 	for i, c := range checkpoints {
@@ -652,30 +799,56 @@ func (l *Log) verify(from uint64) (Result, error) {
 		}
 		prevC = c
 	}
-	// where the walk starts: after the checkpoint asked for, or at the first record present
-	first := int64(1)
 	if from > 0 {
 		if _, ok := bySeq[from]; !ok {
 			return Result{}, fmt.Errorf("no checkpoint at %d; the checkpoints are at %s", from, seqList(checkpoints))
 		}
-		first = int64(from) + 1
-	} else if err := l.read.QueryRowContext(context.Background(), l.q(`SELECT COALESCE(MIN(seq), 1) FROM "`+l.table+`"`)).Scan(&first); err != nil {
+	}
+	var minSeq sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MIN(seq) FROM "`+l.table+`"`).Scan(&minSeq); err != nil {
 		return Result{}, err
 	}
-	// the anchor: the newest checkpoint below the start; a chain beginning at 1 anchors itself
-	anchor := ""
-	found := false
-	for _, c := range checkpoints {
-		if c.Seq < uint64(first) {
-			anchor, found = c.Head, true
+	if !minSeq.Valid {
+		return l.verifyEmpty(from, checkpoints, prunes)
+	}
+	firstPresent := uint64(minSeq.Int64)
+	for seq, p := range prunes {
+		if firstPresent <= seq {
+			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, seq,
+				"a prune at %d still has records at or before it", seq)
+		}
+		if l.retention > 0 && l.now().Sub(p.CutTime) < l.retention {
+			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, seq,
+				"records before %d are still inside the retention", seq+1)
 		}
 	}
-	if first > 1 && !found {
-		return broken(Result{FirstSeq: uint64(first)}, uint64(first), "record %d follows records that are gone without a checkpoint", first)
+	anchor := ""
+	start := firstPresent
+	if from > 0 {
+		anchor = bySeq[from].Head
+		start = from + 1
+		for _, c := range checkpoints {
+			if p, ok := prunes[c.Seq]; ok && c.Seq >= from && c.Seq < firstPresent {
+				anchor = p.Head
+				start = c.Seq + 1
+			}
+		}
+		if firstPresent > start {
+			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, firstPresent,
+				"record %d follows records that are gone without a prune checkpoint", firstPresent)
+		}
+		start = firstPresent
+	} else if firstPresent > 1 {
+		p, ok := prunes[firstPresent-1]
+		if !ok {
+			return broken(Result{FirstSeq: firstPresent, Checkpoints: len(checkpoints)}, firstPresent,
+				"record %d follows records that are gone without a prune checkpoint", firstPresent)
+		}
+		anchor = p.Head
 	}
-	res := Result{FirstSeq: uint64(first), Checkpoints: len(checkpoints)}
-	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
-		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`), first)
+	res := Result{FirstSeq: start, Checkpoints: len(checkpoints)}
+	rows, err := tx.QueryContext(ctx, l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
+		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`), start)
 	if err != nil {
 		return Result{}, err
 	}
@@ -702,17 +875,95 @@ func (l *Log) verify(from uint64) (Result, error) {
 	if err := rows.Err(); err != nil {
 		return res, err
 	}
-	if res.Events == 0 && len(checkpoints) > 0 { // everything pruned: the checkpoints are the chain
+	if res.Events == 0 && len(checkpoints) > 0 {
 		last := checkpoints[len(checkpoints)-1]
+		if _, ok := prunes[last.Seq]; !ok {
+			return broken(res, last.Seq, "the records are gone without a prune checkpoint")
+		}
 		res.Head, res.LastSeq = last.Head, last.Seq
 	}
-	// a checkpoint above the last record present, with records below it: pruning takes whole
-	// beginnings, so those records were removed by hand
 	if res.Events > 0 && len(checkpoints) > 0 && checkpoints[len(checkpoints)-1].Seq > res.LastSeq {
 		c := checkpoints[len(checkpoints)-1]
-		return broken(res, c.Seq, "the records after the checkpoint at %d are gone without a prune")
+		if _, ok := prunes[c.Seq]; !ok {
+			return broken(res, c.Seq, "the records after the checkpoint at %d are gone without a prune", c.Seq)
+		}
 	}
 	return res, nil
+}
+
+func (l *Log) verifyEmpty(from uint64, checkpoints []Checkpoint, prunes map[uint64]PruneMark) (Result, error) {
+	if len(checkpoints) == 0 {
+		return Result{}, nil
+	}
+	last := checkpoints[len(checkpoints)-1]
+	if from > 0 && last.Seq <= from {
+		return Result{Checkpoints: len(checkpoints), LastSeq: last.Seq, Head: last.Head}, nil
+	}
+	need := last.Seq
+	if from > 0 {
+		need = from
+		for _, c := range checkpoints {
+			if c.Seq > from {
+				need = c.Seq
+			}
+		}
+	}
+	if _, ok := prunes[need]; !ok {
+		if _, ok := prunes[last.Seq]; !ok {
+			return broken(Result{Checkpoints: len(checkpoints)}, last.Seq, "the records are gone without a prune checkpoint")
+		}
+	}
+	return Result{Checkpoints: len(checkpoints), LastSeq: last.Seq, Head: last.Head}, nil
+}
+
+func (l *Log) checkpointsTx(tx *sql.Tx) ([]Checkpoint, error) {
+	rows, err := tx.QueryContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`), l.table)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Checkpoint
+	for rows.Next() {
+		var c Checkpoint
+		var when int64
+		if err := rows.Scan(&c.Seq, &c.FirstSeq, &c.Count, &c.Head, &when, &c.Prev, &c.Hash, &c.Signer, &c.Signature); err != nil {
+			return nil, err
+		}
+		c.Log, c.Time = l.table, time.Unix(0, when).UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (l *Log) prunesTx(tx *sql.Tx) (map[uint64]PruneMark, error) {
+	rows, err := tx.QueryContext(context.Background(), l.q(`SELECT seq, cut_time, remaining_first, head, hash, signature
+		FROM event_prunes WHERE log = ? ORDER BY seq ASC`), l.table)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[uint64]PruneMark{}
+	for rows.Next() {
+		var p PruneMark
+		var cut, remaining int64
+		if err := rows.Scan(&p.Seq, &cut, &remaining, &p.Head, &p.Hash, &p.Signature); err != nil {
+			return nil, err
+		}
+		p.Log, p.CutTime = l.table, time.Unix(0, cut).UTC()
+		if remaining > 0 {
+			p.RemainingFirst = time.Unix(0, remaining).UTC()
+		}
+		rehash := sha256.Sum256(canonicalPrune(&p))
+		if hex.EncodeToString(rehash[:]) != p.Hash {
+			return nil, fmt.Errorf("%w: prune at %d was changed", ErrBrokenChain, p.Seq)
+		}
+		if !hmac.Equal([]byte(signPrune(l.key, &p)), []byte(p.Signature)) {
+			return nil, fmt.Errorf("%w: prune at %d fails its signature", ErrBrokenChain, p.Seq)
+		}
+		out[p.Seq] = p
+	}
+	return out, rows.Err()
 }
 
 func seqList(checkpoints []Checkpoint) string {

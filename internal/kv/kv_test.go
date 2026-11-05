@@ -390,3 +390,95 @@ func TestSQLiteOptions(t *testing.T) {
 		t.Error("no path should fail")
 	}
 }
+
+func TestSQLiteEmptyValue(t *testing.T) {
+	db, _ := openSQLite(t)
+	if err := db.Update(func(tx Tx) error {
+		if err := tx.Put([]byte("b"), []byte("empty"), []byte{}); err != nil {
+			return err
+		}
+		return tx.Put([]byte("b"), []byte("nil"), nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.View(func(tx Tx) error {
+		for _, k := range []string{"empty", "nil"} {
+			v := tx.Get([]byte("b"), []byte(k))
+			if v == nil {
+				t.Errorf("Get %s: nil, want an empty slice", k)
+			} else if len(v) != 0 {
+				t.Errorf("Get %s: %q", k, v)
+			}
+		}
+		if v := tx.Get([]byte("b"), []byte("missing")); v != nil {
+			t.Errorf("missing: %q", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSQLiteReadErrorFailsTheTransaction(t *testing.T) {
+	db, _ := openSQLite(t)
+	if err := db.Update(func(tx Tx) error {
+		return tx.Put([]byte("b"), []byte("k"), []byte("v"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := db.Update(func(tx Tx) error {
+		st := tx.(*sqliteTx)
+		_ = st.tx.Rollback()
+		if v := tx.Get([]byte("b"), []byte("k")); v != nil {
+			t.Errorf("Get after a failed read: %q", v)
+		}
+		if err := tx.Put([]byte("b"), []byte("k2"), []byte("v2")); err == nil {
+			t.Error("Put after a failed read should fail")
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("Update should return the read error")
+	}
+	if err := db.View(func(tx Tx) error {
+		if v := tx.Get([]byte("b"), []byte("k2")); v != nil {
+			t.Errorf("a write after a failed read was kept: %q", v)
+		}
+		if v := tx.Get([]byte("b"), []byte("k")); !bytes.Equal(v, []byte("v")) {
+			t.Errorf("the earlier value: %q", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSQLiteMkdir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "dir", "beacon.db")
+	db, err := OpenSQLite(SQLiteOptions{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Update(func(tx Tx) error {
+		return tx.Put([]byte("b"), []byte("k"), []byte("v"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSQLiteBusyTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "beacon.db")
+	db, err := OpenSQLite(SQLiteOptions{Path: path, BusyTimeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var ms int
+	if err := db.Handle().QueryRow("PRAGMA busy_timeout").Scan(&ms); err != nil {
+		t.Fatal(err)
+	}
+	if ms != 3000 {
+		t.Errorf("busy_timeout: %d, want 3000", ms)
+	}
+}

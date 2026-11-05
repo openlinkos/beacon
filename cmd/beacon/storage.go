@@ -40,7 +40,9 @@ func storeOptions(cfg *config.Config) store.Options {
 		DSN:                cfg.Secrets.StorageDSN,
 		PoolSize:           cfg.Storage.Postgres.PoolSize,
 		StatementTimeout:   cfg.Storage.Postgres.StatementTimeout.D(),
+		BusyTimeout:        cfg.Storage.SQLite.BusyTimeout.D(),
 		CheckpointInterval: cfg.Storage.Audit.CheckpointInterval.D(),
+		Retention:          cfg.Storage.Audit.Retention.D(),
 	}
 }
 

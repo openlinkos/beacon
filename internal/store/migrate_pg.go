@@ -219,7 +219,7 @@ func repeatMarks(n int) string {
 // bucket's count and sequence, and the event tables' rows (the audit's with the genesis record's
 // one more).
 func checkMigratedCounts(tx kv.Tx, raw *sql.Tx, src kv.Reader, sqlite *kv.SQLite) error {
-	if err := checkCounts(tx, raw, src); err != nil {
+	if err := checkCounts(tx, raw, src, 0, 0); err != nil {
 		return err
 	}
 	ctx := context.Background()
