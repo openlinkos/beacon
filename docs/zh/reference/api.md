@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a6f90ae4
+sourceHash: sha256-84ac89de
 ---
 
 # REST API
@@ -196,6 +196,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `POST /api/v1/vault/items/{id}/rollback` | 人，`edit` | 让旧版本重新成为当前版本（`version`、`reason`）；各版本仍在 |
 | `POST /api/v1/vault/items/{id}/generate` | 人，`edit` | 让 Beacon 为一个字段生成新值（`field`、`section`、`length`——默认 24——`charset`：`letters`、`alnum` 或 `all`、`reason`）：作为新版本保存，值本身不返回；要看就 reveal |
 | `POST /api/v1/vault/items/{id}/reveal` | 人，`read` | 值（`fields` 指定字段名，不给则全部；`password` 为账号密码）。`otp` 字段返回当前验证码与剩余秒数，绝无种子。先写审计，值才离开 |
+| `POST /api/v1/vault/import` | `secrets:admin`，人 | 导入一份已解析的批次：`batch`（`source`——`1password`、`chrome`、`bitwarden`、`csv`——及其 `collections`，条目的 `fields` 带着各自的值；即 `beacon secret import` 与控制台导入向导所发）和 `options`（`dry_run`、`on_conflict`：`ask`/`new_version`/`skip`/`keep_both`、按库名的 `levels`、`collection` 把整批并入一个库、`reason`）。返回报告：每库的条数、类别分布与起始级别，以及冲突——同一处地方（网址规范化后相同）且同一用户名即视为同一条——绝无任何值。dry-run 不写任何东西，其批次可以完全不带值；已存在的目标库需要 `edit` |
 | `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | 人，`read` | 一个附件的字节 |
 | `GET /api/v1/vault/search` | 人，`describe` | 标题、类别、标签或字段名匹配 `q` 的条目（`?collection=`、`?tag=` 可多个），只在调用者有 describe 的库里找 |
 | `GET /api/v1/vault/tags` | 任意凭据 | 全部标签：名字（小写、`/` 分层）、审批级别、说明 |

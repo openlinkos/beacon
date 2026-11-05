@@ -93,6 +93,7 @@ The secrets vault, under the same operations as the [REST routes](api.md#vault) 
 | `reveal_item` | a person, `read` | The values (`ref`, `fields`, the account's `password`; audited before they leave). An `otp` field gives the current code and the seconds left, not the seed |
 | `search_secrets` | a person, `describe` | Items whose title, category, tags or field names match (`query`, `collection`, `tags`) — "where is the password for…", without the values |
 | `generate_item_value` | a person, `edit` | Make a new value for a field (`ref`, `field`, `length`, `charset`), stored as a new version; the value itself is never returned |
+| `import_secrets` | a person, `secrets:admin` | Import a parsed batch (`batch`, `dry_run`, `on_conflict`, `levels`, `collection`, `reason`) — what `beacon secret import` and the console's import wizard send. The report counts items, fields, attachments and one-time passcodes per collection, names the categories, the levels and the conflicts, never a value |
 | `archive_item` | a person, `edit` | Archive an item (`ref`, `reason`): kept, out of the way |
 | `remove_item` | a person, `edit` | Move an item to the trash (`ref`, `reason`), where retention keeps it |
 | `restore_item` | a person, `edit` | Bring an item back from the archive or the trash (`ref`) |

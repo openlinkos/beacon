@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e60663bf
+sourceHash: sha256-f910a663
 ---
 
 # 命令行
@@ -77,6 +77,7 @@ docker exec beacon beacon token list
 | `restore` REF | `-user` | 从归档或回收站恢复条目 |
 | `rollback` REF VERSION | `-note` | 让旧版本重新成为当前版本；`-note` 写明原因，随新版本保存 |
 | `generate` REF FIELD | `-length`、`-charset`、`-user`、`-reason` | 让 Beacon 生成新值（`-length` 默认 24，`-charset` 为 `letters`、`alnum` 或 `all`），存为新版本。值不显示；要看就 reveal |
+| `import` SOURCE | `-file`、`-collection`、`-on-conflict`、`-level`、`-map`、`-vault`、`-dry-run`、`-user`、`-reason` | 导入一份导出文件：`1pux`（1Password 的未加密导出，推荐——一个 vault 一个库，含附件与密码历史）、`1password-csv`、`op`（已登录的 `op` 命令行，超过约 300 条建议改用 1PUX）、`chrome`（进一个指定库；同一凭据跨站点合并为一个条目带多个网址）、`bitwarden`（未加密的 JSON 导出）或 `csv`（任意 CSV，列由 `-map title=表头,…` 指定）。文件在运行命令的机器上解析，明文只走一次；`-dry-run` 只出报告、完全不发送值——逐库的条数、类别分布与起始级别（`-level` `库=级别` 可覆盖），以及冲突（`-on-conflict` 默认 `ask`，可选 `new_version`、`skip`、`keep_both`）。输出里绝无任何值；导入完成后请删除导出文件 |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库里能做什么：不带第二参数时列出清单；`user:alice=read` 给人授 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
 | `tags` [NAME [LEVEL]] | `-description`、`-user` | 列出标签，或设置一个：标签的级别是策略（带它的条目至少那么严），只有 owner 账号可以 |
 
