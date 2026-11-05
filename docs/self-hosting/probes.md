@@ -39,7 +39,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 The script installs the release of `beacon-probe` that matches this copy of the reference deployment (the probe and the service are released together; `-version` picks another, `-binary FILE` installs one you fetched yourself, for a machine that cannot reach GitHub). It creates the `beacon-probe` user, downloads the binary for the machine's architecture and checks it against the release's `SHA256SUMS`, installs the token readable by that user only, the systemd unit `beacon-probe` and the `beacon-heartbeat` helper, starts the agent, and waits until the gateway has accepted its first push. That takes about 10 seconds; it ends with:
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.16 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon 0.3.0-rc.17 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 
