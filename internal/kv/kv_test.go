@@ -426,15 +426,21 @@ func TestSQLiteReadErrorFailsTheTransaction(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The table is renamed so Get fails, then renamed back so Put could succeed if the
+	// transaction were still treated as healthy. The callback returns nil: Update must still
+	// fail from the read, and the Put must not commit.
 	err := db.Update(func(tx Tx) error {
 		st := tx.(*sqliteTx)
-		_ = st.tx.Rollback()
+		if _, err := st.tx.Exec("ALTER TABLE kv RENAME TO kv_hidden"); err != nil {
+			t.Fatal(err)
+		}
 		if v := tx.Get([]byte("b"), []byte("k")); v != nil {
 			t.Errorf("Get after a failed read: %q", v)
 		}
-		if err := tx.Put([]byte("b"), []byte("k2"), []byte("v2")); err == nil {
-			t.Error("Put after a failed read should fail")
+		if _, err := st.tx.Exec("ALTER TABLE kv_hidden RENAME TO kv"); err != nil {
+			t.Fatal(err)
 		}
+		_ = tx.Put([]byte("b"), []byte("k2"), []byte("v2"))
 		return nil
 	})
 	if err == nil {
