@@ -405,7 +405,7 @@ func init() {
 	registerAccess("import.levels.by_category", "import", "the approval level items start with, by category (the identity and finance categories start never)",
 		levelsMapKind(), `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`,
 		`{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`)
-	registerAccess("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("ask", "new_version", "skip", "keep_both"), `"ask"`, `"ask"`)
+	registerAccess("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("new_version", "skip", "keep_both"), `"skip"`, `"skip"`)
 	register("attachments.max_size", "import", "the largest an attachment may be, in bytes (10 MB)", intKind(false), `10485760`)
 
 	// ---- Backup (the design's backup table). Recipients and destination credentials are read at

@@ -73,7 +73,7 @@ func TestDefaultsMatchThePlan(t *testing.T) {
 		"import.levels.by_source": `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`, // 1Password Personal and Private -> person; Chrome -> person; every other vault -> review
 		"import.levels.by_category": `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never",` +
 			`"social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`, // the identity and finance categories -> never
-		"import.on_conflict":   `"ask"`,    // ask
+		"import.on_conflict":   `"skip"`,   // skip
 		"attachments.max_size": `10485760`, // 10 MB
 
 		// ---- Backup (§11): schedule, retention, checks, retries, failure, heartbeat, pg_dump

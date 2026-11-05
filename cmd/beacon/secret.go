@@ -20,6 +20,8 @@ secret set COLLECTION/TITLE [FIELD=VALUE ...] [-note TEXT] [-tags a,b] [-level a
 secret tag REF TAGS [-user NAME] [-reason TEXT] | secret level REF LEVEL [-user NAME] [-reason TEXT] |
 secret archive REF | secret rm REF | secret restore REF [-user NAME] |
 secret generate REF FIELD [-length 24] [-charset letters|alnum|all] [-user NAME] [-reason TEXT] |
+secret import SOURCE -file PATH [-dry-run] [-collection NAME] [-on-conflict skip|new_version|keep_both]
+                                              import an export (1pux, 1password-csv, op, chrome, bitwarden, csv)
 secret rollback REF VERSION [-note TEXT] | secret collection NAME [-level review] [-user NAME] |
 secret perms COLLECTION [user:NAME|role:ROLE=describe|read|edit|manage|-] [-user NAME] [-reason TEXT] |
 secret tags [NAME [LEVEL] [-description TEXT]] [-user NAME] |
@@ -72,6 +74,8 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	switch args[0] {
+	case "import":
+		return secretImportCmd(args[1:], stdout, stderr)
 	case "ls":
 		if len(pos) > 1 {
 			fmt.Fprintln(stderr, vaultUsage)

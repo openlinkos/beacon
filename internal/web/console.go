@@ -135,6 +135,10 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/tokens/{name}/claim", s.action("accounts:write", s.claim))
 	at("GET", "/config", s.console("status:read|config:write", s.configPage))
 	at("GET", "/settings", s.console("status:read|secrets:admin", s.settingsPage))
+	// the import wizard's routes stand on their own: with the vault away they send people on
+	at("GET", "/secrets/import", s.console("secrets:admin", s.vaultImportPage))
+	at("POST", "/secrets/import/dry-run", s.importAction(s.vaultImportDryRun))
+	at("POST", "/secrets/import/commit", s.importAction(s.vaultImportCommit))
 	if s.Vault != nil {
 		at("GET", "/secrets", s.console("", s.vaultPage))
 		at("GET", "/secrets/{id}", s.console("", s.vaultCollectionPage))

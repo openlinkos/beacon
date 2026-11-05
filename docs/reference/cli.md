@@ -26,7 +26,7 @@ docker exec beacon beacon token list
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
 | `storage` | The database's health: [check](#beacon-audit-storage) |
-| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, perms, tags, rebuild-head](#beacon-secret) |
+| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, import, perms, tags, rebuild-head](#beacon-secret) |
 | `key` | The vault's keys: [status, unseal, seal, rotate](#beacon-key) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
@@ -74,6 +74,7 @@ The vault, for a person's hands on the command line: the same operations the [co
 | `restore` REF | `-user` | Bring an item back from the archive or the trash |
 | `rollback` REF VERSION | `-note` | Make an old version current again; `-note` says why, kept with the new version |
 | `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
+| `import` SOURCE | `-file`, `-collection`, `-on-conflict`, `-level`, `-map`, `-vault`, `-dry-run`, `-user`, `-reason` | Bring an export in: `1pux` (1Password's unencrypted export, recommended — every vault a collection, attachments and password history included), `1password-csv`, `op` (the signed-in `op` command line, over about 300 items prefer 1PUX), `chrome` (one collection; the same credential across sites is one item with every URL), `bitwarden` (the unencrypted JSON export) or `csv` (any CSV, columns named by `-map title=HEADER,…`). The file is parsed where the command runs, so the plaintext travels once; `-dry-run` answers the report and sends no values at all — per collection the counts, categories and the level the items start at (`-level` `COLLECTION=LEVEL` overrides), and the conflicts (`-on-conflict` `skip` by default, `new_version`, `keep_both`). Never a value in the output; delete the export file when it is done |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
 | `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
 | `rebuild-head` | `-user` | Rebuild the policy and items signed heads from the rows that still verify (owner recovery through the admin socket; audited). Beacon does not rebuild a missing head on a later write |

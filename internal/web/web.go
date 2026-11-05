@@ -38,6 +38,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/secrets"
+	"github.com/openlinkos/beacon/internal/secrets/importer"
 	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
@@ -104,6 +105,7 @@ type vaultUI interface {
 	Tags() []secrets.Tag
 	SetTag(who secrets.Actor, name, level, description string) (secrets.Tag, error)
 	DeleteTag(who secrets.Actor, name string) error
+	Import(who secrets.Actor, batch importer.Batch, opts secrets.ImportOptions) (secrets.ImportReport, error)
 	EffectiveLevel(item secrets.Item) string
 	WhoCanGet(collection string) []string
 	May(who secrets.Actor, collection, perm string) bool
@@ -142,9 +144,13 @@ type Server struct {
 	OAuth *oauth.Server
 
 	// reveals holds one-time slots carrying a reveal's answer from the form to the page it opens,
-	// so values never travel in a URL.
+	// so values never travel in a URL. imports holds the import wizard's parsed batches, in memory
+	// only, under one-time tokens (vaultimportpage.go).
 	revealMu sync.Mutex
 	reveals  map[string]revealSlot
+
+	importMu sync.Mutex
+	imports  map[string]importSlot
 }
 
 // Register adds the pages' routes to mux: GET / is public (home.go), the console is under /console, and

@@ -32,7 +32,9 @@
   </section>
 
   <section class="ol-section">
-    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Collections}}</h2></div>
+    <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Collections}}</h2>
+      {{if .CanManage}}<a class="ol-btn ol-btn-soft ol-btn-sm" href="{{console "/secrets/import"}}">{{.L.Import}}</a>{{end}}
+    </div>
     {{if .Collections}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Collection}}</th><th>{{.L.Level}}</th><th>{{.L.Items}}</th></tr></thead>
       <tbody>{{range .Collections}}<tr>
