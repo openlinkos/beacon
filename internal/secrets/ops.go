@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/kv"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -37,7 +38,7 @@ func (s *Service) Item(ref string) (Item, Collection, bool) {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || string(k) != r.ID || !s.itemVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) {
 				return true
 			}
 			match := r.ID == ref || r.Title == ref
@@ -50,6 +51,13 @@ func (s *Service) Item(ref string) (Item, Collection, bool) {
 			}
 			return true
 		})
+		if !found {
+			key := ref
+			if hasCol {
+				key = itemRef
+			}
+			s.reportNamedMissingItem(tx, key)
+		}
 		return nil
 	})
 	if !found {
@@ -59,6 +67,16 @@ func (s *Service) Item(ref string) (Item, Collection, bool) {
 		col, _ = s.collectionByID(out.Collection)
 	}
 	return out, col, true
+}
+
+func (s *Service) reportNamedMissingItem(tx kv.Tx, id string) {
+	res := s.loadItems(tx)
+	if res.Status == signedhead.StatusFailsafe || res.Status == signedhead.StatusEmpty {
+		return
+	}
+	if _, named := res.Head.Entries[id]; named {
+		s.reportHeadBreak(kindItem, id)
+	}
 }
 
 // collectionByID finds a collection by ID (the row keys are the IDs).
@@ -83,9 +101,9 @@ func (s *Service) Items(collection, state string) []Item {
 	}
 	var out []Item
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) == nil && s.itemVerifies(r) && r.Collection == col.ID && r.State == state {
+			if json.Unmarshal(v, &r) == nil && s.itemLive(tx, k, v, r) && r.Collection == col.ID && r.State == state {
 				out = append(out, r.Item)
 			}
 			return true
@@ -232,13 +250,17 @@ func (s *Service) changeState(who Actor, item, state, verb, action string) (Item
 		return Item{}, ErrSealed
 	}
 	s.mu.Lock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := s.refuseIfRotating(); err != nil {
+		s.mu.Unlock()
+		return Item{}, err
+	}
+	if _, err := s.sk(); err != nil {
 		s.mu.Unlock()
 		return Item{}, err
 	}
 	var out Item
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+	var committed signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		row, col, ok := s.itemTx(tx, item)
 		if !ok {
 			return fmt.Errorf("%w: no item %q", ErrNotFound, item)
@@ -252,9 +274,11 @@ func (s *Service) changeState(who Actor, item, state, verb, action string) (Item
 		} else {
 			row.TrashedAt = time.Time{}
 		}
-		if err := putItemTx(tx, row, sk); err != nil {
+		h, err := s.putItemTx(tx, row)
+		if err != nil {
 			return err
 		}
+		committed = h
 		out = row
 		return nil
 	})
@@ -262,19 +286,10 @@ func (s *Service) changeState(who Actor, item, state, verb, action string) (Item
 	if err != nil {
 		return Item{}, err
 	}
+	s.afterHeads(committed)
 	s.echo(who, verb, out.Title+" in "+s.collectionName(out.Collection), action)
 	s.reassessGrants() // outside the lock: it takes the lock itself per grant
 	return out, nil
-}
-
-func putItemTx(tx kv.Tx, item Item, sk []byte) error {
-	r := signedItem{Item: item}
-	r.Sig = signRow(sk, item.signedParts()...)
-	b, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	return tx.Put(bucketItems, []byte(item.ID), b)
 }
 
 // itemTx finds an item inside a transaction, verified.
@@ -290,9 +305,9 @@ func (s *Service) itemTx(tx kv.Tx, ref string) (Item, Collection, bool) {
 	}
 	var out Item
 	found := false
-	tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+	tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 		var r signedItem
-		if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) {
+		if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) {
 			return true
 		}
 		match := r.ID == ref || r.Title == ref
@@ -306,6 +321,11 @@ func (s *Service) itemTx(tx kv.Tx, ref string) (Item, Collection, bool) {
 		return true
 	})
 	if !found {
+		key := ref
+		if hasCol {
+			key = itemRef
+		}
+		s.reportNamedMissingItem(tx, key)
 		return Item{}, Collection{}, false
 	}
 	if !hasCol {
@@ -330,7 +350,10 @@ func (s *Service) PurgeTrash() int {
 	cutoff := s.now().Add(-s.trashKeep())
 	var gone []string
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
 			var r signedItem
 			if json.Unmarshal(v, &r) == nil && r.State == StateTrash && !r.TrashedAt.IsZero() && r.TrashedAt.Before(cutoff) {
 				gone = append(gone, r.ID)
@@ -344,6 +367,10 @@ func (s *Service) PurgeTrash() int {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		return 0
+	}
+	var committed signedhead.Head
 	_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		for _, id := range gone {
 			_ = tx.Delete(bucketItems, []byte(id))
@@ -364,8 +391,11 @@ func (s *Service) PurgeTrash() int {
 				_ = tx.Delete(bucketFiles, k)
 			}
 		}
-		return nil
+		h, err := s.commitItems(tx, nil, gone)
+		committed = h
+		return err
 	})
+	s.afterHeads(committed)
 	_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_trash_purged",
 		Detail: fmt.Sprintf("%d item(s) passed the trash retention and were dropped", len(gone))})
 	return len(gone)
@@ -382,12 +412,15 @@ func (s *Service) RollbackItem(who Actor, item string, version int64, reason str
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := s.refuseIfRotating(); err != nil {
+		return Item{}, err
+	}
+	if _, err := s.sk(); err != nil {
 		return Item{}, err
 	}
 	var out Item
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+	var committed signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		row, col, ok := s.itemTx(tx, item)
 		if !ok {
 			return fmt.Errorf("%w: no item %q", ErrNotFound, item)
@@ -457,9 +490,11 @@ func (s *Service) RollbackItem(who Actor, item string, version int64, reason str
 			return true
 		})
 		row.Version = next
-		if err := putItemTx(tx, row, sk); err != nil {
+		h, err := s.putItemTx(tx, row)
+		if err != nil {
 			return err
 		}
+		committed = h
 		out = row
 		s.pruneVersions(tx, row.ID, next)
 		return nil
@@ -467,6 +502,7 @@ func (s *Service) RollbackItem(who Actor, item string, version int64, reason str
 	if err != nil {
 		return Item{}, err
 	}
+	s.afterHeads(committed)
 	s.echo(who, "rolled the item back to version "+i64(version)+" as version "+i64(out.Version),
 		out.Title+" in "+s.collectionName(out.Collection), "secrets_item_rollback")
 	return out, nil
@@ -670,9 +706,9 @@ func (s *Service) Search(who Actor, query, collection string, tags []string) []S
 		}
 	}
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) {
 				return true
 			}
 			if r.State != StateNormal {

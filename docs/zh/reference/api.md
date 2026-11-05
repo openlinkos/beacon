@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-8bdc3baa
+sourceHash: sha256-6adf5677
 ---
 
 # REST API
@@ -158,11 +158,11 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 系统设置 {#settings}
 
-密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名，直接改数据库不会生效（控制台的「系统设置」页全部展示）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。
+密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值和故障保护值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名并记在带哈希的 head 里，直接改数据库不会生效（控制台的「系统设置」页全部展示）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。签名头缺失、过期或验不过时，用管理套接字上的 `beacon settings rebuild-head` 恢复；Beacon 不会自行重建。
 
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |
-| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（视为不存在） |
+| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（按登记的故障保护值生效，不会退回更松的默认值） |
 | `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
 | `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
 | `DELETE /api/v1/settings/{key}` | `secrets:admin` | 重置一个设置项，由上一级重新生效（该行删除）；`?scope=`、`?target=`、`?reason=`、`?if_version=` |
@@ -172,7 +172,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 保管库 {#vault}
 
-密钥保管库：库里的条目，值由 Beacon 代为保管。条目的概要——标题、类别、标签、网址、字段名——是明文，供搜索与策略使用；全部字段值、用户名、笔记与验证码种子在详情里，按版本用该库的密钥加密。版本保留谁何时为何改了什么；附件走同一套加密，单个不超过 `attachments.max_size`（10 MB）。每一条策略行——库、人员权限、标签、条目——都带一条由根密钥派生的签名密钥算出的签名，直接改数据库不会生效：该行视为不存在并上报（下方的 `rows_failed_signature`）。同一套操作也是控制台的「保管库」页与同名 MCP 工具；根密钥从哪来见 [config.yaml](config.md#the-vault)。
+密钥保管库：库里的条目，值由 Beacon 代为保管。条目的概要——标题、类别、标签、网址、字段名——是明文，供搜索与策略使用；全部字段值、用户名、笔记与验证码种子在详情里，按版本用该库的密钥加密。版本保留谁何时为何改了什么；附件走同一套加密，单个不超过 `attachments.max_size`（10 MB）。每一条策略行——库、人员权限、标签、条目、资格、授权、Agent 分组标签——都带一条由根密钥派生的签名密钥算出的签名，四个带纪元哈希的 head（`policy`、`items`、`eligibility` 与 `grants`）按存储字节的哈希点名仍有效的行，与设置项的 head 共用 secrets 目录里的一份 epochs 文件。授权头只点名仍有效的授权。直接改数据库不会生效：该行视为不存在（或 `never`）并上报（下方的 `rows_failed_signature`）。签名头缺失、过期或验不过时，用管理套接字上的 `beacon secret rebuild-head` 恢复；Beacon 不会自行重建。把数据库和 secrets 目录一起滚回到某个一致的旧状态是检测不到的，需要外部锚（KMS 或备份日志）。同一套操作也是控制台的「保管库」页与同名 MCP 工具；根密钥从哪来见 [config.yaml](config.md#the-vault)。
 
 条目路由给人用，每次修改都记审计并回声到告警群。不是人的令牌被拒（`secrets.person`），Agent 一律被拒（`secrets.agent`）：Agent 经由后续版本到来的授权取条目。查看值要重新输入账号密码，窗口为 `reveal.reauth_window`（默认 5 分钟），并且先写审计再返回值——与人将来取值、Agent 经授权取值同一规矩。owner 对所有库有 `manage`；其他人按库所给的档位：`describe`（看概要）、`read`（看值，需密码）、`edit`（改条目）、`manage`（改权限与策略）。保管库封存期间（口令模式重启后、owner 启封前）这些路由返回 `secrets.sealed` 并告警；监控与 SSH 通道照常。
 
@@ -208,7 +208,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 授权 {#grants}
 
-Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余等人决定（控制台的「密钥审批」页，或飞书卡片的「按申请批准 / 只批一次 / 拒绝」，每个决定都带理由）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和其余策略行一样带签名，直接改数据库的行会被视为不存在并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
+Agent 通过授权触及条目：**资格**（entitlement）覆盖什么，它就能申请什么；**申请**按每个条目需要的审批拆分——`auto` 的部分立刻成为授权，其余等人决定（控制台的「密钥审批」页，或飞书卡片的「按申请批准 / 只批一次 / 拒绝」，每个决定都带理由）——之后由**授权**把值交给 Agent，每次取用都带原因、先记录后给值。资格和授权与其余策略行一样带签名，并记在 `eligibility` 与 `grants` 头里；直接改数据库的行会被视为不存在（点名的拒绝资格按全部拒绝）并告警。`deny` 资格优先匹配，资格之外的东西对 Agent 不可见，`never` 条目任何 Agent 都拿不到，Agent 能申请的不超过其所有者在库里的权限。
 
 | 路由 | 作用域 | 说明 |
 | --- | --- | --- |

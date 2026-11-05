@@ -47,7 +47,7 @@ type RowView struct {
 }
 
 // Listing is every setting with the rows that are not the system's, and the rows that failed their
-// signature (served fail-closed as the last signed value, and reported).
+// signature (served as the registered failsafe, and reported).
 type Listing struct {
 	Settings  []View    `json:"settings"`
 	Overrides []RowView `json:"overrides,omitempty"`

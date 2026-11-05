@@ -22,6 +22,7 @@ type Vault interface {
 	Seal() error
 	RotateRootKey(newPassphrase string) error
 	RotateCollectionKey(collection string) error
+	RebuildHead(who secrets.Actor) error
 
 	ActorForUser(name string) (secrets.Actor, bool)
 	Collections() []secrets.Collection
@@ -65,7 +66,7 @@ func VaultHandler(v Vault) http.Handler {
 			code = http.StatusConflict
 		case errors.Is(err, secrets.ErrNotFound):
 			code = http.StatusNotFound
-		case errors.Is(err, secrets.ErrExists), errors.Is(err, secrets.ErrConflict):
+		case errors.Is(err, secrets.ErrExists), errors.Is(err, secrets.ErrConflict), errors.Is(err, secrets.ErrHead):
 			code = http.StatusConflict
 		case errors.Is(err, secrets.ErrInvalid), errors.Is(err, secrets.ErrBadInput), errors.Is(err, secrets.ErrRedirect):
 			code = http.StatusBadRequest
@@ -138,6 +139,17 @@ func VaultHandler(v Vault) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, struct{ Sealed bool }{true})
+	})
+	mux.HandleFunc("POST /v1/secrets/rebuild-head", func(w http.ResponseWriter, r *http.Request) {
+		who, ok := actor(w, r)
+		if !ok {
+			return
+		}
+		if err := v.RebuildHead(who); err != nil {
+			failVault(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("POST /v1/secrets/rotate", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -471,6 +483,12 @@ func (c *Client) VaultUnseal(ctx context.Context, passphrase string) (VaultState
 // VaultSeal seals the vault again.
 func (c *Client) VaultSeal(ctx context.Context) error {
 	return c.do(ctx, "POST", "/v1/secrets/seal", nil, nil)
+}
+
+// VaultRebuildHead is owner recovery of the vault's signed heads from the rows that still verify.
+func (c *Client) VaultRebuildHead(ctx context.Context, user string) error {
+	var out map[string]bool
+	return c.do(ctx, "POST", "/v1/secrets/rebuild-head?user="+user, struct{}{}, &out)
 }
 
 // VaultRotate rotates the root key, or one collection's key when collection is named.

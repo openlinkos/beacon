@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5db37e75
+sourceHash: sha256-7467e519
 ---
 
 # 命令行
@@ -30,7 +30,7 @@ docker exec beacon beacon token list
 | `drill` | 演练一次故障：[fail、off、status](#beacon-enroll-silence-drill) |
 | `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
 | `storage` | 数据库的健康检查：[check](#beacon-audit-storage) |
-| `secret` | 密钥保管库：[ls、collection、show、set、reveal、tag、level、archive、rm、restore、rollback、generate、perms、tags](#beacon-secret) |
+| `secret` | 密钥保管库：[ls、collection、show、set、reveal、tag、level、archive、rm、restore、rollback、generate、perms、tags、rebuild-head](#beacon-secret) |
 | `run` | 把环境变量和 `.env` 文件里的 `beacon://` 引用注入子进程（`-agent`、`-reason`、`-env-file`、`-wait`）；值从不打印。见 [beacon run](#beacon-run) |
 | `key` | 保管库的密钥：[status、unseal、seal、rotate](#beacon-key) |
 | `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
@@ -50,7 +50,7 @@ docker exec beacon beacon token list
 
 ### beacon settings
 
-`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。
+`settings` 命令读取和修改密钥托管所依赖的系统设置：每一项都有开箱默认值，每次修改都是带谁改的与原因的版本、可回滚（[系统设置](../reference/api.md#settings)）。值是 JSON，按存储原样：`50`、`"30d"`、`["rules","agents"]`、`{"keep":"365d","min_versions":10}`。签名头缺失或验不过时用 `rebuild-head` 恢复；Beacon 不会在之后的写入里自行重建。epochs 文件在 secrets 目录，与保管库的策略、条目、资格和授权头共用。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -59,10 +59,11 @@ docker exec beacon beacon token list
 | `reset` KEY | `-scope`、`-target`、`-reason` | 去掉这层覆盖，由上一级（或默认值）重新生效 |
 | `history` | `-limit` | 修改历史：版本、时间、谁、途径、动作、设置项、备注 |
 | `revert` VERSION | `-note` | 回到 `history` 里的一个版本 |
+| `rebuild-head` | | 用仍然验得过的行重建签名头（经管理套接字的属主恢复；记审计） |
 
 ### beacon secret
 
-保管库，给人的双手在命令行上用：与控制台的「保管库」页和 [REST 路由](api.md#vault)同一套操作、同一套权限与审计。每次修改都以某个账号做出（`-user`，默认是你自己），查看值要重新输入该账号的密码，任何值都不会出现在日志或审计文本里。条目用它的 `beacon://` 引用或 `库/标题` 指代。
+保管库，给人的双手在命令行上用：与控制台的「保管库」页和 [REST 路由](api.md#vault)同一套操作、同一套权限与审计。每次修改都以某个账号做出（`-user`，默认是你自己），查看值要重新输入该账号的密码，任何值都不会出现在日志或审计文本里。条目用它的 `beacon://` 引用或 `库/标题` 指代。策略、条目、资格与授权行记在带纪元哈希的签名头里；头缺失或验不过时用 `rebuild-head` 恢复。epochs 文件在 secrets 目录。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -80,6 +81,7 @@ docker exec beacon beacon token list
 | `generate` REF FIELD | `-length`、`-charset`、`-user`、`-reason` | 让 Beacon 生成新值（`-length` 默认 24，`-charset` 为 `letters`、`alnum` 或 `all`），存为新版本。值不显示；要看就 reveal |
 | `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库里能做什么：不带第二参数时列出清单；`user:alice=read` 给人授 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
 | `tags` [NAME [LEVEL]] | `-description`、`-user` | 列出标签，或设置一个：标签的级别是策略（带它的条目至少那么严），只有 owner 账号可以 |
+| `rebuild-head` | `-user` | 用仍然验得过的行重建策略、条目、资格与授权签名头（经管理套接字的属主恢复；记审计）。Beacon 不会在之后的写入里自行重建缺失的头 |
 
 ### beacon run
 
@@ -108,7 +110,7 @@ beacon run -agent claude-code -reason "fix the dns outage" --env-file .env -- pr
 | `init` | `-passphrase-file`、`-passphrase-from-stdin` | 给口令模式保管库设第一道口令并启封。之后的启封用这道口令，不会再接受新口令。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
 | `unseal` | `-passphrase-file`、`-passphrase-from-stdin` | 重启后启封口令模式。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
 | `seal` | | 重新封存：密钥功能等待口令；监控与 SSH 通道照常 |
-| `rotate` [COLLECTION] | `-passphrase-file`、`-passphrase-from-stdin` | 不带名字：换根密钥，全部库密钥重新包裹，秒级完成（口令模式下 `-passphrase-file` 指向装新口令的文件）。带名字：换那个库的密钥，条目在后台重新加密。移除成员不需要轮换——成员从来不经手密钥 |
+| `rotate` [COLLECTION] | `-passphrase-file`、`-passphrase-from-stdin` | 不带名字：换根密钥，全部库密钥重新包裹，秒级完成，已校验的策略、条目与设置项头在同一事务里重签（口令模式下 `-passphrase-file` 指向装新口令的文件）。一次轮换进行中再来一次会被拒绝。带名字：换那个库的密钥，条目在后台重新加密。移除成员不需要轮换——成员从来不经手密钥 |
 
 ### beacon setup, user, agent
 

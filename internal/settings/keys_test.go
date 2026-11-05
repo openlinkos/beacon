@@ -123,6 +123,41 @@ func TestDefaultsFit(t *testing.T) {
 	}
 }
 
+// Every key has a failsafe that fits, and an access-control failsafe is not looser than Default.
+func TestFailsafeEveryKey(t *testing.T) {
+	for _, d := range Ordered() {
+		if len(d.Failsafe) == 0 {
+			t.Errorf("%s: no failsafe", d.Key)
+			continue
+		}
+		fs, err := d.canonical(d.Failsafe)
+		if err != nil {
+			t.Errorf("%s: failsafe does not fit: %v", d.Key, err)
+			continue
+		}
+		if !d.Access || d.kind.stricter == nil {
+			continue
+		}
+		def, err := d.canonical(d.Default)
+		if err != nil {
+			t.Errorf("%s: default does not fit: %v", d.Key, err)
+			continue
+		}
+		w, ok := d.stricter(fs, def)
+		if !ok {
+			continue // unordered: the failsafe still has to fit, which it did
+		}
+		got, err := d.canonical(w)
+		if err != nil {
+			t.Errorf("%s: winner does not fit: %v", d.Key, err)
+			continue
+		}
+		if string(got) != string(fs) {
+			t.Errorf("%s: failsafe is looser than default: failsafe %s default %s won %s", d.Key, fs, def, got)
+		}
+	}
+}
+
 // Every definition says what it is and which group it is in, for the console's page.
 func TestDefinitionsAreDescribed(t *testing.T) {
 	seen := map[string]bool{}

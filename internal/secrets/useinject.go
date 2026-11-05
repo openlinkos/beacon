@@ -19,6 +19,7 @@ import (
 	"github.com/openlinkos/beacon/internal/events"
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/scrub"
+	"github.com/openlinkos/beacon/internal/signedhead"
 )
 
 // The use action's paths: the value reaches a command, a process or an HTTP request without being
@@ -83,6 +84,9 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 	if s.keys.sealed() {
 		s.anomalyFired("sealed_state", "a use came while the vault was sealed")
 		return out, nil, nil, ErrSealed
+	}
+	if err := s.refuseIfRotating(); err != nil {
+		return out, nil, nil, err
 	}
 	if s.agentSuspended(agentName) {
 		return out, nil, nil, ErrSuspendedAgent
@@ -149,7 +153,9 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 		sort.Strings(missing)
 		return out, nil, nil, &NoGrantsError{Refs: missing}
 	}
-	// pass two: one transaction for every counter and every record — then, only then, the values
+	// pass two: one transaction for every counter and every record — then, only then, the values.
+	// Only the grants whose counters moved are named (or dropped) in the grants head.
+	var committed signedhead.Head
 	err := s.d.Store.Storage().UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		sk, err := s.sk()
 		if err != nil {
@@ -159,11 +165,20 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 		if appendUse == nil {
 			appendUse = s.d.Store.UsesLog().AppendTx
 		}
+		puts := map[string][]byte{}
+		var dels []string
+		seen := map[string]bool{}
 		for _, u := range toDo {
-			b := tx.Get(bucketGrants, []byte(u.grantID))
+			rawGrant := tx.Get(bucketGrants, []byte(u.grantID))
 			var cur Grant
-			if b == nil || json.Unmarshal(b, &cur) != nil || !s.grantVerifies(cur) || cur.Status != GrantActive {
+			if rawGrant == nil || json.Unmarshal(rawGrant, &cur) != nil || !s.grantVerifies(cur) || cur.Status != GrantActive {
 				return &NoGrantsError{Refs: []string{u.ref}}
+			}
+			if !seen[cur.ID] {
+				if !s.grantAccept(tx, cur.ID, rawGrant) {
+					return &NoGrantsError{Refs: []string{u.ref}}
+				}
+				seen[cur.ID] = true
 			}
 			if cur.Uses > 0 && cur.Used >= cur.Uses {
 				return &NoGrantsError{Refs: []string{u.ref}}
@@ -175,8 +190,15 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 			if cur.Uses > 0 && cur.Used >= cur.Uses {
 				cur.Status = GrantExhausted
 			}
-			if err := putGrantTx(tx, cur, sk); err != nil {
+			b, err := putGrantTx(tx, cur, sk)
+			if err != nil {
 				return err
+			}
+			if cur.Status == GrantActive {
+				puts[cur.ID] = b
+			} else {
+				delete(puts, cur.ID)
+				dels = append(dels, cur.ID)
 			}
 			why := reason
 			if strings.TrimSpace(u.ask.Reason) != "" {
@@ -190,13 +212,17 @@ func (s *Service) resolveUses(agentName, via string, asks []UseAsk, reason, wher
 				return fmt.Errorf("the use could not be recorded, so the value is not given: %w", err)
 			}
 		}
-		// Used and Status sit in the grant's signed parts: the head must name this row or the
-		// grant vanishes the moment grants() walks it (kind=grant, missing, stale or bad).
-		return writePolicyHeadTx(tx, sk)
+		h, err := s.commitGrants(tx, puts, dels)
+		if err != nil {
+			return err
+		}
+		committed = h
+		return nil
 	})
 	if err != nil {
 		return out, nil, nil, err
 	}
+	s.afterHeads(committed)
 	// committed: the values may be given now, and only now
 	scr := scrub.New(s.scrubEncodings()...)
 	for _, u := range toDo {
