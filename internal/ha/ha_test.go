@@ -307,13 +307,19 @@ func TestRunReleasesAfterLeaderWork(t *testing.T) {
 	if !one.Leader() {
 		t.Fatal("the instance never took the lease")
 	}
+	started := make(chan struct{})
 	left := make(chan time.Time, 1)
 	Single(ctx, one, func(inner context.Context) {
+		close(started)
 		<-inner.Done()
 		time.Sleep(200 * time.Millisecond)
 		left <- time.Now()
 	})
-	time.Sleep(150 * time.Millisecond) // let Single start
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Single never started")
+	}
 	cancel()
 	var released time.Time
 	deadline = time.Now().Add(3 * time.Second)
@@ -335,4 +341,45 @@ func TestRunReleasesAfterLeaderWork(t *testing.T) {
 	if released.Before(doneAt.Add(-30 * time.Millisecond)) {
 		t.Errorf("released the lease at %s before the leader's work returned at %s", released.Format(time.RFC3339Nano), doneAt.Format(time.RFC3339Nano))
 	}
+}
+
+// TestRunReleasesWhenStopHitsATake: cancelling during a renewal still deletes the row.
+// A take that sees ctx.Done() returns leader=false; that must not skip release, or the
+// standby waits the full expiry for a holder that has already stopped.
+func TestRunReleasesWhenStopHitsATake(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	one, err := Open(admin, Options{Name: "stop-take", ID: "primary", Renew: 80 * time.Millisecond, Expire: 400 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go one.Run(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the instance never took the lease")
+	}
+	time.Sleep(40 * time.Millisecond) // land inside a take or the wait for the next one
+	cancel()
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		if err := admin.QueryRow(`SELECT COUNT(*) FROM leader WHERE name = $1 AND holder = $2`, "stop-take", "primary").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the lease was never released")
 }

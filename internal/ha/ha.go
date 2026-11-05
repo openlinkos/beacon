@@ -208,24 +208,34 @@ func (l *Lease) release(ctx context.Context) error {
 // says every transition. It returns when ctx is done, waiting for what only the leader runs to
 // return, then releasing the lease so a standby does not overlap that work.
 func (l *Lease) Run(ctx context.Context) {
-	wasLeader := false
 	defer func() {
 		l.inner.Store(false)
 		l.heldUntil.Store(0)
 		l.waitTasks(10 * time.Second)
-		if wasLeader {
-			_ = l.release(context.Background())
-		}
+		// Always try to delete our row. A take interrupted by ctx.Done() returns
+		// leader=false, which must not skip the release: the row still names us
+		// until expiry, and a standby would wait the full Expire.
+		_ = l.release(context.Background())
 	}()
+	wasLeader := false
 	for {
 		started := time.Now()
 		leader, epoch, err := l.take(ctx)
-		if err != nil && ctx.Err() == nil && l.o.Log != nil {
-			l.o.Log.Warn("the leader lease could not be renewed", "err", err)
+		if ctx.Err() != nil {
+			return
 		}
-		if err == nil {
-			l.healthyUntil.Store(started.Add(l.o.Expire).UnixNano())
+		if err != nil {
+			if l.o.Log != nil {
+				l.o.Log.Warn("the leader lease could not be renewed", "err", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(l.o.Renew):
+			}
+			continue
 		}
+		l.healthyUntil.Store(started.Add(l.o.Expire).UnixNano())
 		if leader != wasLeader {
 			if l.o.Log != nil {
 				if leader {
