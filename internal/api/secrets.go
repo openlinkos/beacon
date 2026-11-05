@@ -25,6 +25,7 @@ func secretsRoutes() []string {
 		"GET /api/v1/secrets/entitlements", "POST /api/v1/secrets/entitlements", "DELETE /api/v1/secrets/entitlements/{name}",
 		"POST /api/v1/secrets/agent-tags", "GET /api/v1/secrets/agents/{name}/scope", "POST /api/v1/secrets/agents/{name}/templates",
 		"POST /api/v1/secrets/agents/{name}/unsuspend",
+		"POST /api/v1/secrets/use", "POST /api/v1/secrets/http-request",
 	}
 }
 

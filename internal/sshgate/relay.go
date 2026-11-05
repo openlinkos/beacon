@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/scrub"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -41,12 +42,15 @@ fi
 exec "${SHELL:-/bin/sh}" -l`
 
 // session is one session on a machine, through the SSH channel or a tool: it records what passes and
-// files the result.
+// files the result. scr, when set, hides secret values from everything the session keeps — the
+// agent's answer, the recording and the transcript — for a command the values were injected into,
+// or a file read on a machine that holds them.
 type session struct {
 	g          *Gate
 	rec        store.SessionRecord
 	cols, rows int
 	pty        bool
+	scr        *scrub.Stream
 
 	mu      sync.Mutex
 	started bool
@@ -116,12 +120,16 @@ func (s *session) input(p []byte) {
 }
 
 // output takes what the machine sends and returns what the agent should see (an interactive shell's
-// marks removed).
+// marks removed). The scrubber, when there is one, runs first: the values it hides never reach the
+// recording, the transcript or the agent.
 func (s *session) output(p []byte, stderr bool) []byte {
 	s.out.Add(int64(len(p)))
 	cast, shell, kind := s.parts()
 	if kind == "sftp" || kind == "" {
 		return p
+	}
+	if s.scr != nil {
+		p = s.scr.Write(p)
 	}
 	if shell != nil && !stderr {
 		p = shell.output(p)
@@ -153,7 +161,15 @@ func (s *session) finish(exit *int) Transcript {
 		s.mu.Unlock()
 		return Transcript{}
 	}
-	rec, cast, shell, cut := s.rec, s.cast, s.shell, s.cut
+	rec, cast, shell, cut, scr := s.rec, s.cast, s.shell, s.cut, s.scr
+	if scr != nil {
+		// what the scrubber held back while a value might have been starting: the text is over, so
+		// it is safe — scrubbed a last time — and it belongs with the rest
+		if tail := scr.Flush(); len(tail) > 0 {
+			s.stdout.Write(tail)
+			cast.event("o", string(tail))
+		}
+	}
 	raw, stderr := s.stdout.String(), s.stderr.String()
 	s.mu.Unlock()
 	if exit != nil {

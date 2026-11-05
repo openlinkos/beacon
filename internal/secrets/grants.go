@@ -538,8 +538,9 @@ func (s *Service) notifyItemChanged(item Item, oldVersion int64) {
 // the ones close to it are noticed (secret.expiring, three days ahead, grants under a day left
 // alone), waiting requests past their pending TTL meet request.on_pending_expiry, grants bound to
 // a resolved alert end with their grace, and requests queued while the vault was sealed are
-// resolved against the policy again. The wiring runs it every minute; it answers how many things
-// it changed, for the log.
+// resolved against the policy again. The declared files waiting for a maintenance window, or
+// failing, are dealt with again. The wiring runs it every minute; it answers how many things it
+// changed, for the log.
 func (s *Service) Sweep() int {
 	if s.keys.sealed() {
 		return 0
@@ -668,6 +669,9 @@ func (s *Service) Sweep() int {
 			Reason: "nobody decided in time"})
 		changed++
 	}
+
+	// the declared files: waiting for a window, or failing and tried again
+	changed += s.deliverDueFiles()
 	return changed
 }
 

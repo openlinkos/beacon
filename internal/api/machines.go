@@ -7,7 +7,10 @@ import (
 	"strconv"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/scrub"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The SSH channel's routes: machines, the tools that work on them, sessions, the pause switch.
@@ -125,12 +128,42 @@ func (s *Server) setConnector(w http.ResponseWriter, r *http.Request, who bridge
 	writeJSON(w, http.StatusOK, v)
 }
 
-func (s *Server) runCommand(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
-	var in sshgate.RunInput
+// runBody is run_command's body: the command, and the secrets to inject as its environment —
+// references only, never values; the vault resolves them through the caller's use grants.
+type runBody struct {
+	sshgate.RunInput
+	Secrets []secrets.UseAsk `json:"secrets,omitempty"`
+	Reason  string           `json:"reason,omitempty"`
+}
+
+func (s *Server) runCommand(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	var in runBody
 	if !readBody(w, r, &in, 2<<20) {
 		return
 	}
-	out, err := s.SSH.Run(r.Context(), gateActor(who), r.PathValue("name"), in)
+	machine := r.PathValue("name")
+	var env map[string]string
+	var sc *scrub.Scrubber
+	if len(in.Secrets) > 0 {
+		// the secrets are an agent's door: they ride a use grant, and only onto a machine the item
+		// is bound to; the values go into the command, and everything that comes back is scrubbed
+		if p.Agent == "" {
+			writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants, not this door: request_secret asks, run_command's secrets take")
+			return
+		}
+		if s.Secrets == nil {
+			writeError(w, http.StatusServiceUnavailable, "secrets.sealed", "the vault is not wired")
+			return
+		}
+		var err error
+		env, sc, err = s.Secrets.UseForMachine(p.Agent, machine, in.Secrets, in.Reason,
+			r.Header.Get("X-Forwarded-For"), r.Header.Get("User-Agent"))
+		if err != nil {
+			s.vaultError2(w, err)
+			return
+		}
+	}
+	out, err := s.SSH.RunWithEnv(r.Context(), gateActor(bridge.ActorOf(p, "api")), machine, in.RunInput, env, sc)
 	if err != nil {
 		s.gateError(w, err)
 		return

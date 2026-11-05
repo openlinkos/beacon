@@ -5,12 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/openlinkos/beacon/internal/scrub"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -42,10 +46,12 @@ type writerFunc func([]byte)
 func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
 
 // execute runs command on the machine as one recorded session and returns its transcript. Label is what
-// the record calls it (the command itself, or "read /etc/hosts" for a file tool). A command still
+// the record calls it (the command itself, or "read /etc/hosts" for a file tool); recordStdin says
+// whether the input is recorded with the session (a command's stdin is, a delivered secret's bytes
+// are not); scr, when set, hides secret values from everything the session keeps. A command still
 // running at the timeout is sent SIGKILL and abandoned; its transcript has no exit status.
 func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, label, command string, stdin []byte,
-	timeout time.Duration) (Transcript, bool, error) {
+	timeout time.Duration, recordStdin bool, scr *scrub.Scrubber) (Transcript, bool, error) {
 	conn := newID(g.now())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -61,11 +67,16 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		return Transcript{}, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	s := g.newSession(who, m, conn+"-1")
+	s.scr = scrub.NewStream(scr)
 	s.start(kind, label)
 	sess.Stdout = writerFunc(func(p []byte) { s.output(p, false) })
 	sess.Stderr = writerFunc(func(p []byte) { s.output(p, true) })
 	if stdin != nil {
-		sess.Stdin = teeReader{bytes.NewReader(stdin), s.input}
+		if recordStdin {
+			sess.Stdin = teeReader{bytes.NewReader(stdin), s.input}
+		} else {
+			sess.Stdin = &countingReader{r: bytes.NewReader(stdin), n: func(i int64) { s.in.Add(i) }}
+		}
 	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(command) }()
@@ -127,8 +138,36 @@ type RunResult struct {
 	Session   string `json:"session"`
 }
 
+// envNameRe is the shape an environment variable's name must have to go on a command.
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// countingReader feeds a session's stdin without recording it, keeping only the count.
+type countingReader struct {
+	r io.Reader
+	n func(int64)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.n(int64(n))
+	}
+	return n, err
+}
+
 // Run runs a command on a machine, as the machine's user, in a shell without a terminal.
 func (g *Gate) Run(ctx context.Context, who Actor, machine string, in RunInput) (RunResult, error) {
+	return g.RunWithEnv(ctx, who, machine, in, nil, nil)
+}
+
+// RunWithEnv runs a command with secret values as its environment: the values are put on the
+// command line the machine's shell sees — `env NAME=value …` — and never into anything recorded
+// (the label keeps the agent's own command, with the environment's names said beside it). The
+// scrubber hides the values from the command's output, the recording and the transcript, in the
+// value's own shape and its base64, URL and hexadecimal forms. The scrubbing is against the
+// accidental leak only: the command is the agent's, and one that means to leak a value can — the
+// values therefore only go to machines the item is bound to, which hold them anyway.
+func (g *Gate) RunWithEnv(ctx context.Context, who Actor, machine string, in RunInput, env map[string]string, sc *scrub.Scrubber) (RunResult, error) {
 	m, err := g.machineFor(who, machine)
 	if err != nil {
 		return RunResult{}, err
@@ -141,6 +180,23 @@ func (g *Gate) Run(ctx context.Context, who Actor, machine string, in RunInput) 
 		timeout = min(time.Duration(in.Timeout)*time.Second, maxTimeout)
 	}
 	cmd := in.Command
+	label := in.Command
+	if len(env) > 0 {
+		names := make([]string, 0, len(env))
+		for name := range env {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		prefix := make([]string, 0, len(env))
+		for _, name := range names {
+			if !envNameRe.MatchString(name) {
+				return RunResult{}, fmt.Errorf("%w: %q is not an environment variable's name", ErrBadInput, name)
+			}
+			prefix = append(prefix, name+"="+quote(env[name]))
+		}
+		cmd = "env " + strings.Join(prefix, " ") + " " + cmd
+		label = in.Command + " (+" + strconv.Itoa(len(env)) + " secret(s): " + strings.Join(names, ", ") + ")"
+	}
 	if in.Cwd != "" {
 		cmd = "cd " + quote(in.Cwd) + " && " + cmd
 	}
@@ -148,7 +204,7 @@ func (g *Gate) Run(ctx context.Context, who Actor, machine string, in RunInput) 
 	if in.Stdin != "" {
 		stdin = []byte(in.Stdin)
 	}
-	t, timedOut, err := g.execute(ctx, who, m, "exec", in.Command, cmd, stdin, timeout)
+	t, timedOut, err := g.execute(ctx, who, m, "exec", label, cmd, stdin, timeout, true, sc)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -221,7 +277,7 @@ func (g *Gate) ReadFile(ctx context.Context, who Actor, machine, path string, of
 	}
 	limit = min(limit, 10000)
 	body := checkFile + `awk -v a="$2" -v n="$3" 'NR>=a && NR<a+n { l=$0; if (length(l)>2000) l=substr(l,1,2000) "..."; printf "%6d\t%s\n", NR, l } END { printf "%d\n", NR > "/dev/stderr" }' < "$f"`
-	t, _, err := g.execute(ctx, who, m, "file", "read "+path, script(body, path, strconv.Itoa(offset), strconv.Itoa(limit)), nil, time.Minute)
+	t, _, err := g.execute(ctx, who, m, "file", "read "+path, script(body, path, strconv.Itoa(offset), strconv.Itoa(limit)), nil, time.Minute, true, g.scrubFor(m.Name))
 	if err != nil {
 		return FileView{}, err
 	}
@@ -269,7 +325,7 @@ func (g *Gate) WriteFile(ctx context.Context, who Actor, machine, path, content 
 d=$(dirname -- "$f")
 if [ ! -d "$d" ]; then mkdir -p -- "$d" || exit 73; fi
 cat > "$f" || exit 74`
-	t, _, err := g.execute(ctx, who, m, "file", "write "+path, script(body, path), []byte(content), time.Minute)
+	t, _, err := g.execute(ctx, who, m, "file", "write "+path, script(body, path), []byte(content), time.Minute, true, nil)
 	if err != nil {
 		return Written{}, err
 	}
@@ -306,7 +362,7 @@ func (g *Gate) EditFile(ctx context.Context, who Actor, machine string, in EditI
 	read := checkFile + `if [ "$(wc -c < "$f")" -gt 1048576 ]; then exit 68; fi
 cksum < "$f" >&2
 cat < "$f"`
-	t, _, err := g.execute(ctx, who, m, "file", "read "+in.Path, script(read, in.Path), nil, time.Minute)
+	t, _, err := g.execute(ctx, who, m, "file", "read "+in.Path, script(read, in.Path), nil, time.Minute, true, nil)
 	if err != nil {
 		return Written{}, err
 	}
@@ -329,7 +385,7 @@ cat < "$f"`
 	write := `f=$1
 if [ "$(cksum < "$f")" != "$2" ]; then echo "the file changed since it was read" >&2; exit 75; fi
 cat > "$f" || exit 74`
-	w, _, err := g.execute(ctx, who, m, "file", "edit "+in.Path, script(write, in.Path, sum), []byte(next), time.Minute)
+	w, _, err := g.execute(ctx, who, m, "file", "edit "+in.Path, script(write, in.Path, sum), []byte(next), time.Minute, true, nil)
 	if err != nil {
 		return Written{}, err
 	}

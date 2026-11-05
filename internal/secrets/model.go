@@ -92,25 +92,40 @@ type Collection struct {
 // Item is one secret as the overview shows it: everything here is readable by whoever may describe
 // the collection. The values live in the version's ciphertext. Level empty inherits: the strictest
 // of the collection's default and every tag's level. ActionsAllowed, when set, narrows what may be
-// done with the item to the actions named (use only, most often).
+// done with the item to the actions named (use only, most often). Machines and Hosts bind where a
+// use may take the value: the machines run_command may inject it on, the https hosts http_request
+// may send it to. Files declare where the value is put as a file: the machine, the path, the owner
+// and the mode, re-delivered when the value changes as file.on_change says.
 type Item struct {
-	ID         string    `json:"id"`
-	Collection string    `json:"collection"` // the collection's ID
-	Title      string    `json:"title"`
-	Category   string    `json:"category,omitempty"`
-	URLs       []string  `json:"urls,omitempty"`
-	Tags       []string  `json:"tags,omitempty"`
-	Level      string    `json:"level,omitempty"` // empty: inherit
-	Actions    []string  `json:"actions,omitempty"`
-	State      string    `json:"state"`
+	ID         string     `json:"id"`
+	Collection string     `json:"collection"` // the collection's ID
+	Title      string     `json:"title"`
+	Category   string     `json:"category,omitempty"`
+	URLs       []string   `json:"urls,omitempty"`
+	Tags       []string   `json:"tags,omitempty"`
+	Level      string     `json:"level,omitempty"` // empty: inherit
+	Actions    []string   `json:"actions,omitempty"`
+	State      string     `json:"state"`
 	Version    int64     `json:"version"`          // the current version
-	Source     string    `json:"source,omitempty"` // 1password:<uuid>, chrome
-	RotateDays int       `json:"rotate_days,omitempty"`
-	Machines   []string  `json:"machines,omitempty"` // bound machines, for use
-	Hosts      []string  `json:"hosts,omitempty"`    // bound https hosts, for use
-	Created    time.Time `json:"created"`
-	CreatedBy  string    `json:"created_by,omitempty"`
-	TrashedAt  time.Time `json:"trashed_at,omitzero"`
+	Source     string     `json:"source,omitempty"` // 1password:<uuid>, chrome
+	RotateDays int        `json:"rotate_days,omitempty"`
+	Machines   []string   `json:"machines,omitempty"` // bound machines, for use
+	Hosts      []string   `json:"hosts,omitempty"`    // bound https hosts, for use
+	Files      []ItemFile `json:"files,omitempty"`    // files the value is delivered as
+	Created    time.Time  `json:"created"`
+	CreatedBy  string     `json:"created_by,omitempty"`
+	TrashedAt  time.Time  `json:"trashed_at,omitzero"`
+}
+
+// ItemFile is one file an item's value is delivered as: on which machine, at which path, owned by
+// whom and with which mode. Field, when set, is the one field whose value the file holds, exactly
+// as it is; without it the file is the item as a .env file, every field a NAME=value line.
+type ItemFile struct {
+	Machine string `json:"machine"`
+	Path    string `json:"path"`
+	Field   string `json:"field,omitempty"`
+	Owner   string `json:"owner,omitempty"` // user, or user:group
+	Mode    string `json:"mode,omitempty"`  // octal, like 0600
 }
 
 // Field is one field of an item as the version lists it: where it sits (the section), its name,
