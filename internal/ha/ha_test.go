@@ -78,15 +78,20 @@ func TestLeaseTakeover(t *testing.T) {
 	stopOne() // Run releases the lease on its way out
 	took, tookWhen := false, time.Time{}
 	for !took && time.Now().Before(start.Add(3*time.Second)) {
+		if one.Leader() && two.Leader() {
+			t.Fatal("both instances reported leader at once")
+		}
 		took = two.Leader()
 		tookWhen = time.Now()
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	if !took {
 		t.Fatal("the second instance never took over")
 	}
 	// the clean release makes the takeover quick: far inside the 300ms expiry
-	if d := tookWhen.Sub(start); d > o.Expire {
+	d := tookWhen.Sub(start)
+	t.Logf("graceful takeover %s", d)
+	if d > o.Expire {
 		t.Errorf("the takeover took %s, longer than the %s expiry", d, o.Expire)
 	}
 	stopOne()

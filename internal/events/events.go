@@ -783,7 +783,11 @@ func (l *Log) verify(from uint64) (Result, error) {
 	if db == nil {
 		db = l.write
 	}
-	tx, err := db.BeginTx(context.Background(), nil)
+	// Repeatable Read so MIN(seq), the prune marks and the remaining rows are one snapshot.
+	// Under READ COMMITTED a prune can empty the table between those statements and look like a break.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return Result{}, err
 	}
