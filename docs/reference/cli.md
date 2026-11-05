@@ -64,7 +64,7 @@ The vault, for a person's hands on the command line: the same operations the [co
 | `ls` [COLLECTION] | `-state` | The collections with their level and item count; with a collection, its items (`-state`: `normal`, `archived` or `trash`): title, version, state, level, tags |
 | `collection` NAME | `-level`, `-description` | Make a collection; `-level` (default `review`) is the approval its items inherit |
 | `show` REF | | One item: version, level, state, tags, its `beacon://` reference, its fields (names, types, purposes) and how many versions it has — never a value |
-| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`, `-level`, `-category`, `-url`, `-set-note`, `-reason` | Add an item or write its next version. A field is `name=value` or `section/name=value`; `username` is a plain field, everything else concealed. `-level` `-` clears the item's own; `-reason` says why, kept with the version |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`, `-level`, `-category`, `-url`, `-set-note`, `-reason`, `-value-file`, `-value-from-stdin` | Add an item or write its next version. A field is `name=value` or `section/name=value`; `username` is a plain field, everything else concealed. `FIELD=-` with `-value-file` or `-value-from-stdin` reads the value from a file or stdin, so it need not sit on the command line. `-level` `-` clears the item's own; `-reason` says why, kept with the version |
 | `reveal` REF [FIELD …] | `-user`, `-password-file`, `-password-from-stdin` | View values: the account's password comes from the file (`-password-file`) or stdin (`-password-from-stdin`; it shows while you type). An `otp` field gives the current code and the seconds left. Audited before the values print |
 | `tag` REF TAGS | `-user`, `-reason` | Change an item's tags (comma-separated) — a policy change, so it needs `manage` on the collection |
 | `level` REF LEVEL | `-user`, `-reason` | Set an item's own approval level (`auto`, `review`, `person`, `never`, or `-` to inherit the collection's) — also `manage` |
@@ -78,12 +78,13 @@ The vault, for a person's hands on the command line: the same operations the [co
 
 ### beacon key
 
-The vault's keys: where the root key comes from is [config.yaml's](config.md#the-vault) `vault` section. In the `file`, `aws-kms`, `gcp-kms` and `transit` modes the keys are there at the start; in the `passphrase` mode a restart leaves the vault sealed until an owner unseals it.
+The vault's keys: where the root key comes from is [config.yaml's](config.md#the-vault) `vault` section. In the `file`, `aws-kms`, `gcp-kms` and `transit` modes the keys are there at the start; in the `passphrase` mode a restart leaves the vault sealed until an owner initialises it (`key init`) the first time, then unseals it.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
 | `status` | | `sealed` or `unsealed`, the mode, and a warning for every policy row that failed its signature (served as absent) |
-| `unseal` | `-passphrase-file`, `-passphrase-from-stdin` | Unseal the passphrase mode. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
+| `init` | `-passphrase-file`, `-passphrase-from-stdin` | Set the first passphrase of a passphrase-mode vault and unseal it. Later unseals open with that passphrase; they never take a new one. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
+| `unseal` | `-passphrase-file`, `-passphrase-from-stdin` | Unseal the passphrase mode after a restart. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
 | `seal` | | Seal again: the key functions wait for the passphrase; monitoring and the SSH channel carry on |
 | `rotate` [COLLECTION] | `-passphrase-file`, `-passphrase-from-stdin` | Without a name, a new root key: every collection key wrapped again, in seconds (in the passphrase mode, `-passphrase-file` names a file holding the new one). With a name, that collection's key: its items are encrypted again in the background. Removing a member needs no rotation — members never hold a key |
 
