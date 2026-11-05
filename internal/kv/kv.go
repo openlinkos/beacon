@@ -32,7 +32,9 @@ type DB interface {
 // Tx is one transaction. Get returns nil for a missing key; write methods fail the transaction.
 // A read-only transaction's NextSequence fails: sequences advance only in an Update.
 type Tx interface {
-	// Get returns the value of key in bucket, or nil when the key is not there.
+	// Get returns the value of key in bucket, or nil when the key is not there. An empty
+	// value is an empty slice, not nil. A read that fails fails the transaction; Update and
+	// View return that error even if fn itself did not.
 	Get(bucket, key []byte) []byte
 	// Put sets the value of key in bucket.
 	Put(bucket, key, value []byte) error
