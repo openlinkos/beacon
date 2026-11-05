@@ -60,19 +60,25 @@ type Config struct {
 	Vault struct {
 		Dir  string `yaml:"dir"`
 		Mode string `yaml:"mode"` // file (default), passphrase, aws-kms, gcp-kms, transit
-		AWS  struct {
+		// AWS is the AWS KMS mode's own settings. Endpoint names a local KMS for the tests; empty
+		// is AWS's own.
+		AWS struct {
 			Region           string `yaml:"region"`
 			KeyID            string `yaml:"key_id"`
-			Endpoint         string `yaml:"endpoint"` // a local KMS for the tests; empty is AWS's own
+			Endpoint         string `yaml:"endpoint"`
 			AccessKeyFile    string `yaml:"access_key_file"`
 			SecretKeyFile    string `yaml:"secret_key_file"`
 			SessionTokenFile string `yaml:"session_token_file"`
 		} `yaml:"aws_kms"`
+		// GCP is the Cloud KMS mode's own settings. KeyName is the key's full resource name
+		// (projects/…/locations/…/keyRings/…/cryptoKeys/…); Endpoint names a local KMS for the
+		// tests, empty is Google's own.
 		GCP struct {
-			KeyName   string `yaml:"key_name"` // projects/…/cryptoKeys/…
-			Endpoint  string `yaml:"endpoint"` // a local KMS for the tests; empty is Google's own
+			KeyName   string `yaml:"key_name"`
+			Endpoint  string `yaml:"endpoint"`
 			TokenFile string `yaml:"token_file"`
 		} `yaml:"gcp_kms"`
+		// Transit is the Vault or OpenBao mode's own settings.
 		Transit struct {
 			Address   string `yaml:"address"`
 			KeyName   string `yaml:"key_name"`
