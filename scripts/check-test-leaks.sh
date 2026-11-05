@@ -19,6 +19,8 @@ fixture-value-API-zephyr-5c2d-grault
 fixture-notes-caboosetumbler
 fixture-attachment-tumbler-quartz
 fixture-user-zz31@example.com
+fixture-value-grant-plugh-xyzzy-7
+fixture-value-rotated-thud-wombat-31
 '
 
 OUT=$(mktemp)
