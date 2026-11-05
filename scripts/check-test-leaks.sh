@@ -23,6 +23,7 @@ fixture-value-API-zephyr-5c2d-grault
 fixture-notes-caboosetumbler
 fixture-attachment-tumbler-quartz
 fixture-user-zz31@example.com
+GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
 fixture-import-1pux-value-xyzzy-frobnicate
 fixture-import-1pux-notes-tumbler
 fixture-import-1pux-attachment-quartz

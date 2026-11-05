@@ -86,6 +86,7 @@ type vaultUI interface {
 	Unseal(passphrase string) error
 	InitPassphrase(passphrase string) error
 	Collections() []secrets.Collection
+	CollectionsFor(who secrets.Actor) []secrets.Collection
 	Collection(nameOrID string) (secrets.Collection, bool)
 	Permissions(collection string) []secrets.Permission
 	SetPermission(who secrets.Actor, collection, subject, perm, reason string) error

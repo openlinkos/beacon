@@ -48,6 +48,7 @@ type vault interface {
 	OnKeyChange(func([]byte))
 
 	Collections() []secrets.Collection
+	CollectionsFor(who secrets.Actor) []secrets.Collection
 	Collection(nameOrID string) (secrets.Collection, bool)
 	CreateCollection(who secrets.Actor, name, description, level string) (secrets.Collection, error)
 	UpdateCollection(who secrets.Actor, id, description, level string) (secrets.Collection, error)
@@ -265,11 +266,9 @@ func (s *Server) listCollections(w http.ResponseWriter, _ *http.Request, p store
 	if !ok {
 		return
 	}
-	var out []secrets.Collection
-	for _, col := range s.Vault.Collections() {
-		if s.Vault.May(who, col.ID, secrets.PermDescribe) {
-			out = append(out, col)
-		}
+	out := s.Vault.CollectionsFor(who)
+	if out == nil {
+		out = []secrets.Collection{}
 	}
 	writeJSON(w, http.StatusOK, struct {
 		Collections []secrets.Collection `json:"collections"`

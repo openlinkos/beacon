@@ -80,12 +80,7 @@ func registerSecretsTools(s *mcp.Server, v *secrets.Service) {
 			if err != nil {
 				return nil, collectionsOut{}, err
 			}
-			var cols []secrets.Collection
-			for _, col := range v.Collections() {
-				if v.May(who, col.ID, secrets.PermDescribe) {
-					cols = append(cols, col)
-				}
-			}
+			cols := v.CollectionsFor(who)
 			if cols == nil {
 				cols = []secrets.Collection{}
 			}
