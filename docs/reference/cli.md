@@ -26,6 +26,8 @@ docker exec beacon beacon token list
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
 | `storage` | The database's health: [check](#beacon-audit-storage) |
+| `secret` | The secrets vault: [ls, collection, show, set, reveal, tag, level, archive, rm, restore, rollback, generate, perms, tags](#beacon-secret) |
+| `key` | The vault's keys: [status, unseal, seal, rotate](#beacon-key) |
 | `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
 | `version` | The version, commit and build |
 | `help` | The whole usage, with the roles, presets and scopes |
@@ -52,6 +54,38 @@ The `settings` command reads and changes the system settings the secrets work ru
 | `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
 | `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
 | `revert` VERSION | `-note` | Go back to a version from `history` |
+
+### beacon secret
+
+The vault, for a person's hands on the command line: the same operations the [console's Secrets pages](https://beacon.openlinkos.com/reference/vault) and the [REST routes](api.md#vault) offer, under the same permissions and audit. Every change is made as an account (`-user`, your own by default), viewing values needs that account's password, and no value ever appears in a log or an audit entry. An item is named by its `beacon://` reference or `COLLECTION/TITLE`.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `ls` [COLLECTION] | `-state` | The collections with their level and item count; with a collection, its items (`-state`: `normal`, `archived` or `trash`): title, version, state, level, tags |
+| `collection` NAME | `-level`, `-description` | Make a collection; `-level` (default `review`) is the approval its items inherit |
+| `show` REF | | One item: version, level, state, tags, its `beacon://` reference, its fields (names, types, purposes) and how many versions it has — never a value |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`, `-level`, `-category`, `-url`, `-set-note`, `-reason` | Add an item or write its next version. A field is `name=value` or `section/name=value`; `username` is a plain field, everything else concealed. `-level` `-` clears the item's own; `-reason` says why, kept with the version |
+| `reveal` REF [FIELD …] | `-user`, `-password-file`, `-password-from-stdin` | View values: the account's password comes from the file (`-password-file`) or stdin (`-password-from-stdin`; it shows while you type). An `otp` field gives the current code and the seconds left. Audited before the values print |
+| `tag` REF TAGS | `-user`, `-reason` | Change an item's tags (comma-separated) — a policy change, so it needs `manage` on the collection |
+| `level` REF LEVEL | `-user`, `-reason` | Set an item's own approval level (`auto`, `review`, `person`, `never`, or `-` to inherit the collection's) — also `manage` |
+| `archive` REF | `-user` | Archive an item: kept, out of the way |
+| `rm` REF | `-user` | Move an item to the trash, where `retention.trash` (30 days) keeps it |
+| `restore` REF | `-user` | Bring an item back from the archive or the trash |
+| `rollback` REF VERSION | `-note` | Make an old version current again; `-note` says why, kept with the new version |
+| `generate` REF FIELD | `-length`, `-charset`, `-user`, `-reason` | Have Beacon make a new value (`-length` 24 by default, `-charset` `letters`, `alnum` or `all`), stored as a new version. The value is not shown; reveal it |
+| `perms` COLLECTION [user:NAME=PERM] | `-user`, `-reason` | Who may what in a collection: without the second word, the list; `user:alice=read` gives a person `describe`, `read`, `edit` or `manage` (a role with `role:oncall=read`), `user:alice=-` takes it away |
+| `tags` [NAME [LEVEL]] | `-description`, `-user` | The tags, or set one: a tag's level is policy (every item wearing it is at least that strict), so only an owner's account may |
+
+### beacon key
+
+The vault's keys: where the root key comes from is [config.yaml's](config.md#the-vault) `vault` section. In the `file`, `aws-kms`, `gcp-kms` and `transit` modes the keys are there at the start; in the `passphrase` mode a restart leaves the vault sealed until an owner unseals it.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `status` | | `sealed` or `unsealed`, the mode, and a warning for every policy row that failed its signature (served as absent) |
+| `unseal` | `-passphrase-file`, `-passphrase-from-stdin` | Unseal the passphrase mode. The passphrase comes from a file (`-passphrase-file`, the secrets-directory way) or stdin (`-passphrase-from-stdin`; it shows while you type) — never a shell argument |
+| `seal` | | Seal again: the key functions wait for the passphrase; monitoring and the SSH channel carry on |
+| `rotate` [COLLECTION] | `-passphrase-file`, `-passphrase-from-stdin` | Without a name, a new root key: every collection key wrapped again, in seconds (in the passphrase mode, `-passphrase-file` names a file holding the new one). With a name, that collection's key: its items are encrypted again in the background. Removing a member needs no rotation — members never hold a key |
 
 ### beacon setup, user, agent
 

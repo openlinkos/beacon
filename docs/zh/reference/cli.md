@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-3fce4198
+sourceHash: sha256-e60663bf
 ---
 
 # 命令行
@@ -30,6 +30,8 @@ docker exec beacon beacon token list
 | `drill` | 演练一次故障：[fail、off、status](#beacon-enroll-silence-drill) |
 | `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
 | `storage` | 数据库的健康检查：[check](#beacon-audit-storage) |
+| `secret` | 密钥保管库：[ls、collection、show、set、reveal、tag、level、archive、rm、restore、rollback、generate、perms、tags](#beacon-secret) |
+| `key` | 保管库的密钥：[status、unseal、seal、rotate](#beacon-key) |
 | `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
 | `version` | 版本、提交和构建 |
 | `help` | 完整用法，含角色、预设和 scope |
@@ -56,6 +58,38 @@ docker exec beacon beacon token list
 | `reset` KEY | `-scope`、`-target`、`-reason` | 去掉这层覆盖，由上一级（或默认值）重新生效 |
 | `history` | `-limit` | 修改历史：版本、时间、谁、途径、动作、设置项、备注 |
 | `revert` VERSION | `-note` | 回到 `history` 里的一个版本 |
+
+### beacon secret
+
+保管库，给人的双手在命令行上用：与控制台的「保管库」页和 [REST 路由](api.md#vault)同一套操作、同一套权限与审计。每次修改都以某个账号做出（`-user`，默认是你自己），查看值要重新输入该账号的密码，任何值都不会出现在日志或审计文本里。条目用它的 `beacon://` 引用或 `库/标题` 指代。
+
+| 子命令 | 参数 | 作用 |
+| --- | --- | --- |
+| `ls` [COLLECTION] | `-state` | 全部库及其级别与条目数；带库时列它的条目（`-state`：`normal`、`archived` 或 `trash`）：标题、版本、状态、级别、标签 |
+| `collection` NAME | `-level`、`-description` | 建库；`-level`（默认 `review`）是条目继承的审批级别 |
+| `show` REF | | 一个条目：版本、级别、状态、标签、`beacon://` 引用、字段（名字、类型、用途）与版本数——绝无值 |
+| `set` COLLECTION/TITLE [FIELD=VALUE …] | `-tags`、`-level`、`-category`、`-url`、`-set-note`、`-reason` | 新增条目或写它的下一个版本。字段写作 `名字=值` 或 `小节/名字=值`；`username` 是明文字段，其余为 concealed。`-level` `-` 清掉条目自己的级别；`-reason` 写明原因，随版本保存 |
+| `reveal` REF [FIELD …] | `-user`、`-password-file`、`-password-from-stdin` | 查看值：账号密码从文件（`-password-file`）或标准输入（`-password-from-stdin`；输入时可见）来。`otp` 字段给当前验证码与剩余秒数。先写审计，值才打印 |
+| `tag` REF TAGS | `-user`、`-reason` | 改条目的标签（逗号分隔）——这是策略修改，要库上的 `manage` |
+| `level` REF LEVEL | `-user`、`-reason` | 设条目自己的审批级别（`auto`、`review`、`person`、`never`，或 `-` 继承库的）——同样要 `manage` |
+| `archive` REF | `-user` | 归档条目：保留、让开 |
+| `rm` REF | `-user` | 把条目移入回收站，`retention.trash`（30 天）保留 |
+| `restore` REF | `-user` | 从归档或回收站恢复条目 |
+| `rollback` REF VERSION | `-note` | 让旧版本重新成为当前版本；`-note` 写明原因，随新版本保存 |
+| `generate` REF FIELD | `-length`、`-charset`、`-user`、`-reason` | 让 Beacon 生成新值（`-length` 默认 24，`-charset` 为 `letters`、`alnum` 或 `all`），存为新版本。值不显示；要看就 reveal |
+| `perms` COLLECTION [user:NAME=PERM] | `-user`、`-reason` | 谁在这个库里能做什么：不带第二参数时列出清单；`user:alice=read` 给人授 `describe`、`read`、`edit` 或 `manage`（角色用 `role:oncall=read`），`user:alice=-` 收回 |
+| `tags` [NAME [LEVEL]] | `-description`、`-user` | 列出标签，或设置一个：标签的级别是策略（带它的条目至少那么严），只有 owner 账号可以 |
+
+### beacon key
+
+保管库的密钥：根密钥从哪来由 [config.yaml](config.md#the-vault) 的 `vault` 段决定。`file`、`aws-kms`、`gcp-kms` 与 `transit` 模式下密钥启动即可用；`passphrase` 模式重启后保管库保持封存，直到 owner 启封。
+
+| 子命令 | 参数 | 作用 |
+| --- | --- | --- |
+| `status` | | `sealed` 或 `unsealed`、模式，以及每条签名不符的策略行的告警（视为不存在） |
+| `unseal` | `-passphrase-file`、`-passphrase-from-stdin` | 启封口令模式。口令从文件（`-passphrase-file`，与 secrets 目录同一路数）或标准输入（`-passphrase-from-stdin`；输入时可见）来——绝不用命令行参数 |
+| `seal` | | 重新封存：密钥功能等待口令；监控与 SSH 通道照常 |
+| `rotate` [COLLECTION] | `-passphrase-file`、`-passphrase-from-stdin` | 不带名字：换根密钥，全部库密钥重新包裹，秒级完成（口令模式下 `-passphrase-file` 指向装新口令的文件）。带名字：换那个库的密钥，条目在后台重新加密。移除成员不需要轮换——成员从来不经手密钥 |
 
 ### beacon setup, user, agent
 

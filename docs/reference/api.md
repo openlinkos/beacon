@@ -163,6 +163,41 @@ The system settings the secrets work runs by: request and grant limits, the revi
 | `GET /api/v1/settings/history/{version}` | `status:read` or `secrets:admin` | One change, with the value before and after |
 | `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | Undo one change as a new change; `settings.conflict` when a later change touched the same row |
 
+## The vault {#vault}
+
+The secrets vault: collections of items whose values Beacon keeps for you. The summary of an item — its title, category, tags, URLs and field names — sits in the clear, so search and policy can work; every value, username, note and one-time-passcode seed sits in the details, encrypted per version under the collection's key. Versions are kept with who changed what, when and why; attachments ride the same encryption, up to `attachments.max_size` (10 MB) each. Every policy row — a collection, a permission, a tag, an item — carries a signature derived from the root key, so a row changed straight in the database never takes effect: it is served as absent and reported (`rows_failed_signature` below). The same operations are the console's Secrets pages and the MCP tools of the same names; [config.yaml](config.md#the-vault) says where the root key comes from.
+
+The item routes are for people, every change audited and echoed to the alert chat. A token that is not a person is refused (`secrets.person`), an agent outright (`secrets.agent`): agents reach items through the grants a later release brings. Viewing values needs the account's password again, valid for `reveal.reauth_window` (5 minutes by default), and is written to the audit log before the values leave — the same rule an agent taking a value will work under. An owner holds `manage` on every collection; other people and roles hold what a collection gives them: `describe` (see the summary), `read` (view values, with the password check), `edit` (change items), `manage` (change permissions and the policy). While the vault is sealed — the passphrase mode, after a restart until an owner unseals it — these routes answer `secrets.sealed` and the alarm sounds; monitoring and the SSH channel carry on.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/vault` | any credential | The state: `sealed`, the `mode` (`file`, `passphrase`, `aws-kms`, `gcp-kms`, `transit`) and the policy `rows_failed_signature` |
+| `POST /api/v1/vault/unseal` | any credential | Unseal the passphrase mode with `{"passphrase"}`; a wrong passphrase is `secrets.wrong_passphrase` |
+| `POST /api/v1/vault/seal` | `secrets:admin` | Seal again (the passphrase mode): the key functions wait for the passphrase |
+| `POST /api/v1/vault/rotate-key` | `secrets:admin` | A new root key; every collection key is wrapped again, in seconds. `{"passphrase"}` names the new passphrase in that mode |
+| `POST /api/v1/vault/rotate-collection-key` | `secrets:admin` | One collection's key (`{"collection"}`); its items are encrypted again in the background. Removing a member needs no key: members never hold one |
+| `GET /api/v1/vault/collections` | any credential | The collections: name, description, approval level, key version |
+| `POST /api/v1/vault/collections` | `secrets:admin` | Make a collection (`name`, `description`, `level`: the approval its items inherit) |
+| `GET /api/v1/vault/collections/{id}` | a person | One collection, and whether the caller may read in it |
+| `PUT /api/v1/vault/collections/{id}` | `secrets:admin` | Change a collection's description or level |
+| `GET /api/v1/vault/collections/{id}/items` | a person, `describe` | The items (`?state=normal`, `archived` or `trash`): title, version, state, tags — the summary, never a value |
+| `POST /api/v1/vault/collections/{id}/items` | a person, `edit` | Add an item: `title`, `category`, `urls`, `tags`, `level` (empty inherits the collection's), `actions`, `fields` (each `section`, `name`, `type` — `concealed`, `string`, `email`, `url`, `otp`, `date`, `file` — `purpose`, `value`), `notes`, `attachments` (`name`, base64 `data`), `reason` |
+| `GET /api/v1/vault/collections/{id}/perms` | a person, `manage` | Who may do what in this collection |
+| `POST /api/v1/vault/collections/{id}/perms` | a person, `manage` | Give a person or a role a permission: `{"subject": "user:alice"}` or `role:oncall`, `perm` one of `describe`, `read`, `edit`, `manage` (empty removes it), `reason` |
+| `GET /api/v1/vault/items/{id}` | a person, `describe` | One item: its collection, its effective approval level, its versions (who, when, why, the field list — never the ciphertext), `who_can_get` (the grants, later), and its `ref`, `beacon://collection/item[/section/field]`. An item the caller may not even describe answers `secrets.not_found`, not a refusal |
+| `PUT /api/v1/vault/items/{id}` | a person, `edit` | Change an item; the same body as adding it, `reason` required in practice, a new version made |
+| `DELETE /api/v1/vault/items/{id}` | a person, `edit` | Move an item to the trash, where `retention.trash` (30 days) keeps it |
+| `POST /api/v1/vault/items/{id}/archive` | a person, `edit` | Archive an item: kept, out of the way |
+| `POST /api/v1/vault/items/{id}/restore` | a person, `edit` | Bring an item back from the archive or the trash |
+| `POST /api/v1/vault/items/{id}/rollback` | a person, `edit` | Make an old version the current one again (`version`, `reason`); the versions stay |
+| `POST /api/v1/vault/items/{id}/generate` | a person, `edit` | Have Beacon make a new value for a field (`field`, `section`, `length` — 24 by default — `charset`: `letters`, `alnum` or `all`, `reason`): stored as a new version, the value itself never returned; reveal it to see it |
+| `POST /api/v1/vault/items/{id}/reveal` | a person, `read` | The values (`fields` names, or every field; `password` of the account). An `otp` field answers the code that is current and the seconds it has left, never its seed. Audited before the values leave |
+| `GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}` | a person, `read` | One attachment's bytes |
+| `GET /api/v1/vault/search` | a person, `describe` | Items whose title, category, tags or field names match `q` (`?collection=`, `?tag=` more than one), only in collections the caller may describe |
+| `GET /api/v1/vault/tags` | any credential | The tags: name (lower case, layered with `/`), approval level, description |
+| `POST /api/v1/vault/tags` | a person, an owner | Set a tag (`name`, `level`, `description`): a tag's level is policy — every item wearing it is at least that strict — so only an owner changes it |
+| `DELETE /api/v1/vault/tags/{name}` | a person, an owner | Delete a tag; items keep their names for it |
+
 ## Status pages and maintenance
 
 The public pages themselves need no token ([below](#other-routes-on-port-17001)); these routes give agents the same and let them plan work ([Status pages](../guide/status-pages.md)).
@@ -270,6 +305,19 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `settings.unknown` | 404 | No setting of that key |
 | `settings.invalid` | 422 | The value does not fit the setting; the message says why, and nothing changed |
 | `settings.conflict` | 409 | A later change touched the same setting row; read it again and retry |
+| `secrets.sealed` | 503 | The vault is sealed (the passphrase mode, after a restart); an owner unseals it with the passphrase |
+| `secrets.wrong_passphrase` | 403 | The passphrase does not unseal this vault |
+| `secrets.reauth` | 401 | Enter the account's password to view values (it opens the `reveal.reauth_window` again) |
+| `secrets.agent` | 403 | An agent asked; agents reach items through grants, which arrive with a later release |
+| `secrets.person` | 403 | The vault's item routes are for people; sign in with an account |
+| `secrets.permission` | 403 | The caller may not do this in this collection |
+| `secrets.not_found` | 404 | No such collection, item, tag or field |
+| `secrets.exists` | 409 | A collection or tag of this name exists |
+| `secrets.conflict` | 409 | It changed since the caller saw it; read it again |
+| `secrets.attachment_too_large` | 413 | The attachment is over `attachments.max_size` |
+| `secrets.invalid` | 422 | The item does not fit (a level, a field, a value); the message says why, and nothing changed |
+| `secrets.bad_input` | 400 | The request is not what the route takes; the message says which |
+| `secrets.crypto` | 500 | The ciphertext does not authenticate under its key — the row is not what it claims to be |
 | `status.not_found` | 404 | No status page of that name |
 | `maintenance.not_found` | 404 | No maintenance window with this id |
 | `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |
