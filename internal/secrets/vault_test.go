@@ -1156,8 +1156,8 @@ func TestUnknownCollectionAndTagAreNever(t *testing.T) {
 	}
 	item.Collection = col.ID
 	item.Tags = []string{"no/such"}
-	if got := s.EffectiveLevel(item); got != LevelNever {
-		t.Fatalf("an unknown tag is never, got %s", got)
+	if got := s.EffectiveLevel(item); got != col.Level {
+		t.Fatalf("a tag that was never a policy tag is a label, got %s", got)
 	}
 }
 

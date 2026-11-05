@@ -336,7 +336,7 @@ func (s *Service) EffectiveLevel(item Item) string {
 	for _, t := range item.Tags {
 		tag, ok := s.tagByName(t)
 		if !ok {
-			return LevelNever // a tag that is gone or unknown is never, not skipped
+			continue // a name that was never a policy tag is a label; a deleted policy tag is unconfirmed anti-replay
 		}
 		if tag.Level != "" {
 			level = StrictestLevel(level, tag.Level)
