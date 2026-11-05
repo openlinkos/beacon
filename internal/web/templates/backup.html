@@ -29,6 +29,8 @@
     <p>{{.L.StoredHint}}</p>
     {{if .PublicKey}}<p class="ol-hint">{{.L.PublicKeyHint}}</p>
     <div class="ol-code ol-code-wrap"><pre><code>{{.PublicKey}}</code></pre></div>{{end}}
+    {{if .SignPublic}}<p class="ol-hint">{{.L.SignPublicHint}}</p>
+    <div class="ol-code ol-code-wrap"><pre><code>{{.SignPublic}}</code></pre></div>{{end}}
   </div>
 </section>
 {{end}}{{end}}
