@@ -238,10 +238,10 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_entitlements", Title: "Entitlements",
-		Description: "The entitlements: who may ask for what, with which actions and approval floor. People only.",
+		Description: "The entitlements: who may ask for what, with which actions and approval floor. Needs secrets:admin.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, entitlementsOut, error) {
-			if _, err := vaultActor(ctx); err != nil {
+			if _, err := vaultAdmin(ctx); err != nil {
 				return nil, entitlementsOut{}, err
 			}
 			out := v.Entitlements()
@@ -253,10 +253,10 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "put_entitlement", Title: "Put an entitlement",
 		Description: "Add or change an entitlement: principals (agents, agent tags, agents of someone), resources (collections, tag patterns, items, fields), " +
-			"actions, the approval floor, the reviewers, whether it is a template for onboarding, and its own expiry. People only.",
+			"actions, the approval floor, the reviewers, whether it is a template for onboarding, and its own expiry. Needs secrets:admin.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in secrets.Entitlement) (*mcp.CallToolResult, secrets.Entitlement, error) {
-			who, err := vaultActor(ctx)
+			who, err := vaultAdmin(ctx)
 			if err != nil {
 				return nil, secrets.Entitlement{}, err
 			}
@@ -265,10 +265,10 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_entitlement", Title: "Delete an entitlement",
-		Description: "Remove an entitlement; the grants that reached through it are re-assessed. People only.",
+		Description: "Remove an entitlement; the grants that reached through it are re-assessed. Needs secrets:admin.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, deletedOut, error) {
-			who, err := vaultActor(ctx)
+			who, err := vaultAdmin(ctx)
 			if err != nil {
 				return nil, deletedOut{}, err
 			}
@@ -276,13 +276,13 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "set_agent_tags", Title: "Set an agent's tags",
-		Description: "Set an agent's grouping tags (role/on-call and the like), which entitlements reach agents by; none clears them. People only.",
+		Description: "Set an agent's grouping tags (role/on-call and the like), which entitlements reach agents by; none clears them. Needs secrets:admin.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 			Agent string   `json:"agent"`
 			Tags  []string `json:"tags"`
 		}) (*mcp.CallToolResult, tagsSetOut, error) {
-			who, err := vaultActor(ctx)
+			who, err := vaultAdmin(ctx)
 			if err != nil {
 				return nil, tagsSetOut{}, err
 			}
@@ -293,10 +293,10 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "revoke_grant", Title: "Revoke a grant",
-		Description: "End a grant by hand, with the reason. People only.",
+		Description: "End a grant by hand, with the reason. Needs secrets:admin.",
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in grantIDIn) (*mcp.CallToolResult, revokedOut, error) {
-			who, err := vaultActor(ctx)
+			who, err := vaultAdmin(ctx)
 			if err != nil {
 				return nil, revokedOut{}, err
 			}
@@ -317,7 +317,11 @@ func registerGrantsTools(s *mcp.Server, v *secrets.Service) {
 			if !p.Person() {
 				return nil, scopeOut{}, errors.New("agents reach items through grants, not this door: request_secret asks, get_secret takes")
 			}
-			if p.User != in.Agent && !p.Has("secrets:admin") && !p.Has("accounts:write") {
+			owner, ok := v.AgentOwner(in.Agent)
+			if !ok {
+				return nil, scopeOut{}, errors.New("no agent " + in.Agent)
+			}
+			if p.User != owner && !p.Has("secrets:admin") && !p.Has("accounts:write") {
 				return nil, scopeOut{}, errors.New("the owner or an admin sees an agent's scope")
 			}
 			return nil, scopeOut{Agent: in.Agent, Entitlements: v.EntitlementsOfAgent(in.Agent),

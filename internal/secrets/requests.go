@@ -173,24 +173,28 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 		return out, nil
 	}
 	// gather the items: the references named, then the tag and collection pick
-	var picks []Item
+	type picked struct {
+		item Item
+		ref  string // the caller's reference, when they named it; empty for a tag pick
+	}
+	var picks []picked
 	seen := map[string]bool{}
 	for _, ref := range in.Items {
 		item, _, ok := s.Item(ref)
-		if !ok {
-			out.Refused = append(out.Refused, Refusal{Ref: ref, Reason: "there is no such item", NotFound: true})
+		if !ok || item.State != StateNormal {
+			out.Refused = append(out.Refused, hiddenRefusal(ref))
 			continue
 		}
 		if !seen[item.ID] {
 			seen[item.ID] = true
-			picks = append(picks, item)
+			picks = append(picks, picked{item: item, ref: ref})
 		}
 	}
 	if len(in.Tags) > 0 || in.Collection != "" {
 		for _, item := range s.itemsBy(in.Collection, in.Tags) {
 			if !seen[item.ID] {
 				seen[item.ID] = true
-				picks = append(picks, item)
+				picks = append(picks, picked{item: item})
 			}
 		}
 	}
@@ -202,61 +206,67 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 	}
 	// walk the five steps per item and split by the approval each needs
 	type ask struct {
-		item  Item
-		col   Collection
-		level string
+		item        Item
+		col         Collection
+		level       string
+		fields      []string
+		entitlement string
+		uses        int64
+		duration    int64
 	}
 	var autoParts, waiting []ask
 	level := LevelAuto
-	for _, item := range picks {
+	for _, p := range picks {
+		item := p.item
 		col, ok := s.collectionByID(item.Collection)
 		if !ok {
-			out.Refused = append(out.Refused, Refusal{Ref: item.Title, Reason: "the collection is not there", NotFound: true})
+			if p.ref != "" {
+				out.Refused = append(out.Refused, hiddenRefusal(p.ref))
+			}
 			continue
 		}
 		pol := s.decidePolicy(agent, item, col, in.Action, in.Entitlement)
-		if !pol.OK {
-			out.Refused = append(out.Refused, Refusal{Ref: item.Title, Reason: pol.Reason, NotFound: pol.NotFound})
-			continue
+		if !pol.OK || !s.ownerMayRead(agent.Owner, col.ID) {
+			if p.ref != "" {
+				out.Refused = append(out.Refused, hiddenRefusal(p.ref))
+			}
+			continue // a tag pick that is out of reach is simply not there
 		}
 		if !containsString(pol.Actions, in.Action) {
-			out.Refused = append(out.Refused, Refusal{Ref: item.Title, Reason: "the item allows only " + strings.Join(pol.Actions, ", "), NotFound: false})
-			continue
-		}
-		if len(pol.Fields) > 0 && len(in.Fields) > 0 {
-			for _, f := range in.Fields {
-				if !containsString(pol.Fields, f) {
-					out.Refused = append(out.Refused, Refusal{Ref: item.Title, Reason: "the field " + f + " is out of the entitlement", NotFound: false})
-				}
+			ref := p.ref
+			if ref == "" {
+				ref = RefOfItem(col.Name, item.Title)
 			}
-		}
-		// the owner cap: an agent asks for no more than its owner holds
-		if !s.ownerMayRead(agent.Owner, col.ID) {
-			out.Refused = append(out.Refused, Refusal{Ref: item.Title, Reason: "the agent's owner may not read this collection", NotFound: true})
+			out.Refused = append(out.Refused, Refusal{Ref: ref, Reason: "the item allows only " + strings.Join(pol.Actions, ", ")})
 			continue
+		}
+		fields, extra := grantFields(in.Fields, pol.Fields)
+		if extra {
+			ref := p.ref
+			if ref == "" {
+				ref = RefOfItem(col.Name, item.Title)
+			}
+			out.Refused = append(out.Refused, Refusal{Ref: ref, Reason: "a field is out of the entitlement"})
+			continue
+		}
+		entName := pol.Entitlement.Name
+		sel := settings.Selector{Collection: col.Name, Tags: item.Tags, Entitlement: entName}
+		uses, duration, err := s.resolveUsesDuration(in, sel, pol.Level)
+		if err != nil {
+			return out, err
 		}
 		if LevelStrictness[pol.Level] > LevelStrictness[level] {
 			level = pol.Level
 		}
+		a := ask{item: item, col: col, level: pol.Level, fields: fields, entitlement: entName, uses: uses, duration: duration}
 		if pol.Level == LevelAuto {
-			autoParts = append(autoParts, ask{item: item, col: col, level: pol.Level})
+			autoParts = append(autoParts, a)
 		} else {
-			waiting = append(waiting, ask{item: item, col: col, level: pol.Level})
+			waiting = append(waiting, a)
 		}
 	}
 	if len(autoParts) == 0 && len(waiting) == 0 {
 		return out, nil // everything was refused; the refusals say why
-	}
-	// the uses and duration, clamped by the settings of the strictest item's selector
-	sel := settings.Selector{Entitlement: in.Entitlement}
-	if len(waiting) > 0 {
-		sel.Collection, sel.Tags = waiting[0].col.ID, waiting[0].item.Tags
-	} else {
-		sel.Collection, sel.Tags = autoParts[0].col.ID, autoParts[0].item.Tags
-	}
-	uses, duration, err := s.resolveUsesDuration(in, sel, level)
-	if err != nil {
-		return out, err
 	}
 	var pendingID string
 	var pendingReq Request
@@ -272,8 +282,8 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 		_ = sk
 		for _, a := range autoParts {
 			grant, gerr := s.createGrant(agent, a.item, a.col, grantSpec{
-				action: in.Action, fields: in.Fields, uses: uses, duration: duration,
-				alert: in.Alert, level: a.level, entitlement: in.Entitlement, reason: in.Reason,
+				action: in.Action, fields: a.fields, uses: a.uses, duration: a.duration,
+				alert: in.Alert, level: a.level, entitlement: a.entitlement, reason: in.Reason,
 				approver: "policy", approverKind: "system",
 			})
 			if gerr == nil {
@@ -285,7 +295,7 @@ func (s *Service) RequestSecret(agentName, via string, in RequestIn) (RequestOut
 			req := Request{
 				ID: mustID(), Agent: agent.Name, Owner: agent.Owner, Via: via,
 				Fields: in.Fields, Action: in.Action, Reason: in.Reason,
-				Uses: uses, Duration: duration, Alert: in.Alert, Context: in.Context,
+				Uses: waiting[0].uses, Duration: waiting[0].duration, Alert: in.Alert, Context: in.Context,
 				Entitlement: in.Entitlement, Status: ReqPending, Created: s.now(), Level: level,
 				ExpiresAt: s.now().Add(s.pendingTTL()),
 			}
@@ -566,8 +576,8 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 		}
 		return r, Grant{}, nil
 	}
-	// the uses and duration the decision gives, inside the ceilings — and, for a review agent,
-	// inside its own as well
+	// the uses and duration the decision gives, inside each item's ceilings — and, for a review
+	// agent, inside its own as well
 	in := RequestIn{Uses: &r.Uses, Duration: &r.Duration}
 	if uses != nil {
 		in.Uses = uses
@@ -575,14 +585,9 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 	if duration != nil {
 		in.Duration = duration
 	}
-	sel := settings.Selector{Entitlement: r.Entitlement, Request: r.ID}
-	outUses, outDuration, err := s.resolveUsesDuration(in, sel, r.Level)
+	outUses, outDuration, err := s.decisionBounds(r, in, who)
 	if err != nil {
 		return r, Grant{}, err
-	}
-	if who.Kind == "agent" {
-		maxUses, maxDuration := s.agentCeilings()
-		outUses, outDuration = clampAgentGrant(outUses, outDuration, maxUses, maxDuration)
 	}
 	// the threshold: one more approval may not be the one the ask waits for
 	if layer != "" && r.Approvals+1 < r.Needed {
@@ -600,22 +605,50 @@ func (s *Service) Decide(who DecideActor, requestID string, approve bool, note s
 		}
 		return r, Grant{}, nil
 	}
-	return s.grantRequest(who, r, note, outUses, outDuration)
+	askedUses, askedDuration := r.Uses, r.Duration
+	if in.Uses != nil {
+		askedUses = *in.Uses
+	}
+	if in.Duration != nil {
+		askedDuration = *in.Duration
+	}
+	return s.grantRequest(who, r, note, askedUses, askedDuration)
+}
+
+// decisionBounds is the uses and duration a mid-chain approval records: the first item's
+// ceilings, then a review agent's own.
+func (s *Service) decisionBounds(r Request, in RequestIn, who DecideActor) (int64, int64, error) {
+	sel := settings.Selector{Entitlement: r.Entitlement, Request: r.ID}
+	if len(r.Items) > 0 {
+		if item, col, found := s.Item(r.Items[0].ID); found {
+			sel.Collection, sel.Tags = col.Name, item.Tags
+		}
+	}
+	outUses, outDuration, err := s.resolveUsesDuration(in, sel, r.Level)
+	if err != nil {
+		return 0, 0, err
+	}
+	if who.Kind == "agent" {
+		maxUses, maxDuration := s.agentCeilings()
+		outUses, outDuration = clampAgentGrant(outUses, outDuration, maxUses, maxDuration)
+	}
+	return outUses, outDuration, nil
 }
 
 // grantRequest makes the grants a settled request turns into and closes it granted: the policy is
-// re-run over each item (it may have tightened while the ask waited), the uses and duration are
-// what the settling decision gives, and the agent's hook hears of the grant. The caller holds the
-// write lock.
+// re-run over each item (it may have tightened while the ask waited), uses and duration are
+// clamped per item, and the agent's hook hears of the grant. The caller holds the write lock.
 func (s *Service) grantRequest(who DecideActor, r Request, note string, uses, duration int64) (Request, Grant, error) {
+	in := RequestIn{Uses: &uses, Duration: &duration}
 	agent, ok := s.agentInfoOf(r.Agent)
 	if !ok {
 		return r, Grant{}, fmt.Errorf("%w: the requesting agent is gone", ErrNotFound)
 	}
 	var first Grant
+	var lastUses, lastDuration int64
 	for _, it := range r.Items {
 		item, col, found := s.Item(it.ID)
-		if !found {
+		if !found || item.State != StateNormal {
 			return r, Grant{}, fmt.Errorf("%w: an item of the request is gone", ErrNotFound)
 		}
 		// the policy may have tightened while the request waited
@@ -623,23 +656,37 @@ func (s *Service) grantRequest(who DecideActor, r Request, note string, uses, du
 		if !pol.OK || pol.Level == LevelNever {
 			return r, Grant{}, fmt.Errorf("%w: the policy tightened while the request waited; ask again", ErrConflict)
 		}
+		fields, extra := grantFields(r.Fields, pol.Fields)
+		if extra {
+			return r, Grant{}, fmt.Errorf("%w: a field is out of the entitlement", ErrForbidden)
+		}
+		sel := settings.Selector{Collection: col.Name, Tags: item.Tags, Entitlement: pol.Entitlement.Name, Request: r.ID}
+		outUses, outDuration, err := s.resolveUsesDuration(in, sel, pol.Level)
+		if err != nil {
+			return r, Grant{}, err
+		}
+		if who.Kind == "agent" {
+			maxUses, maxDuration := s.agentCeilings()
+			outUses, outDuration = clampAgentGrant(outUses, outDuration, maxUses, maxDuration)
+		}
 		grant, err := s.createGrant(agent, item, col, grantSpec{
-			action: r.Action, fields: r.Fields, uses: uses, duration: duration,
-			alert: r.Alert, level: pol.Level, entitlement: r.Entitlement, reason: r.Reason,
+			action: r.Action, fields: fields, uses: outUses, duration: outDuration,
+			alert: r.Alert, level: pol.Level, entitlement: pol.Entitlement.Name, reason: r.Reason,
 			approver: who.Name, approverKind: who.Kind, request: r.ID,
 		})
 		if err != nil {
 			return r, Grant{}, err
 		}
+		lastUses, lastDuration = outUses, outDuration
 		if first.ID == "" {
 			first = grant
 		}
 	}
 	r.Status = ReqGranted
-	r.Uses, r.Duration = uses, duration
+	r.Uses, r.Duration = lastUses, lastDuration
 	r.GrantID = first.ID
 	r.Decisions = append(r.Decisions, Decision{By: who.Name, Kind: who.Kind, Via: who.Via, At: s.now(), Approve: true,
-		Note: note, Uses: uses, Duration: duration})
+		Note: note, Uses: lastUses, Duration: lastDuration})
 	if err := s.putRequest(r); err != nil {
 		return r, Grant{}, err
 	}
@@ -647,7 +694,7 @@ func (s *Service) grantRequest(who DecideActor, r Request, note string, uses, du
 	_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_request_approve", Target: r.ID,
 		Detail: fmt.Sprintf("approved %s's request for %d item(s): %s", r.Agent, len(r.Items), note)})
 	s.sendSecretHook(r.Agent, "secret.granted", hookPayload{Request: r.ID, Grant: first.ID,
-		Item: r.Items[0].Ref, Level: r.Level, Uses: uses, Duration: duration, Reason: note})
+		Item: r.Items[0].Ref, Level: r.Level, Uses: lastUses, Duration: lastDuration, Reason: note})
 	if who.Kind == "agent" {
 		s.notifyDecision("approved", who.Name, r)
 	}
@@ -670,6 +717,12 @@ func (s *Service) closeDenied(r Request) {
 		Detail: fmt.Sprintf("denied %s's request for %d item(s): %s", r.Agent, len(r.Items), last.Note)})
 	s.sendSecretHook(r.Agent, "secret.denied", hookPayload{Request: r.ID, Item: r.Items[0].Ref, Reason: last.Note})
 	s.anomalyDenial(r.Agent)
+}
+
+// hiddenRefusal is the design's default deny: an item the agent may not see is the same as one
+// that is not there, with the same words and no title.
+func hiddenRefusal(ref string) Refusal {
+	return Refusal{Ref: ref, Reason: "there is no such item", NotFound: true}
 }
 
 // personMayDecide says whether the person may decide this request: an operator or an owner, or a

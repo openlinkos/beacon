@@ -48,6 +48,7 @@ func newEnv(t *testing.T) *env {
 var (
 	ctx = context.Background()
 	api = Actor{Name: "claude-code", Via: "api"}
+	why = "because the test needs a reason"
 )
 
 func raw(t string) json.RawMessage { return json.RawMessage(t) }
@@ -94,7 +95,7 @@ func TestSetReadRevert(t *testing.T) {
 	}
 
 	// setting the same value again changes nothing
-	same, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("50"), "", 0)
+	same, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("50"), why, 0)
 	if err != nil || !same.Unchanged {
 		t.Fatalf("same value: %+v %v", same, err)
 	}
@@ -129,13 +130,13 @@ func TestSetChecks(t *testing.T) {
 		{ScopeSystem, "", "no.such.key", `1`, ErrUnknown},
 		{ScopeSystem, "Infra", "request.max_uses", `5`, ErrBadInput},
 		{ScopeCollection, "", "request.max_uses", `5`, ErrBadInput},
-		{ScopeCollection, "Infra", "request.max_uses", `5`, ErrBadInput}, // capitals are not a name here
+		{ScopeCollection, "Infra", "request.max_uses", `5`, nil},
 		{ScopeCollection, "infra", "request.max_uses", `5`, nil},
 		{ScopeTag, "env/prod", "request.max_uses", `5`, nil},
 		{ScopeEntitlement, "oncall-dns", "request.max_uses", `5`, nil},
 		{ScopeRequest, "r-1234", "request.max_uses", `5`, nil},
 	} {
-		_, err := e.s.Set(ctx, api, tc.scope, tc.target, tc.key, raw(tc.value), "", 0)
+		_, err := e.s.Set(ctx, api, tc.scope, tc.target, tc.key, raw(tc.value), why, 0)
 		if tc.want == nil {
 			if err != nil {
 				t.Errorf("%s %s %s: %v", tc.scope, tc.target, tc.key, err)
@@ -154,14 +155,14 @@ func TestSetChecks(t *testing.T) {
 // IfVersion refuses a change to a row that moved since the caller read it.
 func TestSetConflict(t *testing.T) {
 	e := newEnv(t)
-	ch, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"60d"`), "", 0)
+	ch, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"60d"`), why, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"90d"`), "", ch.Version); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"90d"`), why, ch.Version); err != nil {
 		t.Fatalf("with the version last seen: %v", err)
 	}
-	_, err = e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"120d"`), "", ch.Version)
+	_, err = e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"120d"`), why, ch.Version)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("with a stale version: %v", err)
 	}
@@ -175,11 +176,11 @@ func TestSetConflict(t *testing.T) {
 // reset puts the value back.
 func TestResetAndRevertOfReset(t *testing.T) {
 	e := newEnv(t)
-	ch, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "grant.alert_grace", raw(`"30m"`), "", 0)
+	ch, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "grant.alert_grace", raw(`"30m"`), why, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rst, err := e.s.Reset(ctx, api, ScopeTag, "env/prod", "grant.alert_grace", "", 0)
+	rst, err := e.s.Reset(ctx, api, ScopeTag, "env/prod", "grant.alert_grace", why, 0)
 	if err != nil || rst.Action != "reset" || string(rst.Before) != `"30m"` {
 		t.Fatalf("reset: %+v %v", rst, err)
 	}
@@ -191,7 +192,7 @@ func TestResetAndRevertOfReset(t *testing.T) {
 		t.Fatalf("after reset: %+v", levels)
 	}
 	// reverting the reset restores what it replaced
-	back, err := e.s.Revert(ctx, api, rst.Version, "")
+	back, err := e.s.Revert(ctx, api, rst.Version, why)
 	if err != nil || string(back.After) != `"30m"` {
 		t.Fatalf("revert of reset: %+v %v", back, err)
 	}
@@ -205,18 +206,18 @@ func TestResetAndRevertOfReset(t *testing.T) {
 // A change a later change touched cannot be reverted; the later one can.
 func TestRevertConflict(t *testing.T) {
 	e := newEnv(t)
-	first, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("100"), "", 0)
+	first, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("100"), why, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("200"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("200"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Revert(ctx, api, first.Version, ""); !errors.Is(err, ErrConflict) {
+	if _, err := e.s.Revert(ctx, api, first.Version, why); !errors.Is(err, ErrConflict) {
 		t.Fatalf("reverting a changed-again row: %v", err)
 	}
 	h := e.s.History("", "", "", 0, 1)
-	if _, err := e.s.Revert(ctx, api, h[0].Version, ""); err != nil {
+	if _, err := e.s.Revert(ctx, api, h[0].Version, why); err != nil {
 		t.Fatalf("reverting the latest: %v", err)
 	}
 	if r, _ := e.s.System("rate.per_agent_per_minute"); string(r.Value) != "100" {
@@ -225,14 +226,14 @@ func TestRevertConflict(t *testing.T) {
 }
 
 // The third invariant, on the settings' own rows: a row changed in the database itself — not
-// through Beacon — fails its signature, is treated as absent (the default or the level above gives
-// the value again) and is reported: logged, audited, and listed for the console.
+// through Beacon — fails its signature, is served as the last signed value (never a looser
+// default) and is reported: logged, audited, echoed to the alert chat, and listed for the console.
 func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("20"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("20"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "grant.on_policy_tightened", raw(`"notify"`), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "grant.on_policy_tightened", raw(`"notify"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -270,19 +271,23 @@ func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 	widen("settings", "system\x00\x00request.max_uses", func(m map[string]any) { m["value"] = "unlimited" })
 	widen("settings", "tag\x00env/prod\x00grant.on_policy_tightened", func(m map[string]any) { m["value"] = "approve-not-a-word" })
 
-	// the service reads again, as it does at start: both rows are gone
-	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	// the service reads again, as it does at start: both rows stay at the signed value
+	heard := &bot{}
+	s2, err := Open(Deps{Store: e.st, Bot: heard, Lang: i18n.EN})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := s2.System("request.max_uses"); r.From != "default" || string(r.Value) != `"unlimited"` {
-		t.Fatalf("tampered row still in force: %+v", r)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+		t.Fatalf("tampered row fell open: %+v", r)
 	}
-	if v, _, _ := s2.Value("grant.on_policy_tightened", Selector{Tags: []string{"env/prod"}}); v.From != "default" {
-		t.Fatalf("tampered tag row still in force: %+v", v)
+	if v, _, _ := s2.Value("grant.on_policy_tightened", Selector{Tags: []string{"env/prod"}}); string(v.Value) != `"notify"` {
+		t.Fatalf("tampered tag row fell open: %+v", v)
 	}
 	if bad := s2.Bad(); len(bad) != 2 {
 		t.Fatalf("tampered rows not all reported: %v", bad)
+	}
+	if len(heard.texts) == 0 || !strings.Contains(heard.texts[0], "request.max_uses") {
+		t.Fatalf("tampering not sent to the alert chat: %q", heard.texts)
 	}
 	entries, _, err := e.st.AuditQuery(store.AuditFilter{Action: "settings_signature_invalid"})
 	if err != nil || len(entries) != 1 || !strings.Contains(entries[0].Detail, "2 row(s)") {
@@ -290,11 +295,11 @@ func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 	}
 
 	// the rows stay gone after another change elsewhere
-	if _, err := s2.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), "", 0); err != nil {
+	if _, err := s2.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := s2.System("request.max_uses"); r.From != "default" {
-		t.Fatalf("tampered row came back: %+v", r)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+		t.Fatalf("tampered row came back loose: %+v", r)
 	}
 }
 
@@ -303,7 +308,7 @@ func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 func TestRowFromAnotherDatabaseIsNothing(t *testing.T) {
 	e := newEnv(t)
 	e2 := newEnv(t)
-	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("120"), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "rate.per_agent_per_minute", raw("120"), why, 0); err != nil {
 		t.Fatal(err)
 	}
 	// copy e's row into e2's database, bytes and all, straight into the kv table
@@ -332,13 +337,13 @@ func TestHistory(t *testing.T) {
 	e := newEnv(t)
 	var versions []int64
 	for _, v := range []string{"10", "20", "30"} {
-		ch, err := e.s.Set(ctx, api, ScopeSystem, "", "grant.expiry_notice", raw(fmt.Sprintf("%q", v+"m")), "", 0)
+		ch, err := e.s.Set(ctx, api, ScopeSystem, "", "grant.expiry_notice", raw(fmt.Sprintf("%q", v+"m")), why, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		versions = append(versions, ch.Version)
 	}
-	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), "", 0); err != nil {
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
 	h := e.s.History("grant.expiry_notice", "", "", 0, 10)
@@ -366,11 +371,249 @@ func TestClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), "", 0)
+	ch, err := s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), why, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ch.Time.Equal(now) {
 		t.Fatalf("change time %s, want %s", ch.Time, now)
+	}
+}
+
+func TestDeletedRowStaysStrict(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+e.db+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("system\x00\x00request.max_uses")); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := s2.System("request.max_uses")
+	if string(r.Value) != "5" {
+		t.Fatalf("deleted row fell open: %+v", r)
+	}
+	if len(s2.Bad()) == 0 {
+		t.Fatal("the missing row was not reported")
+	}
+}
+
+func TestHistoryTamperCannotRevert(t *testing.T) {
+	e := newEnv(t)
+	ch, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+e.db+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	var k, v []byte
+	rows, err := db.Query(`SELECT k, v FROM kv WHERE bucket = ?`, "settings_changes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		if err := rows.Scan(&k, &v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows.Close()
+	var m map[string]any
+	if err := json.Unmarshal(v, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["before"] = json.RawMessage("1000000")
+	b, _ := json.Marshal(m)
+	if _, err := db.Exec(`UPDATE kv SET v = ? WHERE bucket = ? AND k = ?`, b, "settings_changes", k); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.Revert(ctx, api, ch.Version, why); err == nil {
+		t.Fatal("a tampered history row should not revert")
+	}
+}
+
+func TestSetKeyMigratesOnce(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	newKey := make([]byte, 32)
+	for i := range newKey {
+		newKey[i] = byte(i + 1)
+	}
+	if err := e.s.SetKey(newKey); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := e.s.System("request.max_uses"); string(r.Value) != "5" {
+		t.Fatalf("after SetKey: %+v", r)
+	}
+	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s2.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("9"), why, 0); err == nil {
+		t.Fatal("Set before SetKey should fail")
+	}
+	if err := s2.SetKey(newKey); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "5" {
+		t.Fatalf("after Open+SetKey: %+v", r)
+	}
+	forged, err := e.st.Secret("settings")
+	if err != nil || len(forged) == 0 {
+		t.Fatal(err)
+	}
+	fake := Row{Key: "request.max_uses", Scope: ScopeSystem, Value: raw(`"unlimited"`), Version: 99, Actor: "attacker", Via: "api", At: time.Now().UTC()}
+	fake.Sig = sign(macKey(forged), fake)
+	if err := e.st.Storage().Update(func(tx kv.Tx) error { return putRow(tx, fake) }); err != nil {
+		t.Fatal(err)
+	}
+	s3, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s3.SetKey(newKey); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s3.System("request.max_uses"); string(r.Value) != "5" {
+		t.Fatalf("forged with the store secret: %+v", r)
+	}
+	if err := s3.SetKey(newKey); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApprovalsRequiredExpands(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "review.approvals_required", raw("2"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := e.s.System("review.approvals_required")
+	if string(jsonAt(r.Value, "review")) != "2" || string(jsonAt(r.Value, "person")) != "2" {
+		t.Fatalf("expanded: %s", r.Value)
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "review.approvals_required", raw(`{"auto":0,"review":0,"person":0}`), why, 0); err == nil {
+		t.Fatal("zero approvals should be refused")
+	}
+	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "review.approvals_required", raw("3"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	v, _, _ := e.s.Value("review.approvals_required", Selector{Tags: []string{"env/prod"}})
+	if string(jsonAt(v.Value, "person")) != "3" {
+		t.Fatalf("more approvals is stricter: %s", v.Value)
+	}
+}
+
+func TestReasonIsRequired(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), "short", 0); err == nil {
+		t.Fatal("a short reason should be refused")
+	}
+}
+
+func TestRequestCannotSetTheChain(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeRequest, "r-1", "review.chain", raw(`["rules"]`), why, 0); err == nil {
+		t.Fatal("a request must not drop people from the chain")
+	}
+}
+
+func TestReplayOldRowStaysAtHead(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	var first []byte
+	_ = e.st.Storage().View(func(tx kv.Tx) error {
+		first = append([]byte(nil), tx.Get(bucketSettings, rowKeyBytes(ScopeSystem, "", "request.max_uses"))...)
+		return nil
+	})
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("20"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Put(bucketSettings, rowKeyBytes(ScopeSystem, "", "request.max_uses"), first)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+		t.Fatalf("replayed old row fell open: %+v", r)
+	}
+}
+
+func TestMissingHeadFailsClosed(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+e.db+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("\x00head")); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("missing head fell open: %+v", r)
+	}
+}
+
+func TestLeaseExpiresLongerThanRenew(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "storage.lease.renew", raw(`"20s"`), why, 0); err == nil {
+		t.Fatal("renew must stay shorter than expires")
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "storage.lease.expires", raw(`"3s"`), why, 0); err == nil {
+		t.Fatal("expires must stay longer than renew")
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "storage.lease.expires", raw(`"30s"`), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "storage.lease.renew", raw(`"10s"`), why, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDurationUnlimitedIsNotZero(t *testing.T) {
+	e := newEnv(t)
+	if d, ok := e.s.Duration("request.max_duration", Selector{}); ok || d != 0 {
+		t.Fatalf("unlimited must not be a zero duration: %d %v", d, ok)
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.pending_ttl", raw(`"48h"`), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	d, ok := e.s.Duration("request.pending_ttl", Selector{})
+	if !ok || d != int64(48*time.Hour) {
+		t.Fatalf("finite duration: %d %v", d, ok)
+	}
+}
+
+func TestRetentionAndImportStayAtSystem(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeCollection, "infra", "retention.trash", raw(`"7d"`), why, 0); err == nil {
+		t.Fatal("retention is system-only")
+	}
+	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "backup.retries", raw("1"), why, 0); err == nil {
+		t.Fatal("backup is system-only")
 	}
 }

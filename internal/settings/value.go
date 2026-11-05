@@ -92,7 +92,7 @@ func durationKind(orUnlimited, orNever bool) kind {
 				return mustJSON(strings.Trim(v.String(), `"`)), nil
 			}
 			d, err := ParseDuration(jsonString(v))
-			if err != nil || d < 0 {
+			if err != nil || d <= 0 {
 				return nil, fmt.Errorf("a duration such as 30m, 24h or 365d%s", words)
 			}
 			return mustJSON(jsonString(v)), nil
@@ -227,8 +227,8 @@ func levelsKind(inner kind) kind {
 			if err := json.Unmarshal(v, &in); err != nil {
 				return nil, fmt.Errorf("an object with auto, review and person")
 			}
-			if len(in) == 0 || len(in) > len(levels) {
-				return nil, fmt.Errorf("the levels are %s", strings.Join(levels, ", "))
+			if len(in) != len(levels) {
+				return nil, fmt.Errorf("the levels are %s, all of them", strings.Join(levels, ", "))
 			}
 			out := map[string]json.RawMessage{}
 			for l, raw := range in {
@@ -278,13 +278,25 @@ func levelsKind(inner kind) kind {
 var approvalsKind = kind{
 	name: "approvals",
 	check: func(v json.RawMessage) (json.RawMessage, error) {
+		inner := intKind(true)
 		if n, err := asInt(v); err == nil {
 			if n < 1 || n > 10 {
 				return nil, fmt.Errorf("1 to 10 approvals")
 			}
-			return mustJSON(n), nil
+			return mustJSON(map[string]any{"auto": n, "review": n, "person": n}), nil
 		}
-		return levelsKind(intKind(true)).check(v)
+		raw, err := levelsKind(inner).check(v)
+		if err != nil {
+			return nil, err
+		}
+		m := jsonMap(raw)
+		for _, l := range []string{"auto", "review", "person"} {
+			n := jsonInt(m[l])
+			if n < 1 || n > 10 {
+				return nil, fmt.Errorf("level %s: 1 to 10 approvals", l)
+			}
+		}
+		return raw, nil
 	},
 	stricter: levelsKind(intKind(true)).stricter,
 }

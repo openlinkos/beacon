@@ -92,7 +92,10 @@ func (s *Service) createGrant(agent agentInfo, item Item, col Collection, spec g
 		if err != nil {
 			return err
 		}
-		return tx.Put(bucketGrants, []byte(g.ID), b)
+		if err := tx.Put(bucketGrants, []byte(g.ID), b); err != nil {
+			return err
+		}
+		return writePolicyHeadTx(tx, sk)
 	})
 	if err != nil {
 		return Grant{}, err
@@ -121,18 +124,55 @@ func (s *Service) grantVerifies(g Grant) bool {
 	return verifyRow(sk, g.Sig, g.signedParts()...)
 }
 
-// grants walks the grant rows, verified ones only.
+// grants walks the grant rows the signed head still names, verified ones only.
 func (s *Service) grants(fn func(g Grant) bool) {
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		tx.Range(bucketGrants, kv.Range{}, func(_, v []byte) bool {
 			var g Grant
-			if json.Unmarshal(v, &g) == nil && s.grantVerifies(g) {
-				return fn(g)
+			if json.Unmarshal(v, &g) != nil || !s.grantVerifies(g) {
+				return true
 			}
-			return true
+			ok, named := s.headMatch(tx, kindGrant, g.ID, g.signedParts(), g.Status)
+			if !named || !ok {
+				return true
+			}
+			return fn(g)
 		})
 		return nil
 	})
+}
+
+// grantPolicyHolds re-runs the policy around a live grant: the item must be normal, never is
+// refused, a deny or a missing entitlement ends it, and a stricter approval or narrower fields
+// than when it was granted refuse the use or the renewal.
+func (s *Service) grantPolicyHolds(agent agentInfo, g Grant, item Item, col Collection) error {
+	if item.State != StateNormal {
+		return ErrNoGrant
+	}
+	if s.EffectiveLevel(item) == LevelNever {
+		return fmt.Errorf("%w: there is no such item", ErrNotFound)
+	}
+	pol := s.decidePolicy(agent, item, col, g.Action, g.Entitlement)
+	if !pol.OK {
+		return ErrNoGrant
+	}
+	if LevelStrictness[pol.Level] > LevelStrictness[g.Level] {
+		return ErrNoGrant
+	}
+	if !containsString(pol.Actions, g.Action) {
+		return ErrNoGrant
+	}
+	if len(pol.Fields) > 0 {
+		if len(g.Fields) == 0 {
+			return ErrNoGrant
+		}
+		for _, f := range g.Fields {
+			if !containsString(pol.Fields, f) {
+				return ErrNoGrant
+			}
+		}
+	}
+	return nil
 }
 
 // GrantsOf lists an agent's grants, newest first.
@@ -222,16 +262,21 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 		return Grant{}, nil, ErrSealed
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	held := true
+	unlock := func() {
+		if held {
+			s.mu.Unlock()
+			held = false
+		}
+	}
+	defer unlock()
 	sk, err := s.sk()
 	if err != nil {
 		return Grant{}, nil, err
 	}
-	var out Grant
-	var outReq *Request
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+	var g Grant
+	err = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		v := tx.Get(bucketGrants, []byte(id))
-		var g Grant
 		if v == nil || json.Unmarshal(v, &g) != nil || !s.grantVerifies(g) {
 			return fmt.Errorf("%w: no grant %q of yours", ErrNotFound, id)
 		}
@@ -241,46 +286,76 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 		if g.Status != GrantActive {
 			return fmt.Errorf("%w: the grant is %s", ErrConflict, g.Status)
 		}
-		if reason == "" {
-			reason = g.Reason // a renewal may ride on the reason it started with
+		return nil
+	})
+	if err != nil {
+		return Grant{}, nil, err
+	}
+	item, col, ok := s.Item(g.Item)
+	if !ok {
+		return Grant{}, nil, fmt.Errorf("%w: the item is gone", ErrNotFound)
+	}
+	ag, agOK := s.agentInfoOf(g.Agent)
+	if !agOK {
+		return Grant{}, nil, fmt.Errorf("%w: no grant %q of yours", ErrNotFound, id)
+	}
+	if err := s.grantPolicyHolds(ag, g, item, col); err != nil {
+		return Grant{}, nil, err
+	}
+	if reason == "" {
+		reason = g.Reason // a renewal may ride on the reason it started with
+	}
+	mode := g.Renewal
+	if mode == "" {
+		mode = s.renewalMode(g.Level)
+	}
+	var out Grant
+	var outReq *Request
+	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketGrants, []byte(id))
+		var cur Grant
+		if v == nil || json.Unmarshal(v, &cur) != nil || !s.grantVerifies(cur) || cur.Agent != agentName {
+			return fmt.Errorf("%w: no grant %q of yours", ErrNotFound, id)
 		}
-		mode := g.Renewal
-		if mode == "" {
-			mode = s.renewalMode(g.Level)
+		if cur.Status != GrantActive {
+			return fmt.Errorf("%w: the grant is %s", ErrConflict, cur.Status)
 		}
 		switch mode {
 		case "none":
 			return fmt.Errorf("%w: this grant does not renew", ErrForbidden)
 		case "auto":
-			d := s.renewalDuration(g.Level)
+			d := s.renewalDuration(cur.Level)
 			if d > 0 {
-				g.ExpiresAt = s.now().Add(time.Duration(d) * time.Second)
+				cur.ExpiresAt = s.now().Add(time.Duration(d) * time.Second)
 			} else {
-				g.ExpiresAt = time.Time{}
+				cur.ExpiresAt = time.Time{}
 			}
-			g.NoticedAt = time.Time{}
-			if err := putGrantTx(tx, g, sk); err != nil {
+			cur.NoticedAt = time.Time{}
+			if err := putGrantTx(tx, cur, sk); err != nil {
 				return err
 			}
-			out = g
+			if err := writePolicyHeadTx(tx, sk); err != nil {
+				return err
+			}
+			out = cur
 			return nil
 		default: // request: a new ask, decided like any other
-			item, _, ok := s.itemTx(tx, g.Item)
+			item, _, ok := s.itemTx(tx, cur.Item)
 			if !ok {
 				return fmt.Errorf("%w: the item is gone", ErrNotFound)
 			}
 			dur := int64(0)
-			if !g.ExpiresAt.IsZero() {
-				dur = int64(g.ExpiresAt.Sub(s.now()).Seconds())
+			if !cur.ExpiresAt.IsZero() {
+				dur = int64(cur.ExpiresAt.Sub(s.now()).Seconds())
 				if dur < 0 {
 					dur = 0
 				}
 			}
-			req := Request{ID: mustID(), Agent: g.Agent, Owner: g.Owner, Via: via,
-				Action: g.Action, Reason: reason, Uses: g.Uses, Duration: dur, Alert: g.Alert,
-				Entitlement: g.Entitlement, Status: ReqPending, Level: g.Level, Fields: g.Fields,
+			req := Request{ID: mustID(), Agent: cur.Agent, Owner: cur.Owner, Via: via,
+				Action: cur.Action, Reason: reason, Uses: cur.Uses, Duration: dur, Alert: cur.Alert,
+				Entitlement: cur.Entitlement, Status: ReqPending, Level: cur.Level, Fields: cur.Fields,
 				Created: s.now(), ExpiresAt: s.now().Add(s.pendingTTL()),
-				Items: []ReqItem{{ID: item.ID, Title: item.Title, Version: item.Version, Level: g.Level,
+				Items: []ReqItem{{ID: item.ID, Title: item.Title, Version: item.Version, Level: cur.Level,
 					Ref: RefOfItem(s.collectionName(item.Collection), item.Title)}}}
 			b, err := json.Marshal(req)
 			if err != nil {
@@ -289,7 +364,7 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 			if err := tx.Put(bucketRequests, []byte(req.ID), b); err != nil {
 				return err
 			}
-			out, outReq = g, &req
+			out, outReq = cur, &req
 			return nil
 		}
 	})
@@ -297,7 +372,9 @@ func (s *Service) RenewGrant(agentName, id, reason, via string) (Grant, *Request
 		return Grant{}, nil, err
 	}
 	if outReq != nil {
-		final, _ := s.enterRequest(*outReq) // the renewal walks the chain like any ask
+		pending := *outReq
+		unlock()                            // enterRequest takes the lock itself
+		final, _ := s.enterRequest(pending) // the renewal walks the chain like any ask
 		outReq = &final
 		_ = s.auditEntry(store.AuditEntry{Actor: agentName, Via: via, Action: "secrets_grant_renew",
 			Target: id, Detail: "renewal asked again: " + reason})
@@ -328,6 +405,9 @@ func (s *Service) ReleaseGrant(agentName, id, via string) error {
 		}
 		g.Status = GrantReleased
 		if err := putGrantTx(tx, g, sk); err != nil {
+			return err
+		}
+		if err := writePolicyHeadTx(tx, sk); err != nil {
 			return err
 		}
 		released = g
@@ -365,6 +445,9 @@ func (s *Service) RevokeGrant(who Actor, id, reason string) error {
 		}
 		g.Status = GrantRevoked
 		if err := putGrantTx(tx, g, sk); err != nil {
+			return err
+		}
+		if err := writePolicyHeadTx(tx, sk); err != nil {
 			return err
 		}
 		revoked = g
@@ -441,14 +524,21 @@ func (s *Service) reassessGrants() {
 			why = "the item is gone"
 		case !agentOK:
 			why = "the agent is gone"
+		case item.State != StateNormal:
+			why = "the item is not in a normal state"
 		case s.EffectiveLevel(item) == LevelNever:
 			why = "the item is never given to an agent"
 		default:
 			pol := s.decidePolicy(agent, item, col, g.Action, g.Entitlement)
-			if !pol.OK {
+			switch {
+			case !pol.OK:
 				why = "the policy no longer covers the agent's reach: " + pol.Reason
-			} else if !containsString(pol.Actions, g.Action) {
+			case LevelStrictness[pol.Level] > LevelStrictness[g.Level]:
+				why = "the approval needed is now stricter"
+			case !containsString(pol.Actions, g.Action):
 				why = "the item no longer allows " + g.Action
+			case len(pol.Fields) > 0 && (len(g.Fields) == 0 || !fieldsCovered(g.Fields, pol.Fields)):
+				why = "the entitlement now names fewer fields"
 			}
 			if why == "" && !s.ownerMayRead(agent.Owner, col.ID) {
 				// the owner lost the collection: its own setting says what happens
@@ -492,6 +582,9 @@ func (s *Service) tightenGrant(g Grant, mode, why string) {
 		default: // revoke
 			cur.Status = GrantRevoked
 			if err := putGrantTx(tx, cur, sk); err != nil {
+				return err
+			}
+			if err := writePolicyHeadTx(tx, sk); err != nil {
 				return err
 			}
 			revoked = cur
@@ -541,10 +634,20 @@ func (s *Service) notifyItemChanged(item Item, oldVersion int64) {
 // a resolved alert end with their grace, and requests queued while the vault was sealed are
 // resolved against the policy again. The wiring runs it every minute; it answers how many things
 // it changed, for the log.
+func fieldsCovered(have, allowed []string) bool {
+	for _, f := range have {
+		if !containsString(allowed, f) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) Sweep() int {
 	if s.keys.sealed() {
 		return 0
 	}
+	s.reassessGrants()
 	changed := 0
 	now := s.now()
 	notice := s.settingDuration("grant.expiry_notice", 72*time.Hour)
@@ -606,7 +709,10 @@ func (s *Service) Sweep() int {
 					}
 					noticed = append(noticed, g)
 				}
-				return nil
+				if len(ended)+len(noticed) == 0 {
+					return nil
+				}
+				return writePolicyHeadTx(tx, sk)
 			})
 			for _, g := range ended {
 				_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_grant_end",

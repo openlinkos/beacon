@@ -120,17 +120,11 @@ func (t AgentTags) signedParts() []string {
 
 // ---- reading
 
-// Entitlements lists the entitlements by name, verified rows only.
+// Entitlements lists the entitlements by name, verified rows the signed head still names.
 func (s *Service) Entitlements() []Entitlement {
 	var out []Entitlement
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketEntitlements, kv.Range{}, func(_, v []byte) bool {
-			var e Entitlement
-			if json.Unmarshal(v, &e) == nil && s.entitlementVerifies(e) {
-				out = append(out, e)
-			}
-			return true
-		})
+		out = s.entitlementsTx(tx)
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -139,16 +133,77 @@ func (s *Service) Entitlements() []Entitlement {
 
 // Entitlement finds one by name.
 func (s *Service) Entitlement(name string) (Entitlement, bool) {
-	var out Entitlement
-	ok := false
-	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		v := tx.Get(bucketEntitlements, []byte(name))
-		if v != nil && json.Unmarshal(v, &out) == nil && s.entitlementVerifies(out) {
-			ok = true
+	for _, e := range s.Entitlements() {
+		if e.Name == name {
+			return e, true
 		}
+	}
+	return Entitlement{}, false
+}
+
+func denyAllEntitlement(name string) Entitlement {
+	return Entitlement{Name: name, Deny: true}
+}
+
+// entitlementsTx is the live entitlements inside a transaction: a row the head does not name, or
+// whose contents no longer match it, is absent; a deny the head names that is missing or stale
+// denies everything (the strictest).
+func (s *Service) entitlementsTx(tx kv.Tx) []Entitlement {
+	sk, err := s.sk()
+	if err != nil {
 		return nil
+	}
+	h, headOK := loadPolicyHead(tx, sk)
+	seen := map[string]bool{}
+	var out []Entitlement
+	takeDeny := func(name string) {
+		if seen[name] {
+			return
+		}
+		out = append(out, denyAllEntitlement(name))
+		seen[name] = true
+		s.reportHeadBreak(kindEntitlement, name)
+	}
+	tx.Range(bucketEntitlements, kv.Range{}, func(_, v []byte) bool {
+		var e Entitlement
+		if json.Unmarshal(v, &e) != nil {
+			return true
+		}
+		ok, named := s.headMatch(tx, kindEntitlement, e.Name, e.signedParts(), entitlementHeadValue(e))
+		if named && !ok {
+			if ent, found := h.lookup(kindEntitlement, e.Name); found && ent.Value == "deny" {
+				takeDeny(e.Name)
+			} else {
+				s.reportHeadBreak(kindEntitlement, e.Name)
+				seen[e.Name] = true
+			}
+			return true
+		}
+		if headOK && !named {
+			return true
+		}
+		if !s.entitlementVerifies(e) {
+			if named {
+				if ent, found := h.lookup(kindEntitlement, e.Name); found && ent.Value == "deny" {
+					takeDeny(e.Name)
+					return true
+				}
+				s.reportHeadBreak(kindEntitlement, e.Name)
+			}
+			return true
+		}
+		out = append(out, e)
+		seen[e.Name] = true
+		return true
 	})
-	return out, ok
+	if headOK {
+		for _, ent := range h.Rows {
+			if ent.Kind == kindEntitlement && ent.Value == "deny" && !seen[ent.Key] {
+				takeDeny(ent.Key)
+			}
+		}
+	}
+	return out
 }
 
 func (s *Service) entitlementVerifies(e Entitlement) bool {
@@ -159,13 +214,34 @@ func (s *Service) entitlementVerifies(e Entitlement) bool {
 	return verifyRow(sk, e.Sig, e.signedParts()...)
 }
 
-// TagsOfAgent lists one agent's grouping tags, verified; nil when the agent has none.
+// TagsOfAgent lists one agent's grouping tags, verified against the signed head; nil when the
+// agent has none. A named row that is missing or stale keeps the tags the head last recorded, so
+// deleting the row cannot drop a deny that matches by tag, and adding tags cannot widen an allow.
 func (s *Service) TagsOfAgent(agent string) []string {
 	var out []string
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
 		v := tx.Get(bucketAgentTags, []byte(agent))
 		var t AgentTags
-		if v != nil && json.Unmarshal(v, &t) == nil && s.agentTagsVerify(t) {
+		live := v != nil && json.Unmarshal(v, &t) == nil && s.agentTagsVerify(t)
+		parts := []string{}
+		value := ""
+		if live {
+			parts, value = t.signedParts(), strings.Join(t.Tags, "\x01")
+		}
+		ok, named := s.headMatch(tx, kindAgentTags, agent, parts, value)
+		if named && !ok {
+			sk, err := s.sk()
+			if err != nil {
+				return err
+			}
+			if h, headOK := loadPolicyHead(tx, sk); headOK {
+				if ent, found := h.lookup(kindAgentTags, agent); found && ent.Value != "" {
+					out = strings.Split(ent.Value, "\x01")
+				}
+			}
+			return nil
+		}
+		if live && ok {
 			out = t.Tags
 		}
 		return nil
@@ -212,7 +288,10 @@ func (s *Service) SetEntitlement(who Actor, e Entitlement) (Entitlement, error) 
 			if err != nil {
 				return err
 			}
-			return tx.Put(bucketEntitlements, []byte(e.Name), b)
+			if err := tx.Put(bucketEntitlements, []byte(e.Name), b); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk)
 		})
 	}()
 	if putErr != nil {
@@ -232,11 +311,19 @@ func (s *Service) DeleteEntitlement(who Actor, name string) error {
 	func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		sk, e := s.sk()
+		if e != nil {
+			err = e
+			return
+		}
 		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 			if tx.Get(bucketEntitlements, []byte(name)) == nil {
 				return fmt.Errorf("%w: no entitlement %q", ErrNotFound, name)
 			}
-			return tx.Delete(bucketEntitlements, []byte(name))
+			if err := tx.Delete(bucketEntitlements, []byte(name)); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk, policyRowKey(kindEntitlement, name))
 		})
 	}()
 	if err != nil {
@@ -326,7 +413,10 @@ func (s *Service) SetAgentTags(who Actor, agent string, tags []string) error {
 		}
 		err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 			if len(tags) == 0 {
-				return tx.Delete(bucketAgentTags, []byte(agent))
+				if err := tx.Delete(bucketAgentTags, []byte(agent)); err != nil {
+					return err
+				}
+				return writePolicyHeadTx(tx, sk, policyRowKey(kindAgentTags, agent))
 			}
 			row := AgentTags{Agent: agent, Tags: tags, Actor: who.Name, Via: who.Via, At: s.now()}
 			row.Sig = signRow(sk, row.signedParts()...)
@@ -334,7 +424,10 @@ func (s *Service) SetAgentTags(who Actor, agent string, tags []string) error {
 			if mErr != nil {
 				return mErr
 			}
-			return tx.Put(bucketAgentTags, []byte(agent), b)
+			if err := tx.Put(bucketAgentTags, []byte(agent), b); err != nil {
+				return err
+			}
+			return writePolicyHeadTx(tx, sk)
 		})
 	}()
 	if err != nil {
@@ -363,10 +456,23 @@ func (s *Service) agentInfoOf(name string) (agentInfo, bool) {
 	return agentInfo{Name: a.Name, Owner: a.Owner, Tags: s.TagsOfAgent(a.Name)}, true
 }
 
-// coversPrincipal reports whether the entitlement's principals take in the agent.
+// AgentOwner is the account the agent acts for, for the surfaces that check who may hand it templates.
+func (s *Service) AgentOwner(name string) (string, bool) {
+	a, ok := s.agentInfoOf(name)
+	if !ok {
+		return "", false
+	}
+	return a.Owner, true
+}
+
+// coversPrincipal reports whether the entitlement's principals take in the agent. A deny with no
+// principal named applies to every agent (the design's "no agent may ask for kind/personal/*").
 func (e Entitlement) coversPrincipal(a agentInfo, now time.Time) bool {
 	if !e.Expires.IsZero() && now.After(e.Expires) {
 		return false // the entitlement itself has passed its time
+	}
+	if e.Deny && e.Principals.Empty() {
+		return true
 	}
 	for _, n := range e.Principals.Agents {
 		if n == a.Name {
@@ -410,6 +516,10 @@ func (e Entitlement) coversResource(item Item, col Collection) bool {
 	}
 	// fields only, no collection, tag or item named: every collection's items, narrowed to the fields
 	if len(e.Resources.Collections) == 0 && len(e.Resources.Tags) == 0 && len(e.Resources.Items) == 0 && len(e.Resources.Fields) > 0 {
+		return true
+	}
+	// a deny with no resource named keeps every item out (the strictest, and the broken-row case)
+	if e.Deny && e.Resources.Empty() {
 		return true
 	}
 	return false

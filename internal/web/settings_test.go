@@ -68,7 +68,7 @@ func TestSettingsPage(t *testing.T) {
 		t.Fatalf("the problem shows: %d", a.code)
 	}
 	// the history and the revert
-	if a := admin.post("/console/settings/history/1/revert", url.Values{"reason": {""}}); a.code != http.StatusSeeOther {
+	if a := admin.post("/console/settings/history/1/revert", url.Values{"reason": {"the test moves on"}}); a.code != http.StatusSeeOther {
 		t.Fatalf("revert: %d %s", a.code, a.body)
 	}
 	if res, err := svc.System("request.max_uses"); err != nil || res.From != "default" {
@@ -77,7 +77,7 @@ func TestSettingsPage(t *testing.T) {
 
 	// an override at another level is listed, and a row that failed its signature is said
 	if _, err := svc.Set(context.Background(), settings.Actor{Name: "alice", Via: "api"}, settings.ScopeTag, "env/prod",
-		"grant.alert_grace", json.RawMessage(`"30m"`), "", 0); err != nil {
+		"grant.alert_grace", json.RawMessage(`"30m"`), "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 	a = admin.get("/console/settings")

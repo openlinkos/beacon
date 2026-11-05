@@ -223,7 +223,7 @@ func (g *grantsVault) setSetting(t *testing.T, key string, value any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"}, settings.ScopeSystem, "", key, b, "test", 0); err != nil {
+	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"}, settings.ScopeSystem, "", key, b, "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -326,9 +326,9 @@ func TestFiveSteps(t *testing.T) {
 		t.Fatalf("step 2b: an action outside the entitlement is not-found, got %+v", d)
 	}
 	g.ent(t, oncallEnt())
-	// step 3: never is refused, and named as such (not as not-found)
-	if d := step(never, infra, ActRead); d.OK || d.NotFound {
-		t.Fatalf("step 3: never is refused, got %+v", d)
+	// step 3: never is refused as not-found, the same words as an item that is not there
+	if d := step(never, infra, ActRead); d.OK || !d.NotFound {
+		t.Fatalf("step 3: never is not-found, got %+v", d)
 	}
 	// step 4: the approval is the stricter of the item's level and the entitlement's floor
 	if d := step(plain, infra, ActRead); !d.OK || d.Level != LevelReview {
@@ -456,11 +456,11 @@ func TestEntitlementSelection(t *testing.T) {
 	// at equal floors the larger ceilings win: oncall-dns may grant 100 uses, wide may grant 10
 	g.setSetting(t, "request.max_uses", "unlimited")
 	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"},
-		settings.ScopeEntitlement, "oncall-dns", "request.max_uses", json.RawMessage("100"), "test", 0); err != nil {
+		settings.ScopeEntitlement, "oncall-dns", "request.max_uses", json.RawMessage("100"), "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := g.sset.Set(context.Background(), settings.Actor{Name: "own", Via: "test"},
-		settings.ScopeEntitlement, "wide", "request.max_uses", json.RawMessage("10"), "test", 0); err != nil {
+		settings.ScopeEntitlement, "wide", "request.max_uses", json.RawMessage("10"), "because the test needs a reason", 0); err != nil {
 		t.Fatal(err)
 	}
 	g.ent(t, Entitlement{Name: "wide", Principals: Principals{Agents: []string{"worker"}},
@@ -770,9 +770,11 @@ func TestNeverNoAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Granted) != 0 || out.Pending != nil || len(out.Refused) != 1 || out.Refused[0].NotFound {
-		// never is named as refused (not hidden as not-found): the design says so, so no one wonders
-		t.Logf("the refusals: %+v", out.Refused)
+	if len(out.Granted) != 0 || out.Pending != nil || len(out.Refused) != 1 || !out.Refused[0].NotFound {
+		t.Fatalf("never is hidden as not-found, got %+v", out)
+	}
+	if out.Refused[0].Reason != "there is no such item" {
+		t.Fatalf("never uses the same words as a missing item, got %q", out.Refused[0].Reason)
 	}
 	// a grant forced over a never item (by tightening the item after the grant) dies at once
 	plain := g.makeItem(t, infra, "Turned never")
@@ -797,7 +799,7 @@ func TestNeverNoAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the invariant fires first: never is not given to an agent, whatever the grant said
-	if _, err := g.GetSecret("worker", "test", "Infra/"+plain.Title, "password", "reading", "", "", "", ""); !errors.Is(err, ErrForbidden) {
+	if _, err := g.GetSecret("worker", "test", "Infra/"+plain.Title, "password", "reading", "", "", "", ""); !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrNoGrant) {
 		t.Fatalf("a never item gives nothing, got %v", err)
 	}
 	hooks := g.hooks.got()
@@ -843,9 +845,32 @@ func TestEntitlementTamperBlocked(t *testing.T) {
 		t.Fatal("the tampered row is reported")
 	}
 	// a tampered grant row is as absent
-	out2, err := g.RequestSecret("worker", "test", RequestIn{Items: []string{plain.Title}, Reason: "fix the dns outage"})
-	if err != nil || len(out2.Granted) != 0 {
-		t.Fatalf("still nothing, got %v %+v", err, out2)
+	if _, err := g.SetItem(g.owner, ItemIn{ID: plain.ID, Collection: "Infra", Level: LevelAuto,
+		Fields: []FieldIn{{Name: "password", Type: FieldConcealed, Value: fixtureToken}}}); err != nil {
+		t.Fatal(err)
+	}
+	g.ent(t, oncallEnt())
+	granted, err := g.RequestSecret("worker", "test", RequestIn{Items: []string{plain.Title}, Reason: "fix the dns outage"})
+	if err != nil || len(granted.Granted) != 1 {
+		t.Fatalf("a fresh grant: %v %+v", err, granted)
+	}
+	row := granted.Granted[0]
+	row.Fields = nil
+	row.Sig = []byte("tampered")
+	b2, _ := json.Marshal(row)
+	if err := g.st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Put(bucketGrants, []byte(row.ID), b2)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.GrantsOf("worker"); len(got) != 0 {
+		t.Fatalf("a tampered grant row is served as absent, got %+v", got)
+	}
+	if _, err := g.GetSecret("worker", "test", "Infra/"+plain.Title, "password", "reading", "", "", "", ""); !errors.Is(err, ErrNoGrant) {
+		t.Fatalf("a tampered grant reads nothing, got %v", err)
+	}
+	if bad := g.CheckRows(); len(bad) == 0 {
+		t.Fatal("the tampered grant is reported")
 	}
 }
 
@@ -1034,11 +1059,21 @@ func TestPolicyTightened(t *testing.T) {
 	if err != nil || len(out.Granted) != 1 {
 		t.Fatalf("the second grant: %v %+v", err, out)
 	}
+	kept := out.Granted[0].ID
 	if err := g.DeleteEntitlement(g.owner, e.Name); err != nil {
 		t.Fatal(err)
 	}
-	if err := read(); err != nil {
-		t.Fatalf("the grant stands until its expiry, got %v", err)
+	found := false
+	for _, grant := range g.GrantsOf("worker") {
+		if grant.ID == kept && grant.Status == GrantActive {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("keep_until_expiry leaves the grant active, got %+v", g.GrantsOf("worker"))
+	}
+	if err := read(); !errors.Is(err, ErrNoGrant) {
+		t.Fatalf("use still re-runs the policy, got %v", err)
 	}
 	_ = grantID
 }
@@ -1274,7 +1309,7 @@ func TestSearchForAgent(t *testing.T) {
 	g.ent(t, oncallEnt())
 	g.newAgent(t, "worker", "own")
 	res := g.SearchForAgent("worker", "", "", nil)
-	if len(res) != 4 { // plain, prod, token and never are all in Infra; Personal is not
+	if len(res) != 3 { // plain, prod and token; never is hidden, Personal is out of reach
 		t.Fatalf("the search shows the entitlement's reach, got %d", len(res))
 	}
 	for _, r := range res {

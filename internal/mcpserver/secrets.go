@@ -42,6 +42,19 @@ func vaultActor(ctx context.Context) (secrets.Actor, error) {
 	return secrets.Actor{Name: p.User, Via: "mcp", Role: roleOf(p)}, nil
 }
 
+// vaultAdmin is vaultActor plus the secrets:admin scope: entitlements, agent tags and revocation.
+func vaultAdmin(ctx context.Context) (secrets.Actor, error) {
+	who, err := vaultActor(ctx)
+	if err != nil {
+		return secrets.Actor{}, err
+	}
+	p, ok := principal(ctx)
+	if !ok || !p.Has("secrets:admin") {
+		return secrets.Actor{}, errors.New(api.ScopeProblem(p, "secrets:admin"))
+	}
+	return who, nil
+}
+
 func roleOf(p store.Principal) string {
 	switch {
 	case p.Has("accounts:write"):
@@ -76,10 +89,11 @@ func registerSecretsTools(s *mcp.Server, v *secrets.Service) {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_collections", Title: "Collections", Annotations: read,
 		Description: "The vault's collections, with their default approval level. People only; an agent is refused (grants come with a later package)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, collectionsOut, error) {
-			if _, err := vaultActor(ctx); err != nil {
+			who, err := vaultActor(ctx)
+			if err != nil {
 				return nil, collectionsOut{}, err
 			}
-			cols := v.Collections()
+			cols := v.CollectionsFor(who)
 			if cols == nil {
 				cols = []secrets.Collection{}
 			}

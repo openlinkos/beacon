@@ -66,7 +66,7 @@ func settingsCmd(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "override\t%s\t%s\t%s\t%s\n", o.Scope, o.Target, o.Key, compactJSON(o.Value))
 			}
 			for _, b := range out.BadRows {
-				fmt.Fprintf(stdout, "warning: a row failed its signature and is treated as absent: %s\n", b)
+				fmt.Fprintf(stdout, "warning: a row failed its signature and is served as the last signed value: %s\n", b)
 			}
 			return 0
 		}

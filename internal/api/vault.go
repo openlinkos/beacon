@@ -17,7 +17,7 @@ import (
 
 func vaultRoutes() []string {
 	return []string{
-		"GET /api/v1/vault", "POST /api/v1/vault/unseal", "POST /api/v1/vault/seal", "POST /api/v1/vault/rotate-key",
+		"GET /api/v1/vault", "POST /api/v1/vault/init", "POST /api/v1/vault/unseal", "POST /api/v1/vault/seal", "POST /api/v1/vault/rotate-key",
 		"POST /api/v1/vault/rotate-collection-key",
 		"GET /api/v1/vault/collections", "POST /api/v1/vault/collections",
 		"GET /api/v1/vault/collections/{id}", "PUT /api/v1/vault/collections/{id}",
@@ -40,12 +40,14 @@ type vault interface {
 	SealModeName() string
 	Bad() []string
 	Unseal(passphrase string) error
+	InitPassphrase(passphrase string) error
 	Seal() error
 	RotateRootKey(newPassphrase string) error
 	RotateCollectionKey(collection string) error
 	OnKeyChange(func([]byte))
 
 	Collections() []secrets.Collection
+	CollectionsFor(who secrets.Actor) []secrets.Collection
 	Collection(nameOrID string) (secrets.Collection, bool)
 	CreateCollection(who secrets.Actor, name, description, level string, actions []string) (secrets.Collection, error)
 	UpdateCollection(who secrets.Actor, id, description, level string, actions []string) (secrets.Collection, error)
@@ -62,7 +64,7 @@ type vault interface {
 	RollbackItem(who secrets.Actor, item string, version int64, reason string) (secrets.Item, error)
 	Generate(who secrets.Actor, item, section, field, reason string, spec secrets.GenSpec) (secrets.Item, error)
 	Reveal(who secrets.Actor, item string, fields []string, password string) (map[string]string, []secrets.Field, error)
-	Attachment(item string, version int64, name string) ([]byte, int64, error)
+	Attachment(who secrets.Actor, item string, version int64, name string) ([]byte, int64, error)
 
 	Tags() []secrets.Tag
 	SetTag(who secrets.Actor, name, level, description string, actions []string) (secrets.Tag, error)
@@ -78,11 +80,12 @@ func (s *Server) registerVault(mux *http.ServeMux) {
 		return
 	}
 	mux.Handle("GET /api/v1/vault", s.with("", s.vaultState))
-	mux.Handle("POST /api/v1/vault/unseal", s.with("", s.vaultUnseal))
+	mux.Handle("POST /api/v1/vault/init", s.with("secrets:admin", s.vaultInit))
+	mux.Handle("POST /api/v1/vault/unseal", s.with("secrets:admin", s.vaultUnseal))
 	mux.Handle("POST /api/v1/vault/seal", s.with("secrets:admin", s.vaultSeal))
 	mux.Handle("POST /api/v1/vault/rotate-key", s.with("secrets:admin", s.vaultRotateKey))
 	mux.Handle("POST /api/v1/vault/rotate-collection-key", s.with("secrets:admin", s.vaultRotateCollectionKey))
-	mux.Handle("GET /api/v1/vault/collections", s.with("", s.listCollections))
+	mux.Handle("GET /api/v1/vault/collections", s.withPrincipal("", s.listCollections))
 	mux.Handle("POST /api/v1/vault/collections", s.with("secrets:admin", s.createCollection))
 	mux.Handle("GET /api/v1/vault/collections/{id}", s.withPrincipal("", s.getCollection))
 	mux.Handle("PUT /api/v1/vault/collections/{id}", s.with("secrets:admin", s.putCollection))
@@ -100,7 +103,7 @@ func (s *Server) registerVault(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/vault/items/{id}/reveal", s.withPrincipal("", s.revealItem))
 	mux.Handle("GET /api/v1/vault/items/{id}/versions/{version}/attachments/{name}", s.withPrincipal("", s.getAttachment))
 	mux.Handle("GET /api/v1/vault/search", s.withPrincipal("", s.searchVault))
-	mux.Handle("GET /api/v1/vault/tags", s.with("", s.listTags))
+	mux.Handle("GET /api/v1/vault/tags", s.withPrincipal("", s.listTags))
 	mux.Handle("POST /api/v1/vault/tags", s.withPrincipal("", s.postTag))
 	mux.Handle("DELETE /api/v1/vault/tags/{name}", s.withPrincipal("", s.deleteTag))
 }
@@ -140,6 +143,8 @@ func (s *Server) vaultError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "secrets.sealed", "the vault is sealed; enter the passphrase to unseal it")
 	case errors.Is(err, secrets.ErrWrongPassphrase):
 		writeError(w, http.StatusForbidden, "secrets.wrong_passphrase", "the passphrase does not unseal this vault")
+	case errors.Is(err, secrets.ErrNotInitialised):
+		writeError(w, http.StatusConflict, "secrets.not_initialised", "this vault has no passphrase yet; POST /api/v1/vault/init first")
 	case errors.Is(err, secrets.ErrReauth):
 		writeError(w, http.StatusUnauthorized, "secrets.reauth", "enter your password to view values")
 	case errors.Is(err, secrets.ErrAgent):
@@ -177,6 +182,22 @@ func (s *Server) vaultState(w http.ResponseWriter, _ *http.Request, _ bridge.Act
 	})
 }
 
+func (s *Server) vaultInit(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+	var in struct {
+		Passphrase string `json:"passphrase"`
+	}
+	if !readBody(w, r, &in, 1<<16) {
+		return
+	}
+	if err := s.Vault.InitPassphrase(in.Passphrase); err != nil {
+		s.vaultError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Sealed bool `json:"sealed"`
+	}{Sealed: s.Vault.Sealed()})
+}
+
 func (s *Server) vaultUnseal(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
 	var in struct {
 		Passphrase string `json:"passphrase"`
@@ -185,6 +206,9 @@ func (s *Server) vaultUnseal(w http.ResponseWriter, r *http.Request, _ bridge.Ac
 		return
 	}
 	if err := s.Vault.Unseal(in.Passphrase); err != nil {
+		if errors.Is(err, secrets.ErrWrongPassphrase) {
+			s.Auth.Fail(r)
+		}
 		s.vaultError(w, err)
 		return
 	}
@@ -235,10 +259,18 @@ func (s *Server) vaultRotateCollectionKey(w http.ResponseWriter, r *http.Request
 	}{Started: true})
 }
 
-func (s *Server) listCollections(w http.ResponseWriter, _ *http.Request, _ bridge.Actor) {
+func (s *Server) listCollections(w http.ResponseWriter, _ *http.Request, p store.Principal) {
+	who, ok := s.needPerson(w, p)
+	if !ok {
+		return
+	}
+	out := s.Vault.CollectionsFor(who)
+	if out == nil {
+		out = []secrets.Collection{}
+	}
 	writeJSON(w, http.StatusOK, struct {
 		Collections []secrets.Collection `json:"collections"`
-	}{Collections: s.Vault.Collections()})
+	}{Collections: out})
 }
 
 type collectionIn struct {
@@ -267,7 +299,7 @@ func (s *Server) getCollection(w http.ResponseWriter, r *http.Request, p store.P
 		return
 	}
 	col, found := s.Vault.Collection(r.PathValue("id"))
-	if !found {
+	if !found || !s.Vault.May(who, col.ID, secrets.PermDescribe) {
 		writeError(w, http.StatusNotFound, "secrets.not_found", "no such collection")
 		return
 	}
@@ -305,7 +337,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, p store.Princ
 		return
 	}
 	if !s.Vault.May(who, col.ID, secrets.PermDescribe) {
-		writeError(w, http.StatusForbidden, "secrets.permission", "you may not look into this collection")
+		writeError(w, http.StatusNotFound, "secrets.not_found", "no such collection")
 		return
 	}
 	items := s.Vault.Items(col.Name, r.URL.Query().Get("state"))
@@ -542,7 +574,7 @@ func (s *Server) getAttachment(w http.ResponseWriter, r *http.Request, p store.P
 		writeError(w, http.StatusNotFound, "secrets.not_found", "no such item")
 		return
 	}
-	data, _, err := s.Vault.Attachment(item.ID, version, r.PathValue("name"))
+	data, _, err := s.Vault.Attachment(who, item.ID, version, r.PathValue("name"))
 	if err != nil {
 		s.vaultError(w, err)
 		return
@@ -606,7 +638,10 @@ func (s *Server) searchVault(w http.ResponseWriter, r *http.Request, p store.Pri
 	}{Results: out})
 }
 
-func (s *Server) listTags(w http.ResponseWriter, _ *http.Request, _ bridge.Actor) {
+func (s *Server) listTags(w http.ResponseWriter, _ *http.Request, p store.Principal) {
+	if _, ok := s.needPerson(w, p); !ok {
+		return
+	}
 	tags := s.Vault.Tags()
 	if tags == nil {
 		tags = []secrets.Tag{}

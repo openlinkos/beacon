@@ -56,6 +56,7 @@ type SecretsAPI interface {
 	ApplyTemplates(who secrets.Actor, agent string, names []string) error
 	SuspendedAgents() map[string]string
 	UnsuspendAgent(who secrets.Actor, agent string) error
+	AgentOwner(name string) (string, bool)
 }
 
 // registerSecrets adds the grants' routes.
@@ -384,12 +385,9 @@ func (s *Server) agentSecretScope(w http.ResponseWriter, r *http.Request, p stor
 		writeError(w, http.StatusForbidden, "secrets.agent", "agents reach items through grants, not this door: request_secret asks, get_secret takes")
 		return
 	}
-	if p.User != name && !p.Has("secrets:admin") {
-		acc, ok := s.Auth.Store.Account(p.User)
-		if !ok || acc.Role != "owner" {
-			writeError(w, http.StatusForbidden, "secrets.permission", "the owner or an admin sees an agent's scope")
-			return
-		}
+	if !s.ownsOrAdminsAgent(p, name) {
+		writeError(w, http.StatusForbidden, "secrets.permission", "the owner or an admin sees an agent's scope")
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent":        name,
@@ -411,7 +409,7 @@ func (s *Server) postAgentTemplates(w http.ResponseWriter, r *http.Request, p st
 	if !ok {
 		return
 	}
-	if p.User != r.PathValue("name") && !p.Has("secrets:admin") {
+	if !s.ownsOrAdminsAgent(p, r.PathValue("name")) {
 		writeError(w, http.StatusForbidden, "secrets.permission", "the owner or an admin hands an agent its templates")
 		return
 	}
@@ -420,6 +418,18 @@ func (s *Server) postAgentTemplates(w http.ResponseWriter, r *http.Request, p st
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"applied": in.Names, "preview": s.Secrets.PreviewForAgent(r.PathValue("name"))})
+}
+
+// ownsOrAdminsAgent says whether the person owns the agent, holds secrets:admin, or is an owner.
+func (s *Server) ownsOrAdminsAgent(p store.Principal, name string) bool {
+	if p.Has("secrets:admin") {
+		return true
+	}
+	if acc, ok := s.Auth.Store.Account(p.User); ok && acc.Role == "owner" {
+		return true
+	}
+	owner, ok := s.Secrets.AgentOwner(name)
+	return ok && owner == p.User
 }
 
 func (s *Server) unsuspendAgent(w http.ResponseWriter, r *http.Request, p store.Principal) {

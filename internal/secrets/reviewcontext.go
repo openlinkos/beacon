@@ -16,7 +16,7 @@ import (
 
 // RequestWithContext is get_request's answer to a reviewer: the request and what surrounds it.
 type RequestWithContext struct {
-	Request Request       `json:"request"`
+	Request Request        `json:"request"`
 	Context *ReviewContext `json:"context,omitempty"`
 }
 
@@ -31,11 +31,11 @@ type ReviewContext struct {
 
 // ChainState is where an ask stands in its review chain.
 type ChainState struct {
-	Layers    []string   `json:"layers,omitempty"` // the chain the ask walks
-	At        int        `json:"at"`               // the layer it stands at (-1: nowhere; the row predates the chain)
-	Approvals int        `json:"approvals"`
-	Needed    int        `json:"needed"`
-	Deadline  time.Time  `json:"deadline,omitzero"`
+	Layers    []string  `json:"layers,omitempty"` // the chain the ask walks
+	At        int       `json:"at"`               // the layer it stands at (-1: nowhere; the row predates the chain)
+	Approvals int       `json:"approvals"`
+	Needed    int       `json:"needed"`
+	Deadline  time.Time `json:"deadline,omitzero"`
 }
 
 // AlertDigest is the alert an ask hangs on: whether it is firing, the labels it carries (its
