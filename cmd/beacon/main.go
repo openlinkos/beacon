@@ -331,6 +331,7 @@ func serve(args []string, stderr io.Writer) int {
 		defer t.Stop()
 		for range t.C {
 			sweepSecrets(vault, log)
+			sweepHygiene(vault, log)
 		}
 	}()
 	catalog.Register(m, cdb.Catalog)
@@ -452,7 +453,7 @@ func serve(args []string, stderr io.Writer) int {
 			mcpserver.WithSettings(sset), mcpserver.WithVault(vault), mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Settings: sset, Vault: vault, Secrets: vault, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Settings: sset, Vault: vault, Secrets: vault, Hygiene: vault, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway

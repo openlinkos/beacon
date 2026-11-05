@@ -138,6 +138,9 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	if s.Secrets != nil {
 		s.registerSecretPages(at)
 	}
+	if s.Hygiene != nil {
+		s.registerHygienePage(at)
+	}
 	if s.Vault != nil {
 		at("GET", "/secrets", s.console("", s.vaultPage))
 		at("GET", "/secrets/{id}", s.console("", s.vaultCollectionPage))

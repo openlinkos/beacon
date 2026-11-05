@@ -56,6 +56,13 @@ type SecretsAPI interface {
 	ApplyTemplates(who secrets.Actor, agent string, names []string) error
 	SuspendedAgents() map[string]string
 	UnsuspendAgent(who secrets.Actor, agent string) error
+
+	// the hygiene (secretshygiene.go): the health report, the rotation list, the idle grants and
+	// the agent's rotation
+	HealthReport(who secrets.Actor) (secrets.HealthReport, error)
+	RotationDue() []secrets.RotationRow
+	UnusedGrants() []secrets.Grant
+	RotateItem(agent, via, ref, reason string, spec secrets.GenSpec) (secrets.Item, error)
 }
 
 // registerSecrets adds the grants' routes.

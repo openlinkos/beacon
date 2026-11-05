@@ -89,6 +89,13 @@ type vaultPage struct {
 	Tags        []secrets.Tag
 	Results     []secrets.SearchResult
 	Query       string
+	Pages       []vaultLink // the pages beside the vault: approvals, grants, policies, hygiene
+}
+
+// vaultLink is one page link under the vault's index.
+type vaultLink struct {
+	Label string
+	Href  string
 }
 
 var vaultTmpl = parse("vault.html")
@@ -103,6 +110,17 @@ func (s *Server) vaultPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Sealed, p.Mode, p.BadRows = s.Vault.Sealed(), s.Vault.SealModeName(), s.Vault.Bad()
 	p.CanUnseal = p.Sealed && p.Mode == secrets.SealPassphrase && v.has("secrets:admin")
 	p.CanManage = v.has("secrets:admin")
+	// the pages the secrets work keeps beside the vault, whatever of them is wired
+	if s.Secrets != nil {
+		p.Pages = append(p.Pages, vaultLink{Label: s.t("Secret approvals"), Href: consolePath("/secrets/approvals")})
+		p.Pages = append(p.Pages, vaultLink{Label: s.t("Grants"), Href: consolePath("/secrets/grants")})
+		if p.CanManage {
+			p.Pages = append(p.Pages, vaultLink{Label: s.t("Entitlements"), Href: consolePath("/secrets/policies")})
+		}
+	}
+	if s.Hygiene != nil {
+		p.Pages = append(p.Pages, vaultLink{Label: s.t("Hygiene"), Href: consolePath("/secrets/hygiene")})
+	}
 	for _, col := range s.Vault.Collections() {
 		p.Collections = append(p.Collections, vaultCollectionRow{Name: col.Name, Level: col.Level,
 			Href: consolePath("/secrets/" + col.ID), Items: len(s.Vault.Items(col.Name, "")),

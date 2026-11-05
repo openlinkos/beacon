@@ -13,6 +13,8 @@
     <ul class="ol-stack">{{range .BadRows}}<li class="ol-mono">{{.}}</li>{{end}}</ul>
   </div></div>{{end}}
 
+  {{if .Pages}}<p class="ol-row ol-wrap">{{range .Pages}}<a class="ol-btn ol-btn-soft ol-btn-sm" href="{{.Href}}">{{.Label}}</a> {{end}}</p>{{end}}
+
   <section class="ol-section">
     <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Search}}</h2></div>
     <form class="ol-stack" method="get" action="{{console ""}}">

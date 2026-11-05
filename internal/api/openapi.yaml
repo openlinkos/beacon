@@ -2807,4 +2807,29 @@ paths:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         "200": {description: Lifted}
+  /secrets/hygiene:
+    get:
+      summary: The hygiene report
+      description: "The vault's hygiene in one call (secrets:describe, a person's view): password fields judged weak, repeated and old (and leaked, when hygiene.hibp_check asks the k-anonymity interface — it sends the first five characters of each hash outward), the items whose rotation period ends inside the notice window (grant.expiry_notice) or has passed, and the live grants idle longer than grant.unused_after. The findings carry references and judgements only, never values, and the health part walks only the collections the reader may read."
+      responses:
+        "200": {description: "The health findings, the rotation due and the unused grants"}
+        "403": {description: secrets.permission}
+  /secrets/rotate:
+    post:
+      summary: Turn a secret
+      description: "An agent turns an item's value (secrets:use): the server makes the new value by the spec (length, charset), stores it as the item's next version and answers with the version number — the value is never given out. The caller must hold a live use grant over the item; it works the new value into the target system through the use action. Audited as secrets_item_rotate."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ref, reason]
+              properties:
+                ref: {type: string, description: "the item's beacon:// reference or collection/title"}
+                reason: {type: string}
+                length: {type: integer, description: "how long the new value is (24 by default)"}
+                charset: {type: string, enum: [letters, alnum, all]}
+      responses:
+        "200": {description: "The item's overview with the new version number, never the value"}
+        "403": {description: "secrets.no_grant (a read grant is not enough) or secrets.permission"}
 

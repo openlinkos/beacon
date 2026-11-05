@@ -289,6 +289,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	if o.vault != nil {
 		registerSecretsTools(s, o.vault)
 		registerGrantsTools(s, o.vault)
+		registerHygieneTools(s, o.vault)
 	}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "status_summary", Title: "Alerting summary", Annotations: read,
