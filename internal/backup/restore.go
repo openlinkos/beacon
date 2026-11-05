@@ -71,14 +71,10 @@ func Restore(ctx context.Context, o RestoreOpts) (*Restored, error) {
 	if now == nil {
 		now = timeNow
 	}
-	parent := filepath.Dir(o.Dir)
-	if parent == "" || parent == "." {
-		parent = o.Dir
-	}
-	if err := os.MkdirAll(parent, 0o700); err != nil {
+	if err := os.MkdirAll(o.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	staging, err := os.MkdirTemp(parent, filepath.Base(o.Dir)+".restore-")
+	staging, err := os.MkdirTemp(o.Dir, ".restore-")
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +87,7 @@ func Restore(ctx context.Context, o RestoreOpts) (*Restored, error) {
 				return nil, fmt.Errorf("%s: a full archive comes before the incrementals, not after", p)
 			}
 		}
-		tmp, err := os.MkdirTemp(parent, filepath.Base(o.Dir)+".extract-")
+		tmp, err := os.MkdirTemp(o.Dir, ".extract-")
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +131,7 @@ func Restore(ctx context.Context, o RestoreOpts) (*Restored, error) {
 
 	var aside string
 	if o.Live {
-		aside = filepath.Join(parent, filepath.Base(o.Dir)+".pre-restore-"+now().UTC().Format("20060102-150405"))
+		aside = filepath.Join(o.Dir, ".pre-restore-"+now().UTC().Format("20060102-150405"))
 		if err := snapshotLive(o.Dir, aside); err != nil {
 			return nil, fmt.Errorf("copy the live data aside: %w", err)
 		}
@@ -216,15 +212,12 @@ func dirEmpty(p string) bool {
 }
 
 // PlaceDatabase moves the restored database member to where the service opens it, through a
-// temporary file, and reports a failure to remove the old WAL side files instead of ignoring it.
+// temporary file. The old WAL/SHM files are removed before the rename; if that fails, the
+// database is not replaced.
 func PlaceDatabase(memberDB, dataDir string) error {
 	dst := filepath.Join(dataDir, "beacon.db")
 	tmp := dst + ".restore-tmp"
 	if err := copyFile(memberDB, tmp); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	var failed []string
@@ -234,7 +227,12 @@ func PlaceDatabase(memberDB, dataDir string) error {
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("the database is in place at %s, but the old WAL files could not be removed: %s", dst, strings.Join(failed, "; "))
+		_ = os.Remove(tmp)
+		return fmt.Errorf("the database was not replaced because the old WAL could not be removed: %s", strings.Join(failed, "; "))
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
 	return nil
 }

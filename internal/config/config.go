@@ -140,6 +140,9 @@ type OAuth struct {
 // Backup is the backup section: where backups go, who can read them, how often and how long they
 // are kept. Enabled means at least one destination; everything else has a working default.
 type Backup struct {
+	// Host is the stable instance name in archive names. Empty persists the first hostname
+	// under <data_dir>/backup/instance-name so a container recreate keeps it.
+	Host string `yaml:"host"`
 	// Recipients are public keys backups are encrypted to: age (age1…) or ssh-ed25519, inline.
 	// The server holds only these; it cannot read what it wrote.
 	Recipients     []string `yaml:"recipients"`
@@ -196,6 +199,9 @@ type BackupS3 struct {
 	AccessKeyFile string `yaml:"access_key_file"`
 	SecretKeyFile string `yaml:"secret_key_file"`
 }
+
+// backupHostRe is the hostname-safe form archive names accept, including dashes.
+var backupHostRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Enabled reports whether backups are on: at least one destination.
 func (b Backup) Enabled() bool { return len(b.Destinations) > 0 }
@@ -557,6 +563,9 @@ func (c *Config) validate() error {
 		bad("storage.audit.retention is at least 24h")
 	}
 
+	if c.Backup.Host != "" && !backupHostRe.MatchString(c.Backup.Host) {
+		bad("backup.host is a hostname ([A-Za-z0-9][A-Za-z0-9._-]*)")
+	}
 	if c.Backup.Enabled() {
 		for i, d := range c.Backup.Destinations {
 			switch {

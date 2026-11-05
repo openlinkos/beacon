@@ -255,7 +255,10 @@ func EnsureKey(dir string, fromConfig []age.Recipient) ([]age.Recipient, bool, e
 	if err != nil {
 		return nil, false, err
 	}
-	host, _ := os.Hostname()
+	host, err := instanceNameForDir(dir)
+	if err != nil {
+		return nil, false, err
+	}
 	if err := writeFileAtomic(filepath.Join(dir, "RECOVERY-MATERIAL.txt"), []byte(RecoveryMaterial(k, host, signPub))); err != nil {
 		return nil, false, err
 	}
@@ -290,7 +293,10 @@ func ensureVerifyKeyMaterial(dir, signPub string) (written bool, err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, err
 	}
-	host, _ := os.Hostname()
+	host, err := instanceNameForDir(dir)
+	if err != nil {
+		return false, err
+	}
 	if err := writeFileAtomic(path, []byte(SignPublicMaterial(host, signPub))); err != nil {
 		return false, err
 	}

@@ -89,8 +89,11 @@ func TestPlaceDatabaseReportsWALDeleteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := PlaceDatabase(src, dir)
-	if err == nil || !strings.Contains(err.Error(), "WAL") {
+	if err == nil || !strings.Contains(err.Error(), "the database was not replaced because the old WAL could not be removed") {
 		t.Fatalf("a WAL that could not be removed: %v", err)
+	}
+	if _, stErr := os.Stat(filepath.Join(dir, "beacon.db")); stErr == nil {
+		t.Fatal("the database was replaced even though the old WAL could not be removed")
 	}
 }
 
@@ -114,9 +117,47 @@ func TestRestoreLiveCopiesAsideAndRollsBack(t *testing.T) {
 	if err == nil {
 		t.Fatal("a live restore that was asked to fail succeeded")
 	}
+	if !strings.Contains(err.Error(), "injected failure") {
+		t.Fatalf("wanted injected failure, got: %v", err)
+	}
 	got, err := os.ReadFile(filepath.Join(live, "beacon.db"))
 	if err != nil || string(got) != "live-db" {
 		t.Fatalf("the live database was not rolled back: %q %v", got, err)
+	}
+}
+
+func TestRestoreLiveAsideIsInsideTheDataDirectory(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "data")
+	if err := os.MkdirAll(live, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(live, "beacon.db"), []byte("live-db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, id, path, signer := oneArchive(t, dir)
+	res, err := Restore(context.Background(), RestoreOpts{
+		Paths: []string{path}, Identities: []age.Identity{id}, Verify: signPublicOf(signer),
+		Dir: live, Live: true, Confirm: true,
+		Now: func() time.Time { return time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("live restore: %v", err)
+	}
+	if res.Aside == "" {
+		t.Fatal("no aside copy")
+	}
+	liveAbs, err := filepath.Abs(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asideAbs, err := filepath.Abs(res.Aside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(liveAbs, asideAbs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		t.Fatalf("aside %s is not inside the data directory %s", asideAbs, liveAbs)
 	}
 }
 
@@ -127,9 +168,14 @@ func oneArchive(t *testing.T, dir string) (age.Recipient, age.Identity, string, 
 		t.Fatal(err)
 	}
 	signer := testSigner(t)
-	st := fixtureStore(t, filepath.Join(dir, "beacon.db"))
+	dbPath := filepath.Join(dir, "beacon.db")
+	st := fixtureStore(t, dbPath)
 	_ = st.Close()
-	src := Source{Name: "db/beacon.db", Path: filepath.Join(dir, "beacon.db")}
+	audit, err := VerifyAudit(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := Source{Name: "db/beacon.db", Path: dbPath}
 	sec := writeSource(t, dir, "secrets/root-key", fixtureSecret)
 	out := filepath.Join(dir, ArchiveName("srv", time.Now().UTC(), KindFull))
 	f, err := os.Create(out)
@@ -137,7 +183,7 @@ func oneArchive(t *testing.T, dir string) (age.Recipient, age.Identity, string, 
 		t.Fatal(err)
 	}
 	if _, err := Create(f, []age.Recipient{id.Recipient()}, signer, []Source{src, sec},
-		Manifest{Kind: KindFull, Created: time.Now().UTC()}); err != nil {
+		Manifest{Kind: KindFull, Created: time.Now().UTC(), AuditHead: audit.Head, AuditSeq: audit.LastSeq}); err != nil {
 		t.Fatal(err)
 	}
 	_ = f.Close()

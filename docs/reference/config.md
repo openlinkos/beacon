@@ -27,6 +27,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite's journal mode. A WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
+| `backup.host` | hostname | first hostname, persisted | Stable instance name in archive names (`beacon-<host>-…`). When unset, the first valid hostname is stored under `<data_dir>/backup/instance-name` so a container recreate keeps it. Letters, digits, dots, underscores and dashes; must start with a letter or digit |
 | `backup.destinations` | list | — | Where every backup goes, several at once: `{dir: path}` for a local directory, `{s3: …}` for an S3-compatible store. At least one turns backups on |
 | `backup.destinations.dir` | path | — | A local directory, made when missing |
 | `backup.destinations.s3.endpoint` | URL | — | The store's address, such as `https://s3.example.com:9000` (path-style addressing) |

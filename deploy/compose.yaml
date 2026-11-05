@@ -119,18 +119,19 @@ services:
   # Continuous replication of the database's WAL to an S3-compatible store (deploy/litestream.yml):
   # with it the database's recovery point is seconds, where Beacon's own backups are an hour. The
   # replica is plaintext — Litestream does not encrypt — so the store's access control is what
-  # keeps the database (and the audit signing key) from being read. The data volume is mounted
-  # read-only; Litestream never writes the database. Fill in the replica URL in litestream.yml
-  # (MinIO, R2, S3 — the same kind of store the backup destinations take), then uncomment this
-  # service. Restore with `litestream restore -o beacon.db <replica-url>`; the recordings and
-  # configuration still come from Beacon's backups.
+  # keeps the database (and the audit signing key) from being read. Litestream needs the volume
+  # writable for its replica state; the recovery material on that volume is visible to the
+  # Litestream container. Fill in the replica URL in litestream.yml (MinIO, R2, S3 — the same
+  # kind of store the backup destinations take), then uncomment this service.
+  # Restore with `litestream restore -o beacon.db <replica-url>`; the recordings and configuration
+  # still come from Beacon's backups.
   # litestream:
   #   container_name: beacon-litestream
   #   image: litestream/litestream:0.5.18@sha256:513bff62a88fc0c86c73d27333c41c54c89fe890a7c32a551600adff9309b11b
   #   restart: unless-stopped
   #   command: [replicate, -config, /etc/litestream/litestream.yml]
   #   volumes:
-  #     - beacon-data:/var/lib/beacon:ro
+  #     - beacon-data:/var/lib/beacon
   #     - ./litestream.yml:/etc/litestream/litestream.yml:ro
   #   networks: [beacon]
   #   depends_on:

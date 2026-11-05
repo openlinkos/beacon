@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-08f03c4a
+sourceHash: sha256-05dbd168
 ---
 
 # config.yaml
@@ -31,6 +31,7 @@ sourceHash: sha256-08f03c4a
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
+| `backup.host` | 主机名 | 首次主机名，持久化 | 档案名里的稳定实例名（`beacon-<host>-…`）。不配时，把第一次有效的主机名存在 `<data_dir>/backup/instance-name`，容器重建后仍用它。字母、数字、点、下划线和短横线；须以字母或数字开头 |
 | `backup.destinations` | 列表 | — | 每份备份同时写往哪里：`{dir: 路径}` 是本地目录，`{s3: …}` 是 S3 兼容存储。至少一个目的地即开启备份 |
 | `backup.destinations.dir` | 路径 | — | 本地目录，不存在则创建 |
 | `backup.destinations.s3.endpoint` | URL | — | 存储地址，如 `https://s3.example.com:9000`（路径寻址） |

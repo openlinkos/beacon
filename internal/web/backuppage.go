@@ -8,11 +8,11 @@ import (
 
 // The backups page: the recovery material, once. When Beacon generates the backup key pair
 // itself (no recipients configured), the private half waits in the data directory as recovery
-// material; this page shows it to an owner signed in with an account, serves it as a download
-// that consumes it, and — only on the owner's word that it is stored — removes it from the
-// server, from which point only the public keys remain and the page has nothing to show.
-// Deliberately not an /api/v1 operation and not an MCP tool: no agent and no token may ever
-// read the recovery material; a person signed in as an owner may.
+// material; this page does not embed it — an owner signed in with an account downloads it
+// (the first download consumes it) and — only on the owner's word that it is stored — removes
+// it from the server, from which point only the public keys remain and the page has nothing
+// to show. Deliberately not an /api/v1 operation and not an MCP tool: no agent and no token
+// may ever read the recovery material; a person signed in as an owner may.
 
 // BackupConsole is what the backups page needs of the backup manager.
 type BackupConsole interface {
@@ -37,7 +37,6 @@ type backupPage struct {
 	shell
 	L           backupLabels
 	Off         bool
-	Material    string
 	HasMaterial bool
 	Download    string
 	Remove      string
@@ -65,7 +64,7 @@ func (s *Server) backupPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Off:            s.t("Backups are off"),
 		OffHint:        s.t("The configuration names no backup destination. Add one under backup.destinations and restart, and Beacon backs itself up from then on."),
 		Waiting:        s.t("The recovery material is waiting"),
-		WaitingHint:    s.t("No recipients were configured, so Beacon generated a key pair at its first start and encrypted every backup to its public half. The private half — below — is the only thing that can read the backups. This page is the one place it is shown."),
+		WaitingHint:    s.t("No recipients were configured, so Beacon generated a key pair at its first start and encrypted every backup to its public half. The private half is the only thing that can read the backups. Download it once; this page does not show it."),
 		Warn:           s.t("Whoever holds this file can read every backup"),
 		WarnHint:       s.t("Store it somewhere safe that is not this machine (a password manager, an offline drive). Until it is removed here, Beacon keeps reminding you in its log."),
 		Download:       s.t("Download the recovery material"),
@@ -83,15 +82,15 @@ func (s *Server) backupPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.render(w, backupTmpl, p)
 		return
 	}
-	material, ok := s.Backups.RecoveryMaterial()
-	p.HasMaterial, p.Material = ok, string(material)
+	_, ok := s.Backups.RecoveryMaterial()
+	p.HasMaterial = ok
 	p.Download = consolePath("/backup/recovery.txt")
 	p.Remove = consolePath("/backup/remove")
 	p.PublicKey = s.Backups.PublicKey()
 	p.SignPublic = s.Backups.SignPublicKey()
 	if ok {
 		_ = s.Store.Audit(store.AuditEntry{Time: s.now(), Actor: v.name(), Via: "console",
-			Action: "backup.recovery_viewed", Detail: "the recovery material was shown"})
+			Action: "backup.recovery_viewed", Detail: "the recovery material page was viewed"})
 	}
 	s.render(w, backupTmpl, p)
 }

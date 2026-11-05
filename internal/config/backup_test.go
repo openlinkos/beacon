@@ -73,6 +73,7 @@ func TestBackupValidation(t *testing.T) {
 		"bad on failure":     "backup: {destinations: [{dir: /tmp}], on_failure: ignore}\n",
 		"alert and pause":    "backup: {destinations: [{dir: /tmp}], on_failure: alert_and_pause}\n",
 		"recipients missing": "backup: {destinations: [{dir: /tmp}], recipients_file: " + filepath.ToSlash(filepath.Join(dir, "nope")) + "}\n",
+		"bad host":           "backup: {destinations: [{dir: /tmp}], host: 'bad name'}\n",
 	} {
 		if _, err := Parse([]byte(tok + y)); err == nil {
 			t.Errorf("%s: expected an error", name)
@@ -88,6 +89,23 @@ func TestBackupValidation(t *testing.T) {
 	}
 	if len(c.Backup.Destinations) != 2 || len(c.Backup.Recipients) != 1 {
 		t.Fatalf("parsed: %+v", c.Backup)
+	}
+}
+
+func TestBackupHostValidation(t *testing.T) {
+	tok := base(t)
+	_, err := Parse([]byte(tok + "backup: {destinations: [{dir: /tmp}], host: 'bad name'}\n"))
+	if err == nil {
+		t.Fatal("expected an error")
+	} else if !strings.Contains(err.Error(), "backup.host is a hostname") {
+		t.Errorf("got %v", err)
+	}
+	c, err := Parse([]byte(tok + "backup: {destinations: [{dir: /tmp}], host: edge-1}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Backup.Host != "edge-1" {
+		t.Errorf("host: %q", c.Backup.Host)
 	}
 }
 

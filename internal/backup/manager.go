@@ -451,11 +451,10 @@ func (m *Manager) prune(ctx context.Context) error {
 		}
 		keep, skew := Plan(list, m.opts.Retention, now)
 		if skew {
-			m.log.Error("backup retention skipped: the clock is behind the newest backup",
+			m.log.Error("backup retention: the clock is behind some backups; future-dated archives are kept",
 				"destination", dst.Name, "now", now.UTC().Format(time.RFC3339))
 			m.audit(store.AuditEntry{Actor: "system", Via: "system", Action: "backup.retention_skipped",
-				Target: dst.Name, Detail: "the clock is behind the newest backup; nothing was pruned"})
-			continue
+				Target: dst.Name, Detail: "the clock is behind some backups; future-dated archives are kept"})
 		}
 		for _, b := range list {
 			if keep[b.Name] {

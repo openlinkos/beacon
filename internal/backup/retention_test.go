@@ -187,6 +187,62 @@ func TestRetentionKeepsRecordingIncrementalsAmongDBSnapshots(t *testing.T) {
 	}
 }
 
+func TestRetentionPrunesPastWhenOneBackupIsInTheFuture(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	var list []Backup
+	for i := 1; i <= 40; i++ {
+		at := now.Add(time.Duration(-i) * time.Hour)
+		list = append(list, Backup{Name: ArchiveName("srv", at, KindFull), Time: at, Kind: KindFull})
+	}
+	future := now.Add(24 * time.Hour)
+	fut := Backup{Name: ArchiveName("srv", future, KindFull), Time: future, Kind: KindFull}
+	list = append(list, fut)
+	keep, skew := Plan(list, DefaultKeep(), now)
+	if !skew {
+		t.Fatal("a future-dated backup did not set clockSkew")
+	}
+	if !keep[fut.Name] {
+		t.Fatal("the future-dated backup was pruned")
+	}
+	oldest := list[len(list)-2]
+	if keep[oldest.Name] {
+		t.Errorf("an old backup that fits no rule was kept because another was in the future: %s", oldest.Name)
+	}
+}
+
+func TestRetentionKeepsIncrementalsAfterEachKeptFull(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	at := func(when time.Time, kind string) Backup {
+		return Backup{Name: ArchiveName("srv", when, kind), Time: when, Kind: kind}
+	}
+	olderKept := at(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), KindFull)
+	incrAfterOlder := at(time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC), KindIncr)
+	discarded := at(time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), KindFull)
+	incrAfterDiscarded := at(time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC), KindIncr)
+	newest := at(time.Date(2026, 11, 5, 11, 0, 0, 0, time.UTC), KindFull)
+	incrAfterNewest := at(time.Date(2026, 11, 5, 11, 30, 0, 0, time.UTC), KindIncr)
+	list := []Backup{olderKept, incrAfterOlder, discarded, incrAfterDiscarded, newest, incrAfterNewest}
+	keep, skew := Plan(list, Keep{Hourly: 1, Daily: 1, Weekly: 1, Monthly: 3}, now)
+	if skew {
+		t.Fatal("a clock on the newest backup's day read as behind")
+	}
+	if !keep[olderKept.Name] || !keep[newest.Name] {
+		t.Fatalf("kept fulls: older %v newest %v", keep[olderKept.Name], keep[newest.Name])
+	}
+	if keep[discarded.Name] {
+		t.Fatal("the full between two kept fulls was kept")
+	}
+	if !keep[incrAfterOlder.Name] {
+		t.Error("an incremental after a kept full, before the next full, was pruned")
+	}
+	if keep[incrAfterDiscarded.Name] {
+		t.Error("an incremental after a discarded full was kept")
+	}
+	if !keep[incrAfterNewest.Name] {
+		t.Error("an incremental after the newest full was pruned")
+	}
+}
+
 func TestParseName(t *testing.T) {
 	at := time.Date(2026, 11, 5, 7, 8, 9, 0, time.UTC)
 	name := ArchiveName("srv-edge-1", at, KindIncr)

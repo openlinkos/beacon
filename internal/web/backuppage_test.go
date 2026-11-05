@@ -1,9 +1,9 @@
 package web
 
-// The backups page: the recovery material shown once to an owner, served as a download that
-// consumes it, and removed on the owner's word — after which the page has nothing to show,
-// because the server has nothing left to show. A viewer gets none of it, a token session gets
-// none of it, and no agent can reach the page at all (its scope is the owner's own).
+// The backups page: the recovery material downloaded once by an owner, never embedded in the
+// page, and removed on the owner's word — after which the page has nothing to show, because
+// the server has nothing left to show. A viewer gets none of it, a token session gets none of
+// it, and no agent can reach the page at all (its scope is the owner's own).
 
 import (
 	"errors"
@@ -63,7 +63,7 @@ func TestBackupRecoveryMaterialOnce(t *testing.T) {
 	alice := e.owner()
 
 	page := alice.get("/console/backup")
-	if page.code != http.StatusOK || !strings.Contains(page.body, fixtureMaterial) ||
+	if page.code != http.StatusOK || strings.Contains(page.body, fixtureMaterial) ||
 		!strings.Contains(page.body, `href="/console/backup/recovery.txt"`) ||
 		!strings.Contains(page.body, `action="/console/backup/remove"`) {
 		t.Fatalf("the page: %d %s", page.code, page.body)

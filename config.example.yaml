@@ -31,6 +31,7 @@ storage:
 # built-in beacon-backup heartbeat. `beacon backup now | ls | restore | drill | keygen` drives
 # it from the command line. Restoring into the live data directory needs -confirm.
 backup:
+  # host: beacon-1   # stable instance name in archive names; default persists the first hostname under <data>/backup/instance-name
   destinations:
     - dir: /var/lib/beacon/backups           # a local directory, made when missing
     # - s3:                                  # an S3-compatible store (MinIO, R2, S3); several destinations at once

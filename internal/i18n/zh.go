@@ -208,7 +208,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Backups are off":               "备份未开启",
 	"The configuration names no backup destination. Add one under backup.destinations and restart, and Beacon backs itself up from then on.": "配置里没有备份目的地。在 backup.destinations 下加一个并重启，Beacon 从此自行备份。",
 	"The recovery material is waiting": "恢复材料在等待取走",
-	"No recipients were configured, so Beacon generated a key pair at its first start and encrypted every backup to its public half. The private half — below — is the only thing that can read the backups. This page is the one place it is shown.": "没有配置接收者，Beacon 在首次启动时生成了一对密钥，把每份备份加密给其中的公钥。下面的私钥是唯一能读这些备份的东西，只在本页展示。",
+	"No recipients were configured, so Beacon generated a key pair at its first start and encrypted every backup to its public half. The private half is the only thing that can read the backups. Download it once; this page does not show it.": "没有配置接收者，Beacon 在首次启动时生成了一对密钥，把每份备份加密给其中的公钥。私钥是唯一能读这些备份的东西。下载一次；本页不展示它。",
 	"Whoever holds this file can read every backup": "拿到这个文件的人能读每一份备份",
 	"Store it somewhere safe that is not this machine (a password manager, an offline drive). Until it is removed here, Beacon keeps reminding you in its log.": "把它存到本机之外的安全之处（密码管理器、离线盘）。在 这里移除之前，Beacon 会一直在日志里提醒。",
 	"Download the recovery material":               "下载恢复材料",

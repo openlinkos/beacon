@@ -481,7 +481,10 @@ func backupOptions(cfg *config.Config, cfgPath string, audit func(store.AuditEnt
 			fmt.Fprintf(os.Stderr, "backup: the manifest signing public key is in %s — keep it with the identities backups encrypt to, off this machine\n", material)
 		}
 	}
-	host, _ := os.Hostname()
+	host, err := backup.ResolveInstanceName(cfg.DataDir, cfg.Backup.Host)
+	if err != nil {
+		return backup.Options{}, err
+	}
 	dsts, err := backupDestinations(cfg)
 	if err != nil {
 		return backup.Options{}, err
