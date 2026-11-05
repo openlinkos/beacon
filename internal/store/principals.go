@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // Who acts in Beacon. A person signs in with an account (accounts.go); an agent is owned by a person and
@@ -147,7 +147,7 @@ func AgentName(text string) string {
 
 // checkAgent checks an agent before it is stored: its name, its owner, its preset or scopes, its
 // machines.
-func checkAgent(tx *bolt.Tx, a Agent) error {
+func checkAgent(tx kv.Tx, a Agent) error {
 	if err := ValidAgentName(a.Name); err != nil {
 		return err
 	}
@@ -179,26 +179,18 @@ func checkAgent(tx *bolt.Tx, a Agent) error {
 	return nil
 }
 
-func getAgent(tx *bolt.Tx, name string) (Agent, bool) {
+func getAgent(tx kv.Tx, name string) (Agent, bool) {
 	var a Agent
-	b := tx.Bucket(bucketAgents)
-	if b == nil {
-		return a, false
-	}
-	v := b.Get([]byte(name))
+	v := tx.Get(bucketAgents, []byte(name))
 	return a, v != nil && json.Unmarshal(v, &a) == nil
 }
 
-func putAgent(tx *bolt.Tx, a Agent) error {
-	b, err := tx.CreateBucketIfNotExists(bucketAgents)
-	if err != nil {
-		return err
-	}
+func putAgent(tx kv.Tx, a Agent) error {
 	v, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
-	return b.Put([]byte(a.Name), v)
+	return tx.Put(bucketAgents, []byte(a.Name), v)
 }
 
 // CreateAgent stores a new agent.
@@ -207,7 +199,7 @@ func (s *Store) CreateAgent(a Agent) (Agent, error) {
 	a.Machines = compactNames(a.Machines)
 	a.Scopes = compactNames(a.Scopes)
 	a.SSHKeys = nil
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		if err := checkAgent(tx, a); err != nil {
 			return err
 		}
@@ -235,7 +227,7 @@ func compactNames(in []string) []string {
 func (s *Store) Agent(name string) (Agent, bool) {
 	var a Agent
 	ok := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		a, ok = getAgent(tx, name)
 		return nil
 	})
@@ -245,18 +237,15 @@ func (s *Store) Agent(name string) (Agent, bool) {
 // Agents lists the agents by name; owner "" lists everyone's.
 func (s *Store) Agents(owner string) []Agent {
 	var out []Agent
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketAgents)
-		if b == nil {
-			return nil
-		}
-		return b.ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketAgents, kv.Range{}, func(_, v []byte) bool {
 			var a Agent
 			if json.Unmarshal(v, &a) == nil && (owner == "" || a.Owner == owner) {
 				out = append(out, a)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -266,7 +255,7 @@ func (s *Store) Agents(owner string) []Agent {
 // creation.
 func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, error) {
 	var out Agent
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		a, ok := getAgent(tx, name)
 		if !ok {
 			return ErrNotFound
@@ -299,20 +288,19 @@ func (s *Store) DeleteAgent(name string) error {
 			names = append(names, t.Name)
 		}
 	}
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketAgents)
-		if b == nil || b.Get([]byte(name)) == nil {
+	err := s.db.Update(func(tx kv.Tx) error {
+		if tx.Get(bucketAgents, []byte(name)) == nil {
 			return ErrNotFound
 		}
 		for _, n := range names {
-			if err := tx.Bucket(bucketTokens).Delete([]byte(n)); err != nil {
+			if err := tx.Delete(bucketTokens, []byte(n)); err != nil {
 				return err
 			}
 		}
 		if err := deleteGrants(tx, func(g Grant) bool { return g.Agent == name }); err != nil {
 			return err
 		}
-		return b.Delete([]byte(name))
+		return tx.Delete(bucketAgents, []byte(name))
 	})
 	if err == nil {
 		for h, t := range s.tokens {
@@ -349,18 +337,17 @@ func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (st
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var t Token
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		if _, ok := getAgent(tx, agent); !ok { // deleted meanwhile
 			return fmt.Errorf("%w: no agent %q", ErrNotFound, agent)
 		}
-		bk := tx.Bucket(bucketTokens)
 		name := agent
-		for i := 2; bk.Get([]byte(name)) != nil; i++ {
+		for i := 2; tx.Get(bucketTokens, []byte(name)) != nil; i++ {
 			name = fmt.Sprintf("%s-%d", agent, i)
 		}
 		t = Token{Name: name, Hash: hashToken(secret), Agent: agent, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 		b, _ := json.Marshal(t)
-		return bk.Put([]byte(name), b)
+		return tx.Put(bucketTokens, []byte(name), b)
 	})
 	if err != nil {
 		return "", Token{}, err
@@ -397,19 +384,18 @@ func (s *Store) KeyHolder(fingerprint string) string {
 
 // dropKeys removes from every agent the keys it added with the credential cred (SSHKey.Via), which is
 // going away.
-func dropKeys(tx *bolt.Tx, cred string) error {
-	b := tx.Bucket(bucketAgents)
-	if b == nil || cred == "" {
+func dropKeys(tx kv.Tx, cred string) error {
+	if cred == "" {
 		return nil
 	}
 	var changed []Agent
-	_ = b.ForEach(func(_, v []byte) error {
+	tx.Range(bucketAgents, kv.Range{}, func(_, v []byte) bool {
 		var a Agent
 		if json.Unmarshal(v, &a) == nil && slices.ContainsFunc(a.SSHKeys, func(k SSHKey) bool { return k.Via == cred }) {
 			a.SSHKeys = slices.DeleteFunc(a.SSHKeys, func(k SSHKey) bool { return k.Via == cred })
 			changed = append(changed, a)
 		}
-		return nil
+		return true
 	})
 	for _, a := range changed {
 		if err := putAgent(tx, a); err != nil {
@@ -457,7 +443,7 @@ func (s *Store) AddAgentSSHKey(agent string, k SSHKey) (Agent, error) {
 		return Agent{}, fmt.Errorf("%w: the key %s is machine %s's connector key", ErrExists, k.Fingerprint, m.Name)
 	}
 	var out Agent
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		a, ok := getAgent(tx, agent)
 		if !ok {
 			return ErrNotFound
@@ -477,7 +463,7 @@ func (s *Store) AddAgentSSHKey(agent string, k SSHKey) (Agent, error) {
 // RemoveAgentSSHKey takes a key, by its fingerprint, from an agent.
 func (s *Store) RemoveAgentSSHKey(agent, fingerprint string) (Agent, error) {
 	var out Agent
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		a, ok := getAgent(tx, agent)
 		if !ok {
 			return ErrNotFound
@@ -530,7 +516,7 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 		preset = ClosestPreset(t.Scopes)
 	}
 	var a Agent
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		existing, ok := getAgent(tx, agentName)
 		switch {
 		case ok && existing.Owner != owner:
@@ -564,7 +550,7 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 		}
 		t.Agent, t.Scopes, t.Machines, t.SSHKeys = agentName, nil, nil, nil
 		b, _ := json.Marshal(t)
-		return tx.Bucket(bucketTokens).Put([]byte(t.Name), b)
+		return tx.Put(bucketTokens, []byte(t.Name), b)
 	})
 	if err != nil {
 		return Agent{}, Token{}, err
@@ -683,7 +669,7 @@ func intersect(a, b []string) []string {
 
 // agentPrincipal resolves an agent: its owner must exist and be enabled; it may do what its preset and
 // its owner's role both allow.
-func agentPrincipal(tx *bolt.Tx, name string) (Principal, bool) {
+func agentPrincipal(tx kv.Tx, name string) (Principal, bool) {
 	a, ok := getAgent(tx, name)
 	if !ok {
 		return Principal{}, false
@@ -697,7 +683,7 @@ func agentPrincipal(tx *bolt.Tx, name string) (Principal, bool) {
 
 // grantPrincipal resolves an agent reached through one of its OAuth grants: the agent, within the
 // grant's own preset and machines.
-func grantPrincipal(tx *bolt.Tx, g Grant) (Principal, bool) {
+func grantPrincipal(tx kv.Tx, g Grant) (Principal, bool) {
 	p, ok := agentPrincipal(tx, g.Agent)
 	if !ok {
 		return Principal{}, false
@@ -748,7 +734,7 @@ func (s *Store) PrincipalWith(key, cred string) (Principal, bool) {
 	var p Principal
 	ok := false
 	now := s.now()
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		gs := grants(tx, func(g Grant) bool { return g.ID == id })
 		if len(gs) == 0 || !now.Before(gs[0].Expires) || "agent:"+gs[0].Agent != key {
 			return nil
@@ -777,7 +763,7 @@ func (s *Store) TokenPrincipal(t Token) (Principal, bool) {
 	}
 	var p Principal
 	ok := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		p, ok = agentPrincipal(tx, t.Agent)
 		return nil
 	})
@@ -791,7 +777,7 @@ func (s *Store) AgentPrincipal(name string) (Principal, bool) {
 	var p Principal
 	ok := false
 	now := s.now()
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		if p, ok = agentPrincipal(tx, name); !ok {
 			return nil
 		}

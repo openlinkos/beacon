@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 func TestRenewToken(t *testing.T) {
@@ -117,7 +117,7 @@ func TestLifetimeDerived(t *testing.T) {
 	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	old := Token{Name: "legacy", Hash: hashToken("lbt_legacy"), Scopes: []string{"status:read"}, Created: created, Expires: created.Add(90 * 24 * time.Hour)}
 	b, _ := json.Marshal(old)
-	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketTokens).Put([]byte(old.Name), b) }); err != nil {
+	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(old.Name), b) }); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()

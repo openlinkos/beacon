@@ -18,8 +18,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	bolt "go.etcd.io/bbolt"
 	"golang.org/x/crypto/argon2"
+
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // People's accounts: a username and a password, a role that says what they may do, and the agents they
@@ -253,10 +254,8 @@ var dummyHash = sync.OnceValue(func() string {
 // HasAccounts reports whether Beacon has any account yet.
 func (s *Store) HasAccounts() bool {
 	n := 0
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketAccounts); b != nil {
-			n = b.Stats().KeyN
-		}
+	_ = s.db.View(func(tx kv.Tx) error {
+		n = tx.Count(bucketAccounts)
 		return nil
 	})
 	return n > 0
@@ -266,11 +265,9 @@ func (s *Store) HasAccounts() bool {
 func (s *Store) Account(username string) (Account, bool) {
 	var a Account
 	ok := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketAccounts); b != nil {
-			if v := b.Get([]byte(username)); v != nil {
-				ok = json.Unmarshal(v, &a) == nil
-			}
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketAccounts, []byte(username)); v != nil {
+			ok = json.Unmarshal(v, &a) == nil
 		}
 		return nil
 	})
@@ -280,57 +277,44 @@ func (s *Store) Account(username string) (Account, bool) {
 // Accounts lists the accounts by username.
 func (s *Store) Accounts() []Account {
 	var out []Account
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketAccounts)
-		if b == nil {
-			return nil
-		}
-		return b.ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketAccounts, kv.Range{}, func(_, v []byte) bool {
 			var a Account
 			if json.Unmarshal(v, &a) == nil {
 				out = append(out, a)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
 	return out
 }
 
-func putAccount(tx *bolt.Tx, a Account) error {
-	b, err := tx.CreateBucketIfNotExists(bucketAccounts)
-	if err != nil {
-		return err
-	}
+func putAccount(tx kv.Tx, a Account) error {
 	v, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
-	return b.Put([]byte(a.Username), v)
+	return tx.Put(bucketAccounts, []byte(a.Username), v)
 }
 
-func getAccount(tx *bolt.Tx, username string) (Account, bool) {
+func getAccount(tx kv.Tx, username string) (Account, bool) {
 	var a Account
-	b := tx.Bucket(bucketAccounts)
-	if b == nil {
-		return a, false
-	}
-	v := b.Get([]byte(username))
+	v := tx.Get(bucketAccounts, []byte(username))
 	return a, v != nil && json.Unmarshal(v, &a) == nil
 }
 
 // owners counts the enabled owners in tx, leaving out one username.
-func owners(tx *bolt.Tx, except string) int {
+func owners(tx kv.Tx, except string) int {
 	n := 0
-	if b := tx.Bucket(bucketAccounts); b != nil {
-		_ = b.ForEach(func(k, v []byte) error {
-			var a Account
-			if string(k) != except && json.Unmarshal(v, &a) == nil && a.Role == "owner" && !a.Disabled {
-				n++
-			}
-			return nil
-		})
-	}
+	tx.Range(bucketAccounts, kv.Range{}, func(k, v []byte) bool {
+		var a Account
+		if string(k) != except && json.Unmarshal(v, &a) == nil && a.Role == "owner" && !a.Disabled {
+			n++
+		}
+		return true
+	})
 	return n
 }
 
@@ -339,7 +323,7 @@ func owners(tx *bolt.Tx, except string) int {
 // an account disabled limits its sessions and its agents at once: they are read afresh on every request.
 func (s *Store) UpdateAccount(username string, change func(*Account) error) (Account, error) {
 	var out Account
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		a, ok := getAccount(tx, username)
 		if !ok {
 			return ErrNotFound
@@ -394,7 +378,7 @@ func (s *Store) SignIn(username, password string) (Account, error) {
 		newHash, _ = HashPassword(password)
 	}
 	now := s.now().UTC()
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		cur, ok := getAccount(tx, username)
 		if !ok {
 			return ErrBadCredentials
@@ -422,7 +406,7 @@ func (s *Store) SetPassword(username, password, keep string) error {
 	if err != nil {
 		return err
 	}
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		a, ok := getAccount(tx, username)
 		if !ok {
 			return ErrNotFound
@@ -491,36 +475,32 @@ func hashLink(code string) string {
 // createLink stores a link and returns its code, which is not stored. A link expired longer than
 // expiredLinkKeep is forgotten on the way, and so is a row that no longer reads. One that has only just
 // expired stays, so opening it still says it expired after a newer link was made.
-func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx *bolt.Tx) error) (string, AccountLink, error) {
+func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx) error) (string, AccountLink, error) {
 	code, err := randomID(32)
 	if err != nil {
 		return "", AccountLink{}, err
 	}
 	now := s.now().UTC()
 	l.Hash, l.Created, l.Expires = hashLink(code), now, now.Add(ttl)
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		if check != nil {
 			if err := check(tx); err != nil {
 				return err
 			}
 		}
-		b, err := tx.CreateBucketIfNotExists(bucketLinks)
-		if err != nil {
-			return err
-		}
 		var old [][]byte
-		_ = b.ForEach(func(k, v []byte) error {
+		tx.Range(bucketLinks, kv.Range{}, func(k, v []byte) bool {
 			var x AccountLink
 			if json.Unmarshal(v, &x) != nil || now.After(x.Expires.Add(expiredLinkKeep)) {
 				old = append(old, append([]byte(nil), k...))
 			}
-			return nil
+			return true
 		})
 		for _, k := range old {
-			_ = b.Delete(k)
+			_ = tx.Delete(bucketLinks, k)
 		}
 		v, _ := json.Marshal(l)
-		return b.Put([]byte(l.Hash), v)
+		return tx.Put(bucketLinks, []byte(l.Hash), v)
 	})
 	if err != nil {
 		return "", AccountLink{}, err
@@ -531,8 +511,8 @@ func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx *bolt
 // CreateSetupLink makes the link that creates the first account, an owner; ErrHasAccounts once one
 // exists.
 func (s *Store) CreateSetupLink() (string, AccountLink, error) {
-	return s.createLink(AccountLink{Kind: LinkSetup, Role: "owner", CreatedBy: "beacon"}, SetupTTL, func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketAccounts); b != nil && b.Stats().KeyN > 0 {
+	return s.createLink(AccountLink{Kind: LinkSetup, Role: "owner", CreatedBy: "beacon"}, SetupTTL, func(tx kv.Tx) error {
+		if tx.Count(bucketAccounts) > 0 {
 			return ErrHasAccounts
 		}
 		return nil
@@ -553,7 +533,7 @@ func (s *Store) CreateInvitation(role, note, by string) (string, AccountLink, er
 
 // CreateResetLink makes a link with which username chooses a new password.
 func (s *Store) CreateResetLink(username, by string) (string, AccountLink, error) {
-	return s.createLink(AccountLink{Kind: LinkReset, User: username, CreatedBy: by}, ResetTTL, func(tx *bolt.Tx) error {
+	return s.createLink(AccountLink{Kind: LinkReset, User: username, CreatedBy: by}, ResetTTL, func(tx kv.Tx) error {
 		if _, ok := getAccount(tx, username); !ok {
 			return ErrNotFound
 		}
@@ -565,7 +545,7 @@ func (s *Store) CreateResetLink(username, by string) (string, AccountLink, error
 func (s *Store) Link(kind, code string) (AccountLink, error) {
 	var l AccountLink
 	found := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		l, found = getLink(tx, code)
 		return nil
 	})
@@ -578,13 +558,12 @@ func (s *Store) Link(kind, code string) (AccountLink, error) {
 	return l, nil
 }
 
-func getLink(tx *bolt.Tx, code string) (AccountLink, bool) {
+func getLink(tx kv.Tx, code string) (AccountLink, bool) {
 	var l AccountLink
-	b := tx.Bucket(bucketLinks)
-	if b == nil || code == "" {
+	if code == "" {
 		return l, false
 	}
-	v := b.Get([]byte(hashLink(code)))
+	v := tx.Get(bucketLinks, []byte(hashLink(code)))
 	return l, v != nil && json.Unmarshal(v, &l) == nil
 }
 
@@ -592,18 +571,15 @@ func getLink(tx *bolt.Tx, code string) (AccountLink, bool) {
 func (s *Store) Invitations() []AccountLink {
 	var out []AccountLink
 	now := s.now()
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketLinks)
-		if b == nil {
-			return nil
-		}
-		return b.ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketLinks, kv.Range{}, func(_, v []byte) bool {
 			var l AccountLink
 			if json.Unmarshal(v, &l) == nil && l.Kind == LinkInvite && now.Before(l.Expires) {
 				out = append(out, l)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
 	return out
@@ -612,23 +588,22 @@ func (s *Store) Invitations() []AccountLink {
 // WithdrawInvitation deletes the pending invitation with this ID (AccountLink.ID).
 func (s *Store) WithdrawInvitation(id string) (AccountLink, error) {
 	var gone AccountLink
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketLinks)
-		if b == nil || len(id) != 16 {
+	err := s.db.Update(func(tx kv.Tx) error {
+		if len(id) != 16 {
 			return ErrNotFound
 		}
 		var key []byte
-		_ = b.ForEach(func(k, v []byte) error {
+		tx.Range(bucketLinks, kv.Range{}, func(k, v []byte) bool {
 			var l AccountLink
 			if json.Unmarshal(v, &l) == nil && l.Kind == LinkInvite && strings.HasPrefix(l.Hash, id) {
 				key, gone = append([]byte(nil), k...), l
 			}
-			return nil
+			return true
 		})
 		if key == nil {
 			return ErrNotFound
 		}
-		return b.Delete(key)
+		return tx.Delete(bucketLinks, key)
 	})
 	return gone, err
 }
@@ -652,7 +627,7 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	}
 	now := s.now().UTC()
 	var a Account
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		l, ok := getLink(tx, code)
 		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) {
 			return ErrBadLink
@@ -661,7 +636,7 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 			return ErrLinkExpired
 		}
 		if l.Kind == LinkSetup {
-			if b := tx.Bucket(bucketAccounts); b != nil && b.Stats().KeyN > 0 {
+			if tx.Count(bucketAccounts) > 0 {
 				return ErrHasAccounts
 			}
 		}
@@ -676,7 +651,7 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 		if err := putAccount(tx, a); err != nil {
 			return err
 		}
-		return tx.Bucket(bucketLinks).Delete([]byte(l.Hash))
+		return tx.Delete(bucketLinks, []byte(l.Hash))
 	})
 	if err != nil {
 		return Account{}, err
@@ -700,7 +675,7 @@ func (s *Store) Reset(code, password string) (Account, error) {
 	}
 	now := s.now().UTC()
 	var a Account
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		cur, ok := getLink(tx, code)
 		if !ok || cur.Kind != LinkReset {
 			return ErrBadLink
@@ -717,7 +692,7 @@ func (s *Store) Reset(code, password string) (Account, error) {
 		if err := putAccount(tx, acc); err != nil {
 			return err
 		}
-		return tx.Bucket(bucketLinks).Delete([]byte(cur.Hash))
+		return tx.Delete(bucketLinks, []byte(cur.Hash))
 	})
 	if err != nil {
 		return Account{}, err

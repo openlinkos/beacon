@@ -230,6 +230,7 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `auth.too_many_failures` | 429 | Too many failed attempts from this address; the message says how long to wait, and the response carries `Retry-After` |
 | `bad_input` | 400, 415 | The request is not what the route takes: not JSON, an unknown field, a value out of range. The message says which |
 | `upstream` | 502, 503 | Something Beacon relies on did not answer (VictoriaMetrics, the store), or this Beacon does not take the request |
+| `audit.unavailable` | 500 | The audit log cannot be read |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
 | `ssh.disabled` | 503 | The SSH channel is not configured |

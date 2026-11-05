@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // bucketChanges is made when the first change arrives, so a database from an older version needs nothing.
@@ -51,24 +51,23 @@ func (s *Store) PutChange(c Change, forget time.Time) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		bk, err := tx.CreateBucketIfNotExists(bucketChanges)
-		if err != nil {
-			return err
-		}
-		if err := bk.Put([]byte(c.ID), b); err != nil {
+	err = s.db.Update(func(tx kv.Tx) error {
+		if err := tx.Put(bucketChanges, []byte(c.ID), b); err != nil {
 			return err
 		}
 		cut := changeKey(forget)
-		n := bk.Stats().KeyN
+		n := tx.Count(bucketChanges)
 		var old [][]byte
-		cur := bk.Cursor()
-		for k, _ := cur.First(); k != nil && (string(k) < cut || n > maxChanges); k, _ = cur.Next() {
+		tx.Range(bucketChanges, kv.Range{}, func(k, _ []byte) bool {
+			if string(k) >= cut && n <= maxChanges {
+				return false
+			}
 			old = append(old, append([]byte(nil), k...))
 			n--
-		}
+			return true
+		})
 		for _, k := range old {
-			if err := bk.Delete(k); err != nil {
+			if err := tx.Delete(bucketChanges, k); err != nil {
 				return err
 			}
 		}
@@ -93,31 +92,27 @@ func (s *Store) Changes(f ChangeFilter) []Change {
 		f.Limit = 100
 	}
 	var out []Change
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketChanges)
-		if bk == nil {
-			return nil
-		}
-		cur := bk.Cursor()
-		var k, v []byte
-		if after, _ := cur.Seek([]byte(changeKey(f.To.Add(time.Nanosecond)))); f.To.IsZero() || after == nil {
-			k, v = cur.Last()
-		} else {
-			k, v = cur.Prev() // the last change at or before f.To
+	_ = s.db.View(func(tx kv.Tx) error {
+		// walk backwards from the last change at or before f.To (a zero To: from the newest)
+		r := kv.Range{Reverse: true}
+		if !f.To.IsZero() {
+			r.Start = []byte(changeKey(f.To.Add(time.Nanosecond))) // keys below it are at or before f.To
 		}
 		from := ""
 		if !f.From.IsZero() {
 			from = changeKey(f.From)
 		}
-		for ; k != nil && len(out) < f.Limit && string(k) >= from; k, v = cur.Prev() {
-			var c Change
-			if json.Unmarshal(v, &c) != nil {
-				continue
+		tx.Range(bucketChanges, r, func(k, v []byte) bool {
+			if len(out) >= f.Limit || string(k) < from {
+				return false
 			}
-			if (f.Service == "" || c.Service == f.Service) && (f.Machine == "" || c.Machine == f.Machine) && (f.Source == "" || c.Source == f.Source) {
+			var c Change
+			if json.Unmarshal(v, &c) == nil &&
+				(f.Service == "" || c.Service == f.Service) && (f.Machine == "" || c.Machine == f.Machine) && (f.Source == "" || c.Source == f.Source) {
 				out = append(out, c)
 			}
-		}
+			return true
+		})
 		return nil
 	})
 	return out
@@ -128,21 +123,24 @@ func (s *Store) Changes(f ChangeFilter) []Change {
 // from: one open longer than that is missed.
 func (s *Store) SessionsBetween(from, to time.Time, limit int, keep func(SessionRecord) bool) []SessionRecord {
 	var out []SessionRecord
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		cur := tx.Bucket(bucketSessions).Cursor()
+	_ = s.db.View(func(tx kv.Tx) error {
 		start := []byte(from.Add(-24 * time.Hour).UTC().Format("20060102-150405"))
-		for k, v := cur.Seek(start); k != nil && len(out) < limit; k, v = cur.Next() {
+		tx.Range(bucketSessions, kv.Range{Start: start}, func(_, v []byte) bool {
+			if len(out) >= limit {
+				return false
+			}
 			var r SessionRecord
 			if json.Unmarshal(v, &r) != nil {
-				continue
+				return true
 			}
 			if r.Started.After(to) {
-				break // keys sort by start time
+				return false // keys sort by start time
 			}
 			if (r.Ended.IsZero() || !r.Ended.Before(from)) && (keep == nil || keep(r)) {
 				out = append(out, r)
 			}
-		}
+			return true
+		})
 		return nil
 	})
 	return out

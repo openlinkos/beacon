@@ -49,7 +49,7 @@ You should see it end like this:
 ```
 configuration OK: Feishu app false, Pushover false, Bark false; gateway ":17006"; SSH channel :17002; 0 agent hooks
 files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 5 modules, 1 status pages
-database: none yet at /var/lib/beacon/status.db; the service imports the files when it first starts
+database: none yet at /var/lib/beacon/beacon.db; the service imports the files when it first starts
 Waiting for the containers to be healthy …
 
 Beacon is up (69s); made the secrets: rules-token ssh-host-key ssh-ca-key.

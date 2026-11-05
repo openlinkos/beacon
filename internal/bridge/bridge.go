@@ -925,3 +925,9 @@ func (b *Bridge) Silences(ctx context.Context) ([]alertmanager.Silence, error) {
 
 // Audit returns the latest audit entries.
 func (b *Bridge) Audit(limit int) []store.AuditEntry { return b.d.Store.AuditLog(limit) }
+
+// AuditQuery is the audit log with a filter and pagination: the entries matching f, newest first,
+// and how many match in all.
+func (b *Bridge) AuditQuery(f store.AuditFilter) ([]store.AuditEntry, int, error) {
+	return b.d.Store.AuditQuery(f)
+}

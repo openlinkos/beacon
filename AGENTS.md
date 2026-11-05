@@ -20,7 +20,7 @@ agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge (evidence, timeline, no
 agents ──▶ ssh, scp, sftp, rsync (port 17002) ──▶ SSH channel ──▶ machines (5-minute certificates; every session recorded)
 ```
 
-One process, `beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001) and the SSH channel (port 17002). State is one bbolt file; recordings of SSH sessions are files beside it. Ports 17001 and 17002 are for people and agents, 17006 for machines.
+One process, `beacon serve`, holds the gateway (port 17006), the router, the bridge, the API and MCP (port 17001) and the SSH channel (port 17002). State is one SQLite database (`beacon.db`, buckets of keys and values plus event tables; an older bbolt `status.db` is migrated into it on the first start); recordings of SSH sessions are files beside it. Ports 17001 and 17002 are for people and agents, 17006 for machines.
 
 | Package | What it is |
 | --- | --- |
@@ -37,7 +37,8 @@ One process, `beacon serve`, holds the gateway (port 17006), the router, the bri
 | `internal/status` | The public status pages: components, state and 90-day history from the probes' agreement, incidents from alert groups, maintenance windows |
 | `internal/web`, `internal/web/link` | The console and the public status pages: sign-in with an account (and, for one release, a token), setup, invitations and resets, people, agents with their tokens, keys and OAuth sign-ins, the OAuth consent page, the overview, lists with facets (alerts, machines, sessions, tokens, configuration and its history, hooks, audit, changes) and the alert and session pages with the replay, on `@openlinkos/ui`'s workbench shell (vendored under `static/ol`, refreshed by `scripts/update-ui.sh`; asciinema-player under `static/`); and the signed links a card opens them with |
 | `internal/sshgate` | The SSH channel: agents' SSH sign-in by their keys, what is open closed when access ends (Recheck), certificates for machines, relaying sessions and forwarded ports, recordings (asciicast v3) and transcripts (shell-integration marks), the tools (run, read, write, edit), pausing, echoes to the chat |
-| `internal/store` | bbolt: groups (with notes and agent calls), silences, accounts (argon2id) and one-time links, agents and their presets, the principals every request resolves to, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), OAuth clients and grants, machines, the index of SSH sessions, change events, audit log, drill |
+| `internal/kv`, `internal/events` | Under the store: buckets of keys and values on SQLite (a bbolt file is read only to migrate it); event tables with a hash chain, signed checkpoints and pruning |
+| `internal/store` | On `kv` and `events`: groups (with notes and agent calls), silences, accounts (argon2id) and one-time links, agents and their presets, the principals every request resolves to, tokens (SHA-256, scopes, subjects, expiry, SSH keys, machines), OAuth clients and grants, machines, the index of SSH sessions, change events, audit log, drill |
 | `internal/ctl` | The admin socket in the data directory, behind the CLI's `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `config` and `drill` |
 | `internal/catalog`, `internal/targets` | Locations, heartbeats, resources; probe target files and the probe protocol types (`Group`, `Settings`); the checks every change passes |
 | `internal/configdb` | The catalogue, target sets and module file in the database: changes with versions, history and revert, import and export, the state the gateway reads |

@@ -1,8 +1,11 @@
-// Package store keeps the service's state in one bbolt file: alert groups (card, acknowledgement,
-// silence, escalation progress), people's accounts (an argon2id hash of each password) and their
-// agents, tokens and OAuth grants (only their SHA-256), the machines the SSH channel reaches, the index
-// of SSH sessions, the audit log and small counters.
-// A single process holds the file lock, which also guarantees a single Feishu connection.
+// Package store keeps the service's state in one SQL database (a single SQLite file by default):
+// alert groups (card, acknowledgement, silence, escalation progress), people's accounts (an
+// argon2id hash of each password) and their agents, tokens and OAuth grants (only their SHA-256),
+// the machines the SSH channel reaches, the index of SSH sessions, small counters — all in a
+// key-value space (internal/kv) with the buckets and keys they always had — and the audit log in
+// event tables with a hash chain (internal/events).
+// A single process holds the lock file beside the database, which also guarantees a single Feishu
+// connection.
 package store
 
 import (
@@ -23,19 +26,27 @@ import (
 	"sync"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
-	berrors "go.etcd.io/bbolt/errors"
+	"github.com/openlinkos/beacon/internal/events"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
+// The buckets, with the names they have had since the bbolt file; the migration copies them as
+// they are.
 var (
 	bucketGroups   = []byte("groups")
 	bucketTokens   = []byte("tokens")
-	bucketAudit    = []byte("audit")
+	bucketAudit    = []byte("audit") // the events tables replaced it; kept for the migration to read
 	bucketMeta     = []byte("meta")
 	bucketSilences = []byte("silences")
 	bucketMachines = []byte("machines")
 	bucketSessions = []byte("sessions")
 )
+
+// Buckets lists the bucket names the store keeps, for the migration's count check.
+var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
+	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
+	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
+	bucketIncidents, bucketMaintenance}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -108,7 +119,7 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 // may reach there (none: all of them).
 //
 // Lifetime is how long it was made to last; a renewal (renew.go) gives it a new secret that expires
-// Lifetime from then, and the old secret (OldHash) stays valid until OldUntil, so that a client can swap
+// Lifetime from now, and the old secret (OldHash) stays valid until OldUntil, so that a client can swap
 // its token file without a race. Tokens from before Lifetime was kept get Expires - Created when loaded.
 //
 // Agent names the agent (principals.go) whose credential the token is: then it has no scopes, machines
@@ -160,56 +171,137 @@ type AuditEntry struct {
 	Detail string    `json:"detail,omitempty"`
 }
 
-// Store is the bbolt-backed state.
+// Store is the state in the SQL database.
 type Store struct {
-	db  *bolt.DB
-	now func() time.Time
+	db    *kv.SQLite
+	audit *events.Log
+	uses  *events.Log
+	now   func() time.Time
 
 	mu     sync.RWMutex
 	tokens map[string]Token // by hash
 }
 
-const maxAudit = 10000
+// Options is how the database is opened. The zero options beside Path are the plan's defaults:
+// WAL, synchronous FULL, checkpoints every 24 hours.
+type Options struct {
+	// Path is the database file.
+	Path string
+	// JournalMode and Synchronous are SQLite's pragmas; the defaults (WAL, FULL) are what a
+	// deployment should keep.
+	JournalMode, Synchronous string
+	// BusyTimeout is how long a SQLite statement waits for a lock; 15s by default.
+	BusyTimeout time.Duration
+	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
+	CheckpointInterval time.Duration
+	// Retention is how long Prune keeps audit records. Verify treats signed prune marks as the
+	// authority for gaps and does not re-check them against the current retention.
+	Retention time.Duration
+	// SignKey signs the checkpoints (nil: one is generated and kept in the database; the key
+	// hierarchy that comes with the vault will pass its own).
+	SignKey []byte
+}
 
-// Open opens or creates the database at path; it fails after 2 seconds if another process holds it.
+// Open opens or creates the database at path; it fails with ErrLocked when another process holds
+// it.
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	return OpenWith(Options{Path: path})
+}
+
+// OpenWith is Open with the options named.
+func OpenWith(o Options) (*Store, error) {
+	if o.Path == "" {
+		return nil, errors.New("no database path")
+	}
+	if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 2 * time.Second})
-	if errors.Is(err, berrors.ErrTimeout) {
-		return nil, fmt.Errorf("open %s: %w", path, ErrLocked)
-	}
+	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout})
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
+		if errors.Is(err, kv.ErrLocked) {
+			return nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
+		}
+		return nil, fmt.Errorf("open %s: %w", o.Path, err)
 	}
 	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketTokens, bucketAudit, bucketMeta, bucketSilences, bucketMachines, bucketSessions} {
-			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
-				return err
-			}
-		}
-		return tx.Bucket(bucketTokens).ForEach(func(_, v []byte) error {
-			var t Token
-			if err := json.Unmarshal(v, &t); err != nil {
-				return err
-			}
-			if t.Lifetime == 0 { // from before the lifetime was kept
-				t.Lifetime = t.Expires.Sub(t.Created)
-			}
-			s.tokens[t.Hash] = t
-			return nil
-		})
-	})
-	if err != nil {
+	if err := s.openLogs(o); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	_ = db.View(func(tx kv.Tx) error {
+		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
+			var t Token
+			if json.Unmarshal(v, &t) == nil {
+				if t.Lifetime == 0 { // from before the lifetime was kept
+					t.Lifetime = t.Expires.Sub(t.Created)
+				}
+				s.tokens[t.Hash] = t
+			}
+			return true
+		})
+		return nil
+	})
 	return s, nil
 }
 
-// Close closes the database.
+// OpenRead opens the database for reading only (the CLI's checks while the service runs); it
+// fails when the file is not there, and every write fails.
+func OpenRead(path string) (*Store, error) {
+	return OpenReadWith(Options{Path: path})
+}
+
+// OpenReadWith is OpenRead with the options named, so Retention, SignKey, CheckpointInterval
+// and Now reach the event logs the way OpenWith does.
+func OpenReadWith(o Options) (*Store, error) {
+	if o.Path == "" {
+		return nil, errors.New("no database path")
+	}
+	if _, err := os.Stat(o.Path); err != nil {
+		return nil, err
+	}
+	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", o.Path, err)
+	}
+	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
+	if err := s.openLogs(o); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	_ = db.View(func(tx kv.Tx) error {
+		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
+			var t Token
+			if json.Unmarshal(v, &t) == nil {
+				if t.Lifetime == 0 {
+					t.Lifetime = t.Expires.Sub(t.Created)
+				}
+				s.tokens[t.Hash] = t
+			}
+			return true
+		})
+		return nil
+	})
+	return s, nil
+}
+
+func (s *Store) openLogs(o Options) error {
+	eo := events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Retention: o.Retention, Now: s.now}
+	audit, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "audit_events", eo)
+	if err != nil {
+		return err
+	}
+	uses, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "secret_uses", eo)
+	if err != nil {
+		return err
+	}
+	s.audit, s.uses = audit, uses
+	return nil
+}
+
+// Storage is the SQL database under the store, for the checks the command line runs.
+func (s *Store) Storage() *kv.SQLite { return s.db }
+
+// Close closes the database, folding the WAL into the file.
 func (s *Store) Close() error { return s.db.Close() }
 
 // SetClock sets the store's clock, which stamps what it writes; a nil clock is the real one.
@@ -220,6 +312,8 @@ func (s *Store) SetClock(now func() time.Time) {
 		now = time.Now
 	}
 	s.now = now
+	s.audit.SetClock(now)
+	s.uses.SetClock(now)
 }
 
 // ---- Groups
@@ -228,8 +322,8 @@ func (s *Store) SetClock(now func() time.Time) {
 func (s *Store) Group(id string) (Group, bool) {
 	var g Group
 	var ok bool
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if v := tx.Bucket(bucketGroups).Get([]byte(id)); v != nil {
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketGroups, []byte(id)); v != nil {
 			ok = json.Unmarshal(v, &g) == nil
 		}
 		return nil
@@ -244,20 +338,21 @@ func (s *Store) PutGroup(g Group) error {
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketGroups).Put([]byte(g.ID), b) })
+	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketGroups, []byte(g.ID), b) })
 }
 
 // Groups returns every group, firing ones first, then the newest first.
 func (s *Store) Groups() []Group {
 	var out []Group
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketGroups).ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketGroups, kv.Range{}, func(_, v []byte) bool {
 			var g Group
 			if json.Unmarshal(v, &g) == nil {
 				out = append(out, g)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Firing() != out[j].Firing() {
@@ -271,18 +366,17 @@ func (s *Store) Groups() []Group {
 // DeleteGroups removes the groups for which drop returns true and reports how many.
 func (s *Store) DeleteGroups(drop func(Group) bool) int {
 	n := 0
-	_ = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketGroups)
+	_ = s.db.Update(func(tx kv.Tx) error {
 		var keys [][]byte
-		_ = b.ForEach(func(k, v []byte) error {
+		tx.Range(bucketGroups, kv.Range{}, func(k, v []byte) bool {
 			var g Group
 			if json.Unmarshal(v, &g) == nil && drop(g) {
-				keys = append(keys, append([]byte(nil), k...))
+				keys = append(keys, bytesClone(k))
 			}
-			return nil
+			return true
 		})
 		for _, k := range keys {
-			if err := b.Delete(k); err != nil {
+			if err := tx.Delete(bucketGroups, k); err != nil {
 				return err
 			}
 			n++
@@ -366,12 +460,11 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	b, _ := json.Marshal(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketTokens)
-		if bk.Get([]byte(name)) != nil {
+	err = s.db.Update(func(tx kv.Tx) error {
+		if tx.Get(bucketTokens, []byte(name)) != nil {
 			return fmt.Errorf("a token named %q exists; revoke it first", name)
 		}
-		return bk.Put([]byte(name), b)
+		return tx.Put(bucketTokens, []byte(name), b)
 	})
 	if err != nil {
 		return "", Token{}, err
@@ -405,8 +498,8 @@ func (s *Store) RevokeToken(name string) error {
 	if hash == "" {
 		return ErrNotFound
 	}
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.Bucket(bucketTokens).Delete([]byte(name)); err != nil {
+	err := s.db.Update(func(tx kv.Tx) error {
+		if err := tx.Delete(bucketTokens, []byte(name)); err != nil {
 			return err
 		}
 		return dropKeys(tx, "token:"+name) // the keys an agent added with this token go with it
@@ -438,7 +531,7 @@ func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, erro
 	}
 	t.Name, t.Hash, t.Expires = name, hash, expires
 	b, _ := json.Marshal(t)
-	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketTokens).Put([]byte(name), b) }); err != nil {
+	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(name), b) }); err != nil {
 		return Token{}, err
 	}
 	s.tokens[hash] = t
@@ -506,34 +599,34 @@ const keepSilences = 7 * 24 * time.Hour
 func (s *Store) PutSilence(r SilenceRecord) error {
 	b, _ := json.Marshal(r)
 	cutoff := s.now().Add(-keepSilences)
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketSilences)
+	return s.db.Update(func(tx kv.Tx) error {
 		var old [][]byte
-		_ = bk.ForEach(func(k, v []byte) error {
+		tx.Range(bucketSilences, kv.Range{}, func(k, v []byte) bool {
 			var x SilenceRecord
 			if json.Unmarshal(v, &x) == nil && x.EndsAt.Before(cutoff) {
-				old = append(old, k)
+				old = append(old, bytesClone(k))
 			}
-			return nil
+			return true
 		})
 		for _, k := range old {
-			_ = bk.Delete(k)
+			_ = tx.Delete(bucketSilences, k)
 		}
-		return bk.Put([]byte(r.ID), b)
+		return tx.Put(bucketSilences, []byte(r.ID), b)
 	})
 }
 
 // SilenceRecords lists the stored silences, the newest first.
 func (s *Store) SilenceRecords() []SilenceRecord {
 	var out []SilenceRecord
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketSilences).ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketSilences, kv.Range{}, func(_, v []byte) bool {
 			var r SilenceRecord
 			if json.Unmarshal(v, &r) == nil {
 				out = append(out, r)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
 	return out
@@ -569,15 +662,15 @@ func (s *Store) PutMachine(m Machine) error {
 		return fmt.Errorf("machine name %q: use lower case letters, digits and dashes", m.Name)
 	}
 	b, _ := json.Marshal(m)
-	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketMachines).Put([]byte(m.Name), b) })
+	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketMachines, []byte(m.Name), b) })
 }
 
 // Machine returns the machine called name.
 func (s *Store) Machine(name string) (Machine, bool) {
 	var m Machine
 	var ok bool
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if v := tx.Bucket(bucketMachines).Get([]byte(name)); v != nil {
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketMachines, []byte(name)); v != nil {
 			ok = json.Unmarshal(v, &m) == nil
 		}
 		return nil
@@ -588,26 +681,26 @@ func (s *Store) Machine(name string) (Machine, bool) {
 // Machines lists the machines by name.
 func (s *Store) Machines() []Machine {
 	var out []Machine
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketMachines).ForEach(func(_, v []byte) error {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketMachines, kv.Range{}, func(_, v []byte) bool {
 			var m Machine
 			if json.Unmarshal(v, &m) == nil {
 				out = append(out, m)
 			}
-			return nil
+			return true
 		})
+		return nil
 	})
 	return out
 }
 
 // DeleteMachine removes the machine called name.
 func (s *Store) DeleteMachine(name string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketMachines)
-		if b.Get([]byte(name)) == nil {
+	return s.db.Update(func(tx kv.Tx) error {
+		if tx.Get(bucketMachines, []byte(name)) == nil {
 			return ErrNotFound
 		}
-		return b.Delete([]byte(name))
+		return tx.Delete(bucketMachines, []byte(name))
 	})
 }
 
@@ -635,15 +728,15 @@ type SessionRecord struct {
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.
 func (s *Store) PutSession(r SessionRecord) error {
 	b, _ := json.Marshal(r)
-	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(bucketSessions).Put([]byte(r.ID), b) })
+	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketSessions, []byte(r.ID), b) })
 }
 
 // Session returns the session with id.
 func (s *Store) Session(id string) (SessionRecord, bool) {
 	var r SessionRecord
 	var ok bool
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if v := tx.Bucket(bucketSessions).Get([]byte(id)); v != nil {
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketSessions, []byte(id)); v != nil {
 			ok = json.Unmarshal(v, &r) == nil
 		}
 		return nil
@@ -654,14 +747,17 @@ func (s *Store) Session(id string) (SessionRecord, bool) {
 // Sessions returns up to limit sessions for which keep returns true (nil keeps all), the newest first.
 func (s *Store) Sessions(limit int, keep func(SessionRecord) bool) []SessionRecord {
 	var out []SessionRecord
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		c := tx.Bucket(bucketSessions).Cursor()
-		for k, v := c.Last(); k != nil && len(out) < limit; k, v = c.Prev() {
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketSessions, kv.Range{Reverse: true}, func(_, v []byte) bool {
+			if len(out) >= limit {
+				return false
+			}
 			var r SessionRecord
 			if json.Unmarshal(v, &r) == nil && (keep == nil || keep(r)) {
 				out = append(out, r)
 			}
-		}
+			return true
+		})
 		return nil
 	})
 	return out
@@ -670,23 +766,22 @@ func (s *Store) Sessions(limit int, keep func(SessionRecord) bool) []SessionReco
 // DeleteSessionsBefore removes the records of sessions that started before t and returns them.
 func (s *Store) DeleteSessionsBefore(t time.Time) []SessionRecord {
 	var gone []SessionRecord
-	_ = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketSessions)
+	_ = s.db.Update(func(tx kv.Tx) error {
 		var keys [][]byte
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		tx.Range(bucketSessions, kv.Range{}, func(k, v []byte) bool {
 			var r SessionRecord
 			if err := json.Unmarshal(v, &r); err != nil {
-				continue // not ours to judge; keep it
+				return true // not ours to judge; keep it
 			}
 			if !r.Started.Before(t) {
-				break // keys sort by start time
+				return false // keys sort by start time
 			}
 			gone = append(gone, r)
-			keys = append(keys, append([]byte(nil), k...))
-		}
+			keys = append(keys, bytesClone(k))
+			return true
+		})
 		for _, k := range keys {
-			if err := b.Delete(k); err != nil {
+			if err := tx.Delete(bucketSessions, k); err != nil {
 				return err
 			}
 		}
@@ -697,66 +792,89 @@ func (s *Store) DeleteSessionsBefore(t time.Time) []SessionRecord {
 
 // ---- Audit
 
-// Audit records an entry; the oldest entries beyond 10,000 are dropped.
+// Audit records an entry; the oldest beyond the retention are pruned by PruneAudit, which the
+// service runs on a schedule (the old cap of 10,000 is gone).
 func (s *Store) Audit(e AuditEntry) error {
 	if e.Time.IsZero() {
 		e.Time = s.now().UTC()
 	}
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bk := tx.Bucket(bucketAudit)
-		seq, _ := bk.NextSequence()
-		k := make([]byte, 8)
-		binary.BigEndian.PutUint64(k, seq)
-		if err := bk.Put(k, b); err != nil {
-			return err
-		}
-		if n := bk.Stats().KeyN; n > maxAudit {
-			c := bk.Cursor()
-			for k, _ := c.First(); k != nil && n > maxAudit; k, _ = c.Next() {
-				if err := c.Delete(); err != nil {
-					return err
-				}
-				n--
-			}
-		}
-		return nil
+	_, err := s.audit.Append(events.Event{
+		Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
 	})
+	return err
 }
 
 // AuditLog returns the latest entries, newest first.
 func (s *Store) AuditLog(limit int) []AuditEntry {
-	var out []AuditEntry
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		c := tx.Bucket(bucketAudit).Cursor()
-		for k, v := c.Last(); k != nil && len(out) < limit; k, v = c.Prev() {
-			var e AuditEntry
-			if json.Unmarshal(v, &e) == nil {
-				out = append(out, e)
-			}
-		}
-		return nil
-	})
+	if limit <= 0 {
+		limit = 100
+	}
+	out, _, _ := s.AuditQuery(AuditFilter{Limit: limit})
 	return out
 }
+
+// AuditFilter narrows an AuditQuery: empty strings and zero times leave that part open.
+type AuditFilter struct {
+	Actor, Action, Target string
+	From, To              time.Time
+	Limit, Offset         int
+}
+
+// AuditQuery returns the entries matching f, newest first, and how many match in all.
+func (s *Store) AuditQuery(f AuditFilter) ([]AuditEntry, int, error) {
+	got, total, err := s.audit.Query(events.Filter{
+		Actor: f.Actor, Action: f.Action, Object: f.Target, From: f.From, To: f.To,
+		Limit: f.Limit, Offset: f.Offset,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]AuditEntry, 0, len(got))
+	for _, e := range got {
+		out = append(out, AuditEntry{Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Target: e.Object, Detail: e.Detail})
+	}
+	return out, total, nil
+}
+
+// Result is what a chain verification found (events.Result): how much it walked, where it got
+// to, and — with an error — where the chain broke.
+type Result = events.Result
+
+// VerifyAudit walks the audit chain from the checkpoint that anchors the records still present
+// and checks every hash and checkpoint signature; PruneAudit keeps that possible.
+func (s *Store) VerifyAudit() (events.Result, error) { return s.audit.Verify() }
+
+// VerifyAuditSince verifies from the checkpoint at seq onwards.
+func (s *Store) VerifyAuditSince(seq uint64) (events.Result, error) { return s.audit.VerifySince(seq) }
+
+// AuditCheckpoints lists the audit chain's checkpoints, oldest first.
+func (s *Store) AuditCheckpoints() ([]events.Checkpoint, error) { return s.audit.Checkpoints() }
+
+// CheckpointAudit writes a checkpoint of the audit chain now (one is written on the interval as
+// records arrive, and before the backup takes its copy).
+func (s *Store) CheckpointAudit() (events.Checkpoint, error) { return s.audit.Checkpoint() }
+
+// PruneAudit removes the audit entries older than retention, keeping the chain verifiable, and
+// reports how many went.
+func (s *Store) PruneAudit(retention time.Duration) (int, error) { return s.audit.Prune(retention) }
+
+// UsesLog is the event log the secret uses will go in (the vault's packages); the table and its
+// chain are made here so the storage is one piece.
+func (s *Store) UsesLog() *events.Log { return s.uses }
 
 // ---- Counters and settings
 
 // Add adds n to the counter key and returns the new value.
 func (s *Store) Add(key string, n int64) int64 {
 	var v int64
-	_ = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketMeta)
-		if cur := b.Get([]byte(key)); len(cur) == 8 {
+	_ = s.db.Update(func(tx kv.Tx) error {
+		if cur := tx.Get(bucketMeta, []byte(key)); len(cur) == 8 {
 			v = int64(binary.BigEndian.Uint64(cur))
 		}
 		v += n
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, uint64(v))
-		return b.Put([]byte(key), buf)
+		return tx.Put(bucketMeta, []byte(key), buf)
 	})
 	return v
 }
@@ -766,23 +884,25 @@ func (s *Store) Counter(key string) int64 { return s.Add(key, 0) }
 
 // SetTime stores a time under key; the zero time deletes it.
 func (s *Store) SetTime(key string, t time.Time) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketMeta)
+	return s.db.Update(func(tx kv.Tx) error {
 		if t.IsZero() {
-			return b.Delete([]byte("t:" + key))
+			return tx.Delete(bucketMeta, []byte("t:"+key))
 		}
-		return b.Put([]byte("t:"+key), []byte(t.UTC().Format(time.RFC3339Nano)))
+		return tx.Put(bucketMeta, []byte("t:"+key), []byte(t.UTC().Format(time.RFC3339Nano)))
 	})
 }
 
 // Time returns the time stored under key, or the zero time.
 func (s *Store) Time(key string) time.Time {
 	var t time.Time
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if v := tx.Bucket(bucketMeta).Get([]byte("t:" + key)); v != nil {
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketMeta, []byte("t:"+key)); v != nil {
 			t, _ = time.Parse(time.RFC3339Nano, string(v))
 		}
 		return nil
 	})
 	return t
 }
+
+// bytesClone keeps a key a Range walk handed out, for use after the walk.
+func bytesClone(b []byte) []byte { return append([]byte(nil), b...) }

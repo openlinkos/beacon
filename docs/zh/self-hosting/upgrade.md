@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-593651cd
+sourceHash: sha256-55c29493
 ---
 
 # 升级
@@ -10,11 +10,11 @@ sourceHash: sha256-593651cd
 
 | 改变 | 不变 |
 | --- | --- |
-| `beacon` 容器，按 `.env` 里 `BEACON_VERSION` 指名的镜像（`ghcr.io/openlinkos/beacon:vX.Y.Z`）重建 | `beacon-data` 卷里的 `status.db` 和 `recordings/`：账号、Agent 和令牌，目录、检测目标和模块（它们就在那个数据库里），告警组，审计日志 |
+| `beacon` 容器，按 `.env` 里 `BEACON_VERSION` 指名的镜像（`ghcr.io/openlinkos/beacon:vX.Y.Z`）重建 | `beacon-data` 卷里的 `beacon.db` 和 `recordings/`：账号、Agent 和令牌，目录、检测目标和模块（它们就在那个数据库里），告警组，审计日志 |
 | VictoriaMetrics、vmalert 和 Caddy，只在你换用新的 `compose.yaml` 时：它们的镜像按摘要钉住，跟仓库一起走 | `/opt/beacon`：`config.yaml`、`secrets/`、`catalog/`、`targets/` 是你的；升级不写它们 |
 | | `victoriametrics-data` 和 `caddy-data` 两个卷 |
 
-Beacon 没有要你手工执行的数据库迁移：它打开同一个 `status.db`，把缺的部分补上。中断只是容器重建，几秒钟，开着的 SSH 会话会结束（到这里为止做过的事都有记录；见[通道保证什么，不保证什么](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not)）。网关停着的时间里，每个检测点把结果暂存在磁盘上——最多 64 MB——恢复了就补发，所以不丢检测结果。告警组在重启后仍在，触发中的告警之后还在 `list_alerts` 里。
+Beacon 没有要你手工执行的迁移：它打开同一个 `beacon.db`，把缺的部分补上。**从还没有 SQL 数据库的版本升级时**（0.3.0-rc.16 及更早的版本把状态存在 bbolt 文件 `status.db` 里），首次启动会在一个事务里把这个文件迁进 `beacon.db`，提交前核对每个桶的条数，并把旧文件改名为 `status.db.pre-sql`；参考部署那样的状态，用时以毫秒计。要退回：停掉 Beacon，把 `status.db.pre-sql` 改回 `status.db`，删掉 `beacon.db` 及其 `-wal`、`-shm` 文件，再启动旧版本：它有升级前的一切，没有升级之后的。中断只是容器重建，几秒钟，开着的 SSH 会话会结束（到这里为止做过的事都有记录；见[通道保证什么，不保证什么](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not)）。网关停着的时间里，每个检测点把结果暂存在磁盘上——最多 64 MB——恢复了就补发，所以不丢检测结果。告警组在重启后仍在，触发中的告警之后还在 `list_alerts` 里。
 
 ## 选一个版本 {#pick-a-version}
 

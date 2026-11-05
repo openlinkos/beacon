@@ -3,7 +3,7 @@ package store
 import (
 	"crypto/rand"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // SecretSize is the length of the secrets Secret keeps.
@@ -15,9 +15,8 @@ const SecretSize = 32
 func (s *Store) Secret(name string) ([]byte, error) {
 	key := []byte("secret:" + name)
 	var out []byte
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketMeta)
-		if v := b.Get(key); len(v) == SecretSize {
+	err := s.db.Update(func(tx kv.Tx) error {
+		if v := tx.Get(bucketMeta, key); len(v) == SecretSize {
 			out = append([]byte(nil), v...)
 			return nil
 		}
@@ -25,7 +24,7 @@ func (s *Store) Secret(name string) ([]byte, error) {
 		if _, err := rand.Read(out); err != nil {
 			return err
 		}
-		return b.Put(key, out)
+		return tx.Put(bucketMeta, key, out)
 	})
 	if err != nil {
 		return nil, err

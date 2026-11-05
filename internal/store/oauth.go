@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/openlinkos/beacon/internal/kv"
 )
 
 // What MCP's OAuth leaves in the store (package oauth speaks the protocol): the clients that registered
@@ -103,8 +103,8 @@ func newSecretWith(prefix string) (string, error) {
 }
 
 // decodeKey reads the JSON value at key into v, reporting whether there was one to read.
-func decodeKey(b *bolt.Bucket, key []byte, v any) bool {
-	raw := b.Get(key)
+func decodeKey(tx kv.Tx, bucket []byte, key []byte, v any) bool {
+	raw := tx.Get(bucket, key)
 	return raw != nil && json.Unmarshal(raw, v) == nil
 }
 
@@ -119,27 +119,23 @@ func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 	}
 	now := s.now().UTC()
 	c.ID, c.Created, c.Used = "lbc_"+id, now, time.Time{}
-	err = s.db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(bucketClients)
-		if err != nil {
-			return err
-		}
+	err = s.db.Update(func(tx kv.Tx) error {
 		var old [][]byte
-		_ = b.ForEach(func(k, v []byte) error {
+		tx.Range(bucketClients, kv.Range{}, func(k, v []byte) bool {
 			var x OAuthClient
 			if json.Unmarshal(v, &x) != nil || (x.Used.IsZero() && now.Sub(x.Created) > ClientUnused) {
 				old = append(old, append([]byte(nil), k...))
 			}
-			return nil
+			return true
 		})
 		for _, k := range old {
-			_ = b.Delete(k)
+			_ = tx.Delete(bucketClients, k)
 		}
-		if b.Stats().KeyN-len(old) >= MaxClients {
+		if tx.Count(bucketClients) >= MaxClients {
 			return ErrTooMany
 		}
 		v, _ := json.Marshal(c)
-		return b.Put([]byte(c.ID), v)
+		return tx.Put(bucketClients, []byte(c.ID), v)
 	})
 	if err != nil {
 		return OAuthClient{}, err
@@ -151,11 +147,9 @@ func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 func (s *Store) OAuthClient(id string) (OAuthClient, bool) {
 	var c OAuthClient
 	ok := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketClients); b != nil {
-			if v := b.Get([]byte(id)); v != nil {
-				ok = json.Unmarshal(v, &c) == nil
-			}
+	_ = s.db.View(func(tx kv.Tx) error {
+		if v := tx.Get(bucketClients, []byte(id)); v != nil {
+			ok = json.Unmarshal(v, &c) == nil
 		}
 		return nil
 	})
@@ -167,57 +161,43 @@ func (s *Store) OAuthClient(id string) (OAuthClient, bool) {
 
 // UseClient records that a registered client was used to sign in, so that it is kept.
 func (s *Store) UseClient(id string) {
-	_ = s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketClients)
-		if b == nil {
-			return nil
-		}
+	_ = s.db.Update(func(tx kv.Tx) error {
 		var c OAuthClient
-		if !decodeKey(b, []byte(id), &c) || !c.Used.IsZero() {
+		if !decodeKey(tx, bucketClients, []byte(id), &c) || !c.Used.IsZero() {
 			return nil
 		}
 		c.Used = s.now().UTC()
 		v, _ := json.Marshal(c)
-		return b.Put([]byte(id), v)
+		return tx.Put(bucketClients, []byte(id), v)
 	})
 }
 
 // ---- grants
 
-func grants(tx *bolt.Tx, match func(Grant) bool) []Grant {
+func grants(tx kv.Tx, match func(Grant) bool) []Grant {
 	var out []Grant
-	b := tx.Bucket(bucketGrants)
-	if b == nil {
-		return nil
-	}
-	_ = b.ForEach(func(_, v []byte) error {
+	tx.Range(bucketGrants, kv.Range{}, func(_, v []byte) bool {
 		var g Grant
 		if json.Unmarshal(v, &g) == nil && (match == nil || match(g)) {
 			out = append(out, g)
 		}
-		return nil
+		return true
 	})
 	return out
 }
 
-func putGrant(tx *bolt.Tx, g Grant) error {
-	b, err := tx.CreateBucketIfNotExists(bucketGrants)
-	if err != nil {
-		return err
-	}
+func putGrant(tx kv.Tx, g Grant) error {
 	v, _ := json.Marshal(g)
-	return b.Put([]byte(g.ID), v)
+	return tx.Put(bucketGrants, []byte(g.ID), v)
 }
 
 // deleteGrants deletes the grants that match, with their access tokens and the keys added with them.
-func deleteGrants(tx *bolt.Tx, match func(Grant) bool) error {
+func deleteGrants(tx kv.Tx, match func(Grant) bool) error {
 	gone := map[string]bool{}
-	if b := tx.Bucket(bucketGrants); b != nil {
-		for _, g := range grants(tx, match) {
-			gone[g.ID] = true
-			if err := b.Delete([]byte(g.ID)); err != nil {
-				return err
-			}
+	for _, g := range grants(tx, match) {
+		gone[g.ID] = true
+		if err := tx.Delete(bucketGrants, []byte(g.ID)); err != nil {
+			return err
 		}
 	}
 	if len(gone) == 0 {
@@ -231,21 +211,17 @@ func deleteGrants(tx *bolt.Tx, match func(Grant) bool) error {
 	return deleteAccess(tx, func(a accessRecord) bool { return gone[a.Grant] })
 }
 
-func deleteAccess(tx *bolt.Tx, match func(accessRecord) bool) error {
-	b := tx.Bucket(bucketAccess)
-	if b == nil {
-		return nil
-	}
+func deleteAccess(tx kv.Tx, match func(accessRecord) bool) error {
 	var keys [][]byte
-	_ = b.ForEach(func(k, v []byte) error {
+	tx.Range(bucketAccess, kv.Range{}, func(k, v []byte) bool {
 		var a accessRecord
 		if json.Unmarshal(v, &a) != nil || match(a) {
 			keys = append(keys, append([]byte(nil), k...))
 		}
-		return nil
+		return true
 	})
 	for _, k := range keys {
-		if err := b.Delete(k); err != nil {
+		if err := tx.Delete(bucketAccess, k); err != nil {
 			return err
 		}
 	}
@@ -254,7 +230,7 @@ func deleteAccess(tx *bolt.Tx, match func(accessRecord) bool) error {
 
 // issue makes an access token for g, and a new refresh token if refresh, and stores them. Expired access
 // tokens are forgotten on the way.
-func (s *Store) issue(tx *bolt.Tx, g *Grant, refresh bool) (Issued, error) {
+func (s *Store) issue(tx kv.Tx, g *Grant, refresh bool) (Issued, error) {
 	now := s.now().UTC()
 	access, err := newSecretWith(AccessPrefix)
 	if err != nil {
@@ -274,12 +250,8 @@ func (s *Store) issue(tx *bolt.Tx, g *Grant, refresh bool) (Issued, error) {
 	if err := deleteAccess(tx, func(a accessRecord) bool { return !now.Before(a.Expires) }); err != nil {
 		return Issued{}, err
 	}
-	b, err := tx.CreateBucketIfNotExists(bucketAccess)
-	if err != nil {
-		return Issued{}, err
-	}
 	v, _ := json.Marshal(accessRecord{Grant: g.ID, Expires: out.AccessExpires})
-	if err := b.Put([]byte(hashToken(access)), v); err != nil {
+	if err := tx.Put(bucketAccess, []byte(hashToken(access)), v); err != nil {
 		return Issued{}, err
 	}
 	if err := putGrant(tx, *g); err != nil {
@@ -302,7 +274,7 @@ func (s *Store) CreateGrant(g Grant, offline bool) (Issued, error) {
 		return Issued{}, errors.New("a grant must end in the future")
 	}
 	var out Issued
-	err = s.db.Update(func(tx *bolt.Tx) error {
+	err = s.db.Update(func(tx kv.Tx) error {
 		if _, ok := getAgent(tx, g.Agent); !ok {
 			return fmt.Errorf("%w: no agent %q", ErrNotFound, g.Agent)
 		}
@@ -325,7 +297,7 @@ func (s *Store) RefreshGrant(refresh, client string) (Issued, error) {
 	var out Issued
 	replayed := false
 	var gone Grant
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx kv.Tx) error {
 		var g Grant
 		found := false
 		for _, x := range grants(tx, nil) {
@@ -368,7 +340,7 @@ func (s *Store) RefreshGrant(refresh, client string) (Issued, error) {
 // Grants lists the grants of an agent ("": every agent's), the newest first.
 func (s *Store) Grants(agent string) []Grant {
 	var out []Grant
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	_ = s.db.View(func(tx kv.Tx) error {
 		out = grants(tx, func(g Grant) bool { return agent == "" || g.Agent == agent })
 		return nil
 	})
@@ -388,7 +360,7 @@ func (s *Store) Grant(id string) (Grant, bool) {
 
 // RevokeGrant revokes a grant with its tokens.
 func (s *Store) RevokeGrant(id string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.db.Update(func(tx kv.Tx) error {
 		if len(grants(tx, func(g Grant) bool { return g.ID == id })) == 0 {
 			return ErrNotFound
 		}
@@ -401,7 +373,7 @@ func (s *Store) RevokeGrant(id string) error {
 func (s *Store) RevokeCode(codeHash string) (Grant, bool) {
 	var gone Grant
 	found := false
-	_ = s.db.Update(func(tx *bolt.Tx) error {
+	_ = s.db.Update(func(tx kv.Tx) error {
 		gs := grants(tx, func(g Grant) bool { return g.Code == codeHash })
 		if len(gs) == 0 {
 			return nil
@@ -419,15 +391,11 @@ func (s *Store) RevokeOAuthToken(secret, client string) (Grant, bool) {
 	h := hashToken(secret)
 	var g Grant
 	found := false
-	_ = s.db.Update(func(tx *bolt.Tx) error {
+	_ = s.db.Update(func(tx kv.Tx) error {
 		switch {
 		case strings.HasPrefix(secret, AccessPrefix):
-			b := tx.Bucket(bucketAccess)
-			if b == nil {
-				return nil
-			}
 			var a accessRecord
-			if !decodeKey(b, []byte(h), &a) {
+			if !decodeKey(tx, bucketAccess, []byte(h), &a) {
 				return nil
 			}
 			gs := grants(tx, func(x Grant) bool { return x.ID == a.Grant })
@@ -459,13 +427,9 @@ func (s *Store) verifyAccess(secret string) (Principal, bool) {
 	var p Principal
 	ok := false
 	var g Grant
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketAccess)
-		if b == nil {
-			return nil
-		}
+	_ = s.db.View(func(tx kv.Tx) error {
 		var a accessRecord
-		if !decodeKey(b, []byte(h), &a) || !now.Before(a.Expires) {
+		if !decodeKey(tx, bucketAccess, []byte(h), &a) || !now.Before(a.Expires) {
 			return nil
 		}
 		gs := grants(tx, func(x Grant) bool { return x.ID == a.Grant })
@@ -479,7 +443,7 @@ func (s *Store) verifyAccess(secret string) (Principal, bool) {
 		return nil
 	})
 	if ok && now.Sub(g.LastUsed) > usedEvery {
-		_ = s.db.Update(func(tx *bolt.Tx) error {
+		_ = s.db.Update(func(tx kv.Tx) error {
 			gs := grants(tx, func(x Grant) bool { return x.ID == g.ID })
 			if len(gs) == 0 {
 				return nil

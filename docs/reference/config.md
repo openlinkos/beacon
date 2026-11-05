@@ -14,12 +14,19 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
 | `listen` | address | `:17001` | Where the console, the API and MCP answer, behind the TLS proxy |
-| `data_dir` | path | `/var/lib/beacon` | The bbolt state (alert groups, tokens, accounts, the configuration) and, beside it, the session recordings. The admin socket the CLI talks to lives here; `BEACON_DATA_DIR` names another directory for the CLI alone |
+| `data_dir` | path | `/var/lib/beacon` | The database (`beacon.db`, unless `storage.path` puts it elsewhere: alert groups, tokens, accounts, the configuration, the audit log) and, beside it, the session recordings. The admin socket the CLI talks to lives here; `BEACON_DATA_DIR` names another directory for the CLI alone |
 | `catalog_dir` | path | `/etc/beacon/catalog` | The catalogue files (probe locations, heartbeats, expiring resources, status pages), imported into the database at the first start and on SIGHUP |
 | `public_url` | URL | — | Beacon's own address, behind the proxy: the links it hands out (the console, one-time links) and the issuer MCP clients sign in with. Agents' hooks need it |
 | `trusted_proxies` | list of addresses or CIDR ranges | — | The proxy in front, as the service sees it, so the API knows real client addresses |
 | `language` | `zh` or `en` | `zh` | The language of cards and chat messages |
 | `timezone` | time zone | `Asia/Shanghai` | Times on cards; the days of the status pages' history begin at midnight here |
+| `storage.driver` | `sqlite` | `sqlite` | The database's driver. PostgreSQL arrives with a later release |
+| `storage.path` | path | `<data_dir>/beacon.db` | The database file. A first start with an old bbolt file (`status.db`) beside it migrates that file into the database in one transaction; the old file stays as `status.db.pre-sql` to roll back with |
+| `storage.audit.checkpoint_interval` | duration | `24h` | How often the audit log's hash chain gets a signed checkpoint |
+| `storage.audit.retention` | duration | `8760h` | How long audit entries are kept (365 days); the chain stays verifiable after pruning |
+| `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite's journal mode. A WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system |
+| `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
+| `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
 
 ## Rules and routing
 

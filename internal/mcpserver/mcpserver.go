@@ -201,10 +201,15 @@ type (
 		OK bool `json:"ok"`
 	}
 	auditIn struct {
-		Limit int `json:"limit,omitempty" jsonschema:"how many entries, 1 to 200; default 50"`
+		Limit  int    `json:"limit,omitempty" jsonschema:"how many entries, 1 to 200; default 50"`
+		Offset int    `json:"offset,omitempty" jsonschema:"pages through the matches, 0-based"`
+		Actor  string `json:"actor,omitempty" jsonschema:"only entries by this actor (a person, an agent or beacon)"`
+		Action string `json:"action,omitempty" jsonschema:"only entries with this action, such as ack or silence"`
+		Target string `json:"target,omitempty" jsonschema:"only entries touching this object, such as an alert group's id"`
 	}
 	auditOut struct {
 		Entries []store.AuditEntry `json:"entries"`
+		Total   int                `json:"total"`
 	}
 	runIn struct {
 		Machine string `json:"machine" jsonschema:"the machine, as list_machines names it"`
@@ -327,7 +332,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_audit", Title: "Audit log", Annotations: read,
-		Description: "The latest writes (acknowledgements, silences) with who made them and through what, newest first."},
+		Description: "The writes Beacon recorded (acknowledgements, silences) with who made them and through what, newest first; filterable by actor, action and target, and pageable."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in auditIn) (*mcp.CallToolResult, auditOut, error) {
 			if _, err := need(ctx, "status:read"); err != nil {
 				return nil, auditOut{}, err
@@ -337,11 +342,15 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 				n = 50
 			}
 			n = min(n, 200)
-			out := auditOut{Entries: b.Audit(n)}
-			if out.Entries == nil {
-				out.Entries = []store.AuditEntry{}
+			entries, total, err := b.AuditQuery(store.AuditFilter{Limit: n, Offset: in.Offset,
+				Actor: in.Actor, Action: in.Action, Target: in.Target})
+			if err != nil {
+				return nil, auditOut{}, err
 			}
-			return nil, out, nil
+			if entries == nil {
+				entries = []store.AuditEntry{}
+			}
+			return nil, auditOut{Entries: entries, Total: total}, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "ack_alert", Title: "Acknowledge an alert",
