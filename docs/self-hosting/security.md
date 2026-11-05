@@ -26,6 +26,7 @@ Much of the evidence an alert carries is text set by probes, rule engines, the p
 3. **The ports.** In the reference deployment only 80 and 443 (Caddy) and 17002 (the SSH channel) face the Internet; 17001, 17006, 8428 and 8880 are bound to `127.0.0.1`. `/metrics` answers direct connections only, so it stays off the proxies. [Ports](index.md#ports).
 4. **A private chat.** Cards and the signed links they open go to your chat; anyone holding a link sees that page until it expires, so the chat the links go to must be private. [Signed links](../guide/console.md#signed-links).
 5. **The machine account is the real boundary.** Certificates name the `beacon` account; give it only what the work needs (a sudoers entry with the exact commands, for instance), and exempt the centre's address from OpenSSH's penalties. [On a server](install.md#3-the-first-machine).
+6. **The secrets directory is the rollback anchor.** Policy, items and settings live behind epoch-hashed signed heads; the epochs file sits in `<data_dir>/secrets` beside the root-key file. Holding the database file alone cannot widen a permission or resurrect a revoked row. A missing head is recovered with `beacon secret rebuild-head` or `beacon settings rebuild-head`. Rolling the database **and** the secrets directory together back to a consistent old state is undetectable; an external anchor (KMS, or a backup log of that directory) is what sees it.
 
 ## Reporting a hole
 

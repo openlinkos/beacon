@@ -76,7 +76,7 @@ func usage(w io.Writer) {
   beacon check-config [-config path]          validate the configuration, its files and the database
   beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION | rebuild-head
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
-  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags
+  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags|rebuild-head
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
   beacon key status|init|unseal|seal|rotate   the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
@@ -283,9 +283,9 @@ func serve(args []string, stderr io.Writer) int {
 	if bot != nil {
 		echoBot = bot
 	}
-	// no Key until the vault unseals: every setting is its failsafe. Epochs live in the data
-	// directory until the vault's secrets directory takes them (ruling A).
-	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log, EpochsDir: cfg.DataDir})
+	// no Key until the vault unseals: every setting is its failsafe. Epochs live in the secrets
+	// directory with the vault's policy and items heads.
+	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log, EpochsDir: cfg.Vault.Dir})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1

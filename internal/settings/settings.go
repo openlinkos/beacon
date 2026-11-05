@@ -3,7 +3,7 @@
 // backup), each with a default value, versions, history and revert, and a signature on every row
 // so that someone holding the database file alone cannot widen a limit (the design's third
 // invariant). A signed head names the live rows by the hash of their stored bytes and a monotonic
-// epoch; an epochs file in the data directory is the rollback anchor. A missing, stale or
+// epoch; an epochs file in the secrets directory is the rollback anchor. A missing, stale or
 // unverifiable row is served as that key's registered failsafe (never a looser default) and is
 // reported to the alert chat. The head is never rebuilt by scanning the bucket except on the
 // explicit RebuildHead command.
@@ -125,7 +125,7 @@ type Poster interface {
 
 // Deps are what the settings need. Bot may be nil. Key is the 32-byte SK; empty until SetKey,
 // and every Value is the registered failsafe until then. EpochsDir is the directory of the
-// epochs file (the data directory).
+// epochs file (the secrets directory, shared with the vault's policy and items heads).
 type Deps struct {
 	Store     *store.Store
 	Bot       Poster
@@ -182,20 +182,10 @@ func Open(d Deps) (*Service, error) {
 	return s, nil
 }
 
-// MarkSealed drops the signature key so every Value is the registered failsafe. The vault
-// wiring calls this while the vault is sealed; SetKey lifts it.
-func (s *Service) MarkSealed() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.key = nil
-	s.reload()
-}
-
-// Sealed reports whether the settings have no signature key (the vault is sealed).
-func (s *Service) Sealed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.key) == 0
+// AfterCommit writes the epochs file after the caller's database transaction has committed.
+// The vault calls this after ResignInTx so settings, policy and items share one fsync.
+func (s *Service) AfterCommit(h signedhead.Head) {
+	s.afterHead(h)
 }
 
 // reload reads the signed head and every row. Only rows the head names whose stored bytes hash
@@ -812,6 +802,75 @@ func (s *Service) SetKey(key []byte) error {
 	}
 	s.reload()
 	return nil
+}
+
+// ResignInTx is SetKey inside the caller's transaction: load under the current key, re-sign only
+// the rows the head names that verify, swap to newKey, CommitFrom. The caller AfterCommits the
+// returned Head after its transaction commits. A failsafe head stays failsafe.
+func (s *Service) ResignInTx(tx kv.Tx, newKey []byte) (signedhead.Head, error) {
+	if len(newKey) != 32 {
+		return signedhead.Head{}, fmt.Errorf("%w: the signature key is 32 bytes", ErrBadInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.warnLeftovers()
+	old := append([]byte(nil), s.key...)
+	if len(old) == 0 {
+		s.key = append([]byte(nil), newKey...)
+		return signedhead.Head{}, nil
+	}
+	if hmac.Equal(old, newKey) {
+		return signedhead.Head{}, nil
+	}
+	res := s.table.Load(tx)
+	if res.Status == signedhead.StatusFailsafe {
+		s.key = append([]byte(nil), newKey...)
+		return signedhead.Head{}, nil
+	}
+	puts := map[string][]byte{}
+	for rk := range res.Head.Entries {
+		v := tx.Get(bucketSettings, []byte(rk))
+		if len(v) == 0 {
+			continue
+		}
+		var r Row
+		if json.Unmarshal(v, &r) != nil || !hmac.Equal(r.Sig, sign(old, r)) {
+			continue
+		}
+		r.Sig = sign(newKey, r)
+		b, err := json.Marshal(r)
+		if err != nil {
+			continue
+		}
+		if err := tx.Put(bucketSettings, []byte(rk), b); err != nil {
+			s.key = old
+			return signedhead.Head{}, err
+		}
+		puts[rk] = b
+	}
+	tx.Range(bucketSettingsChanges, kv.Range{}, func(k, v []byte) bool {
+		var ch Change
+		if json.Unmarshal(v, &ch) != nil || ch.verifies(newKey) {
+			return true
+		}
+		if !ch.verifies(old) {
+			return true
+		}
+		ch.Sig = signChange(newKey, ch)
+		b, err := json.Marshal(ch)
+		if err != nil {
+			return true
+		}
+		_ = tx.Put(bucketSettingsChanges, k, b)
+		return true
+	})
+	s.key = append([]byte(nil), newKey...)
+	h, err := s.table.CommitFrom(tx, res, puts, nil)
+	if err != nil {
+		s.key = old
+		return signedhead.Head{}, headErr(err)
+	}
+	return h, nil
 }
 
 // RebuildHead is owner-only recovery: it scans the rows that still verify, writes a new signed

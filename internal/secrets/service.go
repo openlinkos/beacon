@@ -17,6 +17,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/settings"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -34,7 +35,10 @@ var (
 )
 
 // The keys of the meta bucket.
-const metaKeyCheck = "keycheck"
+const (
+	metaKeyCheck = "keycheck"
+	metaRotation = "rotation" // in-progress root-key rotation: the staged key id
+)
 
 // keyRow is one version of a collection key, wrapped under the root key.
 type keyRow struct {
@@ -58,6 +62,7 @@ var (
 	ErrAgent      = errors.New("agents reach items through grants; until those arrive, the vault answers an agent with nothing")
 	ErrSealedUp   = ErrSealed
 	ErrAttachment = errors.New("the attachment is too large")
+	ErrHead       = errors.New("the signed head is unusable")
 )
 
 // Poster sends a plain message to the alert chat.
@@ -102,13 +107,27 @@ type Service struct {
 	rotating map[string]bool // collections whose key is being rotated
 	rotMu    sync.Mutex
 
+	rotRootMu    sync.Mutex
+	rotatingRoot bool // a root-key rotation is in flight; a second call refuses
+
+	policy *signedhead.Table
+	items  *signedhead.Table
+
+	headMu         sync.Mutex
+	policyFailsafe bool // sticky until RebuildHead or a write this service committed
+	itemsFailsafe  bool
+
 	badMu sync.Mutex
-	bad   []string // rows that failed their signature or the policy head, for the console and the log
+	bad   []string // rows that failed their signature or the signed head, for the console and the log
 
 	// hooks the rotation tests stand in with: a KMS wrap that fails, a file write that fails, a
-	// replace that never happens (a crash between the commit and the rename).
+	// replace that never happens (a crash between the commit and the rename), and the steps
+	// after the staged write, after the database commit, and after the rename.
 	writeKeyFileFn func(path string, b []byte) error
 	replaceFileFn  func(tmp, dest string) error
+	afterStageFn   func() error
+	afterCommitFn  func() error
+	afterRenameFn  func() error
 	keeperFn       func() (kmsClient, error)
 }
 
@@ -156,6 +175,7 @@ func Open(ctx context.Context, cfg SealConfig, d Deps) (*Service, error) {
 		return nil, errors.New("the vault needs its directory")
 	}
 	s := &Service{d: d, cfg: cfg, reauth: map[string]time.Time{}, rotating: map[string]bool{}}
+	s.initTables()
 	if d.CheckPassword == nil {
 		d.CheckPassword = func(username, password string) error {
 			if _, err := d.Store.SignIn(username, password); err != nil {
@@ -174,9 +194,7 @@ func Open(ctx context.Context, cfg SealConfig, d Deps) (*Service, error) {
 	if err := s.initSeal(); err != nil {
 		return nil, err
 	}
-	if !s.keys.sealed() {
-		s.ensurePolicyHead()
-	}
+	s.initHeads()
 	s.reloadSignedRows()
 	return s, nil
 }
@@ -321,18 +339,21 @@ func (s *Service) reloadSignedRows() {
 				report("collection", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
 				report("collection", r.Name)
 			}
 			return true
 		})
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
+			if isHeadKey(k) {
+				return true
+			}
 			var r signedItem
 			if json.Unmarshal(v, &r) != nil {
 				report("item", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
 				report("item", r.Title)
 			}
 			return true
@@ -343,7 +364,7 @@ func (s *Service) reloadSignedRows() {
 				report("tag", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
 				report("tag", r.Name)
 			}
 			return true
@@ -354,7 +375,7 @@ func (s *Service) reloadSignedRows() {
 				report("permission", "unreadable")
 				return true
 			}
-			if sk, err := s.sk(); err == nil && !verifyPolicy(sk, r.Sig, r.signedParts()...) {
+			if sk, err := s.sk(); err == nil && !verifyRow(sk, r.Sig, r.signedParts()...) {
 				report("permission", r.Subject+" on "+r.Collection)
 			}
 			return true

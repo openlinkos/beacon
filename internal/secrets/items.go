@@ -9,6 +9,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/settings"
+	"github.com/openlinkos/beacon/internal/signedhead"
 )
 
 // ---- items
@@ -83,8 +84,10 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sk, err := s.sk()
-	if err != nil {
+	if err := s.refuseIfRotating(); err != nil {
+		return Item{}, err
+	}
+	if _, err := s.sk(); err != nil {
 		return Item{}, err
 	}
 	maxSize := s.attachmentMax()
@@ -95,7 +98,8 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 	}
 	var out Item
 	created := false
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+	var committed signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		var cur signedItem
 		exists := false
 		if in.ID != "" {
@@ -106,11 +110,8 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			if json.Unmarshal(v, &cur) != nil {
 				return fmt.Errorf("%w: the item's row is unreadable", ErrNotFound)
 			}
-			if !s.itemVerifies(cur) {
-				return fmt.Errorf("%w: the item's row does not verify", ErrNotFound)
-			}
-			if cur.ID != in.ID {
-				return fmt.Errorf("%w: the item's row does not match its key", ErrNotFound)
+			if !s.itemLive(tx, []byte(in.ID), v, cur) {
+				return fmt.Errorf("%w: no item %q", ErrNotFound, in.ID)
 			}
 			if cur.Collection != col.ID {
 				return fmt.Errorf("%w: the item belongs to another collection", ErrBadInput)
@@ -290,15 +291,11 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 			}
 		}
 		item.Version = next
-		r := signedItem{Item: item}
-		r.Sig = signRow(sk, item.signedParts()...)
-		b, err := json.Marshal(r)
+		h, err := s.putItemTx(tx, item)
 		if err != nil {
 			return err
 		}
-		if err := tx.Put(bucketItems, []byte(item.ID), b); err != nil {
-			return err
-		}
+		committed = h
 		out = item
 		s.pruneVersions(tx, item.ID, next)
 		return nil
@@ -306,6 +303,7 @@ func (s *Service) SetItem(who Actor, in ItemIn) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
+	s.afterHeads(committed)
 	verb, action := "changed the item", "secrets_item_update"
 	if created {
 		verb, action = "created the item", "secrets_item_create"
@@ -449,7 +447,7 @@ func getVersionTx(tx kv.Tx, item string, version int64) (ItemVersion, bool) {
 func (s *Service) collectionByIDTx(tx kv.Tx, id string) (Collection, bool) {
 	v := tx.Get(bucketCollections, []byte(id))
 	var r signedCollection
-	if v == nil || json.Unmarshal(v, &r) != nil || r.ID != id || !s.collectionLive(tx, r) {
+	if v == nil || json.Unmarshal(v, &r) != nil || !s.collectionLive(tx, []byte(id), v, r) {
 		return Collection{}, false
 	}
 	return r.Collection, true
@@ -518,7 +516,7 @@ func (s *Service) permOfTx(tx kv.Tx, who Actor, collectionID string) (string, bo
 			continue
 		}
 		var p Permission
-		if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permLive(tx, key, p) {
+		if json.Unmarshal(v, &p) != nil || p.Collection != collectionID || p.Subject != subject || !s.permLive(tx, key, v, p) {
 			continue // a row that does not verify, or that was copied under another key, is not there
 		}
 		if !found || permRank[p.Perm] > permRank[best] {
@@ -534,7 +532,14 @@ func (s *Service) itemVerifies(r signedItem) bool {
 	if err != nil {
 		return false
 	}
-	return verifyPolicy(sk, r.Sig, r.signedParts()...)
+	return verifyRow(sk, r.Sig, r.signedParts()...)
+}
+
+func (s *Service) itemLive(tx kv.Tx, k, v []byte, r signedItem) bool {
+	if isHeadKey(k) || string(k) != r.ID || !s.itemVerifies(r) {
+		return false
+	}
+	return s.itemAccept(tx, r.ID, v)
 }
 
 // attachmentMax is the attachment size limit, from the settings (10 MB by default).
