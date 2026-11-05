@@ -97,6 +97,16 @@ type Deps struct {
 	// Recheck closes what is open on the SSH channel for whoever may no longer reach it, after a
 	// credential, an agent or an account changed (sshgate.Gate.Recheck); nil without the channel.
 	Recheck func() int
+	// Secrets decides the secret requests the Feishu cards carry (the vault's own Decide; nil:
+	// the cards' secret buttons answer "not configured").
+	Secrets SecretsDecider
+}
+
+// SecretsDecider is what the bridge needs of the vault for a card's decision: the person taken
+// from the on-call list, the request, the decision and its reason, and the once-variant's single
+// use.
+type SecretsDecider interface {
+	DecideFromCard(person, requestID string, approve bool, once bool, note string) error
 }
 
 // Bridge is the alert bridge.
@@ -384,6 +394,25 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	}
 	act, _ := a.Value["a"].(string)
 	id, _ := a.Value["g"].(string)
+	// the secret requests' cards carry no alert group: their buttons decide the request, and the
+	// vault says whether this on-call person may (an operator, an owner, or a named reviewer)
+	switch act {
+	case "secret_approve", "secret_once", "secret_deny":
+		if b.d.Secrets == nil {
+			return feishu.Response{Toast: b.t("Secret approvals are not configured here"), ToastKind: "error"}
+		}
+		note, _ := a.Form["note"].(string)
+		if strings.TrimSpace(note) == "" {
+			return feishu.Response{Toast: b.t("A decision says why; write the note first"), ToastKind: "warning"}
+		}
+		if err := b.d.Secrets.DecideFromCard(person.Name, id, act != "secret_deny", act == "secret_once", strings.TrimSpace(note)); err != nil {
+			return feishu.Response{Toast: b.t("Could not decide: %s", err.Error()), ToastKind: "error"}
+		}
+		if act == "secret_deny" {
+			return feishu.Response{Toast: b.t("Denied"), ToastKind: "success"}
+		}
+		return feishu.Response{Toast: b.t("Approved"), ToastKind: "success"}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
