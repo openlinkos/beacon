@@ -22,7 +22,8 @@ secret archive REF | secret rm REF | secret restore REF [-user NAME] |
 secret generate REF FIELD [-length 24] [-charset letters|alnum|all] [-user NAME] [-reason TEXT] |
 secret rollback REF VERSION [-note TEXT] | secret collection NAME [-level review] [-user NAME] |
 secret perms COLLECTION [user:NAME|role:ROLE=describe|read|edit|manage|-] [-user NAME] [-reason TEXT] |
-secret tags [NAME [LEVEL] [-description TEXT]] [-user NAME]`
+secret tags [NAME [LEVEL] [-description TEXT]] [-user NAME] |
+secret rebuild-head [-user NAME]`
 
 // secretCmd works the vault through the running service's socket, as `beacon secret …`. Everything
 // is done as a named account (-user, an owner for the policy changes), and viewing values needs
@@ -372,6 +373,17 @@ func secretCmd(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "set tag %s\n", pos[0])
+		return 0
+	case "rebuild-head":
+		if len(pos) != 0 {
+			fmt.Fprintln(stderr, vaultUsage)
+			return 2
+		}
+		if err := c.VaultRebuildHead(ctx, *user); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "rebuilt the vault signed heads from the rows that still verify")
 		return 0
 	default:
 		fmt.Fprintln(stderr, vaultUsage)

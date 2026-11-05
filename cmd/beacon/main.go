@@ -74,9 +74,9 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   beacon serve [-config path]                 run the service
   beacon check-config [-config path]          validate the configuration, its files and the database
-  beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION
+  beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION | rebuild-head
                                               the settings the secrets work runs by (get: -scope/-target for the other levels)
-  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags
+  beacon secret ls|show|reveal|set|tag|level|archive|rm|restore|rollback|generate|collection|perms|tags|rebuild-head
                                               the vault of secrets, as a named account (-user; reveal needs the account's password)
   beacon key status|init|unseal|seal|rotate   the vault's root key
   beacon config import DIR [-dry-run] [-note TEXT]
@@ -283,23 +283,23 @@ func serve(args []string, stderr io.Writer) int {
 	if bot != nil {
 		echoBot = bot
 	}
-	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log})
+	// no Key until the vault unseals: every setting is its failsafe. Epochs live in the secrets
+	// directory with the vault's policy and items heads.
+	sset, err := settings.Open(settings.Deps{Store: st, Bot: echoBot, Lang: language(cfg), Log: log, EpochsDir: cfg.Vault.Dir})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
 	// the vault: the collections of items whose values it keeps encrypted, its root key from the
 	// configured source. While it is sealed the key functions wait — monitoring and the SSH channel
-	// carry on — and the settings serve their defaults, for their rows cannot be verified.
+	// carry on — and the settings serve their failsafe values, for their rows cannot be verified.
 	vault, err := secrets.Open(context.Background(), sealConfigOf(cfg), secrets.Deps{Store: st, Bot: echoBot,
 		Settings: sset, Lang: language(cfg), Log: log})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	if vault.Sealed() {
-		sset.MarkSealed()
-	} else {
+	if !vault.Sealed() {
 		if err := sset.SetKey(vault.SK()); err != nil {
 			log.Error("cannot start", "err", err)
 			return 1

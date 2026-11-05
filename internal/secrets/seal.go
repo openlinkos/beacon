@@ -8,11 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"golang.org/x/crypto/argon2"
 
 	"github.com/openlinkos/beacon/internal/kv"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -177,29 +179,67 @@ func (s *Service) keeper() (kmsClient, error) {
 	return s.kmsClient()
 }
 
-// takeRootKeyFile reads a 32-byte root key file and takes it in against the key check.
-func (s *Service) takeRootKeyFile(path, mode string) error {
-	b, err := os.ReadFile(path) //nolint:gosec // the operator names the file
-	if err != nil {
-		return err
+// keyCheckOpens reports whether rk unwraps the stored key check. Judgement is the key check,
+// never “can we decrypt a wrap”.
+func (s *Service) keyCheckOpens(rk []byte) bool {
+	ct, ok := s.metaGet(metaKeyCheck)
+	if !ok {
+		return false
 	}
-	if len(b) != RKSize {
-		return fmt.Errorf("%s: the root key file holds %d bytes, not %d; it is made at the first start and holds exactly %d",
-			filepath.Base(path), len(b), RKSize, RKSize)
-	}
-	return s.takeRootKey(b, mode)
+	_, err := unwrap(rk, ct, keyCheckAAD())
+	return err == nil
 }
 
-// finishStagedRootKey takes the staged root key in and replaces dest with it, for the crash
-// between the database commit and the rename.
-func (s *Service) finishStagedRootKey(staged, dest, mode string) error {
-	if err := s.takeRootKeyFile(staged, mode); err != nil {
-		return err
+// openWithStaged recovers a rotation that crashed around the rename. If a staged file exists,
+// try the new key against the key check first; if it verifies, rename and take it. Else try
+// the live file; if it verifies, drop the staged file. Never drop staged because a wrap
+// decrypted.
+func (s *Service) openWithStaged(staged, dest, mode string, read func(string) ([]byte, error)) error {
+	stagedRK, stagedErr := read(staged)
+	hasStaged := stagedErr == nil && len(stagedRK) > 0
+	if hasStaged && s.keyCheckOpens(stagedRK) {
+		if err := s.takeRootKey(stagedRK, mode); err != nil {
+			return err
+		}
+		if err := s.moveFile(staged, dest); err != nil {
+			s.d.Log.Error("the staged root key opened the vault but could not replace the file", "err", err)
+		}
+		return nil
 	}
-	if err := s.moveFile(staged, dest); err != nil {
-		s.d.Log.Error("the staged root key opened the vault but could not replace the file", "err", err)
+	destRK, destErr := read(dest)
+	if destErr != nil {
+		if hasStaged {
+			return fmt.Errorf("the root key does not open this vault")
+		}
+		return destErr
 	}
-	return nil
+	if s.keyCheckOpens(destRK) {
+		if hasStaged {
+			_ = os.Remove(staged)
+		}
+		return s.takeRootKey(destRK, mode)
+	}
+	if _, hasCheck := s.metaGet(metaKeyCheck); !hasCheck {
+		return s.takeRootKey(destRK, mode)
+	}
+	return fmt.Errorf("the root key does not open this vault (key %s)", keyID(destRK))
+}
+
+func (s *Service) clearRotationMark() {
+	mark, ok := s.metaGet(metaRotation)
+	if !ok {
+		return
+	}
+	rk, _, err := s.keys.keys()
+	if err != nil {
+		return
+	}
+	if string(mark) != keyID(rk) {
+		return
+	}
+	_ = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketMeta, []byte(metaRotation))
+	})
 }
 
 func joinModes() string { return joinStrings(SealModes) }
@@ -236,15 +276,23 @@ func (s *Service) initSeal() error {
 func (s *Service) initFileSeal() error {
 	path := filepath.Join(s.cfg.Dir, fileRootKey)
 	staged := path + ".new"
-	err := s.takeRootKeyFile(path, SealFile)
+	read := func(p string) ([]byte, error) {
+		b, err := os.ReadFile(p) //nolint:gosec // the operator names the file
+		if err != nil {
+			return nil, err
+		}
+		if len(b) != RKSize {
+			return nil, fmt.Errorf("%s: the root key file holds %d bytes, not %d; it is made at the first start and holds exactly %d",
+				filepath.Base(p), len(b), RKSize, RKSize)
+		}
+		return b, nil
+	}
+	err := s.openWithStaged(staged, path, SealFile, read)
 	switch {
 	case err == nil:
-		_ = os.Remove(staged)
+		s.clearRotationMark()
 		return nil
 	case errors.Is(err, os.ErrNotExist):
-		if s.finishStagedRootKey(staged, path, SealFile) == nil {
-			return nil
-		}
 		rk, err := randomKey()
 		if err != nil {
 			return err
@@ -255,9 +303,6 @@ func (s *Service) initFileSeal() error {
 		s.d.Log.Info("the vault made its root key", "mode", SealFile, "file", fileRootKey)
 		return s.takeRootKey(rk, SealFile)
 	default:
-		if s.finishStagedRootKey(staged, path, SealFile) == nil {
-			return nil
-		}
 		return err
 	}
 }
@@ -299,7 +344,7 @@ func (s *Service) initPassphraseSeal() error {
 // initKMSSeal reads the wrapped root key and asks the KMS to unwrap it; a KMS that cannot be
 // reached leaves the vault sealed, with the alarm, rather than failing the service.
 func (s *Service) initKMSSeal() error {
-	wrapped, err := os.ReadFile(filepath.Join(s.cfg.Dir, fileRKWrapped))
+	_, err := os.Stat(filepath.Join(s.cfg.Dir, fileRKWrapped))
 	if errors.Is(err, os.ErrNotExist) {
 		rk, err := randomKey()
 		if err != nil {
@@ -326,25 +371,25 @@ func (s *Service) initKMSSeal() error {
 	if err != nil {
 		return err
 	}
-	rk, err := c.decrypt(s.ctx, wrapped)
-	if err != nil {
-		staged := filepath.Join(s.cfg.Dir, fileRKWrapped) + ".new"
-		if sb, rerr := os.ReadFile(staged); rerr == nil { //nolint:gosec // the operator names the secrets directory
-			if rk2, derr := c.decrypt(s.ctx, sb); derr == nil {
-				if terr := s.takeRootKey(rk2, s.cfg.Mode); terr == nil {
-					if merr := s.moveFile(staged, filepath.Join(s.cfg.Dir, fileRKWrapped)); merr != nil {
-						s.d.Log.Error("the staged root key opened the vault but could not replace the file", "err", merr)
-					}
-					return nil
-				}
-			}
+	dest := filepath.Join(s.cfg.Dir, fileRKWrapped)
+	staged := dest + ".new"
+	read := func(p string) ([]byte, error) {
+		w, err := os.ReadFile(p) //nolint:gosec // the operator names the secrets directory
+		if err != nil {
+			return nil, err
+		}
+		return c.decrypt(s.ctx, w)
+	}
+	if err := s.openWithStaged(staged, dest, s.cfg.Mode, read); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 		s.d.Log.Error("the KMS could not unwrap the root key; the vault is sealed", "mode", s.cfg.Mode, "err", err)
 		_ = s.alarm("the vault could not be unsealed", "the KMS did not unwrap the root key")
 		return nil
 	}
-	_ = os.Remove(filepath.Join(s.cfg.Dir, fileRKWrapped) + ".new")
-	return s.takeRootKey(rk, s.cfg.Mode)
+	s.clearRotationMark()
+	return nil
 }
 
 // takeRootKey checks a root key against the key check and takes it in; a key that fails is refused
@@ -397,7 +442,8 @@ func (s *Service) Unseal(passphrase string) error {
 	}
 	s.keys.set(rk)
 	s.keyChanged()
-	s.ensurePolicyHead()
+	s.initHeads()
+	s.clearRotationMark()
 	s.reloadSignedRows()
 	s.auditKey("unseal", "the vault was unsealed with the passphrase")
 	return nil
@@ -433,7 +479,7 @@ func (s *Service) InitPassphrase(passphrase string) error {
 	}
 	s.keys.set(rk)
 	s.keyChanged()
-	s.ensurePolicyHead()
+	s.initHeads()
 	s.reloadSignedRows()
 	s.auditKey("init", "the vault's passphrase was set")
 	return nil
@@ -481,6 +527,10 @@ func (s *Service) SK() []byte {
 // wiring that calls this. The old key never opens the vault again; the whole turn is a few seconds
 // even with many collections, as the design promises.
 func (s *Service) RotateRootKey(newPassphrase string) error {
+	if !s.beginRootRotation() {
+		return fmt.Errorf("%w: the root key is being rotated", ErrConflict)
+	}
+	defer s.endRootRotation()
 	oldRK, oldSK, err := s.keys.keys()
 	if err != nil {
 		return err // rotating needs the vault open (the passphrase mode rotates onto a new passphrase, not from a sealed one)
@@ -512,8 +562,6 @@ func (s *Service) RotateRootKey(newPassphrase string) error {
 		}
 	}
 	newSK := policyKey(newRK)
-	// wrap and stage the new root key before the database commit, so a crash after rewrap
-	// still has a file that can open the new wraps
 	var staged, dest string
 	switch s.cfg.Mode {
 	case SealFile:
@@ -539,29 +587,57 @@ func (s *Service) RotateRootKey(newPassphrase string) error {
 			return err
 		}
 	}
-	if err := s.rewrapAll(newRK, oldRK, oldSK, newSK); err != nil {
+	if s.afterStageFn != nil {
+		if err := s.afterStageFn(); err != nil {
+			// leave the staged file: a crash after the write must still be recoverable
+			return err
+		}
+	}
+	var heads []signedhead.Head
+	s.mu.Lock()
+	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		hs, err := s.rewrapAllTx(tx, newRK, oldRK, oldSK, newSK)
+		if err != nil {
+			return err
+		}
+		heads = hs
+		return nil
+	})
+	s.mu.Unlock()
+	if err != nil {
 		if staged != "" {
 			_ = os.Remove(staged)
 		}
 		return err
+	}
+	s.afterHeads(heads...)
+	if s.afterCommitFn != nil {
+		if err := s.afterCommitFn(); err != nil {
+			return err
+		}
 	}
 	if staged != "" {
 		if err := s.moveFile(staged, dest); err != nil {
 			return err
 		}
 	}
+	if s.afterRenameFn != nil {
+		if err := s.afterRenameFn(); err != nil {
+			return err
+		}
+	}
+	s.clearRotationMark()
 	s.keys.set(newRK)
-	s.keyChanged() // the settings re-sign onto the new SK here
+	s.keyChanged()
 	s.reloadSignedRows()
 	s.auditKey("rotate", "the root key was rotated; every collection key was wrapped again")
 	return nil
 }
 
-// rewrapAll wraps every collection key of every version under newRK, inside one transaction, moves
-// the key check, and re-signs every policy row onto the new signature key (the root key's rotation
-// turns SK with it, so the rows would otherwise all fail their signatures). The old root key is
-// needed only here; the collection keys themselves do not change, so no item ciphertext moves.
-func (s *Service) rewrapAll(newRK, oldRK, oldSK, newSK []byte) error {
+// rewrapAllTx wraps every collection key of every version under newRK, re-signs the rows the
+// verified heads name, re-signs settings in the same transaction, writes the new key check and
+// the in-progress mark. The collection keys themselves do not change, so no item ciphertext moves.
+func (s *Service) rewrapAllTx(tx kv.Tx, newRK, oldRK, oldSK, newSK []byte) ([]signedhead.Head, error) {
 	type pair struct {
 		collection string
 		version    int64
@@ -573,120 +649,63 @@ func (s *Service) rewrapAll(newRK, oldRK, oldSK, newSK []byte) error {
 			clear(pairs[i].ck)
 		}
 	}()
-	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		pairs = nil
-		var inner error
-		tx.Range(bucketKeys, kv.Range{}, func(_, v []byte) bool {
-			var kr keyRow
-			if json.Unmarshal(v, &kr) != nil {
-				inner = errors.New("a collection key row could not be read")
-				return false
-			}
-			ck, err := unwrap(oldRK, kr.Wrapped, keyWrapAAD(kr.Collection, kr.Version))
-			if err != nil {
-				inner = fmt.Errorf("a collection key of version %d could not be unwrapped: %w", kr.Version, err)
-				return false
-			}
-			pairs = append(pairs, pair{kr.Collection, kr.Version, ck})
-			return true
-		})
-		if inner != nil {
-			return inner
+	var inner error
+	tx.Range(bucketKeys, kv.Range{}, func(_, v []byte) bool {
+		var kr keyRow
+		if json.Unmarshal(v, &kr) != nil {
+			inner = errors.New("a collection key row could not be read")
+			return false
 		}
-		for _, p := range pairs {
-			w, err := wrap(newRK, p.ck, keyWrapAAD(p.collection, p.version))
-			if err != nil {
-				return err
-			}
-			if err := putKeyRow(tx, keyRow{Collection: p.collection, Version: p.version, Wrapped: w,
-				At: s.now(), Actor: "beacon", Reason: "root key rotated"}); err != nil {
-				return err
-			}
-		}
-		if err := resignPolicyRowsTx(tx, oldSK, newSK); err != nil {
-			return err
-		}
-		check, err := wrap(newRK, []byte(adKeyCheckV1), keyCheckAAD())
+		ck, err := unwrap(oldRK, kr.Wrapped, keyWrapAAD(kr.Collection, kr.Version))
 		if err != nil {
-			return err
+			inner = fmt.Errorf("a collection key of version %d could not be unwrapped: %w", kr.Version, err)
+			return false
 		}
-		return metaPutTx(tx, metaKeyCheck, check)
+		pairs = append(pairs, pair{kr.Collection, kr.Version, ck})
+		return true
 	})
-	return err
-}
-
-// resignPolicyRowsTx re-signs every policy row that verifies under old onto new, inside a
-// transaction. A row that verifies under neither is left alone: reload reports it, as it should.
-func resignPolicyRowsTx(tx kv.Tx, oldSK, newSK []byte) error {
-	// the rows are read whole first, for a range cannot write while it walks
-	type pair struct {
-		key  []byte
-		body []byte
+	if inner != nil {
+		return nil, inner
 	}
-	doresign := func(bucket []byte, parts func([]byte) (row any, sig []byte, p []string, re func() error)) error {
-		var pairs []pair
-		tx.Range(bucket, kv.Range{}, func(k, v []byte) bool {
-			pairs = append(pairs, pair{key: append([]byte(nil), k...), body: append([]byte(nil), v...)})
-			return true
-		})
-		for _, pr := range pairs {
-			row, sig, parts, rewrite := parts(pr.body)
-			if row == nil || !verifyPolicy(oldSK, sig, parts...) {
-				continue
-			}
-			if err := rewrite(); err != nil {
-				return err
-			}
-			b, err := json.Marshal(row)
-			if err != nil {
-				return err
-			}
-			if err := tx.Put(bucket, pr.key, b); err != nil {
-				return err
-			}
+	for _, p := range pairs {
+		w, err := wrap(newRK, p.ck, keyWrapAAD(p.collection, p.version))
+		if err != nil {
+			return nil, err
 		}
-		return nil
-	}
-	collection := func(body []byte) (any, []byte, []string, func() error) {
-		var r signedCollection
-		if json.Unmarshal(body, &r) != nil {
-			return nil, nil, nil, nil
-		}
-		return &r, r.Sig, r.signedParts(), func() error { r.Sig = signRow(newSK, r.signedParts()...); return nil }
-	}
-	item := func(body []byte) (any, []byte, []string, func() error) {
-		var r signedItem
-		if json.Unmarshal(body, &r) != nil {
-			return nil, nil, nil, nil
-		}
-		return &r, r.Sig, r.signedParts(), func() error { r.Sig = signRow(newSK, r.signedParts()...); return nil }
-	}
-	tag := func(body []byte) (any, []byte, []string, func() error) {
-		var r signedTag
-		if json.Unmarshal(body, &r) != nil {
-			return nil, nil, nil, nil
-		}
-		return &r, r.Sig, r.signedParts(), func() error { r.Sig = signRow(newSK, r.signedParts()...); return nil }
-	}
-	perm := func(body []byte) (any, []byte, []string, func() error) {
-		var r Permission
-		if json.Unmarshal(body, &r) != nil {
-			return nil, nil, nil, nil
-		}
-		return &r, r.Sig, r.signedParts(), func() error { r.Sig = signRow(newSK, r.signedParts()...); return nil }
-	}
-	decoders := []struct {
-		bucket []byte
-		decode func([]byte) (any, []byte, []string, func() error)
-	}{
-		{bucketCollections, collection}, {bucketItems, item}, {bucketTags, tag}, {bucketPerms, perm},
-	}
-	for _, d := range decoders {
-		if err := doresign(d.bucket, d.decode); err != nil {
-			return err
+		if err := putKeyRow(tx, keyRow{Collection: p.collection, Version: p.version, Wrapped: w,
+			At: s.now(), Actor: "beacon", Reason: "root key rotated"}); err != nil {
+			return nil, err
 		}
 	}
-	return writePolicyHeadTx(tx, newSK)
+	var heads []signedhead.Head
+	policyH, err := s.resignPolicyNamedTx(tx, oldSK, newSK)
+	if err != nil {
+		return nil, err
+	}
+	heads = append(heads, policyH)
+	itemsH, err := s.resignItemsNamedTx(tx, oldSK, newSK)
+	if err != nil {
+		return nil, err
+	}
+	heads = append(heads, itemsH)
+	if s.d.Settings != nil {
+		sh, err := s.d.Settings.ResignInTx(tx, newSK)
+		if err != nil {
+			return nil, err
+		}
+		heads = append(heads, sh)
+	}
+	check, err := wrap(newRK, []byte(adKeyCheckV1), keyCheckAAD())
+	if err != nil {
+		return nil, err
+	}
+	if err := metaPutTx(tx, metaKeyCheck, check); err != nil {
+		return nil, err
+	}
+	if err := metaPutTx(tx, metaRotation, []byte(keyID(newRK))); err != nil {
+		return nil, err
+	}
+	return heads, nil
 }
 
 // RotateCollectionKey gives a collection a new key version and re-encrypts its items' details under
@@ -755,11 +774,15 @@ func (s *Service) rotateCollectionKeyNow(col Collection) error {
 	if err != nil {
 		return err
 	}
+	if err := s.refuseIfRotating(); err != nil {
+		return err
+	}
+	var committed signedhead.Head
 	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
 		var itemIDs []string
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) == nil && r.Collection == col.ID {
+			if json.Unmarshal(v, &r) == nil && r.Collection == col.ID && s.itemLive(tx, k, v, r) {
 				itemIDs = append(itemIDs, r.ID)
 			}
 			return true
@@ -848,35 +871,70 @@ func (s *Service) rotateCollectionKeyNow(col Collection) error {
 		}
 		next := col
 		next.KeyVersion = newVersion
-		if err := putCollectionTx(tx, next, sk); err != nil {
+		b, err := putCollectionTx(tx, next, sk)
+		if err != nil {
 			return err
 		}
-		return writePolicyHeadTx(tx, sk)
+		h, err := s.commitPolicy(tx, map[string][]byte{policyRowKey(kindCollection, next.ID): b}, nil)
+		committed = h
+		return err
 	})
 	if err != nil {
 		return err
 	}
+	s.afterHeads(committed)
 	s.reloadSignedRows()
 	_ = s.auditEntry(store.AuditEntry{Actor: "beacon", Via: "system", Action: "secrets_key_rotate_collection",
 		Target: col.Name, Detail: fmt.Sprintf("the collection key moved to version %d and the items were encrypted again", newVersion)})
 	return nil
 }
 
-// writeKeyFile writes key material with the permissions of a secret: 0600, in a directory of 0700.
+// writeKeyFile writes key material with the permissions of a secret: 0600, in a directory of 0700,
+// and fsyncs the file and the directory.
 func writeKeyFile(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
-}
-
-// replaceFile moves tmp onto dest, replacing dest when the operating system allows it.
-func replaceFile(tmp, dest string) error {
-	if err := os.Rename(tmp, dest); err == nil {
-		return nil
-	}
-	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec // our own key file
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, dest)
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return fsyncDir(filepath.Dir(path))
+}
+
+// replaceFile moves tmp onto dest, replacing dest when the operating system allows it, then
+// fsyncs the directory.
+func replaceFile(tmp, dest string) error {
+	if err := os.Rename(tmp, dest); err != nil {
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Rename(tmp, dest); err != nil {
+			return err
+		}
+	}
+	return fsyncDir(filepath.Dir(dest))
+}
+
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir) //nolint:gosec // the secrets directory we write
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	if err := d.Sync(); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	return nil
 }

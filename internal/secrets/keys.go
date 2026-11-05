@@ -181,19 +181,6 @@ func verifyRow(sk []byte, sig []byte, parts ...string) bool {
 	return hmac.Equal(sig, signRow(sk, parts...))
 }
 
-// verifyPolicy is verifyRow plus a fallback for rows signed before the type prefix was the first
-// part: a collection row and a permission row are both seven fields without it, so the prefix is
-// what keeps them from verifying as each other.
-func verifyPolicy(sk, sig []byte, parts ...string) bool {
-	if verifyRow(sk, sig, parts...) {
-		return true
-	}
-	if len(parts) > 1 {
-		return verifyRow(sk, sig, parts[1:]...)
-	}
-	return false
-}
-
 // hasNUL reports whether any part contains a NUL, which would make the signed encoding ambiguous.
 func hasNUL(parts ...string) bool {
 	for _, p := range parts {

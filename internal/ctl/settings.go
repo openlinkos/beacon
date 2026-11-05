@@ -19,6 +19,7 @@ type Settings interface {
 	Set(ctx context.Context, who settings.Actor, scope, target, key string, value json.RawMessage, reason string, ifVersion int64) (settings.Change, error)
 	Reset(ctx context.Context, who settings.Actor, scope, target, key, reason string, ifVersion int64) (settings.Change, error)
 	Revert(ctx context.Context, who settings.Actor, version int64, reason string) (settings.Change, error)
+	RebuildHead(ctx context.Context, who settings.Actor) error
 }
 
 // SetSettingRequest changes one setting. Scope defaults to the system scope; Value is the JSON as
@@ -58,7 +59,7 @@ func SettingsHandler(s Settings) http.Handler {
 			code = http.StatusBadRequest
 		case errors.Is(err, settings.ErrNotFound), errors.Is(err, settings.ErrUnknown):
 			code = http.StatusNotFound
-		case errors.Is(err, settings.ErrConflict):
+		case errors.Is(err, settings.ErrConflict), errors.Is(err, settings.ErrHead):
 			code = http.StatusConflict
 		}
 		fail(w, code, err)
@@ -138,6 +139,13 @@ func SettingsHandler(s Settings) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, ch)
 	})
+	mux.HandleFunc("POST /v1/settings/rebuild-head", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.RebuildHead(r.Context(), who(r)); err != nil {
+			settingsFail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	})
 	return mux
 }
 
@@ -178,4 +186,10 @@ func (c *Client) SettingsHistory(ctx context.Context, limit int) ([]settings.Cha
 func (c *Client) RevertSetting(ctx context.Context, in RevertSettingRequest) (settings.Change, error) {
 	var out settings.Change
 	return out, c.do(ctx, "POST", "/v1/settings/revert", in, &out)
+}
+
+// RebuildSettingsHead is owner recovery of the signed head from the rows that still verify.
+func (c *Client) RebuildSettingsHead(ctx context.Context) error {
+	var out map[string]bool
+	return c.do(ctx, "POST", "/v1/settings/rebuild-head", struct{}{}, &out)
 }
