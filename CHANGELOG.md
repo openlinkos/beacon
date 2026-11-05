@@ -4,10 +4,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.17 (2026-11-06)
+
 - **The state moves from one bbolt file to a SQL database** (SQLite by default; `internal/kv`, `internal/events`). Beacon's state — alert groups, tokens, accounts, the configuration, the audit log — now lives in one SQLite database (`storage.path`, default `<data_dir>/beacon.db`) through the pure-Go driver, with the buckets and keys it always had (the store's API is unchanged), and WAL plus `synchronous=FULL` and `BEGIN IMMEDIATE` write transactions, each configurable under the new `storage:` section of the configuration (`driver`, `path`, `sqlite.journal_mode`, `sqlite.synchronous`, `sqlite.busy_timeout`; a WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system). **A first start with an old bbolt file** (`status.db`) migrates it in one transaction — every bucket as it is, the audit entries as the event table's first records behind a genesis record noting the import's hash — checks the counts before committing, and keeps the old file beside as `status.db.pre-sql` to roll back with (run the old version on it again; what changed after the migration is not in it). A bbolt file found beside a SQL database after a crash mid-migration is finished if it is the file the database came from (the genesis record's hash says so) and refused if it is not, rather than one of the two being ignored. PostgreSQL is not supported yet.
 - **The audit log becomes an event table with a hash chain** (`internal/events`; the cap of 10,000 entries is gone). Every record carries SHA-256 over the record before it and a canonical form of itself, so a change or a deletion among them is seen; every 24 hours (`storage.audit.checkpoint_interval`) a signed checkpoint of the chain head is written to the database (for now the signing key is kept in the same database, so the chain shows records changed or removed by anything short of rewriting the whole log), entries are kept for 365 days (`storage.audit.retention`, pruned on start and hourly; pruning keeps the checkpoints so the chain that remains still verifies), and `beacon audit verify [-from-seq N]` walks the chain — from any checkpoint, or over everything still present — reporting where it broke. The table is indexed by time, actor and object: `GET /api/v1/audit` and the `list_audit` tool take `actor`, `action`, `target`, `from`, `to`, `offset` beside `limit` and answer with `total`, so the log can be paged and filtered where before only the newest entries could be read (new error code `audit.unavailable`). `beacon storage check` reports the database's health: SQLite's own integrity check, what each bucket holds, and the audit chain's verification; both commands read the database without locking it, so they work while the service runs.
-
-## 0.3.0
 
 ### rc.16 (2026-11-06)
 
