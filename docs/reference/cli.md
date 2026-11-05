@@ -41,6 +41,19 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 | `history` | `-limit` | The changes: version, time, who, via, action, note. `-limit` (default 20) says how many |
 | `revert` VERSION | `-note` | Go back to a version from `history` |
 
+### beacon settings
+
+The `settings` command reads and changes the system settings the secrets work runs by, each with a registered default, every change a version with who made it and why, revertible ([Settings](../reference/api.md#settings)). Values are JSON, as they are stored: `50`, `"30d"`, `["rules","agents"]`, `{"keep":"365d","min_versions":10}`. A missing or unverifiable signed head is recovered with `rebuild-head`; Beacon does not rebuild it on a later write.
+
+| Subcommand | Flags | What it does |
+| --- | --- | --- |
+| `get` [KEY] | | Every setting with its value, default, where the value was overridden and who changed it, then the other scopes' overrides; with KEY, that one and where its value stands |
+| `set` KEY VALUE | `-scope`, `-target`, `-reason` | Change one setting. `-reason` says why, kept with the change and shown in the alert chat; `-scope` (default `system`) and `-target` put the value at a collection, tag, entitlement or request |
+| `reset` KEY | `-scope`, `-target`, `-reason` | Take the override away, so the level above (or the default) answers again |
+| `history` | `-limit` | The changes: version, time, who, via, action, setting, note |
+| `revert` VERSION | `-note` | Go back to a version from `history` |
+| `rebuild-head` | | Rebuild the signed head from the rows that still verify (owner recovery through the admin socket; audited) |
+
 ### beacon setup, user, agent
 
 People's own accounts and their agents ([Invite your team](../guide/people.md)). One-time links and token secrets print once, on standard output; everything else goes to standard error. `setup` prints the one-time link that makes the first account, an owner; it works once and lasts 30 minutes.

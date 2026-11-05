@@ -36,6 +36,7 @@ import (
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/oauth"
+	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -90,6 +91,7 @@ type Server struct {
 
 	Store     *store.Store
 	Config    *configdb.Service
+	Settings  *settings.Service // the secrets work's settings (settingspage.go); nil: the console's settings page is empty
 	Hooks     []config.Agent
 	Reporting func() map[string]time.Time
 	Version   string

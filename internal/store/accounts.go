@@ -42,7 +42,7 @@ var roleAdds = map[string][]string{
 	"viewer":   {"status:read", "sessions:read"},
 	"oncall":   {"alerts:write", "machines:ssh"},
 	"operator": {"maintenance:write", "incidents:write", "machines:write"},
-	"owner":    {"config:write", "accounts:write"},
+	"owner":    {"config:write", "accounts:write", "secrets:admin"},
 }
 
 // RoleScopes are the scopes a role gives; none for an unknown role.

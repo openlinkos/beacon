@@ -56,6 +56,7 @@ import (
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/server"
+	"github.com/openlinkos/beacon/internal/settings"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
@@ -72,6 +73,8 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   beacon serve [-config path]                 run the service
   beacon check-config [-config path]          validate the configuration, its files and the database
+  beacon settings get [KEY] | set KEY VALUE | reset KEY | history | revert VERSION | rebuild-head
+                                              the settings the secrets work runs by (get: -scope/-target for the other levels)
   beacon config import DIR [-dry-run] [-note TEXT]
                                               make DIR/catalog, DIR/targets and DIR/targets/modules.yml
                                               the catalogue, probe targets and modules, as one change
@@ -129,6 +132,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return checkConfig(args[1:], stdout, stderr)
 	case "config":
 		return configCmd(args[1:], stdout, stderr)
+	case "settings":
+		return settingsCmd(args[1:], stdout, stderr)
 	case "token":
 		return token(args[1:], stdout, stderr)
 	case "setup":
@@ -264,6 +269,16 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
+	sk, err := loadSettingsKey(cfg.DataDir)
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
+	sset, err := settings.Open(settings.Deps{Store: st, Bot: bot, Lang: language(cfg), Log: log, Key: sk, EpochsDir: cfg.DataDir})
+	if err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	}
 	m := metrics.New(version.Version)
 	catalog.Register(m, cdb.Catalog)
 	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
@@ -377,12 +392,12 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	pagesOut := status.New(sdeps)
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Status: pagesOut},
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Settings: sset, Status: pagesOut},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
-			mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
+			mcpserver.WithSettings(sset), mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Settings: sset, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway
@@ -431,6 +446,8 @@ func serve(args []string, stderr io.Writer) int {
 		}
 		socket := http.NewServeMux()
 		socket.Handle("/v1/config/", ctl.ConfigHandler(cdb))
+		socket.Handle("/v1/settings/", ctl.SettingsHandler(sset))
+		socket.Handle("/v1/settings", ctl.SettingsHandler(sset))
 		silences := ctl.SilenceHandler(br)
 		socket.Handle("/v1/silences", silences)
 		socket.Handle("/v1/silences/", silences)

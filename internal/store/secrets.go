@@ -31,3 +31,10 @@ func (s *Store) Secret(name string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// DeleteSecret removes the named secret.
+func (s *Store) DeleteSecret(name string) error {
+	return s.db.Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketMeta, []byte("secret:"+name))
+	})
+}

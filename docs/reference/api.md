@@ -38,7 +38,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## Scopes
 
-A credential carries one or more scopes. The first nine are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
+A credential carries one or more scopes. The first ten are for people and agents, on this API, MCP and the SSH channel; the rest are for machines, on the gateway. People get theirs from their role, and agents from their preset within their owner's role; only machines' tokens and experts' are made with scopes by name.
 
 | Scope | What it allows |
 | --- | --- |
@@ -48,6 +48,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `machines:write` | Adding and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
+| `secrets:admin` | Changing the system settings the secrets work runs by ([below](#settings)), and reading them; every change is versioned, audited and echoed to the chat. An owner's by default |
 | `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
@@ -65,7 +66,7 @@ People and agents do not choose scopes one by one: a person's role gives them, a
 | Viewer | Read only | `status:read`, `sessions:read` |
 | On call | On call | + `alerts:write`, `machines:ssh` |
 | Operator | Operator | + `maintenance:write`, `incidents:write`, `machines:write` |
-| Owner | | + `config:write`, `accounts:write` |
+| Owner | | + `config:write`, `accounts:write`, `secrets:admin` |
 
 An agent may use a scope when its preset gives it and its owner's role does too, checked on every request: demoting or disabling the owner limits the agent at once. An OAuth sign-in is held, besides, to the preset and machines the person allowed it. A refusal (`auth.scope`) says what the agent's preset within its owner's role allows.
 
@@ -147,6 +148,20 @@ What Beacon monitors, each item in the shape of its file ([What is checked, and 
 | `GET /api/v1/config/history` | `status:read` or `config:write` | Changes, newest first, without their values (`kind`, `key`, `before` a version, `limit` at most 1000); the latest 10,000 are kept |
 | `GET /api/v1/config/history/{version}` | `status:read` or `config:write` | One change, with every item's value before and after |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | Undo one change as a new change; `config.conflict` when a later change touched one of its items |
+
+## Settings {#settings}
+
+The system settings the secrets work runs by: request and grant limits, the review chain, rate limits and anomaly rules, retention, import levels, backup and the storage lease — each with a registered default and a failsafe value, every change a version with who made it and why, revertible, every row signed and named in a hashed head so a change made straight in the database never takes effect ([the console's System settings page](https://beacon.openlinkos.com/reference/settings) shows them all). Reads take `status:read` or `secrets:admin`; changes take `secrets:admin` and a `reason`. The same operations are the MCP configuration tools' `settings` kind. A missing, stale or unverifiable head is recovered with `beacon settings rebuild-head` on the admin socket; Beacon does not rebuild it on its own.
+
+| Route | Scope | What |
+| --- | --- | --- |
+| `GET /api/v1/settings` | `status:read` or `secrets:admin` | Every setting: its default, the value in force at the system level, where that came from, who changed it, when and why; the other scopes' rows under `overrides`; rows that failed their signature under `bad_rows` (they are served as the registered failsafe, never a looser default) |
+| `GET /api/v1/settings/{key}` | `status:read` or `secrets:admin` | One setting, resolved level by level for `?collection=`, `?tag=` (more than one), `?entitlement=`, `?request=`: the more specific level wins, tags take the stricter value, a request is clamped to the bound the level above gives; `levels` lists each level that was present |
+| `PUT /api/v1/settings/{key}` | `secrets:admin` | Change one setting. The body is `{"value": …, "reason": "…", "scope": "system", "target": ""}`; `scope` and `target` put the value at a collection, tag, entitlement or request instead. The value must fit (`settings.invalid`); `if_version` is refused with `settings.conflict` when the row moved |
+| `DELETE /api/v1/settings/{key}` | `secrets:admin` | Reset one setting to what the level above gives (the row goes away); `?scope=`, `?target=`, `?reason=`, `?if_version=` |
+| `GET /api/v1/settings/history` | `status:read` or `secrets:admin` | Changes, newest first (`key`, `scope`, `target`, `before` a version, `limit` at most 200) |
+| `GET /api/v1/settings/history/{version}` | `status:read` or `secrets:admin` | One change, with the value before and after |
+| `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | Undo one change as a new change; `settings.conflict` when a later change touched the same row |
 
 ## Status pages and maintenance
 
@@ -251,6 +266,10 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `config.not_found` | 404 | No such configuration item or change |
 | `config.invalid` | 422 | The change would not pass the checks; the message says why, and nothing changed |
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |
+| `settings.not_found` | 404 | No settings change with this version, or the setting is not set at that scope |
+| `settings.unknown` | 404 | No setting of that key |
+| `settings.invalid` | 422 | The value does not fit the setting; the message says why, and nothing changed |
+| `settings.conflict` | 409 | A later change touched the same setting row; read it again and retry |
 | `status.not_found` | 404 | No status page of that name |
 | `maintenance.not_found` | 404 | No maintenance window with this id |
 | `maintenance.ended` | 409 | The maintenance window has ended, or was called off, already |

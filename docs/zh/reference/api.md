@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1d4e7743
+sourceHash: sha256-7c07ae87
 ---
 
 # REST API
@@ -42,7 +42,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 作用域 {#scopes}
 
-一个凭据带一个或多个作用域。前九个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
+一个凭据带一个或多个作用域。前十个给人和 Agent 用，用于这个 API、MCP 和 SSH 通道；其余的给机器用，用于网关。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色；只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。
 
 | 作用域 | 允许做什么 |
 | --- | --- |
@@ -52,6 +52,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `machines:write` | 添加和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
+| `secrets:admin` | 修改密钥托管所依赖的系统设置（[见下](#settings)），也能读取；每次修改都有版本、有审计、有群内回声。默认只有所有者有 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
@@ -151,6 +152,20 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/history` | `status:read` 或 `config:write` | 修改记录，新的在前，不带具体的值（`kind`、`key`、`before` 一个版本号、`limit` 最多 1000）；保留最近 10,000 次 |
 | `GET /api/v1/config/history/{version}` | `status:read` 或 `config:write` | 一次修改，带每一项改前和改后的值 |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | 以一次新修改的方式撤销某次修改；之后的修改动过其中某一项时返回 `config.conflict` |
+
+## 系统设置 {#settings}
+
+密钥托管所依赖的系统设置：申请与授权的限度、审核链、限流与异常、保留期、导入级别、备份与存储租约——每一项都有开箱默认值和故障保护值，每次修改都是带谁改的与原因的版本、可回滚，每一行都带签名并记在带哈希的 head 里，直接改数据库不会生效（控制台的「系统设置」页全部展示）。读取要 `status:read` 或 `secrets:admin`；修改要 `secrets:admin` 和 `reason`。MCP 的配置工具以 `settings` 类提供同一套操作。签名头缺失、过期或验不过时，用管理套接字上的 `beacon settings rebuild-head` 恢复；Beacon 不会自行重建。
+
+| 路由 | 作用域 | 说明 |
+| --- | --- | --- |
+| `GET /api/v1/settings` | `status:read` 或 `secrets:admin` | 全部设置项：默认值、系统层生效值、值来自哪一层、谁何时为何改的；其他作用域的行在 `overrides`；签名不符的行在 `bad_rows`（按登记的故障保护值生效，不会退回更松的默认值） |
+| `GET /api/v1/settings/{key}` | `status:read` 或 `secrets:admin` | 一个设置项按 `?collection=`、`?tag=`（可多个）、`?entitlement=`、`?request=` 逐层解析：越具体越优先，标签取更严，申请夹在上一级上限内；`levels` 列出经过的每一层 |
+| `PUT /api/v1/settings/{key}` | `secrets:admin` | 修改一个设置项。请求体 `{"value": …, "reason": "…", "scope": "system", "target": ""}`；`scope` 与 `target` 可把值放在库、标签、资格或申请上。值必须符合要求（`settings.invalid`）；行在此期间变过时 `if_version` 拒绝（`settings.conflict`） |
+| `DELETE /api/v1/settings/{key}` | `secrets:admin` | 重置一个设置项，由上一级重新生效（该行删除）；`?scope=`、`?target=`、`?reason=`、`?if_version=` |
+| `GET /api/v1/settings/history` | `status:read` 或 `secrets:admin` | 修改历史，最新在前（`key`、`scope`、`target`、`before` 某版本、`limit` 至多 200） |
+| `GET /api/v1/settings/history/{version}` | `status:read` 或 `secrets:admin` | 一次修改，含改前与改后的值 |
+| `POST /api/v1/settings/history/{version}/revert` | `secrets:admin` | 把一次修改撤销为一次新修改；同一行被更晚的修改动过时 `settings.conflict` |
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
@@ -255,6 +270,10 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `config.not_found` | 404 | 没有这个配置项或这次修改 |
 | `config.invalid` | 422 | 修改通不过校验；消息说明原因，什么都没有改 |
 | `config.conflict` | 409 | 已有更新的版本生效，或者之后的修改动过同一项；重新读取，再做决定 |
+| `settings.not_found` | 404 | 没有这个版本的设置修改，或该设置在这一作用域没有设置 |
+| `settings.unknown` | 404 | 没有这个键的设置项 |
+| `settings.invalid` | 422 | 值不符合该设置项的要求；消息说明原因，什么都没有改 |
+| `settings.conflict` | 409 | 之后的修改动过同一设置行；重新读取后再试 |
 | `status.not_found` | 404 | 没有这个名字的状态页 |
 | `maintenance.not_found` | 404 | 没有这个 id 的维护窗口 |
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |
