@@ -97,7 +97,6 @@ Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里
 | `reveal_item` | 人，`read` | 查看值（`ref`、`fields`、账号的 `password`；先写审计再返回）。`otp` 字段给当前验证码与剩余秒数，不给种子 |
 | `search_secrets` | 人，`describe` | 标题、类别、标签或字段名匹配的条目（`query`、`collection`、`tags`）——「哪个密码在哪」，不带值 |
 | `generate_item_value` | 人，`edit` | 为一个字段生成新值（`ref`、`field`、`length`、`charset`），存为新版本；值本身不返回 |
-| `import_secrets` | 人，`secrets:admin` | 导入一份已解析的批次（`batch`、`dry_run`、`on_conflict`、`levels`、`collection`、`reason`）——即 `beacon secret import` 与控制台导入向导所发。报告按库给出条数、字段数、附件数与一次性验证码数，指出类别、级别与冲突，绝无任何值 |
 | `archive_item` | 人，`edit` | 归档条目（`ref`、`reason`）：保留、让开 |
 | `remove_item` | 人，`edit` | 把条目移入回收站（`ref`、`reason`），按保留期存放 |
 | `restore_item` | 人，`edit` | 从归档或回收站恢复条目（`ref`） |

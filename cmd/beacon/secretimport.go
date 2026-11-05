@@ -13,13 +13,14 @@ import (
 	"github.com/openlinkos/beacon/internal/secrets/importer"
 )
 
-// secretImportCmd is `beacon secret import …`: the export is parsed where the command runs — on
-// the operator's own machine, the way the design recommends — and the batch travels to the service
-// over the socket, values and all. A dry-run sends no values at all: the batch is stripped to its
+// secretImportCmd is `beacon secret import …`: the export is parsed on the host that runs the
+// command (the Beacon host, over the admin socket) and the batch is written through the same
+// service the console uses. The design's "parse on your own computer, send over TLS" is not this
+// door. A dry-run sends no values at all: the batch is stripped to its
 // shapes and its user names (the conflict rule turns them over), so a look before the leap costs
 // nothing but counts. The report never prints a value; when it is done, the command says to delete
 // the plaintext export.
-const importUsage = `secret import SOURCE -file PATH [-dry-run] [-collection NAME] [-on-conflict ask|new_version|skip|keep_both] [-level COL=LEVEL,...] [-map name=HEADER,...] [-vault NAME] [-user NAME] [-reason TEXT]
+const importUsage = `secret import SOURCE -file PATH [-dry-run] [-collection NAME] [-on-conflict skip|new_version|keep_both] [-level COL=LEVEL,...] [-map name=HEADER,...] [-vault NAME] [-user NAME] [-reason TEXT]
   SOURCE: 1pux | 1password-csv | op | chrome | bitwarden | csv
   1pux            a 1Password unencrypted export (recommended; brings attachments and history)
   1password-csv   a 1Password CSV export (Login and Password items)
@@ -33,7 +34,7 @@ func secretImportCmd(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	file := fs.String("file", "", "the export file (not for op, which reads the account itself)")
 	collection := fs.String("collection", "", "the one collection the import goes into (chrome, bitwarden, csv)")
-	onConflict := fs.String("on-conflict", "", "ask (the default), new_version, skip or keep_both")
+	onConflict := fs.String("on-conflict", "", "skip (the default), new_version or keep_both")
 	levelSpec := fs.String("level", "", "a level to start a collection at, as COLLECTION=LEVEL, comma-separated")
 	columns := fs.String("map", "", "the CSV's columns, as name=HEADER comma-separated (title, url, username, password, otp, notes, tags, category)")
 	vaultFlag := fs.String("vault", "", "op: one vault (name or ID); default every vault")

@@ -124,24 +124,39 @@ var tokenRe = regexp.MustCompile(`<input type="hidden" name="token" value="([^"]
 func TestImportSlotIsOneTimeAndExpires(t *testing.T) {
 	s := &Server{}
 	batch := importer.Batch{Source: importer.SourceCSV, Collections: []importer.CollectionImport{{Name: "Sheet"}}}
-	token := s.putImport(batch)
+	token := s.putImport(batch, "sess-alice")
 	if token == "" {
 		t.Fatal("the token is made")
 	}
-	if again, ok := s.takeImport(token); !ok || again.Source != batch.Source {
+	if _, ok := s.takeImport(token, "sess-bob"); ok {
+		t.Fatal("another session cannot take the staged import")
+	}
+	if again, ok := s.takeImport(token, "sess-alice"); !ok || again.Source != batch.Source {
 		t.Fatalf("the batch comes back: %+v %v", again, ok)
 	}
-	if _, ok := s.takeImport(token); ok {
+	if _, ok := s.takeImport(token, "sess-alice"); ok {
 		t.Fatal("the token answers once")
 	}
-	// an old slot is refused and dropped
-	old := s.putImport(batch)
+	old := s.putImport(batch, "sess-alice")
 	s.importMu.Lock()
 	slot := s.imports[old]
 	slot.at = time.Now().Add(-11 * time.Minute)
 	s.imports[old] = slot
 	s.importMu.Unlock()
-	if _, ok := s.takeImport(old); ok {
+	if _, ok := s.takeImport(old, "sess-alice"); ok {
 		t.Fatal("a slot older than ten minutes is refused")
+	}
+	expired := s.putImport(batch, "sess-alice")
+	s.importMu.Lock()
+	slot = s.imports[expired]
+	slot.at = time.Now().Add(-11 * time.Minute)
+	s.imports[expired] = slot
+	s.importMu.Unlock()
+	s.sweepImports()
+	s.importMu.Lock()
+	_, still := s.imports[expired]
+	s.importMu.Unlock()
+	if still {
+		t.Fatal("an expired staged import is cleared")
 	}
 }

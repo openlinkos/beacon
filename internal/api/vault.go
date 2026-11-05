@@ -7,7 +7,6 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/secrets"
-	"github.com/openlinkos/beacon/internal/secrets/importer"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -57,7 +56,6 @@ type vault interface {
 
 	Items(collection, state string) []secrets.Item
 	Item(ref string) (secrets.Item, secrets.Collection, bool)
-	Import(who secrets.Actor, batch importer.Batch, opts secrets.ImportOptions) (secrets.ImportReport, error)
 	Versions(item string) []secrets.ItemVersion
 	SetItem(who secrets.Actor, in secrets.ItemIn) (secrets.Item, error)
 	ArchiveItem(who secrets.Actor, item string) (secrets.Item, error)

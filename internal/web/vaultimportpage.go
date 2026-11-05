@@ -24,7 +24,7 @@ type importLabels struct {
 	Title, Choose, Source, SourceHint, File, FileHint, Collection, CollectionHint string
 	DryRun, Report, New, OTPs, Attachments, AtNever, Categories                   string
 	Conflicts, Incoming, AlreadyThere, SharedURLs, ConflictsHint                  string
-	OnConflict, AskWord, Reason, Do                                               string
+	OnConflict, Reason, Do                                                        string
 	Done, DeleteExport, Followups, FollowupLevels                                 string
 	FollowupNever, FollowupEntitlements                                           string
 }
@@ -50,7 +50,6 @@ func (s *Server) importLabels() importLabels {
 		AlreadyThere:         s.t("Already there"),
 		SharedURLs:           s.t("Shared URLs"),
 		OnConflict:           s.t("On conflict"),
-		AskWord:              s.t("hold back for a person"),
 		Reason:               s.t("Why"),
 		Do:                   s.t("Import these items"),
 		Done:                 s.t("Imported"),
@@ -103,6 +102,7 @@ func (s *Server) vaultImportPage(w http.ResponseWriter, r *http.Request, v *view
 	if msg := r.URL.Query().Get("problem"); msg != "" {
 		p.Problem = msg
 	}
+	s.sweepImports()
 	s.render(w, vaultImportTmpl, p)
 }
 
@@ -168,7 +168,7 @@ func (s *Server) vaultImportDryRun(w http.ResponseWriter, r *http.Request, v *vi
 	}
 	p := s.importShell(w, r, v)
 	p.Report, p.Conflicts = importRows(report), importConflictRows(report)
-	p.Token = s.putImport(batch)
+	p.Token = s.putImport(batch, v.ID)
 	p.DryRunDone = true
 	s.render(w, vaultImportTmpl, p)
 }
@@ -180,7 +180,7 @@ func (s *Server) vaultImportCommit(w http.ResponseWriter, r *http.Request, v *vi
 		http.Redirect(w, r, consolePath(""), http.StatusSeeOther)
 		return
 	}
-	batch, ok := s.takeImport(r.PostForm.Get("token"))
+	batch, ok := s.takeImport(r.PostForm.Get("token"), v.ID)
 	if !ok {
 		s.redirectProblem(w, r, s.t("The upload is no longer there; start again with the file."))
 		return
@@ -218,15 +218,29 @@ func (s *Server) redirectProblem(w http.ResponseWriter, r *http.Request, msg str
 	http.Redirect(w, r, consolePath("/secrets/import?problem="+urlQueryEscape(msg)), http.StatusSeeOther) //nolint:gosec // G710: within the console's own paths
 }
 
-// importSlot is one parsed batch waiting for its person's confirmation.
+// importSlot is one parsed batch waiting for its person's confirmation, bound to the session
+// that uploaded it.
 type importSlot struct {
-	batch importer.Batch
-	at    time.Time
+	batch     importer.Batch
+	sessionID string
+	at        time.Time
 }
 
-// putImport holds a parsed batch under a one-time token, dropping anything older than ten minutes
-// so nothing waits long in memory.
-func (s *Server) putImport(batch importer.Batch) string {
+const importSlotTTL = 10 * time.Minute
+
+func (s *Server) sweepImports() {
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+	for k, slot := range s.imports {
+		if time.Since(slot.at) > importSlotTTL {
+			delete(s.imports, k)
+		}
+	}
+}
+
+// putImport holds a parsed batch under a one-time token for this session, dropping anything
+// older than ten minutes so nothing waits long in memory.
+func (s *Server) putImport(batch importer.Batch, sessionID string) string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return ""
@@ -237,25 +251,26 @@ func (s *Server) putImport(batch importer.Batch) string {
 		s.imports = map[string]importSlot{}
 	}
 	for k, slot := range s.imports {
-		if time.Since(slot.at) > 10*time.Minute {
+		if time.Since(slot.at) > importSlotTTL {
 			delete(s.imports, k)
 		}
 	}
-	s.imports[token] = importSlot{batch: batch, at: time.Now()}
+	s.imports[token] = importSlot{batch: batch, sessionID: sessionID, at: time.Now()}
 	s.importMu.Unlock()
 	return token
 }
 
-// takeImport answers the token and forgets it; a token older than ten minutes is refused.
-func (s *Server) takeImport(token string) (importer.Batch, bool) {
+// takeImport answers the token for this session and forgets it; a token older than ten minutes,
+// or one another session uploaded, is refused.
+func (s *Server) takeImport(token, sessionID string) (importer.Batch, bool) {
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
 	slot, ok := s.imports[token]
-	if !ok {
+	if !ok || slot.sessionID != sessionID {
 		return importer.Batch{}, false
 	}
 	delete(s.imports, token)
-	if time.Since(slot.at) > 10*time.Minute {
+	if time.Since(slot.at) > importSlotTTL {
 		return importer.Batch{}, false
 	}
 	return slot.batch, true

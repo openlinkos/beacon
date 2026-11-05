@@ -55,9 +55,8 @@
       <input type="hidden" name="token" value="{{.Token}}">
       <div class="ol-field"><label class="ol-label">{{.L.OnConflict}}</label>
         <select class="ol-input" name="on_conflict">
-          <option value="ask">{{.L.AskWord}}</option>
-          <option value="new_version">new_version</option>
           <option value="skip">skip</option>
+          <option value="new_version">new_version</option>
           <option value="keep_both">keep_both</option>
         </select></div>
       {{range .Report}}<div class="ol-field"><label class="ol-label">{{.Name}} · {{$.VL.Level}}</label>

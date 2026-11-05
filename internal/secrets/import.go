@@ -22,13 +22,13 @@ import (
 // meet an item that is already there — the same place, by the normalised URL, with the same user
 // name. The user names themselves are values: they stay out.
 
-// ImportOptions is how one import runs. OnConflict picks ask (the default: conflicting items are
-// held back for a person to decide), new_version (the item that is there gains a version with the
-// imported values), skip or keep_both; Levels overrides the level a collection's items start at,
-// by collection name; Collection folds the whole import into one named collection.
+// ImportOptions is how one import runs. OnConflict picks skip (the default), new_version (the
+// item that is there gains a version with the imported values) or keep_both; Levels overrides the
+// level a collection's items start at, by collection name; Collection folds the whole import into
+// one named collection.
 type ImportOptions struct {
 	DryRun     bool              `json:"dry_run,omitempty"`
-	OnConflict string            `json:"on_conflict,omitempty"` // ask, new_version, skip, keep_both
+	OnConflict string            `json:"on_conflict,omitempty"` // new_version, skip or keep_both
 	Levels     map[string]string `json:"levels,omitempty"`      // collection name → level
 	Collection string            `json:"collection,omitempty"`  // one target collection for everything
 	Reason     string            `json:"reason,omitempty"`
@@ -100,7 +100,7 @@ var (
 
 // importLevelsOf reads the import's settings, falling back to the registered defaults.
 func (s *Service) importLevelsOf() importLevels {
-	out := importLevels{bySource: map[string]string{}, byCategory: map[string]string{}, onConflict: "ask"}
+	out := importLevels{bySource: map[string]string{}, byCategory: map[string]string{}, onConflict: "skip"}
 	for k, v := range defaultBySource {
 		out.bySource[k] = v
 	}
@@ -123,6 +123,9 @@ func (s *Service) importLevelsOf() importLevels {
 	if res, err := s.d.Settings.System("import.on_conflict"); err == nil {
 		var v string
 		if json.Unmarshal(res.Value, &v) == nil && v != "" {
+			if v == "ask" {
+				v = "skip" // ask used to drop conflicts; skip is the remaining default
+			}
 			out.onConflict = v
 		}
 	}
@@ -290,8 +293,8 @@ func (s *Service) conflictIndexOf(collectionID string) *conflictIndex {
 // Import runs one import. A dry-run answers the report and writes nothing; a real import writes
 // the items, resolves the conflicts by the strategy, and answers the report with what happened.
 // The caller is a person (an agent is refused); an existing target collection needs edit, and a
-// collection that does not exist yet is made — the doors that reach here (the console, the API,
-// the command line's socket) decide who may import at all.
+// collection that does not exist yet is made — the doors that reach here (the console and the
+// command line's socket) decide who may import at all.
 func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (ImportReport, error) {
 	if !who.Person() {
 		return ImportReport{}, ErrAgent
@@ -311,9 +314,9 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 		onConflict = levels.onConflict
 	}
 	switch onConflict {
-	case "ask", "new_version", "skip", "keep_both":
+	case "new_version", "skip", "keep_both":
 	default:
-		return ImportReport{}, fmt.Errorf("%w: on_conflict is ask, new_version, skip or keep_both", ErrBadInput)
+		return ImportReport{}, fmt.Errorf("%w: on_conflict is new_version, skip or keep_both", ErrBadInput)
 	}
 	for name, lvl := range opts.Levels {
 		if !ValidLevel(lvl) {
@@ -366,11 +369,24 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 			Detail: fmt.Sprintf("import from %s into %d collection(s)", batch.Source, len(targets))})
 	}
 	report := ImportReport{Source: batch.Source, DryRun: opts.DryRun, Merged: batch.Merged}
+	end := func(failed bool) {
+		if opts.DryRun {
+			return
+		}
+		total := report.Created + report.Versions + report.KeptBoth
+		_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_import_end",
+			Detail: fmt.Sprintf("imported %d item(s) from %s (%d created, %d versions, %d skipped, %d kept both; failed=%t)",
+				total, batch.Source, report.Created, report.Versions, report.Skipped, report.KeptBoth, failed)})
+		if !failed && s.d.Bot != nil {
+			_ = s.d.Bot.Send(s.ctx, s.t("%s imported %d item(s) from %s via %s", who.Name, total, batch.Source, s.viaWords(who.Via)))
+		}
+	}
 	for i := range targets {
 		t := &targets[i]
 		if !opts.DryRun && t.new {
 			col, err := s.CreateCollection(who, t.imported.Name, t.imported.Description, t.level)
 			if err != nil {
+				end(true)
 				return report, err
 			}
 			t.col = col
@@ -408,6 +424,7 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 			case hit == nil:
 				written, err := s.importCreate(who, t.col, item, levels, opts)
 				if err != nil {
+					end(true)
 					return report, err
 				}
 				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
@@ -417,6 +434,7 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 			case onConflict == "new_version":
 				written, err := s.importNewVersion(who, hit.item, item, opts)
 				if err != nil {
+					end(true)
 					return report, err
 				}
 				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
@@ -428,12 +446,13 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 			case onConflict == "keep_both":
 				written, err := s.importCreate(who, t.col, item, levels, opts)
 				if err != nil {
+					end(true)
 					return report, err
 				}
 				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
 				report.KeptBoth++
-			default: // ask: the item is held back for a person to decide
-				report.HeldBack++
+			default: // skip
+				report.Skipped++
 			}
 		}
 		for _, name := range sortedKeys(cats) {
@@ -441,16 +460,7 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 		}
 		report.Collections = append(report.Collections, cr)
 	}
-	if opts.DryRun {
-		return report, nil
-	}
-	total := report.Created + report.Versions + report.KeptBoth
-	_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_import",
-		Detail: fmt.Sprintf("imported %d item(s) from %s (%d created, %d versions, %d skipped, %d held back, %d kept both)",
-			total, batch.Source, report.Created, report.Versions, report.Skipped, report.HeldBack, report.KeptBoth)})
-	if s.d.Bot != nil {
-		_ = s.d.Bot.Send(s.ctx, s.t("%s imported %d item(s) from %s via %s", who.Name, total, batch.Source, s.viaWords(who.Via)))
-	}
+	end(false)
 	return report, nil
 }
 

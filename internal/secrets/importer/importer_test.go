@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -283,7 +284,7 @@ func TestParse1PUXRefusesAnOversizedEntry(t *testing.T) {
 }
 
 func TestTitleOfCutsOnRuneBoundary(t *testing.T) {
-	han := strings.Repeat("密", 50)
+	han := strings.Repeat(string(rune(0x4E00)), 50)
 	got := titleOf(han, "")
 	if got != han {
 		t.Fatalf("fifty han characters fit: %q", got)
@@ -714,5 +715,12 @@ func TestHistoryTimesComeSorted(t *testing.T) {
 	h := batch.Collections[0].Items[0].History
 	if !h[0].At.Before(h[1].At) || time.Unix(1700000000, 0).UTC() != h[0].At.UTC() {
 		t.Fatalf("oldest first with its own time: %+v", h)
+	}
+}
+
+func TestReadCSVRefusesOversized(t *testing.T) {
+	r := io.MultiReader(strings.NewReader("a,b\n"), bytes.NewReader(make([]byte, 64<<20)))
+	if _, err := readCSV(r); err == nil || !strings.Contains(err.Error(), "64 MiB") {
+		t.Fatalf("a CSV larger than 64 MiB is refused, got %v", err)
 	}
 }

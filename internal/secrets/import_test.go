@@ -293,15 +293,18 @@ func makeConflicting(t *testing.T, s *Service) Item {
 
 // TestImportConflictAskHoldsThemBack: the default holds a conflicting item for a person to decide
 // — the item that is there stays as it was, and the report says what waited.
-func TestImportConflictAskHoldsThemBack(t *testing.T) {
+func TestImportConflictSkipIsTheDefault(t *testing.T) {
 	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
 	item := makeConflicting(t, s)
+	if _, err := s.Import(owner, importConflictBatch("https://example.com/other", "fixture-import-conflict-user@example.com"), ImportOptions{OnConflict: "ask"}); err == nil {
+		t.Fatal("ask is not offered: it used to drop the incoming item")
+	}
 	report, err := s.Import(owner, importConflictBatch("https://example.com/other", "fixture-import-conflict-user@example.com"), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.HeldBack != 1 || report.Created != 0 || len(report.Conflicts) != 1 {
-		t.Fatalf("ask holds it back and says so: %+v", report)
+	if report.Skipped != 1 || report.Created != 0 || len(report.Conflicts) != 1 {
+		t.Fatalf("the default skips the conflict: %+v", report)
 	}
 	c := report.Conflicts[0]
 	if c.Incoming != "Example Login" || c.Existing != "Example Login" || c.SharedURLs != 1 {
@@ -486,12 +489,57 @@ func TestImportWritesItsAuditEntry(t *testing.T) {
 	if _, err := s.Import(owner, importChrome(t, "Chrome Imports"), ImportOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) == 0 || entries[len(entries)-1].Action != "secrets_import" {
-		t.Fatalf("the import is audited: %+v", entries)
+	var begin, end bool
+	for _, e := range entries {
+		switch e.Action {
+		case "secrets_import_begin":
+			begin = true
+		case "secrets_import_end":
+			end = true
+			if !strings.Contains(e.Detail, "chrome") || !strings.Contains(e.Detail, "failed=false") || strings.Contains(e.Detail, "fixture-import") {
+				t.Fatalf("the end audit says the source, the counts and that it finished, never a value: %q", e.Detail)
+			}
+		}
 	}
-	detail := entries[len(entries)-1].Detail
-	if !strings.Contains(detail, "chrome") || strings.Contains(detail, "fixture-import") {
-		t.Fatalf("the audit says the source and the counts, never a value: %q", detail)
+	if !begin || !end {
+		t.Fatalf("the import is audited at start and end: %+v", entries)
+	}
+}
+
+func TestImportMidFailKeepsWrittenItemsInTheAudit(t *testing.T) {
+	var entries []store.AuditEntry
+	s, _ := newVault(t, SealFile, Deps{Audit: func(e store.AuditEntry) error {
+		entries = append(entries, e)
+		return nil
+	}, Lang: i18n.EN})
+	batch := importer.Batch{Source: importer.SourceCSV, Collections: []importer.CollectionImport{{
+		Name: "Sheet", Items: []importer.ItemImport{
+			{Title: "First", Source: importer.SourceCSV, Fields: []importer.FieldImport{
+				{Name: "password", Type: importer.TypeConcealed, Purpose: importer.PurposePassword, Value: "ok"}}},
+			{Title: "", Source: importer.SourceCSV, Fields: []importer.FieldImport{
+				{Name: "password", Type: importer.TypeConcealed, Purpose: importer.PurposePassword, Value: "nope"}}},
+		},
+	}}}
+	if _, err := s.Import(owner, batch, ImportOptions{}); err == nil {
+		t.Fatal("the second item has no title, so the import fails")
+	}
+	var created, ended bool
+	for _, e := range entries {
+		if e.Action == "secrets_item_create" && e.Target == "First" {
+			created = true
+		}
+		if e.Action == "secrets_import_end" {
+			ended = true
+			if !strings.Contains(e.Detail, "failed=true") || !strings.Contains(e.Detail, "1 created") {
+				t.Fatalf("the end record marks the failure and the count: %q", e.Detail)
+			}
+		}
+	}
+	if !created || !ended {
+		t.Fatalf("the written item is in the audit and the import ended failed: %+v", entries)
+	}
+	if got := s.Items("Sheet", ""); len(got) != 1 || got[0].Title != "First" {
+		t.Fatalf("the first item stayed: %+v", got)
 	}
 }
 

@@ -234,7 +234,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	s.registerConfig(mux)
 	s.registerSettings(mux)
 	s.registerVault(mux)
-	s.registerVaultImport(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
