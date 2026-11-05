@@ -15,7 +15,7 @@
 //	beacon audit verify | storage check
 //	beacon enroll probe|host|heartbeat NAME [-rotate]
 //	beacon drill fail 15m | drill off | drill status
-//	beacon healthcheck [-url http://127.0.0.1:17001/healthz]   health check for the container
+//	beacon healthcheck [-url http://127.0.0.1:17001/livez]     health check for the container
 //	beacon version
 package main
 
@@ -397,9 +397,10 @@ func serve(args []string, stderr io.Writer) int {
 	go reloadOnHUP(ctx, hup, cfg, cdb, log)
 
 	// The leader lease of a primary/standby pair (PostgreSQL): one instance holds the Feishu long
-	// connection, the alert routing and the escalation loops, and answers /healthz with 200; the
-	// other waits, and takes over when the lease expires. What the pair shares is in the database
-	// (and, for recordings, in S3-compatible storage); a loop restarts from it as after a restart.
+	// connection, the alert routing, the escalation loops and the SSH channel, and answers /healthz
+	// with 200; the other waits, answers /livez with 200 while it can reach the database, and takes
+	// over when the lease expires. What the pair shares is in the database (and, for recordings, in
+	// S3-compatible storage); a loop restarts from it as after a restart.
 	var lease *ha.Lease
 	single := func(fn func(context.Context)) {
 		go fn(ctx)
@@ -411,16 +412,17 @@ func serve(args []string, stderr io.Writer) int {
 			return 1
 		}
 		defer func() { _ = pool.Close() }()
-		if lease, err = ha.Open(pool, ha.Options{Name: cfg.HA.Name, Renew: cfg.HA.Renew.D(), Expire: cfg.HA.Expire.D(), Log: log}); err != nil {
+		if lease, err = ha.Open(pool, ha.Options{Name: cfg.HA.Name, ID: cfg.HA.ID, Renew: cfg.HA.Renew.D(), Expire: cfg.HA.Expire.D(), Log: log}); err != nil {
 			log.Error("cannot start", "err", err)
 			return 1
 		}
+		st.SetWriteGuard(lease.CheckWrite)
 		go lease.Run(ctx)
 		single = func(fn func(context.Context)) {
 			go ha.Single(ctx, lease, fn)
 		}
-		// the standby's token cache is a snapshot of its start; the tokens the primary made while
-		// it held the lead arrive by refresh — on taking over, and while it waits
+		// the standby's token cache and catalogue are a snapshot of its start; refresh on taking
+		// over, and while it waits. Writes check the lease row inside the transaction.
 		go func() {
 			t := time.NewTicker(30 * time.Second)
 			defer t.Stop()
@@ -429,13 +431,19 @@ func serve(args []string, stderr io.Writer) int {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					st.RefreshTokens()
+					if !lease.Leader() {
+						cdb.Reload()
+					}
+					if err := st.RefreshTokens(); err != nil {
+						log.Warn("token cache was not refreshed", "err", err)
+					}
 				}
 			}
 		}()
 		sd.Standby = func() bool { return !lease.Leader() }
-		log.Info("high availability on: this instance answers /healthz with 503 until it holds the leader lease",
-			"lease", cfg.HA.Name, "renew", cfg.HA.Renew.String(), "expire", cfg.HA.Expire.String())
+		sd.Live = lease.Healthy
+		log.Info("high availability on: this instance answers /healthz with 503 until it holds the leader lease; /livez stays 200 while it can reach the database",
+			"lease", cfg.HA.Name, "id", lease.ID(), "renew", cfg.HA.Renew.String(), "expire", cfg.HA.Expire.String())
 	}
 	if listener != nil {
 		single(func(lctx context.Context) {
@@ -451,7 +459,10 @@ func serve(args []string, stderr io.Writer) int {
 	single(func(lctx context.Context) { br.Run(lctx, ping) })
 	go pagesOut.Run(ctx)
 	single(func(lctx context.Context) {
-		st.RefreshTokens() // what the other instance made while this one waited
+		cdb.Reload()
+		if err := st.RefreshTokens(); err != nil {
+			log.Warn("token cache was not refreshed", "err", err)
+		}
 		rt.Restore(st.Groups())
 		rt.Run(lctx)
 	})
@@ -499,26 +510,35 @@ func serve(args []string, stderr io.Writer) int {
 	var gs *http.Server
 	if cfg.Gateway.Listen != "" {
 		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
+		gdeps := gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
+			Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
+			Metrics: m, Log: log, Requests: board}
+		if lease != nil {
+			gdeps.Leader = lease.Leader
+		}
 		gs = &http.Server{Addr: cfg.Gateway.Listen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
 			WriteTimeout: 2 * time.Minute, IdleTimeout: 5 * time.Minute,
-			Handler: gateway.Handler(gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
-				Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
-				Metrics: m, Log: log, Requests: board})}
+			Handler: gateway.Handler(gdeps)}
 		go func() { errc <- gs.ListenAndServe() }()
 	}
 	if gate != nil {
-		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.SSH.Listen)
-		if err != nil {
-			log.Error("cannot start", "err", fmt.Errorf("ssh.listen: %w", err))
-			return 1
-		}
-		defer func() { _ = ln.Close() }()
-		go func() {
-			if err := gate.Serve(ln); err != nil {
+		single(func(lctx context.Context) {
+			ln, err := (&net.ListenConfig{}).Listen(lctx, "tcp", cfg.SSH.Listen)
+			if err != nil {
+				if lctx.Err() == nil {
+					errc <- fmt.Errorf("ssh.listen: %w", err)
+				}
+				return
+			}
+			go func() {
+				<-lctx.Done()
+				_ = ln.Close()
+			}()
+			if err := gate.Serve(ln); err != nil && lctx.Err() == nil {
 				errc <- err
 			}
-		}()
-		go gate.Tidy(ctx)
+		})
+		single(func(lctx context.Context) { gate.Tidy(lctx) })
 	}
 	log.Info("beacon started", "version", version.Version, "listen", cfg.Listen,
 		"feishu_app", deps.Feishu != nil, "callback", cfg.Feishu.Callback, "pushover", deps.Pushover != nil, "locations", len(cdb.Catalog().Locations),
@@ -776,7 +796,7 @@ func drill(args []string, stdout, stderr io.Writer) int {
 func healthcheck(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	url := fs.String("url", "http://127.0.0.1:17001/healthz", "address to check")
+	url := fs.String("url", "http://127.0.0.1:17001/livez", "address to check")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

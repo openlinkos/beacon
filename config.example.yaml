@@ -27,12 +27,14 @@ storage:
 # High availability: a primary and a standby over one PostgreSQL database, one active at a time.
 # The primary renews a lease in the database; when it stops, the standby takes the lease within
 # ha.expire and /healthz answers 200 again — before that it answers 503, so the load balancer or
-# the VIP in front sends traffic to the primary alone. Recordings shared by the pair
-# (ssh.recordings: s3) and the state in the database make the switch complete. On SQLite this is
-# refused: the file belongs to one process.
+# the VIP in front sends traffic to the primary alone. /livez stays 200 on a healthy standby
+# (Docker's health check uses it) and goes 503 when this instance cannot reach PostgreSQL.
+# Recordings shared by the pair (ssh.recordings: s3, written locally then uploaded) and the state
+# in the database make the switch complete. On SQLite this is refused: the file belongs to one process.
 # ha:
 #   enabled: true
 #   name: beacon                            # the lease's name; both instances name the same
+#   # id: beacon-a                          # this instance; default hostname:pid plus a random suffix
 #   renew: 5s                               # how often the primary renews
 #   expire: 15s                             # how long the lease lasts; the switch takes about this
 # The catalogue, probe targets and modules live in the database (docs/guide/monitoring.md). These files are

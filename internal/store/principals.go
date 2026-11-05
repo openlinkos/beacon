@@ -281,17 +281,19 @@ func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, erro
 // DeleteAgent forgets an agent with every credential it has: its tokens (and their console sign-ins),
 // its OAuth grants and their access tokens. What it did stays on record.
 func (s *Store) DeleteAgent(name string) error {
-	s.mu.Lock()
+	s.tokenMu.Lock()
 	var names []string
-	for _, t := range s.tokens {
-		if t.Agent == name {
-			names = append(names, t.Name)
-		}
-	}
 	err := s.db.Update(func(tx kv.Tx) error {
 		if tx.Get(bucketAgents, []byte(name)) == nil {
 			return ErrNotFound
 		}
+		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
+			var t Token
+			if json.Unmarshal(v, &t) == nil && t.Agent == name {
+				names = append(names, t.Name)
+			}
+			return true
+		})
 		for _, n := range names {
 			if err := tx.Delete(bucketTokens, []byte(n)); err != nil {
 				return err
@@ -303,13 +305,15 @@ func (s *Store) DeleteAgent(name string) error {
 		return tx.Delete(bucketAgents, []byte(name))
 	})
 	if err == nil {
+		s.mu.Lock()
 		for h, t := range s.tokens {
 			if t.Agent == name {
 				delete(s.tokens, h)
 			}
 		}
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
+	s.tokenMu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -334,8 +338,8 @@ func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (st
 		return "", Token{}, err
 	}
 	now := s.now().UTC()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var t Token
 	err = s.db.Update(func(tx kv.Tx) error {
 		if _, ok := getAgent(tx, agent); !ok { // deleted meanwhile
@@ -352,7 +356,9 @@ func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (st
 	if err != nil {
 		return "", Token{}, err
 	}
+	s.mu.Lock()
 	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return secret, t, nil
 }
 
@@ -497,26 +503,24 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 	if err := ValidAgentName(agentName); err != nil {
 		return Agent{}, Token{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var t Token
-	found := false
-	for _, x := range s.tokens {
-		if x.Name == name {
-			t, found = x, true
-		}
-	}
-	if !found {
-		return Agent{}, Token{}, fmt.Errorf("%w: no token %q", ErrNotFound, name)
-	}
-	if !Legacy(t) {
-		return Agent{}, Token{}, fmt.Errorf("token %s is not a legacy token: it is an agent's already, or a machine's", name)
-	}
-	if preset == "" {
-		preset = ClosestPreset(t.Scopes)
-	}
 	var a Agent
 	err := s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return fmt.Errorf("%w: no token %q", ErrNotFound, name)
+		}
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		if !Legacy(t) {
+			return fmt.Errorf("token %s is not a legacy token: it is an agent's already, or a machine's", name)
+		}
+		if preset == "" {
+			preset = ClosestPreset(t.Scopes)
+		}
 		existing, ok := getAgent(tx, agentName)
 		switch {
 		case ok && existing.Owner != owner:
@@ -555,7 +559,9 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 	if err != nil {
 		return Agent{}, Token{}, err
 	}
+	s.mu.Lock()
 	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return a, t, nil
 }
 

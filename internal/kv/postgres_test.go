@@ -6,8 +6,13 @@ package kv
 // bad DSN says, that a DSN's secret never reaches an error, and what the command line's checks see.
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPostgresNeedsDSN(t *testing.T) {
@@ -49,4 +54,70 @@ func TestPostgresHealthWhere(t *testing.T) {
 	if w := db.Where(); !strings.HasPrefix(w, "postgres ") || strings.Contains(w, "password") {
 		t.Fatalf("where: %q", w)
 	}
+}
+
+// TestPostgresViewIsASnapshot: a View is Repeatable Read, so a second statement in it does not
+// see a write that committed after it began.
+func TestPostgresViewIsASnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode skips the database tests")
+	}
+	db, err := OpenPostgres(PostgresOptions{DSN: testDatabase(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Update(func(tx Tx) error {
+		return tx.Put([]byte("b"), []byte("k"), []byte("v1"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	saw := make(chan []byte, 1)
+	go func() {
+		_ = db.View(func(tx Tx) error {
+			first := tx.Get([]byte("b"), []byte("k"))
+			close(started)
+			time.Sleep(200 * time.Millisecond)
+			saw <- append([]byte(nil), tx.Get([]byte("b"), []byte("k"))...)
+			if !bytes.Equal(first, []byte("v1")) {
+				t.Errorf("first Get: %q", first)
+			}
+			return nil
+		})
+	}()
+	<-started
+	if err := db.Update(func(tx Tx) error {
+		return tx.Put([]byte("b"), []byte("k"), []byte("v2"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := <-saw
+	if !bytes.Equal(got, []byte("v1")) {
+		t.Fatalf("View saw the concurrent write: %q", got)
+	}
+}
+
+// TestPostgresWriteGuard: a guard that refuses the write rolls it back.
+func TestPostgresWriteGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode skips the database tests")
+	}
+	db, err := OpenPostgres(PostgresOptions{DSN: testDatabase(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetWriteGuard(func(context.Context, *sql.Tx) error { return errors.New("blocked") })
+	err = db.Update(func(tx Tx) error { return tx.Put([]byte("b"), []byte("k"), []byte("v")) })
+	if err == nil || err.Error() != "blocked" {
+		t.Fatalf("guard: %v", err)
+	}
+	db.SetWriteGuard(nil)
+	_ = db.View(func(tx Tx) error {
+		if v := tx.Get([]byte("b"), []byte("k")); v != nil {
+			t.Errorf("a guarded write left %q", v)
+		}
+		return nil
+	})
 }

@@ -218,7 +218,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开状态页和其中的事件，不需要令牌（[状态页](../guide/status-pages.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |
 | `GET /status.json`、`GET /status/{name}.json`、`GET /status/{name}/feed.atom`、`GET /status/{name}/badge.svg`、`GET /status/{name}/components/{component}/badge.svg` | 状态页的 JSON、Atom 订阅和徽章，公开，可以缓存 |
 | `GET /robots.txt` | 允许搜索引擎读取 `/`、`/status` 和 `/static/`，不让它们进 `/console`、`/api/`、`/mcp`、`/alerts/` 和 `/sessions/` |
-| `GET /healthz` | 存活检查：`ok` |
+| `GET /healthz` | 给负载均衡：主机 `ok`，备机 `503 standby` |
+| `GET /livez` | 给 Docker 健康检查：主机 `ok`，健康的备机 `standby`（200），本实例连不上 PostgreSQL 时 `503 unhealthy` |
 | `GET /readyz` | 就绪检查：收到过 Watchdog、飞书连接正常、额度没用完 |
 | `GET /metrics` | Beacon 自己的 Prometheus 指标，只回答直连 |
 | `POST /hooks/feishu` | `feishu.callback: http` 时飞书的卡片回调 |

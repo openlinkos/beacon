@@ -30,8 +30,9 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
 | `storage.postgres.pool_size` | number | `4` | PostgreSQL read connections; writes always take one connection of their own, whatever the pool size |
 | `storage.postgres.statement_timeout` | duration | `15s` | How long a PostgreSQL statement may run before the server cancels it, so one that hangs does not hold the writer; `0` turns it off |
-| `ha.enabled` | bool | `false` | The primary/standby pair over one PostgreSQL database (needs `storage.driver: postgres`): the primary renews a lease in the database, the standby takes it when it expires and answers `/healthz` with 503 until then, so the load balancer or the VIP in front sends traffic to one instance at a time. The switch takes about `ha.expire`. What the pair shares is the database and the recordings' bucket (`ssh.recordings: s3`) |
+| `ha.enabled` | bool | `false` | The primary/standby pair over one PostgreSQL database (needs `storage.driver: postgres`): the primary renews a lease in the database, the standby takes it when it expires and answers `/healthz` with 503 until then, so the load balancer or the VIP in front sends traffic to one instance at a time. `/livez` stays 200 on a healthy standby (the image's health check) and goes 503 when this instance cannot reach PostgreSQL. The switch takes about `ha.expire`. What the pair shares is the database and the recordings' bucket (`ssh.recordings: s3`) |
 | `ha.name` | string | `beacon` | The lease's name; every instance of the pair names the same |
+| `ha.id` | string | hostname:pid plus a random suffix | This instance's name in the lease row. Set it when two containers would otherwise share a hostname and run as PID 1 |
 | `ha.renew` | duration | `5s` | How often the primary renews the lease |
 | `ha.expire` | duration | `15s` | How long the lease lasts without a renewal; the standby takes over within this. Must outlast `ha.renew` |
 
@@ -78,7 +79,7 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 | `ssh.ca_key_file` | path | — | The key that signs a short-lived certificate for every connection to a machine; setting it turns the channel on. It must be a different key from the host key |
 | `ssh.source_addresses` | list of CIDR ranges | — | When set, the certificates work only from these addresses |
 | `ssh.keep` | duration | `4320h` (180 days) | How long sessions and their recordings are kept. At least `24h` |
-| `ssh.recordings` | `dir` or `s3` | `dir` | Where sessions are recorded: the recordings directory under `data_dir`, or an S3-compatible bucket (`ssh.recordings_s3` names it). A primary/standby pair shares the bucket, so a session one machine recorded the other replays |
+| `ssh.recordings` | `dir` or `s3` | `dir` | Where sessions are recorded: the recordings directory under `data_dir`, or an S3-compatible bucket (`ssh.recordings_s3` names it). A primary/standby pair shares the bucket, so a session one machine recorded the other replays. With `s3`, Beacon writes the recording locally first and uploads it when the session closes, retrying a failed put; set a lifecycle rule on the bucket so objects that outlive a failed tidy are still expired |
 | `ssh.recordings_s3.endpoint` | URL | — | The bucket's address, such as `https://s3.example.com`, or `http://10.0.0.5:9000` for MinIO on a private network. Addresses are path-style |
 | `ssh.recordings_s3.region` | string | `us-east-1` | The region the bucket signs with |
 | `ssh.recordings_s3.bucket` | string | — | The bucket's name |

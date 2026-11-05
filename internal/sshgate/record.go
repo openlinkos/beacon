@@ -38,10 +38,13 @@ func newRecorder(w io.WriteCloser, cols, rows int, command, title string, now fu
 }
 
 // close finishes the recording: for a file it closes it, for an upload it sends it.
-func (r *recorder) close() {
-	if r != nil {
-		_ = r.f.Close()
+func (r *recorder) close() error {
+	if r == nil || r.f == nil {
+		return nil
 	}
+	err := r.f.Close()
+	r.f = nil
+	return err
 }
 
 func (r *recorder) write(b []byte) {

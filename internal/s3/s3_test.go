@@ -10,9 +10,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -131,7 +135,7 @@ func TestClientBadKey(t *testing.T) {
 // never closes leaves nothing.
 func TestStore(t *testing.T) {
 	c, reqs := testServer(t)
-	st := &Store{c: c}
+	st := &Store{c: c, dir: t.TempDir(), log: slog.Default()}
 	w, err := st.Create("2026/11/04/id-1.cast")
 	if err != nil {
 		t.Fatal(err)
@@ -163,5 +167,88 @@ func TestStore(t *testing.T) {
 	}
 	if err := w.Close(); err != nil { // closing twice sends nothing more
 		t.Fatal(err)
+	}
+}
+
+func TestFailureOmitsTheBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("InvalidAccessKeyId AKIDEXAMPLE"))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Options{Endpoint: srv.URL, Region: "us-east-1", Bucket: "beacon-recordings",
+		AccessKeyID: "AKIDEXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Put(context.Background(), "k", []byte("x"))
+	if err == nil {
+		t.Fatal("a 403 should fail")
+	}
+	if strings.Contains(err.Error(), "AKIDEXAMPLE") || strings.Contains(err.Error(), "InvalidAccessKeyId") {
+		t.Fatalf("the error carries the response body: %v", err)
+	}
+}
+
+func TestStoreRetriesUpload(t *testing.T) {
+	var puts atomic.Int32
+	objects := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.NotFound(w, r)
+			return
+		}
+		n := puts.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		objects[strings.TrimPrefix(r.URL.Path, "/beacon-recordings/")] = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Options{Endpoint: srv.URL, Region: "us-east-1", Bucket: "beacon-recordings",
+		AccessKeyID: "AKIDEXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &Store{c: c, dir: t.TempDir(), log: slog.Default()}
+	if err := st.WriteFile("2026/11/04/id-1.json", []byte("transcript")); err != nil {
+		t.Fatal(err)
+	}
+	if puts.Load() != 3 {
+		t.Fatalf("puts: %d", puts.Load())
+	}
+	if objects["2026/11/04/id-1.json"] != "transcript" {
+		t.Fatalf("object: %q", objects["2026/11/04/id-1.json"])
+	}
+}
+
+func TestStoreKeepsTheLocalFileWhenUploadFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Options{Endpoint: srv.URL, Region: "us-east-1", Bucket: "beacon-recordings",
+		AccessKeyID: "AKIDEXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	st := &Store{c: c, dir: dir, log: slog.Default()}
+	w, err := st.Create("2026/11/04/id-1.cast")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("the rec")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err == nil {
+		t.Fatal("a failed upload should come back")
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "2026", "11", "04", "id-1.cast"))
+	if err != nil || string(b) != "the rec" {
+		t.Fatalf("local file: %q %v", b, err)
 	}
 }

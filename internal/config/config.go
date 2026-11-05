@@ -90,6 +90,7 @@ type Config struct {
 	HA struct {
 		Enabled bool     `yaml:"enabled"` // off by default
 		Name    string   `yaml:"name"`    // the lease's name; default beacon
+		ID      string   `yaml:"id"`      // this instance; default hostname:pid plus a random suffix
 		Renew   Duration `yaml:"renew"`   // how often the primary renews; default 5s
 		Expire  Duration `yaml:"expire"`  // how long the lease lasts without a renewal; default 15s
 	} `yaml:"ha"`

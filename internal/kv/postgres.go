@@ -37,9 +37,11 @@ type PostgresOptions struct {
 // Postgres is a kv.SQL on one PostgreSQL database: the same tables as SQLite's (kv, sequences),
 // bytea keys and values, byte order everywhere SQLite's blobs had it.
 type Postgres struct {
-	write *sql.DB
-	read  *sql.DB
-	where string
+	write   *sql.DB
+	read    *sql.DB
+	where   string
+	timeout time.Duration
+	guard   func(context.Context, *sql.Tx) error
 }
 
 // OpenPostgres opens or creates the database o names. The DSN never appears in errors or logs: a
@@ -59,17 +61,22 @@ func OpenPostgres(o PostgresOptions) (*Postgres, error) {
 		cfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(o.StatementTimeout.Milliseconds(), 10)
 	}
 	cfg.RuntimeParams["application_name"] = "beacon"
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = 5 * time.Second
+	}
 	open := func(max int) (*sql.DB, error) {
 		db := stdlib.OpenDB(*cfg)
 		db.SetMaxOpenConns(max)
 		db.SetMaxIdleConns(max)
-		if err := db.PingContext(context.Background()); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("postgres %s:%d/%s: %w", cfg.Host, cfg.Port, cfg.Database, redact(err))
 		}
 		return db, nil
 	}
-	p := &Postgres{where: fmt.Sprintf("postgres %s:%d/%s", cfg.Host, cfg.Port, cfg.Database)}
+	p := &Postgres{where: fmt.Sprintf("postgres %s:%d/%s", cfg.Host, cfg.Port, cfg.Database), timeout: o.StatementTimeout}
 	if o.ReadOnly {
 		if p.read, err = open(o.PoolSize); err != nil {
 			return nil, err
@@ -89,6 +96,25 @@ func OpenPostgres(o PostgresOptions) (*Postgres, error) {
 		return nil, err
 	}
 	return p, nil
+}
+
+// timeoutCtx bounds a client-side wait a little past the server's statement_timeout, so a
+// blackholed connection cannot hold the writer until TCP gives up.
+func (p *Postgres) timeoutCtx() (context.Context, context.CancelFunc) {
+	d := p.timeout
+	switch {
+	case d > 0:
+		d += time.Second
+	default:
+		d = 30 * time.Second
+	}
+	return context.WithTimeout(context.Background(), d)
+}
+
+// SetWriteGuard runs fn at the start of every write transaction (the HA lease check). A nil fn
+// clears it. Set it before the first Update; it is not itself synchronised with in-flight writes.
+func (p *Postgres) SetWriteGuard(fn func(context.Context, *sql.Tx) error) {
+	p.guard = fn
 }
 
 // redact keeps the DSN's secret out of errors: pgx quotes the password when it says why a
@@ -113,7 +139,8 @@ const SchemaLock = 784221
 // migrate makes the schema, in one transaction. WITHOUT ROWID is SQLite's; PostgreSQL's tables are
 // heaps with primary-key indexes, which is what they are anyway.
 func (p *Postgres) migrate() error {
-	ctx := context.Background()
+	ctx, cancel := p.timeoutCtx()
+	defer cancel()
 	tx, err := p.write.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -142,50 +169,81 @@ func (p *Postgres) migrate() error {
 	return tx.Commit()
 }
 
-// View runs fn in a read-only transaction.
+// View runs fn in a read-only Repeatable Read transaction, so several statements see one snapshot
+// (Config reads the entries and the version together).
 func (p *Postgres) View(fn func(Tx) error) error {
-	tx, err := p.read.BeginTx(context.Background(), nil)
+	ctx, cancel := p.timeoutCtx()
+	defer cancel()
+	tx, err := p.read.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return err
 	}
-	if err := fn(&pgTx{tx: tx}); err != nil {
+	st := &pgTx{tx: tx, ctx: ctx}
+	err = fn(st)
+	if st.err != nil {
+		_ = tx.Rollback()
+		return st.err
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	return tx.Rollback() // nothing to commit; releases the snapshot
 }
 
-// Update runs fn in a read-write transaction on the single write connection.
-func (p *Postgres) Update(fn func(Tx) error) error {
+func (p *Postgres) beginWrite() (context.Context, *sql.Tx, context.CancelFunc, error) {
 	if p.write == nil {
-		return errors.New("the database is open read-only")
+		return nil, nil, func() {}, errors.New("the database is open read-only")
 	}
-	tx, err := p.write.BeginTx(context.Background(), nil)
+	ctx, cancel := p.timeoutCtx()
+	tx, err := p.write.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		cancel()
+		return nil, nil, func() {}, err
 	}
-	if err := fn(&pgTx{tx: tx, write: true}); err != nil {
+	if p.guard != nil {
+		if err := p.guard(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			cancel()
+			return nil, nil, func() {}, err
+		}
+	}
+	return ctx, tx, cancel, nil
+}
+
+func finishWrite(tx *sql.Tx, st *pgTx, err error) error {
+	if st.err != nil {
+		_ = tx.Rollback()
+		return st.err
+	}
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()
 }
 
-// UpdateBoth runs fn in one write transaction, giving it the key-value space and the database/sql
-// transaction under it, as SQLite's does for the migrations.
-func (p *Postgres) UpdateBoth(fn func(tx Tx, raw *sql.Tx) error) error {
-	if p.write == nil {
-		return errors.New("the database is open read-only")
-	}
-	tx, err := p.write.BeginTx(context.Background(), nil)
+// Update runs fn in a read-write transaction on the single write connection.
+func (p *Postgres) Update(fn func(Tx) error) error {
+	ctx, tx, cancel, err := p.beginWrite()
 	if err != nil {
 		return err
 	}
-	if err := fn(&pgTx{tx: tx, write: true}, tx); err != nil {
-		_ = tx.Rollback()
+	defer cancel()
+	st := &pgTx{tx: tx, write: true, ctx: ctx}
+	return finishWrite(tx, st, fn(st))
+}
+
+// UpdateBoth runs fn in one write transaction, giving it the key-value space and the database/sql
+// transaction under it, as SQLite's does for the migrations.
+func (p *Postgres) UpdateBoth(fn func(tx Tx, raw *sql.Tx) error) error {
+	ctx, tx, cancel, err := p.beginWrite()
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	defer cancel()
+	st := &pgTx{tx: tx, write: true, ctx: ctx}
+	return finishWrite(tx, st, fn(st, tx))
 }
 
 // Close closes both pools.
@@ -208,8 +266,10 @@ func (p *Postgres) Close() error {
 // event tables beside them are the store's: the command line's checks read them through the
 // store, whose chain verification says at once when one is missing.
 func (p *Postgres) Health() (string, error) {
+	ctx, cancel := p.timeoutCtx()
+	defer cancel()
 	var n int
-	err := p.read.QueryRowContext(context.Background(), `SELECT
+	err := p.read.QueryRowContext(ctx, `SELECT
 		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)`).Scan(&n)
 	if err != nil {
 		return "", err
@@ -229,6 +289,22 @@ func (p *Postgres) WriteHandle() *sql.DB { return p.write }
 type pgTx struct {
 	tx    *sql.Tx
 	write bool
+	ctx   context.Context
+	err   error // first read or write that failed; later calls no-op and Update/View return it
+}
+
+func (t *pgTx) fail(err error) error {
+	if t.err == nil {
+		t.err = err
+	}
+	return t.err
+}
+
+func (t *pgTx) context() context.Context {
+	if t.ctx != nil {
+		return t.ctx
+	}
+	return context.Background()
 }
 
 // query builds the statement with PostgreSQL's $N placeholders from one written with ?, and keeps
@@ -253,36 +329,57 @@ func (t *pgTx) query(sql string, args ...any) (string, []any) {
 }
 
 func (t *pgTx) Get(bucket, key []byte) []byte {
-	ctx := context.Background()
+	if t.err != nil {
+		return nil
+	}
 	q, args := t.query("SELECT v FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
 	var v []byte
-	err := t.tx.QueryRowContext(ctx, q, args...).Scan(&v)
+	err := t.tx.QueryRowContext(t.context(), q, args...).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
-		return nil // as bbolt: a read that fails is a missing key
+		_ = t.fail(err)
+		return nil
+	}
+	if v == nil {
+		return []byte{}
 	}
 	return v
 }
 
 func (t *pgTx) Put(bucket, key, value []byte) error {
-	ctx := context.Background()
+	if t.err != nil {
+		return t.err
+	}
+	if value == nil {
+		value = []byte{}
+	}
 	q, args := t.query("INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?) ON CONFLICT (bucket, k) DO UPDATE SET v = excluded.v",
 		string(bucket), key, value)
-	_, err := t.tx.ExecContext(ctx, q, args...)
-	return err
+	_, err := t.tx.ExecContext(t.context(), q, args...)
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 func (t *pgTx) Delete(bucket, key []byte) error {
-	ctx := context.Background()
+	if t.err != nil {
+		return t.err
+	}
 	q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
-	_, err := t.tx.ExecContext(ctx, q, args...)
-	return err
+	_, err := t.tx.ExecContext(t.context(), q, args...)
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 func (t *pgTx) Range(bucket []byte, r Range, fn func(k, v []byte) bool) {
-	ctx := context.Background()
+	if t.err != nil {
+		return
+	}
 	q := "SELECT k, v FROM kv WHERE bucket = ?"
 	args := []any{string(bucket)}
 	if len(r.Prefix) > 0 {
@@ -307,34 +404,47 @@ func (t *pgTx) Range(bucket []byte, r Range, fn func(k, v []byte) bool) {
 		q += " ORDER BY k ASC"
 	}
 	stmt, args := t.query(q, args...)
-	rows, err := t.tx.QueryContext(ctx, stmt, args...)
+	rows, err := t.tx.QueryContext(t.context(), stmt, args...)
 	if err != nil {
+		_ = t.fail(err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var k, v []byte
 		if err := rows.Scan(&k, &v); err != nil {
+			_ = t.fail(err)
 			return
+		}
+		if v == nil {
+			v = []byte{}
 		}
 		if !fn(k, v) {
 			return
 		}
 	}
+	if err := rows.Err(); err != nil {
+		_ = t.fail(err)
+	}
 }
 
 func (t *pgTx) Count(bucket []byte) int {
-	ctx := context.Background()
+	if t.err != nil {
+		return 0
+	}
 	q, args := t.query("SELECT COUNT(*) FROM kv WHERE bucket = ?", string(bucket))
 	var n int
-	if err := t.tx.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+	if err := t.tx.QueryRowContext(t.context(), q, args...).Scan(&n); err != nil {
+		_ = t.fail(err)
 		return 0
 	}
 	return n
 }
 
 func (t *pgTx) NextSequence(bucket []byte) (uint64, error) {
-	ctx := context.Background()
+	if t.err != nil {
+		return 0, t.err
+	}
 	if !t.write {
 		return 0, errors.New("a sequence advances only in an Update")
 	}
@@ -343,56 +453,83 @@ func (t *pgTx) NextSequence(bucket []byte) (uint64, error) {
 	q, args := t.query(`INSERT INTO sequences (bucket, seq) VALUES (?, 1)
 		ON CONFLICT (bucket) DO UPDATE SET seq = sequences.seq + 1 RETURNING sequences.seq`, string(bucket))
 	var seq uint64
-	err := t.tx.QueryRowContext(ctx, q, args...).Scan(&seq)
-	return seq, err
+	err := t.tx.QueryRowContext(t.context(), q, args...).Scan(&seq)
+	if err != nil {
+		return 0, t.fail(err)
+	}
+	return seq, nil
 }
 
 func (t *pgTx) SetSequence(bucket []byte, seq uint64) error {
-	ctx := context.Background()
+	if t.err != nil {
+		return t.err
+	}
 	if !t.write {
 		return errors.New("a sequence is set only in an Update")
 	}
 	q, args := t.query(`INSERT INTO sequences (bucket, seq) VALUES (?, ?)
 		ON CONFLICT (bucket) DO UPDATE SET seq = excluded.seq`, string(bucket), seq)
-	_, err := t.tx.ExecContext(ctx, q, args...)
-	return err
+	_, err := t.tx.ExecContext(t.context(), q, args...)
+	if err != nil {
+		return t.fail(err)
+	}
+	return nil
 }
 
 func (t *pgTx) Sequence(bucket []byte) uint64 {
-	ctx := context.Background()
+	if t.err != nil {
+		return 0
+	}
 	q, args := t.query("SELECT seq FROM sequences WHERE bucket = ?", string(bucket))
 	var seq uint64
-	if err := t.tx.QueryRowContext(ctx, q, args...).Scan(&seq); err != nil {
+	err := t.tx.QueryRowContext(t.context(), q, args...).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0
+	}
+	if err != nil {
+		_ = t.fail(err)
 		return 0
 	}
 	return seq
 }
 
 func (t *pgTx) CompareAndSwap(bucket, key, old, value []byte) error {
-	ctx := context.Background()
+	if t.err != nil {
+		return t.err
+	}
 	if !t.write {
 		return errors.New("a compare-and-swap runs only in an Update")
 	}
+	ctx := t.context()
 	switch {
 	case old == nil && value == nil:
 		q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ?", string(bucket), key)
 		_, err := t.tx.ExecContext(ctx, q, args...)
-		return err // absent already: nothing to hold
+		if err != nil {
+			return t.fail(err)
+		}
+		return nil // absent already: nothing to hold
 	case old == nil:
-		q, args := t.query("INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?)", string(bucket), key, value)
-		if _, err := t.tx.ExecContext(ctx, q, args...); err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // the key is there
-				return fmt.Errorf("%w: %s", ErrCompareFailed, "the key exists")
-			}
-			return err
+		if value == nil {
+			value = []byte{}
+		}
+		// ON CONFLICT DO NOTHING keeps the transaction alive: a unique-violation INSERT would
+		// abort it, and every later Get would look like a missing key.
+		q, args := t.query("INSERT INTO kv (bucket, k, v) VALUES (?, ?, ?) ON CONFLICT (bucket, k) DO NOTHING",
+			string(bucket), key, value)
+		res, err := t.tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return t.fail(err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("%w: %s", ErrCompareFailed, "the key exists")
 		}
 		return nil
 	case value == nil:
 		q, args := t.query("DELETE FROM kv WHERE bucket = ? AND k = ? AND v = ?", string(bucket), key, old)
 		res, err := t.tx.ExecContext(ctx, q, args...)
 		if err != nil {
-			return err
+			return t.fail(err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrCompareFailed
@@ -402,7 +539,7 @@ func (t *pgTx) CompareAndSwap(bucket, key, old, value []byte) error {
 		q, args := t.query("UPDATE kv SET v = ? WHERE bucket = ? AND k = ? AND v = ?", value, string(bucket), key, old)
 		res, err := t.tx.ExecContext(ctx, q, args...)
 		if err != nil {
-			return err
+			return t.fail(err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrCompareFailed

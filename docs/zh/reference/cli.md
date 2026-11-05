@@ -30,7 +30,7 @@ docker exec beacon beacon token list
 | `drill` | 演练一次故障：[fail、off、status](#beacon-enroll-silence-drill) |
 | `audit` | 审计日志的链：[verify](#beacon-audit-storage) |
 | `storage` | 数据库的健康检查：[check](#beacon-audit-storage)；搬去 PostgreSQL：[migrate](#beacon-audit-storage) |
-| `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/healthz`） |
+| `healthcheck` | 服务应答则退出码为 0；镜像的健康检查。取 `-url`（默认 `http://127.0.0.1:17001/livez`，健康的备机也是 200；`/healthz` 是负载均衡用的，备机上是 503） |
 | `version` | 版本、提交和构建 |
 | `help` | 完整用法，含角色、预设和 scope |
 

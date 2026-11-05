@@ -129,6 +129,22 @@ func Open(d Deps) *Service {
 	return s
 }
 
+// Reload reads the configuration from the database into memory, as a restart would. A standby
+// that takes over, and a standby that waits, call this so they do not keep serving the catalogue
+// they loaded at start.
+func (s *Service) Reload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, version := s.d.Store.Config()
+	st := build(entries)
+	st.Version = version
+	if st.problem != nil {
+		s.d.Log.Error("the configuration in the database does not pass its checks; serving it until it is put right",
+			"version", version, "err", st.problem)
+	}
+	s.state.Store(st)
+}
+
 // Catalog is the catalogue in force.
 func (s *Service) Catalog() *catalog.Catalog { return s.state.Load().Catalog }
 

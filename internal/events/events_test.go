@@ -540,6 +540,69 @@ func TestUpdateBothRollsBackBothSides(t *testing.T) {
 	}
 }
 
+// TestConcurrentAppendFromTwoConnections: two writers on one PostgreSQL log serialise on the
+// advisory lock (and retry a unique violation), and the chain still verifies.
+func TestConcurrentAppendFromTwoConnections(t *testing.T) {
+	dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server two writers share")
+	}
+	shared := testDatabase(t, dsn)
+	openPG := func() kv.SQL {
+		t.Helper()
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: shared})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pg.Close() })
+		return pg
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Dialect: PostgreSQL, SignKey: key, SignerID: "test", Now: time.Now, CheckpointInterval: time.Hour}
+	oneDB, twoDB := openPG(), openPG()
+	one, err := Open(oneDB.Handle(), oneDB.WriteHandle(), "audit_events", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Open(twoDB.Handle(), twoDB.WriteHandle(), "audit_events", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	var wg sync.WaitGroup
+	errc := make(chan error, 2*n)
+	for i := 0; i < n; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			_, err := one.Append(Event{Actor: "a", Action: fmt.Sprintf("one-%d", i)})
+			errc <- err
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+			_, err := two.Append(Event{Actor: "b", Action: fmt.Sprintf("two-%d", i)})
+			errc <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errc)
+	for err := range errc {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := one.Verify()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Events != 2*n {
+		t.Fatalf("events %d, want %d", res.Events, 2*n)
+	}
+}
+
 // TestConcurrentAppendVerifyPrune runs append, verify and prune together. Verify must not
 // report a break; the chain that remains must still hold.
 func TestConcurrentAppendVerifyPrune(t *testing.T) {

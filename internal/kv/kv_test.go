@@ -253,6 +253,19 @@ func TestCompareAndSwap(t *testing.T) {
 			t.Errorf("CAS with old %q: %v", c.old, err)
 		}
 	}
+	// a failed insert-CAS must not abort the transaction: later Gets still see the row
+	err = db.Update(func(tx Tx) error {
+		if err := tx.CompareAndSwap([]byte("b"), []byte("k"), nil, []byte("v3")); !errors.Is(err, ErrCompareFailed) {
+			t.Errorf("CAS insert on an existing key: %v", err)
+		}
+		if v := tx.Get([]byte("b"), []byte("k")); !bytes.Equal(v, []byte("v2")) {
+			t.Errorf("Get after a failed CAS insert: %q (nil means the transaction was aborted)", v)
+		}
+		return ErrCompareFailed
+	})
+	if !errors.Is(err, ErrCompareFailed) {
+		t.Errorf("the failed CAS insert: %v", err)
+	}
 	// the failed swaps changed nothing
 	_ = db.View(func(tx Tx) error {
 		if v := tx.Get([]byte("b"), []byte("k")); !bytes.Equal(v, []byte("v2")) {

@@ -26,7 +26,7 @@ docker exec beacon beacon token list
 | `drill` | Rehearse an outage: [fail, off, status](#beacon-enroll-silence-drill) |
 | `audit` | The audit log's chain: [verify](#beacon-audit-storage) |
 | `storage` | The database's health: [check](#beacon-audit-storage); the move to PostgreSQL: [migrate](#beacon-audit-storage) |
-| `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/healthz`) |
+| `healthcheck` | Exit 0 when the service answers; the image's health check. Takes `-url` (default `http://127.0.0.1:17001/livez`, which is 200 on a healthy standby; `/healthz` is the load balancer's check and is 503 there) |
 | `version` | The version, commit and build |
 | `help` | The whole usage, with the roles, presets and scopes |
 

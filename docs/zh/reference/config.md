@@ -34,8 +34,9 @@ sourceHash: sha256-147b239a
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
 | `storage.postgres.pool_size` | 数字 | `4` | PostgreSQL 的读连接数；写永远单独占一条连接，与连接池大小无关 |
 | `storage.postgres.statement_timeout` | 时长 | `15s` | 一条 PostgreSQL 语句最多跑多久就被服务端取消，免得一条挂起的语句占住写入；`0` 关闭 |
-| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）：主在数据库里续租约，备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
+| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）：主在数据库里续租约，备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。健康的备机 `/livez` 仍回 200（镜像的健康检查走它），本实例连不上 PostgreSQL 时才回 503。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
 | `ha.name` | 字符串 | `beacon` | 租约的名字；一对实例用同一个名字 |
+| `ha.id` | 字符串 | 主机名:pid 再加随机后缀 | 本实例在租约行里的名字。两个容器主机名相同又以 PID 1 运行时要设 |
 | `ha.renew` | 时长 | `5s` | 主多久续一次租约 |
 | `ha.expire` | 时长 | `15s` | 租约多久不续就过期；备用实例在这之内接手。必须长于 `ha.renew` |
 
@@ -82,7 +83,7 @@ sourceHash: sha256-147b239a
 | `ssh.ca_key_file` | 路径 | — | 为每次连机器签短期证书的钥匙；设置它即开启通道。必须与 host key 是不同的钥匙 |
 | `ssh.source_addresses` | CIDR 段列表 | — | 设置后，证书只从这些地址可用 |
 | `ssh.keep` | 时长 | `4320h`（180 天） | 会话及其录像保留多久。至少 `24h` |
-| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放 |
+| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放。`s3` 时先写本地再在会话结束时上传，失败会重试；请给桶设生命周期规则，清理失败留下的对象到期也会被删 |
 | `ssh.recordings_s3.endpoint` | URL | — | 桶的地址，如 `https://s3.example.com`，内网 MinIO 用 `http://10.0.0.5:9000`。一律路径风格寻址 |
 | `ssh.recordings_s3.region` | 字符串 | `us-east-1` | 签名用的区域 |
 | `ssh.recordings_s3.bucket` | 字符串 | — | 桶名 |

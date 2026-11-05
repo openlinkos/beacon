@@ -135,6 +135,9 @@ func (g *gateway) limited(w http.ResponseWriter, t store.Token) bool {
 
 // change takes a change event in Beacon's form.
 func (g *gateway) change(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	if g.limited(w, t) {
 		return
 	}
@@ -152,6 +155,9 @@ func (g *gateway) change(w http.ResponseWriter, r *http.Request, t store.Token) 
 
 // fluxChange takes an event from Flux's notification-controller (a Provider of type generic).
 func (g *gateway) fluxChange(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	if g.limited(w, t) {
 		return
 	}

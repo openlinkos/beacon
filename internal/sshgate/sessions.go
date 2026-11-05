@@ -154,15 +154,26 @@ func (g *Gate) prune() {
 	if g.d.Keep <= 0 {
 		return
 	}
-	gone := g.d.Store.DeleteSessionsBefore(g.now().Add(-g.d.Keep))
-	for _, r := range gone {
-		if r.Recording == "" {
+	old := g.d.Store.SessionsStartedBefore(g.now().Add(-g.d.Keep))
+	n := 0
+	for _, r := range old {
+		if r.Recording != "" {
+			if err := g.d.Files.Remove(r.Recording + ".cast"); err != nil {
+				g.d.Log.Warn("recording object was not deleted; the session stays until the next tidy", "session", r.ID, "err", err)
+				continue
+			}
+			if err := g.d.Files.Remove(r.Recording + ".json"); err != nil {
+				g.d.Log.Warn("transcript object was not deleted; the session stays until the next tidy", "session", r.ID, "err", err)
+				continue
+			}
+		}
+		if err := g.d.Store.DeleteSession(r.ID); err != nil {
+			g.d.Log.Warn("session row was not deleted", "session", r.ID, "err", err)
 			continue
 		}
-		_ = g.d.Files.Remove(r.Recording + ".cast")
-		_ = g.d.Files.Remove(r.Recording + ".json")
+		n++
 	}
-	if len(gone) > 0 {
-		g.d.Log.Info("old SSH sessions forgotten", "sessions", len(gone))
+	if n > 0 {
+		g.d.Log.Info("old SSH sessions forgotten", "sessions", n)
 	}
 }

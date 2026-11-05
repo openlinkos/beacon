@@ -28,6 +28,9 @@ const (
 var requestID = regexp.MustCompile(`^[a-f0-9]{8,64}$`)
 
 func (g *gateway) requests(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	if g.Requests == nil {
 		fail(w, http.StatusNotFound, "not_found", "no probing on demand on this gateway")
 		return
@@ -55,6 +58,9 @@ func (g *gateway) requests(w http.ResponseWriter, r *http.Request, t store.Token
 }
 
 func (g *gateway) answer(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	if g.Requests == nil {
 		fail(w, http.StatusNotFound, "not_found", "no probing on demand on this gateway")
 		return

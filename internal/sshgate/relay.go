@@ -156,7 +156,9 @@ func (s *session) finish(exit *int) Transcript {
 	if exit != nil {
 		cast.event("x", fmt.Sprint(*exit))
 	}
-	cast.close()
+	if err := cast.close(); err != nil {
+		s.g.d.Log.Error("the session recording was not stored", "id", rec.ID, "err", err)
+	}
 	rec.Ended = s.g.now().UTC()
 	rec.Exit = exit
 	rec.BytesIn, rec.BytesOut = s.in.Load(), s.out.Load()

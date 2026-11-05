@@ -75,7 +75,8 @@ func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *lin
 		PublicAddress: cfg.SSH.PublicAddress, Pages: pages}
 	if cfg.SSH.Recordings == "s3" { // the bucket an HA pair shares; both read and write it
 		files, err := s3.NewStore(s3.Options{Endpoint: cfg.SSH.RecordingsS3.Endpoint, Region: cfg.SSH.RecordingsS3.Region,
-			Bucket: cfg.SSH.RecordingsS3.Bucket, AccessKeyID: cfg.Secrets.S3AccessKeyID, SecretAccessKey: cfg.Secrets.S3SecretAccessKey})
+			Bucket: cfg.SSH.RecordingsS3.Bucket, AccessKeyID: cfg.Secrets.S3AccessKeyID, SecretAccessKey: cfg.Secrets.S3SecretAccessKey,
+			Dir: d.Dir, Log: log})
 		if err != nil {
 			return nil, err
 		}

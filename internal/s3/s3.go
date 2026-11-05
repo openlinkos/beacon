@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -31,7 +32,9 @@ type Options struct {
 	Bucket          string
 	AccessKeyID     string
 	SecretAccessKey string
-	Client          *http.Client // nil: 30s timeouts, no proxy following
+	Client          *http.Client // nil: header timeouts, no overall body timeout (replays stream)
+	Dir             string       // local staging for recordings; empty uses a temp directory
+	Log             *slog.Logger
 }
 
 // Client is one bucket.
@@ -57,7 +60,11 @@ func New(o Options) (*Client, error) {
 	}
 	hc := o.Client
 	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
+		hc = &http.Client{Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 30 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+		}}
 	}
 	return &Client{url: u, region: o.Region, bucket: o.Bucket, id: o.AccessKeyID, key: o.SecretAccessKey, http: hc}, nil
 }
@@ -173,17 +180,13 @@ func (c *Client) status(req *http.Request, key string, want int) error {
 	return nil
 }
 
-// failure reads what the bucket said and says it without the credentials.
+// failure names the status without the response body, which can echo an access key id.
 func (c *Client) failure(res *http.Response, key string) error {
-	b, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-	code := strings.TrimSpace(string(b))
-	if code == "" {
-		code = res.Status
-	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 512))
 	if res.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("s3: %s: not found", key)
 	}
-	return fmt.Errorf("s3: %s: %s", res.Status, code)
+	return fmt.Errorf("s3: %s: %s", key, res.Status)
 }
 
 // ---- Signature Version 4

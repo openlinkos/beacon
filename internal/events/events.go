@@ -30,6 +30,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/openlinkos/beacon/internal/kv"
 )
 
@@ -177,6 +179,18 @@ type Log struct {
 	interval    time.Duration
 	retention   time.Duration
 	now         func() time.Time
+	guard       func(context.Context, *sql.Tx) error
+}
+
+// appendLockNamespace is the first key of the per-log advisory lock AppendTx takes, so two
+// writers cannot both read the same head. SchemaLock is a single-argument lock and lives in
+// another space.
+const appendLockNamespace = 784222
+
+// SetGuard runs fn at the start of every write transaction this log begins (the HA lease check).
+// AppendTx, which a caller already holds a transaction for, still takes the per-log advisory lock.
+func (l *Log) SetGuard(fn func(context.Context, *sql.Tx) error) {
+	l.guard = fn
 }
 
 // Open prepares the log called name (audit_events, secret_uses) over the two pools (write may be
@@ -458,7 +472,7 @@ func (l *Log) Append(e Event) (Event, error) {
 	if l.write == nil {
 		return Event{}, ErrReadOnly
 	}
-	err := withTx(l.write, func(tx *sql.Tx) error { return l.AppendTx(tx, &e) })
+	err := l.withTx(func(tx *sql.Tx) error { return l.AppendTx(tx, &e) })
 	if err != nil {
 		return Event{}, err
 	}
@@ -466,9 +480,13 @@ func (l *Log) Append(e Event) (Event, error) {
 }
 
 // AppendTx adds e inside a transaction the caller holds (a use and its record commit together);
-// the transaction is not committed here, so the caller can add more to it first.
+// the transaction is not committed here, so the caller can add more to it first. On PostgreSQL it
+// takes a per-log advisory lock first so two writers cannot both read the same head.
 func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 	ctx := context.Background()
+	if err := l.lockAppend(ctx, tx); err != nil {
+		return err
+	}
 	if e.Time.IsZero() {
 		e.Time = l.now().UTC()
 	} else {
@@ -531,7 +549,7 @@ func (l *Log) Checkpoint() (Checkpoint, error) {
 		return Checkpoint{}, ErrReadOnly
 	}
 	var out Checkpoint
-	err := withTx(l.write, func(tx *sql.Tx) error {
+	err := l.withTx(func(tx *sql.Tx) error {
 		seq, hash, err := l.head(tx)
 		if err != nil {
 			return err
@@ -624,7 +642,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 	}
 	cutoff := l.now().Add(-retention).UnixNano()
 	deleted := 0
-	err := withTx(l.write, func(tx *sql.Tx) error {
+	err := l.withTx(func(tx *sql.Tx) error {
 		cutSeq, err := l.pruneCutSeq(tx, cutoff)
 		if err != nil || cutSeq == 0 {
 			return err
@@ -988,9 +1006,66 @@ func broken(res Result, seq uint64, format string, args ...any) (Result, error) 
 
 // withTx runs fn in one transaction on the write pool.
 func withTx(db *sql.DB, fn func(tx *sql.Tx) error) error {
-	tx, err := db.BeginTx(context.Background(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func retryable(err error) bool {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		return pg.Code == "23505" || pg.Code == "40P01"
+	}
+	return false
+}
+
+func (l *Log) appendLockKey() int32 {
+	h := sha256.Sum256([]byte(l.table))
+	return int32(binary.BigEndian.Uint32(h[:4]))
+}
+
+func (l *Log) lockAppend(ctx context.Context, tx *sql.Tx) error {
+	if l.dialect != PostgreSQL {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, $2)`, appendLockNamespace, l.appendLockKey())
+	return err
+}
+
+// withTx runs fn in one write transaction, with the HA guard if set, and retries a unique
+// violation or a deadlock (two writers racing the chain head).
+func (l *Log) withTx(fn func(tx *sql.Tx) error) error {
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		err = l.oneTx(fn)
+		if err == nil || !retryable(err) {
+			return err
+		}
+		time.Sleep(time.Duration(1<<attempt) * 5 * time.Millisecond)
+	}
+	return err
+}
+
+func (l *Log) oneTx(fn func(tx *sql.Tx) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := l.write.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if l.guard != nil {
+		if err := l.guard(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
 	}
 	if err := fn(tx); err != nil {
 		_ = tx.Rollback()

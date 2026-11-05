@@ -9,6 +9,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -180,8 +181,9 @@ type Store struct {
 	now     func() time.Time
 	dialect events.Dialect
 
-	mu     sync.RWMutex
-	tokens map[string]Token // by hash
+	mu      sync.RWMutex     // the token cache
+	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
+	tokens  map[string]Token // by hash
 }
 
 // Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
@@ -304,7 +306,7 @@ func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
 
 // load reads the tokens into memory, as every open does.
 func (s *Store) load(db kv.SQL, _ Options) error {
-	_ = db.View(func(tx kv.Tx) error {
+	return db.View(func(tx kv.Tx) error {
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
 			if json.Unmarshal(v, &t) == nil {
@@ -317,7 +319,6 @@ func (s *Store) load(db kv.SQL, _ Options) error {
 		})
 		return nil
 	})
-	return nil
 }
 
 // Storage is the SQL database under the store, for the checks the command line runs.
@@ -342,10 +343,13 @@ func (s *Store) SetClock(now func() time.Time) {
 // held. The cache is what open filled: a single process owns it, but the two instances of a
 // primary/standby pair share the database, and the standby's snapshot would not know the tokens
 // the primary made while it held the lead — so the service refreshes when it takes over, and on a
-// schedule while it waits.
-func (s *Store) RefreshTokens() {
+// schedule while it waits. A failed read leaves the table it held, so a blip does not refuse every
+// token.
+func (s *Store) RefreshTokens() error {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	tokens := map[string]Token{}
-	_ = s.db.View(func(tx kv.Tx) error {
+	err := s.db.View(func(tx kv.Tx) error {
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
 			if json.Unmarshal(v, &t) == nil {
@@ -358,9 +362,26 @@ func (s *Store) RefreshTokens() {
 		})
 		return nil
 	})
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.tokens = tokens
 	s.mu.Unlock()
+	return nil
+}
+
+// SetWriteGuard runs fn at the start of every write transaction (the HA lease check). SQLite
+// ignores it; PostgreSQL and the event logs take it.
+func (s *Store) SetWriteGuard(fn func(context.Context, *sql.Tx) error) {
+	type guarded interface {
+		SetWriteGuard(func(context.Context, *sql.Tx) error)
+	}
+	if g, ok := s.db.(guarded); ok {
+		g.SetWriteGuard(fn)
+	}
+	s.audit.SetGuard(fn)
+	s.uses.SetGuard(fn)
 }
 
 // ---- Groups
@@ -505,8 +526,8 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	now := s.now().UTC()
 	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 	b, _ := json.Marshal(t)
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	err = s.db.Update(func(tx kv.Tx) error {
 		if tx.Get(bucketTokens, []byte(name)) != nil {
 			return fmt.Errorf("a token named %q exists; revoke it first", name)
@@ -516,7 +537,9 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	if err != nil {
 		return "", Token{}, err
 	}
+	s.mu.Lock()
 	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return secret, t, nil
 }
 
@@ -534,18 +557,19 @@ func (s *Store) Tokens() []Token {
 
 // RevokeToken deletes the token called name.
 func (s *Store) RevokeToken(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var hash string
-	for h, t := range s.tokens {
-		if t.Name == name {
-			hash = h
-		}
-	}
-	if hash == "" {
-		return ErrNotFound
-	}
 	err := s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return ErrNotFound
+		}
+		var t Token
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		hash = t.Hash
 		if err := tx.Delete(bucketTokens, []byte(name)); err != nil {
 			return err
 		}
@@ -554,34 +578,47 @@ func (s *Store) RevokeToken(name string) error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
 	delete(s.tokens, hash)
+	s.mu.Unlock()
 	return nil
 }
 
 // UpdateToken changes the token called name with change, which cannot alter its name, hash or expiry.
+// The token is read from the database inside the write, so a revoke that landed on another instance
+// of a pair is not written back from a stale cache.
 func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var t Token
-	found := false
-	for _, x := range s.tokens {
-		if x.Name == name {
-			t, found = x, true
+	err := s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return ErrNotFound
 		}
-	}
-	if !found {
-		return Token{}, ErrNotFound
-	}
-	hash, expires := t.Hash, t.Expires
-	if err := change(&t); err != nil {
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		if t.Lifetime == 0 {
+			t.Lifetime = t.Expires.Sub(t.Created)
+		}
+		hash, expires := t.Hash, t.Expires
+		if err := change(&t); err != nil {
+			return err
+		}
+		t.Name, t.Hash, t.Expires = name, hash, expires
+		b, err := json.Marshal(t)
+		if err != nil {
+			return err
+		}
+		return tx.Put(bucketTokens, []byte(name), b)
+	})
+	if err != nil {
 		return Token{}, err
 	}
-	t.Name, t.Hash, t.Expires = name, hash, expires
-	b, _ := json.Marshal(t)
-	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(name), b) }); err != nil {
-		return Token{}, err
-	}
-	s.tokens[hash] = t
+	s.mu.Lock()
+	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return t, nil
 }
 
@@ -808,6 +845,33 @@ func (s *Store) Sessions(limit int, keep func(SessionRecord) bool) []SessionReco
 		return nil
 	})
 	return out
+}
+
+// SessionsStartedBefore lists sessions that started before t, oldest first, without deleting them.
+func (s *Store) SessionsStartedBefore(t time.Time) []SessionRecord {
+	var out []SessionRecord
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketSessions, kv.Range{}, func(_, v []byte) bool {
+			var r SessionRecord
+			if err := json.Unmarshal(v, &r); err != nil {
+				return true
+			}
+			if !r.Started.Before(t) {
+				return false
+			}
+			out = append(out, r)
+			return true
+		})
+		return nil
+	})
+	return out
+}
+
+// DeleteSession removes the session with id.
+func (s *Store) DeleteSession(id string) error {
+	return s.db.Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketSessions, []byte(id))
+	})
 }
 
 // DeleteSessionsBefore removes the records of sessions that started before t and returns them.

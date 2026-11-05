@@ -32,6 +32,10 @@ type Deps struct {
 	// Standby, when set (a primary/standby pair's lease was not held at the last attempt), turns
 	// /healthz to 503: the load balancer or the VIP in front sends its traffic to the primary.
 	Standby func() bool
+	// Live, when set, is the instance's own health (it can reach PostgreSQL), including a waiting
+	// standby. Docker's health check asks /livez so it does not restart a healthy standby.
+	// Nil treats the process as live.
+	Live func() bool
 	// OAuth is Beacon's authorization server for MCP clients: its metadata, registration, token and
 	// revocation endpoints (the console serves /oauth/authorize); nil leaves them out.
 	OAuth *oauth.Server
@@ -43,6 +47,19 @@ const CSP = "default-src 'none'; style-src 'self'; img-src 'self' data:; base-ur
 // Handler builds the router.
 func Handler(d Deps) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if d.Live != nil && !d.Live() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("unhealthy\n"))
+			return
+		}
+		if d.Standby != nil && d.Standby() {
+			_, _ = w.Write([]byte("standby\n"))
+			return
+		}
+		_, _ = w.Write([]byte("ok\n"))
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if d.Standby != nil && d.Standby() {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")

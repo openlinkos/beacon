@@ -18,11 +18,13 @@ func TestRoutes(t *testing.T) {
 	e := testutil.New(t)
 	drill := time.Time{}
 	standby := false
+	live := true
 	h := Handler(Deps{
 		Bridge: e.Bridge, API: &api.Server{Bridge: e.Bridge, Auth: &api.Auth{Store: e.Store}, Log: slog.Default()},
 		MCP: http.NotFoundHandler(), Metrics: metrics.New("test"),
 		Drill: func() time.Time { return drill }, Log: slog.Default(),
 		Standby: func() bool { return standby },
+		Live:    func() bool { return live },
 	})
 	do := func(method, path, auth, body string, hdr ...string) (int, string, http.Header) {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -46,7 +48,18 @@ func TestRoutes(t *testing.T) {
 	if code, body, _ := do("GET", "/healthz", "", ""); code != 503 || !strings.Contains(body, "standby") {
 		t.Errorf("healthz on standby: %d %s", code, body)
 	}
+	if code, body, _ := do("GET", "/livez", "", ""); code != 200 || !strings.Contains(body, "standby") {
+		t.Errorf("livez on a healthy standby: %d %s", code, body)
+	}
+	live = false
+	if code, body, _ := do("GET", "/livez", "", ""); code != 503 || !strings.Contains(body, "unhealthy") {
+		t.Errorf("livez on a broken instance: %d %s", code, body)
+	}
+	live = true
 	standby = false
+	if code, body, _ := do("GET", "/livez", "", ""); code != 200 || !strings.Contains(body, "ok") {
+		t.Errorf("livez on the primary: %d %s", code, body)
+	}
 	if code, body, _ := do("GET", "/readyz", "", ""); code != 200 || !strings.Contains(body, `"ready":true`) {
 		t.Errorf("readyz: %d %s", code, body)
 	}

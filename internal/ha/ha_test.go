@@ -8,6 +8,7 @@ package ha
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -118,10 +119,13 @@ func TestSingle(t *testing.T) {
 	})
 
 	l.inner.Store(true) // the lease arrives
+	l.heldUntil.Store(time.Now().Add(time.Minute).UnixNano())
 	wait(t, running, "fn to start")
 	l.inner.Store(false) // and goes
+	l.heldUntil.Store(0)
 	wait(t, stopped, "fn to stop")
 	l.inner.Store(true) // and comes back
+	l.heldUntil.Store(time.Now().Add(time.Minute).UnixNano())
 	wait(t, running, "fn to start again")
 	cancel()
 	wait(t, stopped, "fn to stop on the way out")
@@ -155,5 +159,175 @@ func TestOptions(t *testing.T) {
 	}
 	if o.ID == "" {
 		t.Error("the instance needs an id")
+	}
+}
+
+// TestDefaultIDsDiffer: two instances in one process (same hostname and pid) must not share an id.
+func TestDefaultIDsDiffer(t *testing.T) {
+	a, err := Options{}.normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Options{}.normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ID == b.ID {
+		t.Fatalf("two instances got the same id %q", a.ID)
+	}
+}
+
+// TestLeaderExpiresLocally: a hung take cannot keep Leader true past start+expiry-margin.
+func TestLeaderExpiresLocally(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Name: "expire", ID: "primary", Renew: 80 * time.Millisecond, Expire: 400 * time.Millisecond}
+	one, err := Open(admin, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go one.Run(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the instance never took the lease")
+	}
+	// hold the row so the next take hangs (a network partition's stand-in)
+	tx, err := admin.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT * FROM leader WHERE name = $1 FOR UPDATE`, o.Name); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(350 * time.Millisecond) // past start+expiry-margin, still inside Expire of the last take
+	if one.Leader() {
+		t.Fatal("Leader stayed true while take was blocked past the local deadline")
+	}
+	if !one.Healthy() {
+		t.Fatal("a waiting instance that last heard from the database should still be healthy")
+	}
+}
+
+// TestWriteChecksTheLease: a write after another instance takes over is refused.
+func TestWriteChecksTheLease(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Name: "guard", Renew: 80 * time.Millisecond, Expire: 400 * time.Millisecond}
+	one, err := Open(admin, Options{Name: o.Name, ID: "primary", Renew: o.Renew, Expire: o.Expire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Open(admin, Options{Name: o.Name, ID: "standby", Renew: o.Renew, Expire: o.Expire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	oneCtx, stopOne := context.WithCancel(context.Background())
+	defer stopOne()
+	go one.Run(oneCtx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the first instance never took the lease")
+	}
+	tx, err := admin.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := one.CheckWrite(context.Background(), tx); err != nil {
+		t.Fatalf("the holder should write: %v", err)
+	}
+	_ = tx.Rollback()
+
+	stopOne()
+	go two.Run(ctx)
+	deadline = time.Now().Add(3 * time.Second)
+	for !two.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !two.Leader() {
+		t.Fatal("the second instance never took over")
+	}
+	tx, err = admin.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := one.CheckWrite(context.Background(), tx); !errors.Is(err, ErrNotLeader) {
+		t.Fatalf("the old holder still wrote: %v", err)
+	}
+}
+
+// TestRunReleasesAfterLeaderWork: the lease stays until Single's fn returns.
+func TestRunReleasesAfterLeaderWork(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	one, err := Open(admin, Options{Name: "wait", ID: "primary", Renew: 80 * time.Millisecond, Expire: 400 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go one.Run(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the instance never took the lease")
+	}
+	left := make(chan time.Time, 1)
+	Single(ctx, one, func(inner context.Context) {
+		<-inner.Done()
+		time.Sleep(200 * time.Millisecond)
+		left <- time.Now()
+	})
+	time.Sleep(150 * time.Millisecond) // let Single start
+	cancel()
+	var released time.Time
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		if err := admin.QueryRow(`SELECT COUNT(*) FROM leader WHERE name = $1 AND holder = $2`, "wait", "primary").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			released = time.Now()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if released.IsZero() {
+		t.Fatal("the lease was never released")
+	}
+	doneAt := <-left
+	if released.Before(doneAt.Add(-30 * time.Millisecond)) {
+		t.Errorf("released the lease at %s before the leader's work returned at %s", released.Format(time.RFC3339Nano), doneAt.Format(time.RFC3339Nano))
 	}
 }
