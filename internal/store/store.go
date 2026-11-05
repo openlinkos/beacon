@@ -194,7 +194,8 @@ type Options struct {
 	BusyTimeout time.Duration
 	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
 	CheckpointInterval time.Duration
-	// Retention is how long audit records are kept; Verify refuses a prune still inside it.
+	// Retention is how long Prune keeps audit records. Verify treats signed prune marks as the
+	// authority for gaps and does not re-check them against the current retention.
 	Retention time.Duration
 	// SignKey signs the checkpoints (nil: one is generated and kept in the database; the key
 	// hierarchy that comes with the vault will pass its own).
@@ -246,15 +247,24 @@ func OpenWith(o Options) (*Store, error) {
 // OpenRead opens the database for reading only (the CLI's checks while the service runs); it
 // fails when the file is not there, and every write fails.
 func OpenRead(path string) (*Store, error) {
-	if _, err := os.Stat(path); err != nil {
+	return OpenReadWith(Options{Path: path})
+}
+
+// OpenReadWith is OpenRead with the options named, so Retention, SignKey, CheckpointInterval
+// and Now reach the event logs the way OpenWith does.
+func OpenReadWith(o Options) (*Store, error) {
+	if o.Path == "" {
+		return nil, errors.New("no database path")
+	}
+	if _, err := os.Stat(o.Path); err != nil {
 		return nil, err
 	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: path, ReadOnly: true})
+	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, ReadOnly: true})
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
+		return nil, fmt.Errorf("open %s: %w", o.Path, err)
 	}
 	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	if err := s.openLogs(Options{}); err != nil {
+	if err := s.openLogs(o); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
