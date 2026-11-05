@@ -259,6 +259,12 @@ func (s *Service) collectionKey(collection string, version int64) ([]byte, error
 
 // newCollectionKey makes the first version of a collection's key, wrapped under the root key.
 func (s *Service) newCollectionKey(collection string) error {
+	return s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		return s.newCollectionKeyTx(tx, collection)
+	})
+}
+
+func (s *Service) newCollectionKeyTx(tx kv.Tx, collection string) error {
 	rk, _, err := s.keys.keys()
 	if err != nil {
 		return err
@@ -272,9 +278,7 @@ func (s *Service) newCollectionKey(collection string) error {
 	if err != nil {
 		return err
 	}
-	return s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		return putKeyRow(tx, keyRow{Collection: collection, Version: 1, Wrapped: w, At: s.now(), Actor: "beacon"})
-	})
+	return putKeyRow(tx, keyRow{Collection: collection, Version: 1, Wrapped: w, At: s.now(), Actor: "beacon"})
 }
 
 // sk returns the signature key, failing when sealed.

@@ -266,6 +266,38 @@ func TestParse1PUXRejectsAZiplessFile(t *testing.T) {
 	}
 }
 
+func TestParse1PUXRefusesOversizedExportData(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("export.data")
+	_, _ = w.Write([]byte(`{"accounts":[`))
+	_, _ = w.Write(bytes.Repeat([]byte(" "), maxExportData))
+	_, _ = w.Write([]byte(`]}`))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse1PUX(bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatal("an oversized export.data must be refused")
+	}
+}
+
+func TestParse1PUXRefusesDeepJSON(t *testing.T) {
+	nested := "0"
+	for i := 0; i < maxJSONDepth+1; i++ {
+		nested = "[" + nested + "]"
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("export.data")
+	_, _ = w.Write([]byte(`{"accounts":` + nested + `}`))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse1PUX(bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatal("JSON nested past the depth cap must be refused")
+	}
+}
+
 func TestParse1PUXRefusesAnOversizedEntry(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)

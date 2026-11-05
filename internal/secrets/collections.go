@@ -136,26 +136,15 @@ func (s *Service) CreateCollection(who Actor, name, description, level string) (
 	if err := s.refuseIfRotating(); err != nil {
 		return Collection{}, err
 	}
-	id, err := newID()
-	if err != nil {
-		return Collection{}, err
-	}
-	col := Collection{ID: id, Name: name, Description: description, Level: level, KeyVersion: 1,
-		Created: s.now(), CreatedBy: who.Name} // the first key version arrives with the row
-	sk, err := s.sk()
-	if err != nil {
-		return Collection{}, err
-	}
 	var committed signedhead.Head
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		if findCollectionByName(tx, name) != nil {
-			return fmt.Errorf("%w: a collection is called %q already", ErrExists, name)
-		}
-		b, err := putCollectionTx(tx, col, sk)
+	var col Collection
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		c, b, err := s.insertCollectionTx(tx, who, name, description, level)
 		if err != nil {
 			return err
 		}
-		h, err := s.commitPolicy(tx, map[string][]byte{policyRowKey(kindCollection, col.ID): b}, nil)
+		col = c
+		h, err := s.commitPolicy(tx, map[string][]byte{policyRowKey(kindCollection, c.ID): b}, nil)
 		committed = h
 		return err
 	})
@@ -163,11 +152,32 @@ func (s *Service) CreateCollection(who Actor, name, description, level string) (
 		return Collection{}, err
 	}
 	s.afterHeads(committed)
-	if err := s.newCollectionKey(id); err != nil {
-		return Collection{}, err
-	}
 	s.echo(who, "created the collection", name, "secrets_collection_create")
 	return col, nil
+}
+
+func (s *Service) insertCollectionTx(tx kv.Tx, who Actor, name, description, level string) (Collection, []byte, error) {
+	if findCollectionByName(tx, name) != nil {
+		return Collection{}, nil, fmt.Errorf("%w: a collection is called %q already", ErrExists, name)
+	}
+	id, err := newID()
+	if err != nil {
+		return Collection{}, nil, err
+	}
+	col := Collection{ID: id, Name: name, Description: description, Level: level, KeyVersion: 1,
+		Created: s.now(), CreatedBy: who.Name}
+	sk, err := s.sk()
+	if err != nil {
+		return Collection{}, nil, err
+	}
+	b, err := putCollectionTx(tx, col, sk)
+	if err != nil {
+		return Collection{}, nil, err
+	}
+	if err := s.newCollectionKeyTx(tx, col.ID); err != nil {
+		return Collection{}, nil, err
+	}
+	return col, b, nil
 }
 
 // UpdateCollection changes a collection's description or default level; the level is policy, so it

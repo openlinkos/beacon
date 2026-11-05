@@ -304,18 +304,26 @@ func putCollectionTx(tx kv.Tx, col Collection, sk []byte) ([]byte, error) {
 	return b, nil
 }
 
-func (s *Service) putItemTx(tx kv.Tx, item Item) (signedhead.Head, error) {
+func (s *Service) putItemBytesTx(tx kv.Tx, item Item) ([]byte, error) {
 	sk, err := s.sk()
 	if err != nil {
-		return signedhead.Head{}, err
+		return nil, err
 	}
 	r := signedItem{Item: item}
 	r.Sig = signRow(sk, item.signedParts()...)
 	b, err := json.Marshal(r)
 	if err != nil {
-		return signedhead.Head{}, err
+		return nil, err
 	}
 	if err := tx.Put(bucketItems, []byte(item.ID), b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s *Service) putItemTx(tx kv.Tx, item Item) (signedhead.Head, error) {
+	b, err := s.putItemBytesTx(tx, item)
+	if err != nil {
 		return signedhead.Head{}, err
 	}
 	return s.commitItems(tx, map[string][]byte{item.ID: b}, nil)

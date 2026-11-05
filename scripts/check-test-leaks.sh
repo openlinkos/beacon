@@ -9,11 +9,15 @@
 # answers must carry no value, which the import tests assert and this script re-checks over the
 # whole output.
 #
-# Usage: scripts/check-test-leaks.sh [package...]   (default: ./internal/secrets/...)
+# Usage: scripts/check-test-leaks.sh [package...]   (default: the packages that print fixture
+# values — the vault, the console, the API, the admin socket, MCP and cmd/beacon)
 
 set -eu
 
-PACKAGES=${*:-./internal/secrets/...}
+if [ "$#" -eq 0 ]; then
+    set -- ./internal/secrets/... ./internal/web/... ./internal/api/... ./internal/ctl/... ./internal/mcpserver/... ./cmd/beacon
+fi
+PACKAGES=$*
 
 # the fixture markers, kept in step with internal/secrets/vault_test.go and
 # internal/secrets/importer/importer_test.go

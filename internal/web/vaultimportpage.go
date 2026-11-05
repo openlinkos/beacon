@@ -208,8 +208,8 @@ func (s *Server) vaultImportCommit(w http.ResponseWriter, r *http.Request, v *vi
 	}
 	p := s.importShell(w, r, v)
 	p.Done = true
-	p.CreatedLine = s.t("%d created, %d new versions, %d skipped, %d held back, %d kept both",
-		report.Created, report.Versions, report.Skipped, report.HeldBack, report.KeptBoth)
+	p.CreatedLine = s.t("%d created, %d new versions, %d skipped, %d kept both",
+		report.Created, report.Versions, report.Skipped, report.KeptBoth)
 	s.render(w, vaultImportTmpl, p)
 }
 

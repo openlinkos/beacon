@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/secrets/importer"
@@ -43,12 +44,11 @@ type ImportReport struct {
 	DryRun      bool               `json:"dry_run"`
 	Collections []CollectionReport `json:"collections"`
 	Conflicts   []ConflictReport   `json:"conflicts,omitempty"`
-	Created     int                `json:"created,omitempty"`
-	Versions    int                `json:"versions_added,omitempty"` // new versions of items already there
-	Skipped     int                `json:"skipped,omitempty"`
-	HeldBack    int                `json:"held_back,omitempty"` // ask: the conflicts, held for a decision
-	KeptBoth    int                `json:"kept_both,omitempty"`
-	Merged      int                `json:"merged,omitempty"` // rows folded together before the import (Chrome)
+	Created  int `json:"created,omitempty"`
+	Versions int `json:"versions_added,omitempty"` // new versions of items already there
+	Skipped  int `json:"skipped,omitempty"`
+	KeptBoth int `json:"kept_both,omitempty"`
+	Merged   int `json:"merged,omitempty"` // rows folded together before the import (Chrome)
 }
 
 // CollectionReport is one target collection: whether it would be made, the level its items start
@@ -355,20 +355,6 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 		}
 		targets = append(targets, t)
 	}
-	if !opts.DryRun {
-		maxSize := s.attachmentMax()
-		for _, t := range targets {
-			for _, item := range t.imported.Items {
-				for _, a := range item.Attachments {
-					if int64(len(a.Data)) > maxSize {
-						return ImportReport{}, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
-					}
-				}
-			}
-		}
-		_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_import_begin",
-			Detail: fmt.Sprintf("import from %s into %d collection(s)", batch.Source, len(targets))})
-	}
 	report := ImportReport{Source: batch.Source, DryRun: opts.DryRun, Merged: batch.Merged}
 	end := func(failed bool) {
 		if opts.DryRun {
@@ -382,19 +368,28 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 			_ = s.d.Bot.Send(s.ctx, s.t("%s imported %d item(s) from %s via %s", who.Name, total, batch.Source, s.viaWords(who.Via)))
 		}
 	}
+	if !opts.DryRun {
+		maxSize := s.attachmentMax()
+		for _, t := range targets {
+			for _, item := range t.imported.Items {
+				for _, a := range item.Attachments {
+					if int64(len(a.Data)) > maxSize {
+						return ImportReport{}, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
+					}
+				}
+			}
+		}
+	}
 	for i := range targets {
 		t := &targets[i]
-		if !opts.DryRun && t.new {
-			col, err := s.CreateCollection(who, t.imported.Name, t.imported.Description, t.level)
-			if err != nil {
-				end(true)
-				return report, err
-			}
-			t.col = col
-		}
 		cr := CollectionReport{Name: t.imported.Name, New: t.new, Level: t.level}
 		cats := map[string]int{}
 		for _, item := range t.imported.Items {
+			if opts.DryRun {
+				if _, err := checkImportedItem(item, levels); err != nil {
+					return report, err
+				}
+			}
 			cr.Items++
 			cr.Fields += len(item.Fields)
 			cr.Attachments += len(item.Attachments)
@@ -418,48 +413,108 @@ func (s *Service) Import(who Actor, batch importer.Batch, opts ImportOptions) (I
 				report.Conflicts = append(report.Conflicts, ConflictReport{Collection: t.imported.Name,
 					Incoming: item.Title, Existing: hit.title, SharedURLs: len(hit.shared)})
 			}
-			if opts.DryRun {
-				continue
-			}
-			switch {
-			case hit == nil:
-				written, err := s.importCreate(who, t.col, item, levels, opts)
-				if err != nil {
-					end(true)
-					return report, err
-				}
-				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
-				report.Created++
-				_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_create",
-					Target: written.Title, Detail: "imported into " + t.col.Name})
-			case onConflict == "new_version":
-				written, err := s.importNewVersion(who, hit.item, item, opts)
-				if err != nil {
-					end(true)
-					return report, err
-				}
-				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
-				report.Versions++
-				_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_update",
-					Target: written.Title, Detail: "imported a new version in " + t.col.Name})
-			case onConflict == "skip":
-				report.Skipped++
-			case onConflict == "keep_both":
-				written, err := s.importCreate(who, t.col, item, levels, opts)
-				if err != nil {
-					end(true)
-					return report, err
-				}
-				t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
-				report.KeptBoth++
-			default: // skip
-				report.Skipped++
-			}
 		}
 		for _, name := range sortedKeys(cats) {
 			cr.Categories = append(cr.Categories, CategoryCount{Name: name, Count: cats[name]})
 		}
 		report.Collections = append(report.Collections, cr)
+	}
+	if opts.DryRun {
+		return report, nil
+	}
+	_ = s.auditEntry(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_import_begin",
+		Detail: fmt.Sprintf("import from %s into %d collection(s)", batch.Source, len(targets))})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refuseIfRotating(); err != nil {
+		end(true)
+		return report, err
+	}
+	if _, err := s.sk(); err != nil {
+		end(true)
+		return report, err
+	}
+	policyPuts := map[string][]byte{}
+	itemPuts := map[string][]byte{}
+	var createdCols []Collection
+	var itemAudits []store.AuditEntry
+	var policyHead, itemsHead signedhead.Head
+	err := s.d.Store.Storage().Update(func(tx kv.Tx) error {
+		for i := range targets {
+			t := &targets[i]
+			if t.new {
+				col, b, err := s.insertCollectionTx(tx, who, t.imported.Name, t.imported.Description, t.level)
+				if err != nil {
+					return err
+				}
+				policyPuts[policyRowKey(kindCollection, col.ID)] = b
+				t.col = col
+				createdCols = append(createdCols, col)
+			}
+			for _, item := range t.imported.Items {
+				hit := t.index.hit(item)
+				switch {
+				case hit == nil:
+					written, b, err := s.importCreateTx(tx, who, t.col, item, levels, opts)
+					if err != nil {
+						return err
+					}
+					itemPuts[written.ID] = b
+					t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
+					report.Created++
+					itemAudits = append(itemAudits, store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_create",
+						Target: written.Title, Detail: "imported into " + t.col.Name})
+				case onConflict == "new_version":
+					written, b, err := s.importNewVersionTx(tx, who, hit.item, item, opts)
+					if err != nil {
+						return err
+					}
+					itemPuts[written.ID] = b
+					t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
+					report.Versions++
+					itemAudits = append(itemAudits, store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_update",
+						Target: written.Title, Detail: "imported a new version in " + t.col.Name})
+				case onConflict == "keep_both":
+					written, b, err := s.importCreateTx(tx, who, t.col, item, levels, opts)
+					if err != nil {
+						return err
+					}
+					itemPuts[written.ID] = b
+					t.index.add(written.ID, written.Title, written.URLs, importedUsernames(item.Fields))
+					report.KeptBoth++
+					itemAudits = append(itemAudits, store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "secrets_item_create",
+						Target: written.Title, Detail: "imported into " + t.col.Name})
+				default:
+					report.Skipped++
+				}
+			}
+		}
+		var err error
+		if len(policyPuts) > 0 {
+			policyHead, err = s.commitPolicy(tx, policyPuts, nil)
+			if err != nil {
+				return err
+			}
+		}
+		if len(itemPuts) > 0 {
+			itemsHead, err = s.commitItems(tx, itemPuts, nil)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		report.Created, report.Versions, report.KeptBoth, report.Skipped = 0, 0, 0, 0
+		end(true)
+		return report, err
+	}
+	s.afterHeads(policyHead, itemsHead)
+	for _, e := range itemAudits {
+		_ = s.auditEntry(e)
+	}
+	for _, col := range createdCols {
+		s.echo(who, "created the collection", col.Name, "secrets_collection_create")
 	}
 	end(false)
 	return report, nil
@@ -525,7 +580,7 @@ func checkImportedItem(in importer.ItemImport, levels importLevels) (importedIte
 	if strings.TrimSpace(in.Title) == "" {
 		return importedItem{}, fmt.Errorf("%w: an item needs a title", ErrBadInput)
 	}
-	if len(in.Title) > 128 {
+	if utf8.RuneCountInString(strings.TrimSpace(in.Title)) > 128 {
 		return importedItem{}, fmt.Errorf("%w: an item's title is at most 128 characters (the reference addresses it by ID)", ErrBadInput)
 	}
 	out := importedItem{title: strings.TrimSpace(in.Title), category: in.Category, state: StateNormal,
@@ -550,143 +605,126 @@ func checkImportedItem(in importer.ItemImport, levels importLevels) (importedIte
 	return out, nil
 }
 
-// importCreate writes one item as new: its password history becomes the earlier versions (the
-// oldest first, the values the history gives), the item's own values the current one, and the
-// attachments ride with the current version. One transaction, no per-item echo: the import itself
-// is the audited thing.
-func (s *Service) importCreate(who Actor, col Collection, in importer.ItemImport, levels importLevels, opts ImportOptions) (Item, error) {
+// importCreateTx writes one item as new inside the import's transaction: its password history
+// becomes the earlier versions (the oldest first, the values the history gives), the item's own
+// values the current one, and the attachments ride with the current version. Tags are policy, so
+// they land only when the caller may manage the collection. The bytes go back so the import can
+// commit the items head once for the whole batch.
+func (s *Service) importCreateTx(tx kv.Tx, who Actor, col Collection, in importer.ItemImport, levels importLevels, opts ImportOptions) (Item, []byte, error) {
 	item, err := checkImportedItem(in, levels)
 	if err != nil {
-		return Item{}, err
+		return Item{}, nil, err
 	}
 	if s.rotatingNow(col.ID) {
-		return Item{}, fmt.Errorf("%w: the collection's key is being rotated; try again shortly", ErrConflict)
+		return Item{}, nil, fmt.Errorf("%w: the collection's key is being rotated; try again shortly", ErrConflict)
 	}
 	maxSize := s.attachmentMax()
 	for _, a := range in.Attachments {
 		if int64(len(a.Data)) > maxSize {
-			return Item{}, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
+			return Item{}, nil, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
 		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.refuseIfRotating(); err != nil {
-		return Item{}, err
-	}
-	if _, err := s.sk(); err != nil {
-		return Item{}, err
 	}
 	id, err := newID()
 	if err != nil {
-		return Item{}, err
+		return Item{}, nil, err
 	}
 	now := s.now()
+	tags := item.tags
+	if !s.mayManageTx(tx, who, col.ID) {
+		tags = nil
+	}
 	row := Item{ID: id, Collection: col.ID, Title: item.title, Category: item.category, URLs: item.urls,
-		Tags: item.tags, Level: item.level, State: item.state, Source: item.source,
+		Tags: tags, Level: item.level, State: item.state, Source: item.source,
 		Created: now, CreatedBy: who.Name}
 	reason := opts.Reason
 	if reason == "" {
 		reason = "import from " + batchSource(in.Source)
 	}
-	var out Item
-	var committed signedhead.Head
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		ck, err := s.collectionKeyByVersionTx(tx, col.ID, col.KeyVersion)
-		if err != nil {
-			return err
-		}
-		defer clear(ck)
-		version := int64(0)
-		write := func(values map[string]string, at time.Time, why string) error {
-			version++
-			details := Details{Values: values, Notes: item.notes, Fields: item.fields}
-			plain, err := json.Marshal(details)
-			if err != nil {
-				return err
-			}
-			ver := ItemVersion{Item: id, Version: version, Fields: item.fields, KeyVersion: col.KeyVersion,
-				Actor: who.Name, Via: who.Via, At: at, Reason: why}
-			ver.CT, err = wrap(ck, plain, itemAAD(id, version, col.ID, col.KeyVersion))
-			if err != nil {
-				return err
-			}
-			return putVersionTx(tx, ver)
-		}
-		// the password history first, oldest to newest, each with the values of its day around it
-		for _, h := range in.History {
-			values := map[string]string{}
-			for k, v := range item.values {
-				values[k] = v
-			}
-			for _, f := range item.fields {
-				if f.Purpose == PurposePassword {
-					values[fieldKey(f.Section, f.Name)] = h.Value
-				}
-			}
-			if err := write(values, h.At, "before the import: the password history"); err != nil {
-				return err
-			}
-		}
-		// the current values, and the attachments with them
-		if err := write(item.values, now, reason); err != nil {
-			return err
-		}
-		for _, a := range in.Attachments {
-			if strings.TrimSpace(a.Name) == "" {
-				continue
-			}
-			ct, err := wrap(ck, a.Data, attachmentAAD(id, version, col.ID, col.KeyVersion, a.Name))
-			if err != nil {
-				return err
-			}
-			att := Attachment{Item: id, Version: version, Name: a.Name, Size: int64(len(a.Data)), CT: ct}
-			b, err := json.Marshal(att)
-			if err != nil {
-				return err
-			}
-			if err := tx.Put(bucketFiles, attachmentRowKey(id, version, a.Name), b); err != nil {
-				return err
-			}
-		}
-		if len(in.Attachments) > 0 {
-			// the details' attachment list names them: encrypt the current version again with it inside
-			names := make([]string, 0, len(in.Attachments))
-			for _, a := range in.Attachments {
-				if strings.TrimSpace(a.Name) != "" {
-					names = append(names, a.Name)
-				}
-			}
-			plain, err := json.Marshal(Details{Values: item.values, Notes: item.notes, Attachments: names, Fields: item.fields})
-			if err != nil {
-				return err
-			}
-			ver, ok := getVersionTx(tx, id, version)
-			if !ok {
-				return fmt.Errorf("%w: the version just written is missing", ErrNotFound)
-			}
-			ver.CT, err = wrap(ck, plain, itemAAD(id, version, col.ID, col.KeyVersion))
-			if err != nil {
-				return err
-			}
-			if err := putVersionTx(tx, ver); err != nil {
-				return err
-			}
-		}
-		row.Version = version
-		h, err := s.putItemTx(tx, row)
-		if err != nil {
-			return err
-		}
-		committed = h
-		out = row
-		s.pruneVersions(tx, id, version)
-		return nil
-	})
+	ck, err := s.collectionKeyByVersionTx(tx, col.ID, col.KeyVersion)
 	if err != nil {
-		return Item{}, err
+		return Item{}, nil, err
 	}
-	s.afterHeads(committed)
-	return out, nil
+	defer clear(ck)
+	version := int64(0)
+	write := func(values map[string]string, at time.Time, why string) error {
+		version++
+		details := Details{Values: values, Notes: item.notes, Fields: item.fields}
+		plain, err := json.Marshal(details)
+		if err != nil {
+			return err
+		}
+		ver := ItemVersion{Item: id, Version: version, Fields: item.fields, KeyVersion: col.KeyVersion,
+			Actor: who.Name, Via: who.Via, At: at, Reason: why}
+		ver.CT, err = wrap(ck, plain, itemAAD(id, version, col.ID, col.KeyVersion))
+		if err != nil {
+			return err
+		}
+		return putVersionTx(tx, ver)
+	}
+	for _, h := range in.History {
+		values := map[string]string{}
+		for k, v := range item.values {
+			values[k] = v
+		}
+		for _, f := range item.fields {
+			if f.Purpose == PurposePassword {
+				values[fieldKey(f.Section, f.Name)] = h.Value
+			}
+		}
+		if err := write(values, h.At, "before the import: the password history"); err != nil {
+			return Item{}, nil, err
+		}
+	}
+	if err := write(item.values, now, reason); err != nil {
+		return Item{}, nil, err
+	}
+	for _, a := range in.Attachments {
+		if strings.TrimSpace(a.Name) == "" {
+			continue
+		}
+		ct, err := wrap(ck, a.Data, attachmentAAD(id, version, col.ID, col.KeyVersion, a.Name))
+		if err != nil {
+			return Item{}, nil, err
+		}
+		att := Attachment{Item: id, Version: version, Name: a.Name, Size: int64(len(a.Data)), CT: ct}
+		b, err := json.Marshal(att)
+		if err != nil {
+			return Item{}, nil, err
+		}
+		if err := tx.Put(bucketFiles, attachmentRowKey(id, version, a.Name), b); err != nil {
+			return Item{}, nil, err
+		}
+	}
+	if len(in.Attachments) > 0 {
+		names := make([]string, 0, len(in.Attachments))
+		for _, a := range in.Attachments {
+			if strings.TrimSpace(a.Name) != "" {
+				names = append(names, a.Name)
+			}
+		}
+		plain, err := json.Marshal(Details{Values: item.values, Notes: item.notes, Attachments: names, Fields: item.fields})
+		if err != nil {
+			return Item{}, nil, err
+		}
+		ver, ok := getVersionTx(tx, id, version)
+		if !ok {
+			return Item{}, nil, fmt.Errorf("%w: the version just written is missing", ErrNotFound)
+		}
+		ver.CT, err = wrap(ck, plain, itemAAD(id, version, col.ID, col.KeyVersion))
+		if err != nil {
+			return Item{}, nil, err
+		}
+		if err := putVersionTx(tx, ver); err != nil {
+			return Item{}, nil, err
+		}
+	}
+	row.Version = version
+	b, err := s.putItemBytesTx(tx, row)
+	if err != nil {
+		return Item{}, nil, err
+	}
+	s.pruneVersions(tx, id, version)
+	return row, b, nil
 }
 
 // batchSource keeps the source marker short for the reason ("1password" out of "1password:UUID").
@@ -700,156 +738,136 @@ func batchSource(source string) string {
 	return source
 }
 
-// importNewVersion folds one imported item into an item that is already there, as its next
-// version: the places and the tags join together, an imported field's value replaces the field's
-// own, fields the item never had join it, and the attachments ride with the new version. The
-// imported history stays out: the item keeps its own.
-func (s *Service) importNewVersion(who Actor, itemID string, in importer.ItemImport, opts ImportOptions) (Item, error) {
+// importNewVersionTx folds one imported item into an item that is already there, as its next
+// version, inside the import's transaction: the places and the tags join together, an imported
+// field's value replaces the field's own, fields the item never had join it, and the attachments
+// ride with the new version. Field types come from the ciphertext, never the plaintext overview.
+// The imported history stays out: the item keeps its own.
+func (s *Service) importNewVersionTx(tx kv.Tx, who Actor, itemID string, in importer.ItemImport, opts ImportOptions) (Item, []byte, error) {
 	item, err := checkImportedItem(in, importLevels{})
 	if err != nil {
-		return Item{}, err
+		return Item{}, nil, err
 	}
 	maxSize := s.attachmentMax()
 	for _, a := range in.Attachments {
 		if int64(len(a.Data)) > maxSize {
-			return Item{}, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
+			return Item{}, nil, fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrAttachment, a.Name, len(a.Data), maxSize)
 		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.refuseIfRotating(); err != nil {
-		return Item{}, err
-	}
-	if _, err := s.sk(); err != nil {
-		return Item{}, err
 	}
 	now := s.now()
 	reason := opts.Reason
 	if reason == "" {
 		reason = "import from " + batchSource(in.Source) + ": a newer value"
 	}
-	var out Item
-	var committed signedhead.Head
-	err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
-		row, colRow, ok := s.itemTx(tx, itemID)
-		if !ok {
-			return fmt.Errorf("%w: no item %q", ErrNotFound, itemID)
+	row, colRow, ok := s.itemTx(tx, itemID)
+	if !ok {
+		return Item{}, nil, fmt.Errorf("%w: no item %q", ErrNotFound, itemID)
+	}
+	cur, ok := getVersionTx(tx, row.ID, row.Version)
+	if !ok {
+		return Item{}, nil, fmt.Errorf("%w: the item's current version is missing", ErrNotFound)
+	}
+	d, err := s.decryptDetailsTx(tx, colRow, cur, row.ID, row.Version)
+	if err != nil {
+		return Item{}, nil, fmt.Errorf("the item's current version could not be opened: %w", err)
+	}
+	ck, err := s.collectionKeyByVersionTx(tx, colRow.ID, colRow.KeyVersion)
+	if err != nil {
+		return Item{}, nil, err
+	}
+	defer clear(ck)
+	if s.rotatingNow(colRow.ID) {
+		return Item{}, nil, fmt.Errorf("%w: the collection's key is being rotated; try again shortly", ErrConflict)
+	}
+	if row.State == StateTrash {
+		return Item{}, nil, fmt.Errorf("%w: a trashed item is not updated by an import", ErrNotFound)
+	}
+	row.URLs = compact(append(row.URLs, item.urls...))
+	if s.mayManageTx(tx, who, colRow.ID) {
+		row.Tags = compactLower(append(row.Tags, item.tags...))
+	}
+	if row.Category == "" && item.category != "" {
+		row.Category = item.category
+	}
+	if row.Source == "" && item.source != "" {
+		row.Source = item.source
+	}
+	fields := d.Fields
+	values := map[string]string{}
+	for k, v := range d.Values {
+		values[k] = v
+	}
+	for _, f := range item.fields {
+		key := fieldKey(f.Section, f.Name)
+		if item.values[key] == "" {
+			continue // an empty import must not blank a value that is already there
 		}
-		cur, ok := getVersionTx(tx, row.ID, row.Version)
-		if !ok {
-			return fmt.Errorf("%w: the item's current version is missing", ErrNotFound)
+		values[key] = item.values[key]
+		if !hasField(fields, f.Section, f.Name) {
+			fields = append(fields, f)
 		}
-		d, err := s.decryptDetailsTx(tx, colRow, cur, row.ID, row.Version)
+	}
+	notes := d.Notes
+	if item.notes != "" {
+		if notes != "" {
+			notes += "\n"
+		}
+		notes += item.notes
+	}
+	attachments := d.Attachments
+	next := row.Version + 1
+	ver := ItemVersion{Item: row.ID, Version: next, Fields: fields, KeyVersion: colRow.KeyVersion,
+		Actor: who.Name, Via: who.Via, At: now, Reason: reason}
+	plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: attachments, Fields: fields})
+	if err != nil {
+		return Item{}, nil, err
+	}
+	ver.CT, err = wrap(ck, plain, itemAAD(row.ID, next, colRow.ID, colRow.KeyVersion))
+	if err != nil {
+		return Item{}, nil, err
+	}
+	if err := putVersionTx(tx, ver); err != nil {
+		return Item{}, nil, err
+	}
+	names := attachments
+	for _, a := range in.Attachments {
+		if strings.TrimSpace(a.Name) == "" {
+			continue
+		}
+		ct, err := wrap(ck, a.Data, attachmentAAD(row.ID, next, colRow.ID, colRow.KeyVersion, a.Name))
 		if err != nil {
-			return fmt.Errorf("the item's current version could not be opened: %w", err)
+			return Item{}, nil, err
 		}
-		ck, err := s.collectionKeyByVersionTx(tx, colRow.ID, colRow.KeyVersion)
+		att := Attachment{Item: row.ID, Version: next, Name: a.Name, Size: int64(len(a.Data)), CT: ct}
+		b, err := json.Marshal(att)
 		if err != nil {
-			return err
+			return Item{}, nil, err
 		}
-		defer clear(ck)
-		if s.rotatingNow(colRow.ID) {
-			return fmt.Errorf("%w: the collection's key is being rotated; try again shortly", ErrConflict)
+		if err := tx.Put(bucketFiles, attachmentRowKey(row.ID, next, a.Name), b); err != nil {
+			return Item{}, nil, err
 		}
-		if row.State == StateTrash {
-			return fmt.Errorf("%w: a trashed item is not updated by an import", ErrNotFound)
+		if !containsString(names, a.Name) {
+			names = append(names, a.Name)
 		}
-		// the overview joins: places together; tags only when the caller may manage (they change who can reach the item)
-		row.URLs = compact(append(row.URLs, item.urls...))
-		if s.mayManageTx(tx, who, colRow.ID) {
-			row.Tags = compactLower(append(row.Tags, item.tags...))
-		}
-		if row.Category == "" && item.category != "" {
-			row.Category = item.category
-		}
-		if row.Source == "" && item.source != "" {
-			row.Source = item.source
-		}
-		// the details fold: an imported value replaces the field's own, new fields join
-		fields := cur.Fields
-		values := map[string]string{}
-		for k, v := range d.Values {
-			values[k] = v
-		}
-		for _, f := range item.fields {
-			key := fieldKey(f.Section, f.Name)
-			if item.values[key] == "" {
-				continue // an empty import must not blank a value that is already there
-			}
-			values[key] = item.values[key]
-			if !hasField(fields, f.Section, f.Name) {
-				fields = append(fields, f)
-			}
-		}
-		notes := d.Notes
-		if item.notes != "" {
-			if notes != "" {
-				notes += "\n"
-			}
-			notes += item.notes
-		}
-		attachments := d.Attachments
-		next := row.Version + 1
-		ver := ItemVersion{Item: row.ID, Version: next, Fields: fields, KeyVersion: colRow.KeyVersion,
-			Actor: who.Name, Via: who.Via, At: now, Reason: reason}
-		plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: attachments, Fields: fields})
+	}
+	if len(names) != len(attachments) {
+		plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: names, Fields: fields})
 		if err != nil {
-			return err
+			return Item{}, nil, err
 		}
 		ver.CT, err = wrap(ck, plain, itemAAD(row.ID, next, colRow.ID, colRow.KeyVersion))
 		if err != nil {
-			return err
+			return Item{}, nil, err
 		}
 		if err := putVersionTx(tx, ver); err != nil {
-			return err
+			return Item{}, nil, err
 		}
-		names := attachments
-		for _, a := range in.Attachments {
-			if strings.TrimSpace(a.Name) == "" {
-				continue
-			}
-			ct, err := wrap(ck, a.Data, attachmentAAD(row.ID, next, colRow.ID, colRow.KeyVersion, a.Name))
-			if err != nil {
-				return err
-			}
-			att := Attachment{Item: row.ID, Version: next, Name: a.Name, Size: int64(len(a.Data)), CT: ct}
-			b, err := json.Marshal(att)
-			if err != nil {
-				return err
-			}
-			if err := tx.Put(bucketFiles, attachmentRowKey(row.ID, next, a.Name), b); err != nil {
-				return err
-			}
-			if !containsString(names, a.Name) {
-				names = append(names, a.Name)
-			}
-		}
-		if len(names) != len(attachments) {
-			plain, err := json.Marshal(Details{Values: values, Notes: notes, Attachments: names})
-			if err != nil {
-				return err
-			}
-			ver.CT, err = wrap(ck, plain, itemAAD(row.ID, next, colRow.ID, colRow.KeyVersion))
-			if err != nil {
-				return err
-			}
-			if err := putVersionTx(tx, ver); err != nil {
-				return err
-			}
-		}
-		row.Version = next
-		h, err := s.putItemTx(tx, row)
-		if err != nil {
-			return err
-		}
-		committed = h
-		out = row
-		s.pruneVersions(tx, row.ID, next)
-		return nil
-	})
-	if err != nil {
-		return Item{}, err
 	}
-	s.afterHeads(committed)
-	return out, nil
+	row.Version = next
+	b, err := s.putItemBytesTx(tx, row)
+	if err != nil {
+		return Item{}, nil, err
+	}
+	s.pruneVersions(tx, row.ID, next)
+	return row, b, nil
 }

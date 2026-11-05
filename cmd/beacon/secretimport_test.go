@@ -56,10 +56,10 @@ func TestPrintImportReportCarriesNoValue(t *testing.T) {
 	// a report with conflicts names them without a value
 	report.DryRun = false
 	report.Conflicts = []secrets.ConflictReport{{Collection: "Chrome", Incoming: "Portal", Existing: "Portal", SharedURLs: 1}}
-	report.HeldBack = 1
+	report.Skipped = 1
 	out.Reset()
 	printImportReport(&out, report)
-	if !strings.Contains(out.String(), "held back 1") || !strings.Contains(out.String(), "ALREADY THERE") {
+	if !strings.Contains(out.String(), "skipped 1") || !strings.Contains(out.String(), "ALREADY THERE") {
 		t.Fatalf("the outcomes and the conflicts: %s", out.String())
 	}
 }

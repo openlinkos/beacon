@@ -2,12 +2,22 @@ package importer
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"time"
+)
+
+// export.data is JSON and is easy to pack small in the zip while expanding huge in memory.
+// Attachments keep the larger per-entry cap; the JSON itself is smaller and walked for depth
+// before Unmarshal, so a few kilobytes of nested arrays cannot allocate gigabytes.
+const (
+	maxExportData = 8 << 20
+	maxJSONDepth  = 32
+	maxZipEntry   = 64 << 20
 )
 
 // The 1PUX export: a zip holding export.attributes, export.data (accounts → vaults → items) and a
@@ -143,7 +153,6 @@ func Parse1PUX(r io.Reader) (Batch, error) {
 	if err != nil {
 		return Batch{}, fmt.Errorf("the 1PUX file is not a zip: %w", err)
 	}
-	const maxEntry = 64 << 20
 	var dataFile *zip.File
 	fileIndex := map[string]*zip.File{}
 	for _, f := range zr.File {
@@ -164,8 +173,11 @@ func Parse1PUX(r io.Reader) (Batch, error) {
 	if dataFile == nil {
 		return Batch{}, fmt.Errorf("the 1PUX file has no export.data")
 	}
-	data, err := readZipEntry(dataFile, maxEntry)
+	data, err := readZipEntry(dataFile, maxExportData)
 	if err != nil {
+		return Batch{}, fmt.Errorf("export.data: %w", err)
+	}
+	if err := refuseJSONDepth(data, maxJSONDepth); err != nil {
 		return Batch{}, fmt.Errorf("export.data: %w", err)
 	}
 	var export onepux
@@ -200,7 +212,7 @@ func Parse1PUX(r io.Reader) (Batch, error) {
 		if !want {
 			continue
 		}
-		b, err := readZipEntry(f, maxEntry)
+		b, err := readZipEntry(f, maxZipEntry)
 		if err != nil {
 			return Batch{}, fmt.Errorf("%s: %w", name, err)
 		}
@@ -419,6 +431,31 @@ func attachmentBytes(files map[string][]byte, id, name string) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+// refuseJSONDepth walks data with a Decoder and refuses objects or arrays nested more than
+// maxDepth levels, before Unmarshal allocates the Go value.
+func refuseJSONDepth(data []byte, maxDepth int) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+			if depth > maxDepth {
+				return fmt.Errorf("JSON is nested more than %d levels", maxDepth)
+			}
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+	}
 }
 
 func readZipEntry(f *zip.File, max int64) ([]byte, error) {

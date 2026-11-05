@@ -399,14 +399,14 @@ func TestImportNoConflictWithoutTheUserName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.HeldBack != 0 || report.Created != 1 {
+	if report.Created != 1 {
 		t.Fatalf("another user name is no conflict: %+v", report)
 	}
 	report, err = s.Import(owner, importConflictBatch("https://other.example.net", "fixture-import-conflict-user@example.com"), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.HeldBack != 0 || report.Created != 1 {
+	if report.Created != 1 {
 		t.Fatalf("another place is no conflict: %+v", report)
 	}
 }
@@ -506,7 +506,7 @@ func TestImportWritesItsAuditEntry(t *testing.T) {
 	}
 }
 
-func TestImportMidFailKeepsWrittenItemsInTheAudit(t *testing.T) {
+func TestImportMidFailWritesNothing(t *testing.T) {
 	var entries []store.AuditEntry
 	s, _ := newVault(t, SealFile, Deps{Audit: func(e store.AuditEntry) error {
 		entries = append(entries, e)
@@ -520,26 +520,123 @@ func TestImportMidFailKeepsWrittenItemsInTheAudit(t *testing.T) {
 				{Name: "password", Type: importer.TypeConcealed, Purpose: importer.PurposePassword, Value: "nope"}}},
 		},
 	}}}
-	if _, err := s.Import(owner, batch, ImportOptions{}); err == nil {
+	report, err := s.Import(owner, batch, ImportOptions{})
+	if err == nil {
 		t.Fatal("the second item has no title, so the import fails")
+	}
+	if report.Created != 0 || report.Versions != 0 || report.Skipped != 0 || report.KeptBoth != 0 {
+		t.Fatalf("a failed import reports nothing written: %+v", report)
 	}
 	var created, ended bool
 	for _, e := range entries {
-		if e.Action == "secrets_item_create" && e.Target == "First" {
+		if e.Action == "secrets_item_create" {
 			created = true
 		}
 		if e.Action == "secrets_import_end" {
 			ended = true
-			if !strings.Contains(e.Detail, "failed=true") || !strings.Contains(e.Detail, "1 created") {
-				t.Fatalf("the end record marks the failure and the count: %q", e.Detail)
+			if !strings.Contains(e.Detail, "failed=true") || !strings.Contains(e.Detail, "0 created") {
+				t.Fatalf("the end record marks the failure and nothing written: %q", e.Detail)
 			}
 		}
 	}
-	if !created || !ended {
-		t.Fatalf("the written item is in the audit and the import ended failed: %+v", entries)
+	if created {
+		t.Fatalf("no item is created when the import fails: %+v", entries)
 	}
-	if got := s.Items("Sheet", ""); len(got) != 1 || got[0].Title != "First" {
-		t.Fatalf("the first item stayed: %+v", got)
+	if !ended {
+		t.Fatalf("the import ended failed: %+v", entries)
+	}
+	if _, ok := s.Collection("Sheet"); ok {
+		t.Fatal("the new collection was rolled back")
+	}
+	if got := s.Items("Sheet", ""); len(got) != 0 {
+		t.Fatalf("nothing stayed: %+v", got)
+	}
+}
+
+func TestImportTitleIsLimitedByRunes(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	han := strings.Repeat("密", 50)
+	batch := importer.Batch{Source: importer.SourceCSV, Collections: []importer.CollectionImport{{
+		Name: "Sheet", Items: []importer.ItemImport{{
+			Title: han, Source: importer.SourceCSV,
+			Fields: []importer.FieldImport{{Name: "password", Type: importer.TypeConcealed, Purpose: importer.PurposePassword, Value: "ok"}},
+		}},
+	}}}
+	if _, err := s.Import(owner, batch, ImportOptions{DryRun: true}); err != nil {
+		t.Fatalf("fifty han characters fit a dry-run: %v", err)
+	}
+	if _, err := s.Import(owner, batch, ImportOptions{}); err != nil {
+		t.Fatalf("fifty han characters import: %v", err)
+	}
+	tooLong := strings.Repeat("密", 129)
+	batch.Collections[0].Items[0].Title = tooLong
+	if _, err := s.Import(owner, batch, ImportOptions{DryRun: true}); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("129 characters fail the dry-run, got %v", err)
+	}
+	if _, err := s.Import(owner, batch, ImportOptions{}); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("129 characters fail the import, got %v", err)
+	}
+}
+
+func TestImportCreateEditDoesNotAddTags(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	makeConflicting(t, s)
+	col, _ := s.Collection("Infra")
+	if err := s.SetPermission(owner, col.Name, "user:bob", PermEdit, "bob edits"); err != nil {
+		t.Fatal(err)
+	}
+	bob := Actor{Name: "bob", Via: "test", Role: "viewer"}
+	batch := importer.Batch{Source: importer.SourceCSV, Collections: []importer.CollectionImport{{
+		Name: "Infra", Items: []importer.ItemImport{{
+			Title: "Other Login", Source: importer.SourceCSV,
+			URLs:  []string{"https://other.example.net"},
+			Tags:  []string{"agents/prod"},
+			Fields: []importer.FieldImport{
+				{Name: "username", Type: importer.TypeString, Purpose: importer.PurposeUsername, Value: "fixture-import-another-user@example.com"},
+				{Name: "password", Type: importer.TypeConcealed, Purpose: importer.PurposePassword, Value: "fixture-import-conflict-new-value"},
+			},
+		}},
+	}}}
+	if _, err := s.Import(bob, batch, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var got Item
+	for _, it := range s.Items("Infra", "") {
+		if it.Title == "Other Login" {
+			got = it
+		}
+	}
+	if got.ID == "" {
+		t.Fatal("the incoming item was created")
+	}
+	for _, tag := range got.Tags {
+		if tag == "agents/prod" {
+			t.Fatal("edit must not add tags through create")
+		}
+	}
+}
+
+func TestImportKeepBothEditDoesNotAddTags(t *testing.T) {
+	s, _ := newVault(t, SealFile, Deps{Lang: i18n.EN})
+	makeConflicting(t, s)
+	col, _ := s.Collection("Infra")
+	if err := s.SetPermission(owner, col.Name, "user:bob", PermEdit, "bob edits"); err != nil {
+		t.Fatal(err)
+	}
+	bob := Actor{Name: "bob", Via: "test", Role: "viewer"}
+	batch := importConflictBatch("https://example.com/other", "fixture-import-conflict-user@example.com")
+	batch.Collections[0].Items[0].Tags = []string{"agents/prod"}
+	if _, err := s.Import(bob, batch, ImportOptions{OnConflict: "keep_both"}); err != nil {
+		t.Fatal(err)
+	}
+	items := s.Items("Infra", "")
+	if len(items) != 2 {
+		t.Fatalf("keep both left two items: %+v", items)
+	}
+	for _, it := range items {
+		if containsString(it.Tags, "agents/prod") {
+			t.Fatal("edit must not add tags through keep_both")
+		}
 	}
 }
 

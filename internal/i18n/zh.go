@@ -96,7 +96,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"On conflict":        "冲突时",
 	"Import these items": "导入这些条目",
 	"Imported":           "已导入",
-	"%d created, %d new versions, %d skipped, %d held back, %d kept both": "新建 %[1]d 条、新增版本 %[2]d 条、跳过 %[3]d 条、留待决定 %[4]d 条、两条都留 %[5]d 条",
+	"%d created, %d new versions, %d skipped, %d kept both": "新建 %[1]d 条、新增版本 %[2]d 条、跳过 %[3]d 条、两条都留 %[4]d 条",
 	"Delete the export file now that its contents are in the vault.":      "内容已进保管库，现在请删除导出文件。",
 	"Follow-ups":                                                "待办",
 	"Confirm each collection's level.":                          "逐库确认级别。",

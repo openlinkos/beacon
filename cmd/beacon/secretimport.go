@@ -259,7 +259,7 @@ func printImportReport(w io.Writer, report secrets.ImportReport) {
 	if report.DryRun {
 		return
 	}
-	fmt.Fprintf(w, "created %d, versions added %d, skipped %d, held back %d, kept both %d", report.Created, report.Versions, report.Skipped, report.HeldBack, report.KeptBoth)
+	fmt.Fprintf(w, "created %d, versions added %d, skipped %d, kept both %d", report.Created, report.Versions, report.Skipped, report.KeptBoth)
 	if report.Merged > 0 {
 		fmt.Fprintf(w, ", rows merged %d", report.Merged)
 	}
