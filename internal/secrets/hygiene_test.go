@@ -494,8 +494,8 @@ func TestUnusedGrantConsequences(t *testing.T) {
 		t.Fatalf("auto_release changed %d things, want 1", n)
 	}
 	grants = g2.GrantsOf(worker2)
-	if len(grants) != 1 || grants[0].Status != GrantReleased {
-		t.Fatalf("the idle grant was not released: %+v", grants)
+	if len(grants) != 0 {
+		t.Fatalf("the idle grant still named after auto_release: %+v", grants)
 	}
 	events := g2.hooks.waitHooks(t, 1)
 	if len(events) != 1 || !strings.Contains(events[0], "secret.revoked") {

@@ -18,7 +18,11 @@ import (
 // revert; a reader sees the page without the forms, and rows that failed their signature are said.
 func TestSettingsPage(t *testing.T) {
 	e := newEnv(t, i18n.EN)
-	svc, err := settings.Open(settings.Deps{Store: e.st, Bot: e.bot, Lang: i18n.EN, Now: func() time.Time { return e.now }})
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	svc, err := settings.Open(settings.Deps{Store: e.st, Bot: e.bot, Lang: i18n.EN, Now: func() time.Time { return e.now }, Key: key, EpochsDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +94,11 @@ func TestSettingsPage(t *testing.T) {
 
 	// the Chinese page holds the same
 	zhEnv := newEnv(t, i18n.ZH)
-	zhSvc, err := settings.Open(settings.Deps{Store: zhEnv.st, Bot: zhEnv.bot, Lang: i18n.ZH, Now: func() time.Time { return zhEnv.now }})
+	zhKey := make([]byte, 32)
+	for i := range zhKey {
+		zhKey[i] = byte(i + 1)
+	}
+	zhSvc, err := settings.Open(settings.Deps{Store: zhEnv.st, Bot: zhEnv.bot, Lang: i18n.ZH, Now: func() time.Time { return zhEnv.now }, Key: zhKey, EpochsDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

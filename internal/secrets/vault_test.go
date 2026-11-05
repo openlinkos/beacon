@@ -14,6 +14,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/kv"
 	"github.com/openlinkos/beacon/internal/settings"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -616,6 +617,7 @@ func TestTrashPurge(t *testing.T) {
 		t.Fatalf("nothing goes before the retention, got %d", n)
 	}
 	// push the trashed-at back beyond the retention (thirty days by default)
+	var trashed signedhead.Head
 	_ = st.Storage().Update(func(tx kv.Tx) error {
 		var r signedItem
 		v := tx.Get(bucketItems, []byte(item.ID))
@@ -623,12 +625,14 @@ func TestTrashPurge(t *testing.T) {
 			t.Fatal("the row is there")
 		}
 		r.TrashedAt = s.now().Add(-40 * 24 * time.Hour)
-		sk, err := s.sk()
+		h, err := s.putItemTx(tx, r.Item)
 		if err != nil {
 			return err
 		}
-		return putItemTx(tx, r.Item, sk)
+		trashed = h
+		return nil
 	})
+	s.afterHeads(trashed)
 	if n := s.PurgeTrash(); n != 1 {
 		t.Fatalf("the item goes when its time is up, got %d", n)
 	}
@@ -781,6 +785,18 @@ func TestRemoveMemberDoesNotRotateKeys(t *testing.T) {
 	}
 }
 
+func reopenVault(t *testing.T, s *Service, st *store.Store) *Service {
+	t.Helper()
+	dir, mode := s.cfg.Dir, s.cfg.Mode
+	_ = s.Close()
+	s2, err := Open(context.Background(), SealConfig{Mode: mode, Dir: dir}, Deps{Store: st, Lang: i18n.EN, Log: testLog(t),
+		CheckPassword: func(string, string) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s2
+}
+
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -886,15 +902,12 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	sset, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN, Log: testLog(t)})
+	secretsDir := filepath.Join(dir, "secrets")
+	sset, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN, Log: testLog(t), EpochsDir: secretsDir})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// a row signed with the store's own key (as W4 left it)
-	if _, err := sset.Set(context.Background(), settings.Actor{Name: "owner", Via: "test"}, settings.ScopeSystem, "", "request.reason_min_length", json.RawMessage("12"), "tightening", 0); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(context.Background(), SealConfig{Mode: SealFile, Dir: filepath.Join(dir, "secrets")},
+	s, err := Open(context.Background(), SealConfig{Mode: SealFile, Dir: secretsDir},
 		Deps{Store: st, Settings: sset, Lang: i18n.EN, Log: testLog(t), CheckPassword: func(string, string) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -903,8 +916,10 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 	if len(sk) != 32 {
 		t.Fatal("the vault gives the settings a 32-byte key")
 	}
-	// the migration: rows verified under the old key are re-signed onto SK
 	if err := sset.SetKey(sk); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sset.Set(context.Background(), settings.Actor{Name: "owner", Via: "test"}, settings.ScopeSystem, "", "request.reason_min_length", json.RawMessage("12"), "tightening", 0); err != nil {
 		t.Fatal(err)
 	}
 	res, err := sset.System("request.reason_min_length")
@@ -912,15 +927,17 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(res.Value) != "12" {
-		t.Fatalf("the row survived the migration, got %s", res.Value)
+		t.Fatalf("the row survived SetKey, got %s", res.Value)
 	}
 	if len(sset.Bad()) != 0 {
-		t.Fatalf("no row is bad after the migration, got %v", sset.Bad())
+		t.Fatalf("no row is bad after SetKey, got %v", sset.Bad())
 	}
-	// a row changed straight in the database does not verify and is served as absent
 	_ = st.Storage().Update(func(tx kv.Tx) error {
 		var rows [][]byte
 		tx.Range([]byte("settings"), kv.Range{}, func(k, v []byte) bool {
+			if string(k) == "\x00head" {
+				return true
+			}
 			rows = append(rows, append([]byte(nil), k...))
 			return true
 		})
@@ -931,22 +948,22 @@ func TestSettingsMigrateOntoSK(t *testing.T) {
 		if err := json.Unmarshal(tx.Get([]byte("settings"), rows[0]), &r); err != nil {
 			return err
 		}
-		value := json.RawMessage(`1`)
-		r.Value = value
+		r.Value = json.RawMessage(`1`)
 		b, _ := json.Marshal(r)
 		return tx.Put([]byte("settings"), rows[0], b)
 	})
 	if res, _ = sset.System("request.reason_min_length"); string(res.Value) == "1" {
 		t.Fatal("a tampered settings row is served as absent")
 	}
-	// and the vault's sealed state is carried to the settings
-	s.keys.drop()
-	sset.MarkSealed()
-	if res, err := sset.System("request.reason_min_length"); err != nil || string(res.Value) == "12" {
-		t.Fatalf("while sealed the defaults answer (the rows cannot be verified), got %s %v", res.Value, err)
+	sealed, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN, Log: testLog(t), EpochsDir: secretsDir})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := sset.Set(context.Background(), settings.Actor{Name: "owner", Via: "test"}, settings.ScopeSystem, "", "request.reason_min_length", json.RawMessage("10"), "", 0); err == nil {
-		t.Fatal("while sealed no setting can change")
+	if res, err := sealed.System("request.reason_min_length"); err != nil || string(res.Value) == "12" {
+		t.Fatalf("without a key the failsafe answers, got %s %v", res.Value, err)
+	}
+	if _, err := sealed.Set(context.Background(), settings.Actor{Name: "owner", Via: "test"}, settings.ScopeSystem, "", "request.reason_min_length", json.RawMessage("10"), "", 0); err == nil {
+		t.Fatal("without a key no setting can change")
 	}
 }
 
@@ -1123,6 +1140,16 @@ func TestCopiedPermissionRowDoesNotGrant(t *testing.T) {
 	if s.May(viewer, prod.ID, PermDescribe) {
 		t.Fatal("a copied permission row must not grant anything on another collection")
 	}
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if s.May(viewer, prod.ID, PermManage) {
+		t.Fatal("after an unrelated write the copied row still grants nothing")
+	}
+	s2 := reopenVault(t, s, st)
+	if s2.May(viewer, prod.ID, PermManage) {
+		t.Fatal("after reopen the copied row still grants nothing")
+	}
 }
 
 func TestCopiedVersionDoesNotReveal(t *testing.T) {
@@ -1261,6 +1288,20 @@ func TestReplayOldTagRowStaysStrict(t *testing.T) {
 	if !bot.heard("strictest") {
 		t.Error("the stale tag was reported")
 	}
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("after an unrelated write the looser tag still stays never, got %s", got)
+	}
+	s2 := reopenVault(t, s, st)
+	item2, _, ok := s2.Item(item.ID)
+	if !ok {
+		t.Fatal("the item is still there")
+	}
+	if got := s2.EffectiveLevel(item2); got != LevelNever {
+		t.Fatalf("after reopen the looser tag still stays never, got %s", got)
+	}
 }
 
 // TestDeletedTagRowStaysStrict is deleting a stricter tag row from the file without DeleteTag:
@@ -1286,6 +1327,21 @@ func TestDeletedTagRowStaysStrict(t *testing.T) {
 	if !bot.heard("strictest") {
 		t.Error("the missing tag was reported")
 	}
+	if _, err := s.CreateCollection(owner, "Other", "", LevelReview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.EffectiveLevel(item); got != LevelNever {
+		t.Fatalf("after an unrelated write a deleted stricter tag still stays never, got %s", got)
+	}
+	s2 := reopenVault(t, s, st)
+	item2, _, ok := s2.Item(item.ID)
+	if !ok {
+		t.Fatal("the item is still there")
+	}
+	if got := s2.EffectiveLevel(item2); got != LevelNever {
+		t.Fatalf("after reopen a deleted stricter tag still stays never, got %s", got)
+	}
+	s = s2
 	// DeleteTag records the drop in the head, so the name becomes a label
 	if _, err := s.SetTag(owner, "env/prod", LevelNever, "", nil); err != nil {
 		t.Fatal(err)
@@ -1360,20 +1416,33 @@ func TestRotateRootKeyWriteFailureKeepsTheVault(t *testing.T) {
 func TestRotateRootKeyCrashAfterCommitOpensWithStagedKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "beacon.db")
-	seal := SealConfig{Mode: SealFile, Dir: filepath.Join(dir, "secrets")}
-	open := func() (*Service, *store.Store) {
+	secretsDir := filepath.Join(dir, "secrets")
+	seal := SealConfig{Mode: SealFile, Dir: secretsDir}
+	open := func() (*Service, *store.Store, *settings.Service) {
 		st, err := store.Open(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		s, err := Open(context.Background(), seal, Deps{Store: st, Lang: i18n.EN, Log: testLog(t),
+		sset, err := settings.Open(settings.Deps{Store: st, Lang: i18n.EN, Log: testLog(t), EpochsDir: secretsDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := Open(context.Background(), seal, Deps{Store: st, Settings: sset, Lang: i18n.EN, Log: testLog(t),
 			CheckPassword: func(string, string) error { return nil }})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return s, st
+		if !s.Sealed() {
+			if err := sset.SetKey(s.SK()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return s, st, sset
 	}
-	s, st := open()
+	s, st, sset := open()
+	if _, err := sset.Set(context.Background(), settings.Actor{Name: "owner", Via: "test"}, settings.ScopeSystem, "", "request.max_uses", json.RawMessage("5"), "tighten the uses", 0); err != nil {
+		t.Fatal(err)
+	}
 	col := newCollection(t, s, "Infra")
 	item := putItem(t, s, col.Name, "", "password", fixturePassword)
 	s.replaceFileFn = func(string, string) error { return nil } // the rename never happens
@@ -1382,11 +1451,15 @@ func TestRotateRootKeyCrashAfterCommitOpensWithStagedKey(t *testing.T) {
 	}
 	_ = s.Close()
 	_ = st.Close()
-	s2, st2 := open()
+	s2, st2, sset2 := open()
 	defer func() { _ = st2.Close() }()
 	values, _, err := s2.Reveal(owner, item.ID, nil, "pw")
 	if err != nil || values["password"] != fixturePassword {
 		t.Fatalf("a crash between commit and replace must still open the vault: %v", err)
+	}
+	res, err := sset2.System("request.max_uses")
+	if err != nil || string(res.Value) != "5" {
+		t.Fatalf("settings must survive the crash after commit, got %s %v", res.Value, err)
 	}
 }
 

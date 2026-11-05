@@ -14,7 +14,7 @@ import (
 // The console's settings page: every setting with the value in force, the registered default,
 // where the value was overridden, who changed it and when; a change form and a reset for whoever
 // holds secrets:admin; the history with revert. Rows that failed their signature are shown as a
-// warning: they are served as the last signed value, and were reported to the log, the audit log
+// warning: they are served as the registered failsafe, and were reported to the log, the audit log
 // and the alert chat.
 
 type settingsLabels struct {
@@ -35,7 +35,7 @@ func (s *Server) settingsLabels() settingsLabels {
 		History: s.t("History"), Version: s.t("Version"), Time: s.t("Time"), Via: s.t("Via"), Action: s.t("Action"),
 		Revert: s.t("Revert this change"), RevertWhy: s.t("Why revert it"),
 		Empty: s.t("None"), BadRows: s.t("Rows that failed their signature"), Overrides: s.t("Overrides at other levels"),
-		BadRowsHint: s.t("A row that fails its signature is served as the last signed value (never a looser default) and reported to the log, the audit log and the alert chat."),
+		BadRowsHint: s.t("A row that fails its signature is served as its failsafe value (never a looser default) and reported to the log, the audit log and the alert chat."),
 		Scope:       s.t("Scope"), Target: s.t("Target"), Level: s.t("Level"), LevelHint: s.t("The more specific level wins; tags take the stricter value; a request is clamped to the bound the level above gives."),
 		Requests: s.t("Requests and grants"), Review: s.t("Review"), Use: s.t("Use, rate limits and anomalies"),
 		Retention: s.t("Retention"), ImportX: s.t("Import"), Backup: s.t("Backup"), Storage: s.t("Storage"), None: s.t("None"),

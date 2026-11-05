@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/kv"
+	"github.com/openlinkos/beacon/internal/signedhead"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -59,9 +60,9 @@ func (s *Service) RotationDue() []RotationRow {
 	now := s.now()
 	var out []RotationRow
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) || r.RotateDays <= 0 || r.State != StateNormal {
+			if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) || r.RotateDays <= 0 || r.State != StateNormal {
 				return true
 			}
 			dueAt, _ := s.rotationState(r.Item)
@@ -270,9 +271,9 @@ func (s *Service) SweepHygiene() int {
 	}
 	var due []toNotice
 	_ = s.d.Store.Storage().View(func(tx kv.Tx) error {
-		tx.Range(bucketItems, kv.Range{}, func(_, v []byte) bool {
+		tx.Range(bucketItems, kv.Range{}, func(k, v []byte) bool {
 			var r signedItem
-			if json.Unmarshal(v, &r) != nil || !s.itemVerifies(r) {
+			if json.Unmarshal(v, &r) != nil || !s.itemLive(tx, k, v, r) {
 				return true
 			}
 			if s.rotateDue(r.Item, notice, now) {
@@ -345,8 +346,10 @@ func (s *Service) SweepHygiene() int {
 			s.mu.Lock()
 			sk, err := s.sk()
 			var noticed []Grant
-			if err == nil {
+			var committed signedhead.Head
+			if err == nil && s.refuseIfRotating() == nil {
 				err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+					puts := map[string][]byte{}
 					for _, g := range idle {
 						v := tx.Get(bucketGrants, []byte(g.ID))
 						var cur Grant
@@ -354,19 +357,24 @@ func (s *Service) SweepHygiene() int {
 							continue
 						}
 						cur.UnusedNoticedAt = now
-						if err := putGrantTx(tx, cur, sk); err != nil {
+						b, err := putGrantTx(tx, cur, sk)
+						if err != nil {
 							return err
 						}
+						puts[cur.ID] = b
 						noticed = append(noticed, cur)
 					}
 					if len(noticed) == 0 {
 						return nil
 					}
-					// UnusedNoticedAt is in signedParts(); the head has to name the new hash
+					// UnusedNoticedAt is in signedParts(); the grants head has to name the new hash
 					// or grants() drops the row as stale.
-					return writePolicyHeadTx(tx, sk)
+					h, err := s.commitGrants(tx, puts, nil)
+					committed = h
+					return err
 				})
 			}
+			s.afterHeads(committed)
 			s.mu.Unlock()
 			if err == nil {
 				for _, g := range noticed {
@@ -392,8 +400,10 @@ func (s *Service) SweepHygiene() int {
 			s.mu.Lock()
 			sk, err := s.sk()
 			var released []Grant
-			if err == nil {
+			var committed signedhead.Head
+			if err == nil && s.refuseIfRotating() == nil {
 				err = s.d.Store.Storage().Update(func(tx kv.Tx) error {
+					var dels []string
 					for _, g := range idle {
 						v := tx.Get(bucketGrants, []byte(g.ID))
 						var cur Grant
@@ -404,17 +414,21 @@ func (s *Service) SweepHygiene() int {
 							continue // used in the meantime
 						}
 						cur.Status = GrantReleased
-						if err := putGrantTx(tx, cur, sk); err != nil {
+						if _, err := putGrantTx(tx, cur, sk); err != nil {
 							return err
 						}
+						dels = append(dels, cur.ID)
 						released = append(released, cur)
 					}
 					if len(released) == 0 {
 						return nil
 					}
-					return writePolicyHeadTx(tx, sk)
+					h, err := s.commitGrants(tx, nil, dels)
+					committed = h
+					return err
 				})
 			}
+			s.afterHeads(committed)
 			s.mu.Unlock()
 			if err != nil {
 				released = nil

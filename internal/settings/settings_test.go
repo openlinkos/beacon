@@ -23,10 +23,21 @@ type bot struct{ texts []string }
 func (b *bot) Send(_ context.Context, t string) error { b.texts = append(b.texts, t); return nil }
 
 type env struct {
-	s   *Service
-	st  *store.Store
-	bot *bot
-	db  string // the database file, for the tests that reach past Beacon into it
+	s         *Service
+	st        *store.Store
+	bot       *bot
+	db        string // the database file, for the tests that reach past Beacon into it
+	key       []byte
+	epochsDir string
+}
+
+func testKey(t *testing.T) []byte {
+	t.Helper()
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = byte(i + 1)
+	}
+	return k
 }
 
 func newEnv(t *testing.T) *env {
@@ -38,11 +49,26 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	b := &bot{}
-	s, err := Open(Deps{Store: st, Bot: b, Lang: i18n.EN})
+	key := testKey(t)
+	epochs := t.TempDir()
+	s, err := Open(Deps{Store: st, Bot: b, Lang: i18n.EN, Key: key, EpochsDir: epochs})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{s: s, st: st, bot: b, db: db}
+	return &env{s: s, st: st, bot: b, db: db, key: key, epochsDir: epochs}
+}
+
+func (e *env) deps(bot Poster) Deps {
+	return Deps{Store: e.st, Bot: bot, Lang: i18n.EN, Key: e.key, EpochsDir: e.epochsDir}
+}
+
+func (e *env) reopen(t *testing.T, bot Poster) *Service {
+	t.Helper()
+	s, err := Open(e.deps(bot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 var (
@@ -226,8 +252,9 @@ func TestRevertConflict(t *testing.T) {
 }
 
 // The third invariant, on the settings' own rows: a row changed in the database itself — not
-// through Beacon — fails its signature, is served as the last signed value (never a looser
-// default) and is reported: logged, audited, echoed to the alert chat, and listed for the console.
+// through Beacon — fails its signature, is served as the registered failsafe (never a looser
+// default, never the last signed value) and is reported: logged, audited, echoed to the alert chat,
+// and listed for the console.
 func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 	e := newEnv(t)
 	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("20"), why, 0); err != nil {
@@ -271,16 +298,13 @@ func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 	widen("settings", "system\x00\x00request.max_uses", func(m map[string]any) { m["value"] = "unlimited" })
 	widen("settings", "tag\x00env/prod\x00grant.on_policy_tightened", func(m map[string]any) { m["value"] = "approve-not-a-word" })
 
-	// the service reads again, as it does at start: both rows stay at the signed value
+	// the service reads again, as it does at start: both rows are the failsafe, not 20 / notify / unlimited
 	heard := &bot{}
-	s2, err := Open(Deps{Store: e.st, Bot: heard, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+	s2 := e.reopen(t, heard)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
 		t.Fatalf("tampered row fell open: %+v", r)
 	}
-	if v, _, _ := s2.Value("grant.on_policy_tightened", Selector{Tags: []string{"env/prod"}}); string(v.Value) != `"notify"` {
+	if v, _, _ := s2.Value("grant.on_policy_tightened", Selector{Tags: []string{"env/prod"}}); string(v.Value) != `"revoke"` {
 		t.Fatalf("tampered tag row fell open: %+v", v)
 	}
 	if bad := s2.Bad(); len(bad) != 2 {
@@ -294,12 +318,19 @@ func TestTamperedRowIsNothingAndIsHeard(t *testing.T) {
 		t.Fatalf("tampering not audited: %+v %v", entries, err)
 	}
 
-	// the rows stay gone after another change elsewhere
+	// red-before: an unrelated write scanned the bucket and would have pulled the tampered
+	// row into the head at its last signed value (20). Commit only hashes what this tx wrote.
 	if _, err := s2.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
 		t.Fatalf("tampered row came back loose: %+v", r)
+	}
+	if v, _, _ := s2.Value("grant.on_policy_tightened", Selector{Tags: []string{"env/prod"}}); string(v.Value) != `"revoke"` {
+		t.Fatalf("tampered tag row came back loose: %+v", v)
+	}
+	if len(s2.Bad()) == 0 {
+		t.Fatal("the tamper lost its alert after an unrelated write")
 	}
 }
 
@@ -320,10 +351,7 @@ func TestRowFromAnotherDatabaseIsNothing(t *testing.T) {
 	_ = e2.st.Storage().Update(func(tx kv.Tx) error {
 		return tx.Put(bucketSettings, rowKeyBytes(ScopeSystem, "", "rate.per_agent_per_minute"), row)
 	})
-	s3, err := Open(Deps{Store: e2.st, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s3 := e2.reopen(t, nil)
 	if r, _ := s3.System("rate.per_agent_per_minute"); r.From != "default" {
 		t.Fatalf("a row from another database counts: %+v", r)
 	}
@@ -367,7 +395,7 @@ func TestClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	s, err := Open(Deps{Store: st, Lang: i18n.EN, Now: func() time.Time { return now }})
+	s, err := Open(Deps{Store: st, Lang: i18n.EN, Now: func() time.Time { return now }, Key: testKey(t), EpochsDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,12 +421,10 @@ func TestDeletedRowStaysStrict(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("system\x00\x00request.max_uses")); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s2 := e.reopen(t, nil)
 	r, _ := s2.System("request.max_uses")
-	if string(r.Value) != "5" {
+	// red-before: the head stored the last value "5" and a missing row was served as that.
+	if string(r.Value) != "1" {
 		t.Fatalf("deleted row fell open: %+v", r)
 	}
 	if len(s2.Bad()) == 0 {
@@ -442,33 +468,18 @@ func TestHistoryTamperCannotRevert(t *testing.T) {
 	}
 }
 
-func TestSetKeyMigratesOnce(t *testing.T) {
+func TestStoreSettingsSecretIsNotASigningKey(t *testing.T) {
+	// red-before: deleting settings_meta/mac-migrated and putting meta/secret:settings let
+	// SetKey re-sign a row that only verified under store.Secret("settings"), so max_uses
+	// became unlimited with no alert.
 	e := newEnv(t)
 	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
 		t.Fatal(err)
 	}
-	newKey := make([]byte, 32)
-	for i := range newKey {
-		newKey[i] = byte(i + 1)
-	}
-	if err := e.s.SetKey(newKey); err != nil {
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Put([]byte("settings_meta"), []byte("mac-migrated"), []byte("1"))
+	}); err != nil {
 		t.Fatal(err)
-	}
-	if r, _ := e.s.System("request.max_uses"); string(r.Value) != "5" {
-		t.Fatalf("after SetKey: %+v", r)
-	}
-	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s2.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("9"), why, 0); err == nil {
-		t.Fatal("Set before SetKey should fail")
-	}
-	if err := s2.SetKey(newKey); err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := s2.System("request.max_uses"); string(r.Value) != "5" {
-		t.Fatalf("after Open+SetKey: %+v", r)
 	}
 	forged, err := e.st.Secret("settings")
 	if err != nil || len(forged) == 0 {
@@ -476,21 +487,41 @@ func TestSetKeyMigratesOnce(t *testing.T) {
 	}
 	fake := Row{Key: "request.max_uses", Scope: ScopeSystem, Value: raw(`"unlimited"`), Version: 99, Actor: "attacker", Via: "api", At: time.Now().UTC()}
 	fake.Sig = sign(macKey(forged), fake)
-	if err := e.st.Storage().Update(func(tx kv.Tx) error { return putRow(tx, fake) }); err != nil {
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		_, err := putRow(tx, fake)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
-	s3, err := Open(Deps{Store: e.st, Lang: i18n.EN})
-	if err != nil {
+	heard := &bot{}
+	s2 := e.reopen(t, heard)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) == `"unlimited"` {
+		t.Fatalf("a store-secret row was served: %+v", r)
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("leftover row should be failsafe: %+v", r)
+	}
+	found := false
+	for _, text := range heard.texts {
+		if strings.Contains(text, "leftover") || strings.Contains(text, "failsafe") || strings.Contains(text, "signature") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("leftover secret was not alerted: %q", heard.texts)
+	}
+	newKey := make([]byte, 32)
+	for i := range newKey {
+		newKey[i] = byte(i + 7)
+	}
+	if err := s2.SetKey(newKey); err != nil {
 		t.Fatal(err)
 	}
-	if err := s3.SetKey(newKey); err != nil {
-		t.Fatal(err)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) == `"unlimited"` {
+		t.Fatal("SetKey promoted a store-secret row")
 	}
-	if r, _ := s3.System("request.max_uses"); string(r.Value) != "5" {
-		t.Fatalf("forged with the store secret: %+v", r)
-	}
-	if err := s3.SetKey(newKey); err != nil {
-		t.Fatal(err)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("after SetKey: %+v", r)
 	}
 }
 
@@ -529,6 +560,7 @@ func TestRequestCannotSetTheChain(t *testing.T) {
 	}
 }
 
+// red-before: putting back the earlier row after a later Set still served the head's last value.
 func TestReplayOldRowStaysAtHead(t *testing.T) {
 	e := newEnv(t)
 	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
@@ -547,11 +579,9 @@ func TestReplayOldRowStaysAtHead(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := s2.System("request.max_uses"); string(r.Value) != "20" {
+	s2 := e.reopen(t, nil)
+	// red-before: the head stored the value "20", so a replay of the earlier row still served 20.
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
 		t.Fatalf("replayed old row fell open: %+v", r)
 	}
 }
@@ -569,10 +599,7 @@ func TestMissingHeadFailsClosed(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("\x00head")); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(Deps{Store: e.st, Lang: i18n.EN})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s2 := e.reopen(t, nil)
 	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
 		t.Fatalf("missing head fell open: %+v", r)
 	}
@@ -615,5 +642,155 @@ func TestRetentionAndImportStayAtSystem(t *testing.T) {
 	}
 	if _, err := e.s.Set(ctx, api, ScopeTag, "env/prod", "backup.retries", raw("1"), why, 0); err == nil {
 		t.Fatal("backup is system-only")
+	}
+}
+
+func TestCorruptHeadDoesNotRebuildOnWrite(t *testing.T) {
+	// red-before: deleting the head then a row, then any write, rebuilt the head from whatever
+	// still verified, so the deleted row fell back to unlimited.
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"45d"`), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+e.db+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("\x00head")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM kv WHERE bucket = ? AND k = ?`, "settings", []byte("system\x00\x00request.max_uses")); err != nil {
+		t.Fatal(err)
+	}
+	s2 := e.reopen(t, nil)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("missing head: %+v", r)
+	}
+	if r, _ := s2.System("storage.lease.renew"); string(r.Value) != `"5s"` {
+		t.Fatalf("ops failsafe is the default, not 1s: %+v", r)
+	}
+	_, err = s2.Set(ctx, api, ScopeSystem, "", "retention.trash", raw(`"60d"`), why, 0)
+	if err == nil {
+		t.Fatal("an unrelated Set must not rebuild a missing head")
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("Set rebuilt the head: %+v", r)
+	}
+	if r, _ := s2.System("retention.trash"); string(r.Value) != `"30d"` {
+		t.Fatalf("failsafe trash is the default, not 60d: %+v", r)
+	}
+}
+
+func TestStaleHeadAndRowsAreFailsafe(t *testing.T) {
+	// red-before: putting back an old head and its matching old rows as a pair served the old
+	// value, because nothing outside the database recorded how new the head was.
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	var oldHead, oldRow []byte
+	_ = e.st.Storage().View(func(tx kv.Tx) error {
+		oldHead = append([]byte(nil), tx.Get(bucketSettings, headKey)...)
+		oldRow = append([]byte(nil), tx.Get(bucketSettings, rowKeyBytes(ScopeSystem, "", "request.max_uses"))...)
+		return nil
+	})
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("20"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		if err := tx.Put(bucketSettings, headKey, oldHead); err != nil {
+			return err
+		}
+		return tx.Put(bucketSettings, rowKeyBytes(ScopeSystem, "", "request.max_uses"), oldRow)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s2 := e.reopen(t, nil)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("stale pair: %+v", r)
+	}
+}
+
+func TestOpenAgainKeepsFailsafe(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketSettings, rowKeyBytes(ScopeSystem, "", "request.max_uses"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s2 := e.reopen(t, nil)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("first open: %+v", r)
+	}
+	_ = e.st.Close()
+	st, err := store.Open(e.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s3, err := Open(Deps{Store: st, Lang: i18n.EN, Key: e.key, EpochsDir: e.epochsDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s3.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("open again: %+v", r)
+	}
+}
+
+func TestRebuildHeadRestoresAccept(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.s.Set(ctx, api, ScopeSystem, "", "request.max_uses", raw("5"), why, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Storage().Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketSettings, headKey)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s2 := e.reopen(t, nil)
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("without rebuild: %+v", r)
+	}
+	sStay := e.reopen(t, nil)
+	if err := s2.RebuildHead(ctx, api); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s2.System("request.max_uses"); string(r.Value) != "5" {
+		t.Fatalf("after rebuild: %+v", r)
+	}
+	if r, _ := sStay.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("a service that did not rebuild: %+v", r)
+	}
+	entries, _, err := e.st.AuditQuery(store.AuditFilter{Action: "settings_head_rebuild"})
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("rebuild not audited: %+v %v", entries, err)
+	}
+}
+
+func TestNoKeyServesFailsafe(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s, err := Open(Deps{Store: st, Lang: i18n.EN, EpochsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.System("request.max_uses"); string(r.Value) != "1" {
+		t.Fatalf("sealed/no SK used the default: %+v", r)
+	}
+	if r, _ := s.System("storage.lease.renew"); string(r.Value) != `"5s"` {
+		t.Fatalf("ops failsafe is the default: %+v", r)
+	}
+	if r, _ := s.System("review.approvals_required"); string(jsonAt(r.Value, "person")) != "10" {
+		t.Fatalf("approvals failsafe is a strict expansion, not zeros: %s", r.Value)
 	}
 }

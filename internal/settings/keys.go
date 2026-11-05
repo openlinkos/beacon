@@ -16,10 +16,12 @@ import (
 // what wins when tags conflict and what a request cannot loosen. Durations are written the way the
 // design writes them (30d for thirty days).
 type Definition struct {
-	Key     string
-	Group   string // requests, review, use, retention, import, backup or storage; the pages group by it
-	What    string // one line: what the setting turns
-	Default json.RawMessage
+	Key      string
+	Group    string // requests, review, use, retention, import, backup or storage; the pages group by it
+	What     string // one line: what the setting turns
+	Default  json.RawMessage
+	Failsafe json.RawMessage // served when the signed head is unusable or a live row does not Accept
+	Access   bool            // access-control: failsafe is the strictest allowed value, never looser than Default
 
 	kind kind
 }
@@ -117,15 +119,35 @@ func enum(order ...string) kind {
 	}
 }
 
-// register adds a definition. The default goes through the kind's own check, so a default that
-// does not fit its kind stops the tests (TestDefaultsFit).
-func register(key, group, what string, k kind, def any) {
-	d := &Definition{Key: key, Group: group, What: what, kind: k}
-	if s, ok := def.(string); ok {
-		d.Default = json.RawMessage(s)
-	} else {
-		d.Default = mustJSON(def)
+func asRaw(v any) json.RawMessage {
+	switch x := v.(type) {
+	case json.RawMessage:
+		return x
+	case string:
+		return json.RawMessage(x)
+	default:
+		return mustJSON(v)
 	}
+}
+
+// register adds an ops setting: failsafe is the built-in default.
+func register(key, group, what string, k kind, def any) {
+	define(key, group, what, k, def, def, false)
+}
+
+// registerAccess adds an access-control setting: failsafe is the strictest allowed value.
+func registerAccess(key, group, what string, k kind, def, failsafe any) {
+	define(key, group, what, k, def, failsafe, true)
+}
+
+func define(key, group, what string, k kind, def, failsafe any, access bool) {
+	d := &Definition{Key: key, Group: group, What: what, kind: k, Access: access}
+	d.Default = asRaw(def)
+	cv, err := d.canonical(asRaw(failsafe))
+	if err != nil {
+		panic("settings: failsafe for " + key + " does not fit its kind: " + err.Error())
+	}
+	d.Failsafe = cv
 	if _, dup := Definitions[key]; dup {
 		panic("settings: " + key + " registered twice")
 	}
@@ -320,52 +342,53 @@ func levelsMapKind() kind {
 
 func init() {
 	// ---- Requests and grants (the design's request and grant tables)
-	register("request.default_uses", "requests", "the uses a grant starts with, when a request does not say", countKind(), `"unlimited"`)
-	register("request.max_uses", "requests", "the most uses a request may ask for", countKind(), `"unlimited"`)
-	register("request.default_duration", "requests", "how long a grant lasts, by the level it needed, when a request does not say",
-		levelsKind(durationKind(false, true)), `{"auto":"never","review":"30d","person":"7d"}`)
-	register("request.max_duration", "requests", "the longest a request may ask for", durationKind(true, false), `"unlimited"`)
-	register("request.reason_min_length", "requests", "the shortest a request's reason may be (0: not required)", intKind(true), `10`)
-	register("use.reason", "requests", "whether each use must say why, and the shortest its reason may be", reasonKind, `{"mode":"required","min_length":2}`)
+	registerAccess("request.default_uses", "requests", "the uses a grant starts with, when a request does not say", countKind(), `"unlimited"`, `1`)
+	registerAccess("request.max_uses", "requests", "the most uses a request may ask for", countKind(), `"unlimited"`, `1`)
+	registerAccess("request.default_duration", "requests", "how long a grant lasts, by the level it needed, when a request does not say",
+		levelsKind(durationKind(false, true)), `{"auto":"never","review":"30d","person":"7d"}`, `{"auto":"7d","review":"7d","person":"7d"}`)
+	registerAccess("request.max_duration", "requests", "the longest a request may ask for", durationKind(true, false), `"unlimited"`, `"7d"`)
+	registerAccess("request.reason_min_length", "requests", "the shortest a request's reason may be (0: not required)", intKind(true), `10`, `10`)
+	registerAccess("use.reason", "requests", "whether each use must say why, and the shortest its reason may be", reasonKind, `{"mode":"required","min_length":2}`, `{"mode":"required","min_length":2}`)
 	register("request.pending_ttl", "requests", "how long a request waits for a decision", durationKind(false, false), `"24h"`)
-	register("request.on_pending_expiry", "requests", "what happens to a request nobody decided", enum("deny", "expire", "approve"), `"expire"`)
-	register("grant.renewal", "requests", "how grants renew, by the level they needed",
-		levelsKind(enum("none", "request", "auto")), `{"auto":"auto","review":"request","person":"request"}`)
+	registerAccess("request.on_pending_expiry", "requests", "what happens to a request nobody decided", enum("deny", "expire", "approve"), `"expire"`, `"deny"`)
+	registerAccess("grant.renewal", "requests", "how grants renew, by the level they needed",
+		levelsKind(enum("none", "request", "auto")), `{"auto":"auto","review":"request","person":"request"}`, `{"auto":"none","review":"none","person":"none"}`)
 	register("grant.expiry_notice", "requests", "how long before expiry to tell the agent and its owner (grants under a day are not told)", durationKind(false, false), `"3d"`)
-	register("grant.on_policy_tightened", "requests", "what happens to grants when policy tightens around them", enum("revoke", "keep_until_expiry", "notify"), `"revoke"`)
-	register("grant.on_owner_access_lost", "requests", "what happens to grants when their owner loses access", enum("revoke", "keep_until_expiry", "notify"), `"revoke"`)
-	register("grant.on_item_changed", "requests", "what happens when an item's value changes under a grant", enum("notify_holders", "none"), `"notify_holders"`)
+	registerAccess("grant.on_policy_tightened", "requests", "what happens to grants when policy tightens around them", enum("revoke", "keep_until_expiry", "notify"), `"revoke"`, `"revoke"`)
+	registerAccess("grant.on_owner_access_lost", "requests", "what happens to grants when their owner loses access", enum("revoke", "keep_until_expiry", "notify"), `"revoke"`, `"revoke"`)
+	registerAccess("grant.on_item_changed", "requests", "what happens when an item's value changes under a grant", enum("notify_holders", "none"), `"notify_holders"`, `"notify_holders"`)
 	register("grant.alert_grace", "requests", "how long a grant bound to an alert still works after the alert resolves", durationKind(false, false), `"15m"`)
 	register("grant.unused_after", "requests", "how long a live grant may sit unused before the hygiene sweep acts", durationKind(false, false), `"30d"`)
 	register("grant.on_unused", "requests", "what happens to a grant that sat unused: marked in the console, the owner told, or released", enum("auto_release", "notify", "mark"), `"mark"`)
-	register("agents.default_entitlements", "requests", "the entitlement templates a new agent starts with", stringsKind(nil, stringsNone), `[]`)
+	registerAccess("agents.default_entitlements", "requests", "the entitlement templates a new agent starts with", stringsKind(nil, stringsNone), `[]`, `[]`)
 
 	// ---- Review (the review chain)
-	register("review.chain", "review", "the review chain's layers and order", stringsKind([]string{"rules", "agents", "people"}, stringsNone), `["rules","agents","people"]`)
-	register("review.agent.may_approve", "review", "the levels a review agent may approve (person is people's by definition)", stringsKind([]string{"auto", "review"}, stringsFewer), `["review"]`)
-	register("review.agent.max_uses", "review", "the most uses a review agent may grant", countKind(), `"unlimited"`)
-	register("review.agent.max_duration", "review", "the longest a review agent may grant", durationKind(true, false), `"unlimited"`)
+	registerAccess("review.chain", "review", "the review chain's layers and order", stringsKind([]string{"rules", "agents", "people"}, stringsNone), `["rules","agents","people"]`, `["rules","agents","people"]`)
+	registerAccess("review.agent.may_approve", "review", "the levels a review agent may approve (person is people's by definition)", stringsKind([]string{"auto", "review"}, stringsFewer), `["review"]`, `[]`)
+	registerAccess("review.agent.max_uses", "review", "the most uses a review agent may grant", countKind(), `"unlimited"`, `1`)
+	registerAccess("review.agent.max_duration", "review", "the longest a review agent may grant", durationKind(true, false), `"unlimited"`, `"7d"`)
 	register("review.agent.timeout", "review", "how long a review agent has to decide", durationKind(false, false), `"10m"`)
-	register("review.agent.on_timeout", "review", "what happens when a review agent does not decide in time", enum("deny", "next", "wait", "approve"), `"next"`)
+	registerAccess("review.agent.on_timeout", "review", "what happens when a review agent does not decide in time", enum("deny", "next", "wait", "approve"), `"next"`, `"deny"`)
 	register("review.people.timeout", "review", "how long people have to decide", durationKind(false, false), `"24h"`)
-	register("review.people.on_timeout", "review", "what happens when people do not decide in time", enum("deny", "expire", "approve"), `"expire"`)
-	register("review.approvals_required", "review", "approvals a request needs (a number, or one for each level)", approvalsKind, `1`)
-	register("review.separation", "review", "who may not review: the requester, or anyone of the requester's owner", enum("owner", "requester"), `"requester"`)
+	registerAccess("review.people.on_timeout", "review", "what happens when people do not decide in time", enum("deny", "expire", "approve"), `"expire"`, `"deny"`)
+	registerAccess("review.approvals_required", "review", "approvals a request needs (a number, or one for each level)", approvalsKind, `1`, `10`)
+	registerAccess("review.separation", "review", "who may not review: the requester, or anyone of the requester's owner", enum("owner", "requester"), `"requester"`, `"owner"`)
 	register("review.notify_decisions", "review", "where a review agent's decisions are pushed", stringsKind(nil, stringsNone), `["feishu"]`)
 
 	// ---- Use, rate limits and anomalies
-	register("rate.per_agent_per_minute", "use", "the uses an agent may make each minute", intKind(false), `600`)
-	register("rate.on_exceed", "use", "what happens when an agent passes its rate", enum("throttle", "alert"), `"throttle"`)
-	register("anomaly.rules", "use", "the anomaly rules, each on or off (usage_spike carries its threshold)", anomalyKind,
+	registerAccess("rate.per_agent_per_minute", "use", "the uses an agent may make each minute", intKind(false), `600`, `1`)
+	registerAccess("rate.on_exceed", "use", "what happens when an agent passes its rate", enum("throttle", "alert"), `"throttle"`, `"throttle"`)
+	registerAccess("anomaly.rules", "use", "the anomaly rules, each on or off (usage_spike carries its threshold)", anomalyKind,
+		`{"first_collection_use":true,"usage_spike":{"enabled":true,"times_mean_7d":5},"denial_spike":true,"signature_failure":true,"sealed_state":true}`,
 		`{"first_collection_use":true,"usage_spike":{"enabled":true,"times_mean_7d":5},"denial_spike":true,"signature_failure":true,"sealed_state":true}`)
-	register("anomaly.on_detect", "use", "what happens when an anomaly rule fires", enum("suspend_agent", "notify"), `"notify"`)
-	register("otp.seed_to_agents", "use", "whether agents may see the seed of a one-time code, not only the code", boolKind(tFalse), `false`)
+	registerAccess("anomaly.on_detect", "use", "what happens when an anomaly rule fires", enum("suspend_agent", "notify"), `"notify"`, `"suspend_agent"`)
+	registerAccess("otp.seed_to_agents", "use", "whether agents may see the seed of a one-time code, not only the code", boolKind(tFalse), `false`, `false`)
 	register("reveal.reauth_window", "use", "how long after re-entering a password a person may view values again", durationKind(false, false), `"5m"`)
-	register("scrub.encodings", "use", "the encodings scrubbed from output, recordings and transcripts", stringsKind([]string{"plain", "base64", "url", "hex"}, stringsMore), `["plain","base64","url","hex"]`)
-	register("http.allow_private", "use", "whether http_request may be sent to private addresses", boolKind(tFalse), `false`)
-	register("http.follow_redirects", "use", "the redirects http_request may follow", enum("none", "same_host", "any_bound"), `"same_host"`)
-	register("file.on_change", "use", "what happens to a delivered file when its item's value changes", enum("deliver", "next_window", "notify"), `"deliver"`)
-	register("sealed.on_request", "use", "what happens to requests while the vault is sealed", enum("refuse", "queue"), `"refuse"`)
+	registerAccess("scrub.encodings", "use", "the encodings scrubbed from output, recordings and transcripts", stringsKind([]string{"plain", "base64", "url", "hex"}, stringsMore), `["plain","base64","url","hex"]`, `["plain","base64","url","hex"]`)
+	registerAccess("http.allow_private", "use", "whether http_request may be sent to private addresses", boolKind(tFalse), `false`, `false`)
+	registerAccess("http.follow_redirects", "use", "the redirects http_request may follow", enum("none", "same_host", "any_bound"), `"same_host"`, `"none"`)
+	registerAccess("file.on_change", "use", "what happens to a delivered file when its item's value changes", enum("deliver", "next_window", "notify"), `"deliver"`, `"deliver"`)
+	registerAccess("sealed.on_request", "use", "what happens to requests while the vault is sealed", enum("refuse", "queue"), `"refuse"`, `"refuse"`)
 
 	// ---- Hygiene (the rotation notices, the password health report, the idle grants)
 	register("hygiene.hibp_check", "hygiene", "whether the health report also asks the leak corpus (HIBP's k-anonymity interface); it sends the first five characters of each password's hash outward", boolKind(tFalse), `false`)
@@ -383,11 +406,13 @@ func init() {
 	register("audit.export", "retention", "where audit events are streamed to as well (null: nowhere)", exportKind, `null`)
 
 	// ---- Import
-	register("import.levels.by_source", "import", "the approval level items start with, by where they came from (default for any other source)",
-		levelsMapKind(), `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`)
-	register("import.levels.by_category", "import", "the approval level items start with, by category (the identity and finance categories start never)",
-		levelsMapKind(), `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`)
-	register("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("ask", "new_version", "skip", "keep_both"), `"ask"`)
+	registerAccess("import.levels.by_source", "import", "the approval level items start with, by where they came from (default for any other source)",
+		levelsMapKind(), `{"default":"review","1password:personal":"person","1password:private":"person","chrome":"person"}`,
+		`{"default":"never","1password:personal":"never","1password:private":"never","chrome":"never"}`)
+	registerAccess("import.levels.by_category", "import", "the approval level items start with, by category (the identity and finance categories start never)",
+		levelsMapKind(), `{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`,
+		`{"credit_card":"never","bank_account":"never","identity":"never","passport":"never","driver_license":"never","social_security_number":"never","medical_record":"never","membership":"never","reward_program":"never"}`)
+	registerAccess("import.on_conflict", "import", "what happens when an import meets an item that is already there", enum("ask", "new_version", "skip", "keep_both"), `"ask"`, `"ask"`)
 	register("attachments.max_size", "import", "the largest an attachment may be, in bytes (10 MB)", intKind(false), `10485760`)
 
 	// ---- Backup (the design's backup table). Recipients and destination credentials are read at
@@ -414,6 +439,9 @@ func init() {
 	for _, d := range Definitions {
 		if _, err := d.canonical(d.Default); err != nil {
 			panic("settings: default for " + d.Key + " does not fit its kind: " + err.Error())
+		}
+		if _, err := d.canonical(d.Failsafe); err != nil {
+			panic("settings: failsafe for " + d.Key + " does not fit its kind: " + err.Error())
 		}
 	}
 }
