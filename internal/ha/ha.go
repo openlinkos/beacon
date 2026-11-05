@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/openlinkos/beacon/internal/kv"
@@ -77,44 +78,147 @@ type Lease struct {
 }
 
 // Open takes the pool the lease lives over (PostgreSQL, a pool of its own so a renewal never waits
-// behind a write transaction) and prepares the lease's table.
+// behind a write transaction) and prepares the lease's table. CREATE and ALTER run only when
+// information_schema says the table or the epoch column is missing, under the schema advisory lock
+// with a short lock_timeout, so a standby starting while the primary holds FOR SHARE is not blocked.
 func Open(db *sql.DB, o Options) (*Lease, error) {
 	o, err := o.normalized()
 	if err != nil {
 		return nil, err
 	}
-	l := &Lease{db: db, o: o}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	if err := ensureLeaderTable(ctx, db); err != nil {
+		return nil, err
+	}
+	return &Lease{db: db, o: o}, nil
+}
+
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func leaderTableState(ctx context.Context, q queryRower) (exists, hasEpoch bool, err error) {
+	err = q.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = 'leader'
+	)`).Scan(&exists)
+	if err != nil || !exists {
+		return exists, false, err
+	}
+	err = q.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'leader' AND column_name = 'epoch'
+	)`).Scan(&hasEpoch)
+	return exists, hasEpoch, err
+}
+
+func leaderTableReady(db *sql.DB) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	exists, hasEpoch, err := leaderTableState(ctx, db)
+	return err == nil && exists && hasEpoch
+}
+
+func pgCode(err error) string {
+	var e *pgconn.PgError
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return ""
+}
+
+func lockUnavailable(err error) bool {
+	switch pgCode(err) {
+	case "55P03", "57014": // lock_not_available, query_canceled
+		return true
+	}
+	return false
+}
+
+func duplicateColumn(err error) bool { return pgCode(err) == "42701" }
+
+func sleepRetry(ctx context.Context) bool {
+	t := time.NewTimer(200 * time.Millisecond)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func ensureLeaderTable(ctx context.Context, db *sql.DB) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			if leaderTableReady(db) {
+				return nil
+			}
+			return err
+		}
+		exists, hasEpoch, err := leaderTableState(ctx, db)
+		if err != nil {
+			if lockUnavailable(err) && sleepRetry(ctx) {
+				continue
+			}
+			if leaderTableReady(db) {
+				return nil
+			}
+			return err
+		}
+		if exists && hasEpoch {
+			return nil
+		}
+		err = migrateLeaderTable(ctx, db)
+		if err == nil || duplicateColumn(err) {
+			return nil
+		}
+		if lockUnavailable(err) && sleepRetry(ctx) {
+			continue
+		}
+		if leaderTableReady(db) {
+			return nil
+		}
+		return err
+	}
+}
+
+func migrateLeaderTable(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// under the same advisory lock as the schema's other tables: the pair's two instances, starting
-	// together, would otherwise race the IF NOT EXISTS check
+	defer func() { _ = tx.Rollback() }()
+	// lock_timeout so a FOR SHARE on the row does not sit until the pool's 2s statement_timeout;
+	// statement_timeout 15s overrides that 2s for the ALTER itself.
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('lock_timeout', '500ms', true), set_config('statement_timeout', '15s', true)`); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, kv.SchemaLock); err != nil {
-		_ = tx.Rollback()
-		return nil, err
+		return err
 	}
-	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS leader (
-		name TEXT PRIMARY KEY,
-		holder TEXT NOT NULL,
-		expires TIMESTAMPTZ NOT NULL,
-		renewed TIMESTAMPTZ NOT NULL,
-		epoch BIGINT NOT NULL DEFAULT 1
-	)`); err != nil {
-		_ = tx.Rollback()
-		return nil, err
+	exists, hasEpoch, err := leaderTableState(ctx, tx)
+	if err != nil {
+		return err
 	}
-	// a table created before epoch existed still needs the column
-	if _, err := tx.ExecContext(ctx, `ALTER TABLE leader ADD COLUMN IF NOT EXISTS epoch BIGINT NOT NULL DEFAULT 1`); err != nil {
-		_ = tx.Rollback()
-		return nil, err
+	switch {
+	case !exists:
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE leader (
+			name TEXT PRIMARY KEY,
+			holder TEXT NOT NULL,
+			expires TIMESTAMPTZ NOT NULL,
+			renewed TIMESTAMPTZ NOT NULL,
+			epoch BIGINT NOT NULL DEFAULT 1
+		)`); err != nil {
+			return err
+		}
+	case !hasEpoch:
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE leader ADD COLUMN epoch BIGINT NOT NULL DEFAULT 1`); err != nil {
+			return err
+		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return l, nil
+	return tx.Commit()
 }
 
 // normalized fills the defaults and checks the one rule: the expiry must outlast the renewal, or

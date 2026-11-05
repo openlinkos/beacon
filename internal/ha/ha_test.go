@@ -448,3 +448,89 @@ func TestRunReleasesWhenStopHitsATake(t *testing.T) {
 	}
 	t.Fatal("the lease was never released")
 }
+
+// TestStandbyOpensWhilePrimaryHoldsAWrite: a standby starting while the primary holds FOR SHARE
+// on the leader row must not wait on ACCESS EXCLUSIVE (CREATE TABLE IF NOT EXISTS / ALTER ADD
+// COLUMN). OpenPool's statement_timeout is 2s; Open must return well under that.
+func TestStandbyOpensWhilePrimaryHoldsAWrite(t *testing.T) {
+	dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
+	}
+	expire := time.Second
+	primaryPool, err := OpenPool(dsn, expire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = primaryPool.Close() }()
+	if _, err := primaryPool.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	one, err := Open(primaryPool, Options{Name: "open-while-write", ID: "primary", Renew: 200 * time.Millisecond, Expire: expire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go one.Run(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for !one.Leader() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !one.Leader() {
+		t.Fatal("the first instance never took the lease")
+	}
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	tx, err := admin.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := one.CheckWrite(context.Background(), tx); err != nil {
+		t.Fatalf("the holder should write: %v", err)
+	}
+	standbyPool, err := OpenPool(dsn, expire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = standbyPool.Close() }()
+	started := time.Now()
+	if _, err := Open(standbyPool, Options{Name: "open-while-write", ID: "standby", Renew: 200 * time.Millisecond, Expire: expire}); err != nil {
+		t.Fatalf("standby Open while the primary held a write: %v (elapsed %s)", err, time.Since(started))
+	}
+	elapsed := time.Since(started)
+	if elapsed > time.Second {
+		t.Fatalf("standby Open took %s; want well under the lease pool's 2s statement_timeout", elapsed)
+	}
+}
+
+// TestOpenAddsEpochToAnOldTable: a leader table created before epoch existed still gets the column.
+func TestOpenAddsEpochToAnOldTable(t *testing.T) {
+	admin := testPool(t)
+	defer func() { _ = admin.Close() }()
+	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(`CREATE TABLE leader (
+		name TEXT PRIMARY KEY,
+		holder TEXT NOT NULL,
+		expires TIMESTAMPTZ NOT NULL,
+		renewed TIMESTAMPTZ NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(admin, Options{Name: "old-table", ID: "primary", Renew: 200 * time.Millisecond, Expire: time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	var has bool
+	if err := admin.QueryRow(`SELECT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'leader' AND column_name = 'epoch'
+	)`).Scan(&has); err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Fatal("Open did not add the epoch column to an old leader table")
+	}
+}

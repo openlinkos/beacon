@@ -177,3 +177,32 @@ func (g *Gate) prune() {
 		g.d.Log.Info("old SSH sessions forgotten", "sessions", n)
 	}
 }
+
+// RetryPending uploads leftover local recordings (a crash or a previous primary) when the files
+// store supports it. Every instance runs this, including a standby.
+func (g *Gate) RetryPending(ctx context.Context) {
+	if g == nil {
+		return
+	}
+	type pending interface {
+		RetryPending(context.Context) error
+	}
+	if r, ok := g.d.Files.(pending); ok {
+		if err := r.RetryPending(ctx); err != nil && g.d.Log != nil {
+			g.d.Log.Warn("pending recordings were not uploaded", "err", err)
+		}
+	}
+}
+
+// TidyLocal removes leftover local staging files older than keep, when the files store supports it.
+func (g *Gate) TidyLocal(keep time.Duration) {
+	if g == nil {
+		return
+	}
+	type local interface {
+		TidyLocal(time.Duration)
+	}
+	if t, ok := g.d.Files.(local); ok {
+		t.TidyLocal(keep)
+	}
+}

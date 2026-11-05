@@ -3,8 +3,8 @@ package s3
 // Store is the recordings' Files interface (internal/sshgate) over one bucket: what a
 // primary/standby pair shares, so the standby replays what the primary recorded. A recording is
 // written to local disk as it is recorded — a crash then leaves at least what this instance has
-// — and uploaded when the session closes it, with retries. A transcript is written locally and
-// uploaded in one piece.
+// — and uploaded when the session closes it, with retries; a successful upload removes the local
+// file. A transcript is written locally and uploaded in one piece. RetryPending walks leftovers.
 
 import (
 	"context"
@@ -15,14 +15,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Store implements sshgate.Files over the bucket, with a local staging directory.
 type Store struct {
-	c   *Client
-	dir string
-	log *slog.Logger
+	c    *Client
+	dir  string
+	log  *slog.Logger
+	mu   sync.Mutex
+	busy map[string]struct{} // names Create opened and Close has not finished
 }
 
 // NewStore keeps one client for the bucket. Dir is the local staging tree (the recordings
@@ -72,6 +75,7 @@ func (s *Store) Create(name string) (io.WriteCloser, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.markBusy(name)
 	return &uploader{s: s, name: name, f: f, path: path}, nil
 }
 
@@ -87,7 +91,10 @@ func (s *Store) WriteFile(name string, b []byte) error {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return err
 	}
-	return s.putRetry(context.Background(), name, b)
+	if err := s.putRetry(context.Background(), name, b); err != nil {
+		return err
+	}
+	return s.removeLocal(path)
 }
 
 // ReadFile implements the Files interface.
@@ -139,13 +146,14 @@ func (s *Store) Remove(name string) error {
 
 func (u *uploader) Write(b []byte) (int, error) { return u.f.Write(b) }
 
-// Close uploads the recording, retrying a failed put. The local file stays: a crash or a put that
-// still fails leaves something to retry from.
+// Close uploads the recording, retrying a failed put. A successful put removes the local file; a
+// crash or a put that still fails leaves something to retry from.
 func (u *uploader) Close() error {
 	if u.done {
 		return nil
 	}
 	u.done = true
+	defer u.s.unmarkBusy(u.name)
 	if err := u.f.Sync(); err != nil {
 		_ = u.f.Close()
 		return err
@@ -157,7 +165,10 @@ func (u *uploader) Close() error {
 	if err != nil {
 		return err
 	}
-	return u.s.putRetry(context.Background(), u.name, body)
+	if err := u.s.putRetry(context.Background(), u.name, body); err != nil {
+		return err
+	}
+	return u.s.removeLocal(u.path)
 }
 
 func (s *Store) putRetry(ctx context.Context, name string, body []byte) error {
@@ -177,6 +188,136 @@ func (s *Store) putRetry(ctx context.Context, name string, body []byte) error {
 		}
 	}
 	return err
+}
+
+func (s *Store) markBusy(name string) {
+	s.mu.Lock()
+	if s.busy == nil {
+		s.busy = map[string]struct{}{}
+	}
+	s.busy[name] = struct{}{}
+	s.mu.Unlock()
+}
+
+func (s *Store) unmarkBusy(name string) {
+	s.mu.Lock()
+	delete(s.busy, name)
+	s.mu.Unlock()
+}
+
+func (s *Store) isBusy(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.busy[name]
+	return ok
+}
+
+func (s *Store) removeLocal(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// objectName is the slash-separated key for a path under the staging directory; false if it is not
+// a plain relative path inside the tree.
+func (s *Store) objectName(path string) (string, bool) {
+	rel, err := filepath.Rel(s.dir, path)
+	if err != nil {
+		return "", false
+	}
+	name := filepath.ToSlash(rel)
+	if checkName(name) != nil {
+		return "", false
+	}
+	return name, true
+}
+
+// RetryPending uploads leftover local files whose relative path is a valid object key, then removes
+// each one that went up. Files still being recorded are left. The first persistent error stops the walk.
+func (s *Store) RetryPending(ctx context.Context) error {
+	if _, err := os.Stat(s.dir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name, ok := s.objectName(path)
+		if !ok {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || s.isBusy(name) {
+			return nil
+		}
+		local := s.localPath(name)
+		body, err := os.ReadFile(local) //nolint:gosec // inside the recordings directory
+		if err != nil {
+			return err
+		}
+		if err := s.putRetry(ctx, name, body); err != nil {
+			return err
+		}
+		return s.removeLocal(local)
+	})
+}
+
+// TidyLocal removes leftover staging files whose modtime is older than keep. keep <= 0 skips.
+// Empty day directories go once their files are gone. Files still being recorded are left.
+func (s *Store) TidyLocal(keep time.Duration) {
+	if keep <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-keep)
+	_ = filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name, ok := s.objectName(path)
+		if !ok || s.isBusy(name) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = s.removeLocal(s.localPath(name))
+		}
+		return nil
+	})
+	s.dropEmptyDirs()
+}
+
+func (s *Store) dropEmptyDirs() {
+	var names []string
+	_ = filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == s.dir || !d.IsDir() {
+			return nil
+		}
+		name, ok := s.objectName(path)
+		if !ok {
+			return nil
+		}
+		names = append(names, name)
+		return nil
+	})
+	for i := len(names) - 1; i >= 0; i-- {
+		_ = os.Remove(s.localPath(names[i]))
+	}
 }
 
 // checkName keeps object keys plain relative paths.

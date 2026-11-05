@@ -236,6 +236,7 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
+| `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
 | `machine.forbidden` | 403 | The caller may not reach this machine |
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |

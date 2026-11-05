@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-06a967ac
+sourceHash: sha256-16c64c0f
 ---
 
 # REST API
@@ -240,6 +240,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `alert.not_firing` | 409 | 告警组不在触发中，不能认领或静默 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
+| `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
 | `machine.forbidden` | 403 | 调用者不能到达这台机器 |
 | `machine.unreachable` | 502 | Beacon 连不上这台机器 |

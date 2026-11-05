@@ -519,6 +519,15 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+func TestToolsRefuseOnStandby(t *testing.T) {
+	e := setup(t)
+	e.g.SetLeader(func() bool { return false })
+	_, err := e.g.Run(context.Background(), Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}, "box", RunInput{Command: "true"})
+	if !errors.Is(err, ErrStandby) {
+		t.Fatalf("standby Run: %v", err)
+	}
+}
+
 func TestNoScope(t *testing.T) {
 	e := setup(t, "status:read")
 	if _, err := e.client(t, "box", e.agentKey); err == nil {

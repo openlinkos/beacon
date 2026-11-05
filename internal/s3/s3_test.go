@@ -8,6 +8,7 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -250,5 +252,86 @@ func TestStoreKeepsTheLocalFileWhenUploadFails(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(dir, "2026", "11", "04", "id-1.cast"))
 	if err != nil || string(b) != "the rec" {
 		t.Fatalf("local file: %q %v", b, err)
+	}
+}
+
+func TestStoreRetriesLeftoverLocalFiles(t *testing.T) {
+	objects := map[string]string{}
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.URL.Path, "/beacon-recordings/")
+		switch r.Method {
+		case http.MethodPut:
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			objects[key] = string(b)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			mu.Lock()
+			v, ok := objects[key]
+			mu.Unlock()
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte(v))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Options{Endpoint: srv.URL, Region: "us-east-1", Bucket: "beacon-recordings",
+		AccessKeyID: "AKIDEXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	st := &Store{c: c, dir: dir, log: slog.Default()}
+	path := filepath.Join(dir, "2026", "11", "04", "left.cast")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("leftover"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	got := objects["2026/11/04/left.cast"]
+	mu.Unlock()
+	if got != "leftover" {
+		t.Fatalf("object: %q", got)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("local file still there: %v", err)
+	}
+}
+
+func TestStoreTidyLocalRemovesOldStaging(t *testing.T) {
+	dir := t.TempDir()
+	st := &Store{dir: dir, log: slog.Default()}
+	oldPath := filepath.Join(dir, "2026", "11", "04", "old.cast")
+	newPath := filepath.Join(dir, "2026", "11", "04", "new.cast")
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ago := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(oldPath, ago, ago); err != nil {
+		t.Fatal(err)
+	}
+	st.TidyLocal(24 * time.Hour)
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old file still there: %v", err)
+	}
+	if b, err := os.ReadFile(newPath); err != nil || string(b) != "new" {
+		t.Fatalf("fresh file: %q %v", b, err)
 	}
 }

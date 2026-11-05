@@ -60,6 +60,8 @@ type Deps struct {
 	PublicAddress string
 	// Pages builds the signed links to sessions' pages, where people replay them; nil: no links.
 	Pages *link.Pages
+	// Leader reports whether this instance holds the HA lease. Nil means always leader (no HA).
+	Leader func() bool
 }
 
 // Gate is the SSH channel.
@@ -74,6 +76,9 @@ type Gate struct {
 	echo  *echoer
 
 	connectors *connectorSet // machines behind NAT connected out to the channel (connector.go)
+
+	leaderMu sync.Mutex
+	leader   func() bool // nil means always leader (no HA)
 }
 
 type window struct {
@@ -95,6 +100,7 @@ type Actor struct {
 var (
 	ErrDisabled    = errors.New("the SSH channel is not configured")
 	ErrPaused      = errors.New("agents' access to machines is paused")
+	ErrStandby     = errors.New("this instance is the standby; tools run on the primary")
 	ErrNoMachine   = errors.New("no such machine")
 	ErrForbidden   = errors.New("this agent may not reach the machine")
 	ErrUnreachable = errors.New("the machine cannot be reached")
@@ -138,7 +144,7 @@ func New(d Deps) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}}
+	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}, leader: d.Leader}
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
 		g.registerConnectorMetrics(m)
@@ -158,6 +164,30 @@ func New(d Deps) (*Gate, error) {
 }
 
 func (g *Gate) now() time.Time { return g.d.Now() }
+
+// SetLeader sets how the channel tells whether this instance holds the HA lease. main calls it
+// after the lease exists; newGate runs earlier. Nil means always leader (no HA).
+func (g *Gate) SetLeader(fn func() bool) {
+	if g == nil {
+		return
+	}
+	g.leaderMu.Lock()
+	g.leader = fn
+	g.leaderMu.Unlock()
+}
+
+func (g *Gate) requireLeader() error {
+	if g == nil {
+		return ErrDisabled
+	}
+	g.leaderMu.Lock()
+	fn := g.leader
+	g.leaderMu.Unlock()
+	if fn == nil || fn() {
+		return nil
+	}
+	return ErrStandby
+}
 
 // CAPublicKey is the line machines put in their TrustedUserCAKeys file.
 func (g *Gate) CAPublicKey() string {

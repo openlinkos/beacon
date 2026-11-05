@@ -46,6 +46,9 @@ func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
 // running at the timeout is sent SIGKILL and abandoned; its transcript has no exit status.
 func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, label, command string, stdin []byte,
 	timeout time.Duration) (Transcript, bool, error) {
+	if err := g.requireLeader(); err != nil {
+		return Transcript{}, false, err
+	}
 	conn := newID(g.now())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

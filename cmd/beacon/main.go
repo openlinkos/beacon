@@ -395,6 +395,22 @@ func serve(args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go reloadOnHUP(ctx, hup, cfg, cdb, log)
+	if gate != nil {
+		go func() {
+			gate.RetryPending(ctx)
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					gate.RetryPending(ctx)
+					gate.TidyLocal(cfg.SSH.Keep.D())
+				}
+			}
+		}()
+	}
 
 	// The leader lease of a primary/standby pair (PostgreSQL): one instance holds the Feishu long
 	// connection, the alert routing, the escalation loops and the SSH channel, and answers /healthz
@@ -444,6 +460,9 @@ func serve(args []string, stderr io.Writer) int {
 		sd.Live = lease.Healthy
 		log.Info("high availability on: this instance answers /healthz with 503 until it holds the leader lease; /livez stays 200 while it can reach the database",
 			"lease", cfg.HA.Name, "id", lease.ID(), "renew", cfg.HA.Renew.String(), "expire", cfg.HA.Expire.String())
+	}
+	if gate != nil && lease != nil {
+		gate.SetLeader(lease.Leader)
 	}
 	if listener != nil {
 		single(func(lctx context.Context) {

@@ -25,6 +25,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 	}{
 		{sshgate.ErrDisabled, http.StatusServiceUnavailable, "ssh.disabled"},
 		{sshgate.ErrPaused, http.StatusConflict, "ssh.paused"},
+		{sshgate.ErrStandby, http.StatusServiceUnavailable, "ssh.standby"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
 		{sshgate.ErrForbidden, http.StatusForbidden, "machine.forbidden"},
 		{sshgate.ErrUnreachable, http.StatusBadGateway, "machine.unreachable"},

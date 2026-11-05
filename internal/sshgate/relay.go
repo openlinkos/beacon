@@ -89,7 +89,9 @@ func (s *session) start(kind, command string) {
 	if kind == "shell" && s.pty {
 		s.shell = &shellLog{rec: s.cast, now: s.g.now}
 	}
-	_ = s.g.d.Store.PutSession(s.rec)
+	if err := s.g.d.Store.PutSession(s.rec); err != nil {
+		s.g.d.Log.Error("session record was not stored", "session", s.rec.ID, "err", err)
+	}
 }
 
 // parts returns the recording, the shell's log and the kind, which start sets on another goroutine.
@@ -175,7 +177,9 @@ func (s *session) finish(exit *int) Transcript {
 	s.rec = rec
 	s.mu.Unlock()
 	s.g.file(t)
-	_ = s.g.d.Store.PutSession(rec)
+	if err := s.g.d.Store.PutSession(rec); err != nil {
+		s.g.d.Log.Error("session record was not stored", "session", rec.ID, "err", err)
+	}
 	_ = s.g.d.Store.Audit(store.AuditEntry{Actor: rec.Agent, Via: rec.Via, Action: "ssh_" + rec.Kind, Target: rec.Machine,
 		Detail: short(rec.Command, 200)})
 	if s.g.d.Metrics != nil {
