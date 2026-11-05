@@ -56,6 +56,61 @@ components:
           type: string
           format: uri
           description: "On a 401 (auth.required, auth.invalid): the API's reference, which says how to get a token"
+    ImportOptions:
+      type: object
+      description: "How one import runs"
+      properties:
+        dry_run: {type: boolean, description: "Answer the report and write nothing"}
+        on_conflict: {type: string, enum: [ask, new_version, skip, keep_both]}
+        levels:
+          type: object
+          description: "A level to start a collection at, by collection name"
+          additionalProperties: {type: string, enum: [auto, review, person, never]}
+        collection: {type: string, description: "One target collection for the whole batch"}
+        reason: {type: string}
+    ImportReport:
+      type: object
+      description: "What an import answers — counts, categories, levels and conflicts, never a value"
+      properties:
+        source: {type: string}
+        dry_run: {type: boolean}
+        collections:
+          type: array
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              new: {type: boolean}
+              level: {type: string, enum: [auto, review, person, never]}
+              items: {type: integer}
+              fields: {type: integer}
+              attachments: {type: integer}
+              one_time_passcodes: {type: integer}
+              archived: {type: integer}
+              never: {type: integer, description: "Items a category starts at never"}
+              history: {type: integer, description: "Older values that become versions"}
+              categories:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    count: {type: integer}
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              collection: {type: string}
+              incoming: {type: string, description: "The incoming item's title"}
+              existing: {type: string, description: "The item that is already there"}
+              shared_urls: {type: integer}
+        created: {type: integer}
+        versions_added: {type: integer}
+        skipped: {type: integer}
+        held_back: {type: integer}
+        kept_both: {type: integer}
+        merged: {type: integer}
     SecretCollection:
       type: object
       properties:
@@ -2238,6 +2293,28 @@ paths:
                         collection: {type: string}
                         item: {$ref: "#/components/schemas/SecretItem"}
                         level: {type: string, enum: [auto, review, person, never]}
+        default: {$ref: "#/components/responses/Error"}
+  /vault/import:
+    post:
+      summary: Import a batch of secrets
+      description: "The parsed batch of an import (what `beacon secret import`, the console's import wizard and this route's callers send): collections of items with their fields and values, and how it runs — dry_run answers the report and writes nothing, on_conflict resolves what meets an item already there (ask holds it back, new_version, skip, keep_both), levels start collections at another level, collection folds the batch into one. The report counts items, fields, attachments and one-time-passcode fields per collection, names the categories and the levels, and names the conflicts (the same place by the normalised URL with the same user name) — never a value. The caller must be a person with secrets:admin (an agent gets secrets.agent); existing target collections need edit."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch]
+              properties:
+                batch:
+                  type: object
+                  description: "The parsed batch: a source (1password, chrome, bitwarden, csv) with its collections, each item's fields carrying their values"
+                options: {$ref: "#/components/schemas/ImportOptions"}
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ImportReport"}
         default: {$ref: "#/components/responses/Error"}
   /vault/tags:
     get:
