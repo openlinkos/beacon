@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -391,6 +392,36 @@ func TestMigrateBothFilesMatch(t *testing.T) {
 	}
 	if _, err := os.Stat(boltPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("the matching leftover should have gone")
+	}
+}
+
+// TestMigrateRefuseNamesTheSQLPath: a leftover bbolt file beside a non-empty SQL database
+// that was never migrated (no genesis) must name the SQL path and say how to remigrate.
+func TestMigrateRefuseNamesTheSQLPath(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "beacon.db")
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Audit(AuditEntry{Actor: "alice", Action: "ack"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	boltPath := filepath.Join(dir, "status.db")
+	fixture(t, boltPath)
+	_, err = Migrate(boltPath, Options{Path: dbPath})
+	if !errors.Is(err, ErrDiverged) {
+		t.Fatalf("want ErrDiverged, got %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, dbPath) {
+		t.Fatalf("error should name the SQL path %s: %s", dbPath, msg)
+	}
+	if !strings.Contains(msg, "remigrate") {
+		t.Fatalf("error should say how to remigrate: %s", msg)
 	}
 }
 

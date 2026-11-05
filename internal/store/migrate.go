@@ -72,7 +72,7 @@ func Migrate(boltPath string, o Options) (bool, error) {
 		return false, err
 	}
 	if !empty {
-		finished, err := finishOrRefuse(db, boltPath)
+		finished, err := finishOrRefuse(db, o.Path, boltPath)
 		_ = db.Close()
 		return finished, err
 	}
@@ -175,11 +175,16 @@ func nothingIn(db kv.SQL) (bool, error) {
 	return n == 0, nil
 }
 
-func finishOrRefuse(db kv.SQL, boltPath string) (bool, error) {
+// finishOrRefuse runs when a bbolt file and a non-empty SQL database both exist: crash between
+// commit and removing the old file, or a rollback that then ran the old version. The import hash
+// of the bbolt file is compared to the genesis record. Matching means the SQL database is this
+// bbolt file's migration and the leftover file can go; mismatch means the two have diverged and
+// starting would drop one of them.
+func finishOrRefuse(db kv.SQL, sqlPath, boltPath string) (bool, error) {
 	genesis, err := readGenesis(db)
 	if err != nil {
-		return false, fmt.Errorf("%w: the SQL database is not empty and has no migration genesis, while %s is still there; move one of them aside",
-			ErrDiverged, boltPath)
+		return false, fmt.Errorf("%w: the SQL database at %s is not empty and has no migration genesis, while %s is still there. If the SQL database is the one to keep, move the bbolt file aside. To remigrate, move the SQL database aside and start again",
+			ErrDiverged, sqlPath, boltPath)
 	}
 	src, err := kv.OpenBolt(kv.BoltOptions{Path: boltPath})
 	if err != nil {

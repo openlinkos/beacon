@@ -209,7 +209,8 @@ type Options struct {
 	BusyTimeout time.Duration
 	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
 	CheckpointInterval time.Duration
-	// Retention is how long audit records are kept; Verify refuses a prune still inside it.
+	// Retention is how long Prune keeps audit records. Verify treats signed prune marks as the
+	// authority for gaps and does not re-check them against the current retention.
 	Retention time.Duration
 	// SignKey signs the checkpoints (nil: one is generated and kept in the database; the key
 	// hierarchy that comes with the vault will pass its own).

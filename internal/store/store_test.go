@@ -193,6 +193,21 @@ func TestLocked(t *testing.T) {
 	}
 }
 
+func TestOpenReadWith(t *testing.T) {
+	s, path := open(t)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenReadWith(Options{Path: path, Retention: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if _, err := r.VerifyAudit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAuditAndMeta(t *testing.T) {
 	s, _ := open(t)
 	for i := range 3 {

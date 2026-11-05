@@ -66,7 +66,7 @@ func openRead(stderr io.Writer, cfg *config.Config) (*store.Store, bool) {
 		}
 		return nil, false
 	}
-	st, err := store.OpenRead(path)
+	st, err := store.OpenReadWith(store.Options{Path: path, Retention: cfg.Storage.Audit.Retention.D()})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return nil, false
