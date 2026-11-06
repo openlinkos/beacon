@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-aae56804
+sourceHash: sha256-87a4c36a
 ---
 
 # 发布状态页
@@ -10,7 +10,7 @@ sourceHash: sha256-aae56804
 
 ## 你已经有了的状态页 {#the-page-you-already-have}
 
-参考部署自带一页，`status`，在 `deploy/catalog/status_pages.yaml` 里：标题「Example Status」，两个组件：**Website**（服务 `example.com`）和 **Status and alerts**（`beacon`，Beacon 自己的状态主机）。按[三十分钟上线](../self-hosting/install.md)装好后打开 `https://status.example.com/`：第一个检测点汇报之前显示**暂无数据**；第一批结果到达一两分钟后，各组件显示状态，两个都正常时整页显示**所有服务运行正常**。
+参考部署自带一页，`status`，在 `deploy/catalog/status_pages.yaml` 里：标题「Example Status」，两个组件：**Website**（服务 `example.com`）和 **Status and alerts**（`beacon`，Beacon 自己的状态主机）。按[装在服务器上](../self-hosting/install.md)装好后打开 `https://status.example.com/`：第一个检测点汇报之前显示**暂无数据**；第一批结果到达一两分钟后，各组件显示状态，两个都正常时整页显示**所有服务运行正常**。
 
 从上到下，一个状态页依次是：
 

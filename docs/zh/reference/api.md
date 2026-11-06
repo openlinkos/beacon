@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-16c64c0f
+sourceHash: sha256-af3ae751
 ---
 
 # REST API
@@ -14,8 +14,8 @@ REST API 面向通过 HTTP 使用 Beacon 的脚本、机器人和 Agent：它们
 
 | 谁来调用 | 凭据 | 从哪里来 |
 | --- | --- | --- |
-| 独自运行的 Agent、脚本、CI 任务 | Agent 的令牌，`lbt_…` | 控制台的 **Agent** 页面，或在中心上用 `beacon agent add`（[无界面的 Agent 和 CI](../guide/people.md#headless-agents-and-ci)） |
-| 由人登录的 MCP 客户端，比如 Claude Code | OAuth 访问令牌，`lba_…`，有效一小时，由客户端刷新 | 通过浏览器登录（[接入 Claude Code](../guide/people.md#connect-claude-code)） |
+| 独自运行的 Agent、脚本、CI 任务 | Agent 的令牌，`lbt_…` | 控制台的 **Agent** 页面，或在中心上用 `beacon agent add`（[无头 Agent 与 CI](../integrations/headless.md#make-an-agent-and-its-token)） |
+| 由人登录的 MCP 客户端，比如 Claude Code | OAuth 访问令牌，`lba_…`，有效一小时，由客户端刷新 | 通过浏览器登录（[Claude Code](../integrations/claude-code.md)） |
 | 机器或服务（检测点、主机、心跳、变更发送方、指标读取方），或者熟手 | 按名字指定作用域的令牌，`lbt_…` | 在中心上用 `beacon enroll`，或 `beacon token create NAME -scopes … -expires …` |
 
 比如一个处理告警的脚本：
@@ -62,14 +62,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `alerts:send` | 像规则引擎一样发送告警 |
 | `changes:write` | 发送变更事件 |
 
-人和 Agent 不用一个个挑作用域：人的作用域来自角色，Agent 的由预设申请，且不超出所有者的角色（[成员和 Agent](../guide/people.md#roles)）。
-
-| 角色 | Agent 预设 | 作用域 |
-| --- | --- | --- |
-| 查看者 | 只读 | `status:read`、`sessions:read` |
-| 值班 | 值班 | + `alerts:write`、`machines:ssh` |
-| 运维 | 运维 | + `maintenance:write`、`incidents:write`、`machines:write` |
-| 所有者 | | + `config:write`、`accounts:write` |
+人和 Agent 不用一个个挑作用域：人的作用域来自角色，Agent 的由预设申请，且不超出所有者的角色。哪个角色、哪个预设给哪些作用域，见[角色、预设与权限](permissions.md)。
 
 Agent 要用一个作用域，得它的预设给了、它的所有者的角色也给了，每次请求时都会检查：降低或停用所有者，会立即限制这个 Agent。OAuth 登录还另外受成员当初允许的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
 
@@ -119,7 +112,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。读取需要 `status:read` 或 `config:write`；修改需要 `config:write`。`PUT` 和 `DELETE` 接受 `?note=`（随修改保存，并显示在告警群里）和 `?if_version=`（已有更新的版本生效时拒绝，返回 `config.conflict`）。通不过校验的修改会被拒绝，返回 `config.invalid`，什么都不会改。
+Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测一个服务](../guide/monitoring.md)）。读取需要 `status:read` 或 `config:write`；修改需要 `config:write`。`PUT` 和 `DELETE` 接受 `?note=`（随修改保存，并显示在告警群里）和 `?if_version=`（已有更新的版本生效时拒绝，返回 `config.conflict`）。通不过校验的修改会被拒绝，返回 `config.invalid`，什么都不会改。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -165,7 +158,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 ## 成员与 SSH 密钥 {#people-and-ssh-keys}
 
-登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[成员和 Agent](../guide/people.md)）。没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。重设密码没有 MCP 工具。
+登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[邀请你的团队](../guide/people.md)）。没有哪个 Agent 预设给 `accounts:write`：只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。重设密码没有 MCP 工具。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -212,7 +205,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /` | 公开：默认状态页，和 `/status` 的内容相同；没有状态页时，是一个写明这套部署、带**登录**按钮的页面（[状态页](../guide/status-pages.md#branding)） |
 | `GET /console`、`GET /console/sign-in` 和 `/console` 下的页面 | 控制台，给用自己账号登录的人用；再保留一个版本，也可以用令牌登录（[控制台](../guide/console.md)） |
 | `GET /.well-known/oauth-protected-resource/mcp`、`GET /.well-known/oauth-protected-resource`、`GET /.well-known/oauth-authorization-server` | MCP 客户端用来找到 Beacon 登录方式的 OAuth 元数据（RFC 9728、RFC 8414） |
-| `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token`、`POST /oauth/revoke` | Beacon 作为 MCP 客户端的授权服务器：注册、授权页面、令牌和吊销（[成员和 Agent](../guide/people.md#the-oauth-endpoints)） |
+| `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token`、`POST /oauth/revoke` | Beacon 作为 MCP 客户端的授权服务器：注册、授权页面、令牌和吊销（[客户端怎样登录](../integrations/mcp-clients.md#how-a-client-signs-in)） |
 | `GET /console/alerts/{id}`、`GET /console/sessions/{id}` | 人从卡片上打开的页面，凭签名链接或令牌打开（[控制台](../guide/console.md#signed-links)） |
 | `GET /alerts/{id}`、`GET /sessions/{id}`、`GET /sign-in` 以及控制台的其他旧路径 | `308` 转到 `/console` 下的同一路径，带着查询参数；为旧路径签名的链接换成新路径的签名，到期时间不变 |
 | `GET /status`、`GET /status/{name}`、`GET /status/{name}/incidents/{id}` | 公开状态页和其中的事件，不需要令牌（[状态页](../guide/status-pages.md)）；在状态页自己的域名上是 `/` 和 `/incidents/{id}` |

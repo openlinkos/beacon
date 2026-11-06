@@ -2,7 +2,7 @@
 
 By the end of this page you have watched the whole on-call loop happen on purpose, without touching a real service: the probes see a failure, the rules fire, the card arrives, your agent reads the evidence, works a machine, has its fix checked and leaves a note, and the alert resolves on what the probes then see. A drill is how you find out that a phone is not reachable or a hook is misconfigured while everything still works, rather than at 3 a.m.
 
-You need Beacon running with at least two probe locations reporting (one location's word is never an outage), an agent connected ([Put an agent on call](on-call.md)), and, for the card, the chat ([Feishu](../integrations/feishu.md)). From nothing: [Up in 30 minutes](../self-hosting/install.md), steps 1 to 4, or [Try it on your laptop](quickstart.md) for the whole loop on one machine. The commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
+You need Beacon running with at least two probe locations reporting (one location's word is never an outage), an agent connected ([Put an agent on call](on-call.md)), and, for the card, the chat ([Feishu](../integrations/feishu.md)). From nothing: [On a server](../self-hosting/install.md), steps 1 to 4, or [Try it on your laptop](quickstart.md) for the whole loop on one machine. The commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
 
 ## The drill service {#the-drill-service}
 

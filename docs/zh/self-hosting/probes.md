@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-fc073090
+sourceHash: sha256-09fe6739
 ---
 
 # 检测点位置
 
-检测点是运行 `beacon-probe` 的一台小机器，放在用户所在的地方。它每分钟向中心询问要检测什么，检测完把结果推送回去。本页说明检测点放在哪里值得、机器需要什么、怎样安装和更新检测程序。检测点检测什么、怎么检测，是另一个问题：见[检测什么，从哪里检测](../guide/monitoring.md)。
+检测点是运行 `beacon-probe` 的一台小机器，放在用户所在的地方。它每分钟向中心询问要检测什么，检测完把结果推送回去。本页说明检测点放在哪里值得、机器需要什么、怎样安装和更新检测程序。检测点检测什么、怎么检测，是另一个问题：见[检测一个服务](../guide/monitoring.md)。
 
 示例以[装在服务器上](install.md)里的参考部署为准，中心上的命令都通过 `docker exec beacon beacon …` 执行。
 
@@ -26,7 +26,7 @@ Beacon 靠多个检测点的一致判断来区分真正的故障和偶尔的抖�
 
 ## 安装一个检测点 {#install-a-location}
 
-检测点必须先在目录里，然后才能登记：登记一个目录里没有的 id 会失败，提示 `location edge-2 is not in the catalogue`。目录自带一个检测点 `edge-1`；增加更多，要么改 `catalog/locations.yaml` 再导入，要么走 API 和 MCP，两种做法都在[检测什么，从哪里检测](../guide/monitoring.md#locations)里。
+检测点必须先在目录里，然后才能登记：登记一个目录里没有的 id 会失败，提示 `location edge-2 is not in the catalogue`。目录自带一个检测点 `edge-1`；增加更多，要么改 `catalog/locations.yaml` 再导入，要么走 API 和 MCP，两种做法都在[检测一个服务](../guide/monitoring.md#locations)里。
 
 在中心上登记检测点。令牌只打印这一次，之后只有网关收到的内容算数：
 

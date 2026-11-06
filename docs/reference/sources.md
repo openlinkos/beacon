@@ -49,7 +49,7 @@ Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service
 
 ## Change events
 
-Deployments and configuration changes reach Beacon as change events, so the evidence for an alert says what changed just before it. A CI job or a script posts Beacon's own JSON event to `POST /api/v1/changes`; Flux's notification-controller posts its events through a Provider of type `generic` to `POST /api/v1/changes/flux`. Both need a `changes:write` token, at most 60 events a minute. The fields and the Flux setup are in [Change events](../guide/on-call.md#change-events). Change events never page anyone.
+Deployments and configuration changes reach Beacon as change events, so the evidence for an alert says what changed just before it. A CI job or a script posts Beacon's own JSON event to `POST /api/v1/changes`; Flux's notification-controller posts its events through a Provider of type `generic` to `POST /api/v1/changes/flux`. Both need a `changes:write` token, at most 60 events a minute. The fields and the Flux setup are in [Deployments and Flux](../integrations/change-events.md). Change events never page anyone.
 
 ## The chat
 
@@ -57,4 +57,4 @@ People act on the cards in the alert chat: acknowledge with a note, silence for 
 
 ## People and agents
 
-Notes, acknowledgements, silences, configuration changes and sessions on machines come in through the REST API, MCP and the SSH channel, each with the token of whoever acts. Every write is in the audit log and echoed to the alert chat. See the [REST API](api.md), the [MCP tools](mcp.md) and [The SSH channel](../guide/machines.md).
+Notes, acknowledgements, silences, configuration changes and sessions on machines come in through the REST API, MCP and the SSH channel, each with the token of whoever acts. Every write is in the audit log and echoed to the alert chat. See the [REST API](api.md), the [MCP tools](mcp.md) and [Give agents a machine](../guide/machines.md).

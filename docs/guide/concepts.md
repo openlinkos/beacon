@@ -109,4 +109,4 @@ An agent acts for one person, its owner, and never does more than that person's 
 ## Where to read more
 
 - [Architecture](../about/architecture.md): every part in detail — what runs where, where the state lives, the rules each part keeps.
-- [Put an agent on call](on-call.md) and [Give agents a machine](machines.md): the two paths above, as things you do.
+- [Put an agent on call](on-call.md) and [Give agents a machine](machines.md): the two paths above, as things you do; [Using Beacon](using-beacon.md) has every other task.

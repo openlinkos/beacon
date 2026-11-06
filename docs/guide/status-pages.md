@@ -6,7 +6,7 @@ You need Beacon running with at least two probe locations reporting ([Monitor a 
 
 ## The page you already have
 
-The reference deployment ships one page, `status`, in `deploy/catalog/status_pages.yaml`: titled "Example Status", with two components, **Website** (the service `example.com`) and **Status and alerts** (`beacon`, Beacon's own status host). Open `https://status.example.com/` after [Up in 30 minutes](../self-hosting/install.md): until the first probe has reported it says **No data yet**; a minute or two after the first results, each component shows its state, and **All systems operational** when both work.
+The reference deployment ships one page, `status`, in `deploy/catalog/status_pages.yaml`: titled "Example Status", with two components, **Website** (the service `example.com`) and **Status and alerts** (`beacon`, Beacon's own status host). Open `https://status.example.com/` after [On a server](../self-hosting/install.md): until the first probe has reported it says **No data yet**; a minute or two after the first results, each component shows its state, and **All systems operational** when both work.
 
 From top to bottom, a page shows:
 

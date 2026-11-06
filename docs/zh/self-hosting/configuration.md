@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0a0d3730
+sourceHash: sha256-d4e0d1fe
 ---
 
 # 配置
@@ -7,7 +7,7 @@ sourceHash: sha256-0a0d3730
 有两种东西都叫 Beacon 的配置，本页讲第一种：
 
 - **`config.yaml`**，服务自己的配置：监听哪里、通过哪个聊天工具发告警、怎样升级到电话、SSH 通道的密钥。它是中心上的一个文件，Beacon 启动时读一次。
-- **目录、检测目标和模块**——检测什么、从哪里检测。这些放在 Beacon 的数据库里，通过 API、MCP 或命令行修改；文件只用于导入和导出。那是[检测什么，从哪里检测](../guide/monitoring.md)的内容；本页最后一节说明这些文件什么时候会被读。
+- **目录、检测目标和模块**——检测什么、从哪里检测。这些放在 Beacon 的数据库里，通过 API、MCP 或命令行修改；文件只用于导入和导出。那是[检测一个服务](../guide/monitoring.md)的内容；本页最后一节说明这些文件什么时候会被读。
 
 示例以[装在服务器上](install.md)里的参考部署为准。
 
@@ -83,4 +83,4 @@ SIGHUP 不是这条路，这一点值得说清楚：**挂起信号不会重新�
 - **SIGHUP**（`docker kill -s HUP beacon`）会导入它们，但前提是上次导入之后没有人通过 Beacon 改过配置，这样文件不能悄悄覆盖人和 Agent 刚做的修改。不满足时，日志会说明之后来过哪个改动、接下来怎么办：用 `config export` 把改动带回文件，或用 `config import` 覆盖它。
 - **`beacon config import DIR`** 随时导入一个目录，先 `-dry-run`；**`beacon config export DIR`** 把生效的配置写回文件；**`beacon config history`** 和 **`beacon config revert VERSION`** 查看和撤销变更。
 
-完整说明见[检测什么，从哪里检测](../guide/monitoring.md#the-files-at-start-and-on-sighup)，包括导入的陷阱：文件里没有的条目会被删掉。
+完整说明见[文件的导入与导出](../guide/monitoring.md#files-import-and-export)，包括导入的陷阱：文件里没有的条目会被删掉。

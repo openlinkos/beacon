@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-81766222
+sourceHash: sha256-ac1332bf
 ---
 
 # 邀请你的团队
 
-读完这一页，团队里的每个人都在 Beacon 里有自己的账号和角色，角色说明他能做什么；每个人的 Agent 以他的名义行事，且永远不会超出他的角色允许的范围。一切都以人为名：审计日志、告警群和机器上的会话，Alice 在控制台上做的事记作 `alice`，她的 Agent 做的事记作 `alice / claude-code`。成员只能用 Beacon 自己的账号登录：不支持 GitHub、飞书、OIDC、LDAP 或任何其他登录方式。你在[三十分钟上线](../self-hosting/install.md)第 4 步里建了第一个账号（所有者）；这一页从那里继续。你需要那个所有者账号；命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
+读完这一页，团队里的每个人都在 Beacon 里有自己的账号和角色，角色说明他能做什么；每个人的 Agent 以他的名义行事，且永远不会超出他的角色允许的范围。一切都以人为名：审计日志、告警群和机器上的会话，Alice 在控制台上做的事记作 `alice`，她的 Agent 做的事记作 `alice / claude-code`。成员只能用 Beacon 自己的账号登录：不支持 GitHub、飞书、OIDC、LDAP 或任何其他登录方式。你在[装在服务器上](../self-hosting/install.md)第 4 步里建了第一个账号（所有者）；这一页从那里继续。你需要那个所有者账号；命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
 
 ## 角色 {#roles}
 
@@ -21,7 +21,7 @@ sourceHash: sha256-81766222
 
 ## 第一个所有者 {#the-first-owner}
 
-还没有账号的 Beacon 在启动时把一次性初始化链接写进日志（`docker compose logs beacon | grep setup_link`；[三十分钟上线](../self-hosting/install.md)第 4 步有示例）。链接过期后，趁 Beacon 还没有账号，在中心上再打印一条：
+还没有账号的 Beacon 在启动时把一次性初始化链接写进日志（`docker compose logs beacon | grep setup_link`；[装在服务器上](../self-hosting/install.md)第 4 步有示例）。链接过期后，趁 Beacon 还没有账号，在中心上再打印一条：
 
 ```bash
 docker exec beacon beacon setup

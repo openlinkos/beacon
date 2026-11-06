@@ -122,7 +122,7 @@ The dry run should list one line, `+ locations edge-2`, under `would change 1 it
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
-An import makes the files the whole configuration: anything changed through the API or MCP that the files do not hold is removed, which is why `-dry-run` comes first. [What is checked, and from where](../guide/monitoring.md) explains the two ways of changing the configuration and how to keep them in step; [Probe locations](probes.md) has where to put them, what the machine needs, and what to do when the install does not end like the above.
+An import makes the files the whole configuration: anything changed through the API or MCP that the files do not hold is removed, which is why `-dry-run` comes first. [Monitor a service](../guide/monitoring.md) explains the two ways of changing the configuration and how to keep them in step; [Probe locations](probes.md) has where to put them, what the machine needs, and what to do when the install does not end like the above.
 
 **Check what arrives.** VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui` (from your workstation through `ssh -N -L 8428:127.0.0.1:8428 centre`). `probe_success` has one series per location and target, 1 for success. The public page at `https://status.example.com/` now shows its components' state. The targets shipped are Beacon's own status host, the drill (step 5) and `https://example.com/`; replace the last with a service of yours in `/opt/beacon/targets/all-web.yaml` and import again.
 
@@ -164,7 +164,7 @@ docker exec beacon beacon setup
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-The agent never does more than your role allows, and every command it runs on a machine is on record with a replay. Roles, Codex, invitations and headless agents with tokens are in [People and their agents](../guide/people.md).
+The agent never does more than your role allows, and every command it runs on a machine is on record with a replay. Roles and invitations are in [Invite your team](../guide/people.md); Codex, other clients and headless agents with tokens in [Integrations](../integrations/index.md).
 
 ## 5. The first drill
 
@@ -173,7 +173,7 @@ The agent never does more than your role allows, and every command it runs on a 
 ## What next
 
 - [Set up the Feishu app](../integrations/feishu.md), so alerts reach people as cards. Each secret goes in a file under `/opt/beacon/secrets/`, the `feishu:` section in `/opt/beacon/config.yaml` is uncommented, and `sudo ./install.sh` followed by `docker compose restart beacon` applies it ([Configuration](configuration.md)).
-- [Put an agent on call](../guide/on-call.md), so a new alert wakes an agent instead of waiting for someone to ask.
+- [Put an agent on call](../guide/on-call.md), so a new alert wakes an agent instead of waiting for someone to ask; [Using Beacon](../guide/using-beacon.md) has every other task, by capability.
 - [Upgrades](upgrade.md), [Backup and restore](backup.md) and [Security model](security.md) keep it running.
 - [Troubleshooting](troubleshooting.md) for when something above does not happen.
 - [Goals](../about/goals.md): what Beacon is for, and what it will not do.

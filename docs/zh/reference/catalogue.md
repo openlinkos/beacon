@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-8c81bde6
+sourceHash: sha256-d466ea99
 ---
 
 # 目录文件格式 {#the-catalogue}
 
-Beacon 监控什么放在它的数据库里，经 API、MCP 和命令行修改；文件用于导入导出，也用于首次启动，布局沿用部署一直使用的 `/etc/beacon`（[检测什么、从哪里检测](../guide/monitoring.md)）。本页讲这些文件的格式，以及每一处修改无论从哪里进来都要通过的校验；API 和 MCP 收发的也是同样的形状，只是 JSON。通不过的修改以 `config.invalid` 和原因拒绝，什么都不会变。
+Beacon 监控什么放在它的数据库里，经 API、MCP 和命令行修改；文件用于导入导出，也用于首次启动，布局沿用部署一直使用的 `/etc/beacon`（[检测一个服务](../guide/monitoring.md)）。本页讲这些文件的格式，以及每一处修改无论从哪里进来都要通过的校验；API 和 MCP 收发的也是同样的形状，只是 JSON。通不过的修改以 `config.invalid` 和原因拒绝，什么都不会变。
 
 | 文件 | 放什么 | 配置键 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ heartbeats:
 | `description` | 字符串 | 自由文本 |
 | `machine` | 字符串 | 可选；机器名，小写字母、数字和连字符。写入（API、MCP）会拒绝 SSH 通道没有的机器，除非心跳本来就叫这台；导入和回退接受，附一条警告 |
 
-任务怎么上报成功、心跳怎么变成 Agent 能着手的东西，见[检测什么、从哪里检测](../guide/monitoring.md#heartbeats)。
+任务怎么上报成功、心跳怎么变成 Agent 能着手的东西，见[心跳与到期资源](../guide/heartbeats.md)。
 
 ## 资源 {#resources}
 

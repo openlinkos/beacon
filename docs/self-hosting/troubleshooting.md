@@ -37,7 +37,7 @@ The location has no `probe_success` series in vmui, the console's overview count
 | In the log | Why | What to do |
 | --- | --- | --- |
 | `401`, `auth.invalid` | The token file is not the one `beacon enroll probe` printed, or it was replaced with `-rotate` | Enrol again with `-rotate` and run `probe/install.sh -token-file FILE` with the new token |
-| `403`, `location.inactive`, `location edge-2 is not in the catalogue` | The location's id is not in the catalogue, or was removed by an import of files that lack it | Add it to the catalogue and import, or put it through the API ([What is checked, and from where](../guide/monitoring.md)) |
+| `403`, `location.inactive`, `location edge-2 is not in the catalogue` | The location's id is not in the catalogue, or was removed by an import of files that lack it | Add it to the catalogue and import, or put it through the API ([Monitor a service](../guide/monitoring.md)) |
 | `403`, `the machine of location edge-2 has expired` | A resource of kind `vps` with the location's name has a date in the past | Renew the resource with a new date |
 | `cannot fetch from the gateway; using the cached copy` with a connection error | The machine cannot reach `metrics.example.com` on 443 (or the gateway's own port) | Check DNS, the firewall and the address in `/etc/beacon-probe/agent.env` |
 
@@ -115,7 +115,7 @@ Two more cases. When connections to one machine start failing for every agent at
 
 The API or MCP answers 401 or 403, or the MCP client says it cannot connect, or asks to sign in again.
 
-- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped; or the agent was deleted, or its owner disabled. `beacon token list` shows each token's expiry and last renewal, and the agent's page its credentials. Make a new token with **New token** on the agent's page (`beacon token create` for a token of its own), and give the agent a way to renew it ([Tokens that renew themselves](../guide/on-call.md#tokens-that-renew-themselves)).
+- **`auth.invalid`, `the token is unknown or has expired`.** The token expired, was revoked, or is mistyped; or the agent was deleted, or its owner disabled. `beacon token list` shows each token's expiry and last renewal, and the agent's page its credentials. Make a new token with **New token** on the agent's page (`beacon token create` for a token of its own), and give the agent a way to renew it ([Tokens that renew themselves](../integrations/headless.md#tokens-that-renew-themselves)).
 - **An OAuth client asks to sign in again.** Its sign-in was revoked, or the time allowed on the consent page is up: sign in again from the client (`/mcp` in Claude Code, `codex mcp login beacon`).
 - **A renewed token that the client no longer has.** A client registered with a fixed header, as `claude mcp add --header` does, keeps the old secret, which stops working ten minutes after a renewal: add it again with the new secret. The wrappers in `contrib/oncall` read the token file on every connection instead.
 - **`auth.scope`.** The route or tool needs a scope the credential does not have. The message names it: `the token lacks the … scope` for a token of its own, and for an agent what its preset within its owner's role allows. Change the agent's preset on its page, or ask an owner for a role that allows it ([Scopes](../reference/api.md#scopes)).
@@ -178,4 +178,4 @@ You edited the catalogue or target files and the change is not in force.
 
 ### A change is refused with config.conflict or config.invalid
 
-`config.conflict` (409): the change was based on an older version (`if_version`) and a later one is in force, or a revert touches an item a later change touched. Read the item again (`GET /api/v1/config`, `get_config`) and decide afresh. `config.invalid` (422): the change would not pass the checks, and the message says which; nothing changed. A common one: a location cannot go while a target set is named after it alone. [What is checked, and from where](../guide/monitoring.md) has the rules.
+`config.conflict` (409): the change was based on an older version (`if_version`) and a later one is in force, or a revert touches an item a later change touched. Read the item again (`GET /api/v1/config`, `get_config`) and decide afresh. `config.invalid` (422): the change would not pass the checks, and the message says which; nothing changed. A common one: a location cannot go while a target set is named after it alone. [Monitor a service](../guide/monitoring.md) has the rules.

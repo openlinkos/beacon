@@ -1,6 +1,6 @@
 # Probe locations
 
-A probe location is a small machine running `beacon-probe`, placed where your users are. Every minute it asks the centre what to check, checks it, and pushes the results. This page says where locations are worth putting, what the machine needs, and how to install and update the agent. What the locations check, and how, is a different question: [What is checked, and from where](../guide/monitoring.md).
+A probe location is a small machine running `beacon-probe`, placed where your users are. Every minute it asks the centre what to check, checks it, and pushes the results. This page says where locations are worth putting, what the machine needs, and how to install and update the agent. What the locations check, and how, is a different question: [Monitor a service](../guide/monitoring.md).
 
 The examples assume the reference deployment from [On a server](install.md), where commands on the centre run through `docker exec beacon beacon …`.
 
@@ -22,7 +22,7 @@ The clock must be synchronised (chrony, or systemd-timesyncd): results carry tim
 
 ## Install a location
 
-The location must be in the catalogue before it can be enrolled: enrolling an id the catalogue lacks fails with `location edge-2 is not in the catalogue`. The catalogue ships one location, `edge-1`; more are added in `catalog/locations.yaml` and imported, or through the API and MCP, both described in [What is checked, and from where](../guide/monitoring.md#locations).
+The location must be in the catalogue before it can be enrolled: enrolling an id the catalogue lacks fails with `location edge-2 is not in the catalogue`. The catalogue ships one location, `edge-1`; more are added in `catalog/locations.yaml` and imported, or through the API and MCP, both described in [Monitor a service](../guide/monitoring.md#locations).
 
 On the centre, enrol the location. The token is printed once, and only what the gateway later receives matters:
 

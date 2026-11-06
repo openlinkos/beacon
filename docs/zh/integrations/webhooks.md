@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b57b780a
+sourceHash: sha256-00ad724d
 ---
 
 # 被 webhook 唤醒的 Agent
@@ -18,48 +18,7 @@ agents:
 
 ## 调用 {#the-call}
 
-Beacon POST 一段 JSON，带这些请求头：
-
-| 请求头 | 值 |
-| --- | --- |
-| `X-Beacon-Signature` | `sha256=` 加上用密钥对请求体算出的 HMAC-SHA256（十六进制） |
-| `X-Beacon-Event` | `firing` 或 `resolved` |
-| `X-Beacon-Delivery` | 这次调用的 id，每次重试都一样 |
-
-```json
-{
-  "delivery": "9f3c2a1b7e4d5c60",
-  "event": "firing",
-  "at": "2026-11-02T02:00:31Z",
-  "hook": "claude-oncall",
-  "alert": {
-    "id": "0cdfbada62dd", "status": "firing", "severity": "critical",
-    "title": "git.example.com is down", "description": "git.example.com has failed for 3 minutes from at least half of the probe locations …",
-    "service": "git.example.com",
-    "labels": {"alertname": "ServiceDown", "service": "git.example.com", "severity": "critical", "failure_domain": "origin-1"},
-    "alerts": 1, "starts_at": "2026-11-02T01:58:00Z"
-  },
-  "links": {
-    "alert": "https://status.example.com/api/v1/alerts/0cdfbada62dd",
-    "evidence": "https://status.example.com/api/v1/alerts/0cdfbada62dd/evidence",
-    "timeline": "https://status.example.com/api/v1/alerts/0cdfbada62dd/timeline",
-    "mcp": "https://status.example.com/mcp",
-    "runbook": "https://github.com/example/ops/blob/main/runbooks/ServiceDown.md"
-  },
-  "hint": "Beacon woke you for this alert group. Get its evidence in one call: …",
-  "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
-}
-```
-
-如果告警是关于一个心跳的，而目录里这个心跳写明了它所在的机器（见[心跳](../guide/monitoring.md#heartbeats)），`firing` 调用的 `hint` 会说出是哪台机器，并提示用 `list_machines` 查看怎么连上去。
-
-`resolved` 的载荷字段相同，其中 `at` 是告警组恢复的时间（不是 `resolved_after` 之后调用发出的时间），另外多一个字段 `firing_call`：这一轮里叫醒 Agent 的那次调用，用来认出那次调用启动的运行，并说明那次运行是否可能还没结束：
-
-```json
-"firing_call": {"delivery": "9f3c2a1b7e4d5c60", "at": "2026-11-02T02:00:31Z", "status": "ok", "recent": true}
-```
-
-触发调用发生在告警组恢复前不到十分钟时，`recent` 为 true。这时 hint 会提醒：那次调用启动的运行可能还在写备注，先读 `get_timeline`（包括其中的备注），再写自己的收尾备注。
+Beacon 把一段 JSON POST 到钩子的 `url`：告警组和它的标签，指向证据、时间线和 MCP 端点的链接，以及一句告诉 Agent 从哪里开始的 `hint`。随之有三个请求头：`X-Beacon-Event`（`firing` 或 `resolved`）、`X-Beacon-Delivery`（这次调用的 id，每次重试都一样）和 `X-Beacon-Signature`（用密钥对请求体算出的 HMAC-SHA256）。`resolved` 调用还带 `firing_call`，即这一轮里叫醒 Agent 的那次调用，用来认出还在写备注的那次运行。每个请求头和字段，以及一份完整的载荷，见 [Webhook 参考](../reference/webhooks.md)。
 
 ## 校验签名 {#check-the-signature}
 

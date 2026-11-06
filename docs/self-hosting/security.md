@@ -4,20 +4,20 @@ Beacon holds what agents never see: the keys that let them into machines, the to
 
 ## Who may do what
 
-- **People sign in with Beacon's own accounts.** Usernames and passwords, argon2id hashes, roles (viewer, on call, operator, owner); there is no other way in and no outside identity provider. [People and their agents](../guide/people.md#roles).
-- **An agent acts for one person, and never beyond them.** It signs in by MCP's OAuth or a scoped token, and what it may do — its preset within its owner's role — is decided afresh on every request, so a demoted owner narrows its agents at once. [Security](../guide/people.md#security).
+- **People sign in with Beacon's own accounts.** Usernames and passwords, argon2id hashes, roles (viewer, on call, operator, owner); there is no other way in and no outside identity provider. [Roles](../guide/people.md#roles).
+- **An agent acts for one person, and never beyond them.** It signs in by MCP's OAuth or a scoped token, and what it may do — its preset within its owner's role — is decided afresh on every request, so a demoted owner narrows its agents at once. [Agents](../guide/people.md#agents).
 - **A machine's token writes only as its own subject**, and an expired machine cannot write; the rule engine's alerts need the rules token. Tokens are stored as SHA-256 hashes, carry scopes and expire, and failed attempts are limited per address.
 - **Every write is on record.** Each change through the API, MCP, a card or the command line lands in the audit log, echoed to the alert chat ([Who the audit log names](../guide/people.md#who-the-audit-log-names)).
 
 ## The SSH channel
 
-The channel's promise is that an agent reaches a machine without ever holding a key: it signs in to Beacon with its own key, machines trust only Beacon's certificate authority, and every connection gets a certificate valid for five minutes that names the account on the machine. Only the machines an agent may reach are connected to; when access ends, what it has open closes, checked again every minute; each machine's host key is pinned; every session is recorded, with a replay. [What the channel guarantees, and what it does not](../guide/machines.md#what-the-channel-guarantees-and-what-it-does-not).
+The channel's promise is that an agent reaches a machine without ever holding a key: it signs in to Beacon with its own key, machines trust only Beacon's certificate authority, and every connection gets a certificate valid for five minutes that names the account on the machine. Only the machines an agent may reach are connected to; when access ends, what it has open closes, checked again every minute; each machine's host key is pinned; every session is recorded, with a replay. [Give agents a machine](../guide/machines.md) sets it up.
 
-Equally deliberate is what it does not do: it reviews no command and runs nothing on its own — deciding what to run is the agent's job, done by its own harness — and it passes on no agent forwarding, no X11, no remote port forwarding for agents. The brakes are the pause switch ([Pausing](../guide/machines.md#pausing)) and each machine's access. Beacon calls no model, anywhere.
+Equally deliberate is what it does not do: it reviews no command and runs nothing on its own — deciding what to run is the agent's job, done by its own harness — and it passes on no agent forwarding, no X11, no remote port forwarding for agents. The brakes are the pause switch ([Pause the whole channel](../guide/stop.md#pause-the-whole-channel)) and each machine's access. Beacon calls no model, anywhere.
 
 ## Text from outside Beacon
 
-Much of the evidence an alert carries is text set by probes, rule engines, the probed services and CI — any of it could hold instructions meant for an agent. Beacon cleans it (terminal escapes, control and invisible characters removed, long strings cut), checks values that go into queries, and marks the fields it carries in an `untrusted` object, with a note to read them as data. The [on-call prompt](../integrations/on-call-prompt.md) tells the agent the same. [Untrusted text](../guide/on-call.md#untrusted-text) has the whole of it.
+Much of the evidence an alert carries is text set by probes, rule engines, the probed services and CI — any of it could hold instructions meant for an agent. Beacon cleans it (terminal escapes, control and invisible characters removed, long strings cut), checks values that go into queries, and marks the fields it carries in an `untrusted` object, with a note to read them as data. The [on-call prompt](../integrations/on-call-prompt.md) tells the agent the same. Such fields appear in [the evidence](../guide/on-call.md#the-evidence) and in [a hook's payload](../reference/webhooks.md#the-payload).
 
 ## What the operator carries
 

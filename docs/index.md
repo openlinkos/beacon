@@ -57,6 +57,17 @@ Sign Claude Code or Codex in through the browser with MCP's OAuth, point any MCP
   { name: 'Feishu', href: '/integrations/feishu' },
 ]" />
 
+## The documentation {#docs}
+
+| Section | What is in it |
+| --- | --- |
+| [Getting started](/guide/) | What Beacon is, a ten-minute trial on your laptop, and how the parts fit together |
+| [Using Beacon](/guide/using-beacon) | A page for each task: monitoring and alerts, agents on call, machines and the SSH channel, the team and permissions |
+| [Integrations](/integrations/) | Claude Code, Codex, Cursor and other agent clients; webhooks, GitHub Actions, change events and Feishu |
+| [Self-hosting](/self-hosting/) | Installing on a server, probe locations, configuration, upgrades, backups and security |
+| [Reference](/reference/) | Every route, tool, command, configuration key and scope |
+| [About](/about/) | The goals, the architecture and the changelog |
+
 ## Self-hosted, and open source {#self-hosted}
 
 <OlBand>

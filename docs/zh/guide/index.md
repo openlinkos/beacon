@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b506902e
+sourceHash: sha256-ac7d8219
 ---
 
 # Beacon 是什么
@@ -31,14 +31,19 @@ Beacon 为管理服务器的 AI Agent 提供自托管的监控和 SSH 接入。�
 
 ## 三种运行形态 {#three-ways-to-run-it}
 
-| 形态 | 用途 | 方式 |
-| --- | --- | --- |
-| [在本机试一试](quickstart.md) | 十分钟看完整闭环 | 一个 compose 文件启动 Beacon、VictoriaMetrics、vmalert、一个检测点和一台可弄坏再修好的演示机器；不要域名、不要证书，地址是 `http://localhost:17001` |
-| [装在服务器上](../self-hosting/install.md) | 正式使用 | `deploy/install.sh` 在一台机器上（2 核 4 GB 足够）启动 Beacon、VictoriaMetrics、vmalert 和 Caddy，两个域名指向它 |
-| [检测点和机器](../self-hosting/probes.md) | 扩展 | 一个不到 20 MB 的 `beacon-probe` 装在靠近你用户的任何小机器上；机器登记一次，直连到达，在 NAT 后面就走连接器 |
+先[在本机试一试](quickstart.md)：一个 compose 文件，十分钟跑完整个闭环，不要域名、不要证书。正式使用时，[装在服务器上](../self-hosting/install.md)，两个域名指向它；2 核 4 GB 足够。然后在靠近用户的地方加[检测点](../self-hosting/probes.md)，再加上 Agent 要干活的机器。三种形态的比较见[部署形态](../self-hosting/index.md)。
 
 ## 接下来 {#where-to-go-next}
 
-- [在本机试一试](quickstart.md)：十分钟走完整个闭环，从服务弄坏到修好。
-- [Beacon 如何工作](concepts.md)：一张图、一套术语，以及告警和 Agent 各自走过的路。
-- [让 Agent 值班](on-call.md)：正式接上钩子、证据、备注和按需重测。
+入门就是本页和另外两页，按顺序读最好：
+
+1. [在本机试一试](quickstart.md)：十分钟走完整个闭环，从服务弄坏到修好。
+2. [Beacon 如何工作](concepts.md)：一张图、一套术语，以及告警和 Agent 各自走过的路。
+
+之后按你要做的事去找：
+
+- [使用 Beacon](using-beacon.md)：每件事一页，分为监控与告警、Agent 值班、机器与 SSH 通道、团队与权限。
+- [接入](../integrations/index.md)：各种 Agent 客户端，以及告警前后的钩子、变更事件和聊天。
+- [自托管](../self-hosting/index.md)：把 Beacon 装到服务器上，并让它一直跑下去。
+- [参考](../reference/index.md)：每个接口、工具、命令、配置项和作用域。
+- [关于](../about/index.md)：目标、架构和更新日志。

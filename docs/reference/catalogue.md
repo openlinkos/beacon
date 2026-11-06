@@ -1,6 +1,6 @@
 # The catalogue
 
-What Beacon watches is held in its database and changed through the API, MCP and the command line; the files are for import and export, and for the first start, in the layout deployments have always had in `/etc/beacon` ([What is checked, and from where](../guide/monitoring.md)). This page is the shapes of those files and the checks every one of them passes, whatever it comes through; the API and MCP take and return the same shapes, as JSON. A change that would not pass is refused with `config.invalid` and the reason, and nothing changes.
+What Beacon watches is held in its database and changed through the API, MCP and the command line; the files are for import and export, and for the first start, in the layout deployments have always had in `/etc/beacon` ([Monitor a service](../guide/monitoring.md)). This page is the shapes of those files and the checks every one of them passes, whatever it comes through; the API and MCP take and return the same shapes, as JSON. A change that would not pass is refused with `config.invalid` and the reason, and nothing changes.
 
 | Files | Hold | Configuration keys |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ heartbeats:
 | `description` | string | Free text |
 | `machine` | string | Optional; a machine's name, lower-case letters, digits and dashes. A put (API, MCP) refuses a machine the SSH channel does not have, unless the heartbeat named it already; an import and a revert take one, with a warning |
 
-How a job reports success, and how the heartbeat becomes something an agent can act on, is in [What is checked, and from where](../guide/monitoring.md#heartbeats).
+How a job reports success, and how the heartbeat becomes something an agent can act on, is in [Heartbeats and expiring resources](../guide/heartbeats.md).
 
 ## Resources
 

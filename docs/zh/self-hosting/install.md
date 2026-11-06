@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9210ae12
+sourceHash: sha256-5807bfa6
 ---
 
 # 装在服务器上
@@ -126,7 +126,7 @@ docker exec beacon beacon enroll probe edge-2 > edge-2.token
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
 ```
 
-导入会让这些文件成为全部配置：通过 API 或 MCP 改过、而文件里没有的内容会被删掉，所以要先预演。两种修改配置的方式以及怎样让它们保持一致，见[检测什么，从哪里检测](../guide/monitoring.md)；检测点放在哪里、机器需要什么、安装不顺利时怎么办，见[检测点位置](probes.md)。
+导入会让这些文件成为全部配置：通过 API 或 MCP 改过、而文件里没有的内容会被删掉，所以要先预演。两种修改配置的方式以及怎样让它们保持一致，见[检测一个服务](../guide/monitoring.md)；检测点放在哪里、机器需要什么、安装不顺利时怎么办，见[检测点位置](probes.md)。
 
 **看看数据到了没有。** VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`（在工作站上用 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开）。`probe_success` 每个检测点、每个目标各有一条序列，成功为 1。`https://status.example.com/` 上的公开页面现在也显示出各组件的状态了。随附的检测目标有三个：Beacon 自己的状态域名、演练服务（第 5 步）和 `https://example.com/`；把最后一个换成你自己的服务，改的是 `/opt/beacon/targets/all-web.yaml`，改完再导入一次。
 
@@ -168,7 +168,7 @@ docker exec beacon beacon setup
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-Agent 能做的事不会超出你的角色，它在机器上执行的每条命令都有记录、可以回放。角色、Codex、邀请成员和无界面 Agent 的令牌，见[成员和 Agent](../guide/people.md)。
+Agent 能做的事不会超出你的角色，它在机器上执行的每条命令都有记录、可以回放。角色和邀请成员，见[邀请你的团队](../guide/people.md)；Codex、其他客户端和用令牌的无头 Agent，见[接入](../integrations/index.md)。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
@@ -177,7 +177,7 @@ Agent 能做的事不会超出你的角色，它在机器上执行的每条命�
 ## 接下来 {#what-next}
 
 - [配置飞书应用](../integrations/feishu.md)，让告警以卡片送达成员。每个密钥放进 `/opt/beacon/secrets/` 下的一个文件，`/opt/beacon/config.yaml` 里的 `feishu:` 段取消注释，`sudo ./install.sh` 加 `docker compose restart beacon` 让它生效（[配置](configuration.md)）。
-- [让 Agent 值班](../guide/on-call.md)，新告警自动叫醒 Agent，不用等人去问。
+- [让 Agent 值班](../guide/on-call.md)，新告警自动叫醒 Agent，不用等人去问；其余每件事按能力分在[使用 Beacon](../guide/using-beacon.md)里。
 - [升级](upgrade.md)、[备份与恢复](backup.md)和[安全模型](security.md)让它一直跑下去。
 - 上面某一步没有按预期发生时，见[常见问题](troubleshooting.md)。
 - [目标](../about/goals.md)：Beacon 为什么而做，以及它不做什么。

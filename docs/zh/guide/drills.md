@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-195ef0b4
+sourceHash: sha256-5aedff91
 ---
 
 # 演练一次故障
 
 读完这一页，你已经在不动任何真实服务的前提下，完整看过一遍值班循环：检测点看到故障，规则触发，卡片送达，你的 Agent 读取证据、登上机器、让人复测修复、留下备注，告警按检测点其后看到的结果恢复。演练的用处，是在一切还正常的时候就发现某部手机收不到通知、某个钩子配错了——而不是在凌晨三点。
 
-你需要：Beacon 已经运行、至少两个检测点在汇报（单个检测点的话永远不会算中断）；一个已接入的 Agent（[让 Agent 值班](on-call.md)）；想看卡片的话，还要配好聊天渠道（[飞书](../integrations/feishu.md)）。从零开始：[三十分钟上线](../self-hosting/install.md)第 1 到 4 步，或[在本机试一试](quickstart.md)在一台机器上跑完整循环。命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
+你需要：Beacon 已经运行、至少两个检测点在汇报（单个检测点的话永远不会算中断）；一个已接入的 Agent（[让 Agent 值班](on-call.md)）；想看卡片的话，还要配好聊天渠道（[飞书](../integrations/feishu.md)）。从零开始：[装在服务器上](../self-hosting/install.md)第 1 到 4 步，或[在本机试一试](quickstart.md)在一台机器上跑完整循环。命令在中心上执行，参考部署里是 `docker exec beacon beacon …`。
 
 ## 演练服务 {#the-drill-service}
 

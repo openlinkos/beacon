@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-274b8e6d
+sourceHash: sha256-02f8535b
 ---
 
 # 数据来源
@@ -53,7 +53,7 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 ## 变更事件 {#change-events}
 
-部署和配置变更以变更事件的形式送到 Beacon，这样告警的证据就能说出之前刚改了什么。CI 任务或脚本把 Beacon 自己的 JSON 事件发到 `POST /api/v1/changes`；Flux 的 notification-controller 经一个类型为 `generic` 的 Provider 把它的事件发到 `POST /api/v1/changes/flux`。两者都需要 `changes:write` 令牌，每分钟最多 60 个事件。字段和 Flux 的配置见[变更事件](../guide/on-call.md#change-events)。变更事件从不叫醒任何人。
+部署和配置变更以变更事件的形式送到 Beacon，这样告警的证据就能说出之前刚改了什么。CI 任务或脚本把 Beacon 自己的 JSON 事件发到 `POST /api/v1/changes`；Flux 的 notification-controller 经一个类型为 `generic` 的 Provider 把它的事件发到 `POST /api/v1/changes/flux`。两者都需要 `changes:write` 令牌，每分钟最多 60 个事件。字段和 Flux 的配置见[部署与 Flux](../integrations/change-events.md)。变更事件从不叫醒任何人。
 
 ## 告警群 {#the-chat}
 
@@ -61,4 +61,4 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 ## 人和 Agent {#people-and-agents}
 
-备注、认领、静默、配置修改和机器上的会话，经 REST API、MCP 和 SSH 通道进来，每次都带着操作者自己的令牌。每次写操作都记审计，并回显到告警群。见 [REST API](api.md)、[MCP 工具](mcp.md)和 [SSH 通道](../guide/machines.md)。
+备注、认领、静默、配置修改和机器上的会话，经 REST API、MCP 和 SSH 通道进来，每次都带着操作者自己的令牌。每次写操作都记审计，并回显到告警群。见 [REST API](api.md)、[MCP 工具](mcp.md)和[给 Agent 一台机器](../guide/machines.md)。

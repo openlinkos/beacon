@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-21d5f5b6
+sourceHash: sha256-2e2cd235
 ---
 
 # 常见问题
@@ -41,7 +41,7 @@ vmui 里这个检测点没有 `probe_success` 序列，控制台总览里它算�
 | 日志里看到 | 原因 | 怎么办 |
 | --- | --- | --- |
 | `401`、`auth.invalid` | 令牌文件不是 `beacon enroll probe` 打印的那个，或者已经被 `-rotate` 换掉 | 用 `-rotate` 重新登记，再用新令牌运行 `probe/install.sh -token-file FILE` |
-| `403`、`location.inactive`、`location edge-2 is not in the catalogue` | 目录里没有这个检测点的 id，或者导入的文件里没有它，它被删掉了 | 把它加进目录再导入，或者通过 API 添加（见[检测什么，从哪里检测](../guide/monitoring.md)） |
+| `403`、`location.inactive`、`location edge-2 is not in the catalogue` | 目录里没有这个检测点的 id，或者导入的文件里没有它，它被删掉了 | 把它加进目录再导入，或者通过 API 添加（见[检测一个服务](../guide/monitoring.md)） |
 | `403`、`the machine of location edge-2 has expired` | 有一个和检测点同名、类型为 `vps` 的资源，日期已经过了 | 给这个资源续一个新日期 |
 | `cannot fetch from the gateway; using the cached copy` 加连接错误 | 这台机器连不上 `metrics.example.com` 的 443 端口（或网关自己的端口） | 检查 DNS、防火墙，以及 `/etc/beacon-probe/agent.env` 里的地址 |
 
@@ -119,7 +119,7 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 
 API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求重新登录。
 
-- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了；也可能是 Agent 被删除了，或者它的所有者被停用了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间，Agent 页面上能看到它的各个凭据。在 Agent 页面上点**新令牌**新建一个（独立令牌用 `beacon token create`），并让 Agent 能自己续期（见[自动续期的令牌](../guide/on-call.md#tokens-that-renew-themselves)）。
+- **`auth.invalid`，`the token is unknown or has expired`。** 令牌过期了、被吊销了，或者输错了；也可能是 Agent 被删除了，或者它的所有者被停用了。`beacon token list` 能看到每个令牌的到期时间和上次续期时间，Agent 页面上能看到它的各个凭据。在 Agent 页面上点**新令牌**新建一个（独立令牌用 `beacon token create`），并让 Agent 能自己续期（见[自动续期的令牌](../integrations/headless.md#tokens-that-renew-themselves)）。
 - **OAuth 客户端要求重新登录。** 它的登录被吊销了，或者授权页面上允许的期限到了：从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的。** 像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥，而旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
 - **`auth.scope`。** 接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](../reference/api.md#scopes)）。
@@ -182,4 +182,4 @@ API 或 MCP 返回 401 或 403，或者 MCP 客户端说连不上，或者要求
 
 ### 修改被拒绝：config.conflict 或 config.invalid {#a-change-is-refused-with-configconflict-or-configinvalid}
 
-`config.conflict`（409）：这次修改基于一个旧版本（`if_version`），而现在生效的是更新的版本；或者要撤销的修改所涉及的条目，后来又被别的修改动过。重新读一遍（`GET /api/v1/config`、`get_config`），再重新决定。`config.invalid`（422）：这次修改通不过校验，提示会写明哪一条，配置没有任何改变。常见的一种：只要还有目标集以某个检测点命名，这个检测点就不能删除。规则详见[检测什么，从哪里检测](../guide/monitoring.md)。
+`config.conflict`（409）：这次修改基于一个旧版本（`if_version`），而现在生效的是更新的版本；或者要撤销的修改所涉及的条目，后来又被别的修改动过。重新读一遍（`GET /api/v1/config`、`get_config`），再重新决定。`config.invalid`（422）：这次修改通不过校验，提示会写明哪一条，配置没有任何改变。常见的一种：只要还有目标集以某个检测点命名，这个检测点就不能删除。规则详见[检测一个服务](../guide/monitoring.md)。

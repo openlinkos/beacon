@@ -110,4 +110,4 @@ The containers, the volumes (Beacon's database, the metrics, the recordings) and
 
 - Put Beacon on a server, with TLS and a real probe location: [On a server](../self-hosting/install.md).
 - Have alerts wake the agent by themselves, and see what it may and may not do on a machine: [Put an agent on call](on-call.md) and [Give agents a machine](machines.md).
-- More clients — Codex, Cursor, headless agents: [Integrations](../integrations/mcp-clients.md).
+- More clients — Codex, Cursor, headless agents: [Integrations](../integrations/index.md).

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-69cf9221
+sourceHash: sha256-9d75353d
 ---
 
 # MCP 工具
@@ -10,7 +10,7 @@ sourceHash: sha256-69cf9221
 
 ## 接入 {#connecting}
 
-Claude Code 和 Codex 通过浏览器、用 MCP 的 OAuth 登录：添加 Beacon 时不带令牌，从客户端登录，再在 Beacon 的授权页面上把它允许为你的一个 Agent（[接入 Claude Code](../guide/people.md#connect-claude-code)）。在 Claude Code 里：
+Claude Code 和 Codex 通过浏览器、用 MCP 的 OAuth 登录：添加 Beacon 时不带令牌，从客户端登录，再在 Beacon 的授权页面上把它允许为你的一个 Agent（[Claude Code](../integrations/claude-code.md)）。在 Claude Code 里：
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
@@ -70,7 +70,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 ## 配置 {#configuration}
 
-Beacon 监控的内容，按文件里的格式读写（[检测什么，从哪里检测](../guide/monitoring.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../guide/status-pages.md)）；`key` 指定其中一项。
+Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../guide/monitoring.md)）。`kind` 是 `locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（[状态页](../guide/status-pages.md)）；`key` 指定其中一项。
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
