@@ -14,7 +14,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
 | `listen` | address | `:17001` | Where the console, the API and MCP answer, behind the TLS proxy |
-| `data_dir` | path | `/var/lib/beacon` | The bbolt state (alert groups, tokens, accounts, the configuration) and, beside it, the session recordings. The admin socket the CLI talks to lives here; `BEACON_DATA_DIR` names another directory for the CLI alone |
+| `data_dir` | path | `/var/lib/beacon` | The database (`beacon.db`, unless `storage.path` puts it elsewhere: alert groups, tokens, accounts, the configuration, the audit log) and, beside it, the session recordings. The admin socket the CLI talks to lives here; `BEACON_DATA_DIR` names another directory for the CLI alone |
 | `catalog_dir` | path | `/etc/beacon/catalog` | The catalogue files (probe locations, heartbeats, expiring resources, status pages), imported into the database at the first start and on SIGHUP |
 | `public_url` | URL | — | Beacon's own address, behind the proxy: the links it hands out (the console, one-time links) and the issuer MCP clients sign in with. Agents' hooks need it |
 | `trusted_proxies` | list of addresses or CIDR ranges | — | The proxy in front, as the service sees it, so the API knows real client addresses |

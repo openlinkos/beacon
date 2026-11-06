@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -500,4 +501,43 @@ func TestSQLiteBusyTimeout(t *testing.T) {
 	if ms != 3000 {
 		t.Errorf("busy_timeout: %d, want 3000", ms)
 	}
+}
+
+// TestSQLiteOwnerOnly: the database and its side files are the owner's alone, as the bbolt file
+// was, whether SQLite creates the database or an earlier version left it wider.
+func TestSQLiteOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix permission bits on Windows")
+	}
+	dir := t.TempDir()
+	check := func(path string) {
+		t.Helper()
+		db, err := OpenSQLite(SQLiteOptions{Path: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if err := db.Update(func(tx Tx) error { return tx.Put([]byte("b"), []byte("k"), []byte("v")) }); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{path, path + "-wal", path + "-shm"} {
+			fi, err := os.Stat(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode := fi.Mode().Perm(); mode != 0o600 {
+				t.Errorf("%s: mode %o, want 600", filepath.Base(p), mode)
+			}
+		}
+	}
+	check(filepath.Join(dir, "new.db"))
+
+	old := filepath.Join(dir, "old.db")
+	check(old)
+	for _, p := range []string{old, old + "-wal", old + "-shm"} {
+		if err := os.Chmod(p, 0o644); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	check(old)
 }

@@ -94,6 +94,16 @@ func (s *Service) Def(name string) (catalog.StatusPage, bool) {
 	return s.catalog().StatusPage(name)
 }
 
+// Pages are the definitions of every page, sorted by name.
+func (s *Service) Pages() []catalog.StatusPage {
+	if s == nil || s.d.Config == nil {
+		return nil
+	}
+	ps := slices.Clone(s.catalog().StatusPages)
+	slices.SortFunc(ps, func(a, b catalog.StatusPage) int { return strings.Compare(a.Name, b.Name) })
+	return ps
+}
+
 // ByHost returns the definition of the page served at host.
 func (s *Service) ByHost(host string) (catalog.StatusPage, bool) {
 	if s == nil || s.d.Config == nil {

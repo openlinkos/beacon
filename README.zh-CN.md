@@ -113,7 +113,7 @@ Agent ──▶ MCP 和 REST（证据、备注、probe_now）──▶ beacon
 Agent ──▶ ssh、scp、rsync（17002 端口）──▶ SSH 通道 ──▶ 你的服务器（五分钟证书，每次会话都录像）
 ```
 
-一个服务 `beacon` 包括给机器用的网关、告警路由、通往人和 Agent 的桥、API 和 MCP、控制台和状态页，以及 SSH 通道；状态存在一个 bbolt 文件里，会话录像放在旁边。指标和规则交给 VictoriaMetrics 和 vmalert。各部分见[架构](docs/zh/about/architecture.md)。
+一个服务 `beacon` 包括给机器用的网关、告警路由、通往人和 Agent 的桥、API 和 MCP、控制台和状态页，以及 SSH 通道；状态存在一个 SQLite 数据库里，会话录像放在旁边。指标和规则交给 VictoriaMetrics 和 vmalert。各部分见[架构](docs/zh/about/architecture.md)。
 
 ## 安全
 

@@ -109,6 +109,10 @@ func OpenSQLite(o SQLiteOptions) (*SQLite, error) {
 	if s.lock, err = lockSidecar(o.Path); err != nil {
 		return nil, err
 	}
+	if err := ownerOnly(o.Path); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	// the writer: one connection, BEGIN IMMEDIATE, WAL and synchronous FULL
 	if s.write, err = sql.Open("sqlite", dsn(
 		[2]string{"_txlock", "immediate"},
@@ -145,6 +149,36 @@ func lockSidecar(path string) (*os.File, error) {
 		return nil, fmt.Errorf("%w: %s", ErrLocked, path+".lock")
 	}
 	return f, nil
+}
+
+// ownerOnly makes the database readable by its owner alone, as the bbolt file was: it holds
+// token and password hashes and the audit log's signing key. SQLite creates a database with the
+// process's umask (0644 under the usual 022) and gives its -wal and -shm files the database's
+// mode, so the database is created 0600 before SQLite opens it, and a database (or side file)
+// made by an earlier version with a wider mode is narrowed.
+func ownerOnly(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the operator names the path
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, err := os.Stat(p)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if fi.Mode().Perm()&0o077 != 0 {
+			if err := os.Chmod(p, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func busyMS(d time.Duration) string { return fmt.Sprintf("%d", d.Milliseconds()) }

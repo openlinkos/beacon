@@ -1016,5 +1016,15 @@ func (s *Store) Time(key string) time.Time {
 	return t
 }
 
+// SwapString stores v under key and returns what was there before ("" for nothing).
+func (s *Store) SwapString(key, v string) (string, error) {
+	var old string
+	err := s.db.Update(func(tx kv.Tx) error {
+		old = string(tx.Get(bucketMeta, []byte("s:"+key)))
+		return tx.Put(bucketMeta, []byte("s:"+key), []byte(v))
+	})
+	return old, err
+}
+
 // bytesClone keeps a key a Range walk handed out, for use after the walk.
 func bytesClone(b []byte) []byte { return append([]byte(nil), b...) }

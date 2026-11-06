@@ -30,7 +30,8 @@ func (e *statusEnv) signedInCookie() map[string]string {
 }
 
 func TestRootIsTheDefaultStatusPage(t *testing.T) {
-	e := newStatusEnv(t)
+	// a page without a host name of its own is at Beacon's root
+	e := newStatusEnvWith(t, strings.Replace(statusCatalogue, "    host: uptime.example.com\n", "", 1))
 	root, def := e.get("/"), e.get("/status")
 	// the same page, whose language links stay where the reader is
 	here := strings.NewReplacer(`href="/status"`, `href="/"`, `href="/status?lang=`, `href="/?lang=`).Replace(def.body)
@@ -50,6 +51,35 @@ func TestRootIsTheDefaultStatusPage(t *testing.T) {
 	}
 	if zh := e.get("/?lang=zh"); !strings.Contains(zh.body, "Example Status ZH") {
 		t.Error("/ takes ?lang= as the page does")
+	}
+}
+
+// TestRootWithThePageOnItsOwnHost: a default page with a host name of its own lives there; Beacon's
+// own host is the console's, and its root is the landing page that leads to the page and into the
+// console. The page is still under /status, its canonical address on its own host.
+func TestRootWithThePageOnItsOwnHost(t *testing.T) {
+	e := newStatusEnv(t)
+	a := e.get("/")
+	if a.code != http.StatusOK {
+		t.Fatalf("/: %d", a.code)
+	}
+	for _, want := range []string{
+		`<h1 class="ol-hero-title" id="hero-title">Beacon</h1>`,
+		`<a class="ol-btn ol-btn-primary ol-btn-lg" href="/console">`,
+		`<a class="ol-btn ol-btn-secondary ol-btn-lg bc-landing-page" href="https://uptime.example.com/">Example Status</a>`,
+	} {
+		if !strings.Contains(a.body, want) {
+			t.Errorf("Beacon's root lacks %s", want)
+		}
+	}
+	if strings.Contains(a.body, "Pull through the mirror") {
+		t.Error("Beacon's root shows the page that has a host of its own")
+	}
+	if p := e.get("/status/public"); p.code != http.StatusOK || !strings.Contains(p.body, `<link rel="canonical" href="https://uptime.example.com/">`) {
+		t.Errorf("/status/public: %d", p.code)
+	}
+	if h := e.do(http.MethodGet, "uptime.example.com", "/", nil); h.code != http.StatusOK || !strings.Contains(h.body, "Pull through the mirror") {
+		t.Errorf("the page on its own host: %d", h.code)
 	}
 }
 

@@ -27,7 +27,7 @@ status_pages:
     title: Example Status            # a text is one string, or one per language: {en: …, zh: …}
     description: Whether Example's public services work, from where their users are.
     default: true                    # the page at / and /status (else the first by name)
-    host: uptime.example.com         # optional: served at / on this host name too
+    host: uptime.example.com         # optional: served at / on this host name (and no longer at Beacon's /)
     brand: beacon                    # the design system's brand it wears
     languages: [en, zh]              # the first is the default; en when left out
     components:
@@ -102,7 +102,7 @@ A window lasts at most 7 days and starts within 90; a start in the past is now, 
 
 ## A host of its own
 
-A page with `host` is also served at `/` on that host name, with its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP, so the page has no **Sign in** there. In the reference deployment, uncomment the block at the end of `deploy/Caddyfile`, with your name in place of `uptime.example.com`, and restart Caddy so that it reads the file again (`docker compose restart caddy`, in `/opt/beacon`); Caddy gets the name's certificate as for the other hosts, and Beacon serves the page by the request's `Host` header, so the proxy must not rewrite it:
+A page with `host` is also served at `/` on that host name, with its JSON at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`. Nothing else of Beacon answers on that host: not the console, the API or MCP, so the page has no **Sign in** there. The page then lives on its host: when it is the default page, Beacon's own root is no longer the page but the landing page, which leads to each status page Beacon serves and into the console, so Beacon's host name is the console's and the page's host name is the page's. The page stays under `/status/<name>` on Beacon's host as well, naming its own host as its canonical address, and its JSON, feed and badges keep answering there for links already given out. In the reference deployment, uncomment the block at the end of `deploy/Caddyfile`, with your name in place of `uptime.example.com`, and restart Caddy so that it reads the file again (`docker compose restart caddy`, in `/opt/beacon`); Caddy gets the name's certificate as for the other hosts, and Beacon serves the page by the request's `Host` header, so the proxy must not rewrite it:
 
 ```
 uptime.example.com {

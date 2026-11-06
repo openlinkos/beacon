@@ -476,7 +476,13 @@ func serve(args []string, stderr io.Writer) int {
 	if sec.HealthchecksBridgeURL != "" {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
-	single(func(lctx context.Context) { br.Run(lctx, ping) })
+	single(func(lctx context.Context) {
+		// the primary records the version it runs, so that a standby on a new version taking over is a change too
+		if err := br.RecordStart(lctx, version.Version); err != nil {
+			log.Warn("cannot record this version's start as a change event", "err", err)
+		}
+		br.Run(lctx, ping)
+	})
 	go pagesOut.Run(ctx)
 	single(func(lctx context.Context) {
 		cdb.Reload()
@@ -515,6 +521,7 @@ func serve(args []string, stderr io.Writer) int {
 		for _, p := range []string{"/v1/setup", "/v1/users", "/v1/users/", "/v1/agents", "/v1/agents/", "/v1/claims"} {
 			socket.Handle(p, people)
 		}
+		socket.Handle("/v1/drill", ctl.DrillHandler(st, br.RecordDrill))
 		socket.Handle("/", ctl.Handler(st, active, machines))
 		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()

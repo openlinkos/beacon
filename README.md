@@ -113,7 +113,7 @@ agents ──▶ MCP and REST (evidence, notes, probe_now) ──▶ beacon
 agents ──▶ ssh, scp, rsync (port 17002) ──▶ SSH channel ──▶ your servers (5-minute certificates, every session recorded)
 ```
 
-One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one bbolt file, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
+One service, `beacon`, holds the gateway for machines, the alert router, the bridge to people and agents, the API and MCP, the console and status pages, and the SSH channel; its state is one SQLite database, with the session recordings beside it. Metrics and rules stay in VictoriaMetrics and vmalert. [Architecture](docs/about/architecture.md) has the parts.
 
 ## Security
 

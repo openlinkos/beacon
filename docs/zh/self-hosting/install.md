@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a33f8102
+sourceHash: sha256-bd233833
 ---
 
 # 装在服务器上
@@ -53,7 +53,7 @@ sudo ./install.sh
 ```
 configuration OK: Feishu app false, Pushover false, Bark false; gateway ":17006"; SSH channel :17002; 0 agent hooks
 files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 5 modules, 1 status pages
-database: none yet at /var/lib/beacon/status.db; the service imports the files when it first starts
+database: none yet at /var/lib/beacon/beacon.db; the service imports the files when it first starts
 Waiting for the containers to be healthy …
 
 Beacon is up (69s); made the secrets: rules-token ssh-host-key ssh-ca-key.
@@ -97,7 +97,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 大约 10 秒后，最后输出：
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.15 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon 0.3.0-rc.18 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 

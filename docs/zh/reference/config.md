@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b8b9144a
+sourceHash: sha256-532572f3
 ---
 
 # config.yaml
@@ -18,7 +18,7 @@ sourceHash: sha256-b8b9144a
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
 | `listen` | 地址 | `:17001` | 控制台、API 与 MCP 在 TLS 代理后面应答的地址 |
-| `data_dir` | 路径 | `/var/lib/beacon` | bbolt 状态（告警组、令牌、成员、配置），会话录像在它旁边。CLI 用的管理套接字也在这里；`BEACON_DATA_DIR` 只为 CLI 指定别的目录 |
+| `data_dir` | 路径 | `/var/lib/beacon` | 数据库（`beacon.db`，除非 `storage.path` 放到别处：告警组、令牌、成员、配置、审计日志），会话录像在它旁边。CLI 用的管理套接字也在这里；`BEACON_DATA_DIR` 只为 CLI 指定别的目录 |
 | `catalog_dir` | 路径 | `/etc/beacon/catalog` | 目录文件（检测点、心跳、到期资源、状态页），首次启动和 SIGHUP 时导入数据库 |
 | `public_url` | URL | — | Beacon 自己的地址，在代理后面：它发出去的链接（控制台、一次性链接）和 MCP 客户端登录用的 issuer。Agent 的 hook 也需要它 |
 | `trusted_proxies` | 地址或 CIDR 段列表 | — | 前面的反向代理（服务眼中的地址），让 API 看到真实客户端地址 |
