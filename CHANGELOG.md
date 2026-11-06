@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Recordings of commands replay line by line.** A session without a terminal (a command run with the tools, `run_command` and the file tools, or with `ssh host command`) sends lines ending in a bare `\n`, and the replay drew them as a staircase, each line starting where the one above ended. The recording is now served as a terminal would have shown it, with `\r\n` in its output events, to the console's player and to `GET /api/v1/sessions/{id}/recording` alike; the file and the transcript keep the bytes as they were sent. A session's record says whether it had a terminal (`pty`); of the sessions recorded before, an interactive shell is taken to have had one and a command not.
+
 ## 0.3.0
 
 ### rc.20 (2026-11-06)

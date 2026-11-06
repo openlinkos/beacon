@@ -356,6 +356,13 @@ func TestExec(t *testing.T) {
 	if last := lines[len(lines)-1]; !strings.Contains(last, `"x","3"`) {
 		t.Errorf("last event %q, want the exit status", last)
 	}
+	// without a terminal the lines end in a bare \n; the player gets them as a terminal shows them
+	if !strings.Contains(string(b), `"hello\r\n"`) || strings.Contains(string(b), `"hello\n"`) {
+		t.Errorf("the recording's lines are not as a terminal shows them: %s", b)
+	}
+	if r.PTY == nil || *r.PTY {
+		t.Errorf("the record says the session had a terminal: %v", r.PTY)
+	}
 	e.tg.mu.Lock()
 	ids := strings.Join(e.tg.keyIDs, ";")
 	e.tg.mu.Unlock()

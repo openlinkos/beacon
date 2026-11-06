@@ -87,7 +87,7 @@ Either way, with the same credentials:
 - **Its own ssh.** `list_machines` returns an `ssh_config` block and a `known_hosts` line for the agent's own `ssh`, `scp`, `sftp` and `rsync`, with `ssh -L` port forwarding: how to put them in place is in [Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 - **Beacon's tools.** `run_command`, `read_file`, `write_file` and `edit_file` take the names and behaviour of an agent's own tools; `list_machines` lists the machines and whether the agent reaches each. Every parameter is in [MCP tools](../reference/mcp.md); each tool call is a session of its own, recorded like any other.
 
-Every session is recorded, a command, a shell, a transfer, a forwarded port and each tool call: the recording (asciicast v3, under `data_dir/recordings/`) replays on the session's page in the console, the transcript holds each shell command with its exit status, and the alert chat hears one line per agent and machine with a **Replay** link. Sessions are kept for `ssh.keep` (180 days), then deleted.
+Every session is recorded, a command, a shell, a transfer, a forwarded port and each tool call: the recording (asciicast v3, under `data_dir/recordings/`) replays on the session's page in the console (a session without a terminal, such as a tool call or `ssh host command`, sends lines ending in a bare `\n`, and the replay shows them as a terminal would, with `\r\n`; the file and the transcript keep what was sent), the transcript holds each shell command with its exit status, and the alert chat hears one line per agent and machine with a **Replay** link. Sessions are kept for `ssh.keep` (180 days), then deleted.
 
 ## Pause, or stop one agent
 

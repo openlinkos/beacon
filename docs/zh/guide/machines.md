@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d18215ce
+sourceHash: sha256-d548969b
 ---
 
 # 给 Agent 一台机器
@@ -91,7 +91,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 - **用它自己的 ssh。** `list_machines` 会给出一段 `ssh_config` 和一行 `known_hosts`，供 Agent 自己的 `ssh`、`scp`、`sftp`、`rsync` 以及 `ssh -L` 端口转发使用：怎样放到位，见[接入 Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
 - **用 Beacon 的工具。** `run_command`、`read_file`、`write_file` 和 `edit_file` 的名字和用法都照着 Agent 自己的工具来；`list_machines` 列出机器和 Agent 能否连每台。每个参数见 [MCP 工具](../reference/mcp.md)；每次工具调用都单独算一次会话，和其他会话一样录下来。
 
-每一次会话都有记录：一条命令、一个交互 shell、一次文件传输、一个转发端口，以及每次工具调用。录像（asciicast v3，存于 `data_dir/recordings/`）在控制台的会话页面回放，文字记录里是 shell 的每条命令及其退出状态，告警群里每个 Agent 在每台机器上一条消息，附 **Replay** 链接。会话保留 `ssh.keep`（180 天），之后删除。
+每一次会话都有记录：一条命令、一个交互 shell、一次文件传输、一个转发端口，以及每次工具调用。录像（asciicast v3，存于 `data_dir/recordings/`）在控制台的会话页面回放（没有终端的会话，例如工具调用或 `ssh 主机 命令`，送来的行以单独的 `\n` 结尾，回放时按终端的显示方式换成 `\r\n`；文件和文字记录保留原样），文字记录里是 shell 的每条命令及其退出状态，告警群里每个 Agent 在每台机器上一条消息，附 **Replay** 链接。会话保留 `ssh.keep`（180 天），之后删除。
 
 ## 暂停，或停下某一个 Agent {#pause-or-stop-one-agent}
 
