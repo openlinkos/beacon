@@ -68,6 +68,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("That name is taken; choose another.")
 	case "not_found":
 		return s.t("There is no such thing, or no longer.")
+	case "window_over":
+		return s.t("That maintenance window has ended already.")
 	case "bad_agent":
 		return s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
 	case "key_taken":

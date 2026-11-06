@@ -432,7 +432,7 @@ func audited(st *store.Store, actor, action string) bool {
 // consolePages are every page of the console, with what each must show of the test's data.
 func (e *env) consolePages() map[string][]string {
 	return map[string][]string{
-		"/console":                         {"Firing alerts", "Probe locations", "1 of 2", "Agents woken today", "Sessions today", "v0.3.0-test", "git.example.com is down"},
+		"/console":                         {"Needs attention", "Firing alerts", "Probe locations", "1 of 2", "Agents woken today", "Agent sessions today", "Latest sessions", "v0.3.0-test", "git.example.com is down"},
 		"/console/alerts":                  {"git.example.com is down &lt;script&gt;", "Firing", "Critical", "git-example-com", `ol-facet`},
 		"/console/alerts?severity=warning": {"Nothing matches."},
 		link.AlertPath(e.id):               {"git.example.com is down &lt;script&gt;", "restarting the relay &lt;script&gt;", "Timeline", "relay 1.2.3 &lt;script&gt;"},
@@ -450,6 +450,7 @@ func (e *env) consolePages() map[string][]string {
 		"/console/changes":                 {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
 		"/console/monitors":                {"No service is probed", "Heartbeats", "Resources"},
 		"/console/status-pages":            {"No status pages"},
+		"/console/silences":                {"Maintenance windows", "No maintenance is planned.", "Nothing is silenced."},
 	}
 }
 
@@ -579,7 +580,7 @@ func TestOverviewFigures(t *testing.T) {
 	for _, want := range []string{
 		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
 		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
-		`href="/console/hooks"`, "1 woken, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		`href="/console/hooks"`, "1 woken by alerts, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
 		if !strings.Contains(page, want) {

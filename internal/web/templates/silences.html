@@ -1,0 +1,34 @@
+{{define "content"}}<div class="ol-stack">
+{{if .Unread}}<div class="ol-alert ol-alert-warning">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Unread}}</p></div></div>{{end}}
+<section class="ol-section" id="maintenance">
+  <div class="ol-section-header"><div><h2 class="ol-section-title">{{.L.Windows}}</h2><p class="ol-section-description">{{.L.WindowsHint}}</p></div></div>
+  {{if .Windows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Title}}</th><th>{{.L.Status}}</th><th>{{.L.Services}}</th><th>{{.L.Starts}}</th><th>{{.L.Ends}}</th><th>{{.L.By}}</th><th></th></tr></thead>
+    <tbody>{{range .Windows}}<tr>
+      <td><span class="ol-cell-title">{{.Title}}</span>{{if .Description}}<span class="ol-cell-sub">{{.Description}}</span>{{end}}</td>
+      <td data-label="{{$.L.Status}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Status}}</span></td>
+      <td data-label="{{$.L.Services}}"><span class="ol-mono ol-break">{{.Services}}</span></td>
+      <td data-label="{{$.L.Starts}}">{{.Starts}}</td>
+      <td data-label="{{$.L.Ends}}">{{.Ends}}</td>
+      <td data-label="{{$.L.By}}"><span class="ol-cell-title">{{.By}}</span><span class="ol-cell-sub">{{.Via}}</span></td>
+      <td class="ol-actions">{{if .End}}<form method="post" action="{{.End}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "x"}}{{.EndLabel}}<span class="ol-sr-only"> {{.Title}}</span></button></form>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}{{template "empty" .L.NoWindows}}{{end}}
+</section>
+
+<section class="ol-section" id="silences">
+  <div class="ol-section-header"><div><h2 class="ol-section-title">{{.L.Silences}}</h2><p class="ol-section-description">{{.L.SilencesHint}}</p></div></div>
+  {{if .Silences}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Matches}}</th><th>{{.L.State}}</th><th>{{.L.Comment}}</th><th>{{.L.Starts}}</th><th>{{.L.Ends}}</th><th>{{.L.By}}</th><th></th></tr></thead>
+    <tbody>{{range .Silences}}<tr>
+      <td><code class="ol-cell-title ol-mono ol-break">{{.Matches}}</code>{{if .Alert}}<a class="ol-cell-sub" href="{{.AlertHref}}">{{.Alert}}</a>{{end}}</td>
+      <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span>{{if .Left}}<span class="ol-cell-sub">{{.Left}}</span>{{end}}</td>
+      <td data-label="{{$.L.Comment}}" class="ol-cell-wrap">{{.Comment}}</td>
+      <td data-label="{{$.L.Starts}}">{{.Starts}}</td>
+      <td data-label="{{$.L.Ends}}">{{.Ends}}</td>
+      <td data-label="{{$.L.By}}">{{.By}}</td>
+      <td class="ol-actions">{{if .End}}<form method="post" action="{{.End}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "x"}}{{$.L.End}}<span class="ol-sr-only"> {{.Matches}}</span></button></form>{{else if .Window}}<span class="ol-hint">{{.Window}}</span>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}{{template "empty" .L.NoSilences}}{{end}}
+</section>
+</div>{{end}}

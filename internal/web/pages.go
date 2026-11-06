@@ -23,7 +23,7 @@ type labels struct {
 	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
-	SessionsOn                                                                                                               string
+	SessionsOn, EndSilence                                                                                                   string
 }
 
 func (s *Server) labels() labels {
@@ -40,7 +40,7 @@ func (s *Server) labels() labels {
 		Details: s.t("Details"), Status: s.t("Status"), Severity: s.t("Severity"), Kind: s.t("Kind"), Ended: s.t("Ended"),
 		ID: s.t("Id"), Time: s.t("Time"), What: s.t("What happened"), Acknowledge: s.t("Acknowledge"), AckNote: s.t("A note for the others (optional)"),
 		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
-		SessionsOn: s.t("Sessions on the alert's machines"),
+		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
 	}
 }
 
@@ -227,6 +227,7 @@ type changeRow struct {
 type alertActions struct {
 	CSRF, Ack, Silence, Note string // where the forms post; "" leaves a form out
 	Durations                []kv   // the silence's choices: value, label
+	Unsilence, Back          string // where the form that ends the group's silence posts, and the page to come back to
 }
 
 type alertPage struct {
@@ -342,17 +343,20 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	}
 	if s.SSH != nil {
 		if t := s.SSH.PausedSince(); !t.IsZero() {
-			p.Channel, p.Paused = s.t("Agents' access to machines is paused since %s", s.clock(t)), true
+			p.Channel, p.Paused = s.t("Agents paused since %s", s.short(t)), true
 		} else {
-			p.Channel = s.t("Agents reach machines through the SSH channel")
+			p.Channel = s.t("Agents reach machines")
 		}
 	}
 	if v := a.Viewer; v != nil && v.has("alerts:write") {
 		base := link.AlertPath(al.ID)
 		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
+		if g.Silence != nil && now.Before(g.Silence.Until) {
+			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", base
+		}
 		if al.Status == "firing" {
 			p.Actions.Silence = base + "/silence"
-			p.Actions.Durations = []kv{{"1h", s.t("Silence for 1 hour")}, {"4h", s.t("Silence for 4 hours")}, {"24h", s.t("Silence for 24 hours")}}
+			p.Actions.Durations = []kv{{"1h", s.t("1 hour")}, {"4h", s.t("4 hours")}, {"24h", s.t("24 hours")}}
 			if ev.Done.Ack == nil {
 				p.Actions.Ack = base + "/ack"
 			}
