@@ -69,6 +69,8 @@ func (s *session) start(kind, command string) {
 	}
 	s.started = true
 	s.rec.Kind, s.rec.Command = kind, command
+	pty := s.pty
+	s.rec.PTY = &pty
 	day := s.rec.Started.Format("2006/01/02")
 	cols, rows := s.cols, s.rows
 	if cols <= 0 || rows <= 0 {

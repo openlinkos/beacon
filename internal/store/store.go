@@ -808,6 +808,8 @@ type SessionRecord struct {
 	BytesIn   int64     `json:"bytes_in"`
 	BytesOut  int64     `json:"bytes_out"`
 	Recording string    `json:"recording,omitempty"`
+	// PTY says whether the session had a terminal; nil on sessions recorded before Beacon kept it.
+	PTY *bool `json:"pty,omitempty"`
 }
 
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.

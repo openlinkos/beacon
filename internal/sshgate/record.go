@@ -1,6 +1,7 @@
 package sshgate
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -263,4 +264,63 @@ func clean(s string) string {
 		lines[i] = l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// replayable is a recording of a session without a terminal as a terminal would have shown it. Such a
+// session's lines end in a bare \n, which a terminal takes as "down one line" without going back to the
+// line's start, so a player draws them as a staircase; a terminal's tty turns them into \r\n (onlcr)
+// before they are shown, and so does this, in the output events only. The file keeps what was sent, as
+// the transcript does.
+func replayable(rc io.ReadCloser) io.ReadCloser {
+	return &crlfReader{src: bufio.NewReader(rc), c: rc}
+}
+
+type crlfReader struct {
+	src *bufio.Reader
+	c   io.Closer
+	buf []byte
+	cr  bool // the last output byte was \r
+	err error
+}
+
+func (r *crlfReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		if r.err != nil {
+			return 0, r.err
+		}
+		var line []byte
+		line, r.err = r.src.ReadBytes('\n')
+		r.buf = r.event(line)
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+func (r *crlfReader) Close() error { return r.c.Close() }
+
+// event returns one line of the recording with its output's bare \n made \r\n; the header and the
+// other events as they are.
+func (r *crlfReader) event(line []byte) []byte {
+	var ev []json.RawMessage
+	if len(line) == 0 || line[0] != '[' || json.Unmarshal(line, &ev) != nil || len(ev) != 3 {
+		return line
+	}
+	var code, data string
+	if json.Unmarshal(ev[1], &code) != nil || code != "o" || json.Unmarshal(ev[2], &data) != nil {
+		return line
+	}
+	var b strings.Builder
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\n' && !r.cr {
+			b.WriteByte('\r')
+		}
+		b.WriteByte(data[i])
+		r.cr = data[i] == '\r'
+	}
+	if b.Len() == len(data) {
+		return line
+	}
+	out, _ := json.Marshal(b.String())
+	return append(append(append(append(append(append([]byte{'['}, ev[0]...), ','), ev[1]...), ','), out...), ']', '\n')
 }

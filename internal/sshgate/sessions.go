@@ -119,7 +119,20 @@ func (g *Gate) Recording(id string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, id)
 	}
+	if !terminal(r) {
+		return replayable(f), nil
+	}
 	return f, nil
+}
+
+// terminal reports whether a session had a terminal. Sessions recorded before Beacon kept it had one
+// when they were an interactive shell: the tools (commands, files) never ask for one, and an agent's
+// own ssh runs a command without one unless it says -t.
+func terminal(r store.SessionRecord) bool {
+	if r.PTY != nil {
+		return *r.PTY
+	}
+	return r.Kind == "shell"
 }
 
 // Tidy keeps the channel tidy until ctx ends: it forgets sessions older than Keep, with their files, and
