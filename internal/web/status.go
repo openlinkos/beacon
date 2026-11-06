@@ -291,6 +291,7 @@ type statusView struct {
 	LangName                          string
 	Alternates                        []langLink
 	Menu                              *menuView
+	Pages                             []linkView // the landing page's list of the status pages
 	FooterLinks                       []linkView
 	Updated                           string
 	Active                            []incidentView

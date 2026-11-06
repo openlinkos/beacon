@@ -1,11 +1,14 @@
-{{/* The page at / when there is no status page: what this is, and the way into the console. */}}
+{{/* The page at / when no status page is shown there: what this is, the status pages it serves, and the way into the console. */}}
 {{define "content"}}
 <section class="ol-hero bc-landing-hero" aria-labelledby="hero-title">
   <div class="ol-hero-rings" aria-hidden="true">{{.MarkHero}}</div>
   <div class="ol-hero-body">
     <h1 class="ol-hero-title" id="hero-title">{{.Name}}</h1>
     <p class="ol-hero-lead">{{.Description}}</p>
-    {{with .SignIn}}<div class="ol-hero-actions"><a class="ol-btn ol-btn-primary ol-btn-lg" href="{{.URL}}">{{icon "log-in"}}{{.Title}}</a></div>{{end}}
+    {{if or .SignIn .Pages}}<div class="ol-hero-actions">
+      {{- with .SignIn}}<a class="ol-btn ol-btn-primary ol-btn-lg" href="{{.URL}}">{{icon "log-in"}}{{.Title}}</a>{{end}}
+      {{- range .Pages}}<a class="ol-btn ol-btn-secondary ol-btn-lg bc-landing-page" href="{{.URL}}">{{.Title}}</a>{{end}}
+    </div>{{end}}
   </div>
 </section>
 {{end}}

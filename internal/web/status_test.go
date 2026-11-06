@@ -102,6 +102,12 @@ type statusEnv struct {
 
 func newStatusEnv(t *testing.T) *statusEnv {
 	t.Helper()
+	return newStatusEnvWith(t, statusCatalogue)
+}
+
+// newStatusEnvWith is newStatusEnv on another catalogue.
+func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
+	t.Helper()
 	e := &statusEnv{t: t, now: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)}
 	now := func() time.Time { return e.now }
 	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
@@ -112,7 +118,7 @@ func newStatusEnv(t *testing.T) *statusEnv {
 	e.st = st
 	cdb := configdb.Open(configdb.Deps{Store: st, Lang: i18n.EN, Now: now})
 	if _, err := cdb.Import(context.Background(), configdb.Actor{Name: "test", Via: "cli"},
-		configdb.Files{"catalog/catalog.yaml": statusCatalogue, "targets/all-web.yaml": statusTargets}, "", false); err != nil {
+		configdb.Files{"catalog/catalog.yaml": catalogue, "targets/all-web.yaml": statusTargets}, "", false); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Language: "en", Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),

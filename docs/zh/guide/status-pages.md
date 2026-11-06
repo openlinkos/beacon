@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f1efcc69
+sourceHash: sha256-0cd4953f
 ---
 
 # 发布状态页
@@ -31,7 +31,7 @@ status_pages:
     title: Example Status            # 文本可以是一个字符串，也可以按语言各给一个：{en: …, zh: …}
     description: Whether Example's public services work, from where their users are.
     default: true                    # 在 / 和 /status 上的那一页（否则按名字排第一的）
-    host: uptime.example.com         # 可选：该域名下的 / 也提供这页
+    host: uptime.example.com         # 可选：在该域名的 / 上提供这页（Beacon 自己的 / 就不再是它）
     brand: beacon                    # 页面采用的家族品牌
     languages: [en, zh]              # 第一个是默认语言；不写是英文
     components:
@@ -106,7 +106,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 ## 独立域名 {#a-host-of-its-own}
 
-带 `host` 的页面还在该域名的 `/` 上提供，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg`。Beacon 的其他一切都不在这个域名上应答：控制台、API、MCP 都不是，所以页面上没有**登录**。参考部署里，把 `deploy/Caddyfile` 末尾那段注释打开，`uptime.example.com` 换成你的域名，再让 Caddy 重读配置（`docker compose restart caddy`，在 `/opt/beacon` 下）；Caddy 会像其他域名一样自动取得证书，Beacon 按请求的 `Host` 头决定提供哪一页，所以反向代理不能改写它：
+带 `host` 的页面还在该域名的 `/` 上提供，JSON 在 `/status.json`，订阅在 `/feed.atom`，徽章在 `/badge.svg`。Beacon 的其他一切都不在这个域名上应答：控制台、API、MCP 都不是，所以页面上没有**登录**。这一页从此住在它自己的域名上：它是默认页时，Beacon 自己的根路径不再是它，而是落地页，通往 Beacon 提供的每一个状态页和控制台；于是 Beacon 的域名归控制台，页面的域名归页面。在 Beacon 的域名上，`/status/<name>` 照样能打开这一页，页面声明的规范地址是它自己的域名；它的 JSON、订阅和徽章在那里也照常应答，已经发出去的链接不会失效。参考部署里，把 `deploy/Caddyfile` 末尾那段注释打开，`uptime.example.com` 换成你的域名，再让 Caddy 重读配置（`docker compose restart caddy`，在 `/opt/beacon` 下）；Caddy 会像其他域名一样自动取得证书，Beacon 按请求的 `Host` 头决定提供哪一页，所以反向代理不能改写它：
 
 ```
 uptime.example.com {

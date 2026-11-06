@@ -8,8 +8,9 @@ import (
 )
 
 // The site's root, and the console's old paths. / is public: the default status page, as /status
-// serves it, or without one a page that names the deployment, says what Beacon is and offers the
-// console's sign-in. The console was at the root until 0.3.0; its old paths send people on to
+// serves it, unless that page has a host name of its own (it lives there, and Beacon's own host is
+// then the console's); otherwise a page that names the deployment, says what Beacon is, lists the
+// status pages it serves and offers the console's sign-in. The console was at the root until 0.3.0; its old paths send people on to
 // /console, and the links handed out until then (signed for /alerts/{id} and /sessions/{id}) keep
 // working until they expire.
 
@@ -18,7 +19,7 @@ var landingTmpl = parseStatus("landing.html")
 // home is the site's root.
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if s.Status != nil {
-		if _, ok := s.Status.Def(""); ok {
+		if def, ok := s.Status.Def(""); ok && def.Host == "" {
 			s.statusPage(w, r, "", false)
 			return
 		}
@@ -26,7 +27,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	s.landing(w, r)
 }
 
-// landing is the page at / without a status page, on the family's site design as the status pages are.
+// landing is the page at / without a status page there, on the family's site design as the status pages are.
 func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 	l := s.Lang
 	name := s.Branding.Name()
@@ -35,6 +36,9 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 	v.Mark, v.MarkHero = marks(v.Brand)
 	v.SignIn, v.private = s.consoleLink(r, l, false)
 	v.Powered = s.poweredBy(l)
+	for _, p := range s.Status.Pages() {
+		v.Pages = append(v.Pages, linkView{Title: p.Title.In(string(l)), URL: s.Status.URL(p, "")})
+	}
 	s.renderPublic(w, r, landingTmpl, v)
 }
 
