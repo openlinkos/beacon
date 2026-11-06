@@ -14,7 +14,7 @@ Beacon has a service of its own to rehearse on: `/drill/healthz` answers 200 unt
 docker exec beacon beacon drill fail 15m
 ```
 
-You will see `drill until …: /drill/healthz answers 503`; `beacon drill status` says where it stands, and `beacon drill off` ends it. What happens, with two locations:
+You will see `drill until …: /drill/healthz answers 503`; `beacon drill status` says where it stands, and `beacon drill off` ends it. Both are change events, so the alert's evidence says a drill is running and when it ends by itself: an agent working it cannot end it, but can check after that time with `probe_now`. What happens, with two locations:
 
 1. **Within a minute** both locations see 503, and `probe_success{service="drill"}` is 0 for each.
 2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires 1 minute later**, about 4 to 5 minutes after the command. It appears in `GET /api/v1/alerts` and in the MCP's `list_alerts`.

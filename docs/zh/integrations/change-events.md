@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-765c2722
+sourceHash: sha256-2f9b83a1
 ---
 
 # 部署与 Flux
@@ -29,6 +29,8 @@ docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 
 | `time` | RFC 3339；默认为当前时间；最多比现在晚一小时，也不能早于变更的保留期限 |
 
 不认识的字段会被拒绝，拼错了不会悄悄被忽略。Beacon 会把令牌的名字和每个变更一起记下。
+
+Beacon 自己也记两类变更，来源都是 `beacon`：启动时的版本与上次运行的不同，记一条 `deploy`；[演练](../guide/drills.md)开始（摘要写明它到点自己结束的时间）或被提前结束，记一条 `drill`，服务是 `drill`。
 
 ## Flux {#flux}
 

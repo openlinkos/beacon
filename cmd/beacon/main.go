@@ -405,6 +405,9 @@ func serve(args []string, stderr io.Writer) int {
 	if sec.HealthchecksBridgeURL != "" {
 		ping = func(ctx context.Context, ok bool) error { return notify.Ping(ctx, nil, sec.HealthchecksBridgeURL, ok) }
 	}
+	if err := br.RecordStart(ctx, version.Version); err != nil {
+		log.Warn("cannot record this version's start as a change event", "err", err)
+	}
 	go br.Run(ctx, ping)
 	go pagesOut.Run(ctx)
 	rt.Restore(st.Groups())
@@ -438,6 +441,7 @@ func serve(args []string, stderr io.Writer) int {
 		for _, p := range []string{"/v1/setup", "/v1/users", "/v1/users/", "/v1/agents", "/v1/agents/", "/v1/claims"} {
 			socket.Handle(p, people)
 		}
+		socket.Handle("/v1/drill", ctl.DrillHandler(st, br.RecordDrill))
 		socket.Handle("/", ctl.Handler(st, active, machines))
 		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
 		go func() { _ = cs.Serve(ln) }()

@@ -26,6 +26,8 @@ docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 
 
 Unknown fields are refused, so a typo does not go unnoticed. Beacon keeps the token's name with each change.
 
+Beacon records two kinds of its own, with the source `beacon`: `deploy` when it starts on a version other than the one it last ran, and `drill` when a [drill](../guide/drills.md) starts (its summary says when it ends by itself) or is ended early, on the service `drill`.
+
 ## Flux
 
 Flux's notification-controller posts its events to a Provider of type `generic`. Point one at `/api/v1/changes/flux`, with the token in a header:
