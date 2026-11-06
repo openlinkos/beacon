@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0cd4953f
+sourceHash: sha256-aae56804
 ---
 
 # 发布状态页
@@ -67,7 +67,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 
 组件由若干服务的检测目标支撑。`services` 按目标的 `service` 标签点名——那是每个目标都有的标签（[目标](monitoring.md#targets)）；`page` 按另一个标签点名：`page: mirrors` 的组件由所有带 `page: mirrors` 标签的目标所在的服务支撑，这样往目标里加一个镜像，页面就多一个镜像。带 `visibility: internal` 标签的目标永远不会经 `page` 支撑组件。组件点名的服务一个目标都没有时，这个组件照样被接受，但带一条警告（在改动的 `warnings` 里，`check-config` 也会给出），例如 `status page "public": component "website" names service "www.example.com", which no probe target has; it shows no data until one does`——目标常常在页面之后才加上。
 
-每段文本（`title`、`description`、分组的或链接的 `title`）可以是一个字符串，也可以按语言各给一个：`{en: Status, zh: …}`。两种语言的页面在页头有语言菜单，页面和链接接受 `?lang=zh`。`menu` 给页面配上家族其他站点那种页头家族菜单，也是页脚的各栏。页面的每一个字段都在目录参考里：[目录](../reference/catalogue.md)。
+每段文本（`title`、`description`、分组的或链接的 `title`）可以是一个字符串，也可以按语言各给一个：`{en: Status, zh: …}`。两种语言的页面在页头有语言菜单，页面和链接接受 `?lang=zh`。不带 `?lang=` 时，读者看到的是浏览器要的语言（`Accept-Language`）里页面有的第一个；浏览器两种都没要时（搜索引擎通常如此）是页面的第一个语言。JSON、订阅源和徽章是给程序读的，除非 `?lang=` 另有指定，都用第一个语言。`menu` 给页面配上家族其他站点那种页头家族菜单，也是页脚的各栏。页面的每一个字段都在目录参考里：[目录](../reference/catalogue.md)。
 
 ## 页面说什么，依据是什么 {#what-the-page-says-and-why}
 

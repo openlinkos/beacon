@@ -10,7 +10,7 @@
 {{if .Canonical}}<link rel="canonical" href="{{.Canonical}}">
 {{end}}{{if .Feed}}<link rel="alternate" type="application/atom+xml" title="{{.Name}}" href="{{.Feed}}">
 <link rel="alternate" type="application/json" href="{{.JSON}}">
-{{end}}{{range .Langs}}<link rel="alternate" hreflang="{{.HrefLang}}" href="{{.Href}}">
+{{end}}{{range .Alternates}}<link rel="alternate" hreflang="{{.HrefLang}}" href="{{.Href}}">
 {{end}}<link rel="stylesheet" href="/static/ol/ui.css?v={{.Version}}">
 <link rel="stylesheet" href="/static/status.css?v={{.Version}}">
 </head>

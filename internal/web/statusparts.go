@@ -187,7 +187,7 @@ func (s *Server) statusFeed(w http.ResponseWriter, r *http.Request, name string,
 		statusNotFound(w)
 		return
 	}
-	v := s.statusView(r, p, def, onHost)
+	v := s.statusView(r, p, def, def.Langs()[0], onHost) // a feed is the same for every reader
 	updated := time.Time{}
 	pageURL := absolute(r, p.URL)
 	f := atomFeed{Lang: v.Lang, ID: pageURL, Title: p.Title, Author: atomAuthor{Name: p.Title},
