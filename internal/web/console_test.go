@@ -448,6 +448,8 @@ func (e *env) consolePages() map[string][]string {
 		"/console/agents":                  {"Connect Claude Code or Codex", "claude mcp add --transport http beacon https://beacon.example.com/mcp"},
 		"/console/audit":                   {"add_note", "claude-code", "console_sign_in"},
 		"/console/changes":                 {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
+		"/console/monitors":                {"No service is probed", "Heartbeats", "Resources"},
+		"/console/status-pages":            {"No status pages"},
 	}
 }
 

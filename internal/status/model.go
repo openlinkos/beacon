@@ -1,6 +1,9 @@
 package status
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // The states a component, a day or a page is in, as the JSON names them.
 const (
@@ -123,6 +126,9 @@ type Links struct {
 	Abuse   string `json:"abuse,omitempty"`
 	Privacy string `json:"privacy,omitempty"`
 }
+
+// Services are the services the component's state is made from, as the configuration in force names them.
+func (c Component) Services() []string { return slices.Clone(c.services) }
 
 // Incident returns the page's incident with id, as far back as the history reaches.
 func (p *Page) Incident(id string) (Incident, bool) {

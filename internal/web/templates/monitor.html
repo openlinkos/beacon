@@ -1,0 +1,60 @@
+{{define "content"}}<div class="ol-layout-supporting">
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "activity"}} {{.LL.Probes}}</h2></div>
+      {{if .Probes}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <thead><tr><th>{{.LL.Location}}</th><th>{{.LL.Result}}</th><th>{{.LL.Reason}}</th><th>{{.LL.Instance}}</th></tr></thead>
+        <tbody>
+        {{range .Probes}}<tr>
+          <td><span class="ol-cell-title">{{.Location}}</span></td>
+          <td data-label="{{$.LL.Result}}"><span class="ol-badge ol-badge-{{if .OK}}success{{else}}danger{{end}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}</td>
+          <td data-label="{{$.LL.Reason}}">{{.Reason}}{{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}</td>
+          <td data-label="{{$.LL.Instance}}"><span class="ol-mono ol-break">{{.Instance}}</span>{{if .Module}}<span class="ol-cell-sub">{{.Module}}</span>{{end}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{end}}
+      <div class="ol-panel-body">
+        {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
+        {{if .Problem}}<p class="ol-hint ol-mono">{{.Problem}}</p>{{end}}
+        <p class="ol-hint">{{.L.Window}}</p>
+      </div>
+    </section>
+
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Alerts}}</h2></div>
+      {{if .Alerts}}
+      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+        <tbody>
+        {{range .Alerts}}<tr>
+          <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a></td>
+          <td><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span> <span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
+          <td class="ol-num">{{.Since}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table></div>
+      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+    </section>
+  </div>
+
+  <div class="ol-stack">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "route"}} {{.L.Targets}}</h2></div>
+      <ul class="ol-list">
+      {{range .Targets}}<li>
+        <span class="ol-list-row"><span class="ol-list-title ol-mono ol-break">{{.Target}}</span></span>
+        <span class="ol-list-meta"><span>{{.Module}}</span><span>{{$.L.Set}}: {{.Set}} ({{.ProbedBy}})</span><span>{{.Severity}}</span>{{if .Domain}}<span>{{$.L.Domain}}: {{.Domain}}</span>{{end}}{{if .Visibility}}<span>{{$.L.Visibility}}: {{.Visibility}}</span>{{end}}</span>
+      </li>{{end}}
+      </ul>
+    </section>
+
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "link"}} {{.L.OnPages}}</h2></div>
+      <div class="ol-panel-body">
+      {{if .Pages}}<ul class="ol-list">{{range .Pages}}<li><a href="{{.Href}}">{{.Label}}</a></li>{{end}}</ul>
+      {{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+      </div>
+    </section>
+  </div>
+</div>{{end}}

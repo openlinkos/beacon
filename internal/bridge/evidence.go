@@ -377,8 +377,19 @@ func keyOf(l map[string]string) probeKey {
 }
 
 func (b *Bridge) probeEvidence(ctx context.Context, g *store.Group, w Window) ProbeEvidence {
-	pe := ProbeEvidence{Services: []string{}, Failing: []string{}, Results: []ProbeResult{}}
 	svcs := b.groupServices(g)
+	if len(svcs) == 0 {
+		return ProbeEvidence{Services: []string{}, Failing: []string{}, Results: []ProbeResult{},
+			Error: "the alert has no service label, so no probes belong to it"}
+	}
+	return b.Probes(ctx, svcs, w, maxResults)
+}
+
+// Probes is what the probes of the services svcs saw over w, as the evidence has it: one result per
+// location, target and module (naming the service when there are several), failing first, at most
+// limit of them (Truncated says when there were more).
+func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int) ProbeEvidence {
+	pe := ProbeEvidence{Services: []string{}, Failing: []string{}, Results: []ProbeResult{}}
 	for _, s := range svcs {
 		pe.Services = append(pe.Services, cleanLine(s))
 	}
@@ -386,7 +397,7 @@ func (b *Bridge) probeEvidence(ctx context.Context, g *store.Group, w Window) Pr
 	sel, safe := serviceSelector(svcs)
 	switch {
 	case len(svcs) == 0:
-		pe.Error = "the alert has no service label, so no probes belong to it"
+		pe.Error = "no service was asked for"
 		return pe
 	case !safe:
 		pe.Error = "the service name cannot be put into a query safely"
@@ -487,8 +498,8 @@ func (b *Bridge) probeEvidence(ctx context.Context, g *store.Group, w Window) Pr
 		}
 		return a.Service+"\x00"+a.Location+"\x00"+a.Instance+"\x00"+a.Module < c.Service+"\x00"+c.Location+"\x00"+c.Instance+"\x00"+c.Module
 	})
-	if len(pe.Results) > maxResults {
-		pe.Results, pe.Truncated = pe.Results[:maxResults], true
+	if len(pe.Results) > limit {
+		pe.Results, pe.Truncated = pe.Results[:limit], true
 	}
 	pe.Locations = len(locations)
 	pe.Failing = slices.Sorted(maps.Keys(failing))

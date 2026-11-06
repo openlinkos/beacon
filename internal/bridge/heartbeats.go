@@ -115,6 +115,15 @@ func (b *Bridge) heartbeats(ctx context.Context, g *store.Group, w Window) []Hea
 	return out
 }
 
+// LastSuccess reads when each of the heartbeats called names last succeeded, as VictoriaMetrics knows
+// it now (within 31 days); the error, if the query failed, is said in a line.
+func (b *Bridge) LastSuccess(ctx context.Context, names []string) (map[string]time.Time, string) {
+	if len(names) == 0 {
+		return map[string]time.Time{}, ""
+	}
+	return b.lastSuccess(ctx, names, b.d.Now())
+}
+
 // lastSuccess reads when each of the heartbeats called names last succeeded, as of at; the error, if
 // the query failed, is said in a line.
 func (b *Bridge) lastSuccess(ctx context.Context, names []string, at time.Time) (map[string]time.Time, string) {
