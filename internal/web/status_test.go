@@ -55,12 +55,20 @@ const statusTargets = `- targets: [https://docker.example.com/v2/]
   labels: {module: http_head, service: api.example.com}
 `
 
+// probeTarget is the target of each service of statusTargets.
+var probeTarget = map[string]string{"docker.example.com": "https://docker.example.com/v2/", "api.example.com": "https://api.example.com/healthz"}
+
 // fakeVictoria answers /api/v1/query_range as VictoriaMetrics would the pages' agreement query: every
 // service it names operational at every minute, except api.example.com, down in the last ten minutes.
 func fakeVictoria(t *testing.T, now func() time.Time) *httptest.Server {
 	t.Helper()
 	re := regexp.MustCompile(`service=~?"([^"]*)"`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/query" { // the instant queries of the probes' details: nothing more to say
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+			return
+		}
 		if r.URL.Path != "/api/v1/query_range" {
 			http.NotFound(w, r)
 			return
@@ -71,6 +79,25 @@ func fakeVictoria(t *testing.T, now func() time.Time) *httptest.Server {
 		step, _ := strconv.ParseFloat(q.Get("step"), 64)
 		m := re.FindStringSubmatch(q.Get("query"))
 		var result []map[string]any
+		if strings.HasPrefix(q.Get("query"), "probe_success{") { // each location's probes, as the console reads them
+			for _, svc := range strings.Split(m[1], "|") {
+				svc = strings.ReplaceAll(svc, `\\`, "")
+				for _, loc := range []string{"edge-1", "edge-2"} {
+					var values [][2]any
+					for ts := start; ts <= end; ts += step {
+						v := "1"
+						if svc == "api.example.com" && time.Unix(int64(ts), 0).After(now().Add(-10*time.Minute)) {
+							v = "0"
+						}
+						values = append(values, [2]any{ts, v})
+					}
+					result = append(result, map[string]any{"metric": map[string]string{"service": svc, "location": loc, "instance": probeTarget[svc],
+						"module": "http_head", "job": "probe"}, "values": values})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": result}})
+			return
+		}
 		for _, svc := range strings.Split(m[1], "|") {
 			svc = strings.ReplaceAll(svc, `\\`, "")
 			var values [][2]any
@@ -83,7 +110,6 @@ func fakeVictoria(t *testing.T, now func() time.Time) *httptest.Server {
 			}
 			result = append(result, map[string]any{"metric": map[string]string{"service": svc}, "values": values})
 		}
-		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": result}})
 	}))
 	t.Cleanup(srv.Close)
@@ -124,7 +150,8 @@ func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
 	cfg := &config.Config{Language: "en", Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),
 		Feishu: config.Feishu{MonthlyBudget: 1000}, OnCallByID: map[string]config.OnCaller{},
 		Escalation: map[string]config.Policy{"critical": {Channel: "webhook"}}}
-	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: &fakeBot{}, Now: now})
+	vmSrv := fakeVictoria(t, now)
+	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: &fakeBot{}, VM: vm.New(vmSrv.URL, nil), Now: now})
 	key := `{}:{alertname="ServiceDown",service="api.example.com"}`
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: key, Status: "firing",
 		GroupLabels:  map[string]string{"alertname": "ServiceDown", "service": "api.example.com"},
@@ -137,7 +164,6 @@ func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
 	if _, err := e.b.AddNote(context.Background(), e.incident, bridge.Actor{Name: "claude-oncall", Via: "mcp"}, "public: Fixing it "+hostile); err != nil {
 		t.Fatal(err)
 	}
-	vmSrv := fakeVictoria(t, now)
 	pages := status.New(status.Deps{Config: cdb, Bridge: e.b, Store: st, VM: vm.New(vmSrv.URL, nil), PublicURL: publicURL, Location: time.UTC, Now: now})
 	e.srv = &Server{Bridge: e.b, Store: st, Config: cdb, Lang: i18n.EN, Location: time.UTC, Now: now, Version: "test", Status: pages,
 		Auth: nil}

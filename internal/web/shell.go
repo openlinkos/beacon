@@ -151,6 +151,8 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 		{Items: []navItem{
 			{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"},
 			{Key: "alerts", Label: s.t("Alerts"), Href: consolePath("/alerts"), Icon: "triangle-alert", Count: count(firing)},
+			{Key: "monitors", Label: s.t("Monitors"), Href: consolePath("/monitors"), Icon: "activity"},
+			{Key: "status-pages", Label: s.t("Status pages"), Href: consolePath("/status-pages"), Icon: "globe", Count: count(len(s.Status.Pages()))},
 			{Key: "machines", Label: s.t("Machines"), Href: consolePath("/machines"), Icon: "server", Count: count(machines)},
 			{Key: "sessions", Label: s.t("Sessions"), Href: consolePath("/sessions"), Icon: "terminal"},
 			{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot", Count: count(agents)},

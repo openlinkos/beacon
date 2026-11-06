@@ -290,7 +290,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	if ev.Done.Pushed != nil {
 		p.State = append(p.State, s.t("Pushover alert sent at %s", s.clock(*ev.Done.Pushed)))
 	}
-	p.Probes = s.probes(ev, p.L)
+	p.Probes = s.probes(ev.Probes, ev.Window.From, p.L)
 	if len(p.Probes) == 0 {
 		p.ProbesNote = p.L.NoProbes
 	}
@@ -361,9 +361,10 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	return p
 }
 
-func (s *Server) probes(ev bridge.Evidence, l labels) []probeRow {
+// probes are the rows of what the probes saw over a window that began at from.
+func (s *Server) probes(pe bridge.ProbeEvidence, from time.Time, l labels) []probeRow {
 	var out []probeRow
-	for _, r := range ev.Probes.Results {
+	for _, r := range pe.Results {
 		row := probeRow{Location: r.Location, Service: r.Service, Instance: r.Instance, Module: r.Module, OK: r.OK, Reason: r.Reason}
 		switch {
 		case r.Stale:
@@ -375,7 +376,7 @@ func (s *Server) probes(ev bridge.Evidence, l labels) []probeRow {
 		}
 		switch {
 		case !r.OK && r.FailingBeforeWindow:
-			row.Since = s.t("since before %s", s.clock(ev.Window.From))
+			row.Since = s.t("since before %s", s.clock(from))
 		case !r.OK && r.FailingSince != nil:
 			row.Since = s.t("since %s", s.clock(*r.FailingSince))
 		case r.OK && r.RecoveredAt != nil:

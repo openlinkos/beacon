@@ -1,0 +1,45 @@
+{{define "content"}}<div class="ol-stack">
+<section class="ol-section" id="services">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Services}}</h2></div>
+  {{if .Problem}}<p class="ol-hint ol-mono">{{.Problem}}</p>{{end}}
+  {{if .Rows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Service}}</th><th>{{.L.State}}</th><th>{{.L.Targets}}</th><th>{{.L.Pages}}</th><th>{{.L.Severity}}</th><th>{{.L.Checked}}</th></tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Service}}</a>{{if .Alert}}<a class="ol-cell-sub" href="{{.AlertHref}}">{{.Alert}}</a>{{end}}</td>
+      <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}{{if .Reason}}<span class="ol-cell-sub ol-mono">{{.Reason}}</span>{{end}}</td>
+      <td data-label="{{$.L.Targets}}"><span class="ol-mono ol-break">{{.Target}}</span>{{if .More}}<span class="ol-cell-sub">{{.More}}</span>{{end}}</td>
+      <td data-label="{{$.L.Pages}}">{{range .Pages}}<a class="ol-cell-sub" href="{{.Href}}">{{.Label}}</a>{{end}}</td>
+      <td data-label="{{$.L.Severity}}"><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
+      <td data-label="{{$.L.Checked}}">{{.Checked}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}{{template "empty" .L.NoServices}}{{end}}
+</section>
+
+<section class="ol-section" id="heartbeats">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Heartbeats}}</h2></div>
+  {{if .Heartbeats}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.State}}</th><th>{{.L.LastSuccess}}</th><th>{{.L.MaxAge}}</th><th>{{.L.Machine}}</th><th>{{.L.Description}}</th></tr></thead>
+    <tbody>{{range .Heartbeats}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.Name}}</span><span class="ol-cell-sub">{{.Severity}}</span></td>
+      <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span></td>
+      <td data-label="{{$.L.LastSuccess}}">{{.Last}}</td>
+      <td data-label="{{$.L.MaxAge}}">{{.MaxAge}}</td>
+      <td data-label="{{$.L.Machine}}">{{.Machine}}</td>
+      <td data-label="{{$.L.Description}}" class="ol-cell-wrap">{{.Description}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="resources">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Resources}}</h2></div>
+  {{if .Resources}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Name}}</th><th>{{.L.Kind}}</th><th>{{.L.Expires}}</th><th>{{.L.Note}}</th></tr></thead>
+    <tbody>{{range .Resources}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.Name}}</span></td>
+      <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
+      <td data-label="{{$.L.Expires}}">{{.Expires}}{{if .Left}} <span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Left}}</span>{{end}}</td>
+      <td data-label="{{$.L.Note}}" class="ol-cell-wrap">{{.Note}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+</section>
+</div>{{end}}

@@ -1,0 +1,50 @@
+{{define "content"}}<div class="ol-stack">
+<div class="ol-cluster">
+  <span class="ol-mono ol-break">{{.URL}}</span>
+  <a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Open}}">{{iconSm "link"}}{{.L.Open}}</a>
+  <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.JSON}}">{{.L.JSON}}</a>
+  <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Feed}}">{{.L.Feed}}</a>
+  <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Logo}}">{{.L.Badge}}</a>
+</div>
+
+<section class="ol-section" id="components">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Components}}</h2></div>
+  {{if .Components}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Component}}</th><th>{{.L.State}}</th><th>{{.L.Services}}</th><th class="ol-num">{{.L.Availability}}</th></tr></thead>
+    <tbody>{{range .Components}}<tr>
+      <td><span class="ol-cell-title">{{.Title}}</span><span class="ol-cell-sub">{{if .Group}}{{.Group}} · {{end}}<span class="ol-mono">{{.Name}}</span></span></td>
+      <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span></td>
+      <td data-label="{{$.L.Services}}">{{range .Services}}<a class="ol-cell-sub ol-mono" href="{{.Href}}">{{.Label}}</a>{{else}}{{$.L.None}}{{end}}</td>
+      <td class="ol-num" data-label="{{$.L.Availability}}">{{.Availability}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="incidents">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Incidents}}</h2></div>
+  {{if .Incidents}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Title}}</th><th>{{.L.Status}}</th><th>{{.L.Impact}}</th><th>{{.L.Started}}</th><th>{{.L.Resolved}}</th></tr></thead>
+    <tbody>{{range .Incidents}}<tr>
+      <td>{{if .Href}}<a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="ol-cell-title">{{.Title}}</span>{{end}}</td>
+      <td data-label="{{$.L.Status}}"><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></td>
+      <td data-label="{{$.L.Impact}}"><span class="ol-badge{{if .ImpactTone}} ol-badge-{{.ImpactTone}}{{end}}">{{.Impact}}</span></td>
+      <td data-label="{{$.L.Started}}">{{.Started}}</td>
+      <td data-label="{{$.L.Resolved}}">{{.Resolved}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+</section>
+
+<section class="ol-section" id="maintenance">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Maintenance}}</h2></div>
+  {{if .Maintenance}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Title}}</th><th>{{.L.Status}}</th><th>{{.L.Starts}}</th><th>{{.L.Ends}}</th><th>{{.L.Components}}</th></tr></thead>
+    <tbody>{{range .Maintenance}}<tr>
+      <td><span class="ol-cell-title">{{.Title}}</span></td>
+      <td data-label="{{$.L.Status}}">{{.Status}}</td>
+      <td data-label="{{$.L.Starts}}">{{.Starts}}</td>
+      <td data-label="{{$.L.Ends}}">{{.Ends}}</td>
+      <td data-label="{{$.L.Components}}">{{.Components}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
+</section>
+</div>{{end}}

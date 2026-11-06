@@ -1,0 +1,18 @@
+{{define "content"}}<div class="ol-stack">
+{{if .Rows}}
+<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+  <thead><tr><th>{{.L.Page}}</th><th>{{.L.State}}</th><th>{{.L.Address}}</th><th class="ol-num">{{.L.Components}}</th><th class="ol-num">{{.L.Incidents}}</th><th class="ol-num">{{.L.Maintenance}}</th><th>{{.L.Languages}}</th></tr></thead>
+  <tbody>
+  {{range .Rows}}<tr>
+    <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a><span class="ol-cell-sub ol-mono">{{.Name}}</span></td>
+    <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span></td>
+    <td data-label="{{$.L.Address}}"><span class="ol-mono ol-break">{{.URL}}</span></td>
+    <td class="ol-num" data-label="{{$.L.Components}}">{{.Components}}</td>
+    <td class="ol-num" data-label="{{$.L.Incidents}}">{{.Incidents}}</td>
+    <td class="ol-num" data-label="{{$.L.Maintenance}}">{{.Maintenance}}</td>
+    <td data-label="{{$.L.Languages}}">{{.Languages}}</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{else}}{{template "empty" .L.NoPages}}{{end}}
+</div>{{end}}
