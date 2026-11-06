@@ -40,4 +40,4 @@ A probe location opens no ports. A machine agents work on needs its SSH port rea
 - [On a server](install.md): the centre, the first probe locations and the first machine, in about 12 minutes.
 - [Probe locations](probes.md): where to put them and how to install them.
 - [Configuration](configuration.md): `config.yaml`, the secret files, and how changes reach a running Beacon.
-- [Upgrades](upgrade.md), [Backup and restore](backup.md), [Security model](security.md) and [Troubleshooting](troubleshooting.md), each one page.
+- [Upgrades](upgrade.md), [Run on PostgreSQL](postgres.md), [Backup and restore](backup.md), [Security model](security.md) and [Troubleshooting](troubleshooting.md), each one page.

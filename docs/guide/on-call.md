@@ -2,17 +2,11 @@
 
 With a hook in place, a service that breaks wakes the agent you choose: it reads the evidence in one call, works the machines through the SSH channel, has every probe location check its fix, and leaves a note people read on the card and in the console. Beacon calls no model and asks nobody for approval; the harness that runs the agent decides what it does, and everything the agent does is on record.
 
-You need Beacon running ([Up in 30 minutes](../self-hosting/install.md), steps 1 to 4), an agent connected over MCP ([Claude Code](../integrations/claude-code.md), [Codex](../integrations/codex.md) or [a token](../integrations/headless.md)), and an address the hook can reach: a server running `beacon-oncall`, a receiver of your own, or a GitHub workflow.
+You need Beacon running ([On a server](../self-hosting/install.md), steps 1 to 4), an agent connected over MCP ([Claude Code](../integrations/claude-code.md), [Codex](../integrations/codex.md) or [a token](../integrations/headless.md)), and an address the hook can reach: a server running `beacon-oncall`, a receiver of your own, or a GitHub workflow.
 
 ## Try the loop by hand
 
-Before wiring the hook, walk the same loop with you in the hook's place. Start a drill and wait about five minutes for `ServiceDown`:
-
-```bash
-docker exec beacon beacon drill fail 15m
-```
-
-Then ask your agent: *"Is anything failing right now? Look at the evidence, check the machine, and tell me what you would do."* It lists the alerts, reads the evidence and answers from what the probes see. A woken agent works the same way; the hook only takes the place of the person who asks. `beacon drill off` ends the drill.
+Before wiring the hook, walk the same loop with you in the hook's place: [Rehearse an outage](drills.md) starts a drill and says when `ServiceDown` fires, and [Walk the loop](drills.md#walk-the-loop) has the question to ask your agent and what it does with it. A woken agent works the same way; the hook only takes the place of the person who asks.
 
 ## Wake an agent {#wake-an-agent}
 
@@ -73,7 +67,7 @@ One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}
 - **related** are the other groups firing in the same failure domain; **changes** are the [change events](#change-events) in the window; **done** is what people and agents have already done, the sessions on the alert's machines included, each marked `before`, `during` or `after` the alert.
 - **The window** opens 30 minutes before the group started (`?before=2h`, at most 24 hours), so the session that caused the alert is in the answer.
 
-The same story in time order is `GET /api/v1/alerts/{id}/timeline`, or `get_timeline`: the alert's, the hooks', the changes', the sessions' and the notes' events on one line each. The console's alert page shows it with the evidence side by side. How Beacon cleans the outside text these answers carry is in the security page ([Untrusted text](../self-hosting/security.md)).
+The same story in time order is `GET /api/v1/alerts/{id}/timeline`, or `get_timeline`: the alert's, the hooks', the changes', the sessions' and the notes' events on one line each. The console's alert page shows it with the evidence side by side. How Beacon cleans the outside text these answers carry is in the security model ([Text from outside Beacon](../self-hosting/security.md#text-from-outside-beacon)).
 
 ## Probe again, now {#probe-again-now}
 
@@ -84,7 +78,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-You will see one line per location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`; `missing` names the locations that did not answer in time. The probes push the same samples as in their cycle, so the alert resolves at the rule engine's next evaluation. A target is probed on demand at most once every 15 seconds and a token keeps three requests in flight; one request covers at most 20 targets and waits at most 90 seconds. When `probe_now` names locations as `missing`, see [probe_now names locations as missing](../self-hosting/troubleshooting.md#probe-now-names-locations-as-missing).
+You will see one line per location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`; `missing` names the locations that did not answer in time. The probes push the same samples as in their cycle, so the alert resolves at the rule engine's next evaluation. A target is probed on demand at most once every 15 seconds and a token keeps three requests in flight; one request covers at most 20 targets and waits at most 90 seconds. When `probe_now` names locations as `missing`, see [probe_now names locations as missing](../self-hosting/troubleshooting.md#probe_now-names-locations-as-missing).
 
 ## Notes
 

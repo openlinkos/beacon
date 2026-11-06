@@ -1,6 +1,6 @@
 # Roles, presets and scopes
 
-Whoever acts in Beacon is one of three things: a **person**, signed in with an account and carrying a **role**; an **agent**, owned by a person and carrying a **preset**; or a **token of its own**, carrying scopes by name — a machine's (a probe, a host, a heartbeat, the rule engine, a change sender, a metrics reader), or a legacy token from before accounts. What each may do is resolved afresh on every request, so demoting or disabling a person limits their agents at once. Nobody types a list of scopes for a person or an agent; only machines' tokens and experts' are made with scopes by name. The workflows are in [People and their agents](../guide/people.md); every route and the scope it needs is in the [REST API](api.md) and [MCP tools](mcp.md) references.
+Whoever acts in Beacon is one of three things: a **person**, signed in with an account and carrying a **role**; an **agent**, owned by a person and carrying a **preset**; or a **token of its own**, carrying scopes by name — a machine's (a probe, a host, a heartbeat, the rule engine, a change sender, a metrics reader), or a legacy token from before accounts. What each may do is resolved afresh on every request, so demoting or disabling a person limits their agents at once. Nobody types a list of scopes for a person or an agent; only machines' tokens and experts' are made with scopes by name. The workflows are in [Invite your team](../guide/people.md); every route and the scope it needs is in the [REST API](api.md) and [MCP tools](mcp.md) references.
 
 ## Roles
 

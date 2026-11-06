@@ -62,7 +62,7 @@ beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}
 
 One sample with a fresh timestamp. To see the alert side work without waiting a night, put a heartbeat with `max_age: 1m` next to a job that runs every few minutes, and stop the job: `HeartbeatStale` fires within minutes, with the machine in its evidence.
 
-When it does not work: a heartbeat that never reports is a job that does not end with `beacon-heartbeat` (or pushes with the wrong token); a change refused with `config.invalid` is usually a machine the channel does not have — [A change is refused with config.conflict or config.invalid](../self-hosting/troubleshooting.md#a-change-is-refused-with-config-conflict-or-config-invalid); an alert that never arrives at all is [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives).
+When it does not work: a heartbeat that never reports is a job that does not end with `beacon-heartbeat` (or pushes with the wrong token); a change refused with `config.invalid` is usually a machine the channel does not have — [A change is refused with config.conflict or config.invalid](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid); an alert that never arrives at all is [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives).
 
 ## Next
 

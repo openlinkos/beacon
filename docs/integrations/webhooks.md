@@ -14,48 +14,7 @@ When the hook is called, what the fields mean, the retries and where each call's
 
 ## The call
 
-Beacon POSTs JSON with these headers:
-
-| Header | Value |
-| --- | --- |
-| `X-Beacon-Signature` | `sha256=` and the hex HMAC-SHA256 of the body under the secret |
-| `X-Beacon-Event` | `firing` or `resolved` |
-| `X-Beacon-Delivery` | The call's id, the same in every attempt |
-
-```json
-{
-  "delivery": "9f3c2a1b7e4d5c60",
-  "event": "firing",
-  "at": "2026-11-02T02:00:31Z",
-  "hook": "claude-oncall",
-  "alert": {
-    "id": "0cdfbada62dd", "status": "firing", "severity": "critical",
-    "title": "git.example.com is down", "description": "git.example.com has failed for 3 minutes from at least half of the probe locations …",
-    "service": "git.example.com",
-    "labels": {"alertname": "ServiceDown", "service": "git.example.com", "severity": "critical", "failure_domain": "origin-1"},
-    "alerts": 1, "starts_at": "2026-11-02T01:58:00Z"
-  },
-  "links": {
-    "alert": "https://status.example.com/api/v1/alerts/0cdfbada62dd",
-    "evidence": "https://status.example.com/api/v1/alerts/0cdfbada62dd/evidence",
-    "timeline": "https://status.example.com/api/v1/alerts/0cdfbada62dd/timeline",
-    "mcp": "https://status.example.com/mcp",
-    "runbook": "https://github.com/example/ops/blob/main/runbooks/ServiceDown.md"
-  },
-  "hint": "Beacon woke you for this alert group. Get its evidence in one call: …",
-  "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
-}
-```
-
-When the alert is about a heartbeat whose catalogue entry names its machine ([Heartbeats](../guide/monitoring.md#heartbeats)), the `hint` of a `firing` call says which machine that is and that `list_machines` shows how to reach it.
-
-A `resolved` payload has the same fields, its `at` being when the group resolved (not when the call went out, `resolved_after` later), and one more: `firing_call`, the call that woke the agent for this episode, so that the run it started can be told apart, with whether that run may still be going:
-
-```json
-"firing_call": {"delivery": "9f3c2a1b7e4d5c60", "at": "2026-11-02T02:00:31Z", "status": "ok", "recent": true}
-```
-
-`recent` is true when the firing call was made less than ten minutes before the group resolved. The hint then says that the run that call started may still be finishing its notes, and to read `get_timeline`, the notes included, before leaving a closing note of its own.
+Beacon POSTs JSON to the hook's `url`: the alert group with its labels, links to its evidence, its timeline and the MCP endpoint, and a `hint` that says how to start. Three headers come with it: `X-Beacon-Event` (`firing` or `resolved`), `X-Beacon-Delivery` (the call's id, the same in every attempt) and `X-Beacon-Signature` (the body's HMAC-SHA256 under the secret). A `resolved` call also carries `firing_call`, the call that woke the agent for this episode, so that a run still finishing its notes can be told apart. Every header and field, with a whole payload, is in the [Webhooks reference](../reference/webhooks.md).
 
 ## Check the signature
 

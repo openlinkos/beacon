@@ -94,7 +94,7 @@ probe_success{service="example.com"}
 
 One line per location, each 1 while the service answers. With the reference rules a service counts as down only when at least two locations fail it and they are at least half of those reporting, after 3 minutes — so a check from one location alone never pages anyone ([How Beacon works](concepts.md#an-alerts-path)).
 
-When it does not work: [A probe location shows no data](../self-hosting/troubleshooting.md#a-probe-location-shows-no-data), [A target always fails](../self-hosting/troubleshooting.md#a-target-always-fails), [An import or SIGHUP did not change the configuration](../self-hosting/troubleshooting.md#an-import-or-sighup-did-not-change-the-configuration), [A change is refused with config.conflict or config.invalid](../self-hosting/troubleshooting.md#a-change-is-refused-with-config-conflict-or-config-invalid).
+When it does not work: [A probe location shows no data](../self-hosting/troubleshooting.md#a-probe-location-shows-no-data), [A target always fails](../self-hosting/troubleshooting.md#a-target-always-fails), [An import or SIGHUP did not change the configuration](../self-hosting/troubleshooting.md#an-import-or-sighup-did-not-change-the-configuration), [A change is refused with config.conflict or config.invalid](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid).
 
 ## Next
 

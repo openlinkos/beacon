@@ -1,22 +1,16 @@
 ---
-sourceHash: sha256-2c4bd9f8
+sourceHash: sha256-969524f7
 ---
 
 # 让 Agent 值班
 
 配好钩子之后，服务一出问题，Beacon 就会叫醒你指定的 Agent：它一次调用读到全部证据，通过 SSH 通道登上机器处理，修完让每个检测点复测，再留下一条备注，人在卡片和控制台里都能看到。Beacon 不调用任何模型，也不要求任何人审批；Agent 做什么由运行它的 harness 决定，而它做过的一切都有记录。
 
-你需要：Beacon 已经运行（[30 分钟装好](../self-hosting/install.md)的第 1 到 4 步）；一个已通过 MCP 接入的 Agent（[Claude Code](../integrations/claude-code.md)、[Codex](../integrations/codex.md)或[用令牌的 Agent](../integrations/headless.md)）；以及一个钩子够得着的地址：一台运行 `beacon-oncall` 的服务器、你自己写的接收端，或一个 GitHub workflow。
+你需要：Beacon 已经运行（[装在服务器上](../self-hosting/install.md)的第 1 到 4 步）；一个已通过 MCP 接入的 Agent（[Claude Code](../integrations/claude-code.md)、[Codex](../integrations/codex.md)或[用令牌的 Agent](../integrations/headless.md)）；以及一个钩子够得着的地址：一台运行 `beacon-oncall` 的服务器、你自己写的接收端，或一个 GitHub workflow。
 
 ## 先手动走一遍 {#try-the-loop-by-hand}
 
-接钩子之前，先由你代替钩子，把整个流程走一遍。开始一次演练，等大约五分钟 `ServiceDown` 触发：
-
-```bash
-docker exec beacon beacon drill fail 15m
-```
-
-然后问你的 Agent：*「现在有什么在报错吗？看一下证据，上机器查一查，告诉我你打算怎么处理。」* 它会列出告警、读取证据，再根据检测点的结果回答。被叫醒的 Agent 也是这样工作的，钩子只是代替了那个开口问的人。`beacon drill off` 结束演练。
+接钩子之前，先由你代替钩子，把整个流程走一遍：[演练一次故障](drills.md)说明怎样开始一次演练、`ServiceDown` 什么时候触发，[你替钩子走一遍循环](drills.md#walk-the-loop)给出要问 Agent 的话，以及它接着会做什么。被叫醒的 Agent 也是这样工作的，钩子只是代替了那个开口问的人。
 
 ## 叫醒 Agent {#wake-an-agent}
 
@@ -77,7 +71,7 @@ docker exec beacon beacon drill fail 15m
 - **related** 是同一故障域里其他正在触发的告警组；**changes** 是窗口内的[变更事件](#change-events)；**done** 是人和 Agent 已经做过的事，包括相关机器上的会话，每条标着在告警之前、期间还是之后。
 - **时间窗口**从告警组开始前 30 分钟起（`?before=2h` 可加长，最多 24 小时），所以造成告警的那次会话也在答案里。
 
-同一件事按时间排列就是 `GET /api/v1/alerts/{id}/timeline`，或 `get_timeline`：告警、钩子、变更、会话和备注的事件各占一行。控制台的告警页面把它和证据并排显示。这些答案里来自外部的文本怎样被清理，见安全模型页（[不可信文本](../self-hosting/security.md)）。
+同一件事按时间排列就是 `GET /api/v1/alerts/{id}/timeline`，或 `get_timeline`：告警、钩子、变更、会话和备注的事件各占一行。控制台的告警页面把它和证据并排显示。这些答案里来自外部的文本怎样被清理，见安全模型（[来自 Beacon 之外的文字](../self-hosting/security.md#text-from-outside-beacon)）。
 
 ## 立刻复测 {#probe-again-now}
 
@@ -88,7 +82,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-你会看到每个检测点一行，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`；`missing` 列出没有及时回答的检测点。检测点推送的样本和平时每轮相同，所以告警在规则引擎下一次评估时就恢复。同一个目标最多每 15 秒按需复测一次，一个令牌同时最多三个请求；一次请求最多 20 个目标，最多等 90 秒。`probe_now` 把检测点列为 `missing` 时，见 [probe_now 把检测点列为 missing](../self-hosting/troubleshooting.md#probe-now-names-locations-as-missing)。
+你会看到每个检测点一行，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`；`missing` 列出没有及时回答的检测点。检测点推送的样本和平时每轮相同，所以告警在规则引擎下一次评估时就恢复。同一个目标最多每 15 秒按需复测一次，一个令牌同时最多三个请求；一次请求最多 20 个目标，最多等 90 秒。`probe_now` 把检测点列为 `missing` 时，见 [probe_now 把检测点列为 missing](../self-hosting/troubleshooting.md#probe_now-names-locations-as-missing)。
 
 ## 备注 {#notes}
 

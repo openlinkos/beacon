@@ -3,7 +3,7 @@
 Two different things are called Beacon's configuration, and this page is about the first:
 
 - **`config.yaml`**, the service's own configuration: where it listens, the chat it alerts through, the escalation to phones, the SSH channel's keys. It is a file on the centre, read once when Beacon starts.
-- **The catalogue, probe targets and modules** — what is checked and from where. These live in Beacon's database and are changed through the API, MCP or the command line; the files are for import and export. [What is checked, and from where](../guide/monitoring.md) is that story; the last section of this page says when the files are read.
+- **The catalogue, probe targets and modules** — what is checked and from where. These live in Beacon's database and are changed through the API, MCP or the command line; the files are for import and export. [Monitor a service](../guide/monitoring.md) is that story; the last section of this page says when the files are read.
 
 The examples assume the reference deployment from [On a server](install.md).
 
@@ -79,4 +79,4 @@ The first start imports the files the configuration names (`catalog_dir`, `gatew
 - **SIGHUP** (`docker kill -s HUP beacon`) imports them, but only when nothing was changed through Beacon since the last import, so the files cannot silently undo what people and agents changed. Otherwise the log says which change came since, and how to go on: `config export` to bring that change into the files, or `config import` to replace it.
 - **`beacon config import DIR`** imports a directory at any time, `-dry-run` first; **`beacon config export DIR`** writes what is in force back to files; **`beacon config history`** and **`beacon config revert VERSION`** walk and undo the changes.
 
-[What is checked, and from where](../guide/monitoring.md#the-files-at-start-and-on-sighup) has the whole of it, including the trap of an import: items the files do not hold are removed.
+[Files, import and export](../guide/monitoring.md#files-import-and-export) has the whole of it, including the trap of an import: items the files do not hold are removed.

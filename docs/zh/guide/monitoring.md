@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-144e34bf
+sourceHash: sha256-90618f25
 ---
 
 # 检测一个服务
@@ -98,7 +98,7 @@ probe_success{service="example.com"}
 
 每个检测点一行，服务正常应答时都是 1。按参考规则，至少两个检测点失败、并且不少于有数据的检测点的一半，持续 3 分钟，服务才算故障——单个检测点的检查不会惊动任何人（[Beacon 如何工作](concepts.md#an-alerts-path)）。
 
-不工作时：[检测点没有数据](../self-hosting/troubleshooting.md#a-probe-location-shows-no-data)、[目标总是失败](../self-hosting/troubleshooting.md#a-target-always-fails)、[导入或 SIGHUP 没有改变配置](../self-hosting/troubleshooting.md#an-import-or-sighup-did-not-change-the-configuration)、[修改被 config.conflict 或 config.invalid 拒绝](../self-hosting/troubleshooting.md#a-change-is-refused-with-config-conflict-or-config-invalid)。
+不工作时：[检测点没有数据](../self-hosting/troubleshooting.md#a-probe-location-shows-no-data)、[目标总是失败](../self-hosting/troubleshooting.md#a-target-always-fails)、[导入或 SIGHUP 没有改变配置](../self-hosting/troubleshooting.md#an-import-or-sighup-did-not-change-the-configuration)、[修改被 config.conflict 或 config.invalid 拒绝](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid)。
 
 ## 下一步 {#next}
 

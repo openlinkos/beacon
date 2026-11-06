@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0c2759d1
+sourceHash: sha256-ea08c8c7
 ---
 
 # 心跳与到期资源
@@ -66,7 +66,7 @@ beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}
 
 一条时间戳新鲜的数据。不想等一晚上就看到告警那头，可以给一个每几分钟跑一次的任务配一个 `max_age: 1m` 的心跳，然后停掉任务：几分钟内 `HeartbeatStale` 就会触发，证据里带着那台机器。
 
-不工作时：心跳从来没报过，多半是任务没有以 `beacon-heartbeat` 结尾（或者推送用错了令牌）；修改被 `config.invalid` 拒绝，通常是通道里没有那台机器——[修改被 config.conflict 或 config.invalid 拒绝](../self-hosting/troubleshooting.md#a-change-is-refused-with-config-conflict-or-config-invalid)；告警压根没来，见[告警一直没有来](../self-hosting/troubleshooting.md#an-alert-never-arrives)。
+不工作时：心跳从来没报过，多半是任务没有以 `beacon-heartbeat` 结尾（或者推送用错了令牌）；修改被 `config.invalid` 拒绝，通常是通道里没有那台机器——[修改被 config.conflict 或 config.invalid 拒绝](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid)；告警压根没来，见[告警一直没有来](../self-hosting/troubleshooting.md#an-alert-never-arrives)。
 
 ## 下一步 {#next}
 

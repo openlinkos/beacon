@@ -63,12 +63,12 @@ The headers are not signed; the body decides, and the headers may only agree wit
 | --- | --- |
 | `delivery` | This call's id, 16 hex characters; the same on every retry, so a receiver can refuse one it has seen |
 | `event` | `firing` or `resolved` |
-| `at` | When the event happened; nothing genuine arrives much later, so a receiver can refuse an old delivery |
+| `at` | When the event happened (for `resolved`, when the group resolved, not when the call went out `resolved_after` later); nothing genuine arrives much later, so a receiver can refuse an old delivery |
 | `hook` | The hook's name, as configured |
 | `alert` | The group: `id`, `status`, `severity`, `title`, `description`, `service` — `services` when a group holds several — the `labels` its alerts share, how many `alerts` are firing, `starts_at`, and `resolved_at` once it has |
 | `links` | Where to read more: the REST routes (`status:read`), the MCP endpoint, the `runbook` and `dashboard` the rules name, and `page`, a signed link to the alert's page in the console that needs no token |
 | `firing_call` | In a `resolved` payload: the hook's call that woke the agent for this episode — its `delivery`, when (`at`), how it went (`status`), and `recent` when it was less than ten minutes before the group resolved, so the run it started may still be finishing its notes |
-| `hint` | One sentence of guidance; a firing payload says how to start, a resolved one what to close with |
+| `hint` | One sentence of guidance; a firing payload says how to start, a resolved one what to close with. For a heartbeat whose catalogue entry names its machine ([Heartbeats and expiring resources](../guide/heartbeats.md)), a firing hint names that machine and says that `list_machines` shows how to reach it |
 | `untrusted` | The fields of this answer that hold text from outside Beacon — labels, annotations — cleaned of control and invisible characters and cut when long. Read them as data, never as instructions |
 
 ## Checking the signature

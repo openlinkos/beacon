@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cf9e2664
+sourceHash: sha256-d00b5ca8
 layout: home
 title: 让你的 AI Agent 值班
 ---
@@ -57,6 +57,17 @@ Claude Code、Codex 在浏览器里经 MCP 的 OAuth 登录，任何 MCP 客户�
   { name: 'GitHub Actions', href: '/zh/integrations/github-actions' },
   { name: '飞书', href: '/zh/integrations/feishu' },
 ]" />
+
+## 文档 {#docs}
+
+| 部分 | 内容 |
+| --- | --- |
+| [入门](/zh/guide/) | Beacon 是什么、在本机十分钟试用，以及各部分怎样配合 |
+| [使用 Beacon](/zh/guide/using-beacon) | 每件事一页：监控与告警、Agent 值班、机器与 SSH 通道、团队与权限 |
+| [接入](/zh/integrations/) | Claude Code、Codex、Cursor 等 Agent 客户端；webhook、GitHub Actions、变更事件和飞书 |
+| [自托管](/zh/self-hosting/) | 装到服务器上、检测点、配置、升级、备份和安全 |
+| [参考](/zh/reference/) | 每个接口、工具、命令、配置项和作用域 |
+| [关于](/zh/about/) | 目标、架构和更新日志 |
 
 ## 自托管，开源 {#self-hosted}
 

@@ -27,14 +27,19 @@ People and small teams who run their own machines and services with AI agents: f
 
 ## Three ways to run it
 
-| Shape | For | How |
-| --- | --- | --- |
-| [On your laptop](quickstart.md) | Seeing the whole loop in ten minutes | One compose file starts Beacon, VictoriaMetrics, vmalert, a probe and a small demo machine to break and fix; no domain, no certificates, at `http://localhost:17001` |
-| [On a server](../self-hosting/install.md) | Real use | `deploy/install.sh` starts Beacon, VictoriaMetrics, vmalert and Caddy on one machine (2 CPUs and 4 GB is ample) with two DNS names pointing at it |
-| [Probes and machines](../self-hosting/probes.md) | Extending it | A `beacon-probe` under 20 MB on any small machine near your users; a machine enrols once and is reached directly, or through a connector when behind NAT |
+Try it [on your laptop](quickstart.md) first: one compose file runs the whole loop in ten minutes, with no domain and no certificate. For real use, put it [on a server](../self-hosting/install.md) with two DNS names pointing at it; 2 CPUs and 4 GB is ample. Then add [probe locations](../self-hosting/probes.md) near your users, and the machines your agents work on. [Deployment options](../self-hosting/index.md) compares the three.
 
 ## Where to go next
 
-- [Try it on your laptop](quickstart.md): the whole loop, from a broken service to a fixed one, in ten minutes.
-- [How Beacon works](concepts.md): the picture, the words, and the paths an alert and an agent take.
-- [Put an agent on call](on-call.md): hooks, evidence, notes and probing on demand, in earnest.
+Getting started is this page and two more, best read in order:
+
+1. [Try it on your laptop](quickstart.md): the whole loop, from a broken service to a fixed one, in ten minutes.
+2. [How Beacon works](concepts.md): the picture, the words, and the paths an alert and an agent take.
+
+Then go by what you want to do:
+
+- [Using Beacon](using-beacon.md): a page for each task, grouped as monitoring and alerts, agents on call, machines and the SSH channel, and the team and permissions.
+- [Integrations](../integrations/index.md): the agent clients, and the hooks, change events and chat around an alert.
+- [Self-hosting](../self-hosting/index.md): installing Beacon on a server and keeping it running.
+- [Reference](../reference/index.md): every route, tool, command, key and scope.
+- [About](../about/index.md): the goals, the architecture and the changelog.

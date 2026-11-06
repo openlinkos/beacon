@@ -1,6 +1,6 @@
 # Invite your team
 
-By the end of this page everyone on your team signs in with an account of their own and a role that says what they may do, and each person's agents act for that person and never do more than that person's role allows. Everything is named after a person: the audit log, the chat and the sessions on machines say `alice` for what Alice did on the console and `alice / claude-code` for what her agent did. People sign in only with Beacon's own accounts: there is no sign-in through GitHub, Feishu, OIDC, LDAP or anything else. You made the first account, an owner, in [Up in 30 minutes](../self-hosting/install.md), step 4; this page goes on from there. You need that owner account; the commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
+By the end of this page everyone on your team signs in with an account of their own and a role that says what they may do, and each person's agents act for that person and never do more than that person's role allows. Everything is named after a person: the audit log, the chat and the sessions on machines say `alice` for what Alice did on the console and `alice / claude-code` for what her agent did. People sign in only with Beacon's own accounts: there is no sign-in through GitHub, Feishu, OIDC, LDAP or anything else. You made the first account, an owner, in [On a server](../self-hosting/install.md), step 4; this page goes on from there. You need that owner account; the commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
 
 ## Roles {#roles}
 
@@ -17,7 +17,7 @@ The console, the command line and the API speak of roles; the scopes stay undern
 
 ## The first owner {#the-first-owner}
 
-A Beacon without accounts writes a one-time setup link to its log when it starts (`docker compose logs beacon | grep setup_link`; [Up in 30 minutes](../self-hosting/install.md), step 4, shows it). Once it has expired, print another on the centre, while Beacon still has no account:
+A Beacon without accounts writes a one-time setup link to its log when it starts (`docker compose logs beacon | grep setup_link`; [On a server](../self-hosting/install.md), step 4, shows it). Once it has expired, print another on the centre, while Beacon still has no account:
 
 ```bash
 docker exec beacon beacon setup

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cb3931a8
+sourceHash: sha256-5647428e
 ---
 
 # Beacon 如何工作
@@ -113,4 +113,4 @@ Agent 代表一个人行事，这个人是它的所有者；它能做的事绝�
 ## 再往深处读 {#where-to-read-more}
 
 - [架构](../about/architecture.md)：每个部分讲透——什么跑在哪里、状态放在哪里、每个部分遵守的规则。
-- [让 Agent 值班](on-call.md)和[给 Agent 一台机器](machines.md)：上面两条路，变成你亲手做的事。
+- [让 Agent 值班](on-call.md)和[给 Agent 一台机器](machines.md)：上面两条路，变成你亲手做的事；其余每件事见[使用 Beacon](using-beacon.md)。

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-83b5f761
+sourceHash: sha256-6614087d
 ---
 # 在本机试一试
 
@@ -113,4 +113,4 @@ docker compose down -v
 
 - 把 Beacon 装上服务器，配上 TLS 和真正的检测点：[装在服务器上](../self-hosting/install.md)。
 - 让告警自动唤醒 Agent，看它在机器上能做与不能做什么：[让 Agent 值班](on-call.md)、[给 Agent 一台机器](machines.md)。
-- 更多客户端——Codex、Cursor、无头 Agent：[其他 MCP 客户端](../integrations/mcp-clients.md)。
+- 更多客户端——Codex、Cursor、无头 Agent：[接入](../integrations/index.md)。
