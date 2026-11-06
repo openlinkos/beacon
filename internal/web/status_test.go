@@ -419,13 +419,67 @@ func TestStatusRobots(t *testing.T) {
 	}
 }
 
+// A page's address without ?lang= is in the reader's language, when the page has it: people who follow
+// a link from a site in English read it in English, though the page's first language is another. The
+// language a link names wins; programs (the JSON, the feed, the badges) get the page's first.
+func TestStatusPageFollowsTheBrowser(t *testing.T) {
+	e := newStatusEnv(t)
+	zh := map[string]string{"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"}
+	for _, c := range []struct{ host, path, accept, lang string }{
+		{"beacon.example.com", "/status/public", "zh-CN,zh;q=0.9,en;q=0.8", "zh-CN"},
+		{"uptime.example.com", "/", "fr-FR, de;q=0.9, zh;q=0.5", "zh-CN"}, // the first the page has
+		{"uptime.example.com", "/", "fr-FR", "en"},                        // none: the page's first
+		{"uptime.example.com", "/", "", "en"},
+		{"uptime.example.com", "/incidents/" + e.incident, "zh", "zh-CN"},
+		{"uptime.example.com", "/?lang=en", "zh", "en"}, // the link's language wins
+	} {
+		a := e.do(http.MethodGet, c.host, c.path, map[string]string{"Accept-Language": c.accept})
+		if a.code != http.StatusOK || !strings.Contains(a.body, `<html lang="`+c.lang+`">`) {
+			t.Errorf("%s%s for %q: %d, not in %s", c.host, c.path, c.accept, a.code, c.lang)
+		}
+		if a.header.Get("Vary") != "Accept-Language" {
+			t.Errorf("%s%s: Vary %q", c.host, c.path, a.header.Get("Vary"))
+		}
+	}
+
+	// read in Chinese without asking: the links stay in Chinese without naming it, the menu names each
+	// language (the address without one would follow the browser again), and search engines see each
+	// language's own address
+	a := e.do(http.MethodGet, "uptime.example.com", "/", zh)
+	for _, want := range []string{
+		`href="/incidents/` + e.incident + `"`, `href="/?lang=en" lang="en"`, `href="/?lang=zh" lang="zh-CN"`,
+		`rel="canonical" href="https://uptime.example.com/?lang=zh"`,
+		`<link rel="alternate" hreflang="en" href="/">`, `<link rel="alternate" hreflang="zh-CN" href="/?lang=zh">`,
+		`<link rel="alternate" hreflang="x-default" href="/">`,
+	} {
+		if !strings.Contains(a.body, want) {
+			t.Errorf("read in Chinese, the page lacks %s", want)
+		}
+	}
+	// asked for English with a Chinese browser: the links keep to English
+	if a := e.do(http.MethodGet, "uptime.example.com", "/?lang=en", zh); !strings.Contains(a.body, `href="/incidents/`+e.incident+`?lang=en"`) ||
+		!strings.Contains(a.body, `rel="canonical" href="https://uptime.example.com/"`) {
+		t.Error("in English by its link, the page's links do not keep to English")
+	}
+
+	for _, path := range []string{"/status.json", "/feed.atom", "/badge.svg"} {
+		a := e.do(http.MethodGet, "uptime.example.com", path, zh)
+		if a.code != http.StatusOK || a.header.Get("Vary") != "" {
+			t.Errorf("%s: %d, Vary %q", path, a.code, a.header.Get("Vary"))
+		}
+		if path == "/status.json" && !strings.Contains(a.body, `"language": "en"`) {
+			t.Errorf("the JSON follows the browser: %.200s", a.body)
+		}
+	}
+}
+
 func TestStatusShellsDifferOnlyByCSS(t *testing.T) {
 	e := newStatusEnv(t)
 	var first string
 	for i, width := range []string{"360", "860", "1440"} {
 		a := e.do(http.MethodGet, "beacon.example.com", "/status/public", map[string]string{"Sec-CH-Viewport-Width": width, "Viewport-Width": width})
-		if a.header.Get("Vary") != "" {
-			t.Errorf("varies by %q", a.header.Get("Vary"))
+		if v := a.header.Get("Vary"); strings.Contains(strings.ToLower(v), "width") || strings.Contains(v, "*") {
+			t.Errorf("varies by %q", v)
 		}
 		if i == 0 {
 			first = a.body

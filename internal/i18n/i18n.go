@@ -58,6 +58,14 @@ func Negotiate(cookie, acceptLanguage string) Lang {
 	if l, ok := Parse(cookie); ok {
 		return l
 	}
+	if prefs := Preferred(acceptLanguage); len(prefs) > 0 {
+		return prefs[0]
+	}
+	return EN
+}
+
+// Preferred is the languages an Accept-Language header asks for that Beacon has, the most wanted first.
+func Preferred(acceptLanguage string) []Lang {
 	type pref struct {
 		lang Lang
 		q    float64
@@ -78,10 +86,11 @@ func Negotiate(cookie, acceptLanguage string) Lang {
 		}
 	}
 	sort.SliceStable(prefs, func(i, j int) bool { return prefs[i].q > prefs[j].q })
-	if len(prefs) > 0 {
-		return prefs[0].lang
+	out := make([]Lang, 0, len(prefs))
+	for _, p := range prefs {
+		out = append(out, p.lang)
 	}
-	return EN
+	return out
 }
 
 // Localizer is implemented by values that can render themselves in a language.

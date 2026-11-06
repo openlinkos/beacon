@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -208,23 +210,53 @@ func (s *Server) statusOf(r *http.Request, name string) (*status.Page, catalog.S
 	if !ok {
 		return nil, def, status.ErrNotFound
 	}
+	return s.statusIn(r, def, r.URL.Query().Get("lang"))
+}
+
+func (s *Server) statusIn(r *http.Request, def catalog.StatusPage, lang string) (*status.Page, catalog.StatusPage, error) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	p, err := s.Status.Page(ctx, def.Name, r.URL.Query().Get("lang"))
+	p, err := s.Status.Page(ctx, def.Name, lang)
 	return p, def, err
 }
 
+// readerLang is the language a page's HTML is shown in, and the one its address without ?lang= shows
+// this reader: the one the link names, else the first of the page's languages the browser asks for
+// (Accept-Language), else the page's first. The JSON, the feed and the badges, which programs read,
+// keep to the link and the page's first.
+func readerLang(r *http.Request, def catalog.StatusPage) (lang, bare string) {
+	bare = def.Langs()[0]
+	for _, l := range i18n.Preferred(r.Header.Get("Accept-Language")) {
+		if slices.Contains(def.Langs(), string(l)) {
+			bare = string(l)
+			break
+		}
+	}
+	return status.Lang(def, cmp.Or(r.URL.Query().Get("lang"), bare)), bare
+}
+
+// readerPage is the page called name for someone reading it, in readerLang's language.
+func (s *Server) readerPage(r *http.Request, name string) (*status.Page, catalog.StatusPage, string, error) {
+	def, ok := s.Status.Def(name)
+	if !ok {
+		return nil, def, "", status.ErrNotFound
+	}
+	lang, bare := readerLang(r, def)
+	p, def, err := s.statusIn(r, def, lang)
+	return p, def, bare, err
+}
+
 func (s *Server) statusPage(w http.ResponseWriter, r *http.Request, name string, onHost bool) {
-	p, def, err := s.statusOf(r, name)
+	p, def, bare, err := s.readerPage(r, name)
 	if err != nil {
 		statusNotFound(w)
 		return
 	}
-	s.renderPublic(w, r, statusPageTmpl, s.statusView(r, p, def, onHost))
+	s.renderPublic(w, r, statusPageTmpl, s.statusView(r, p, def, bare, onHost))
 }
 
 func (s *Server) statusIncident(w http.ResponseWriter, r *http.Request, name, id string, onHost bool) {
-	p, def, err := s.statusOf(r, name)
+	p, def, bare, err := s.readerPage(r, name)
 	if err != nil {
 		statusNotFound(w)
 		return
@@ -234,7 +266,7 @@ func (s *Server) statusIncident(w http.ResponseWriter, r *http.Request, name, id
 		statusNotFound(w)
 		return
 	}
-	v := s.statusView(r, p, def, onHost)
+	v := s.statusView(r, p, def, bare, onHost)
 	iv := v.incident(in, true)
 	v.Incident = &iv
 	v.Title = in.Title + " – " + p.Title
@@ -253,6 +285,9 @@ func (s *Server) renderPublic(w http.ResponseWriter, r *http.Request, t *templat
 	cacheControl := statusMaxAge
 	if v.private {
 		cacheControl = privateMaxAge
+	}
+	if len(v.Langs) > 1 { // which language, and the links that keep to it, follow the browser's
+		w.Header().Set("Vary", "Accept-Language")
 	}
 	cached(w, r, "text/html; charset=utf-8", buf.Bytes(), false, cacheControl)
 }
@@ -359,8 +394,10 @@ type pastItem struct {
 	Day, Title, Href, Tone, Meta string
 }
 
-// statusView builds the view of a page for a request: on its own host, or under /status.
-func (s *Server) statusView(r *http.Request, p *status.Page, def catalog.StatusPage, onHost bool) *statusView {
+// statusView builds the view of a page for a request: on its own host, or under /status. bare is the
+// language the page's addresses without ?lang= show this reader, so that its links name the page's
+// language only when that differs.
+func (s *Server) statusView(r *http.Request, p *status.Page, def catalog.StatusPage, bare string, onHost bool) *statusView {
 	l := i18n.Lang(p.Language)
 	base, root := "/status/"+def.Name, "/status/"+def.Name
 	jsonPath := base + ".json"
@@ -368,35 +405,44 @@ func (s *Server) statusView(r *http.Request, p *status.Page, def catalog.StatusP
 		base, root, jsonPath = "", "/", "/status.json"
 	}
 	q := ""
-	if p.Language != def.Langs()[0] {
+	if p.Language != bare {
 		q = "?lang=" + url.QueryEscape(p.Language)
+	}
+	canonical := p.URL // each language's own address: the first's without ?lang=, so that search engines index both
+	if p.URL != "" && p.Language != def.Langs()[0] {
+		canonical += "?lang=" + url.QueryEscape(p.Language)
 	}
 	brand := def.Brand
 	if brand == "" {
 		brand = "beacon"
 	}
 	v := &statusView{Lang: l.HTML(), Title: p.Title, Name: p.Title, Brand: brand, Version: s.version(), Icons: statusSprite, P: p, L: statusLabelsIn(l),
-		Root: root + q, Canonical: p.URL, Feed: base + "/feed.atom", JSON: jsonPath, Description: p.Description, Locations: len(p.Locations)}
+		Root: root + q, Canonical: canonical, Feed: base + "/feed.atom", JSON: jsonPath, Description: p.Description, Locations: len(p.Locations)}
 	v.Mark, v.MarkHero = marks(brand)
 	v.SignIn, v.private = s.consoleLink(r, l, onHost)
 	v.Powered = s.poweredBy(l)
 	v.base, v.q, v.l, v.loc = base, q, l, s.loc()
 	v.Tone, v.StateText = stateTone(p.Status), v.stateText(p.Status)
 	v.Updated = v.L.updatedAt(v.clock(p.Updated))
-	for _, code := range def.Langs() { // the same page in each language
+	// the same page in each language: the menu names the language always, since the address without it
+	// follows the browser; the alternates for search engines are each language's own address, and the
+	// one without ?lang= for everyone else (x-default)
+	for _, code := range def.Langs() {
 		lg := i18n.Lang(code)
-		href := r.URL.Path
-		if code != def.Langs()[0] {
-			href += "?lang=" + code
-		}
-		ll := langLink{Code: lg.HTML(), Name: lg.Name(), Href: href, HrefLang: lg.HTML(), Current: code == p.Language}
+		ll := langLink{Code: lg.HTML(), Name: lg.Name(), Href: r.URL.Path + "?lang=" + code, HrefLang: lg.HTML(), Current: code == p.Language}
 		v.Langs = append(v.Langs, ll)
 		if ll.Current {
 			v.LangName = ll.Name
 		}
+		alt := ll
+		if code == def.Langs()[0] {
+			alt.Href = r.URL.Path
+		}
+		v.Alternates = append(v.Alternates, alt)
 	}
+	v.Alternates = append(v.Alternates, langLink{Href: r.URL.Path, HrefLang: "x-default"})
 	if len(v.Langs) < 2 {
-		v.Langs = nil
+		v.Langs, v.Alternates = nil, nil
 	}
 	if len(def.Menu.Groups) > 0 {
 		m := &menuView{Title: def.Menu.Title.In(p.Language)}
