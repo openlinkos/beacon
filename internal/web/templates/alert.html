@@ -64,6 +64,7 @@
         {{if .Services}}<dt>{{.L.Services}}</dt><dd><span class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</span></dd>{{end}}
       </dl>
       {{range .State}}<p class="ol-hint">{{.}}</p>{{end}}
+      {{with .Actions}}{{if .Unsilence}}<form method="post" action="{{.Unsilence}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="{{.Back}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "x"}}{{$.L.EndSilence}}</button></form>{{end}}{{end}}
       {{if or .Runbook .Dashboard}}<p class="ol-cluster">
         {{if .Runbook}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Runbook}}" rel="noopener noreferrer">{{.L.Runbook}}</a>{{end}}
         {{if .Dashboard}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Dashboard}}" rel="noopener noreferrer">{{.L.Dashboard}}</a>{{end}}

@@ -142,27 +142,31 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 	} else if v.person() {
 		agents = len(s.Store.Agents(v.Account.Username))
 	}
-	settings := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"}}
+	admin := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"}}
 	if v.owner() {
-		settings = append(settings, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
+		admin = append(admin, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
 	}
-	settings = append(settings, navItem{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)})
+	admin = append(admin,
+		navItem{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)},
+		navItem{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"})
+	// The overview on its own, then the console's three parts: what Beacon watches and what it does
+	// about it; the agents and the machines they reach; and Beacon's own administration.
 	groups := []navGroup{
-		{Items: []navItem{
-			{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"},
+		{Items: []navItem{{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"}}},
+		{Label: s.t("Monitoring"), Items: []navItem{
 			{Key: "alerts", Label: s.t("Alerts"), Href: consolePath("/alerts"), Icon: "triangle-alert", Count: count(firing)},
 			{Key: "monitors", Label: s.t("Monitors"), Href: consolePath("/monitors"), Icon: "activity"},
 			{Key: "status-pages", Label: s.t("Status pages"), Href: consolePath("/status-pages"), Icon: "globe", Count: count(len(s.Status.Pages()))},
+			{Key: "silences", Label: s.t("Silences and maintenance"), Href: consolePath("/silences"), Icon: "timer", Count: count(s.plannedWindows())},
+			{Key: "changes", Label: s.t("Changes"), Href: consolePath("/changes"), Icon: "history"},
+		}},
+		{Label: s.t("Agents and machines"), Items: []navItem{
+			{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot", Count: count(agents)},
 			{Key: "machines", Label: s.t("Machines"), Href: consolePath("/machines"), Icon: "server", Count: count(machines)},
 			{Key: "sessions", Label: s.t("Sessions"), Href: consolePath("/sessions"), Icon: "terminal"},
-			{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot", Count: count(agents)},
-		}},
-		{Label: s.t("Records"), Items: []navItem{
 			{Key: "hooks", Label: s.t("Hooks"), Href: consolePath("/hooks"), Icon: "zap"},
-			{Key: "changes", Label: s.t("Changes"), Href: consolePath("/changes"), Icon: "history"},
-			{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"},
 		}},
-		{Label: s.t("Settings"), Items: settings},
+		{Label: s.t("Administration"), Items: admin},
 	}
 	for i := range groups {
 		for j := range groups[i].Items {
@@ -201,6 +205,12 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Alert silenced"), "success"
 	case "note":
 		return s.t("Note added"), "success"
+	case "unsilenced":
+		return s.t("Silence ended"), "success"
+	case "maintenance_ended":
+		return s.t("Maintenance ended; its services page people again"), "success"
+	case "called_off":
+		return s.t("Maintenance called off"), "success"
 	case "paused":
 		return s.t("Agents' access to machines is paused"), "warning"
 	case "resumed":

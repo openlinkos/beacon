@@ -151,7 +151,7 @@ func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
 		Feishu: config.Feishu{MonthlyBudget: 1000}, OnCallByID: map[string]config.OnCaller{},
 		Escalation: map[string]config.Policy{"critical": {Channel: "webhook"}}}
 	vmSrv := fakeVictoria(t, now)
-	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: &fakeBot{}, VM: vm.New(vmSrv.URL, nil), Now: now})
+	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: &fakeAM{}, Bot: &fakeBot{}, VM: vm.New(vmSrv.URL, nil), Now: now})
 	key := `{}:{alertname="ServiceDown",service="api.example.com"}`
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: key, Status: "firing",
 		GroupLabels:  map[string]string{"alertname": "ServiceDown", "service": "api.example.com"},

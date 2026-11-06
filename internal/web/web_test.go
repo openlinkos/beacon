@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,13 +37,34 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-type fakeAM struct{}
-
-func (fakeAM) CreateSilence(context.Context, map[string]string, time.Time, time.Time, string, string) (string, error) {
-	return "sil-1", nil
+// fakeAM is Alertmanager: it numbers the silences it makes (sil-1, sil-2, …), lists those a test gives
+// it, and keeps the ids of those ended.
+type fakeAM struct {
+	mu       sync.Mutex
+	made     int
+	silences []alertmanager.Silence
+	expired  []string
 }
-func (fakeAM) ExpireSilence(context.Context, string) error              { return nil }
-func (fakeAM) Silences(context.Context) ([]alertmanager.Silence, error) { return nil, nil }
+
+func (a *fakeAM) CreateSilence(context.Context, map[string]string, time.Time, time.Time, string, string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.made++
+	return "sil-" + strconv.Itoa(a.made), nil
+}
+
+func (a *fakeAM) ExpireSilence(_ context.Context, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.expired = append(a.expired, id)
+	return nil
+}
+
+func (a *fakeAM) Silences(context.Context) ([]alertmanager.Silence, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.silences), nil
+}
 
 // fakeBot keeps what the chat would have been told.
 type fakeBot struct {
@@ -105,13 +127,14 @@ type env struct {
 	now    time.Time
 	id     string
 	bot    *fakeBot
+	am     *fakeAM
 	cdb    *configdb.Service
 }
 
 func newEnv(t *testing.T, lang i18n.Lang) *env {
 	t.Helper()
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	e := &env{t: t, now: now, bot: &fakeBot{}}
+	e := &env{t: t, now: now, bot: &fakeBot{}, am: &fakeAM{}}
 	cfg := &config.Config{Language: string(lang), Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),
 		Feishu: config.Feishu{MonthlyBudget: 1000}, OnCallByID: map[string]config.OnCaller{},
 		Escalation: map[string]config.Policy{"critical": {Channel: "webhook"}, "warning": {Channel: "webhook"}, "info": {Channel: "webhook"}}}
@@ -131,7 +154,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 		t.Fatal(err)
 	}
 	pages := &link.Pages{Signer: e.signer, PublicURL: publicURL}
-	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: fakeAM{}, Bot: e.bot, Pages: pages, Now: func() time.Time { return e.now }})
+	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: e.am, Bot: e.bot, Pages: pages, Now: func() time.Time { return e.now }})
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: groupKey, Status: "firing",
 		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "git-example-com"},
 		CommonLabels:      map[string]string{"alertname": "ServiceDown", "service": "git-example-com", "severity": "critical", "host": "edge-1", "note": hostile},
@@ -325,7 +348,7 @@ func TestAlertPage(t *testing.T) {
 		"No answer from 2 locations", "edge-1", "claude-code", "restarting the relay &lt;script&gt;", // the note
 		"systemctl restart relay", "false &lt;script&gt;", "exit 1", // the shell's commands, with exit statuses
 		"1 sessions on 1 machines, 2 commands", "Timeline", "Alert started", "left a note via MCP", "Replay",
-		"Agents reach machines through the SSH channel", "This link is valid until 2026-11-02 11:00:00", `data-brand="beacon"`,
+		"Agents reach machines", "This link is valid until 2026-11-02 11:00:00", `data-brand="beacon"`,
 		"No probe results in the window", `<dt>note</dt><dd class="ol-mono ol-break">&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
 	} {
 		if !strings.Contains(body, want) {
