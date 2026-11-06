@@ -47,23 +47,7 @@ func TestHandler(t *testing.T) {
 		t.Error("revoking twice should fail")
 	}
 
-	d, err := c.Drill(ctx, "15m")
-	if err != nil || time.Until(d.Until) < 14*time.Minute {
-		t.Fatalf("Drill: %+v %v", d, err)
-	}
-	if _, err := c.Drill(ctx, "5h"); err == nil {
-		t.Error("a 5h drill should be refused")
-	}
-	if s, _ := c.DrillStatus(ctx); s.Until.IsZero() {
-		t.Error("drill not stored")
-	}
-	if _, err := c.Drill(ctx, "off"); err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := c.DrillStatus(ctx); !s.Until.IsZero() {
-		t.Error("drill not ended")
-	}
-	if n := len(st.AuditLog(10)); n != 4 {
+	if n := len(st.AuditLog(10)); n != 2 {
 		t.Errorf("audit entries: %d", n)
 	}
 }

@@ -257,29 +257,5 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 		w.WriteHeader(http.StatusNoContent)
 	})
 	machineRoutes(mux, s, m, actor, decode)
-	mux.HandleFunc("GET /v1/drill", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, DrillState{Until: s.Time(DrillKey)})
-	})
-	mux.HandleFunc("POST /v1/drill", func(w http.ResponseWriter, r *http.Request) {
-		var in DrillRequest
-		if !decode(w, r, &in) {
-			return
-		}
-		var until time.Time
-		if in.Duration != "off" {
-			d, err := time.ParseDuration(in.Duration)
-			if err != nil || d <= 0 || d > MaxDrill {
-				fail(w, http.StatusBadRequest, errors.New("a drill lasts between 1s and 2h, or is off"))
-				return
-			}
-			until = time.Now().Add(d)
-		}
-		if err := s.SetTime(DrillKey, until); err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "drill", Detail: in.Duration})
-		writeJSON(w, http.StatusOK, DrillState{Until: until})
-	})
 	return mux
 }

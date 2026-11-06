@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-be7c3071
+sourceHash: sha256-195ef0b4
 ---
 
 # 演练一次故障
@@ -18,7 +18,7 @@ Beacon 自带一个供演练用的服务：`/drill/healthz` 平时回答 200，�
 docker exec beacon beacon drill fail 15m
 ```
 
-你会看到 `drill until …: /drill/healthz answers 503`；`beacon drill status` 随时报告状态，`beacon drill off` 结束演练。以两个检测点为例，接下来是：
+你会看到 `drill until …: /drill/healthz answers 503`；`beacon drill status` 随时报告状态，`beacon drill off` 结束演练。开始和结束都记为变更事件，告警的证据里就能看到正在演练、以及演练到点自己结束的时间：处理告警的 Agent 结束不了演练，但可以过了那个时间用 `probe_now` 确认。以两个检测点为例，接下来是：
 
 1. **一分钟内**两个检测点都看到 503，`probe_success{service="drill"}` 各自变为 0。
 2. **满 3 分钟**后，规则把每个检测点计为失败。两个占两个，既满「至少两个」也满「不少于一半」，于是 **`ServiceDown` 再过 1 分钟触发**——命令之后大约 4 到 5 分钟。它出现在 `GET /api/v1/alerts` 和 MCP 的 `list_alerts` 里。

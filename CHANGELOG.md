@@ -4,8 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- **Beacon records its own changes.** Starting on a version other than the one it last ran (`deploy`), and a drill starting, with when it ends by itself, or ending early (`drill`, on the service `drill`), are change events with the source `beacon`. The evidence of the alert a drill causes now says it is a drill and when it ends, where it used to say nothing had changed; an agent working it cannot end a drill, but knows when to check again.
 - **A status page with a host name of its own lives there, and Beacon's own host is the console's.** When the default page has `host`, Beacon's root is no longer that page but the landing page, which now leads to every status page Beacon serves (on its own host when it has one) as well as into the console. A deployment can so keep its console on one name (`beacon.example.com`) and its pages on theirs (`status.example.com`, `status.example.org`), with nothing of the console on the pages' names. The page is still under `/status/<name>` on Beacon's host, its canonical address its own host, and its JSON, feed and badges keep answering there.
-
 - **The database is its owner's alone again.** rc.17 created `beacon.db` and its `-wal` and `-shm` files with the process's umask, readable by every user on the host (0644), where the bbolt file had been 0600. Beacon now creates the database 0600 before SQLite opens it (SQLite gives the side files the database's mode) and narrows a database or side file it finds wider. A deployment that ran rc.17 is corrected on the next start.
 
 ## 0.3.0
