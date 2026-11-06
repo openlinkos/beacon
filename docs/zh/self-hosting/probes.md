@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-51034d5c
+sourceHash: sha256-1285eabb
 ---
 
 # 检测点位置
@@ -43,7 +43,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 脚本安装与这份参考部署相配的 `beacon-probe` 版本（检测程序和服务一起发布；用 `-version` 可以指定别的版本，访问不了 GitHub 的机器可以用 `-binary FILE` 安装你自己下载的文件）。它会创建 `beacon-probe` 用户，按机器架构下载检测程序，用发布页的 `SHA256SUMS` 核对，把令牌装成只有这个用户能读，装好 systemd 单元 `beacon-probe` 和 `beacon-heartbeat` 小工具，启动检测程序，然后等网关收下第一次推送。大约 10 秒，最后输出：
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.19 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon 0.3.0-rc.20 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 

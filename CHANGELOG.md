@@ -4,10 +4,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.20 (2026-11-06)
+
 - **A status page speaks its reader's language.** Without `?lang=`, a page in two languages is now in the first of them the browser asks for (`Accept-Language`), and in its first language when the browser asks for neither, as search engines usually do; until now it was always in its first, so people following a link from a site in English met a page in Chinese. The language menu names each language, and the page's links name the language only when it differs from the browser's, so a choice made from the menu sticks; the page answers with `Vary: Accept-Language`. Each language's canonical address is its own (the first's without `?lang=`), with an `x-default` alternate for the address that follows the browser. The JSON, the feed and the badges, which programs read, keep to `?lang=` and the page's first language.
 - **The console shows what is monitored, and the status pages** (`/console/monitors`, `/console/status-pages`). **Monitors** lists every service the target sets probe, the ones in trouble first: its state across the locations (failing at how many of those reporting, since when and why), its targets, the status pages that show it, its firing alert and when it was last checked; then every heartbeat with its last success against its maximum age, and every resource with when it expires. A service's page has what each location saw of its targets in the last 30 minutes, as an alert's evidence shows it, its targets with their target sets and labels, and its alerts. **Status pages** lists each page with its address, state, components, active incidents and maintenance windows; a page's own view has its components with the services behind each, their state and 90-day availability, its incidents linking to their alerts, and its maintenance. Both are read-only and need `status:read`: what is monitored and what the pages show still change where the configuration is (the files, the API, `put_config`, the command line), checked, versioned and attributed. The evidence's probe query now serves any list of services (`Bridge.Probes`), so the console and `get_evidence` read the probes the same way.
-
-## 0.3.0
 
 ### rc.19 (2026-11-06)
 
