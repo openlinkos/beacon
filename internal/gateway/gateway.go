@@ -48,6 +48,9 @@ type Deps struct {
 	Log        *slog.Logger
 	Now        func() time.Time
 	Requests   *probenow.Board // probing on demand (requests.go); nil answers 404 as an older gateway
+	// Leader, when set, is whether this instance holds the HA lease. Writes are refused on a
+	// standby; reads of targets and modules still answer.
+	Leader func() bool
 }
 
 // MaxBody is the largest request body accepted (a remote-write batch is compressed and far smaller).
@@ -119,6 +122,15 @@ func proxy(base *url.URL) *httputil.ReverseProxy {
 
 type handler func(w http.ResponseWriter, r *http.Request, t store.Token)
 
+// refuseStandby answers 503 when this instance does not hold the leader lease.
+func (g *gateway) refuseStandby(w http.ResponseWriter) bool {
+	if g.Leader == nil || g.Leader() {
+		return false
+	}
+	fail(w, http.StatusServiceUnavailable, "standby", "this instance does not hold the leader lease")
+	return true
+}
+
 // counted wraps w to record the status; done counts the request by route and status.
 func (g *gateway) counted(route string, w http.ResponseWriter) (rec *status, done func()) {
 	rec = &status{ResponseWriter: w, code: http.StatusOK}
@@ -178,6 +190,9 @@ func (g *gateway) labels(t store.Token) ([][2]string, string) {
 }
 
 func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	labels, why := g.labels(t)
 	if why != "" {
 		fail(w, http.StatusForbidden, "location.inactive", why)
@@ -235,6 +250,9 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 // importText takes samples in the Prometheus text format (what beacon-probe pushes, and heartbeats),
 // labelled like remote write: a probe's with its location, a host's with its name, a heartbeat's as such.
 func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	q := url.Values{}
 	if t.Has("probe:write") || t.Has("host:write") {
 		labels, why := g.labels(t)
@@ -283,6 +301,9 @@ func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
+	if g.refuseStandby(w) {
+		return
+	}
 	if g.Alerts == nil {
 		fail(w, http.StatusServiceUnavailable, "upstream", "alerts are not taken here")
 		return

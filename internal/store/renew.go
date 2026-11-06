@@ -59,42 +59,54 @@ func (t Token) RenewableAt() time.Time {
 
 // RenewToken gives the token called name a new secret, expiring its Lifetime from now, and returns the
 // secret, which is not stored and cannot be shown again. The old secret stays valid for RenewGrace.
+// The token is read from the database inside the write, so a revoke that landed on another instance
+// of a pair is not written back from a stale cache.
 func (s *Store) RenewToken(name string) (string, Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var t Token
-	found := false
-	for _, x := range s.tokens {
-		if x.Name == name {
-			t, found = x, true
-		}
-	}
-	if !found {
-		return "", Token{}, ErrNotFound
-	}
-	if !t.Renewable() {
-		return "", Token{}, ErrNotRenewable
-	}
-	now := s.now().UTC()
-	if !t.Renewed.IsZero() && now.Before(t.Renewed.Add(RenewEvery)) {
-		return "", Token{}, fmt.Errorf("%w; it may renew again at %s", ErrTooSoon, t.Renewed.Add(RenewEvery).Format(time.RFC3339))
-	}
-	if t.Lifetime <= 0 {
-		t.Lifetime = t.Expires.Sub(t.Created)
-	}
 	secret, err := newSecret()
 	if err != nil {
 		return "", Token{}, err
 	}
-	old := t.Hash
-	t.OldHash, t.OldUntil = old, now.Add(RenewGrace)
-	t.Hash, t.Expires, t.Renewed = hashToken(secret), now.Add(t.Lifetime), now
-	b, _ := json.Marshal(t)
-	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(name), b) }); err != nil {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	var t Token
+	var old string
+	err = s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return ErrNotFound
+		}
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		if t.Lifetime == 0 {
+			t.Lifetime = t.Expires.Sub(t.Created)
+		}
+		if !t.Renewable() {
+			return ErrNotRenewable
+		}
+		now := s.now().UTC()
+		if !t.Renewed.IsZero() && now.Before(t.Renewed.Add(RenewEvery)) {
+			return fmt.Errorf("%w; it may renew again at %s", ErrTooSoon, t.Renewed.Add(RenewEvery).Format(time.RFC3339))
+		}
+		if t.Lifetime <= 0 {
+			t.Lifetime = t.Expires.Sub(t.Created)
+		}
+		old = t.Hash
+		t.OldHash, t.OldUntil = old, now.Add(RenewGrace)
+		t.Hash, t.Expires, t.Renewed = hashToken(secret), now.Add(t.Lifetime), now
+		b, err := json.Marshal(t)
+		if err != nil {
+			return err
+		}
+		return tx.Put(bucketTokens, []byte(name), b)
+	})
+	if err != nil {
 		return "", Token{}, err
 	}
+	s.mu.Lock()
 	delete(s.tokens, old)
 	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return secret, t, nil
 }
 

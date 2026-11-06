@@ -56,8 +56,9 @@ type Config struct {
 	// path belong here because the database has to be open before anything else can be read; the
 	// rest of the storage settings live in the database itself (see the settings framework).
 	Storage struct {
-		Driver string `yaml:"driver"` // sqlite (the default); postgres arrives with the next package
-		Path   string `yaml:"path"`   // default <data_dir>/beacon.db
+		Driver  string `yaml:"driver"`   // sqlite (the default) or postgres
+		Path    string `yaml:"path"`     // sqlite: default <data_dir>/beacon.db
+		DSNFile string `yaml:"dsn_file"` // postgres: a file holding the connection string, never the YAML
 		// Audit is the audit log's own schedule: how often its chain's checkpoints are signed
 		// (24h by default) and how long entries are kept (365 days by default).
 		Audit struct {
@@ -73,7 +74,26 @@ type Config struct {
 			Synchronous string   `yaml:"synchronous"`  // FULL (default), NORMAL or OFF
 			BusyTimeout Duration `yaml:"busy_timeout"` // default 15s
 		} `yaml:"sqlite"`
+		// PostgreSQL is what a deployment that already runs one (or wants a managed database,
+		// point-in-time recovery or the primary/standby pair) tunes: the read pool's size and a
+		// statement timeout. Writes always take one connection of their own, whatever the pool
+		// size. Performance is not a reason to switch (docs/self-hosting/postgres.md).
+		Postgres struct {
+			PoolSize         int      `yaml:"pool_size"`         // read pool; default 4
+			StatementTimeout Duration `yaml:"statement_timeout"` // default 15s, 0 turns it off
+		} `yaml:"postgres"`
 	} `yaml:"storage"`
+	// HA is the primary/standby pair over the PostgreSQL database: the lease the primary renews,
+	// the standby takes when it expires, and the front (a load balancer or a VIP) reads on
+	// /healthz. Only with storage.driver postgres; on SQLite it is refused, for the single
+	// process the file's lock already names.
+	HA struct {
+		Enabled bool     `yaml:"enabled"` // off by default
+		Name    string   `yaml:"name"`    // the lease's name; default beacon
+		ID      string   `yaml:"id"`      // this instance; default hostname:pid plus a random suffix
+		Renew   Duration `yaml:"renew"`   // how often the primary renews; default 5s
+		Expire  Duration `yaml:"expire"`  // how long the lease lasts without a renewal; default 15s
+	} `yaml:"ha"`
 	// SSH is the channel through which agents reach machines with their own ssh, or with the MCP and
 	// REST tools; it is on when CAKeyFile is set. PublicAddress (host:port) is where agents reach it,
 	// for the ssh configuration Beacon hands them. SourceAddresses (CIDRs), when set, go into every
@@ -85,6 +105,19 @@ type Config struct {
 		CAKeyFile       string   `yaml:"ca_key_file"`
 		SourceAddresses []string `yaml:"source_addresses"`
 		Keep            Duration `yaml:"keep"`
+		// Recordings is where sessions are recorded: dir (the default, under data_dir) or s3.
+		// S3-compatible storage (MinIO, R2, S3) is what a primary/standby pair needs: both
+		// machines read and write the same bucket, so a session one recorded the other replays.
+		Recordings string `yaml:"recordings"`
+		// RecordingsS3 names the bucket when Recordings is s3. The credentials are files, like
+		// every secret: how they are filled is the deployment's business.
+		RecordingsS3 struct {
+			Endpoint            string `yaml:"endpoint"` // https://s3.example.com, or http://…:9000 for MinIO
+			Region              string `yaml:"region"`
+			Bucket              string `yaml:"bucket"`
+			AccessKeyIDFile     string `yaml:"access_key_id_file"`
+			SecretAccessKeyFile string `yaml:"secret_access_key_file"`
+		} `yaml:"recordings_s3"`
 	} `yaml:"ssh"`
 	Links struct {
 		// GrafanaService and Runbook are URL templates: {service} and {alertname} are replaced.
@@ -233,6 +266,9 @@ type Secrets struct {
 	HealthchecksBridgeURL   string
 	SSHHostKey              string // OpenSSH private keys
 	SSHCAKey                string
+	StorageDSN              string // the PostgreSQL connection string
+	S3AccessKeyID           string // recordings in S3-compatible storage
+	S3SecretAccessKey       string
 }
 
 // Duration is a time.Duration written as "10m" in YAML.
@@ -337,6 +373,15 @@ func (c *Config) defaults() {
 		c.Routing.ResolveTimeout = Duration(5 * time.Minute)
 	}
 	set(&c.Storage.Driver, "sqlite")
+	if c.HA.Name == "" && c.HA.Enabled {
+		c.HA.Name = "beacon"
+	}
+	if c.HA.Renew == 0 {
+		c.HA.Renew = Duration(5 * time.Second)
+	}
+	if c.HA.Expire == 0 {
+		c.HA.Expire = Duration(15 * time.Second)
+	}
 	if c.Storage.Audit.CheckpointInterval == 0 {
 		c.Storage.Audit.CheckpointInterval = Duration(24 * time.Hour)
 	}
@@ -446,14 +491,48 @@ func (c *Config) validate() error {
 		}
 	}
 
-	if c.Storage.Driver != "sqlite" {
-		bad("storage.driver %q: sqlite is the driver today; postgres arrives with the next package", c.Storage.Driver)
+	switch c.Storage.Driver {
+	case "sqlite":
+	case "postgres":
+		if c.Storage.DSNFile == "" {
+			bad("storage.dsn_file is required with storage.driver postgres")
+		}
+		if t := c.Storage.Postgres.StatementTimeout.D(); t < 0 {
+			bad("storage.postgres.statement_timeout cannot be negative")
+		}
+	default:
+		bad("storage.driver %q: sqlite or postgres", c.Storage.Driver)
 	}
 	if t := c.Storage.Audit.CheckpointInterval.D(); t < time.Minute {
 		bad("storage.audit.checkpoint_interval is at least 1m")
 	}
 	if t := c.Storage.Audit.Retention.D(); t < 24*time.Hour {
 		bad("storage.audit.retention is at least 24h")
+	}
+	if c.HA.Enabled {
+		if c.Storage.Driver != "postgres" {
+			bad("ha.enabled needs storage.driver postgres: the lease lives in the PostgreSQL database, and SQLite's file belongs to one process")
+		}
+		if c.HA.Expire.D() <= c.HA.Renew.D() {
+			bad("ha.expire must outlast ha.renew, or the lease expires between renewals")
+		}
+	}
+
+	sshRecording := c.SSH.Recordings
+	if sshRecording == "" {
+		sshRecording = "dir"
+	}
+	if sshRecording != "dir" && sshRecording != "s3" {
+		bad("ssh.recordings %q: dir or s3", c.SSH.Recordings)
+	}
+	if sshRecording == "s3" {
+		s3 := c.SSH.RecordingsS3
+		if s3.Endpoint == "" || s3.Bucket == "" || s3.AccessKeyIDFile == "" || s3.SecretAccessKeyFile == "" {
+			bad("ssh.recordings s3 needs ssh.recordings_s3.endpoint, bucket, access_key_id_file and secret_access_key_file")
+		}
+		if u, err := url.Parse(s3.Endpoint); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			bad("ssh.recordings_s3.endpoint %q is not an http(s) URL such as https://s3.example.com", s3.Endpoint)
+		}
 	}
 
 	if c.Gateway.Listen != "" {
@@ -591,6 +670,11 @@ func (c *Config) readSecrets() error {
 	}
 	s := &c.Secrets
 	read(&s.RulesToken, c.Rules.TokenFile, "rules.token_file")
+	read(&s.StorageDSN, c.Storage.DSNFile, "storage.dsn_file")
+	if c.SSH.Recordings == "s3" {
+		read(&s.S3AccessKeyID, c.SSH.RecordingsS3.AccessKeyIDFile, "ssh.recordings_s3.access_key_id_file")
+		read(&s.S3SecretAccessKey, c.SSH.RecordingsS3.SecretAccessKeyFile, "ssh.recordings_s3.secret_access_key_file")
+	}
 	read(&s.FeishuAppID, c.Feishu.AppIDFile, "feishu.app_id_file")
 	read(&s.FeishuAppSecret, c.Feishu.AppSecretFile, "feishu.app_secret_file")
 	read(&s.FeishuVerificationToken, c.Feishu.VerificationTokenFile, "feishu.verification_token_file")

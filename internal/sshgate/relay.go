@@ -3,8 +3,6 @@ package sshgate
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,27 +70,28 @@ func (s *session) start(kind, command string) {
 	s.started = true
 	s.rec.Kind, s.rec.Command = kind, command
 	day := s.rec.Started.Format("2006/01/02")
-	dir := filepath.Join(s.g.d.Dir, filepath.FromSlash(day))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	cols, rows := s.cols, s.rows
+	if cols <= 0 || rows <= 0 {
+		cols, rows = 120, 40
+	}
+	title := fmt.Sprintf("%s on %s", s.rec.Agent, s.rec.Machine)
+	name := day + "/" + s.rec.ID + ".cast"
+	w, err := s.g.d.Files.Create(name)
+	if err != nil {
+		s.g.d.Log.Error("cannot record a session", "session", s.rec.ID, "err", err)
+	} else if r, err := newRecorder(w, cols, rows, command, title, s.g.now); err != nil {
+		_ = w.Close()
 		s.g.d.Log.Error("cannot record a session", "session", s.rec.ID, "err", err)
 	} else {
-		cols, rows := s.cols, s.rows
-		if cols <= 0 || rows <= 0 {
-			cols, rows = 120, 40
-		}
-		title := fmt.Sprintf("%s on %s", s.rec.Agent, s.rec.Machine)
-		r, err := newRecorder(filepath.Join(dir, s.rec.ID+".cast"), cols, rows, command, title, s.g.now)
-		if err != nil {
-			s.g.d.Log.Error("cannot record a session", "session", s.rec.ID, "err", err)
-		} else {
-			s.cast = r
-			s.rec.Recording = day + "/" + s.rec.ID
-		}
+		s.cast = r
+		s.rec.Recording = day + "/" + s.rec.ID
 	}
 	if kind == "shell" && s.pty {
 		s.shell = &shellLog{rec: s.cast, now: s.g.now}
 	}
-	_ = s.g.d.Store.PutSession(s.rec)
+	if err := s.g.d.Store.PutSession(s.rec); err != nil {
+		s.g.d.Log.Error("session record was not stored", "session", s.rec.ID, "err", err)
+	}
 }
 
 // parts returns the recording, the shell's log and the kind, which start sets on another goroutine.
@@ -159,7 +158,9 @@ func (s *session) finish(exit *int) Transcript {
 	if exit != nil {
 		cast.event("x", fmt.Sprint(*exit))
 	}
-	cast.close()
+	if err := cast.close(); err != nil {
+		s.g.d.Log.Error("the session recording was not stored", "id", rec.ID, "err", err)
+	}
 	rec.Ended = s.g.now().UTC()
 	rec.Exit = exit
 	rec.BytesIn, rec.BytesOut = s.in.Load(), s.out.Load()
@@ -176,7 +177,9 @@ func (s *session) finish(exit *int) Transcript {
 	s.rec = rec
 	s.mu.Unlock()
 	s.g.file(t)
-	_ = s.g.d.Store.PutSession(rec)
+	if err := s.g.d.Store.PutSession(rec); err != nil {
+		s.g.d.Log.Error("session record was not stored", "session", rec.ID, "err", err)
+	}
 	_ = s.g.d.Store.Audit(store.AuditEntry{Actor: rec.Agent, Via: rec.Via, Action: "ssh_" + rec.Kind, Target: rec.Machine,
 		Detail: short(rec.Command, 200)})
 	if s.g.d.Metrics != nil {

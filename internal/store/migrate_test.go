@@ -257,8 +257,8 @@ func TestMigrate(t *testing.T) {
 	if entries, _, _ := st.AuditQuery(AuditFilter{Limit: 1000}); len(entries) != len(wanted["audit"])+1 {
 		t.Errorf("audit through the store: %d", len(entries))
 	}
-	if cfg, version := st.Config(); len(cfg) != 10 || version != 10 {
-		t.Errorf("config: %d entries, version %d", len(cfg), version)
+	if cfg, version, err := st.Config(); err != nil || len(cfg) != 10 || version != 10 {
+		t.Errorf("config: %d entries, version %d %v", len(cfg), version, err)
 	}
 }
 

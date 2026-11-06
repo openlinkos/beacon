@@ -34,6 +34,40 @@ jobs:
       - name: go test
         run: go test -race -shuffle=on -count=1 ./...
 
+  # The storage suite runs a second time on PostgreSQL (a service container): the same tests, on
+  # the other backend, each in a database of its own — BEACON_TEST_POSTGRES_DSN is what the test
+  # helpers look for.
+  test-postgres:
+    name: test (storage on postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: beacon
+          POSTGRES_PASSWORD: beacon
+          POSTGRES_DB: beacon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U beacon"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      BEACON_TEST_POSTGRES_DSN: postgres://beacon:beacon@localhost:5432/beacon?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: go mod tidy
+        run: go mod tidy -diff
+      - name: go test (kv, events, store and the lease over postgres)
+        run: go test -race -shuffle=on -count=1 ./internal/kv/... ./internal/events/... ./internal/store/... ./internal/ha/...
+
   lint:
     runs-on: ubuntu-latest
     steps:

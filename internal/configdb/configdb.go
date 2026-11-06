@@ -118,7 +118,14 @@ func Open(d Deps) *Service {
 		d.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Service{d: d}
-	entries, version := d.Store.Config()
+	entries, version, err := d.Store.Config()
+	if err != nil {
+		d.Log.Error("the configuration could not be read from the database", "err", err)
+		st := build(map[string][]byte{})
+		st.problem = err
+		s.state.Store(st)
+		return s
+	}
 	st := build(entries)
 	st.Version = version
 	if st.problem != nil {
@@ -127,6 +134,33 @@ func Open(d Deps) *Service {
 	}
 	s.state.Store(st)
 	return s
+}
+
+// Reload reads the configuration from the database into memory, as a restart would. A standby
+// that takes over, and a standby that waits, call this so they do not keep serving the catalogue
+// they loaded at start. A read error keeps the catalogue already in memory and is said on the
+// alert chat: an empty load would leave probes without targets until the next restart.
+func (s *Service) Reload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, version, err := s.d.Store.Config()
+	if err != nil {
+		s.d.Log.Error("the configuration could not be reloaded from the database; keeping the catalogue in memory", "err", err)
+		if s.d.Bot != nil {
+			text := i18n.T(s.d.Lang, "Beacon could not reload the configuration from the database; the catalogue in memory is unchanged.")
+			if sendErr := s.d.Bot.Send(context.Background(), text); sendErr != nil {
+				s.d.Log.Warn("echo to the alert chat failed", "err", sendErr)
+			}
+		}
+		return
+	}
+	st := build(entries)
+	st.Version = version
+	if st.problem != nil {
+		s.d.Log.Error("the configuration in the database does not pass its checks; serving it until it is put right",
+			"version", version, "err", st.problem)
+	}
+	s.state.Store(st)
 }
 
 // Catalog is the catalogue in force.

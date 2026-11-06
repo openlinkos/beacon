@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -45,8 +43,7 @@ func (g *Gate) file(t Transcript) {
 		return
 	}
 	b, _ := json.MarshalIndent(t, "", "  ")
-	path := filepath.Join(g.d.Dir, filepath.FromSlash(t.Recording)+".json")
-	if err := os.WriteFile(path, b, 0o600); err != nil {
+	if err := g.d.Files.WriteFile(t.Recording+".json", b); err != nil {
 		g.d.Log.Error("cannot write a transcript", "session", t.ID, "err", err)
 	}
 }
@@ -100,7 +97,7 @@ func (g *Gate) Session(id string) (Transcript, error) {
 	if r.Recording == "" || r.Ended.IsZero() {
 		return t, nil
 	}
-	b, err := os.ReadFile(filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording)+".json"))
+	b, err := g.d.Files.ReadFile(r.Recording + ".json")
 	if err != nil {
 		return t, nil //nolint:nilerr // the record alone is still the answer
 	}
@@ -118,7 +115,7 @@ func (g *Gate) Recording(id string) (io.ReadCloser, error) {
 	if !ok || !idRe.MatchString(id) || r.Recording == "" {
 		return nil, fmt.Errorf("%w %q", ErrNoSession, id)
 	}
-	f, err := os.Open(filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording)+".cast"))
+	f, err := g.d.Files.Open(r.Recording + ".cast")
 	if err != nil {
 		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, id)
 	}
@@ -157,22 +154,55 @@ func (g *Gate) prune() {
 	if g.d.Keep <= 0 {
 		return
 	}
-	gone := g.d.Store.DeleteSessionsBefore(g.now().Add(-g.d.Keep))
-	for _, r := range gone {
-		if r.Recording == "" {
-			continue
-		}
-		base := filepath.Join(g.d.Dir, filepath.FromSlash(r.Recording))
-		_ = os.Remove(base + ".cast")
-		_ = os.Remove(base + ".json")
-		// drop the day's directory, and the month's and year's, once empty
-		for d := filepath.Dir(base); strings.HasPrefix(d, filepath.Clean(g.d.Dir)+string(filepath.Separator)); d = filepath.Dir(d) {
-			if os.Remove(d) != nil {
-				break
+	old := g.d.Store.SessionsStartedBefore(g.now().Add(-g.d.Keep))
+	n := 0
+	for _, r := range old {
+		if r.Recording != "" {
+			if err := g.d.Files.Remove(r.Recording + ".cast"); err != nil {
+				g.d.Log.Warn("recording object was not deleted; the session stays until the next tidy", "session", r.ID, "err", err)
+				continue
+			}
+			if err := g.d.Files.Remove(r.Recording + ".json"); err != nil {
+				g.d.Log.Warn("transcript object was not deleted; the session stays until the next tidy", "session", r.ID, "err", err)
+				continue
 			}
 		}
+		if err := g.d.Store.DeleteSession(r.ID); err != nil {
+			g.d.Log.Warn("session row was not deleted", "session", r.ID, "err", err)
+			continue
+		}
+		n++
 	}
-	if len(gone) > 0 {
-		g.d.Log.Info("old SSH sessions forgotten", "sessions", len(gone))
+	if n > 0 {
+		g.d.Log.Info("old SSH sessions forgotten", "sessions", n)
+	}
+}
+
+// RetryPending uploads leftover local recordings (a crash or a previous primary) when the files
+// store supports it. Every instance runs this, including a standby.
+func (g *Gate) RetryPending(ctx context.Context) {
+	if g == nil {
+		return
+	}
+	type pending interface {
+		RetryPending(context.Context) error
+	}
+	if r, ok := g.d.Files.(pending); ok {
+		if err := r.RetryPending(ctx); err != nil && g.d.Log != nil {
+			g.d.Log.Warn("pending recordings were not uploaded", "err", err)
+		}
+	}
+}
+
+// TidyLocal removes leftover local staging files older than keep, when the files store supports it.
+func (g *Gate) TidyLocal(keep time.Duration) {
+	if g == nil {
+		return
+	}
+	type local interface {
+		TidyLocal(time.Duration)
+	}
+	if t, ok := g.d.Files.(local); ok {
+		t.TidyLocal(keep)
 	}
 }

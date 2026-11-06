@@ -214,7 +214,8 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `GET /status`, `GET /status/{name}`, `GET /status/{name}/incidents/{id}` | The public status pages and their incidents, without a token ([Status pages](../guide/status-pages.md)); on a page's own host name, `/` and `/incidents/{id}` |
 | `GET /status.json`, `GET /status/{name}.json`, `GET /status/{name}/feed.atom`, `GET /status/{name}/badge.svg`, `GET /status/{name}/components/{component}/badge.svg` | A page's JSON, Atom feed and badges, public and cacheable |
 | `GET /robots.txt` | Lets search engines read `/`, `/status` and `/static/`, and keeps them out of `/console`, `/api/`, `/mcp`, `/alerts/` and `/sessions/` |
-| `GET /healthz` | Liveness: `ok` |
+| `GET /healthz` | For the load balancer: `ok` on the leader, `503 standby` on a standby |
+| `GET /livez` | For Docker's health check: `ok` on the leader, `standby` (200) on a healthy standby, `503 unhealthy` when this instance cannot reach PostgreSQL |
 | `GET /readyz` | Readiness: the Watchdog seen, the Feishu connection up, budget left |
 | `GET /metrics` | Beacon's own metrics in the Prometheus format, for direct connections only |
 | `POST /hooks/feishu` | Feishu's card callbacks, when `feishu.callback: http` |
@@ -235,6 +236,7 @@ The gateway answers on port 17006 (`https://metrics.example.com` in the referenc
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
+| `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
 | `machine.forbidden` | 403 | The caller may not reach this machine |
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |

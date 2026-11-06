@@ -51,6 +51,7 @@ type SQLite struct {
 	write *sql.DB
 	read  *sql.DB
 	lock  *os.File
+	path  string
 }
 
 // OpenSQLite opens or creates the database at o.Path.
@@ -89,7 +90,7 @@ func OpenSQLite(o SQLiteOptions) (*SQLite, error) {
 		}
 		return "file:" + filepath.ToSlash(o.Path) + "?" + q.Encode()
 	}
-	s := &SQLite{}
+	s := &SQLite{path: o.Path}
 	if o.ReadOnly {
 		db, err := sql.Open("sqlite", dsn([2]string{"mode", "ro"},
 			[2]string{"_pragma", "busy_timeout(" + busyMS(o.BusyTimeout) + ")"}))
@@ -357,6 +358,14 @@ func (s *SQLite) Size() int64 {
 		return 0
 	}
 	return count * size
+}
+
+// Health is SQLite's own check of the whole database file: "ok", or the findings.
+func (s *SQLite) Health() (string, error) { return s.IntegrityCheck() }
+
+// Where names the database for the command line: the driver, the file, and how full it is.
+func (s *SQLite) Where() string {
+	return fmt.Sprintf("sqlite %s (%d bytes, journal %s)", s.path, s.Size(), s.JournalMode())
 }
 
 // Handle is the database behind the pools, for what lives beside the key-value space (the event

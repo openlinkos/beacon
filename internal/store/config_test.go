@@ -12,8 +12,8 @@ func TestConfigVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if e, v := s.Config(); len(e) != 0 || v != 0 {
-		t.Fatalf("a new database has no configuration: %v %d", e, v)
+	if e, v, err := s.Config(); err != nil || len(e) != 0 || v != 0 {
+		t.Fatalf("a new database has no configuration: %v %d %v", e, v, err)
 	}
 	if got := s.ConfigChanges(0, 10, nil); len(got) != 0 {
 		t.Errorf("no changes yet: %v", got)
@@ -29,8 +29,8 @@ func TestConfigVersions(t *testing.T) {
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflict: %v", err)
 	}
-	if e, v := s.Config(); len(e) != 1 || v != 1 {
-		t.Errorf("all or nothing: %v %d", e, v)
+	if e, v, err := s.Config(); err != nil || len(e) != 1 || v != 1 {
+		t.Errorf("all or nothing: %v %d %v", e, v, err)
 	}
 	for i := range 4 {
 		w := ConfigWrite{Key: "location/x", Was: []byte(`{"id":"x"}`)}
@@ -41,8 +41,8 @@ func TestConfigVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, v := s.Config(); v != 5 {
-		t.Errorf("version %d", v)
+	if _, v, err := s.Config(); err != nil || v != 5 {
+		t.Errorf("version %d %v", v, err)
 	}
 	list := s.ConfigChanges(0, 2, nil)
 	if len(list) != 2 || list[0].Version != 5 || list[1].Version != 4 {
@@ -73,7 +73,27 @@ func TestConfigVersions(t *testing.T) {
 	if len(kept) != 3 || kept[0].Version != 6 || kept[2].Version != 4 {
 		t.Errorf("the oldest changes beyond the limit are dropped: %+v", kept)
 	}
-	if _, v := s.Config(); v != 6 {
-		t.Errorf("versions go on: %d", v)
+	if _, v, err := s.Config(); err != nil || v != 6 {
+		t.Errorf("versions go on: %d %v", v, err)
+	}
+}
+
+func TestConfigReadError(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitConfig(ConfigChange{Action: "put"}, []ConfigWrite{{Key: "location/x", Value: []byte(`{"id":"x"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e, v, err := s.Config()
+	if err == nil {
+		t.Fatal("Config after the database closed must return the read error")
+	}
+	if len(e) != 0 || v != 0 {
+		t.Fatalf("a failed read must not look like an empty catalogue: %d entries version %d", len(e), v)
 	}
 }

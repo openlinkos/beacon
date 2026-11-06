@@ -58,7 +58,7 @@ func TestRenewToken(t *testing.T) {
 
 	// the grace period survives a restart and then ends
 	_ = s.Close()
-	s2, err := Open(path)
+	s2, err := reopen(t, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestLifetimeDerived(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = s.Close()
-	s2, err := Open(path)
+	s2, err := reopen(t, path)
 	if err != nil {
 		t.Fatal(err)
 	}

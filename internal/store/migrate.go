@@ -45,9 +45,10 @@ var openBolt = kv.OpenBolt
 // syncDirectory is syncDir; tests replace it to count the directory fsync. Production never sets it.
 var syncDirectory = syncDir
 
-// Migrate copies the bbolt database at boltPath into the SQL database o names, when there is a
-// bbolt file to copy and the SQL database holds nothing yet. It reports whether it migrated; a
-// missing bbolt file or a database with anything in it is no error, simply nothing to do.
+// Migrate copies the bbolt database at boltPath into the SQL database o names (SQLite or
+// PostgreSQL, whichever the options' driver says), when there is a bbolt file to copy and the SQL
+// database holds nothing yet. It reports whether it migrated; a missing bbolt file or a database
+// with anything in it is no error, simply nothing to do.
 func Migrate(boltPath string, o Options) (bool, error) {
 	if _, err := os.Stat(boltPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -55,19 +56,19 @@ func Migrate(boltPath string, o Options) (bool, error) {
 		}
 		return false, err
 	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout})
+	db, dialect, err := openKV(o)
 	if err != nil {
 		return false, err
 	}
 	// the event tables first: the emptiness check reads them
 	audit, err := events.Open(db.Handle(), db.WriteHandle(), "audit_events",
-		events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now})
+		events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now})
 	if err != nil {
 		_ = db.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
 	if _, err := events.Open(db.Handle(), db.WriteHandle(), "secret_uses",
-		events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now}); err != nil {
+		events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Now: time.Now}); err != nil {
 		_ = db.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
@@ -85,10 +86,12 @@ func Migrate(boltPath string, o Options) (bool, error) {
 	defer func() {
 		if !done {
 			_ = db.Close()
-			_ = os.Remove(o.Path) // a failed migration leaves no half-moved database behind
-			_ = os.Remove(o.Path + "-wal")
-			_ = os.Remove(o.Path + "-shm")
-			_ = os.Remove(o.Path + ".lock")
+			if o.isSQLite() { // a failed migration leaves no half-moved database behind
+				_ = os.Remove(o.Path)
+				_ = os.Remove(o.Path + "-wal")
+				_ = os.Remove(o.Path + "-shm")
+				_ = os.Remove(o.Path + ".lock")
+			}
 			_ = os.Remove(boltPath + ".pre-sql")
 		}
 	}()
@@ -96,14 +99,11 @@ func Migrate(boltPath string, o Options) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
-	// the backup first: a consistent copy of the same open the copy will read
 	if err := writeBoltBackup(src, boltPath+".pre-sql"); err != nil {
 		_ = src.Close()
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
 
-	// everything in one transaction: the buckets, the sequences, the genesis record, the audit
-	// entries — and the count check before it commits
 	migErr := db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		genesis, err := copyBuckets(tx, src)
 		if err != nil {
@@ -130,24 +130,47 @@ func Migrate(boltPath string, o Options) (bool, error) {
 		return false, fmt.Errorf("%w: %w", ErrMigrating, err)
 	}
 	if err := src.Close(); err != nil {
-		done = true // the SQL database is in place; do not delete it
+		done = true
 		return false, fmt.Errorf("%w: the database is in place, but the old file's handle stays: %w", ErrMigrating, err)
 	}
 	done = true
 	if migrateFailAt == "after-commit" {
 		return false, fmt.Errorf("%w: injected crash after commit", ErrMigrating)
 	}
-	// the .pre-sql copy is the record to roll back to; the file the old version watched is free
-	// to go, so the old version does not start on stale state by accident
 	if err := os.Remove(boltPath); err != nil {
 		return false, fmt.Errorf("%w: the database is in place, but the old file stays: %w", ErrMigrating, err)
 	}
 	return true, nil
 }
 
+// isSQLite says whether the options open a SQLite database (the default).
+func (o Options) isSQLite() bool {
+	return strings.TrimSpace(strings.ToLower(o.Driver)) == "" || strings.EqualFold(strings.TrimSpace(o.Driver), "sqlite")
+}
+
+// openKV opens the key-value database the options name, without the store on top, with the
+// dialect the event tables are written for.
+func openKV(o Options) (kv.SQL, events.Dialect, error) {
+	if o.isSQLite() {
+		if o.Path == "" {
+			return nil, 0, errors.New("no database path")
+		}
+		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
+			return nil, 0, err
+		}
+		db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout})
+		return db, events.SQLite, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(o.Driver), "postgres") {
+		return nil, 0, fmt.Errorf("storage driver %q: sqlite or postgres", o.Driver)
+	}
+	db, err := kv.OpenPostgres(kv.PostgresOptions{DSN: o.DSN, PoolSize: o.PoolSize, StatementTimeout: o.StatementTimeout})
+	return db, events.PostgreSQL, err
+}
+
 // nothingIn reports whether the SQL database holds nothing of Beacon's: no key-value pairs, no
 // events, no checkpoints.
-func nothingIn(db *kv.SQLite) (bool, error) {
+func nothingIn(db kv.SQL) (bool, error) {
 	var n int
 	if err := db.Handle().QueryRowContext(context.Background(), `SELECT
 		(SELECT COUNT(*) FROM kv) + (SELECT COUNT(*) FROM sequences)
@@ -163,7 +186,7 @@ func nothingIn(db *kv.SQLite) (bool, error) {
 // of the bbolt file is compared to the genesis record. Matching means the SQL database is this
 // bbolt file's migration and the leftover file can go; mismatch means the two have diverged and
 // starting would drop one of them.
-func finishOrRefuse(db *kv.SQLite, sqlPath, boltPath string) (bool, error) {
+func finishOrRefuse(db kv.SQL, sqlPath, boltPath string) (bool, error) {
 	genesis, err := readGenesis(db)
 	if err != nil {
 		return false, fmt.Errorf("%w: the SQL database at %s is not empty and has no migration genesis, while %s is still there. If the SQL database is the one to keep, move the bbolt file aside. To remigrate, move the SQL database aside and start again",
@@ -199,7 +222,7 @@ func finishOrRefuse(db *kv.SQLite, sqlPath, boltPath string) (bool, error) {
 	return true, nil
 }
 
-func readGenesis(db *kv.SQLite) (string, error) {
+func readGenesis(db kv.SQL) (string, error) {
 	var detail string
 	err := db.Handle().QueryRowContext(context.Background(),
 		`SELECT detail FROM audit_events WHERE seq = 1 AND action = 'migrate'`).Scan(&detail)
@@ -245,8 +268,6 @@ func syncDir(path string) error {
 	return nil
 }
 
-// hashSource is the import hash of a bbolt file: every bucket, including audit, length-prefixed.
-// finishOrRefuse compares it to the genesis record.
 func hashSource(src kv.Reader) (copied int, hash string, err error) {
 	h := sha256.New()
 	err = src.View(func(ro kv.ROTx) error {
@@ -268,8 +289,6 @@ func hashSource(src kv.Reader) (copied int, hash string, err error) {
 	return copied, hex.EncodeToString(h.Sum(nil)), err
 }
 
-// copyBuckets copies every bucket as it is, and the sequences with them. It returns what the
-// genesis record says: how many entries came over and the hash of all of them.
 func copyBuckets(tx kv.Tx, src kv.Reader) (string, error) {
 	copied, hash, err := hashSource(src)
 	if err != nil {
@@ -278,7 +297,7 @@ func copyBuckets(tx kv.Tx, src kv.Reader) (string, error) {
 	err = src.View(func(ro kv.ROTx) error {
 		for _, name := range src.Buckets() {
 			if string(name) == string(bucketAudit) {
-				continue // the event table takes these
+				continue
 			}
 			var putErr error
 			ro.Range(name, kv.Range{}, func(k, v []byte) bool {
@@ -305,9 +324,6 @@ func copyBuckets(tx kv.Tx, src kv.Reader) (string, error) {
 	return fmt.Sprintf("%d entries from bbolt, import hash %s", copied, hash), nil
 }
 
-// copyAudit turns the audit bucket into the event table's first records: a genesis record of the
-// migration, then the entries in their order, chained. (bbolt's audit keys are 8-byte big-endian
-// sequence numbers, so byte order is record order.)
 func copyAudit(audit *events.Log, raw *sql.Tx, src kv.Reader, genesis string) (decoded, skipped int, err error) {
 	var entries []AuditEntry
 	_ = src.View(func(ro kv.ROTx) error {
@@ -338,7 +354,7 @@ func copyAudit(audit *events.Log, raw *sql.Tx, src kv.Reader, genesis string) (d
 			Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
 		}
 		if ev.Time.IsZero() {
-			ev.Time = time.Now().UTC() // entries from before times were kept
+			ev.Time = time.Now().UTC()
 		}
 		if err := audit.AppendTx(raw, &ev); err != nil {
 			return decoded, skipped, err
@@ -347,8 +363,6 @@ func copyAudit(audit *events.Log, raw *sql.Tx, src kv.Reader, genesis string) (d
 	return decoded, skipped, nil
 }
 
-// checkCounts holds the migration to what it copied, before the transaction commits: every
-// bucket's count and sequence, and the audit entries the event table took.
 func checkCounts(tx kv.Tx, raw *sql.Tx, src kv.Reader, decoded, skipped int) error {
 	ctx := context.Background()
 	err := src.View(func(ro kv.ROTx) error {
@@ -362,7 +376,7 @@ func checkCounts(tx kv.Tx, raw *sql.Tx, src kv.Reader, decoded, skipped int) err
 				if decoded+skipped != want {
 					return fmt.Errorf("audit: decoded %d and skipped %d of %d entries", decoded, skipped, want)
 				}
-				if got != int64(decoded)+1 { // the genesis record makes one more
+				if got != int64(decoded)+1 {
 					return fmt.Errorf("audit: the event table took %d of %d entries", got-1, decoded)
 				}
 				continue

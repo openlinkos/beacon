@@ -1,10 +1,16 @@
 package events
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +19,7 @@ import (
 )
 
 type fixture struct {
-	db  *kv.SQLite
+	db  kv.SQL
 	log *Log
 	now time.Time
 }
@@ -24,17 +30,78 @@ func open(t *testing.T, o Options) *fixture {
 	if o.Now == nil {
 		o.Now = func() time.Time { return f.now }
 	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: filepath.Join(t.TempDir(), "beacon.db")})
+	// SQLite, or PostgreSQL when BEACON_TEST_POSTGRES_DSN names one: the same chain tests run on
+	// both (CI runs the suite twice), with the dialect doing no more than the placeholder spelling
+	if dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN"); dsn != "" {
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: testDatabase(t, dsn)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pg.Close() })
+		f.db = pg
+		o.Dialect = PostgreSQL
+	} else {
+		db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: filepath.Join(t.TempDir(), "beacon.db")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		f.db = db
+	}
+	log, err := Open(f.db.Handle(), f.db.WriteHandle(), "audit_events", o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	log, err := Open(db.Handle(), db.WriteHandle(), "audit_events", o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.db, f.log = db, log
+	f.log = log
 	return f
+}
+
+// testDatabase makes a database of the test's own on the server the DSN names, dropped when the
+// test ends. It mirrors internal/kv's helper (test packages cannot share code).
+func testDatabase(t *testing.T, dsn string) string {
+	t.Helper()
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	name := "beacon_test_" + hex.EncodeToString(raw)
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		// the store's pools close asynchronously; FORCE drops through what is still open, but a
+		// connection in flight can beat it — try again before giving up
+		for range 3 {
+			dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+			dcancel()
+			if err == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Host != "" {
+		u.Path = "/" + name
+		return u.String()
+	}
+	for _, k := range []string{"dbname", "database"} {
+		if i := strings.Index(dsn, k+"="); i >= 0 {
+			rest := dsn[i+len(k)+1:]
+			if j := strings.IndexAny(rest, " 	"); j >= 0 {
+				rest = rest[j:]
+			} else {
+				rest = ""
+			}
+			return dsn[:i] + k + "=" + name + rest
+		}
+	}
+	return dsn + " dbname=" + name
 }
 
 func TestAppendAndQuery(t *testing.T) {
@@ -126,7 +193,7 @@ func TestVerify(t *testing.T) {
 }
 
 // tamper runs SQL straight against the tables, as whoever gets the database file would.
-func tamper(t *testing.T, db *kv.SQLite, q string) {
+func tamper(t *testing.T, db kv.SQL, q string) {
 	t.Helper()
 	if _, err := db.WriteHandle().Exec(q); err != nil {
 		t.Fatal(err)
@@ -571,6 +638,69 @@ func TestUpdateBothRollsBackBothSides(t *testing.T) {
 	}
 	if total != 0 || len(got) != 0 {
 		t.Fatalf("event write survived the rollback: %d %+v", total, got)
+	}
+}
+
+// TestConcurrentAppendFromTwoConnections: two writers on one PostgreSQL log serialise on the
+// advisory lock (and retry a unique violation), and the chain still verifies.
+func TestConcurrentAppendFromTwoConnections(t *testing.T) {
+	dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server two writers share")
+	}
+	shared := testDatabase(t, dsn)
+	openPG := func() kv.SQL {
+		t.Helper()
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: shared})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pg.Close() })
+		return pg
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Dialect: PostgreSQL, SignKey: key, SignerID: "test", Now: time.Now, CheckpointInterval: time.Hour}
+	oneDB, twoDB := openPG(), openPG()
+	one, err := Open(oneDB.Handle(), oneDB.WriteHandle(), "audit_events", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Open(twoDB.Handle(), twoDB.WriteHandle(), "audit_events", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	var wg sync.WaitGroup
+	errc := make(chan error, 2*n)
+	for i := 0; i < n; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			_, err := one.Append(Event{Actor: "a", Action: fmt.Sprintf("one-%d", i)})
+			errc <- err
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+			_, err := two.Append(Event{Actor: "b", Action: fmt.Sprintf("two-%d", i)})
+			errc <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errc)
+	for err := range errc {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := one.Verify()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Events != 2*n {
+		t.Fatalf("events %d, want %d", res.Events, 2*n)
 	}
 }
 

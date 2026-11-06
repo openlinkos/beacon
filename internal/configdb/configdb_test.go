@@ -189,6 +189,51 @@ func TestImportAndExportRoundTrip(t *testing.T) {
 	}
 }
 
+// TestReloadTakesTheDatabase: a second service on the same store keeps its start snapshot until Reload.
+func TestReloadTakesTheDatabase(t *testing.T) {
+	e := imported(t)
+	s2 := Open(Deps{Store: e.st, Lang: i18n.EN})
+	f := testFiles()
+	f["catalog/locations.yaml"] += "  - {id: cdn-pre-eu1, name: Europe, region: overseas, network: CN2 GIA, probe: {timeout: 45s, retries: 1}}\n"
+	if _, err := e.s.Import(ctx, api, f, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s2.Catalog().Location("cdn-pre-eu1"); ok {
+		t.Fatal("the other service saw the change without Reload")
+	}
+	s2.Reload()
+	if _, ok := s2.Catalog().Location("cdn-pre-eu1"); !ok {
+		t.Fatal("Reload did not pick up the change")
+	}
+}
+
+// TestReloadKeepsTheCatalogueWhenTheReadFails: a single failed read must not replace the
+// catalogue in memory with an empty one at version 0.
+func TestReloadKeepsTheCatalogueWhenTheReadFails(t *testing.T) {
+	e := imported(t)
+	if _, ok := e.s.Catalog().Location("cdn-pre-us1"); !ok {
+		t.Fatal("setup")
+	}
+	version := e.s.Version()
+	summary := e.s.Summary()
+	if err := e.st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e.s.Reload()
+	if e.s.Version() != version {
+		t.Fatalf("Reload emptied the catalogue: version %d, want %d", e.s.Version(), version)
+	}
+	if _, ok := e.s.Catalog().Location("cdn-pre-us1"); !ok {
+		t.Fatal("Reload dropped a location after a read failure")
+	}
+	if e.s.Summary() != summary {
+		t.Fatalf("Reload changed the catalogue after a read failure: %s", e.s.Summary())
+	}
+	if !strings.Contains(e.bot.last(), "could not reload") {
+		t.Fatalf("the failure was not said: %q", e.bot.last())
+	}
+}
+
 func slicesOf(f Files) []string { return sortedKeys(f) }
 
 func TestReadFiles(t *testing.T) {

@@ -9,8 +9,10 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/hex"
@@ -173,23 +175,36 @@ type AuditEntry struct {
 
 // Store is the state in the SQL database.
 type Store struct {
-	db    *kv.SQLite
-	audit *events.Log
-	uses  *events.Log
-	now   func() time.Time
+	db      kv.SQL
+	audit   *events.Log
+	uses    *events.Log
+	now     func() time.Time
+	dialect events.Dialect
 
-	mu     sync.RWMutex
-	tokens map[string]Token // by hash
+	mu      sync.RWMutex     // the token cache
+	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
+	tokens  map[string]Token // by hash
 }
 
-// Options is how the database is opened. The zero options beside Path are the plan's defaults:
-// WAL, synchronous FULL, checkpoints every 24 hours.
+// Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
+// are the plan's defaults: WAL, synchronous FULL, checkpoints every 24 hours, a read pool of four
+// PostgreSQL connections and a 15s statement timeout.
 type Options struct {
-	// Path is the database file.
+	// Driver is "sqlite" (the default) or "postgres".
+	Driver string
+	// Path is the SQLite database file.
 	Path string
 	// JournalMode and Synchronous are SQLite's pragmas; the defaults (WAL, FULL) are what a
 	// deployment should keep.
 	JournalMode, Synchronous string
+	// DSN is the PostgreSQL connection string, read from the file the configuration names
+	// (storage.dsn_file); it never appears in logs or errors.
+	DSN string
+	// PoolSize is the PostgreSQL read pool's size; writes take one connection of their own. 4 by
+	// default.
+	PoolSize int
+	// StatementTimeout bounds each PostgreSQL statement; 15s by default, zero turns it off.
+	StatementTimeout time.Duration
 	// BusyTimeout is how long a SQLite statement waits for a lock; 15s by default.
 	BusyTimeout time.Duration
 	// CheckpointInterval is how often the audit chain's checkpoints are written; 24h by default.
@@ -202,33 +217,97 @@ type Options struct {
 	SignKey []byte
 }
 
-// Open opens or creates the database at path; it fails with ErrLocked when another process holds
-// it.
+// Open opens or creates the SQLite database at path; it fails with ErrLocked when another process
+// holds it.
 func Open(path string) (*Store, error) {
 	return OpenWith(Options{Path: path})
 }
 
-// OpenWith is Open with the options named.
+// OpenWith opens or creates the database the options name: SQLite at Path (the default) or
+// PostgreSQL at DSN.
 func OpenWith(o Options) (*Store, error) {
-	if o.Path == "" {
-		return nil, errors.New("no database path")
-	}
-	if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
-		return nil, err
-	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout})
+	s, db, err := openBackend(o, false)
 	if err != nil {
-		if errors.Is(err, kv.ErrLocked) {
-			return nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
-		}
-		return nil, fmt.Errorf("open %s: %w", o.Path, err)
-	}
-	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	if err := s.openLogs(o); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
-	_ = db.View(func(tx kv.Tx) error {
+	if err := s.load(db, o); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenRead opens the database for reading only (the CLI's checks while the service runs); it
+// fails when the file is not there, and every write fails. With PostgreSQL there is no file to
+// hold: the database simply opens without its write pool.
+func OpenRead(path string) (*Store, error) {
+	return OpenReadWith(Options{Path: path})
+}
+
+// OpenReadWith is OpenRead with the options named.
+func OpenReadWith(o Options) (*Store, error) {
+	s, db, err := openBackend(o, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.load(db, o); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// openBackend opens the database the options name and the store that will sit on it, with its
+// event logs open (read-only logs read the tables the service made).
+func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
+	var db kv.SQL
+	var dialect events.Dialect
+	switch strings.ToLower(strings.TrimSpace(o.Driver)) {
+	case "", "sqlite":
+		if o.Path == "" {
+			return nil, nil, errors.New("no database path")
+		}
+		if err := os.MkdirAll(filepath.Dir(o.Path), 0o700); err != nil {
+			return nil, nil, err
+		}
+		sq, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, JournalMode: o.JournalMode, Synchronous: o.Synchronous, BusyTimeout: o.BusyTimeout, ReadOnly: ro})
+		if err != nil {
+			if errors.Is(err, kv.ErrLocked) {
+				return nil, nil, fmt.Errorf("open %s: %w", o.Path, ErrLocked)
+			}
+			return nil, nil, fmt.Errorf("open %s: %w", o.Path, err)
+		}
+		db, dialect = sq, events.SQLite
+	case "postgres":
+		pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: o.DSN, PoolSize: o.PoolSize, StatementTimeout: o.StatementTimeout, ReadOnly: ro})
+		if err != nil {
+			return nil, nil, err
+		}
+		db, dialect = pg, events.PostgreSQL
+	default:
+		return nil, nil, fmt.Errorf("storage driver %q: sqlite or postgres", o.Driver)
+	}
+	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}, dialect: dialect}
+	var write *sql.DB
+	if !ro {
+		write = db.WriteHandle()
+	}
+	eo := events.Options{Dialect: dialect, SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Retention: o.Retention, Now: s.now}
+	audit, err := events.Open(db.Handle(), write, "audit_events", eo)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	uses, err := events.Open(db.Handle(), write, "secret_uses", eo)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	s.audit, s.uses = audit, uses
+	return s, db, nil
+}
+
+// load reads the tokens into memory, as every open does.
+func (s *Store) load(db kv.SQL, _ Options) error {
+	return db.View(func(tx kv.Tx) error {
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
 			if json.Unmarshal(v, &t) == nil {
@@ -241,65 +320,10 @@ func OpenWith(o Options) (*Store, error) {
 		})
 		return nil
 	})
-	return s, nil
-}
-
-// OpenRead opens the database for reading only (the CLI's checks while the service runs); it
-// fails when the file is not there, and every write fails.
-func OpenRead(path string) (*Store, error) {
-	return OpenReadWith(Options{Path: path})
-}
-
-// OpenReadWith is OpenRead with the options named, so Retention, SignKey, CheckpointInterval
-// and Now reach the event logs the way OpenWith does.
-func OpenReadWith(o Options) (*Store, error) {
-	if o.Path == "" {
-		return nil, errors.New("no database path")
-	}
-	if _, err := os.Stat(o.Path); err != nil {
-		return nil, err
-	}
-	db, err := kv.OpenSQLite(kv.SQLiteOptions{Path: o.Path, ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", o.Path, err)
-	}
-	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}}
-	if err := s.openLogs(o); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	_ = db.View(func(tx kv.Tx) error {
-		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
-			var t Token
-			if json.Unmarshal(v, &t) == nil {
-				if t.Lifetime == 0 {
-					t.Lifetime = t.Expires.Sub(t.Created)
-				}
-				s.tokens[t.Hash] = t
-			}
-			return true
-		})
-		return nil
-	})
-	return s, nil
-}
-
-func (s *Store) openLogs(o Options) error {
-	eo := events.Options{SignKey: o.SignKey, CheckpointInterval: o.CheckpointInterval, Retention: o.Retention, Now: s.now}
-	audit, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "audit_events", eo)
-	if err != nil {
-		return err
-	}
-	uses, err := events.Open(s.db.Handle(), s.db.WriteHandle(), "secret_uses", eo)
-	if err != nil {
-		return err
-	}
-	s.audit, s.uses = audit, uses
-	return nil
 }
 
 // Storage is the SQL database under the store, for the checks the command line runs.
-func (s *Store) Storage() *kv.SQLite { return s.db }
+func (s *Store) Storage() kv.SQL { return s.db }
 
 // Close closes the database, folding the WAL into the file.
 func (s *Store) Close() error { return s.db.Close() }
@@ -314,6 +338,51 @@ func (s *Store) SetClock(now func() time.Time) {
 	s.now = now
 	s.audit.SetClock(now)
 	s.uses.SetClock(now)
+}
+
+// RefreshTokens re-reads every token from the database into the in-memory cache, replacing what it
+// held. The cache is what open filled: a single process owns it, but the two instances of a
+// primary/standby pair share the database, and the standby's snapshot would not know the tokens
+// the primary made while it held the lead — so the service refreshes when it takes over, and on a
+// schedule while it waits. A failed read leaves the table it held, so a blip does not refuse every
+// token.
+func (s *Store) RefreshTokens() error {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	tokens := map[string]Token{}
+	err := s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
+			var t Token
+			if json.Unmarshal(v, &t) == nil {
+				if t.Lifetime == 0 { // from before the lifetime was kept
+					t.Lifetime = t.Expires.Sub(t.Created)
+				}
+				tokens[t.Hash] = t
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.tokens = tokens
+	s.mu.Unlock()
+	return nil
+}
+
+// SetWriteGuard runs fn at the start of every write transaction (the HA lease check). SQLite
+// ignores it; PostgreSQL and the event logs take it.
+func (s *Store) SetWriteGuard(fn func(context.Context, *sql.Tx) error) {
+	type guarded interface {
+		SetWriteGuard(func(context.Context, *sql.Tx) error)
+	}
+	if g, ok := s.db.(guarded); ok {
+		g.SetWriteGuard(fn)
+	}
+	s.audit.SetGuard(fn)
+	s.uses.SetGuard(fn)
 }
 
 // ---- Groups
@@ -458,8 +527,8 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	now := s.now().UTC()
 	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 	b, _ := json.Marshal(t)
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	err = s.db.Update(func(tx kv.Tx) error {
 		if tx.Get(bucketTokens, []byte(name)) != nil {
 			return fmt.Errorf("a token named %q exists; revoke it first", name)
@@ -469,7 +538,9 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	if err != nil {
 		return "", Token{}, err
 	}
+	s.mu.Lock()
 	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return secret, t, nil
 }
 
@@ -487,18 +558,19 @@ func (s *Store) Tokens() []Token {
 
 // RevokeToken deletes the token called name.
 func (s *Store) RevokeToken(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var hash string
-	for h, t := range s.tokens {
-		if t.Name == name {
-			hash = h
-		}
-	}
-	if hash == "" {
-		return ErrNotFound
-	}
 	err := s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return ErrNotFound
+		}
+		var t Token
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		hash = t.Hash
 		if err := tx.Delete(bucketTokens, []byte(name)); err != nil {
 			return err
 		}
@@ -507,34 +579,47 @@ func (s *Store) RevokeToken(name string) error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
 	delete(s.tokens, hash)
+	s.mu.Unlock()
 	return nil
 }
 
 // UpdateToken changes the token called name with change, which cannot alter its name, hash or expiry.
+// The token is read from the database inside the write, so a revoke that landed on another instance
+// of a pair is not written back from a stale cache.
 func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
 	var t Token
-	found := false
-	for _, x := range s.tokens {
-		if x.Name == name {
-			t, found = x, true
+	err := s.db.Update(func(tx kv.Tx) error {
+		v := tx.Get(bucketTokens, []byte(name))
+		if v == nil {
+			return ErrNotFound
 		}
-	}
-	if !found {
-		return Token{}, ErrNotFound
-	}
-	hash, expires := t.Hash, t.Expires
-	if err := change(&t); err != nil {
+		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		if t.Lifetime == 0 {
+			t.Lifetime = t.Expires.Sub(t.Created)
+		}
+		hash, expires := t.Hash, t.Expires
+		if err := change(&t); err != nil {
+			return err
+		}
+		t.Name, t.Hash, t.Expires = name, hash, expires
+		b, err := json.Marshal(t)
+		if err != nil {
+			return err
+		}
+		return tx.Put(bucketTokens, []byte(name), b)
+	})
+	if err != nil {
 		return Token{}, err
 	}
-	t.Name, t.Hash, t.Expires = name, hash, expires
-	b, _ := json.Marshal(t)
-	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte(name), b) }); err != nil {
-		return Token{}, err
-	}
-	s.tokens[hash] = t
+	s.mu.Lock()
+	s.tokens[t.Hash] = t
+	s.mu.Unlock()
 	return t, nil
 }
 
@@ -761,6 +846,33 @@ func (s *Store) Sessions(limit int, keep func(SessionRecord) bool) []SessionReco
 		return nil
 	})
 	return out
+}
+
+// SessionsStartedBefore lists sessions that started before t, oldest first, without deleting them.
+func (s *Store) SessionsStartedBefore(t time.Time) []SessionRecord {
+	var out []SessionRecord
+	_ = s.db.View(func(tx kv.Tx) error {
+		tx.Range(bucketSessions, kv.Range{}, func(_, v []byte) bool {
+			var r SessionRecord
+			if err := json.Unmarshal(v, &r); err != nil {
+				return true
+			}
+			if !r.Started.Before(t) {
+				return false
+			}
+			out = append(out, r)
+			return true
+		})
+		return nil
+	})
+	return out
+}
+
+// DeleteSession removes the session with id.
+func (s *Store) DeleteSession(id string) error {
+	return s.db.Update(func(tx kv.Tx) error {
+		return tx.Delete(bucketSessions, []byte(id))
+	})
 }
 
 // DeleteSessionsBefore removes the records of sessions that started before t and returns them.

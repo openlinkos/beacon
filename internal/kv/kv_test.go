@@ -33,8 +33,8 @@ func keys(tx Tx, bucket string, r Range) []string {
 	return out
 }
 
-func TestSQLitePutGetDelete(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestPutGetDelete(t *testing.T) {
+	db := openAny(t)
 	if err := db.Update(func(tx Tx) error {
 		if err := tx.Put([]byte("b"), []byte("k1"), []byte("v1")); err != nil {
 			return err
@@ -81,8 +81,8 @@ func TestSQLitePutGetDelete(t *testing.T) {
 	}
 }
 
-func TestSQLiteRange(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestRange(t *testing.T) {
+	db := openAny(t)
 	err := db.Update(func(tx Tx) error {
 		for _, k := range []string{"a", "ab", "abc", "b", "z", ""} { // includes the empty key
 			if err := tx.Put([]byte("b"), []byte(k), []byte("v")); err != nil {
@@ -153,8 +153,8 @@ func TestSQLiteRange(t *testing.T) {
 	})
 }
 
-func TestSQLiteSequence(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestSequence(t *testing.T) {
+	db := openAny(t)
 	var first, second uint64
 	err := db.Update(func(tx Tx) error {
 		var err error
@@ -228,8 +228,8 @@ func TestSQLiteSequence(t *testing.T) {
 	})
 }
 
-func TestSQLiteCompareAndSwap(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestCompareAndSwap(t *testing.T) {
+	db := openAny(t)
 	err := db.Update(func(tx Tx) error {
 		if err := tx.CompareAndSwap([]byte("b"), []byte("k"), nil, []byte("v1")); err != nil {
 			return err
@@ -253,6 +253,19 @@ func TestSQLiteCompareAndSwap(t *testing.T) {
 		if !errors.Is(err, ErrCompareFailed) {
 			t.Errorf("CAS with old %q: %v", c.old, err)
 		}
+	}
+	// a failed insert-CAS must not abort the transaction: later Gets still see the row
+	err = db.Update(func(tx Tx) error {
+		if err := tx.CompareAndSwap([]byte("b"), []byte("k"), nil, []byte("v3")); !errors.Is(err, ErrCompareFailed) {
+			t.Errorf("CAS insert on an existing key: %v", err)
+		}
+		if v := tx.Get([]byte("b"), []byte("k")); !bytes.Equal(v, []byte("v2")) {
+			t.Errorf("Get after a failed CAS insert: %q (nil means the transaction was aborted)", v)
+		}
+		return ErrCompareFailed
+	})
+	if !errors.Is(err, ErrCompareFailed) {
+		t.Errorf("the failed CAS insert: %v", err)
 	}
 	// the failed swaps changed nothing
 	_ = db.View(func(tx Tx) error {
@@ -281,8 +294,8 @@ func TestSQLiteCompareAndSwap(t *testing.T) {
 	})
 }
 
-func TestSQLiteUpdateRollsBack(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestUpdateRollsBack(t *testing.T) {
+	db := openAny(t)
 	err := db.Update(func(tx Tx) error {
 		if err := tx.Put([]byte("b"), []byte("k"), []byte("v")); err != nil {
 			return err
@@ -335,10 +348,10 @@ func TestSQLiteLocked(t *testing.T) {
 	}
 }
 
-// TestSQLiteWritesAfterLock: the process that holds the lock keeps writing, and its transactions
+// TestWritesAfterLock: the process that holds the lock keeps writing, and its transactions
 // serialise.
-func TestSQLiteWritesAfterLock(t *testing.T) {
-	db, _ := openSQLite(t)
+func TestWritesAfterLock(t *testing.T) {
+	db := openAny(t)
 	var wg sync.WaitGroup
 	for i := range 8 {
 		wg.Add(1)

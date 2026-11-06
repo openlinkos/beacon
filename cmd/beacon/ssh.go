@@ -20,6 +20,7 @@ import (
 	"github.com/openlinkos/beacon/internal/ctl"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/s3"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
@@ -69,9 +70,19 @@ func newGate(cfg *config.Config, st *store.Store, bot sshgate.Poster, pages *lin
 	if cfg.Language == "en" {
 		lang = i18n.EN
 	}
-	return sshgate.New(sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
+	d := sshgate.Deps{Store: st, HostKey: host, CA: ca, SourceAddresses: cfg.SSH.SourceAddresses,
 		Dir: filepath.Join(cfg.DataDir, "recordings"), Keep: cfg.SSH.Keep.D(), Bot: bot, Lang: lang, Metrics: m, Log: log,
-		PublicAddress: cfg.SSH.PublicAddress, Pages: pages})
+		PublicAddress: cfg.SSH.PublicAddress, Pages: pages}
+	if cfg.SSH.Recordings == "s3" { // the bucket an HA pair shares; both read and write it
+		files, err := s3.NewStore(s3.Options{Endpoint: cfg.SSH.RecordingsS3.Endpoint, Region: cfg.SSH.RecordingsS3.Region,
+			Bucket: cfg.SSH.RecordingsS3.Bucket, AccessKeyID: cfg.Secrets.S3AccessKeyID, SecretAccessKey: cfg.Secrets.S3SecretAccessKey,
+			Dir: d.Dir, Log: log})
+		if err != nil {
+			return nil, err
+		}
+		d.Files = files
+	}
+	return sshgate.New(d)
 }
 
 // keyArg is a public key given on the command line, or @FILE to read it from a file.

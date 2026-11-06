@@ -1,8 +1,9 @@
 package main
 
-// The storage itself: where it lives (the storage section of the configuration), and the checks
-// the command line runs against the database file — the audit chain's verification and the
-// database's health. Both open read-only, so they work while the service runs.
+// The storage itself: where it lives (the storage section of the configuration), the checks the
+// command line runs against the database — the audit chain's verification and the database's
+// health, both opening read-only so they work while the service runs — and the move from SQLite to
+// PostgreSQL.
 
 import (
 	"errors"
@@ -19,8 +20,8 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// storagePath is the database the configuration names, or the default beside the data directory's
-// other files.
+// storagePath is the SQLite database the configuration names, or the default beside the data
+// directory's other files.
 func storagePath(cfg *config.Config) string {
 	if cfg.Storage.Path != "" {
 		return cfg.Storage.Path
@@ -32,9 +33,13 @@ func storagePath(cfg *config.Config) string {
 // over the plan's defaults.
 func storeOptions(cfg *config.Config) store.Options {
 	return store.Options{
+		Driver:             cfg.Storage.Driver,
 		Path:               storagePath(cfg),
 		JournalMode:        cfg.Storage.SQLite.JournalMode,
 		Synchronous:        cfg.Storage.SQLite.Synchronous,
+		DSN:                cfg.Secrets.StorageDSN,
+		PoolSize:           cfg.Storage.Postgres.PoolSize,
+		StatementTimeout:   cfg.Storage.Postgres.StatementTimeout.D(),
 		BusyTimeout:        cfg.Storage.SQLite.BusyTimeout.D(),
 		CheckpointInterval: cfg.Storage.Audit.CheckpointInterval.D(),
 		Retention:          cfg.Storage.Audit.Retention.D(),
@@ -44,6 +49,14 @@ func storeOptions(cfg *config.Config) store.Options {
 // openRead opens the database for the checks: read-only, so the service may be running; a missing
 // database or one left mid-write by a killed service says so rather than pretending.
 func openRead(stderr io.Writer, cfg *config.Config) (*store.Store, bool) {
+	if cfg.Storage.Driver == "postgres" {
+		st, err := store.OpenReadWith(storeOptions(cfg))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return nil, false
+		}
+		return st, true
+	}
 	path := storagePath(cfg)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		if _, err := os.Stat(filepath.Join(cfg.DataDir, "status.db")); err == nil {
@@ -110,11 +123,14 @@ func auditCmd(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-const storageUsage = "storage check"
+const storageUsage = "storage check\n       beacon storage migrate --to postgres [-config FILE]"
 
-// storageCmd checks the database's health: SQLite's own integrity check, what the buckets hold,
-// and the audit chain's verification.
+// storageCmd checks the database's health (the backend's own check, what the buckets hold, and the
+// audit chain's verification) or moves a SQLite database into PostgreSQL.
 func storageCmd(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "migrate" {
+		return storageMigrate(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "check" {
 		fmt.Fprintln(stderr, storageUsage)
 		return 2
@@ -138,9 +154,8 @@ func storageCmd(args []string, stdout, stderr io.Writer) int {
 	db := st.Storage()
 	failed := false
 	say := func(format string, args ...any) { fmt.Fprintf(stdout, format+"\n", args...) }
-	say("storage: %s at %s", cfg.Storage.Driver, storagePath(cfg))
-	say("journal %s, %d bytes", db.JournalMode(), db.Size())
-	health, err := db.IntegrityCheck()
+	say("storage: %s", db.Where())
+	health, err := db.Health()
 	if err != nil {
 		say("integrity: could not check: %v", err)
 		failed = true
@@ -186,6 +201,80 @@ func storageCmd(args []string, stdout, stderr io.Writer) int {
 	if failed {
 		return 1
 	}
+	return 0
+}
+
+// storageMigrate copies the SQLite database the configuration names into the PostgreSQL database
+// its storage.dsn_file names, in one transaction with the counts checked before it commits
+// (docs/self-hosting/postgres.md). The SQLite file stays as it is, and keeps serving until the
+// configuration names PostgreSQL as the driver.
+func storageMigrate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("storage migrate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", defaultConfig, "configuration file")
+	to := fs.String("to", "", "postgres: the driver to move into")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		fmt.Fprintln(stderr, storageUsage)
+		return 2
+	}
+	if *to != "postgres" {
+		fmt.Fprintln(stderr, storageUsage)
+		return 2
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if cfg.Storage.DSNFile == "" {
+		fmt.Fprintln(stderr, "storage.dsn_file names the PostgreSQL database to move into; it is read from a file, never the configuration")
+		return 1
+	}
+	// the source is the SQLite database the configuration names, whatever driver is set: a
+	// deployment switches its driver only after the move
+	src := storeOptions(cfg)
+	src.Driver = "sqlite"
+	dst := storeOptions(cfg)
+	dst.Driver = "postgres"
+	done, err := store.MigrateToPostgres(src, dst)
+	if err != nil {
+		fmt.Fprintf(stderr, "the migration did not complete: %v\n", err)
+		return 1
+	}
+	if !done {
+		if _, err := os.Stat(src.Path); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "no SQLite database at %s to move\n", src.Path)
+		} else {
+			fmt.Fprintln(stderr, "the PostgreSQL database holds something already; nothing was copied")
+		}
+		return 1
+	}
+	st, err := store.OpenReadWith(dst)
+	if err != nil {
+		fmt.Fprintf(stderr, "the database is in place, but reading it back failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = st.Close() }()
+	db := st.Storage()
+	var buckets int
+	_ = db.View(func(tx kv.Tx) error {
+		for _, b := range store.Buckets {
+			buckets += tx.Count(b)
+		}
+		return nil
+	})
+	entries, _, err := st.AuditQuery(store.AuditFilter{Limit: 1})
+	if err != nil {
+		fmt.Fprintf(stderr, "the database is in place, but reading its audit log failed: %v\n", err)
+		return 1
+	}
+	what := "empty"
+	if len(entries) > 0 {
+		what = fmt.Sprintf("newest %s", entries[0].Time.Format(time.RFC3339))
+	}
+	fmt.Fprintf(stdout, "moved %s into %s: %d entries across the buckets, the audit log %s\n",
+		src.Path, db.Where(), buckets, what)
+	fmt.Fprintln(stdout, "the SQLite file is kept as it is; set storage.driver: postgres to serve from PostgreSQL, and roll back by leaving it at sqlite")
 	return 0
 }
 

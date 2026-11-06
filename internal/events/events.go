@@ -11,8 +11,8 @@
 // its record commit together or not at all.
 //
 // The tables live in the same database as the key-value space, over database/sql handles (the
-// SQLite pools of internal/kv today, PostgreSQL in the package to come; only the placeholder
-// spelling differs).
+// pools of internal/kv: SQLite by default, PostgreSQL under storage.driver postgres). The dialect
+// says which: only the placeholder spelling and the table options differ.
 package events
 
 import (
@@ -26,8 +26,47 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/openlinkos/beacon/internal/kv"
 )
+
+// Dialect is the SQL the log's statements are written for. The queries are kept in one spelling
+// (SQLite's, with ? placeholders); PostgreSQL's are rewritten from it, so the two backends run the
+// same statements and cannot drift apart.
+type Dialect int
+
+const (
+	// SQLite is the default dialect: ? placeholders and WITHOUT ROWID tables.
+	SQLite Dialect = iota
+	// PostgreSQL writes $N placeholders and plain heap tables.
+	PostgreSQL
+)
+
+// placeholder rewrites a statement from ? to $1, $2, … for PostgreSQL.
+func (d Dialect) placeholder(sql string) string {
+	if d == SQLite || !strings.Contains(sql, "?") {
+		return sql
+	}
+	var b strings.Builder
+	n := 0
+	for {
+		i := strings.IndexByte(sql, '?')
+		if i < 0 {
+			b.WriteString(sql)
+			return b.String()
+		}
+		n++
+		b.WriteString(sql[:i])
+		b.WriteString("$")
+		b.WriteString(strconv.Itoa(n))
+		sql = sql[i+1:]
+	}
+}
 
 // Event is one record in a log. Actor is who did it (a person, an agent, a rule or the system),
 // OnBehalf the person an agent acted for; Via is how (api, mcp, card, console, cli, hook);
@@ -73,10 +112,10 @@ type Checkpoint struct {
 // alone is not permission to have deleted the records it covered.
 type PruneMark struct {
 	Log            string    `json:"log"`
-	Seq            uint64    `json:"seq"` // the last record the prune dropped
+	Seq            uint64    `json:"seq"`
 	CutTime        time.Time `json:"cut_time"`
-	RemainingFirst time.Time `json:"remaining_first,omitzero"` // time of the first record that stayed
-	Head           string    `json:"head"`                     // the chain head at Seq
+	RemainingFirst time.Time `json:"remaining_first,omitzero"`
+	Head           string    `json:"head"`
 	Hash           string    `json:"hash"`
 	Signature      string    `json:"signature"`
 }
@@ -91,6 +130,8 @@ type Filter struct {
 
 // Options is how a Log is opened.
 type Options struct {
+	// Dialect is the database under the handles: SQLite (the default) or PostgreSQL.
+	Dialect Dialect
 	// SignKey signs checkpoints (HMAC-SHA256). When nil, one is made at random and kept in the
 	// database, which holds a tamperer who cannot write the tables — but whoever can write them
 	// all could re-sign; the key hierarchy that comes with the vault replaces this with a key
@@ -133,11 +174,24 @@ var nameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}$`)
 type Log struct {
 	read, write *sql.DB
 	table       string
+	dialect     Dialect
 	key         []byte
 	signer      string
 	interval    time.Duration
 	retention   time.Duration
 	now         func() time.Time
+	guard       func(context.Context, *sql.Tx) error
+}
+
+// appendLockNamespace is the first key of the per-log advisory lock AppendTx takes, so two
+// writers cannot both read the same head. SchemaLock is a single-argument lock and lives in
+// another space.
+const appendLockNamespace = 784222
+
+// SetGuard runs fn at the start of every write transaction this log begins (the HA lease check).
+// AppendTx, which a caller already holds a transaction for, still takes the per-log advisory lock.
+func (l *Log) SetGuard(fn func(context.Context, *sql.Tx) error) {
+	l.guard = fn
 }
 
 // Open prepares the log called name (audit_events, secret_uses) over the two pools (write may be
@@ -156,7 +210,7 @@ func Open(read, write *sql.DB, name string, o Options) (*Log, error) {
 	if o.SignerID == "" {
 		o.SignerID = "generated"
 	}
-	l := &Log{read: read, write: write, table: name, interval: o.CheckpointInterval, retention: o.Retention, now: o.Now}
+	l := &Log{read: read, write: write, table: name, dialect: o.Dialect, interval: o.CheckpointInterval, retention: o.Retention, now: o.Now}
 	if err := l.create(); err != nil {
 		return nil, err
 	}
@@ -171,6 +225,9 @@ func Open(read, write *sql.DB, name string, o Options) (*Log, error) {
 	return l, nil
 }
 
+// q writes the statement for the log's dialect: ? placeholders become $1, $2, … for PostgreSQL.
+func (l *Log) q(sql string) string { return l.dialect.placeholder(sql) }
+
 func (l *Log) create() error {
 	if l.write == nil {
 		return nil // a read-only log reads tables the service made
@@ -180,10 +237,24 @@ func (l *Log) create() error {
 	if err != nil {
 		return err
 	}
+	if l.dialect == PostgreSQL { // the pair's two instances, starting together, serialise here
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, kv.SchemaLock); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	// SQLite keeps whole-number primary keys and blobs; PostgreSQL takes BIGINT and BYTEA, and has
+	// no WITHOUT ROWID (its tables are heaps with primary-key indexes anyway).
+	integer, blob, rowid := "INTEGER", "BLOB", ""
+	if l.dialect == PostgreSQL {
+		integer, blob = "BIGINT", "BYTEA"
+	} else {
+		rowid = " WITHOUT ROWID"
+	}
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS "` + l.table + `" (
-			seq INTEGER PRIMARY KEY,
-			time INTEGER NOT NULL,
+			seq ` + integer + ` PRIMARY KEY,
+			time ` + integer + ` NOT NULL,
 			actor TEXT NOT NULL DEFAULT '',
 			on_behalf TEXT NOT NULL DEFAULT '',
 			via TEXT NOT NULL DEFAULT '',
@@ -202,31 +273,31 @@ func (l *Log) create() error {
 		`CREATE INDEX IF NOT EXISTS "` + l.table + `_object" ON "` + l.table + `" (object)`,
 		`CREATE TABLE IF NOT EXISTS event_checkpoints (
 			log TEXT NOT NULL,
-			seq INTEGER NOT NULL,
-			first_seq INTEGER NOT NULL,
-			count INTEGER NOT NULL,
+			seq ` + integer + ` NOT NULL,
+			first_seq ` + integer + ` NOT NULL,
+			count ` + integer + ` NOT NULL,
 			head TEXT NOT NULL,
-			time INTEGER NOT NULL,
+			time ` + integer + ` NOT NULL,
 			prev TEXT NOT NULL DEFAULT '',
 			hash TEXT NOT NULL,
 			signer TEXT NOT NULL DEFAULT '',
 			signature TEXT NOT NULL,
 			PRIMARY KEY (log, seq)
-		) WITHOUT ROWID`,
+		)` + rowid,
 		`CREATE TABLE IF NOT EXISTS event_keys (
 			log TEXT NOT NULL PRIMARY KEY,
-			key BLOB NOT NULL
-		) WITHOUT ROWID`,
+			key ` + blob + ` NOT NULL
+		)` + rowid,
 		`CREATE TABLE IF NOT EXISTS event_prunes (
 			log TEXT NOT NULL,
-			seq INTEGER NOT NULL,
-			cut_time INTEGER NOT NULL,
-			remaining_first INTEGER NOT NULL DEFAULT 0,
+			seq ` + integer + ` NOT NULL,
+			cut_time ` + integer + ` NOT NULL,
+			remaining_first ` + integer + ` NOT NULL DEFAULT 0,
 			head TEXT NOT NULL,
 			hash TEXT NOT NULL,
 			signature TEXT NOT NULL,
 			PRIMARY KEY (log, seq)
-		) WITHOUT ROWID`,
+		)` + rowid,
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s); err != nil {
@@ -237,27 +308,33 @@ func (l *Log) create() error {
 	return tx.Commit()
 }
 
-// storedKey reads the log's generated signer key, making one at random the first time.
+// storedKey reads the log's generated signer key, making one at random the first time. The insert
+// keeps what a concurrent opener stored already (both instances of a pair, starting together): the
+// row is read back either way, so every process signs with the one key the table holds.
 func (l *Log) storedKey() ([]byte, error) {
-	var key []byte
-	err := l.read.QueryRowContext(context.Background(), `SELECT key FROM event_keys WHERE log = ?`, l.table).Scan(&key)
-	if err == nil {
-		return key, nil
+	read := func() ([]byte, error) {
+		var key []byte
+		err := l.read.QueryRowContext(context.Background(), l.q(`SELECT key FROM event_keys WHERE log = ?`), l.table).Scan(&key)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return key, err
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+	if key, err := read(); err != nil || key != nil {
+		return key, err
 	}
-	key = make([]byte, 32)
+	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
 	if l.write == nil {
 		return nil, errors.New("no signer key: the log is open read-only and never had one")
 	}
-	if _, err := l.write.ExecContext(context.Background(), `INSERT INTO event_keys (log, key) VALUES (?, ?)`, l.table, key); err != nil {
+	if _, err := l.write.ExecContext(context.Background(), l.q(`INSERT INTO event_keys (log, key) VALUES (?, ?)
+		ON CONFLICT (log) DO NOTHING`), l.table, key); err != nil {
 		return nil, err
 	}
-	return key, nil
+	return read() // what the table holds now, ours or the concurrent opener's
 }
 
 // SetClock sets the log's clock, which stamps what it writes; a nil clock is the real one. The
@@ -351,7 +428,7 @@ func signPrune(key []byte, p *PruneMark) string {
 func (l *Log) head(q interface {
 	QueryRow(string, ...any) *sql.Row
 }) (seq uint64, hash string, err error) {
-	err = q.QueryRow(`SELECT seq, hash FROM "`+l.table+`" ORDER BY seq DESC LIMIT 1`).Scan(&seq, &hash)
+	err = q.QueryRow(l.q(`SELECT seq, hash FROM "`+l.table+`" ORDER BY seq DESC LIMIT 1`)).Scan(&seq, &hash)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, "", err
 	}
@@ -360,7 +437,7 @@ func (l *Log) head(q interface {
 	}
 	var cseq uint64
 	var chead string
-	err = q.QueryRow(`SELECT seq, head FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`, l.table).Scan(&cseq, &chead)
+	err = q.QueryRow(l.q(`SELECT seq, head FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`), l.table).Scan(&cseq, &chead)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
@@ -377,8 +454,8 @@ func (l *Log) lastCheckpoint(q interface {
 }) (Checkpoint, bool, error) {
 	var c Checkpoint
 	var when int64
-	err := q.QueryRow(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`, l.table).
+	err := q.QueryRow(l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq DESC LIMIT 1`), l.table).
 		Scan(&c.Seq, &c.FirstSeq, &c.Count, &c.Head, &when, &c.Prev, &c.Hash, &c.Signer, &c.Signature)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Checkpoint{}, false, nil
@@ -396,7 +473,7 @@ func (l *Log) Append(e Event) (Event, error) {
 	if l.write == nil {
 		return Event{}, ErrReadOnly
 	}
-	err := withTx(l.write, func(tx *sql.Tx) error { return l.AppendTx(tx, &e) })
+	err := l.withTx(func(tx *sql.Tx) error { return l.AppendTx(tx, &e) })
 	if err != nil {
 		return Event{}, err
 	}
@@ -404,11 +481,13 @@ func (l *Log) Append(e Event) (Event, error) {
 }
 
 // AppendTx adds e inside a transaction the caller holds (a use and its record commit together);
-// the transaction is not committed here, so the caller can add more to it first.
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
+// the transaction is not committed here, so the caller can add more to it first. On PostgreSQL it
+// takes a per-log advisory lock first so two writers cannot both read the same head.
 func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 	ctx := context.Background()
+	if err := l.lockAppend(ctx, tx); err != nil {
+		return err
+	}
 	if e.Time.IsZero() {
 		e.Time = l.now().UTC()
 	} else {
@@ -420,9 +499,9 @@ func (l *Log) AppendTx(tx *sql.Tx, e *Event) error {
 	}
 	e.Seq = hseq + 1
 	e.Hash = sum(hhash, e)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO "`+l.table+`"
+	if _, err := tx.ExecContext(ctx, l.q(`INSERT INTO "`+l.table+`"
 		(seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		e.Seq, e.Time.UnixNano(), e.Actor, e.OnBehalf, e.Via, e.Action, e.Object, e.Detail, e.Reason, e.Context, e.IP, e.Client, e.Hash, e.PrevHash); err != nil {
 		return err
 	}
@@ -455,10 +534,10 @@ func (l *Log) checkpointTx(tx *sql.Tx, seq uint64, hash string, last Checkpoint)
 	chash := sha256.Sum256(canonicalCheckpoint(&c))
 	c.Hash = hex.EncodeToString(chash[:])
 	c.Signature = sign(l.key, &c)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO event_checkpoints
+	if _, err := tx.ExecContext(ctx, l.q(`INSERT INTO event_checkpoints
 		(log, seq, first_seq, count, head, time, prev, hash, signer, signature)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (log, seq) DO NOTHING`,
+		ON CONFLICT (log, seq) DO NOTHING`),
 		c.Log, c.Seq, c.FirstSeq, c.Count, c.Head, c.Time.UnixNano(), c.Prev, c.Hash, c.Signer, c.Signature); err != nil {
 		return Checkpoint{}, err
 	}
@@ -471,7 +550,7 @@ func (l *Log) Checkpoint() (Checkpoint, error) {
 		return Checkpoint{}, ErrReadOnly
 	}
 	var out Checkpoint
-	err := withTx(l.write, func(tx *sql.Tx) error {
+	err := l.withTx(func(tx *sql.Tx) error {
 		seq, hash, err := l.head(tx)
 		if err != nil {
 			return err
@@ -491,8 +570,6 @@ func (l *Log) Checkpoint() (Checkpoint, error) {
 }
 
 // Query returns the records matching f, newest first, and how many match in all.
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) Query(f Filter) ([]Event, int, error) {
 	if f.Limit <= 0 {
 		f.Limit = 100
@@ -528,11 +605,11 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 		cond += w
 	}
 	var total int
-	if err := l.read.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM "`+l.table+`" WHERE `+cond, args...).Scan(&total); err != nil {
+	if err := l.read.QueryRowContext(context.Background(), l.q(`SELECT COUNT(*) FROM "`+l.table+`" WHERE `+cond), args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := l.read.QueryContext(context.Background(), `SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
-		FROM "`+l.table+`" WHERE `+cond+` ORDER BY seq DESC LIMIT ? OFFSET ?`,
+	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
+		FROM "`+l.table+`" WHERE `+cond+` ORDER BY seq DESC LIMIT ? OFFSET ?`),
 		append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, err
@@ -555,10 +632,7 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 // chain that remains still verifies, and reports how many went. Checkpoints are never removed.
 // The cut is a prefix of the sequence: only records before the earliest record still inside
 // the window. When a later checkpoint already sits past that prefix, the cut moves back to the
-// newest checkpoint at or before it, so a new checkpoint is never inserted between two existing
-// ones (which would underflow the count and break the checkpoint chain).
-//
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
+// newest checkpoint at or before it.
 func (l *Log) Prune(retention time.Duration) (int, error) {
 	ctx := context.Background()
 	if l.write == nil {
@@ -569,7 +643,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 	}
 	cutoff := l.now().Add(-retention).UnixNano()
 	deleted := 0
-	err := withTx(l.write, func(tx *sql.Tx) error {
+	err := l.withTx(func(tx *sql.Tx) error {
 		cutSeq, err := l.pruneCutSeq(tx, cutoff)
 		if err != nil || cutSeq == 0 {
 			return err
@@ -583,16 +657,13 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 			return err
 		}
 		if last.Seq > cutSeq {
-			// a checkpoint already stands past the cut: inserting one at cutSeq would sit
-			// between two checkpoints and the count would underflow. Cut at the newest
-			// checkpoint at or before the prefix instead.
 			if prev.Seq == 0 {
 				return nil
 			}
 			cutSeq = prev.Seq
 		} else if prev.Seq != cutSeq {
 			var hash string
-			if err := tx.QueryRowContext(ctx, `SELECT hash FROM "`+l.table+`" WHERE seq = ?`, cutSeq).Scan(&hash); err != nil {
+			if err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), cutSeq).Scan(&hash); err != nil {
 				return err
 			}
 			if _, err := l.checkpointTx(tx, cutSeq, hash, prev); err != nil {
@@ -602,7 +673,7 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 		if err := l.writePruneMark(tx, cutSeq, cutoff); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM "`+l.table+`" WHERE seq <= ?`, cutSeq)
+		res, err := tx.ExecContext(ctx, l.q(`DELETE FROM "`+l.table+`" WHERE seq <= ?`), cutSeq)
 		if err != nil {
 			return err
 		}
@@ -613,12 +684,10 @@ func (l *Log) Prune(retention time.Duration) (int, error) {
 	return deleted, err
 }
 
-// pruneCutSeq is the last sequence a prune of cutoff may drop: one before the earliest record
-// whose time is still after the cutoff, so a backdated record cannot take newer ones with it.
 func (l *Log) pruneCutSeq(tx *sql.Tx, cutoff int64) (uint64, error) {
 	ctx := context.Background()
 	var minAfter sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT MIN(seq) FROM "`+l.table+`" WHERE time > ?`, cutoff).Scan(&minAfter); err != nil {
+	if err := tx.QueryRowContext(ctx, l.q(`SELECT MIN(seq) FROM "`+l.table+`" WHERE time > ?`), cutoff).Scan(&minAfter); err != nil {
 		return 0, err
 	}
 	if minAfter.Valid {
@@ -640,8 +709,8 @@ func (l *Log) pruneCutSeq(tx *sql.Tx, cutoff int64) (uint64, error) {
 func (l *Log) checkpointAtOrBefore(tx *sql.Tx, seq uint64) (Checkpoint, error) {
 	var c Checkpoint
 	var when int64
-	err := tx.QueryRowContext(context.Background(), `SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? AND seq <= ? ORDER BY seq DESC LIMIT 1`, l.table, seq).
+	err := tx.QueryRowContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? AND seq <= ? ORDER BY seq DESC LIMIT 1`), l.table, seq).
 		Scan(&c.Seq, &c.FirstSeq, &c.Count, &c.Head, &when, &c.Prev, &c.Hash, &c.Signer, &c.Signature)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Checkpoint{}, nil
@@ -656,14 +725,14 @@ func (l *Log) checkpointAtOrBefore(tx *sql.Tx, seq uint64) (Checkpoint, error) {
 func (l *Log) writePruneMark(tx *sql.Tx, cutSeq uint64, cutoff int64) error {
 	ctx := context.Background()
 	var head string
-	err := tx.QueryRowContext(ctx, `SELECT hash FROM "`+l.table+`" WHERE seq = ?`, cutSeq).Scan(&head)
+	err := tx.QueryRowContext(ctx, l.q(`SELECT hash FROM "`+l.table+`" WHERE seq = ?`), cutSeq).Scan(&head)
 	if err != nil {
-		if err := tx.QueryRowContext(ctx, `SELECT head FROM event_checkpoints WHERE log = ? AND seq = ?`, l.table, cutSeq).Scan(&head); err != nil {
+		if err := tx.QueryRowContext(ctx, l.q(`SELECT head FROM event_checkpoints WHERE log = ? AND seq = ?`), l.table, cutSeq).Scan(&head); err != nil {
 			return err
 		}
 	}
 	var remaining int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(time), 0) FROM "`+l.table+`" WHERE seq > ?`, cutSeq).Scan(&remaining); err != nil {
+	if err := tx.QueryRowContext(ctx, l.q(`SELECT COALESCE(MIN(time), 0) FROM "`+l.table+`" WHERE seq > ?`), cutSeq).Scan(&remaining); err != nil {
 		return err
 	}
 	p := PruneMark{Log: l.table, Seq: cutSeq, CutTime: time.Unix(0, cutoff).UTC(), Head: head}
@@ -673,20 +742,20 @@ func (l *Log) writePruneMark(tx *sql.Tx, cutSeq uint64, cutoff int64) error {
 	sum := sha256.Sum256(canonicalPrune(&p))
 	p.Hash = hex.EncodeToString(sum[:])
 	p.Signature = signPrune(l.key, &p)
-	_, err = tx.ExecContext(ctx, `INSERT INTO event_prunes
+	_, err = tx.ExecContext(ctx, l.q(`INSERT INTO event_prunes
 		(log, seq, cut_time, remaining_first, head, hash, signature)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (log, seq) DO UPDATE SET
 			cut_time = excluded.cut_time, remaining_first = excluded.remaining_first,
-			head = excluded.head, hash = excluded.hash, signature = excluded.signature`,
+			head = excluded.head, hash = excluded.hash, signature = excluded.signature`),
 		p.Log, p.Seq, p.CutTime.UnixNano(), remaining, p.Head, p.Hash, p.Signature)
 	return err
 }
 
 // Checkpoints lists them, oldest first.
 func (l *Log) Checkpoints() ([]Checkpoint, error) {
-	rows, err := l.read.QueryContext(context.Background(), `SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`, l.table)
+	rows, err := l.read.QueryContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`), l.table)
 	if err != nil {
 		return nil, err
 	}
@@ -704,10 +773,8 @@ func (l *Log) Checkpoints() ([]Checkpoint, error) {
 	return out, rows.Err()
 }
 
-// Verify walks the whole chain of the records still present, from the checkpoint that anchors
-// them, checking every hash and every checkpoint's signature. It holds when pruning has taken the
-// old records: the first record present must continue from a signed prune mark at the last dropped
-// sequence. A scheduled checkpoint alone is not permission to have deleted what it covered.
+// Verify walks the whole chain of the records still present. A gap is a break unless a signed
+// prune mark sits at the last dropped sequence. VerifySince re-anchors at those marks.
 func (l *Log) Verify() (Result, error) { return l.verify(0) }
 
 // VerifySince verifies the chain from the checkpoint at seq onwards (the records it covered may
@@ -722,7 +789,11 @@ func (l *Log) verify(from uint64) (Result, error) {
 	if db == nil {
 		db = l.write
 	}
-	tx, err := db.BeginTx(context.Background(), nil)
+	// Repeatable Read so MIN(seq), the prune marks and the remaining rows are one snapshot.
+	// Under READ COMMITTED a prune can empty the table between those statements and look like a break.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return Result{}, err
 	}
@@ -730,7 +801,6 @@ func (l *Log) verify(from uint64) (Result, error) {
 	return l.verifyTx(tx, from)
 }
 
-//nolint:gosec // the table name comes from Open's fixed pattern, never input
 func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 	ctx := context.Background()
 	checkpoints, err := l.checkpointsTx(tx)
@@ -762,12 +832,10 @@ func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 			return Result{}, fmt.Errorf("no checkpoint at %d; the checkpoints are at %s", from, seqList(checkpoints))
 		}
 	}
-
 	var minSeq sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `SELECT MIN(seq) FROM "`+l.table+`"`).Scan(&minSeq); err != nil {
 		return Result{}, err
 	}
-
 	if !minSeq.Valid {
 		return l.verifyEmpty(from, checkpoints, prunes)
 	}
@@ -778,7 +846,6 @@ func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 				"a prune at %d still has records at or before it", seq)
 		}
 	}
-
 	anchor := ""
 	start := firstPresent
 	if from > 0 {
@@ -802,10 +869,9 @@ func (l *Log) verifyTx(tx *sql.Tx, from uint64) (Result, error) {
 		}
 		anchor = p.Head
 	}
-
 	res := Result{FirstSeq: start, Checkpoints: len(checkpoints)}
-	rows, err := tx.QueryContext(ctx, `SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
-		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`, start)
+	rows, err := tx.QueryContext(ctx, l.q(`SELECT seq, time, actor, on_behalf, via, action, object, detail, reason, context, ip, client, hash, prev_hash
+		FROM "`+l.table+`" WHERE seq >= ? ORDER BY seq ASC`), start)
 	if err != nil {
 		return Result{}, err
 	}
@@ -874,8 +940,8 @@ func (l *Log) verifyEmpty(from uint64, checkpoints []Checkpoint, prunes map[uint
 }
 
 func (l *Log) checkpointsTx(tx *sql.Tx) ([]Checkpoint, error) {
-	rows, err := tx.QueryContext(context.Background(), `SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
-		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`, l.table)
+	rows, err := tx.QueryContext(context.Background(), l.q(`SELECT seq, first_seq, count, head, time, prev, hash, signer, signature
+		FROM event_checkpoints WHERE log = ? ORDER BY seq ASC`), l.table)
 	if err != nil {
 		return nil, err
 	}
@@ -894,8 +960,8 @@ func (l *Log) checkpointsTx(tx *sql.Tx) ([]Checkpoint, error) {
 }
 
 func (l *Log) prunesTx(tx *sql.Tx) (map[uint64]PruneMark, error) {
-	rows, err := tx.QueryContext(context.Background(), `SELECT seq, cut_time, remaining_first, head, hash, signature
-		FROM event_prunes WHERE log = ? ORDER BY seq ASC`, l.table)
+	rows, err := tx.QueryContext(context.Background(), l.q(`SELECT seq, cut_time, remaining_first, head, hash, signature
+		FROM event_prunes WHERE log = ? ORDER BY seq ASC`), l.table)
 	if err != nil {
 		return nil, err
 	}
@@ -945,9 +1011,66 @@ func broken(res Result, seq uint64, format string, args ...any) (Result, error) 
 
 // withTx runs fn in one transaction on the write pool.
 func withTx(db *sql.DB, fn func(tx *sql.Tx) error) error {
-	tx, err := db.BeginTx(context.Background(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func retryable(err error) bool {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		return pg.Code == "23505" || pg.Code == "40P01"
+	}
+	return false
+}
+
+func (l *Log) appendLockKey() int32 {
+	h := sha256.Sum256([]byte(l.table))
+	return int32(binary.BigEndian.Uint32(h[:4]))
+}
+
+func (l *Log) lockAppend(ctx context.Context, tx *sql.Tx) error {
+	if l.dialect != PostgreSQL {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, $2)`, appendLockNamespace, l.appendLockKey())
+	return err
+}
+
+// withTx runs fn in one write transaction, with the HA guard if set, and retries a unique
+// violation or a deadlock (two writers racing the chain head).
+func (l *Log) withTx(fn func(tx *sql.Tx) error) error {
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		err = l.oneTx(fn)
+		if err == nil || !retryable(err) {
+			return err
+		}
+		time.Sleep(time.Duration(1<<attempt) * 5 * time.Millisecond)
+	}
+	return err
+}
+
+func (l *Log) oneTx(fn func(tx *sql.Tx) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tx, err := l.write.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if l.guard != nil {
+		if err := l.guard(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
 	}
 	if err := fn(tx); err != nil {
 		_ = tx.Rollback()

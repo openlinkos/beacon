@@ -1,22 +1,104 @@
 package store
 
 import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"errors"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// currentDSN is the PostgreSQL database the running test's open(t) opened, empty on SQLite: what
+// reopen needs to reach the same state. The package's tests run one at a time.
+var currentDSN string
+
+// open is the store on the backend the environment picks: SQLite by default, or PostgreSQL when
+// BEACON_TEST_POSTGRES_DSN names one (CI runs the whole suite on both). The path it returns is the
+// SQLite file, which the PostgreSQL runs do not use.
 func open(t *testing.T) (*Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "status.db")
+	if dsn := os.Getenv("BEACON_TEST_POSTGRES_DSN"); dsn != "" {
+		currentDSN = testDatabase(t, dsn)
+		s, err := OpenWith(Options{Driver: "postgres", DSN: currentDSN})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s, path
+	}
+	currentDSN = ""
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s, path
+}
+
+// reopen opens the database open(t) opened, as a restart of the service would.
+func reopen(t *testing.T, path string) (*Store, error) {
+	t.Helper()
+	if currentDSN != "" {
+		return OpenWith(Options{Driver: "postgres", DSN: currentDSN})
+	}
+	return Open(path)
+}
+
+// testDatabase makes a database of the test's own on the server the DSN names, dropped when the
+// test ends. It mirrors internal/kv's helper (test packages cannot share code).
+func testDatabase(t *testing.T, dsn string) string {
+	t.Helper()
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	name := "beacon_test_" + hex.EncodeToString(raw)
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		// the store's pools close asynchronously; FORCE drops through what is still open, but a
+		// connection in flight can beat it — try again before giving up
+		for range 3 {
+			dctx, dcancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := admin.ExecContext(dctx, "DROP DATABASE "+name+" WITH (FORCE)")
+			dcancel()
+			if err == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Host != "" {
+		u.Path = "/" + name
+		return u.String()
+	}
+	for _, k := range []string{"dbname", "database"} {
+		if i := strings.Index(dsn, k+"="); i >= 0 {
+			rest := dsn[i+len(k)+1:]
+			if j := strings.IndexAny(rest, " 	"); j >= 0 {
+				rest = rest[j:]
+			} else {
+				rest = ""
+			}
+			return dsn[:i] + k + "=" + name + rest
+		}
+	}
+	return dsn + " dbname=" + name
 }
 
 func TestGroups(t *testing.T) {
@@ -75,7 +157,7 @@ func TestTokens(t *testing.T) {
 	}
 	// survives a restart
 	_ = s.Close()
-	s2, err := Open(path)
+	s2, err := reopen(t, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +180,13 @@ func TestTokens(t *testing.T) {
 	}
 }
 
+// TestLocked is the SQLite file's lock: a second process cannot hold the database. PostgreSQL is a
+// server that any number may talk to — that is the premise of the primary/standby pair — so the
+// test is the file backend's own.
 func TestLocked(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") != "" {
+		t.Skip("PostgreSQL holds no file to lock; its connections are the HA pair's premise")
+	}
 	_, path := open(t)
 	if _, err := Open(path); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second open: %v", err)
@@ -110,7 +198,11 @@ func TestOpenReadWith(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	r, err := OpenReadWith(Options{Path: path, Retention: 24 * time.Hour})
+	o := Options{Path: path, Retention: 24 * time.Hour}
+	if currentDSN != "" {
+		o.Driver, o.DSN, o.Path = "postgres", currentDSN, ""
+	}
+	r, err := OpenReadWith(o)
 	if err != nil {
 		t.Fatal(err)
 	}

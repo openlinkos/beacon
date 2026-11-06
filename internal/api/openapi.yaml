@@ -41,7 +41,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream,
-            ssh.disabled, ssh.paused, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
