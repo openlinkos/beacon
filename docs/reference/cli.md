@@ -128,7 +128,7 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
 | `storage check` | | The database's health: the backend's own check (SQLite's integrity check, or every table on PostgreSQL), what each bucket holds, and the audit chain's verification |
-| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits; a genesis record notes the import. The SQLite file is kept and keeps serving until the configuration names PostgreSQL as the driver; rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today |
+| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits; a genesis record notes the import. The SQLite file is kept and keeps serving until the configuration names PostgreSQL as the driver; rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today. Stop the service first: the steps are in [Run on PostgreSQL](../self-hosting/postgres.md) |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 

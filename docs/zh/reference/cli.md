@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-82e536a8
+sourceHash: sha256-b977f7a3
 ---
 
 # 命令行
@@ -132,7 +132,7 @@ docker exec beacon beacon token list
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | 校验审计日志的哈希链——从覆盖 `-from-seq` 的检查点起，或校验现存的全部——链在哪里断就报哪里（退出码 1），否则报告校验了多少条 |
 | `storage check` | | 数据库的健康：所用后端自己的检查（SQLite 的一致性检查，或 PostgreSQL 上读全部表）、每个桶各存了多少、审计链的校验 |
-| `storage migrate` | `-to` | 把 SQLite 数据库搬进 `storage.dsn_file` 指定的 PostgreSQL，一个事务搬完、提交前核对数量，一条创世记录记下导入。SQLite 文件保留并继续服务，直到配置把驱动改成 postgres；回滚就是把驱动留在 sqlite（搬完后写进 PostgreSQL 的数据不在 SQLite 文件里）。目前 `-to postgres` 是唯一目的地 |
+| `storage migrate` | `-to` | 把 SQLite 数据库搬进 `storage.dsn_file` 指定的 PostgreSQL，一个事务搬完、提交前核对数量，一条创世记录记下导入。SQLite 文件保留并继续服务，直到配置把驱动改成 postgres；回滚就是把驱动留在 sqlite（搬完后写进 PostgreSQL 的数据不在 SQLite 文件里）。目前 `-to postgres` 是唯一目的地。先停服务，步骤见[跑在 PostgreSQL 上](../self-hosting/postgres.md) |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：
 

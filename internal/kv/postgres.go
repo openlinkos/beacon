@@ -32,16 +32,21 @@ type PostgresOptions struct {
 	// schema is not made. There is no lock to take — PostgreSQL is a server — so this is only
 	// about not writing.
 	ReadOnly bool
+	// TxTimeout bounds a whole transaction on the client's side; by default a little past
+	// StatementTimeout, which suits the service's short transactions. A long one of its own (the
+	// migration's copy, in one transaction) sets more.
+	TxTimeout time.Duration
 }
 
 // Postgres is a kv.SQL on one PostgreSQL database: the same tables as SQLite's (kv, sequences),
 // bytea keys and values, byte order everywhere SQLite's blobs had it.
 type Postgres struct {
-	write   *sql.DB
-	read    *sql.DB
-	where   string
-	timeout time.Duration
-	guard   func(context.Context, *sql.Tx) error
+	write     *sql.DB
+	read      *sql.DB
+	where     string
+	timeout   time.Duration
+	txTimeout time.Duration
+	guard     func(context.Context, *sql.Tx) error
 }
 
 // OpenPostgres opens or creates the database o names. The DSN never appears in errors or logs: a
@@ -77,7 +82,8 @@ func OpenPostgres(o PostgresOptions) (*Postgres, error) {
 		}
 		return db, nil
 	}
-	p := &Postgres{where: fmt.Sprintf("postgres %s:%d/%s", cfg.Host, cfg.Port, cfg.Database), timeout: o.StatementTimeout}
+	p := &Postgres{where: fmt.Sprintf("postgres %s:%d/%s", cfg.Host, cfg.Port, cfg.Database), timeout: o.StatementTimeout,
+		txTimeout: o.TxTimeout}
 	if o.ReadOnly {
 		if p.read, err = open(o.PoolSize); err != nil {
 			return nil, err
@@ -121,11 +127,14 @@ func applySessionGuards(cfg *pgx.ConnConfig, timeout time.Duration) {
 	cfg.RuntimeParams["tcp_keepalives_count"] = "3"
 }
 
-// timeoutCtx bounds a client-side wait a little past the server's statement_timeout, so a
-// blackholed connection cannot hold the writer until TCP gives up.
+// timeoutCtx bounds a transaction on the client's side, a little past the server's
+// statement_timeout (or TxTimeout, when set), so a blackholed connection cannot hold the writer
+// until TCP gives up.
 func (p *Postgres) timeoutCtx() (context.Context, context.CancelFunc) {
 	d := p.timeout
 	switch {
+	case p.txTimeout > 0:
+		d = p.txTimeout
 	case d > 0:
 		d += time.Second
 	default:

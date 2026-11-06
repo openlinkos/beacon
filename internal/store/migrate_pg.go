@@ -40,7 +40,10 @@ func MigrateToPostgres(src, dst Options) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = source.Close() }()
-	pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: dst.DSN, PoolSize: dst.PoolSize, StatementTimeout: dst.StatementTimeout})
+	// the copy is one transaction, as long as the database is large: the statements keep their
+	// timeout, the transaction as a whole gets the time a big audit log takes
+	pg, err := kv.OpenPostgres(kv.PostgresOptions{DSN: dst.DSN, PoolSize: dst.PoolSize, StatementTimeout: dst.StatementTimeout,
+		TxTimeout: migrateTimeout})
 	if err != nil {
 		return false, err
 	}
@@ -114,6 +117,9 @@ func (t roTx) Get(bucket, key []byte) []byte                         { return t.
 func (t roTx) Range(b []byte, r kv.Range, fn func(k, v []byte) bool) { t.tx.Range(b, r, fn) }
 func (t roTx) Count(bucket []byte) int                               { return t.tx.Count(bucket) }
 func (t roTx) Sequence(bucket []byte) uint64                         { return t.tx.Sequence(bucket) }
+
+// migrateTimeout bounds the migration's one transaction.
+const migrateTimeout = time.Hour
 
 // never is a checkpoint interval nothing can reach: the migration writes no checkpoint of its own.
 var never = 87600 * 24 * time.Hour
