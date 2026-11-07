@@ -1,8 +1,9 @@
 name: site
 
 # Builds the site under docs/ and publishes it on Cloudflare Pages (project beacon-site). main is the site,
-# beacon.openlinkos.com; a pull request from a branch of this repository gets a preview of its own, at
-# <branch>.beacon-site.pages.dev, linked in a comment on the pull request and kept up to date with each push.
+# which beacon.openlinkos.com serves; a pull request from a branch of this repository gets a preview of its
+# own, at <branch>.<project>.pages.dev, linked in a comment on the pull request and kept up to date with each
+# push. (Cloudflare names the project's address after the project, with a suffix when the name is taken.)
 # The build is VitePress on @openlinkos/vitepress-theme, and fails when a Chinese page falls behind its English
 # page or when the reference misses a route, an error code, a scope or an MCP tool (the ci workflow runs the same
 # build on every pull request, forks included: secrets never reach a fork's pull request, so it gets no preview).
@@ -106,10 +107,11 @@ jobs:
           fi
           npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch "$BRANCH" --commit-hash "$SHA" \
             --commit-dirty=true 2>&1 | tee deploy.log
-          url=$(grep -oE "https://[0-9a-f]{8}\.$PROJECT\.pages\.dev" deploy.log | head -n 1)
+          # the addresses wrangler reports: this deployment's own, and the branch's alias
+          url=$(grep -oE 'https://[0-9a-f]{8}\.[a-z0-9-]+\.pages\.dev' deploy.log | head -n 1)
           test -n "$url"
           echo "url=$url" >>"$GITHUB_OUTPUT"
-          alias=$(grep -i 'alias' deploy.log | grep -oE "https://[a-z0-9-]+\.$PROJECT\.pages\.dev" | head -n 1 || true)
+          alias=$(grep -i 'alias' deploy.log | grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.pages\.dev' | head -n 1 || true)
           echo "alias=$alias" >>"$GITHUB_OUTPUT"
       - name: smoke test
         env:
