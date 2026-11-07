@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d00b5ca8
+sourceHash: sha256-ffe534cb
 layout: home
 title: 让你的 AI Agent 值班
 ---
@@ -20,7 +20,7 @@ title: 让你的 AI Agent 值班
 
 ## 一次故障，从头到尾 {#one-outage}
 
-上面的录像就是试用环境在你机器上跑的那个闭环：你弄坏演示服务，告警、修复、复测和回放随之而来。下面五步是同一个闭环；每步旁边的小面板是那一步返回的东西，最后两步是控制台自己的页面。凌晨三点，它们在没人盯着的时候照常运转。
+上面的录像就是试用环境在你机器上跑的那个闭环。你弄坏演示服务，告警、修复、复测和回放随之而来。下面是它的五步，每步旁边是那一步返回的东西。凌晨三点，它们在没人盯着的时候照常运转。
 
 <OlSteps :steps="[
   { title: '多个检测点同时看到故障', text: '一个不到 20 MB 的检测程序装在任何小机器上，按用户访问的路径检测每个服务，并记下每次失败的原因。多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。', media: '/landing/step-probes.svg', alt: '一项服务出故障时产生的证据：服务、目标、检测点和原因' },
@@ -62,8 +62,7 @@ Claude Code、Codex 在浏览器里经 MCP 的 OAuth 登录，任何 MCP 客户�
 
 | 部分 | 内容 |
 | --- | --- |
-| [入门](/zh/guide/) | Beacon 是什么、在本机十分钟试用，以及各部分怎样配合 |
-| [使用 Beacon](/zh/guide/using-beacon) | 每件事一页：监控与告警、Agent 值班、机器与 SSH 通道、团队与权限 |
+| [指南](/zh/guide/) | Beacon 是什么、在本机十分钟试用、它如何工作，然后[每件事一页](/zh/guide/using-beacon)：监控与告警、Agent 值班、机器与 SSH 通道、团队与权限 |
 | [接入](/zh/integrations/) | Claude Code、Codex、Cursor 等 Agent 客户端；webhook、GitHub Actions、变更事件和飞书 |
 | [自托管](/zh/self-hosting/) | 装到服务器上、检测点、配置、升级、备份和安全 |
 | [参考](/zh/reference/) | 每个接口、工具、命令、配置项和作用域 |

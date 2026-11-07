@@ -1,10 +1,10 @@
 # Goals
 
-What Beacon is for, what it will not do, and how to choose when goals pull apart. Every change should serve one of these goals; say which when you plan one.
+What Beacon is for, what it will not do, and how to choose when goals pull apart. Every change should serve one of these goals. Say which when you plan one.
 
 ## North star
 
-Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to remove what gets in the way of AI and agents at work, so that using them goes smoothly. Other pieces, such as memory that lasts across sessions, are other projects; Beacon stays in its lane.
+Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to remove what gets in the way of AI and agents at work, so that using them goes smoothly. Other pieces, such as memory that lasts across sessions, are other projects. Beacon stays in its lane.
 
 For Beacon that means: **operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
 
@@ -26,7 +26,20 @@ Two tests:
 
 ## The problem
 
-An operations engineer needs eyes (monitoring and alerts), hands (logging in to machines, running commands, editing files), a record (what was done, to look up and to replay) and a line to people (being woken, reporting, being seen). An agent needs the same four, with three differences: it knows general tools such as ssh, the shell, HTTP and MCP, not each product's own interface; it remembers nothing from one session to the next; and it does not watch a screen, so something has to wake it. Beacon offers the four in the ways agents already work, instead of a new system for them to learn.
+An operations engineer needs four things:
+
+- **eyes**: monitoring and alerts;
+- **hands**: logging in to machines, running commands, editing files;
+- **a record**: what was done, to look up and to replay;
+- **a line to people**: being woken, reporting, being seen.
+
+An agent needs the same four, with three differences:
+
+- it knows general tools such as ssh, the shell, HTTP and MCP, not each product's own interface;
+- it remembers nothing from one session to the next;
+- it does not watch a screen, so something has to wake it.
+
+Beacon offers the four in the ways agents already work, instead of a new system for them to learn.
 
 ## Who it is for
 

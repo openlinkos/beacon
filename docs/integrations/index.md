@@ -4,7 +4,7 @@ How Beacon works with the tools around it. The pages come in two groups: the age
 
 ## Agent clients {#agent-clients}
 
-An agent reaches Beacon over MCP or the REST API as one of a person's agents, and never does more than that person's role allows. An interactive client signs in through the browser with MCP's OAuth; a program that runs alone uses a token.
+An agent reaches Beacon over MCP or the REST API, as one of a person's agents. It never does more than that person's role allows. An interactive client signs in through the browser with MCP's OAuth. A program that runs alone uses a token.
 
 1. [Claude Code](claude-code.md): sign in through the browser, and reach machines with your own ssh, scp and rsync.
 2. [Codex](codex.md): the same sign-in, and a Beacon without the internet.
@@ -22,4 +22,4 @@ What goes out from Beacon when an alert fires, and what comes in to explain it.
 3. [Deployments and Flux](change-events.md): change events from CI and Flux, so that the evidence says what changed just before an alert.
 4. [Set up the Feishu app](feishu.md): alerts as cards in a Feishu or Lark group, with buttons for the people on call.
 
-When a hook fires and what the agent does next is in [Put an agent on call](../guide/on-call.md); what a hook sends, field by field, is in the [Webhooks reference](../reference/webhooks.md).
+When a hook fires, and what the agent does next, is in [Put an agent on call](../guide/on-call.md). What a hook sends, field by field, is in the [Webhooks reference](../reference/webhooks.md).

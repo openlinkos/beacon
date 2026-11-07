@@ -1,11 +1,15 @@
 # config.yaml
 
-`beacon serve` reads one YAML file, `/etc/beacon/config.yaml` by default; `-config` names another. The file is read once, at start, so changing it takes a restart. The catalogue, target and module files it names (`catalog_dir`, `gateway.targets_dir`, `gateway.modules_file`) are another matter: the service imports them into its database at the first start, and again on SIGHUP ([Configuration](../self-hosting/configuration.md)). The example file in the repository, `config.example.yaml`, holds every key with comments.
+Every key of the service's own configuration. `beacon serve` reads one YAML file, `/etc/beacon/config.yaml` by default, and `-config` names another.
+
+The file is read once, at start, so changing it takes a restart. The example file in the repository, `config.example.yaml`, holds every key with comments.
+
+The catalogue, target and module files it names (`catalog_dir`, `gateway.targets_dir`, `gateway.modules_file`) are another matter. The service imports them into its database at the first start, and again on SIGHUP ([Configuration](../self-hosting/configuration.md)).
 
 Two rules hold the whole file together:
 
 - **No unknown keys.** A key the tables below do not list is refused at start, so a typo does not go unnoticed. `beacon check-config -config FILE` validates the file, the files it names and the database, without starting ([Command line](cli.md)).
-- **Secrets are files, not values.** Every credential is a `*_file` path: `rules.token_file`, `feishu.app_id_file`, a hook's `secret_file`. Beacon reads each file once at start, trims the whitespace around it, and never logs the content; an empty file stops the start. How those files are filled is the deployment's business: Beacon depends on no secret manager. `rules.token_file` and a webhook hook's `secret_file` need at least 24 characters.
+- **Secrets are files, not values.** Every credential is a `*_file` path: `rules.token_file`, `feishu.app_id_file`, a hook's `secret_file`. Beacon reads each file once at start, trims the whitespace around it, and never logs the content. An empty file stops the start. How those files are filled is the deployment's business, since Beacon depends on no secret manager. `rules.token_file` and a webhook hook's `secret_file` need at least 24 characters.
 
 Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 
@@ -20,7 +24,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `trusted_proxies` | list of addresses or CIDR ranges | — | The proxy in front, as the service sees it, so the API knows real client addresses |
 | `language` | `zh` or `en` | `zh` | The language of cards and chat messages |
 | `timezone` | time zone | `Asia/Shanghai` | Times on cards; the days of the status pages' history begin at midnight here |
-| `storage.driver` | `sqlite` | `sqlite` | The database's driver: `sqlite` (one file, no services) or `postgres`. A deployment that already runs PostgreSQL, wants a managed database, point-in-time recovery or the primary/standby pair switches; performance is not a reason to. `beacon storage migrate -to postgres` moves a SQLite database over
+| `storage.driver` | `sqlite` or `postgres` | `sqlite` | The database's driver: `sqlite` (one file, no services) or `postgres`. A deployment that already runs PostgreSQL, wants a managed database, point-in-time recovery or the primary/standby pair switches. Performance is not a reason to. `beacon storage migrate -to postgres` moves a SQLite database over
 | `storage.path` | path | `<data_dir>/beacon.db` | The SQLite database file. A first start with an old bbolt file (`status.db`) beside it migrates that file into the database in one transaction; the old file stays as `status.db.pre-sql` to roll back with |
 | `storage.dsn_file` | path | — | With `storage.driver: postgres`, a file holding the connection string (for example `postgres://beacon@db.example.com:5432/beacon?sslmode=require`), read once at start; the password, if any, is in the file, never in this YAML |
 | `storage.audit.checkpoint_interval` | duration | `24h` | How often the audit log's hash chain gets a signed checkpoint |
@@ -30,7 +34,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
 | `storage.postgres.pool_size` | number | `4` | PostgreSQL read connections; writes always take one connection of their own, whatever the pool size |
 | `storage.postgres.statement_timeout` | duration | `15s` | How long a PostgreSQL statement may run before the server cancels it, so one that hangs does not hold the writer; `0` turns it off |
-| `ha.enabled` | bool | `false` | The primary/standby pair over one PostgreSQL database (needs `storage.driver: postgres`): the primary renews a lease in the database, the standby takes it when it expires and answers `/healthz` with 503 until then, so the load balancer or the VIP in front sends traffic to one instance at a time. `/livez` stays 200 on a healthy standby (the image's health check) and goes 503 when this instance cannot reach PostgreSQL. The switch takes about `ha.expire`. What the pair shares is the database and the recordings' bucket (`ssh.recordings: s3`) |
+| `ha.enabled` | bool | `false` | The primary/standby pair over one PostgreSQL database (needs `storage.driver: postgres`). The primary renews a lease in the database. The standby takes it when it expires, and answers `/healthz` with 503 until then, so the load balancer or the VIP in front sends traffic to one instance at a time. `/livez` stays 200 on a healthy standby (the image's health check), and goes 503 when this instance cannot reach PostgreSQL. The switch takes about `ha.expire`. What the pair shares is the database and the recordings' bucket (`ssh.recordings: s3`) |
 | `ha.name` | string | `beacon` | The lease's name; every instance of the pair names the same |
 | `ha.id` | string | hostname:pid plus a random suffix | This instance's name in the lease row. Set it when two containers would otherwise share a hostname and run as PID 1 |
 | `ha.renew` | duration | `5s` | How often the primary renews the lease |
@@ -58,7 +62,12 @@ Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in 
 
 ## The gateway
 
-The machines' door: probes and hosts write with tokens from `beacon enroll` and fetch what to check, jobs push heartbeats, the rule engine and Flux post alerts, `metrics:read` tokens read ([REST API](api.md#the-gateway)).
+The machines' door ([REST API](api.md#the-gateway)):
+
+- probes and hosts write with tokens from `beacon enroll`, and fetch what to check;
+- jobs push heartbeats;
+- the rule engine posts alerts, and deployments and Flux post change events;
+- `metrics:read` tokens read.
 
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
@@ -79,7 +88,7 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 | `ssh.ca_key_file` | path | — | The key that signs a short-lived certificate for every connection to a machine; setting it turns the channel on. It must be a different key from the host key |
 | `ssh.source_addresses` | list of CIDR ranges | — | When set, the certificates work only from these addresses |
 | `ssh.keep` | duration | `4320h` (180 days) | How long sessions and their recordings are kept. At least `24h` |
-| `ssh.recordings` | `dir` or `s3` | `dir` | Where sessions are recorded: the recordings directory under `data_dir`, or an S3-compatible bucket (`ssh.recordings_s3` names it). A primary/standby pair shares the bucket, so a session one machine recorded the other replays. With `s3`, Beacon writes the recording locally first and uploads it when the session closes, retrying a failed put; set a lifecycle rule on the bucket so objects that outlive a failed tidy are still expired |
+| `ssh.recordings` | `dir` or `s3` | `dir` | Where sessions are recorded: the recordings directory under `data_dir`, or an S3-compatible bucket (`ssh.recordings_s3` names it). A primary/standby pair shares the bucket, so a session one machine recorded the other replays. With `s3`, Beacon writes the recording locally first and uploads it when the session closes, retrying a failed put. Set a lifecycle rule on the bucket, so objects that outlive a failed tidy are still expired |
 | `ssh.recordings_s3.endpoint` | URL | — | The bucket's address, such as `https://s3.example.com`, or `http://10.0.0.5:9000` for MinIO on a private network. Addresses are path-style |
 | `ssh.recordings_s3.region` | string | `us-east-1` | The region the bucket signs with |
 | `ssh.recordings_s3.bucket` | string | — | The bucket's name |
@@ -132,7 +141,15 @@ The self-built app (cards, button callbacks, buzz) and the group's custom bot ([
 
 ## Escalation and acknowledgements
 
-How alerts of each severity reach people. A zero duration turns a step off. Without the whole `escalation` section Beacon picks the best channel configured: the Feishu app when it is set, else the group bot, else `none` (alerts are only recorded, and the API and MCP still show them); critical alerts buzz after 10 minutes with the app and reach Pushover after 15 minutes when it is configured; info alerts go to the group bot when there is one beside the app.
+How alerts of each severity reach people. A zero duration turns a step off.
+
+Without the whole `escalation` section, Beacon picks the best channel configured:
+
+1. the Feishu app, when it is set;
+2. else the group bot;
+3. else `none`: alerts are only recorded, and the API and MCP still show them.
+
+Without the section, critical alerts also buzz after 10 minutes with the app, and reach Pushover after 15 minutes when it is configured. Info alerts go to the group bot when there is one beside the app.
 
 | Key | Default | What it is |
 | --- | --- | --- |

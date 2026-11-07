@@ -1,15 +1,19 @@
 ---
-sourceHash: sha256-532572f3
+sourceHash: sha256-04551e31
 ---
 
 # config.yaml
 
-`beacon serve` 启动时读一个 YAML 文件，默认 `/etc/beacon/config.yaml`；`-config` 指定别的。文件只在启动时读一次，改了要重启。它指名的目录、目标和模块文件（`catalog_dir`、`gateway.targets_dir`、`gateway.modules_file`）是另一回事：服务在首次启动时把它们导入数据库，之后在 SIGHUP 时再导入（[配置](../self-hosting/configuration.md)）。仓库里的示例文件 `config.example.yaml` 带注释列出了每一个键。
+服务自身配置的每一个键。`beacon serve` 启动时读一个 YAML 文件，默认 `/etc/beacon/config.yaml`，`-config` 可以指定别的。
+
+文件只在启动时读一次，改了要重启。仓库里的示例文件 `config.example.yaml` 带注释列出了每一个键。
+
+它指名的目录、目标和模块文件（`catalog_dir`、`gateway.targets_dir`、`gateway.modules_file`）是另一回事。服务在首次启动时把它们导入数据库，之后在 SIGHUP 时再导入（[配置](../self-hosting/configuration.md)）。
 
 两条规则贯穿整个文件：
 
 - **不接受未知键。** 下面的表里没有的键会让启动失败，写错不会静默放过。`beacon check-config -config FILE` 不启动就校验文件、它指名的文件和数据库（[命令行](cli.md)）。
-- **密钥是文件，不是值。** 每个凭据都是一个 `*_file` 路径：`rules.token_file`、`feishu.app_id_file`、hook 的 `secret_file`。Beacon 启动时读一次文件，去掉首尾空白，从不记录内容；空文件会让启动失败。这些文件怎么填是部署自己的事：Beacon 不依赖任何密钥管理器。`rules.token_file` 和 webhook hook 的 `secret_file` 至少 24 个字符。
+- **密钥是文件，不是值。** 每个凭据都是一个 `*_file` 路径：`rules.token_file`、`feishu.app_id_file`、hook 的 `secret_file`。Beacon 启动时读一次文件，去掉首尾空白，从不记录内容。空文件会让启动失败。这些文件怎么填是部署自己的事，Beacon 不依赖任何密钥管理器。`rules.token_file` 和 webhook hook 的 `secret_file` 至少 24 个字符。
 
 时长按 Go 的写法：`30s`、`5m`、`4h`、`720h`。
 
@@ -24,7 +28,7 @@ sourceHash: sha256-532572f3
 | `trusted_proxies` | 地址或 CIDR 段列表 | — | 前面的反向代理（服务眼中的地址），让 API 看到真实客户端地址 |
 | `language` | `zh` 或 `en` | `zh` | 卡片和聊天消息的语言 |
 | `timezone` | 时区 | `Asia/Shanghai` | 卡片上的时间；状态页历史的每一天从这里的午夜开始 |
-| `storage.driver` | `sqlite` | `sqlite` | 数据库驱动：`sqlite`（一个文件，不依赖服务）或 `postgres`。已经在运维 PostgreSQL、想用托管数据库、按时间点恢复或主备高可用的部署才换；性能不是换的理由。`beacon storage migrate -to postgres` 把 SQLite 数据库搬过去 |
+| `storage.driver` | `sqlite` 或 `postgres` | `sqlite` | 数据库驱动：`sqlite`（一个文件，不依赖服务）或 `postgres`。已经在运维 PostgreSQL、想用托管数据库、按时间点恢复或主备高可用的部署才换。性能不是换的理由。`beacon storage migrate -to postgres` 把 SQLite 数据库搬过去 |
 | `storage.path` | 路径 | `<data_dir>/beacon.db` | SQLite 数据库文件。首次启动发现旁边有旧的 bbolt 文件（`status.db`）时，把它在一个事务里整体迁入数据库；旧文件保留为 `status.db.pre-sql`，供回滚 |
 | `storage.dsn_file` | 路径 | — | `storage.driver: postgres` 时，存放连接串的文件（如 `postgres://beacon@db.example.com:5432/beacon?sslmode=require`），启动时读一次；密码若有也写在文件里，绝不进本配置文件 |
 | `storage.audit.checkpoint_interval` | 时长 | `24h` | 审计日志的哈希链多久生成一个签名检查点 |
@@ -34,7 +38,7 @@ sourceHash: sha256-532572f3
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
 | `storage.postgres.pool_size` | 数字 | `4` | PostgreSQL 的读连接数；写永远单独占一条连接，与连接池大小无关 |
 | `storage.postgres.statement_timeout` | 时长 | `15s` | 一条 PostgreSQL 语句最多跑多久就被服务端取消，免得一条挂起的语句占住写入；`0` 关闭 |
-| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）：主在数据库里续租约，备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。健康的备机 `/livez` 仍回 200（镜像的健康检查走它），本实例连不上 PostgreSQL 时才回 503。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
+| `ha.enabled` | 布尔 | `false` | 建在一个 PostgreSQL 数据库上的主备对（需 `storage.driver: postgres`）。主在数据库里续租约。备用实例在租约过期后接手，接手前 `/healthz` 回 503，前面的负载均衡或 VIP 因此只把流量发给一个实例。健康的备机 `/livez` 仍回 200（镜像的健康检查走它），本实例连不上 PostgreSQL 时才回 503。切换用时约等于 `ha.expire`。主备共享的是数据库和录像的桶（`ssh.recordings: s3`） |
 | `ha.name` | 字符串 | `beacon` | 租约的名字；一对实例用同一个名字 |
 | `ha.id` | 字符串 | 主机名:pid 再加随机后缀 | 本实例在租约行里的名字。两个容器主机名相同又以 PID 1 运行时要设 |
 | `ha.renew` | 时长 | `5s` | 主多久续一次租约 |
@@ -62,7 +66,12 @@ sourceHash: sha256-532572f3
 
 ## 网关 {#the-gateway}
 
-机器的门：检测点和主机用 `beacon enroll` 发的令牌写入并拉取检测任务，任务推心跳，规则引擎和 Flux 发告警，`metrics:read` 令牌读取（[REST API](api.md#the-gateway)）。
+机器的门（[REST API](api.md#the-gateway)）：
+
+- 检测点和主机用 `beacon enroll` 发的令牌写入，并拉取检测任务；
+- 任务推心跳；
+- 规则引擎发告警，部署和 Flux 发变更事件；
+- `metrics:read` 令牌读取。
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
@@ -83,7 +92,7 @@ sourceHash: sha256-532572f3
 | `ssh.ca_key_file` | 路径 | — | 为每次连机器签短期证书的钥匙；设置它即开启通道。必须与 host key 是不同的钥匙 |
 | `ssh.source_addresses` | CIDR 段列表 | — | 设置后，证书只从这些地址可用 |
 | `ssh.keep` | 时长 | `4320h`（180 天） | 会话及其录像保留多久。至少 `24h` |
-| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放。`s3` 时先写本地再在会话结束时上传，失败会重试；请给桶设生命周期规则，清理失败留下的对象到期也会被删 |
+| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放。`s3` 时先写本地，会话结束时再上传，失败会重试。请给桶设生命周期规则，这样清理失败留下的对象到期也会被删 |
 | `ssh.recordings_s3.endpoint` | URL | — | 桶的地址，如 `https://s3.example.com`，内网 MinIO 用 `http://10.0.0.5:9000`。一律路径风格寻址 |
 | `ssh.recordings_s3.region` | 字符串 | `us-east-1` | 签名用的区域 |
 | `ssh.recordings_s3.bucket` | 字符串 | — | 桶名 |
@@ -136,7 +145,15 @@ sourceHash: sha256-532572f3
 
 ## 升级与确认 {#escalation-and-acknowledgements}
 
-各级告警怎么到达人。时长为零即关闭该步。整个 `escalation` 段缺省时，Beacon 按已配置的通道择优：配了飞书应用就用应用，只配了群机器人就用机器人，都没有则 `none`（告警只记录，API 和 MCP 照样可看）；critical 配了应用 10 分钟后加急、配了 Pushover 15 分钟后推手机；info 级在应用之外还有机器人时走机器人。
+各级告警怎么到达人。时长为零即关闭该步。
+
+整个 `escalation` 段缺省时，Beacon 按已配置的通道择优：
+
+1. 配了飞书应用，就用应用；
+2. 否则用群机器人；
+3. 都没有则 `none`：告警只记录，API 和 MCP 照样可看。
+
+段缺省时，critical 告警还会在配了应用时 10 分钟后加急，配了 Pushover 时 15 分钟后推手机。info 级告警在应用之外还有机器人时，走机器人。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |

@@ -1,6 +1,11 @@
 # How Beacon works
 
-This page has the shape of the thing: one diagram, the words the rest of the guide uses, and the two paths that matter — an alert's, from a service breaking to people and agents hearing of it, and an agent's, from being woken to leaving a note on the alert. [Architecture](../about/architecture.md) tells the same story in full detail, for when something needs looking into.
+This page gives you the shape of Beacon: one diagram, the words the rest of the guide uses, and the two paths that matter.
+
+- **An alert's path**, from a service breaking to people and agents hearing of it.
+- **An agent's path**, from being woken to leaving a note on the alert.
+
+[Architecture](../about/architecture.md) tells the same story in full detail, for when something needs looking into.
 
 ## The whole picture
 
@@ -71,7 +76,11 @@ This page has the shape of the thing: one diagram, the words the rest of the gui
 </svg>
 </div>
 
-Three flows cross it. Results go up: each probe checks the targets the centre hands it and pushes them, through the gateway, into VictoriaMetrics. Alerts come back: vmalert evaluates the rules and posts what fires to the gateway, the router groups it, and the bridge tells people and wakes agents. Agents come in: over REST and MCP for the evidence and the notes, and over the SSH channel to the machines.
+Three flows cross it:
+
+- **Results go up.** Each probe checks the targets the centre hands it. It pushes the results through the gateway into VictoriaMetrics.
+- **Alerts come back.** vmalert evaluates the rules and posts what fires to the gateway. The router groups it, and the bridge tells people and wakes agents.
+- **Agents come in.** They use REST and MCP for the evidence and the notes, and the SSH channel to reach the machines.
 
 ## The words
 
@@ -81,32 +90,45 @@ Three flows cross it. Results go up: each probe checks the targets the centre ha
 | probe location | A small machine running `beacon-probe`, near your users, that checks the targets the centre hands it and pushes the results back. |
 | machine | A server enrolled with Beacon, reached by agents through the SSH channel: directly, or through a connector when it sits behind NAT. |
 | person | Someone with an account of their own on this Beacon, in a role. |
-| owner | The person an agent acts for; the agent never does more than this person's role allows. |
+| owner | The person an agent acts for. The agent never does more than this person's role allows. |
 | role | What a person may do. Each role adds to the ones below it: viewer sees everything, on call also works alerts and reaches machines, operator also manages machines and maintenance, owner also changes the configuration and the team. |
-| agent | A program that acts for one person: Claude Code, Codex, a CI job. One identity over SSH, REST and MCP; it signs in with MCP's OAuth or a token. |
-| preset | What a new agent may do, chosen when it is made — read only, on call or operator — always within its owner's role. |
-| SSH channel | Beacon's SSH door, port 17002. The agent's own `ssh`, `scp` and `rsync` go through it; each connection gets a certificate valid for five minutes; every session is recorded. |
+| agent | A program that acts for one person: Claude Code, Codex, a CI job. One identity over SSH, REST and MCP. It signs in with MCP's OAuth or a token. |
+| preset | What a new agent may do: read only, on call or operator. It is chosen when the agent is made, always within its owner's role. |
+| SSH channel | Beacon's SSH door, port 17002. The agent's own `ssh`, `scp` and `rsync` go through it. Each connection gets a certificate valid for five minutes, and every session is recorded. |
 | evidence | What `get_evidence` returns in one call: each location's result and the reason it failed, the other alerts in the same failure domain, the changes just before, and what people and agents have already done. |
 | session | One visit to a machine through the channel: a shell, a single command, a file transfer, a forwarded port. Recorded end to end. |
 | replay | A session's recording played back in the browser, with each command's exit status. |
 | console | The pages people sign in to: alerts with their evidence and timeline, machines, sessions with their replays, people and agents, the configuration and its history, the audit log. |
 | status page | The public page Beacon serves itself: components, their state and history, incidents, maintenance windows. |
 | catalogue | Where what Beacon watches is kept: probe locations, heartbeats, expiring resources, status pages. It lives in the database, and every change to it is a version. |
-| heartbeat | A job that must report success often enough — a backup, a scheduled task. When it is late or missing, an alert fires. |
+| heartbeat | A job that must report success often enough, such as a backup or a scheduled task. When it is late or missing, an alert fires. |
 | silence | Matching alerts muted for a while, from a card or the command line, with a reason and an end. |
-| maintenance | Planned work on some services, announced ahead on the status page; the components it covers show as in maintenance while it lasts. |
+| maintenance | Planned work on some services, announced ahead on the status page. The components it covers show as in maintenance while it lasts. |
 | alert | What the rules send when they see trouble, grouped and routed by Beacon: to the chat as a card, to phones when nobody answers, and to agents as a hook. |
-| drill | A rehearsed outage: `beacon drill fail` makes Beacon's own drill service fail on purpose, and you watch the loop run, with you or an agent in it. |
+| drill | A rehearsed outage. `beacon drill fail` makes Beacon's own drill service fail on purpose, and you watch the loop run, with you or an agent in it. |
 
 ## An alert's path
 
-Every minute, each probe checks the targets the centre handed it and pushes the results, with the reason for every failure; VictoriaMetrics keeps them. vmalert evaluates the rules every 30 seconds — a service counts as down only when several locations agree, so one location's bad network wakes nobody — and posts what fires to Beacon, which does Alertmanager's job itself: alerts are grouped (a new group waits half a minute for its fellows), inhibition and silences mute what they match. A new group becomes a card in the chat; a critical one nobody acknowledges is buzzed after 10 minutes and phoned after 15. The same group fires the hooks that wake agents, beside the delivery, which never waits for them. When the probes succeed again, the rule engine sees it and the alert resolves.
+1. **The probes check.** Every minute, each probe checks the targets the centre handed it. It pushes the results, with the reason for every failure, and VictoriaMetrics keeps them.
+2. **The rules decide.** vmalert evaluates the rules every 30 seconds and posts what fires to Beacon. A service counts as down only when several locations agree, so one location's bad network wakes nobody.
+3. **Beacon groups.** Beacon does Alertmanager's job itself. Alerts are grouped, and a new group waits half a minute for its fellows. Inhibition and silences mute what they match.
+4. **People hear of it.** A new group becomes a card in the chat. A critical one that nobody acknowledges is buzzed after 10 minutes and phoned after 15.
+5. **Agents wake.** The same group fires the hooks that wake agents. They run beside the delivery, which never waits for them.
+6. **The alert resolves.** When the probes succeed again, the rule engine sees it and the alert resolves.
 
 ## An agent's path
 
-An agent acts for one person, its owner, and never does more than that person's role allows, read again on every request. Woken by a hook, or asked by its person, it signs in once — with MCP's OAuth through the browser, or with a token — and that one identity opens every door: the same calls over REST and MCP, the same machines over SSH. `get_evidence` gathers the whole story in one answer; `probe_now` asks every location to check again at once; `add_note`, `ack_alert` and `silence_alert` write, and every write is audited and echoed to the chat. Machine work goes through the SSH channel, with the agent's own `ssh` and `scp` or with Beacon's tools (`run_command`, `read_file`, `write_file`, `edit_file`); each connection gets a five-minute certificate, each session a recording. When an agent's access ends — a credential revoked, its owner demoted — what it has open closes at once, and `beacon ssh pause` closes everything, for everyone.
+An agent acts for one person, its owner. It never does more than that person's role allows, and the role is read again on every request.
+
+1. **It signs in once.** Woken by a hook, or asked by its person, it signs in with MCP's OAuth through the browser, or with a token. That one identity opens every door: the same calls over REST and MCP, the same machines over SSH.
+2. **It gathers the facts.** `get_evidence` gathers the whole story in one answer. `probe_now` asks every location to check again at once.
+3. **It writes.** `add_note`, `ack_alert` and `silence_alert` write. Every write is audited and echoed to the chat.
+4. **It works on machines.** Machine work goes through the SSH channel, with the agent's own `ssh` and `scp`, or with Beacon's tools (`run_command`, `read_file`, `write_file`, `edit_file`). Each connection gets a five-minute certificate, and each session a recording.
+
+When an agent's access ends, what it has open closes at once. A revoked credential ends it, and so does a demoted owner. `beacon ssh pause` closes everything, for everyone.
 
 ## Where to read more
 
-- [Architecture](../about/architecture.md): every part in detail — what runs where, where the state lives, the rules each part keeps.
-- [Put an agent on call](on-call.md) and [Give agents a machine](machines.md): the two paths above, as things you do; [Using Beacon](using-beacon.md) has every other task.
+- [Architecture](../about/architecture.md): every part in detail, with what runs where, where the state lives and the rules each part keeps.
+- [Put an agent on call](on-call.md) and [Give agents a machine](machines.md): the two paths above, as things you do.
+- [Using Beacon](using-beacon.md): every other task.

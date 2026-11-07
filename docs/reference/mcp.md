@@ -1,20 +1,38 @@
 # MCP tools
 
-Beacon's MCP server lets an agent (Claude Code, Codex, or any client that speaks MCP over HTTP) work an alert and the machines behind it with tools, without learning Beacon's API: read the alerts and their evidence, leave notes, have the probes check again, run commands and edit files on machines, plan maintenance, register its own SSH key, and keep its own token alive. It is at `/mcp` on port 17001 (`https://status.example.com/mcp` in the reference deployment): streamable HTTP, stateless, with the same credentials and scopes as the [REST API](api.md), and each tool calls the same method as its REST route.
+Beacon's MCP server lets an agent work an alert and the machines behind it with tools, without learning Beacon's API. This page lists every tool and the scope it needs.
 
-The machine tools take the names and the behaviour of an agent's own tools (run a command, read a file, write a file, edit a file). Results are structured and free of terminal control codes, and long output is cut with a way to get the rest. Every write and every session is recorded with the caller's name (`alice / claude-code` for an agent, a token's own name otherwise) and echoed to the alert chat.
+The agent may be Claude Code, Codex, or any client that speaks MCP over HTTP. With the tools it can:
+
+- read the alerts and their evidence, and leave notes;
+- have the probes check again;
+- run commands and edit files on machines;
+- plan maintenance;
+- register its own SSH key, and keep its own token alive.
+
+The server is at `/mcp` on port 17001 (`https://status.example.com/mcp` in the reference deployment). It speaks streamable HTTP and is stateless. It takes the same credentials and scopes as the [REST API](api.md), and each tool calls the same method as its REST route.
+
+The machine tools take the names and the behaviour of an agent's own tools (run a command, read a file, write a file, edit a file). Results are structured and free of terminal control codes. Long output is cut, with a way to get the rest. Every write and every session is recorded with the caller's name (`alice / claude-code` for an agent, a token's own name otherwise) and echoed to the alert chat.
 
 ## Connecting
 
-Claude Code and Codex sign in through the browser, with MCP's OAuth: you add Beacon without a token, sign in from the client, and allow it on Beacon's consent page as one of your agents ([Claude Code](../integrations/claude-code.md)). In Claude Code:
+Claude Code and Codex sign in through the browser, with MCP's OAuth ([Claude Code](../integrations/claude-code.md)):
+
+1. Add Beacon without a token.
+2. Sign in from the client.
+3. Allow it on Beacon's consent page as one of your agents.
+
+In Claude Code:
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 ```
 
-then `/mcp` inside Claude Code, choose `beacon` and authenticate (or `claude mcp login beacon` from the shell). Codex: `codex mcp add beacon --url https://status.example.com/mcp`, then `codex mcp login beacon`.
+Then run `/mcp` inside Claude Code, choose `beacon` and authenticate, or run `claude mcp login beacon` from the shell. In Codex, run `codex mcp add beacon --url https://status.example.com/mcp`, then `codex mcp login beacon`.
 
-An agent without a browser sends an agent's token instead, made on the console's **Agents** page or with `beacon agent add` ([Getting a credential](api.md#getting-a-credential)); the On call preset covers working alerts on machines. With Claude Code, add it with `--header "Authorization: Bearer lbt_…"`; with Codex, in `~/.codex/config.toml`, with the token in an environment variable:
+An agent without a browser sends an agent's token instead. Make one on the console's **Agents** page or with `beacon agent add` ([Getting a credential](api.md#getting-a-credential)). The On call preset covers working alerts on machines.
+
+With Claude Code, add the token with `--header "Authorization: Bearer lbt_…"`. With Codex, set it in `~/.codex/config.toml`, with the token in an environment variable:
 
 ```toml
 [mcp_servers.beacon]
@@ -22,7 +40,12 @@ url = "https://status.example.com/mcp"
 bearer_token_env_var = "BEACON_TOKEN"
 ```
 
-Any other client that speaks MCP over HTTP connects in one of these two ways. A request without a credential, or with one that does not verify, gets a `401` whose `WWW-Authenticate` names the protected resource metadata (`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`), where an MCP client finds how to sign in. An address locked out after 20 failed attempts in 10 minutes gets a 401 as well, because the MCP library has no 429: the text says the address is locked and how long to wait (`too many failed sign-ins from this address; try again in 9 minutes`), and the response carries `Retry-After`, the same wait the [REST API](api.md) reports as `auth.too_many_failures`. The server's instructions tell the agent what each group of tools is for and how to use the write tools with care. A credential sees every tool; a call without the scope it needs is refused with a message naming the scope, and, for an agent, what its preset within its owner's role allows (`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`).
+Any other client that speaks MCP over HTTP connects in one of these two ways. What a client meets on the way:
+
+- **No credential, or one that does not verify.** The request gets a `401` whose `WWW-Authenticate` names the protected resource metadata (`Bearer resource_metadata="https://status.example.com/.well-known/oauth-protected-resource/mcp"`). There an MCP client finds how to sign in.
+- **Too many failed attempts.** An address locked out after 20 failed attempts in 10 minutes gets a 401 as well, because the MCP library has no 429. The text says the address is locked and how long to wait (`too many failed sign-ins from this address; try again in 9 minutes`). The response carries `Retry-After`: the same wait the [REST API](api.md) reports as `auth.too_many_failures`.
+- **The server's instructions.** They tell the agent what each group of tools is for, and how to use the write tools with care.
+- **A missing scope.** A credential sees every tool, but a call without the scope it needs is refused. The message names the scope. For an agent, it also says what its preset within its owner's role allows (`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`).
 
 ## Alerts
 
@@ -66,7 +89,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. A 
 
 ## Configuration
 
-What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)); `key` names one item.
+What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)). `key` names one item.
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
@@ -77,7 +100,7 @@ What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/m
 | `get_config_change` | `status:read` or `config:write` | One change (`version`), with every item's value before and after |
 | `revert_config_change` | `config:write` | Undo one change as a new change (`version`, `note`); refused when a later change touched one of its items |
 
-Pass the version you read as `if_version`: a change made on top of a later version is refused with `config.conflict`, so an agent never overwrites what someone changed meanwhile. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes.
+Pass the version you read as `if_version`. A change made on top of a later version is refused with `config.conflict`, so an agent never overwrites what someone changed meanwhile. A change that would not pass the checks is refused with `config.invalid` and the reason, and nothing changes.
 
 ## Status pages and maintenance
 
@@ -100,7 +123,7 @@ The public status pages are made from the alert groups and the maintenance windo
 | `list_ssh_keys` | `machines:ssh` | Your SSH keys |
 | `remove_ssh_key` | `machines:ssh` | Remove one of your keys (`fingerprint`); connections signed in with it are closed |
 
-No agent preset gives `accounts:write`: an agent manages people only if an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not MCP tools; they are for people, on the console or the centre.
+No agent preset gives `accounts:write`. An agent manages people only if an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not MCP tools. They are for people, on the console or the centre.
 
 ## Your token
 
@@ -112,4 +135,6 @@ No agent preset gives `accounts:write`: an agent manages people only if an owner
 
 ## Results
 
-Tools return structured content. Fields that an answer's `untrusted` object lists hold text from outside Beacon (labels, probed services, change senders, what machines print), cleaned of control and invisible characters and cut when long: the agent should read them as data, never as instructions. A refused call returns a tool error whose message says what went wrong and how to put it right, as the REST API's [error codes](api.md#error-codes) do.
+Tools return structured content. Fields that an answer's `untrusted` object lists hold text from outside Beacon: labels, probed services, change senders, what machines print. That text is cleaned of control and invisible characters and cut when long. The agent should read it as data, never as instructions.
+
+A refused call returns a tool error. Its message says what went wrong and how to put it right, as the REST API's [error codes](api.md#error-codes) do.

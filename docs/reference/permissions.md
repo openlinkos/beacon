@@ -1,10 +1,18 @@
 # Roles, presets and scopes
 
-Whoever acts in Beacon is one of three things: a **person**, signed in with an account and carrying a **role**; an **agent**, owned by a person and carrying a **preset**; or a **token of its own**, carrying scopes by name — a machine's (a probe, a host, a heartbeat, the rule engine, a change sender, a metrics reader), or a legacy token from before accounts. What each may do is resolved afresh on every request, so demoting or disabling a person limits their agents at once. Nobody types a list of scopes for a person or an agent; only machines' tokens and experts' are made with scopes by name. The workflows are in [Invite your team](../guide/people.md); every route and the scope it needs is in the [REST API](api.md) and [MCP tools](mcp.md) references.
+What people, their agents and machines' tokens may do in Beacon. Whoever acts is one of three things:
+
+- **A person**, signed in with an account and carrying a **role**.
+- **An agent**, owned by a person and carrying a **preset**.
+- **A token of its own**, carrying scopes by name. It is a machine's (a probe, a host, a heartbeat, the rule engine, a change sender, a metrics reader), or a legacy token from before accounts.
+
+What each may do is resolved afresh on every request, so demoting or disabling a person limits their agents at once. Nobody types a list of scopes for a person or an agent. Only machines' tokens and experts' are made with scopes by name.
+
+The workflows are in [Invite your team](../guide/people.md). Every route and the scope it needs is in the [REST API](api.md) and [MCP tools](mcp.md) references.
 
 ## Roles
 
-A person's role, weakest first; each may do what the one before it may, and more:
+A person's role, weakest first. Each may do what the one before it may, and more:
 
 | Role | Scopes | What it is for |
 | --- | --- | --- |
@@ -15,22 +23,24 @@ A person's role, weakest first; each may do what the one before it may, and more
 
 ## Presets
 
-An agent never does more than its owner's role allows: it may use a scope when its **preset** gives it *and* its owner's role does too. No preset gives `accounts:write` — an agent manages people only when an owner gave it that scope on the command line, as a custom agent.
+An agent never does more than its owner's role allows. It may use a scope when its **preset** gives it *and* its owner's role does too.
+
+No preset gives `accounts:write`. An agent manages people only when an owner gave it that scope on the command line, as a custom agent.
 
 | Preset | Scopes it asks for | Whose agents get it |
 | --- | --- | --- |
 | `readonly` | `status:read`, `sessions:read` | the strongest a viewer's agents may have |
 | `oncall` | + `alerts:write`, `machines:ssh` | the strongest an on-call person's agents may have |
 | `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | the strongest an operator's or an owner's agents may have |
-| `custom` | A list of its own, from the nine scopes of people and agents, at least one | chosen on purpose: `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly; claiming never widens what a token may do |
+| `custom` | A list of its own, from the nine scopes of people and agents, at least one | chosen on purpose: `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly. Claiming never widens what a token may do |
 
-A person's agents get the strongest preset their owner's role allows unless they choose less (`beacon agent add -preset`, or the console); a demoted owner's agents are held to the new role at once, on the next request.
+A person's agents get the strongest preset their owner's role allows, unless they choose less (`beacon agent add -preset`, or the console). When an owner is demoted, their agents are held to the new role at once, on the next request.
 
-An OAuth sign-in (Claude Code, Codex) is held, besides, to the preset and the machines the person allowed at the consent page — it can ask for less than the agent may. An SSH key an agent added through an OAuth sign-in carries that sign-in's ceiling too.
+An OAuth sign-in (Claude Code, Codex) is also held to the preset and the machines the person allowed at the consent page. It can ask for less than the agent may. An SSH key an agent added through an OAuth sign-in carries that sign-in's ceiling too.
 
 ## Scopes
 
-The first nine are for people and agents, on the REST API, MCP and the SSH channel; the rest are for machines, on the metrics gateway ([Sources](sources.md)).
+The first nine are for people and agents, on the REST API, MCP and the SSH channel. The rest are for machines, on the metrics gateway ([Sources](sources.md)).
 
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
@@ -50,10 +60,16 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `alerts:send` | a machine's or an expert's token | Posting alerts as the rule engine does |
 | `changes:write` | a machine's or an expert's token | Posting change events |
 
-A token of its own carries its scopes by name, fixed when it was made; an agent's credentials follow the agent instead — whichever of its tokens or OAuth sign-ins it presents, it may do what the agent's preset and its owner's role both allow now. `GET /api/v1/token` and `POST /api/v1/token/renew` take any scope: the token itself is the credential.
+A token of its own carries its scopes by name, fixed when it was made. An agent's credentials follow the agent instead. Whichever of its tokens or OAuth sign-ins it presents, it may do what the agent's preset and its owner's role both allow now.
+
+`GET /api/v1/token` and `POST /api/v1/token/renew` take any scope: the token itself is the credential.
 
 ## Machines
 
-`probe:write` and `host:write` need a **subject** — the location or host the token writes as — and the gateway labels everything they write with it, in place of anything the sender says about itself, so a probe cannot speak for another. A token whose machine has expired (a `vps` in the catalogue past its date) can no longer write. The machines an agent or a token may reach on the SSH channel are a list of their own; an empty list means all of them, and an OAuth sign-in's list is intersected with the agent's, so it reaches only what both allow.
+`probe:write` and `host:write` need a **subject**: the location or host the token writes as. The gateway labels everything they write with it, in place of anything the sender says about itself. So a probe cannot speak for another. A token whose machine has expired (a `vps` in the catalogue past its date) can no longer write.
 
-Tokens are `lbt_` and 52 more characters; Beacon keeps only their SHA-256. A token expires between 1 hour and 2 years from its making. Its holder renews it before it does — a new secret, the same name, scopes, subject, machines and keys, the old secret working for ten minutes more — at most once a day; an enrolled machine's token is replaced with `beacon enroll -rotate` instead. A revoked token stops working at once.
+The machines an agent or a token may reach on the SSH channel are a list of their own. An empty list means all of them. An OAuth sign-in's list is intersected with the agent's, so it reaches only what both allow.
+
+Tokens are `lbt_` and 52 more characters, and Beacon keeps only their SHA-256. A token expires between 1 hour and 2 years from its making. A revoked token stops working at once.
+
+Its holder renews it before it expires, at most once a day. Renewing gives a new secret with the same name, scopes, subject, machines and keys, and the old secret works for ten minutes more. An enrolled machine's token is replaced with `beacon enroll -rotate` instead.

@@ -3,13 +3,15 @@
 Two different things are called Beacon's configuration, and this page is about the first:
 
 - **`config.yaml`**, the service's own configuration: where it listens, the chat it alerts through, the escalation to phones, the SSH channel's keys. It is a file on the centre, read once when Beacon starts.
-- **The catalogue, probe targets and modules** — what is checked and from where. These live in Beacon's database and are changed through the API, MCP or the command line; the files are for import and export. [Monitor a service](../guide/monitoring.md) is that story; the last section of this page says when the files are read.
+- **The catalogue, probe targets and modules**: what is checked and from where. These live in Beacon's database and are changed through the API, MCP or the command line. The files are for import and export. [Monitor a service](../guide/monitoring.md) is that story; the last section of this page says when the files are read.
 
 The examples assume the reference deployment from [On a server](install.md).
 
 ## config.yaml
 
-In the reference deployment it is `/opt/beacon/config.yaml` on the centre, mounted read-only into the container as `/etc/beacon/config.yaml`. Every field is explained in [`config.example.yaml`](https://github.com/openlinkos/beacon/blob/main/config.example.yaml) at the repository's root, and listed key by key in the [config.yaml reference](../reference/config.md); this section is the map.
+In the reference deployment it is `/opt/beacon/config.yaml` on the centre. It is mounted read-only into the container as `/etc/beacon/config.yaml`.
+
+Every field is explained in [`config.example.yaml`](https://github.com/openlinkos/beacon/blob/main/config.example.yaml) at the repository's root. The [config.yaml reference](../reference/config.md) lists them key by key. This section is the map.
 
 | Section | What it decides |
 | --- | --- |
@@ -28,13 +30,16 @@ In the reference deployment it is `/opt/beacon/config.yaml` on the centre, mount
 | `escalation` | Per severity: which channel, when the on-call are buzzed, when a phone is called |
 | `ack_ttl`, `agents`, `changes` | How long an acknowledgement lasts; hooks that wake agents on new alert groups; how long change events are kept |
 
-An unknown key is an error, not a warning: a misspelled section stops Beacon from starting, and `check-config` (below) says so before that. Durations are written as `30s`, `2m`, `4320h`.
+An unknown key is an error, not a warning. A misspelled section stops Beacon from starting, and `check-config` (below) says so before that. Durations are written as `30s`, `2m`, `4320h`.
 
 ## Secrets are files, never values
 
-No credential is ever written in `config.yaml`: every one is a `*_file` path, and Beacon reads the file once at start. A secret in the YAML is a configuration error; the `*_file` fields and the files they name are the whole story.
+No credential is ever written in `config.yaml`. Every one is a `*_file` path, and Beacon reads the file once at start. A secret in the YAML is a configuration error. The `*_file` fields and the files they name are the whole story.
 
-In the reference deployment the files live under `/opt/beacon/secrets/`, owner 65532 and mode 0400. `install.sh` makes the three it can make itself (`rules-token`, `ssh-host-key`, `ssh-ca-key`, which never leave the machine) and gives any file you add there the same owner and mode. The chat's are yours to put there: `feishu-app-id`, `feishu-app-secret`, `feishu-webhook-url`, `pushover-user-key`, `pushover-app-token`, `healthchecks-bridge-url`, as [the Feishu page](../integrations/feishu.md) walks through.
+In the reference deployment the files live under `/opt/beacon/secrets/`, owner 65532 and mode 0400.
+
+- **`install.sh` makes three itself**: `rules-token`, `ssh-host-key` and `ssh-ca-key`, which never leave the machine. It gives any file you add there the same owner and mode.
+- **The chat's are yours to put there**: `feishu-app-id`, `feishu-app-secret`, `feishu-webhook-url`, `pushover-user-key`, `pushover-app-token`, `healthchecks-bridge-url`. [The Feishu page](../integrations/feishu.md) walks through them.
 
 Secrets are never logged and never appear in errors. How those files are filled is the deployment's own business: Beacon depends on no secret manager.
 
@@ -52,7 +57,7 @@ files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 
 database: version 2 in the running service: …
 ```
 
-`install.sh` runs the same check inside its own image before every start, so a file that does not validate stops the install with the reason, not the service in the night.
+`install.sh` runs the same check inside its own image before every start. So a file that does not validate stops the install with the reason, not the service in the night.
 
 ## Applying a change
 
@@ -62,21 +67,28 @@ database: version 2 in the running service: …
 docker compose restart beacon
 ```
 
-`install.sh` does this itself when it sees that `config.yaml` or a secret changed since its last run, so the round for a configuration change is: edit the file, `sudo ./install.sh`, done.
+`install.sh` does this itself when it sees that `config.yaml` or a secret changed since its last run. So the round for a configuration change is: edit the file, `sudo ./install.sh`, done.
 
-SIGHUP is not the way, and this is the one thing worth being clear about: **a hang-up does not re-read `config.yaml`**. It is about the catalogue files (next section). The chat, the escalation, the agents hooks — all of these need a restart.
+SIGHUP is not the way, and this is the one thing worth being clear about: **a hang-up does not re-read `config.yaml`**. It is about the catalogue files (next section). The chat, the escalation and the agents hooks all need a restart.
 
 The chat, the common case, in three moves:
 
-1. Put each secret in its file under `/opt/beacon/secrets/`: `feishu-app-id`, `feishu-app-secret`, `feishu-webhook-url`; `pushover-user-key` and `pushover-app-token` for phones; `healthchecks-bridge-url` for the dead man's switch.
-2. Uncomment the `feishu:` section (and `pushover:`, `healthchecks:`) in `/opt/beacon/config.yaml`, with your `chat_id` and the people on call.
-3. `sudo ./install.sh` again: it fixes the secret files' owner and mode, validates everything and restarts Beacon. The log then says `feishu long connection ready` (`docker compose logs beacon`).
+1. **Put each secret in its file** under `/opt/beacon/secrets/`:
+   - `feishu-app-id`, `feishu-app-secret`, `feishu-webhook-url` for the chat;
+   - `pushover-user-key` and `pushover-app-token` for phones;
+   - `healthchecks-bridge-url` for the dead man's switch.
+2. **Uncomment the `feishu:` section** (and `pushover:`, `healthchecks:`) in `/opt/beacon/config.yaml`, with your `chat_id` and the people on call.
+3. **Run `sudo ./install.sh` again.** It fixes the secret files' owner and mode, validates everything and restarts Beacon. The log then says `feishu long connection ready` (`docker compose logs beacon`).
 
 ## The catalogue files, at start and on SIGHUP
 
-The first start imports the files the configuration names (`catalog_dir`, `gateway.targets_dir`, `gateway.modules_file`) into the database and logs `imported the configuration files into the database, where it is changed from now on`; files that fail their checks stop the start. From then on the database is the source of truth, and the files are read only when asked:
+The first start imports the files the configuration names into the database: `catalog_dir`, `gateway.targets_dir` and `gateway.modules_file`. It logs `imported the configuration files into the database, where it is changed from now on`. Files that fail their checks stop the start.
 
-- **SIGHUP** (`docker kill -s HUP beacon`) imports them, but only when nothing was changed through Beacon since the last import, so the files cannot silently undo what people and agents changed. Otherwise the log says which change came since, and how to go on: `config export` to bring that change into the files, or `config import` to replace it.
-- **`beacon config import DIR`** imports a directory at any time, `-dry-run` first; **`beacon config export DIR`** writes what is in force back to files; **`beacon config history`** and **`beacon config revert VERSION`** walk and undo the changes.
+From then on the database is the source of truth, and the files are read only when asked:
+
+- **SIGHUP** (`docker kill -s HUP beacon`) imports them, but only when nothing was changed through Beacon since the last import. That way the files cannot silently undo what people and agents changed. Otherwise the log says which change came since, and how to go on: `config export` to bring that change into the files, or `config import` to replace it.
+- **`beacon config import DIR`** imports a directory at any time, `-dry-run` first.
+- **`beacon config export DIR`** writes what is in force back to files.
+- **`beacon config history`** and **`beacon config revert VERSION`** walk and undo the changes.
 
 [Files, import and export](../guide/monitoring.md#files-import-and-export) has the whole of it, including the trap of an import: items the files do not hold are removed.

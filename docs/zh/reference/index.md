@@ -1,10 +1,12 @@
 ---
-sourceHash: sha256-cdc0499d
+sourceHash: sha256-b68792f8
 ---
 
 # 参考
 
-Beacon 接收和返回的一切，列出来供查阅；怎么用，见[使用 Beacon](../guide/using-beacon.md)。网站构建时会拿这些页面和代码核对：每个 REST 操作、网关路由、错误码、作用域、MCP 工具、命令、参数和 `config.yaml` 配置项都必须出现在这里，否则构建失败。
+Beacon 接收和返回的一切，列出来供查阅。怎么用，见[使用 Beacon](../guide/using-beacon.md)。
+
+网站构建时会拿这些页面和代码核对。每个 REST 操作、网关路由、错误码、作用域、MCP 工具、命令、参数和 `config.yaml` 配置项都必须出现在这里，否则构建失败。
 
 ## 给 Agent 和脚本 {#for-agents-and-scripts}
 

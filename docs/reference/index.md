@@ -1,6 +1,8 @@
 # Reference
 
-Everything Beacon takes and answers, listed for looking up; [Using Beacon](../guide/using-beacon.md) says how to use it. The site's build checks these pages against the code: every REST operation, gateway route, error code, scope, MCP tool, command, flag and `config.yaml` key appears in them, or the build fails.
+Everything Beacon takes and answers, listed for looking up. [Using Beacon](../guide/using-beacon.md) says how to use it.
+
+The site's build checks these pages against the code. Every REST operation, gateway route, error code, scope, MCP tool, command, flag and `config.yaml` key appears in them, or the build fails.
 
 ## For agents and scripts {#for-agents-and-scripts}
 

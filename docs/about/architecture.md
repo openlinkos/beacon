@@ -1,6 +1,18 @@
 # Architecture
 
-This page is for people who run Beacon and want to know which part does what, so that when an alert does not arrive or an agent cannot reach a machine they know where to look; and for contributors. It answers, in the order things happen: what runs where, where state lives, the path an alert takes from a probe to people and agents, the path an agent takes to the evidence and to a machine, where the configuration lives, which package holds which part, and the rules every part keeps. [Goals](goals.md) says why Beacon is built this way; `AGENTS.md` in the repository has the rules for changing the code.
+This page says which part of Beacon does what. When an alert does not arrive, or an agent cannot reach a machine, it tells you where to look. It is for people who run Beacon, and for contributors.
+
+It answers, in the order things happen:
+
+- what runs where;
+- where state lives;
+- the path an alert takes from a probe to people and agents;
+- the path an agent takes to the evidence and to a machine;
+- where the configuration lives;
+- which package holds which part;
+- the rules every part keeps.
+
+[Goals](goals.md) says why Beacon is built this way. `AGENTS.md` in the repository has the rules for changing the code.
 
 ## The whole picture
 
@@ -14,7 +26,11 @@ agents ──▶ REST /api/v1, MCP /mcp ──▶ bridge (evidence, timeline, no
 agents ──▶ ssh, scp, sftp, rsync (port 17002) ──▶ SSH channel ──▶ machines (5-minute certificates; every session recorded)
 ```
 
-Read it as three flows. Results go up: each probe pushes to the gateway, which writes to VictoriaMetrics. Alerts come back: vmalert evaluates the rules and posts what fires to the gateway, the router groups it, and the bridge tells people and wakes agents. Agents come in: over REST and MCP for the evidence and the notes, and over the SSH channel to the machines.
+Read it as three flows:
+
+- **Results go up.** Each probe pushes to the gateway, which writes to VictoriaMetrics.
+- **Alerts come back.** vmalert evaluates the rules and posts what fires to the gateway. The router groups it, and the bridge tells people and wakes agents.
+- **Agents come in**: over REST and MCP for the evidence and the notes, and over the SSH channel to the machines.
 
 ## What runs where
 
@@ -26,11 +42,20 @@ Three binaries, all in Go without cgo:
 | `beacon-probe` | Each probe location: an edge node, a small VPS where users are | `agent` pushes results to the gateway; `serve` answers scrapes like the Blackbox Exporter; `check` validates a module file; `run` probes once |
 | `beacon-oncall` | The machine where an agent runs | The reference harness: checks a hook's signature and starts the agent program you name, with the payload on its standard input |
 
-The reference deployment (`deploy/`) is four containers on the centre: Beacon (memory limit 256 MB), VictoriaMetrics (1 GB), vmalert (256 MB) and Caddy in front for TLS (128 MB); the whole installation uses about 200 MB when idle. Each probe machine runs one `beacon-probe`, about 15 to 20 MB resident, under a systemd limit of 64 MB.
+The reference deployment (`deploy/`) is four containers on the centre:
+
+| Container | Memory limit |
+| --- | --- |
+| Beacon | 256 MB |
+| VictoriaMetrics | 1 GB |
+| vmalert | 256 MB |
+| Caddy, in front for TLS | 128 MB |
+
+The whole installation uses about 200 MB when idle. Each probe machine runs one `beacon-probe`, about 15 to 20 MB resident, under a systemd limit of 64 MB.
 
 ## One process, three ports
 
-`beacon serve` is one process. It holds the gateway, the router, the bridge, the REST API, the MCP server, the console and the public pages, and the SSH channel, and listens on three ports:
+`beacon serve` is one process. It holds the gateway, the router, the bridge, the REST API, the MCP server, the console and the public pages, and the SSH channel. It listens on three ports:
 
 | Port | For | What answers |
 | --- | --- | --- |
@@ -38,47 +63,82 @@ The reference deployment (`deploy/`) is four containers on the centre: Beacon (m
 | 17002 | Agents, and machines behind NAT | The SSH channel: plain SSH, published directly rather than through the HTTP proxy |
 | 17006 | Machines | The gateway: probes, hosts, heartbeats, the rule engine's alerts, change events, metric queries |
 
-In the reference deployment Caddy serves 17001 as `https://status.example.com` and 17006 as `https://metrics.example.com`; 17002 is published as it is.
+In the reference deployment, Caddy serves 17001 as `https://status.example.com` and 17006 as `https://metrics.example.com`. 17002 is published as it is.
 
 ## Where state lives
 
-- **One SQLite database**, `beacon.db` in the data directory (`data_dir`, `/var/lib/beacon`; `storage.path`), written in WAL mode (so beside it are its `-wal` and `-shm` files): alert groups with their notes and agent calls, silences, people's accounts (passwords as argon2id hashes), their agents, tokens and OAuth sign-ins (as SHA-256 hashes), machines, the index of SSH sessions, change events, the configuration with its history, the console's sign-ins, kept as keys and values in the buckets they always had; and the audit log, an event table with a hash chain and signed checkpoints. A centre that ran an earlier version moves its bbolt file, `status.db`, into it on the first start and keeps the old file as `status.db.pre-sql`.
+- **One SQLite database**, `beacon.db` in the data directory (`data_dir`, `/var/lib/beacon`; `storage.path`). It is written in WAL mode, so beside it are its `-wal` and `-shm` files. A centre that ran an earlier version moves its bbolt file, `status.db`, into it on the first start, and keeps the old file as `status.db.pre-sql`. The database holds:
+  - as keys and values, in the buckets they always had: alert groups with their notes and agent calls, silences, people's accounts (passwords as argon2id hashes), their agents, tokens and OAuth sign-ins (as SHA-256 hashes), machines, the index of SSH sessions, change events, the configuration with its history, and the console's sign-ins;
+  - the audit log: an event table with a hash chain and signed checkpoints.
 - **Recordings** of SSH sessions, as files beside it under `recordings/YYYY/MM/DD/`, kept for `ssh.keep` (180 days by default).
-- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` need no network and no token; only the service's own user and root may connect. Machines' tokens are made there, and the setup link that makes the first account.
+- **The admin socket**, `ctl.sock` in the same directory, mode 0600. The command line reaches the running service through it, so `setup`, `user`, `agent`, `token`, `enroll`, `machine`, `ssh`, `silence`, `config` and `drill` need no network and no token. Only the service's own user and root may connect. Machines' tokens are made there, and so is the setup link that makes the first account.
 - **Metrics and rules are not Beacon's**: VictoriaMetrics stores and queries the probes' results (400 days in the reference deployment), and vmalert evaluates the rules.
 
 ## An alert's path
 
 From a service breaking to people and agents hearing of it, with the reference rules and the default settings:
 
-1. **Probes push.** Every minute, `beacon-probe agent` probes the targets the gateway handed it and pushes the samples in the Prometheus text format, keeping a queue on disk for when the network is down. Its token names its location; the gateway labels everything it writes with the location, region, network and host from the catalogue, so a probe cannot speak for another, and a location whose machine has expired cannot write at all (`location.inactive`).
-2. **Rules decide.** vmalert evaluates the rules every 30 seconds. A location counts as failing a service once it has failed it for 3 minutes; the service is down when at least two locations fail it and they are at least half of those reporting, and `ServiceDown` fires after that has held for 1 minute. vmalert posts it to the gateway's `POST /api/v2/alerts`, in Alertmanager's form, with the rules token. Counting from the first failed probe, that is about 4 to 5 minutes.
-3. **The router groups.** It does Alertmanager's job inside Beacon: alerts are grouped (by `alertname` and `service` unless a route says otherwise), a new group waits `group_wait` (30 seconds) for more alerts before it is sent, and is then updated at most every `group_interval` (2 minutes); inhibition and silences mute what they match. An alert fires until the `endsAt` the rule engine gives it, which vmalert sets in the past when the alert resolves; one sent without `endsAt` resolves `resolve_timeout` (5 minutes) after it was last sent. Groups survive restarts. The alert named `Watchdog`, always firing, proves the pipeline works and is never shown.
-4. **The bridge tells people.** A new group becomes a card in the alert chat, through the Feishu app. A critical one nobody acknowledges is buzzed in the Feishu app after 10 minutes and sent to Pushover's emergency priority after 15; an acknowledgement holds escalation for `ack_ttl` (4 hours). `info` alerts go to the chat's custom bot, which costs no API calls; above 70% of the app's monthly budget only critical alerts use the app. While the Watchdog keeps arriving and alerts can be delivered, the bridge pings healthchecks.io every minute; when the centre or any part of the pipeline stops, the pings stop and healthchecks.io raises the alarm from outside.
-5. **The bridge wakes agents.** The hooks in the configuration (a signed webhook, or a GitHub workflow dispatch) are called once when a group is first notified, and again when it resolves if the hook asks for that (`resolved`, 1 minute later by default). The calls run beside delivery, which never waits for them, and are tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes.
+1. **Probes push.** Every minute, `beacon-probe agent` probes the targets the gateway handed it. It pushes the samples in the Prometheus text format, and keeps a queue on disk for when the network is down. Its token names its location. The gateway labels everything it writes with the location, region, network and host from the catalogue. So a probe cannot speak for another, and a location whose machine has expired cannot write at all (`location.inactive`).
+2. **Rules decide.** vmalert evaluates the rules every 30 seconds.
+   - A location counts as failing a service once it has failed it for 3 minutes.
+   - The service is down when at least two locations fail it, and they are at least half of those reporting.
+   - `ServiceDown` fires after that has held for 1 minute. vmalert posts it to the gateway's `POST /api/v2/alerts`, in Alertmanager's form, with the rules token. Counting from the first failed probe, that is about 4 to 5 minutes.
+3. **The router groups.** It does Alertmanager's job inside Beacon:
+   - Alerts are grouped by `alertname` and `service`, unless a route says otherwise.
+   - A new group waits `group_wait` (30 seconds) for more alerts before it is sent. It is then updated at most every `group_interval` (2 minutes).
+   - Inhibition and silences mute what they match.
+   - An alert fires until the `endsAt` the rule engine gives it. vmalert sets `endsAt` in the past when the alert resolves. An alert sent without `endsAt` resolves `resolve_timeout` (5 minutes) after it was last sent.
+   - Groups survive restarts.
+   - The alert named `Watchdog`, always firing, proves the pipeline works and is never shown.
+4. **The bridge tells people.** A new group becomes a card in the alert chat, through the Feishu app.
+   - A critical one nobody acknowledges is buzzed in the Feishu app after 10 minutes, and sent to Pushover's emergency priority after 15. An acknowledgement holds escalation for `ack_ttl` (4 hours).
+   - `info` alerts go to the chat's custom bot, which costs no API calls. Above 70% of the app's monthly budget, only critical alerts use the app.
+   - While the Watchdog keeps arriving and alerts can be delivered, the bridge pings healthchecks.io every minute. When the centre or any part of the pipeline stops, the pings stop, and healthchecks.io raises the alarm from outside.
+5. **The bridge wakes agents.** The hooks in the configuration (a signed webhook, or a GitHub workflow dispatch) are called once when a group is first notified. They are called again when it resolves, if the hook asks for that (`resolved`, 1 minute later by default). The calls run beside delivery, which never waits for them. They are tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes.
 
 ## An agent's path
 
-An agent acts for a person, its owner, and never does more than its owner's role allows, read afresh on every request. Woken by a hook or asked by a person, it signs in once, through the browser with MCP's OAuth or with a token, and that identity opens every door:
+An agent acts for a person, its owner. It never does more than its owner's role allows, read afresh on every request. Woken by a hook or asked by a person, it signs in once: through the browser with MCP's OAuth, or with a token. That identity opens every door:
 
-- **REST and MCP** call the same bridge methods. `get_evidence` gathers in one answer each location's result and reason (from VictoriaMetrics), the other alerts in the same failure domain, the change events just before, and what people and agents have done, over a window that opens 30 minutes before the alert started. `add_note`, `ack_alert` and `silence_alert` write; every write is in the audit log and echoed to the alert chat.
-- **Probing on demand.** `probe_now` puts a request on a board in memory that every probe long-polls through the gateway (up to 55 seconds a poll). The locations that probe the target do so at once, push the samples as in their cycle, and post their answers, which the call returns within its wait (45 seconds by default, at most 90).
+- **REST and MCP** call the same bridge methods. `add_note`, `ack_alert` and `silence_alert` write, and every write is in the audit log and echoed to the alert chat. `get_evidence` gathers in one answer, over a window that opens 30 minutes before the alert started:
+  - each location's result and reason (from VictoriaMetrics);
+  - the other alerts in the same failure domain;
+  - the change events just before;
+  - what people and agents have done.
+- **Probing on demand.** `probe_now` puts a request on a board in memory. Every probe long-polls the board through the gateway, up to 55 seconds a poll. The locations that probe the target do so at once, push the samples as in their cycle, and post their answers. The call returns them within its wait: 45 seconds by default, at most 90.
 - **Machines** are reached through the SSH channel (next section).
-- **Its credentials** look after themselves: a token renews itself before it expires (`renew_token`, at most once a day), and an OAuth client refreshes its own access token, so nobody has to hand an agent a long-lived one.
+- **Its credentials** look after themselves. A token renews itself before it expires (`renew_token`, at most once a day). An OAuth client refreshes its own access token. So nobody has to hand an agent a long-lived one.
 
-Text that comes from outside Beacon (labels, probed services' answers, change events, what machines print) is cleaned of control and invisible characters, cut when long, and named in an `untrusted` object in every answer that carries it.
+Text that comes from outside Beacon (labels, probed services' answers, change events, what machines print) is cleaned of control and invisible characters, and cut when long. Every answer that carries such text names it in an `untrusted` object.
 
 ## Reaching a machine
 
-An agent signs in to the SSH channel with its own key, registered with Beacon; the user name it gives is the machine it wants. The channel checks that the agent may use `machines:ssh` and reaches that machine, connects to the machine with its pinned host key, and presents a certificate it signed for that one connection: valid for five minutes, for the machine's account (`beacon` by default), with a key ID that names the connection, the agent and the way in (`beacon 20261101-091724-aa8bba for alice / claude-code via ssh`), and limited to `ssh.source_addresses` when that is set. The machine trusts only Beacon's certificate authority. The agent's `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` go through unchanged, and the MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`) take the same path.
+An agent signs in to the SSH channel with its own key, registered with Beacon. The user name it gives is the machine it wants. The channel then:
 
-Every session is recorded as asciicast v3 for replay; an interactive shell is broken down into its commands and their exit statuses through shell-integration marks, and the alert chat hears what ran. `beacon ssh pause` closes every session at once and refuses new ones until `ssh resume`; when one agent's access ends (a credential revoked or expired, the agent deleted or narrowed, its owner disabled or demoted), what that agent has open closes at once. A machine Beacon cannot reach connects out with plain `ssh -R` and a key registered for it, and Beacon reaches its sshd back through that connection.
+1. checks that the agent may use `machines:ssh` and reaches that machine;
+2. connects to the machine with its pinned host key;
+3. presents a certificate it signed for that one connection.
+
+The certificate:
+
+- is valid for five minutes;
+- is for the machine's account (`beacon` by default);
+- has a key ID that names the connection, the agent and the way in (`beacon 20261101-091724-aa8bba for alice / claude-code via ssh`);
+- is limited to `ssh.source_addresses` when that is set.
+
+The machine trusts only Beacon's certificate authority. The agent's `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` go through unchanged. The MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`) take the same path.
+
+Every session is recorded as asciicast v3 for replay. An interactive shell is broken down into its commands and their exit statuses, through shell-integration marks. The alert chat hears what ran.
+
+`beacon ssh pause` closes every session at once, and refuses new ones until `ssh resume`. When one agent's access ends, what that agent has open closes at once. Access ends when a credential is revoked or expires, the agent is deleted or narrowed, or its owner is disabled or demoted.
+
+A machine Beacon cannot reach connects out with plain `ssh -R` and a key registered for it. Beacon reaches its sshd back through that connection.
 
 ## Configuration
 
 - **The configuration file** (`/etc/beacon/config.yaml`) names everything else: ports, VictoriaMetrics, the chat, hooks, the SSH channel. It names secrets only as `*_file` paths, and is read when the service starts.
-- **What Beacon monitors** lives in the database: the catalogue (probe locations, heartbeats, expiring resources, status pages), the probe target sets and the probe modules. It is changed through the API, MCP and the command line; every change is checked as the files always were, takes effect at once, and is a version with who made it and the values before and after, which can be reverted. The latest 10,000 changes are kept.
-- **Files are for import and export.** The first start imports them into a database that holds no configuration yet; `SIGHUP` imports them again only when nothing was changed through Beacon since the last import; `beacon config import DIR` imports a directory at any time, and `config export DIR` writes the configuration back as files.
+- **What Beacon monitors** lives in the database: the catalogue (probe locations, heartbeats, expiring resources, status pages), the probe target sets and the probe modules. It is changed through the API, MCP and the command line. Every change is checked as the files always were, and takes effect at once. Each change is a version, with who made it and the values before and after, and can be reverted. The latest 10,000 changes are kept.
+- **Files are for import and export.** The first start imports them into a database that holds no configuration yet. `SIGHUP` imports them again, but only when nothing was changed through Beacon since the last import. `beacon config import DIR` imports a directory at any time, and `config export DIR` writes the configuration back as files.
 
 ## Packages
 
@@ -112,10 +172,12 @@ Every session is recorded as asciicast v3 for replay; an interactive shell is br
 ## Rules every part keeps
 
 - **Secrets come only from files** the configuration names, and are never logged or put in errors.
-- **Tokens are stored as SHA-256 hashes**, with scopes and an expiry, as are OAuth tokens, one-time link codes and console session ids; passwords as argon2id hashes. 20 failed attempts from one client address within 10 minutes block that address for the rest of those 10 minutes (one count for the API, the console's sign-in and the gateway; the SSH channel keeps its own, with the same limit), and 10 wrong passwords block a username. A probe's or host's token writes only as its own subject.
+- **Tokens are stored as SHA-256 hashes**, with scopes and an expiry. So are OAuth tokens, one-time link codes and console session ids. Passwords are stored as argon2id hashes.
+- **Failed attempts are limited.** 20 failed attempts from one client address within 10 minutes block that address for the rest of those 10 minutes. The API, the console's sign-in and the gateway share one count. The SSH channel keeps its own, with the same limit. 10 wrong passwords block a username.
+- **A probe's or host's token writes only as its own subject.**
 - **People sign in only with Beacon's own accounts, and an agent never does more than its owner's role allows**, read afresh on every request.
 - **Every operation is both a REST route and an MCP tool**, through the same method, with a scope check, an audit entry and an echo to the alert chat. Errors are `{"error", "code"}`, with codes that stay stable ([REST API](../reference/api.md)).
 - **The probe protocol only grows**: fields and routes are added, never changed or removed, so probes and gateways of different versions keep working together.
 - **Close to how agents work**: SSH, the shell, HTTP with JSON, Prometheus queries and MCP, rather than a protocol or configuration language of Beacon's own.
-- **No approval workflow and no model**: Beacon records and shows what agents do; deciding is the agent's, and the pause switch and each machine's access are the only brakes.
-- **What people read is translated**: cards, toasts and chat messages are in English or Chinese; logs, command output and API errors stay English.
+- **No approval workflow and no model**: Beacon records and shows what agents do. Deciding is the agent's, and the pause switch and each machine's access are the only brakes.
+- **What people read is translated**: cards, toasts and chat messages are in English or Chinese. Logs, command output and API errors stay English.
