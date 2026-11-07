@@ -30,152 +30,180 @@ const githubSlug = (title: string): string =>
 
 type Page = { text: string; link: string };
 type Group = { text: string; items: Page[] };
-type Section = { text: string; items: (Page | Group)[] };
 
 /**
- * The site's sections, in reading order: each starts with its landing page, and a section that
- * covers several things groups its pages under them. The sidebar shows them as they are, and the
- * top nav is made from the same list (below), so the two never disagree.
+ * One part of the site: a link in the top nav to its first page, and the sidebar that every page
+ * under its directories shows. The sidebar holds that part alone, its landing page and its groups, so
+ * that a reader sees where they are and what is next to it, not the whole site at once.
  */
-const sections = (zh: boolean): Section[] => {
+type Part = { text: string; dirs: string[]; sidebar: (Page | Group)[] };
+
+/** The site's parts, in reading order. The top nav and the sidebars are both made from them (below). */
+const parts = (zh: boolean): Part[] => {
   const t = (en: string, cn: string) => (zh ? cn : en);
   const p = (link: string, en: string, cn: string): Page => ({ text: t(en, cn), link: `${zh ? '/zh' : ''}${link}` });
+  const g = (en: string, cn: string, ...items: Page[]): Group => ({ text: t(en, cn), items });
   return [
     {
-      text: t('Getting started', '入门'),
-      items: [
-        p('/guide/', 'What is Beacon', 'Beacon 是什么'),
-        p('/guide/quickstart', 'Try it on your laptop', '在本机试一试'),
-        p('/guide/concepts', 'How Beacon works', 'Beacon 如何工作'),
-      ],
-    },
-    {
-      text: t('Using Beacon', '使用 Beacon'),
-      items: [
-        p('/guide/using-beacon', 'Overview', '概览'),
-        {
-          text: t('Monitoring and alerts', '监控与告警'),
-          items: [
-            p('/guide/monitoring', 'Monitor a service', '检测一个服务'),
-            p('/guide/heartbeats', 'Heartbeats and expiring resources', '心跳与到期资源'),
-            p('/guide/status-pages', 'Publish a status page', '发布状态页'),
-          ],
-        },
-        {
-          text: t('Agents on call', 'Agent 值班'),
-          items: [
-            p('/guide/on-call', 'Put an agent on call', '让 Agent 值班'),
-            p('/guide/drills', 'Rehearse an outage', '演练一次故障'),
-            p('/guide/console', 'Review what agents did', '复查 Agent 做了什么'),
-          ],
-        },
-        {
-          text: t('Machines and the SSH channel', '机器与 SSH 通道'),
-          items: [
-            p('/guide/machines', 'Give agents a machine', '给 Agent 一台机器'),
-            p('/guide/stop', 'Stop an agent, pause everything', '停下 Agent，暂停一切'),
-          ],
-        },
-        {
-          text: t('The team and permissions', '团队与权限'),
-          items: [p('/guide/people', 'Invite your team', '邀请你的团队')],
-        },
+      text: t('Guide', '指南'),
+      dirs: ['/guide/'],
+      sidebar: [
+        g(
+          'Getting started',
+          '入门',
+          p('/guide/', 'What is Beacon', 'Beacon 是什么'),
+          p('/guide/quickstart', 'Try it on your laptop', '在本机试一试'),
+          p('/guide/concepts', 'How Beacon works', 'Beacon 如何工作'),
+          p('/guide/using-beacon', 'Using Beacon', '使用 Beacon'),
+        ),
+        g(
+          'Monitoring and alerts',
+          '监控与告警',
+          p('/guide/monitoring', 'Monitor a service', '检测一个服务'),
+          p('/guide/heartbeats', 'Heartbeats and expiring resources', '心跳与到期资源'),
+          p('/guide/status-pages', 'Publish a status page', '发布状态页'),
+        ),
+        g(
+          'Agents on call',
+          'Agent 值班',
+          p('/guide/on-call', 'Put an agent on call', '让 Agent 值班'),
+          p('/guide/drills', 'Rehearse an outage', '演练一次故障'),
+          p('/guide/console', 'Review what agents did', '复查 Agent 做了什么'),
+        ),
+        g(
+          'Machines and the SSH channel',
+          '机器与 SSH 通道',
+          p('/guide/machines', 'Give agents a machine', '给 Agent 一台机器'),
+          p('/guide/stop', 'Stop an agent, pause everything', '停下 Agent，暂停一切'),
+        ),
+        g('The team and permissions', '团队与权限', p('/guide/people', 'Invite your team', '邀请你的团队')),
       ],
     },
     {
       text: t('Integrations', '接入'),
-      items: [
+      dirs: ['/integrations/'],
+      sidebar: [
         p('/integrations/', 'Overview', '概览'),
-        {
-          text: t('Agent clients', 'Agent 客户端'),
-          items: [
-            p('/integrations/claude-code', 'Claude Code', 'Claude Code'),
-            p('/integrations/codex', 'Codex', 'Codex'),
-            p('/integrations/cursor', 'Cursor', 'Cursor'),
-            p('/integrations/mcp-clients', 'Other MCP clients', '其他 MCP 客户端'),
-            p('/integrations/headless', 'Headless agents and CI', '无头 Agent 与 CI'),
-            p('/integrations/on-call-prompt', 'The on-call prompt', '值班提示词'),
-          ],
-        },
-        {
-          text: t('Events and notifications', '事件与通知'),
-          items: [
-            p('/integrations/webhooks', 'Agents woken by a webhook', '被 webhook 唤醒的 Agent'),
-            p('/integrations/github-actions', 'GitHub Actions', 'GitHub Actions'),
-            p('/integrations/change-events', 'Deployments and Flux', '部署与 Flux'),
-            p('/integrations/feishu', 'Set up the Feishu app', '配置飞书应用'),
-          ],
-        },
+        g(
+          'Agent clients',
+          'Agent 客户端',
+          p('/integrations/claude-code', 'Claude Code', 'Claude Code'),
+          p('/integrations/codex', 'Codex', 'Codex'),
+          p('/integrations/cursor', 'Cursor', 'Cursor'),
+          p('/integrations/mcp-clients', 'Other MCP clients', '其他 MCP 客户端'),
+          p('/integrations/headless', 'Headless agents and CI', '无头 Agent 与 CI'),
+          p('/integrations/on-call-prompt', 'The on-call prompt', '值班提示词'),
+        ),
+        g(
+          'Events and notifications',
+          '事件与通知',
+          p('/integrations/webhooks', 'Agents woken by a webhook', '被 webhook 唤醒的 Agent'),
+          p('/integrations/github-actions', 'GitHub Actions', 'GitHub Actions'),
+          p('/integrations/change-events', 'Deployments and Flux', '部署与 Flux'),
+          p('/integrations/feishu', 'Set up the Feishu app', '配置飞书应用'),
+        ),
       ],
     },
     {
       text: t('Self-hosting', '自托管'),
-      items: [
-        p('/self-hosting/', 'Deployment options', '部署形态'),
-        p('/self-hosting/install', 'On a server', '装在服务器上'),
-        p('/self-hosting/probes', 'Probe locations', '检测点位置'),
-        p('/self-hosting/configuration', 'Configuration', '配置'),
-        p('/self-hosting/upgrade', 'Upgrades', '升级'),
-        p('/self-hosting/postgres', 'PostgreSQL', 'PostgreSQL'),
-        p('/self-hosting/backup', 'Backup and restore', '备份与恢复'),
-        p('/self-hosting/security', 'Security model', '安全模型'),
-        p('/self-hosting/troubleshooting', 'Troubleshooting', '常见问题'),
+      dirs: ['/self-hosting/'],
+      sidebar: [
+        g(
+          'Install',
+          '安装',
+          p('/self-hosting/', 'Deployment options', '部署形态'),
+          p('/self-hosting/install', 'On a server', '装在服务器上'),
+          p('/self-hosting/probes', 'Probe locations', '检测点位置'),
+          p('/self-hosting/configuration', 'Configuration', '配置'),
+          p('/self-hosting/postgres', 'PostgreSQL', 'PostgreSQL'),
+        ),
+        g(
+          'Keep it running',
+          '日常运维',
+          p('/self-hosting/upgrade', 'Upgrades', '升级'),
+          p('/self-hosting/backup', 'Backup and restore', '备份与恢复'),
+          p('/self-hosting/security', 'Security model', '安全模型'),
+          p('/self-hosting/troubleshooting', 'Troubleshooting', '常见问题'),
+        ),
       ],
     },
     {
       text: t('Reference', '参考'),
-      items: [
+      dirs: ['/reference/'],
+      sidebar: [
         p('/reference/', 'Overview', '概览'),
-        p('/reference/api', 'REST API', 'REST API'),
-        p('/reference/mcp', 'MCP tools', 'MCP 工具'),
-        p('/reference/webhooks', 'Webhooks', 'Webhook'),
-        p('/reference/cli', 'Command line', '命令行'),
-        p('/reference/config', 'config.yaml', 'config.yaml'),
-        p('/reference/catalogue', 'The catalogue', '目录文件格式'),
-        p('/reference/permissions', 'Roles, presets and scopes', '角色、预设与权限'),
-        p('/reference/metrics', 'Metrics and alert rules', '指标与告警规则'),
-        p('/reference/sources', 'Sources', '数据来源'),
+        g(
+          'Interfaces',
+          '接口',
+          p('/reference/api', 'REST API', 'REST API'),
+          p('/reference/mcp', 'MCP tools', 'MCP 工具'),
+          p('/reference/webhooks', 'Webhooks', 'Webhook'),
+          p('/reference/cli', 'Command line', '命令行'),
+        ),
+        g(
+          'Files and formats',
+          '文件与格式',
+          p('/reference/config', 'config.yaml', 'config.yaml'),
+          p('/reference/catalogue', 'The catalogue', '目录文件格式'),
+          p('/reference/metrics', 'Metrics and alert rules', '指标与告警规则'),
+          p('/reference/sources', 'Sources', '数据来源'),
+        ),
+        g('Access', '权限', p('/reference/permissions', 'Roles, presets and scopes', '角色、预设与权限')),
       ],
     },
     {
       text: t('About', '关于'),
-      items: [
-        p('/about/', 'Overview', '概览'),
-        p('/about/goals', 'Goals', '目标'),
-        p('/about/architecture', 'Architecture', '架构'),
-        p('/changelog', 'Changelog', '更新日志'),
+      dirs: ['/about/', '/changelog'],
+      sidebar: [
+        g(
+          'About',
+          '关于',
+          p('/about/', 'Overview', '概览'),
+          p('/about/goals', 'Goals', '目标'),
+          p('/about/architecture', 'Architecture', '架构'),
+          p('/changelog', 'Changelog', '更新日志'),
+        ),
       ],
     },
   ];
 };
 
+/** Each part's sidebar, under each of its directories. */
+const sidebar = (zh: boolean): DefaultTheme.SidebarMulti =>
+  Object.fromEntries(
+    parts(zh).flatMap((part) => part.dirs.map((dir) => [`${zh ? '/zh' : ''}${dir}`, part.sidebar])),
+  );
+
 /**
- * The top nav, made from the sections. Getting started and Using Beacon share one menu, Guide, as
- * its two groups, so that the bar keeps room for the language and theme switches at 1280px; every
- * other section is a menu of its own, holding its pages and groups as the sidebar does. The
- * changelog sits under the version these docs describe, with the project's pages on GitHub.
+ * The top nav: a link to each part, lit on every page of that part. About is a menu instead, the
+ * last item: its pages, then the version these docs describe with the changelog and the project's
+ * pages on GitHub. Plain links keep the bar within 1280px beside the language and theme switches.
  */
 const nav = (zh: boolean): DefaultTheme.NavItem[] => {
-  const [start, use, ...rest] = sections(zh);
-  const flat = (section: Section): DefaultTheme.NavItemChildren => ({
-    text: section.text,
-    items: section.items.flatMap((item) => ('items' in item ? item.items : [item])),
-  });
-  const item = (page: Page | Group): DefaultTheme.NavItemWithChildren['items'][number] => {
-    if ('items' in page || !page.link.endsWith('/changelog')) return page;
-    return {
-      text: version ?? (zh ? '发布页' : 'Releases'),
-      items: [
-        page,
-        { text: zh ? '发布页' : 'Releases', link: `${repo}/releases` },
-        { text: zh ? '参与贡献' : 'Contributing', link: `${repo}/blob/main/CONTRIBUTING.md` },
-        { text: zh ? '安全政策' : 'Security policy', link: `${repo}/blob/main/SECURITY.md` },
-      ],
-    };
-  };
+  const prefix = zh ? '/zh' : '';
+  const first = (item: Page | Group): string => ('items' in item ? item.items[0].link : item.link);
+  const lit = (part: Part) => `^${prefix}(${part.dirs.join('|')})`;
+  const all = parts(zh);
+  const about = all.pop()!;
+  const pages = about.sidebar.flatMap((item) => ('items' in item ? item.items : [item]));
   return [
-    { text: zh ? '指南' : 'Guide', items: [flat(start), flat(use)] },
-    ...rest.map((section) => ({ text: section.text, items: section.items.map(item) })),
+    ...all.map((part) => ({ text: part.text, link: first(part.sidebar[0]), activeMatch: lit(part) })),
+    {
+      text: about.text,
+      activeMatch: lit(about),
+      items: [
+        { items: pages.filter((page) => !page.link.endsWith('/changelog')) },
+        {
+          text: version ?? (zh ? '发布页' : 'Releases'),
+          items: [
+            ...pages.filter((page) => page.link.endsWith('/changelog')),
+            { text: zh ? '发布页' : 'Releases', link: `${repo}/releases` },
+            { text: zh ? '参与贡献' : 'Contributing', link: `${repo}/blob/main/CONTRIBUTING.md` },
+            { text: zh ? '安全政策' : 'Security policy', link: `${repo}/blob/main/SECURITY.md` },
+          ],
+        },
+      ],
+    },
   ];
 };
 
@@ -205,11 +233,11 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
   locales: {
     root: {
       description: 'Self-hosted monitoring and SSH access for the AI agents that run your servers.',
-      themeConfig: { nav: nav(false), sidebar: sections(false) },
+      themeConfig: { nav: nav(false), sidebar: sidebar(false) },
     },
     zh: {
       description: '为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。',
-      themeConfig: { nav: nav(true), sidebar: sections(true) },
+      themeConfig: { nav: nav(true), sidebar: sidebar(true) },
     },
   },
 };
