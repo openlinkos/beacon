@@ -1,6 +1,8 @@
 # Deployments and Flux
 
-When deployments, configuration changes and Flux's reconciliations reach Beacon as change events, the evidence for an alert says what changed just before it. A sender posts one to the gateway (port 17006) with a token that has the `changes:write` scope:
+When deployments, configuration changes and Flux's reconciliations reach Beacon as change events, the evidence for an alert says what changed just before it.
+
+A sender posts one to the gateway (port 17006) with a token that has the `changes:write` scope:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
@@ -26,7 +28,10 @@ docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 
 
 Unknown fields are refused, so a typo does not go unnoticed. Beacon keeps the token's name with each change.
 
-Beacon records two kinds of its own, with the source `beacon`: `deploy` when it starts on a version other than the one it last ran, and `drill` when a [drill](../guide/drills.md) starts (its summary says when it ends by itself) or is ended early, on the service `drill`.
+Beacon records two kinds of its own, with the source `beacon`:
+
+- `deploy`, when it starts on a version other than the one it last ran;
+- `drill`, on the service `drill`, when a [drill](../guide/drills.md) starts (its summary says when it ends by itself) or is ended early.
 
 ## Flux
 
@@ -70,8 +75,8 @@ spec:
 | `severity`, `timestamp` | `severity`, `time` |
 | `metadata`: `service`, `machine` (the Alert's `eventMetadata`), or `?service=…&machine=…` in the address | `service`, `machine` |
 
-`source` is `flux`. Flux alerts that should page people still go to `POST /api/v2/alerts` as before; change events never page anyone and are not echoed to the chat.
+`source` is `flux`. Flux alerts that should page people still go to `POST /api/v2/alerts` as before. Change events never page anyone, and are not echoed to the chat.
 
 **Keeping and reading them.** Change events are kept for `changes.keep` (`720h`, 30 days, by default), at most 50,000. `GET /api/v1/changes` and the MCP tool `list_changes` (scope `status:read`) list them, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default).
 
-**The limit.** A token may post 60 change events a minute; the ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `beacon_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.
+**The limit.** A token may post 60 change events a minute. The ones beyond that are refused with `429` and `changes.too_many` until the minute is over, and counted in `beacon_gateway_changes_limited_total{token}`. A sender that batches its events, or spreads them out, never meets the limit.

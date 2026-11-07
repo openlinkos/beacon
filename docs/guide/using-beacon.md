@@ -1,6 +1,8 @@
 # Using Beacon
 
-These pages are the work you do with Beacon once it runs, grouped by what Beacon does. Each page is one task: what you need, the steps, how to check the result, and what to read next. New to Beacon? Start with [What is Beacon](index.md), [Try it on your laptop](quickstart.md) and [How Beacon works](concepts.md).
+These pages are the work you do with Beacon once it runs, grouped by what Beacon does. Each page is one task.
+
+A page gives what you need, the steps, how to check the result, and what to read next. New to Beacon? Start with [What is Beacon](index.md), [Try it on your laptop](quickstart.md) and [How Beacon works](concepts.md).
 
 ## Monitoring and alerts {#monitoring-and-alerts}
 
@@ -14,7 +16,7 @@ Cards in the chat for the people on call are set up in [Set up the Feishu app](.
 
 ## Agents on call {#agents-on-call}
 
-An alert wakes an agent; the agent reads the evidence, fixes what it can, checks the fix and leaves a note.
+An alert wakes an agent. The agent reads the evidence, fixes what it can, checks the fix and leaves a note.
 
 1. [Put an agent on call](on-call.md): the hook that wakes an agent, the evidence in one call, probing on demand and notes.
 2. [Rehearse an outage](drills.md): the whole loop on Beacon's own drill service, before a real outage.

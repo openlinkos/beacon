@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-bdeb396b
+sourceHash: sha256-dc5acaff
 ---
 
 # 接入
@@ -8,7 +8,7 @@ Beacon 怎样和周围的工具配合。这些页面分两组：连到 Beacon �
 
 ## Agent 客户端 {#agent-clients}
 
-Agent 作为某个人的 Agent，通过 MCP 或 REST API 连到 Beacon，能做的事绝不超出这个人的角色。交互式客户端用 MCP 的 OAuth 在浏览器里登录；独自运行的程序用令牌。
+Agent 作为某个人的 Agent，通过 MCP 或 REST API 连到 Beacon。它能做的事绝不超出这个人的角色。交互式客户端用 MCP 的 OAuth 在浏览器里登录。独自运行的程序用令牌。
 
 1. [Claude Code](claude-code.md)：在浏览器里登录，并用你自己的 ssh、scp 和 rsync 上机器。
 2. [Codex](codex.md)：同样的登录方式，以及连不上互联网的 Beacon 怎么办。
@@ -26,4 +26,4 @@ Agent 作为某个人的 Agent，通过 MCP 或 REST API 连到 Beacon，能做�
 3. [部署与 Flux](change-events.md)：来自 CI 和 Flux 的变更事件，让证据说出告警之前刚改了什么。
 4. [配置飞书应用](feishu.md)：告警以卡片发到飞书或 Lark 群里，值班的人用卡片上的按钮处理。
 
-钩子什么时候触发、Agent 接着做什么，见[让 Agent 值班](../guide/on-call.md)；钩子发出的每个字段，见 [Webhook 参考](../reference/webhooks.md)。
+钩子什么时候触发、Agent 接着做什么，见[让 Agent 值班](../guide/on-call.md)。钩子发出的每个字段，见 [Webhook 参考](../reference/webhooks.md)。

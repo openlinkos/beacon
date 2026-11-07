@@ -1,14 +1,20 @@
 ---
-sourceHash: sha256-b977f7a3
+sourceHash: sha256-faa89e72
 ---
 
 # 命令行
 
-Beacon 有三个二进制。`beacon` 是服务本身，以及运行和治理它的命令；`beacon-probe` 是跑在每个检测点上的探针 Agent；`beacon-oncall` 是 Beacon 唤醒 Agent 时所用参考执行器。三个都认 `version`（版本、提交和构建）和 `help`（完整用法）。
+Beacon 三个二进制的每个命令和参数：
+
+- `beacon` 是服务本身，以及运行和治理它的命令。
+- `beacon-probe` 是跑在每个检测点上的探针 Agent。
+- `beacon-oncall` 是参考执行器，Beacon 唤醒 Agent 时由它运行 Agent。
+
+三个都认 `version`（版本、提交和构建）和 `help`（完整用法）。
 
 ## beacon
 
-`serve` 运行服务。其余命令都通过管理套接字与运行中的服务通信，套接字在数据目录里，默认 `/var/lib/beacon`，也可用 `BEACON_DATA_DIR` 指定，因此要在容器里执行：
+`serve` 运行服务。其余命令都通过数据目录里的管理套接字，与运行中的服务通信。数据目录默认是 `/var/lib/beacon`，设了 `BEACON_DATA_DIR` 时用它。因此要在容器里执行：
 
 ```bash
 docker exec beacon beacon token list
@@ -16,7 +22,7 @@ docker exec beacon beacon token list
 
 | 命令 | 作用 |
 | --- | --- |
-| `serve` | 运行服务：控制台、API 与 MCP、路由器与桥、网关和 SSH 通道。取 `-config`（默认 `/etc/beacon/config.yaml`），并在 SIGHUP 时重新导入它指名的目录、目标和模块文件；见 [config.yaml](config.md) |
+| `serve` | 运行服务：控制台、API 与 MCP、路由器与桥、网关和 SSH 通道。取 `-config`（默认 `/etc/beacon/config.yaml`）。它指名的目录、目标和模块文件在首次启动时导入数据库，SIGHUP 时再导入一次。见 [config.yaml](config.md) |
 | `check-config` | 校验配置文件、它指名的文件和数据库里的配置，不启动。取 `-config` |
 | `config` | 数据库里的配置：[import、export、history、revert](#beacon-config) |
 | `setup` | 打印建立第一个成员（所有者）的一次性链接，30 分钟内有效 |
@@ -36,7 +42,7 @@ docker exec beacon beacon token list
 
 ### beacon config
 
-目录、检测目标和模块放在数据库里（[检测一个服务](../guide/monitoring.md)）；这些命令把它们作为一个带版本的变更修改。`import` 读 `DIR/catalog`、`DIR/targets` 和 `DIR/targets/modules.yml`，也就是 `export` 写出的布局。
+目录、检测目标和模块放在数据库里（[检测一个服务](../guide/monitoring.md)）。这些命令把它们作为一个带版本的变更修改。`import` 读 `DIR/catalog`、`DIR/targets` 和 `DIR/targets/modules.yml`，也就是 `export` 写出的布局。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -47,7 +53,9 @@ docker exec beacon beacon token list
 
 ### beacon setup, user, agent
 
-成员自己的账号和他们的 Agent（[邀请你的团队](../guide/people.md)）。一次性链接和令牌明文只在标准输出打印一次；其余内容都走标准错误输出。`setup` 打印建立第一个成员（所有者）的一次性链接，只可用一次，30 分钟内有效。
+成员自己的账号和他们的 Agent（[邀请你的团队](../guide/people.md)）。一次性链接和令牌明文只在标准输出打印一次。其余内容都走标准错误输出。
+
+`setup` 打印建立第一个成员（所有者）的一次性链接。链接只可用一次，30 分钟内有效。
 
 **`beacon user`** —— 成员：
 
@@ -69,7 +77,7 @@ docker exec beacon beacon token list
 
 ### beacon token
 
-按名字给 scope 的凭据，给机器和专家用；Agent 的令牌来自 [beacon agent](#beacon-setup-user-agent) 或控制台。新令牌的明文只在标准输出打印一次。
+按名字给 scope 的凭据，给机器和专家用。Agent 的令牌来自 [beacon agent](#beacon-setup-user-agent) 或控制台。新令牌的明文只在标准输出打印一次。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -132,7 +140,7 @@ docker exec beacon beacon token list
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | 校验审计日志的哈希链——从覆盖 `-from-seq` 的检查点起，或校验现存的全部——链在哪里断就报哪里（退出码 1），否则报告校验了多少条 |
 | `storage check` | | 数据库的健康：所用后端自己的检查（SQLite 的一致性检查，或 PostgreSQL 上读全部表）、每个桶各存了多少、审计链的校验 |
-| `storage migrate` | `-to` | 把 SQLite 数据库搬进 `storage.dsn_file` 指定的 PostgreSQL，一个事务搬完、提交前核对数量，一条创世记录记下导入。SQLite 文件保留并继续服务，直到配置把驱动改成 postgres；回滚就是把驱动留在 sqlite（搬完后写进 PostgreSQL 的数据不在 SQLite 文件里）。目前 `-to postgres` 是唯一目的地。先停服务，步骤见[跑在 PostgreSQL 上](../self-hosting/postgres.md) |
+| `storage migrate` | `-to` | 把 SQLite 数据库搬进 `storage.dsn_file` 指定的 PostgreSQL，一个事务搬完，提交前核对数量。一条创世记录记下导入。SQLite 文件保留，并继续服务，直到配置把驱动改成 postgres。回滚就是把驱动留在 sqlite（搬完后写进 PostgreSQL 的数据不在 SQLite 文件里）。目前 `-to postgres` 是唯一目的地。先停服务，步骤见[跑在 PostgreSQL 上](../self-hosting/postgres.md) |
 
 **`beacon drill`** —— 演练一次故障（[演练一次故障](../guide/drills.md)）：
 
@@ -144,11 +152,11 @@ docker exec beacon beacon token list
 
 ## beacon-probe
 
-探针 Agent（[检测点位置](../self-hosting/probes.md)）。模块在 `password_file` 里指名的文件只从 `-secrets-dir`（默认 `/etc/beacon-probe/secrets`）按文件名读取；模块写了路径会被拒绝。
+探针 Agent（[检测点位置](../self-hosting/probes.md)）。模块在 `password_file` 里指名的文件只从 `-secrets-dir`（默认 `/etc/beacon-probe/secrets`）按文件名读取。模块写了路径会被拒绝。
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `agent` | `-gateway`、`-token-file`、`-state`、`-interval`、`-textfile`、`-proc`、`-listen`、`-secrets-dir` | 推送模式：从网关（`-gateway`）拉取目标和模块，每 `-interval`（默认 `1m`）检测一轮并推送结果，`-state`（默认 `/var/lib/beacon-probe`）里的磁盘队列在网关够不着时排队。`-token-file`（默认 `/etc/beacon-probe/token`）存 `beacon enroll probe` 发的令牌。`-textfile`（默认 `/var/lib/beacon-probe/textfile`）读 `*.prom` 文件即心跳；`-proc`（默认 `/proc`）采集主机自身指标；`-listen`（默认 `127.0.0.1:17009`，留空关闭）上提供 `/healthz` 和 `/metrics` 供手工查看 |
+| `agent` | `-gateway`、`-token-file`、`-state`、`-interval`、`-textfile`、`-proc`、`-listen`、`-secrets-dir` | 推送模式：从网关（`-gateway`）拉取目标和模块，每 `-interval`（默认 `1m`）检测一轮并推送结果。网关够不着时，结果在 `-state`（默认 `/var/lib/beacon-probe`）里的磁盘队列中排队。`-token-file`（默认 `/etc/beacon-probe/token`）存 `beacon enroll probe` 发的令牌。`-textfile`（默认 `/var/lib/beacon-probe/textfile`）读 `*.prom` 文件，即心跳。`-proc`（默认 `/proc`）采集主机自身指标。`-listen`（默认 `127.0.0.1:17009`，留空关闭）上提供 `/healthz` 和 `/metrics` 供手工查看 |
 | `serve` | `-listen`、`-modules`、`-textfile`、`-proc`、`-secrets-dir` | 拉取模式，像 Blackbox Exporter：给抓取方应答 `/probe` 和 `/metrics`。`-modules`（默认 `/etc/beacon-probe/modules.yml`）在 SIGHUP 时重载 |
 | `check` | `-modules` | 校验模块文件，按中心导入时的同样规则 |
 | `run` MODULE TARGET | `-modules`、`-secrets-dir` | 检测一次并打印结果 |
@@ -156,7 +164,7 @@ docker exec beacon beacon token list
 
 ## beacon-oncall
 
-跑在 Agent 机器上的参考执行器（[被 webhook 唤醒的 Agent](../integrations/webhooks.md)）：接下 Beacon 签名的 webhook，立刻应答，然后通过 `/bin/sh -c` 启动 `-run` 指名的程序，把负载放在标准输入、告警放进 `BEACON_*` 环境变量。执行器不做任何决定；程序自己决定。
+跑在 Agent 机器上的参考执行器（[被 webhook 唤醒的 Agent](../integrations/webhooks.md)）。它接下 Beacon 签名的 webhook，立刻应答。然后通过 `/bin/sh -c` 启动 `-run` 指名的程序，把负载放在标准输入、告警放进 `BEACON_*` 环境变量。执行器不做任何决定，由程序自己决定。
 
 | 参数 | 默认值 | 作用 |
 | --- | --- | --- |

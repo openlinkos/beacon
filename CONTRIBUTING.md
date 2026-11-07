@@ -51,6 +51,17 @@ pnpm preview                                     # serves the build
 
 If you cannot write Chinese, change the English page only and say so in the pull request; a maintainer adds the translation before merging. The home page is `docs/index.md` (and `docs/zh/index.md`); the navigation is in `docs/.vitepress/config.ts`.
 
+### Writing a page
+
+People scan a page before they read it, and agents read it whole; both are served by the same things. [What is Beacon](docs/guide/index.md) is the model.
+
+- **Open with what the page gets you**, in one or two sentences (40 words at most). Then a short list of what you need, if anything, before the first step.
+- **One idea to a sentence.** Aim for sentences under 20 words. Where a sentence strings clauses together with semicolons and colons, split it, or make it a list.
+- **Short paragraphs**: four sentences or fewer, never more than about 80 words. Three or more parallel things are a list or a table, not a paragraph.
+- **Steps are numbered**, each opening with what to do in bold, then the command, then how to see that it worked.
+- **A how-to page does the task.** Why things work the way they do belongs in [How Beacon works](docs/guide/concepts.md) or [Architecture](docs/about/architecture.md); link to it instead of explaining it on the way.
+- **Keep headings stable**: other pages and the Chinese page link to their ids. Rename one only together with every link to it.
+
 ## The rules, in short
 
 - **English** in code, comments, logs, CLI output, scripts, commit messages and `docs/`, in British spelling. Chinese lives only in `internal/i18n/zh.go`, `README.zh-CN.md` and `docs/zh/`.

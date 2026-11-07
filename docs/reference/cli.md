@@ -1,10 +1,16 @@
 # Command line
 
-Beacon ships three binaries. `beacon` is the service, and the commands that run it and administer the running service; `beacon-probe` is the probe agent that runs on every probe location; `beacon-oncall` is the reference harness that runs an agent when Beacon wakes it. Each answers `version` (the version, commit and build) and `help` (the whole usage).
+Every command and flag of Beacon's three binaries:
+
+- `beacon` is the service, and the commands that run it and administer the running service.
+- `beacon-probe` is the probe agent that runs on every probe location.
+- `beacon-oncall` is the reference harness that runs an agent when Beacon wakes it.
+
+Each answers `version` (the version, commit and build) and `help` (the whole usage).
 
 ## beacon
 
-`serve` runs the service. Every other command talks to the running service over its admin socket in the data directory, `/var/lib/beacon` by default or `BEACON_DATA_DIR` when that is set, so run them inside the container:
+`serve` runs the service. Every other command talks to the running service over its admin socket in the data directory. That is `/var/lib/beacon` by default, or `BEACON_DATA_DIR` when that is set. So run them inside the container:
 
 ```bash
 docker exec beacon beacon token list
@@ -32,7 +38,7 @@ docker exec beacon beacon token list
 
 ### beacon config
 
-The catalogue, probe targets and modules live in the database ([Monitor a service](../guide/monitoring.md)); these commands change them as one versioned change. `import` reads `DIR/catalog`, `DIR/targets` and `DIR/targets/modules.yml`, the layout `export` writes.
+The catalogue, probe targets and modules live in the database ([Monitor a service](../guide/monitoring.md)). These commands change them as one versioned change. `import` reads `DIR/catalog`, `DIR/targets` and `DIR/targets/modules.yml`, the layout `export` writes.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -43,7 +49,9 @@ The catalogue, probe targets and modules live in the database ([Monitor a servic
 
 ### beacon setup, user, agent
 
-People's own accounts and their agents ([Invite your team](../guide/people.md)). One-time links and token secrets print once, on standard output; everything else goes to standard error. `setup` prints the one-time link that makes the first account, an owner; it works once and lasts 30 minutes.
+People's own accounts and their agents ([Invite your team](../guide/people.md)). One-time links and token secrets print once, on standard output. Everything else goes to standard error.
+
+`setup` prints the one-time link that makes the first account, an owner. The link works once and lasts 30 minutes.
 
 **`beacon user`** — the people:
 
@@ -65,7 +73,7 @@ People's own accounts and their agents ([Invite your team](../guide/people.md)).
 
 ### beacon token
 
-Credentials with scopes by name, for machines and for experts; agents' tokens come from [beacon agent](#beacon-setup-user-agent) or the console. The secret of a new token prints once, on standard output.
+Credentials with scopes by name, for machines and for experts. Agents' tokens come from [beacon agent](#beacon-setup-user-agent) or the console. The secret of a new token prints once, on standard output.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
@@ -128,7 +136,7 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | --- | --- | --- |
 | `audit verify` | `-from-seq` | Walk the audit log's hash chain — from the checkpoint covering `-from-seq`, or over everything still present — and say where it broke (exit 1) or how much it verified |
 | `storage check` | | The database's health: the backend's own check (SQLite's integrity check, or every table on PostgreSQL), what each bucket holds, and the audit chain's verification |
-| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits; a genesis record notes the import. The SQLite file is kept and keeps serving until the configuration names PostgreSQL as the driver; rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today. Stop the service first: the steps are in [Run on PostgreSQL](../self-hosting/postgres.md) |
+| `storage migrate` | `-to` | Move the SQLite database into the PostgreSQL one `storage.dsn_file` names, in one transaction with the counts checked before it commits. A genesis record notes the import. The SQLite file is kept, and keeps serving until the configuration names PostgreSQL as the driver. Rolling back is leaving the driver at sqlite (what was written to PostgreSQL after the move is not in the SQLite file). `-to postgres` is the destination today. Stop the service first: the steps are in [Run on PostgreSQL](../self-hosting/postgres.md) |
 
 **`beacon drill`** — rehearse an outage ([Rehearse an outage](../guide/drills.md)):
 
@@ -140,11 +148,11 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 
 ## beacon-probe
 
-The probe agent ([Probe locations](../self-hosting/probes.md)). The files modules name in `password_file` are read from `-secrets-dir` only (default `/etc/beacon-probe/secrets`), by file name; a module that names a path is refused.
+The probe agent ([Probe locations](../self-hosting/probes.md)). The files modules name in `password_file` are read from `-secrets-dir` only (default `/etc/beacon-probe/secrets`), by file name. A module that names a path is refused.
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
-| `agent` | `-gateway`, `-token-file`, `-state`, `-interval`, `-textfile`, `-proc`, `-listen`, `-secrets-dir` | Push mode: fetch targets and modules from the gateway (`-gateway`), probe every `-interval` (default `1m`) and push the results, with a queue on disk in `-state` (default `/var/lib/beacon-probe`) for when the gateway cannot be reached. `-token-file` (default `/etc/beacon-probe/token`) holds the token from `beacon enroll probe`. `-textfile` (default `/var/lib/beacon-probe/textfile`) reads `*.prom` files, heartbeats; `-proc` (default `/proc`) the host's own metrics; `-listen` (default `127.0.0.1:17009`, empty for none) serves `/healthz` and `/metrics` for a look by hand |
+| `agent` | `-gateway`, `-token-file`, `-state`, `-interval`, `-textfile`, `-proc`, `-listen`, `-secrets-dir` | Push mode: fetch targets and modules from the gateway (`-gateway`), probe every `-interval` (default `1m`) and push the results. A queue on disk in `-state` (default `/var/lib/beacon-probe`) holds them when the gateway cannot be reached. `-token-file` (default `/etc/beacon-probe/token`) holds the token from `beacon enroll probe`. `-textfile` (default `/var/lib/beacon-probe/textfile`) reads `*.prom` files, heartbeats. `-proc` (default `/proc`) reads the host's own metrics. `-listen` (default `127.0.0.1:17009`, empty for none) serves `/healthz` and `/metrics` for a look by hand |
 | `serve` | `-listen`, `-modules`, `-textfile`, `-proc`, `-secrets-dir` | Pull mode, like the Blackbox Exporter: answer `/probe` and `/metrics` for a scraper. `-modules` (default `/etc/beacon-probe/modules.yml`) reloads on SIGHUP |
 | `check` | `-modules` | Validate the module file, as the centre checks it on import |
 | `run` MODULE TARGET | `-modules`, `-secrets-dir` | Probe once and print the result |
@@ -152,7 +160,7 @@ The probe agent ([Probe locations](../self-hosting/probes.md)). The files module
 
 ## beacon-oncall
 
-The reference harness on the agent's machine ([Agents woken by a webhook](../integrations/webhooks.md)): it takes Beacon's signed webhook, answers at once, and starts the program named by `-run` through `/bin/sh -c`, with the payload on standard input and the alert in `BEACON_*` environment variables. The harness decides nothing; the program does.
+The reference harness on the agent's machine ([Agents woken by a webhook](../integrations/webhooks.md)). It takes Beacon's signed webhook and answers at once. Then it starts the program named by `-run` through `/bin/sh -c`, with the payload on standard input and the alert in `BEACON_*` environment variables. The harness decides nothing: the program does.
 
 | Flag | Default | What it does |
 | --- | --- | --- |

@@ -1,12 +1,28 @@
 # Put an agent on call
 
-With a hook in place, a service that breaks wakes the agent you choose: it reads the evidence in one call, works the machines through the SSH channel, has every probe location check its fix, and leaves a note people read on the card and in the console. Beacon calls no model and asks nobody for approval; the harness that runs the agent decides what it does, and everything the agent does is on record.
+With a hook in place, a service that breaks wakes the agent you choose. The agent then:
 
-You need Beacon running ([On a server](../self-hosting/install.md), steps 1 to 4), an agent connected over MCP ([Claude Code](../integrations/claude-code.md), [Codex](../integrations/codex.md) or [a token](../integrations/headless.md)), and an address the hook can reach: a server running `beacon-oncall`, a receiver of your own, or a GitHub workflow.
+- reads the evidence in one call;
+- works the machines through the SSH channel;
+- has every probe location check its fix;
+- leaves a note that people read on the card and in the console.
+
+Beacon calls no model and asks nobody for approval. The harness that runs the agent decides what it does, and everything the agent does is on record.
+
+You need:
+
+- Beacon running ([On a server](../self-hosting/install.md), steps 1 to 4).
+- An agent connected over MCP: [Claude Code](../integrations/claude-code.md), [Codex](../integrations/codex.md) or [a token](../integrations/headless.md).
+- An address the hook can reach: a server running `beacon-oncall`, a receiver of your own, or a GitHub workflow.
 
 ## Try the loop by hand
 
-Before wiring the hook, walk the same loop with you in the hook's place: [Rehearse an outage](drills.md) starts a drill and says when `ServiceDown` fires, and [Walk the loop](drills.md#walk-the-loop) has the question to ask your agent and what it does with it. A woken agent works the same way; the hook only takes the place of the person who asks.
+Before wiring the hook, walk the same loop yourself, in the hook's place:
+
+- [Rehearse an outage](drills.md) starts a drill and says when `ServiceDown` fires.
+- [Walk the loop](drills.md#walk-the-loop) has the question to ask your agent, and what it does with it.
+
+A woken agent works the same way. The hook only takes the place of the person who asks.
 
 ## Wake an agent {#wake-an-agent}
 
@@ -24,27 +40,43 @@ Before wiring the hook, walk the same loop with you in the hook's place: [Rehear
        resolved: true                            # also say when the alert resolves
    ```
 
-   `severities` says which alert groups wake it (`[critical]` by default), and an optional `service` regular expression narrows them further. A hook of `kind: github` dispatches a workflow instead: [GitHub Actions](../integrations/github-actions.md) has that block and what each field means.
+   `severities` says which alert groups wake it (`[critical]` by default). An optional `service` regular expression narrows them further. A hook of `kind: github` dispatches a workflow instead. [GitHub Actions](../integrations/github-actions.md) has that block and what each field means.
 
-2. **Check the configuration and restart.** `beacon check-config` refuses a hook without `public_url`, a webhook without `secret_file` (or `headers_file`, for a receiver that checks a secret of its own) and a secret shorter than 24 characters:
+2. **Check the configuration and restart.**
 
    ```bash
    docker exec beacon beacon check-config -config /etc/beacon/config.yaml && docker compose restart beacon
    ```
 
-3. **Stand up the other end.** A webhook needs something that runs the agent. `beacon-oncall` is the reference harness: it checks the signature and starts the program you name, with the payload on its standard input ([Headless agents and CI](../integrations/headless.md)); the headers and the payload are in [Agents woken by a webhook](../integrations/webhooks.md).
+   `beacon check-config` refuses:
 
-4. **Break something and watch it fire.** Start another drill, wait for the card, and look for the line about the agent on it. Each call's outcome is also in the audit log (`wake_agent`), in the alert chat, and on the console's **Hooks** page:
+   - a hook without `public_url`;
+   - a webhook without `secret_file` (or `headers_file`, for a receiver that checks a secret of its own);
+   - a secret shorter than 24 characters.
+
+3. **Stand up the other end.** A webhook needs something that runs the agent. `beacon-oncall` is the reference harness. It checks the signature and starts the program you name, with the payload on its standard input ([Headless agents and CI](../integrations/headless.md)). The headers and the payload are in [Agents woken by a webhook](../integrations/webhooks.md).
+
+4. **Break something and watch it fire.** Start another drill and wait for the card. Look on it for the line about the agent:
 
    ```
    Agent claude-oncall woken at 10:02
    ```
 
-A hook is called once, when a new alert group is first notified, and not again while it keeps firing; with `resolved` set, once more `resolved_after` (a minute by default) after the group resolves. A call that gets no answer, a timeout, a 429 or a 5xx is tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes; delivery of the alert itself never waits for it.
+   Each call's outcome is also in the audit log (`wake_agent`), in the alert chat and on the console's **Hooks** page.
+
+### When a hook is called
+
+- **Once per alert group**, when a new group is first notified. It is not called again while the group keeps firing.
+- **Once more when the group resolves**, if `resolved` is set: `resolved_after` (a minute by default) after it resolves.
+- **Again after a failure.** A call that gets no answer, a timeout, a 429 or a 5xx is tried again after 5 seconds, 20 seconds, 1 minute and 3 minutes.
+
+Delivery of the alert itself never waits for the hook.
 
 ## The evidence {#the-evidence}
 
-One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}/evidence`, or the MCP tool `get_evidence` (scope `status:read`). Here is one, trimmed: two locations cannot connect to `git.example.com`, a deployment went out four minutes before, and a deploy script's reload on the service's machine failed just before that.
+One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}/evidence`, or the MCP tool `get_evidence` (scope `status:read`).
+
+Here is one, trimmed. Two locations cannot connect to `git.example.com`. A deployment went out four minutes before. Just before that, a deploy script's reload on the service's machine failed.
 
 ```jsonc
 {
@@ -64,39 +96,62 @@ One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}
 ```
 
 - **probes** is one result per location for the group's service: whether it works, since when it fails, and why (`dns`, `connect`, `timeout`, `tls`, …). For a heartbeat's alert it adds the heartbeat's entry and the machine to reach ([Heartbeats](heartbeats.md)).
-- **related** are the other groups firing in the same failure domain; **changes** are the [change events](#change-events) in the window; **done** is what people and agents have already done, the sessions on the alert's machines included, each marked `before`, `during` or `after` the alert.
+- **related** are the other groups firing in the same failure domain.
+- **changes** are the [change events](#change-events) in the window.
+- **done** is what people and agents have already done, the sessions on the alert's machines included. Each is marked `before`, `during` or `after` the alert.
 - **The window** opens 30 minutes before the group started (`?before=2h`, at most 24 hours), so the session that caused the alert is in the answer.
 
-The same story in time order is `GET /api/v1/alerts/{id}/timeline`, or `get_timeline`: the alert's, the hooks', the changes', the sessions' and the notes' events on one line each. The console's alert page shows it with the evidence side by side. How Beacon cleans the outside text these answers carry is in the security model ([Text from outside Beacon](../self-hosting/security.md#text-from-outside-beacon)).
+The same story in time order is `GET /api/v1/alerts/{id}/timeline`, or `get_timeline`. It gives the events of the alert, the hooks, the changes, the sessions and the notes, one line each. The console's alert page shows the timeline and the evidence side by side.
+
+How Beacon cleans the outside text these answers carry is in the security model ([Text from outside Beacon](../self-hosting/security.md#text-from-outside-beacon)).
 
 ## Probe again, now {#probe-again-now}
 
-After a fix, the agent need not wait for the next cycle: `POST /api/v1/probe-now`, or the MCP tool `probe_now` (scope `alerts:write`), has every location that probes a target probe it again at once and returns each answer:
+After a fix, the agent need not wait for the next cycle. `POST /api/v1/probe-now`, or the MCP tool `probe_now` (scope `alerts:write`), has every location that probes a target probe it again at once. It returns each answer:
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-You will see one line per location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`; `missing` names the locations that did not answer in time. The probes push the same samples as in their cycle, so the alert resolves at the rule engine's next evaluation. A target is probed on demand at most once every 15 seconds and a token keeps three requests in flight; one request covers at most 20 targets and waits at most 90 seconds. When `probe_now` names locations as `missing`, see [probe_now names locations as missing](../self-hosting/troubleshooting.md#probe_now-names-locations-as-missing).
+You will see one line per location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`. `missing` names the locations that did not answer in time. The probes push the same samples as in their cycle, so the alert resolves at the rule engine's next evaluation.
+
+The limits:
+
+- A target is probed on demand at most once every 15 seconds.
+- A token keeps three requests in flight.
+- One request covers at most 20 targets and waits at most 90 seconds.
+
+When `probe_now` names locations as `missing`, see [probe_now names locations as missing](../self-hosting/troubleshooting.md#probe_now-names-locations-as-missing).
 
 ## Notes
 
-A note tells everyone what was wrong, what was done and what remains: `POST /api/v1/alerts/{id}/notes` with `{"text": "…"}`, or the MCP tool `add_note` (scope `alerts:write`). The card shows the latest three, the chat hears each one, and the audit log keeps them all (at most 2000 characters each, the latest 100 per group). A note does not acknowledge the alert; `ack_alert` does, and only people should. One that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
+A note tells everyone what was wrong, what was done and what remains. Send it with `POST /api/v1/alerts/{id}/notes` and `{"text": "…"}`, or with the MCP tool `add_note` (scope `alerts:write`).
+
+- The card shows the latest three.
+- The chat hears each one.
+- The audit log keeps them all. A note is at most 2000 characters, and a group keeps its latest 100.
+
+A note does not acknowledge the alert. `ack_alert` does, and only people should use it. A note that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
 
 ## Change events {#change-events}
 
-Deployments and Flux reconciliations that reach Beacon as change events put "what changed just before" into the evidence. How to send them: [Deployments and Flux](../integrations/change-events.md).
+Deployments and Flux reconciliations that reach Beacon as change events put "what changed just before" into the evidence. [Deployments and Flux](../integrations/change-events.md) says how to send them.
 
 ## Tokens that renew themselves {#tokens-that-renew-themselves}
 
-A headless agent's token renews itself before it expires, so nobody hands it a new one: [Headless agents and CI](../integrations/headless.md#tokens-that-renew-themselves).
+A headless agent's token renews itself before it expires, so nobody has to hand it a new one. See [Headless agents and CI](../integrations/headless.md#tokens-that-renew-themselves).
 
 ## Check it
 
-After the drill in step 4, ask the agent *"what did you do with the last alert?"* and read `get_timeline` next to the console's alert page: the hook's call, the session on the machine, the `probe_now` result and the note should all be there. Then check the **Hooks** page (`/console/hooks`): every call with status 202 and no retries.
+1. **Ask the agent** *"what did you do with the last alert?"* after the drill in step 4.
+2. **Read `get_timeline` next to the console's alert page.** The hook's call, the session on the machine, the `probe_now` result and the note should all be there.
+3. **Open the Hooks page** (`/console/hooks`). Every call should have status 202 and no retries.
 
-When it does not work: [The agent is not woken](../self-hosting/troubleshooting.md#the-agent-is-not-woken) reads a hook that never fires, and [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives) one that never fires at all.
+When it does not work:
+
+- [The agent is not woken](../self-hosting/troubleshooting.md#the-agent-is-not-woken): a hook that never fires.
+- [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives): an alert that never fires at all.
 
 ## Next
 

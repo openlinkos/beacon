@@ -1,6 +1,10 @@
 # The catalogue
 
-What Beacon watches is held in its database and changed through the API, MCP and the command line; the files are for import and export, and for the first start, in the layout deployments have always had in `/etc/beacon` ([Monitor a service](../guide/monitoring.md)). This page is the shapes of those files and the checks every one of them passes, whatever it comes through; the API and MCP take and return the same shapes, as JSON. A change that would not pass is refused with `config.invalid` and the reason, and nothing changes.
+The shapes of the catalogue, target and module files, field by field, and the checks every change passes, whatever it comes through.
+
+What Beacon watches is held in its database and changed through the API, MCP and the command line. The files are for import and export, and for the first start. They keep the layout deployments have always had in `/etc/beacon` ([Monitor a service](../guide/monitoring.md)).
+
+The API and MCP take and return the same shapes, as JSON. A change that would not pass is refused with `config.invalid` and the reason, and nothing changes.
 
 | Files | Hold | Configuration keys |
 | --- | --- | --- |
@@ -11,8 +15,8 @@ What Beacon watches is held in its database and changed through the API, MCP and
 Three rules hold the files together:
 
 - **No unknown fields.** The catalogue and target files are read strictly: a field the tables below do not list fails the file, so a typo does not go unnoticed. Through the API the same check refuses unknown fields of the JSON body.
-- **A catalogue may be split over several files.** Every `*.yaml` in the directory is read and their lists are joined, in file name order; `catalog/locations.yaml` and `catalog/heartbeats.yaml` are conventions, not requirements.
-- **Import is whole.** `beacon config import DIR` makes the directory's files the entire configuration, and items the files do not hold are removed; `-dry-run` says what would change first ([Command line](cli.md#beacon-config)).
+- **A catalogue may be split over several files.** Every `*.yaml` in the directory is read and their lists are joined, in file name order. `catalog/locations.yaml` and `catalog/heartbeats.yaml` are conventions, not requirements.
+- **Import is whole.** `beacon config import DIR` makes the directory's files the entire configuration, and items the files do not hold are removed. `-dry-run` says what would change first ([Command line](cli.md#beacon-config)).
 
 ## Locations
 
@@ -32,7 +36,7 @@ locations:
 
 | Field | Type | Rules |
 | --- | --- | --- |
-| `id` | string | Lower-case letters, digits and dashes, at most 63 characters; unique. When the resources list a `vps` of the same name, the location is expected to report only until that date — the whole expiry day still counts — and its token can no longer write once it passes |
+| `id` | string | Lower-case letters, digits and dashes, at most 63 characters; unique. When the resources list a `vps` of the same name, the location is expected to report only until that date, and the whole expiry day still counts. Its token can no longer write once the date passes |
 | `name` | string | Required, public: where and on which network, never which vendor |
 | `region` | `overseas` or `mainland` | Required; the rules compare the two |
 | `network` | string | Free text, shown with the name |
@@ -80,11 +84,11 @@ resources:
 | `expires` | date | `YYYY-MM-DD` |
 | `note` | string | Free text |
 
-Exported as `beacon_resource_expiry_timestamp_seconds{resource, kind}`; `ResourceExpiring` warns 30 days ahead and goes critical 7 days ahead. A `vps` named like a location also bounds that location ([Locations](#locations)).
+Exported as `beacon_resource_expiry_timestamp_seconds{resource, kind}`. `ResourceExpiring` warns 30 days ahead and goes critical 7 days ahead. A `vps` named like a location also bounds that location ([Locations](#locations)).
 
 ## Status pages
 
-A status page is part of the catalogue, under `status_pages`, so it is changed, versioned and imported like the rest. This is the shape; what a page shows and the full example are in [Status pages](../guide/status-pages.md#define-your-own-page).
+A status page is part of the catalogue, under `status_pages`, so it is changed, versioned and imported like the rest. This is the shape. What a page shows, and the full example, are in [Status pages](../guide/status-pages.md#define-your-own-page).
 
 | Field | Type | Rules |
 | --- | --- | --- |
@@ -116,7 +120,7 @@ A target set is a list of groups in the format of Prometheus file service discov
 | `labels.service` | string | Required; what the result belongs to: alerts, cards and status pages speak of services |
 | other labels | strings | Kept: `severity` (`critical`, `warning` or `info`) becomes the alert's level, `failure_domain` names what fails together |
 
-The set's name says which locations probe it (the API shows it as `probed_by`); any other name fails, so a typo does not silently stop a check:
+The set's name says which locations probe it (the API shows it as `probed_by`). Any other name fails, so a typo does not silently stop a check:
 
 | Set name (file name) | Probed by |
 | --- | --- |
@@ -126,7 +130,9 @@ The set's name says which locations probe it (the API shows it as `probed_by`); 
 
 ## Modules
 
-The module file has the format of the [Blackbox Exporter's](https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md) for the parts below, so existing modules keep working, plus three probers of Beacon's own. Results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`), with `probe_failure_info{reason}` for why a check failed and `beacon_probe_attempts` for how many tries it took.
+For the parts below, the module file has the format of the [Blackbox Exporter's](https://github.com/prometheus/blackbox_exporter/blob/master/CONFIGURATION.md), so existing modules keep working. Beacon adds three probers of its own.
+
+Results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`). Two more say why a check failed (`probe_failure_info{reason}`) and how many tries it took (`beacon_probe_attempts`).
 
 | Prober | Fields |
 | --- | --- |
@@ -150,7 +156,13 @@ modules:
       ip_protocol_fallback: false
 ```
 
-Every module has a `timeout` (default `10s`), which a location's `probe.timeout` can lengthen. `prober` must be one of the five; `preferred_ip_protocol` must be `ip4` or `ip6`; the regular expressions must compile. A failed check says why, in `probe_failure_info{reason}`:
+Every module has a `timeout` (default `10s`), which a location's `probe.timeout` can lengthen. In every module:
+
+- `prober` must be one of the five;
+- `preferred_ip_protocol` must be `ip4` or `ip6`;
+- the regular expressions must compile.
+
+A failed check says why, in `probe_failure_info{reason}`:
 
 | Reason | What happened |
 | --- | --- |
@@ -167,20 +179,26 @@ Every module has a `timeout` (default `10s`), which a location's `probe.timeout`
 | `manifest` | The registry has no such manifest |
 | `config` | The module or the target is wrong |
 
-`password_file` names a file in the probe's secrets directory, `/etc/beacon-probe/secrets` unless `beacon-probe` is started with `-secrets-dir`: a name such as `git-password`, never a path. A value with a path separator or `..`, an absolute path, or a control character is refused when the module is put or imported (`config.invalid`), so that `config:write` cannot have a probe read any file on its machine; a probe handed such a module by an older Beacon refuses each probe that would read it and reads nothing. The module file is kept as it was imported, comments and all, and probes get it byte for byte; changing one module rewrites the file in a standard layout, keeping the others and their comments.
+`password_file` names a file in the probe's secrets directory: a name such as `git-password`, never a path. The directory is `/etc/beacon-probe/secrets`, unless `beacon-probe` is started with `-secrets-dir`.
+
+A value with a path separator or `..`, an absolute path, or a control character is refused when the module is put or imported (`config.invalid`). So `config:write` cannot have a probe read any file on its machine. A probe handed such a module by an older Beacon refuses each probe that would read it, and reads nothing.
+
+The module file is kept as it was imported, comments and all, and probes get it byte for byte. Changing one module rewrites the file in a standard layout, keeping the others and their comments.
 
 `beacon-probe check -modules <file>` validates a module file on any machine, and `beacon-probe run -modules <file> <module> <target>` runs one probe by hand ([Command line](cli.md#beacon-probe)).
 
 ## The checks
 
-Collected, the checks every change passes, whatever it comes through — a put, a delete, an import, a revert:
+Every change passes these checks, whatever it comes through: a put, a delete, an import or a revert.
 
 | Check | Outcome |
 | --- | --- |
 | An unknown field in a file or a body | Refused, `config.invalid`, nothing changes |
 | A location, heartbeat, resource or status page listed twice | Refused, `config.invalid` |
-| A target set whose name starts with none of `all-`, a region or a location id | Refused, `config.invalid`; removing a location that a set is named after alone fails here, until the set goes or is renamed |
+| A target set whose name starts with none of `all-`, a region or a location id | Refused, `config.invalid`. Removing a location that a set is named after alone fails here, until the set goes or is renamed |
 | A heartbeat naming a machine the SSH channel does not have (a put; an import and a revert take one) | Refused for a put, a warning for an import or a revert |
 | A module's `password_file` that is not a plain file name | Refused, `config.invalid` |
 
-A change that passes takes effect at once — nothing to reload, no probe to redeploy — and becomes a version in the history, with who changed what, when, through what and why, which can be reverted. Warnings stop no change: a heartbeat whose machine is not enrolled, a status page component whose services no target has. `beacon check-config` reports both kinds without changing anything.
+A change that passes takes effect at once, with nothing to reload and no probe to redeploy. It becomes a version in the history, with who changed what, when, through what and why. The version can be reverted.
+
+Warnings stop no change: a heartbeat whose machine is not enrolled, a status page component whose services no target has. `beacon check-config` reports both kinds without changing anything.
