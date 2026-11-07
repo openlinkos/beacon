@@ -79,7 +79,7 @@ A release starts as a release candidate: tag `vX.Y.Z-rc.N`. The `release` workfl
 
 Before tagging, move the `CHANGELOG.md` entries from Unreleased to the version, and raise the pinned version in `deploy/.env.example` and `deploy/probe/install.sh`.
 
-The site is not tied to releases: the `site` workflow builds the image `ghcr.io/openlinkos/beacon-site` whenever `docs/` or `CHANGELOG.md` changes on `main`, tagged with the time and the commit (`20261102093000-1a2b3c4`), so that image automation can follow the newest. The version in the site's navigation is the newest one in `CHANGELOG.md`.
+The site is not tied to releases: the `site` workflow builds it and publishes it on Cloudflare Pages whenever `docs/` or `CHANGELOG.md` changes on `main`. A pull request that touches them, from a branch of this repository, gets a preview of the site at its own address, linked in a comment on the pull request; every deployment, preview or not, passes the smoke test (`docs/smoke.sh`) first. Moving a page means adding its old address to `docs/public/_redirects`. The version in the site's navigation is the newest one in `CHANGELOG.md`.
 
 ## Security
 

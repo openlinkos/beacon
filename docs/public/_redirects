@@ -1,0 +1,25 @@
+# Cloudflare Pages: the pages that moved when the site was rearranged keep their old addresses, as redirects.
+/install          /self-hosting/install          301
+/accounts         /guide/people                  301
+/agents           /guide/on-call                 301
+/ssh              /guide/machines                301
+/catalog          /guide/monitoring              301
+/status           /guide/status-pages            301
+/pages            /guide/console                 301
+/feishu           /integrations/feishu           301
+/troubleshooting  /self-hosting/troubleshooting  301
+/sources          /reference/sources             301
+/goals            /about/goals                   301
+/architecture     /about/architecture            301
+/zh/install          /zh/self-hosting/install          301
+/zh/accounts         /zh/guide/people                  301
+/zh/agents           /zh/guide/on-call                 301
+/zh/ssh              /zh/guide/machines                301
+/zh/catalog          /zh/guide/monitoring              301
+/zh/status           /zh/guide/status-pages            301
+/zh/pages            /zh/guide/console                 301
+/zh/feishu           /zh/integrations/feishu           301
+/zh/troubleshooting  /zh/self-hosting/troubleshooting  301
+/zh/sources          /zh/reference/sources             301
+/zh/goals            /zh/about/goals                   301
+/zh/architecture     /zh/about/architecture            301

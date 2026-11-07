@@ -1,11 +1,17 @@
 name: site
 
-# Builds the site under docs/ (beacon.openlinkos.com) into the image ghcr.io/openlinkos/beacon-site when it changes
-# on main. The build is VitePress on @openlinkos/vitepress-theme, and fails when a Chinese page falls behind its
-# English page or when the reference misses a route, an error code, a scope or an MCP tool (the ci workflow runs
-# the same build on every pull request). The image is nginx-unprivileged on port 8080, for linux/amd64 and
-# linux/arm64, with an SBOM and build provenance, tagged <UTC timestamp>-<short commit> (what a deployment's image
-# automation follows), sha-<short commit> and latest. A smoke test runs the image before it is pushed.
+# Builds the site under docs/ and publishes it on Cloudflare Pages (project beacon-site). main is the site,
+# which beacon.openlinkos.com serves; a pull request from a branch of this repository gets a preview of its
+# own, at <branch>.<project>.pages.dev, linked in a comment on the pull request and kept up to date with each
+# push. (Cloudflare names the project's address after the project, with a suffix when the name is taken.)
+# The build is VitePress on @openlinkos/vitepress-theme, and fails when a Chinese page falls behind its English
+# page or when the reference misses a route, an error code, a scope or an MCP tool (the ci workflow runs the same
+# build on every pull request, forks included: secrets never reach a fork's pull request, so it gets no preview).
+# After each deployment the smoke test (docs/smoke.sh) reads what was deployed: pages, languages, redirects,
+# 404s, headers and the theme's files.
+#
+# Needs the secret CLOUDFLARE_API_TOKEN, a token that may edit Cloudflare Pages and nothing else, and the
+# variable CLOUDFLARE_ACCOUNT_ID.
 on:
   push:
     branches: [main]
@@ -14,130 +20,114 @@ on:
       # The changelog page includes it, and the navigation shows its newest version.
       - CHANGELOG.md
       - .github/workflows/site.yml
+  pull_request:
+    paths:
+      - docs/**
+      - CHANGELOG.md
+      - .github/workflows/site.yml
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: site
+  group: site-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  WRANGLER: wrangler@4.158.0
+  PROJECT: beacon-site
+
 jobs:
-  image:
-    name: build and publish the site image
+  build:
+    name: build the site
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
-      packages: write       # ghcr.io/openlinkos/beacon-site
+    defaults:
+      run:
+        working-directory: docs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+          package_json_file: docs/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          images: ghcr.io/openlinkos/beacon-site
-          tags: |
-            type=raw,value={{date 'YYYYMMDDHHmmss' tz='UTC'}}-{{sha}}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.title=beacon-site
-            org.opencontainers.image.description=The site of Beacon: self-hosted monitoring and SSH access for the AI agents that run your servers.
-            org.opencontainers.image.url=https://beacon.openlinkos.com
-            org.opencontainers.image.licenses=Apache-2.0
+          node-version: 24
+          package-manager-cache: false
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: build the site
+        run: pnpm build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: docs/.vitepress/dist
+          include-hidden-files: true # .well-known/security.txt
+          retention-days: 3
+          if-no-files-found: error
 
-      - name: build for the smoke test
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+  deploy:
+    name: publish on Cloudflare Pages
+    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # the comment with the preview's address
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'site-preview' || 'site' }}
+      url: ${{ steps.deploy.outputs.alias || steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          context: .
-          file: docs/Dockerfile
-          load: true
-          tags: beacon-site:test
-      - name: smoke test
+          persist-credentials: false
+          sparse-checkout: docs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: dist
+      - name: deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          # a branch name is the pull request author's text: it reaches the shell only as a variable
+          BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          # grep reads the whole page (no -q): with pipefail, -q would stop early and fail curl with SIGPIPE on a long page
-          docker run -d --name site -p 8080:8080 beacon-site:test
-          s=http://localhost:8080
-          for _ in $(seq 1 20); do curl -fs -o /dev/null "$s/" && break; sleep 0.5; done
-          curl -fsS "$s/" | grep 'Put your AI agent on call' >/dev/null
-          curl -fsS "$s/" | grep 'beacon/deploy/try' >/dev/null
-          curl -fsS "$s/" | grep 'One outage, end to end' >/dev/null
-          # The Chinese title lives on the page. This file stays in English (TestNoChinese).
-          title=$(sed -n 's/^title: //p' docs/zh/index.md | head -n 1)
-          test -n "$title"
-          curl -fsS "$s/zh/" | grep -F "$title" >/dev/null
-          curl -fsS "$s/zh/" | grep 'lang="zh-CN"' >/dev/null
-          curl -fsS "$s/guide/on-call" | grep 'Put an agent on call' >/dev/null
-          curl -fsS "$s/self-hosting/install" | grep 'On a server' >/dev/null
-          curl -fsS "$s/guide/quickstart" | grep 'Try it on your laptop' >/dev/null
-          curl -fsS "$s/reference/api" | grep 'auth.scope' >/dev/null
-          curl -fsS "$s/reference/mcp" | grep 'probe_now' >/dev/null
-          curl -fsS "$s/changelog" | grep 'Changelog' >/dev/null
-          curl -fsS "$s/zh/changelog" | grep 'lang="zh-CN"' >/dev/null
-          curl -fsS "$s/zh/guide/people" | grep 'lang="zh-CN"' >/dev/null
-          curl -fsS "$s/zh/about/architecture" | grep 'lang="zh-CN"' >/dev/null
-          # The pages the site structure moved answer on their old addresses with a 301 to their new homes.
-          while read -r old new; do
-            case "$old" in ''|'#'*) continue ;; esac
-            headers=$(curl -sI "$s$old" | tr -d '\r')
-            echo "$headers" | grep -E '^HTTP/[0-9.]+ 301' >/dev/null
-            echo "$headers" | grep "^Location: $new\$" >/dev/null
-          done <<'EOF'
-          /install /self-hosting/install
-          /accounts /guide/people
-          /agents /guide/on-call
-          /ssh /guide/machines
-          /catalog /guide/monitoring
-          /status /guide/status-pages
-          /pages /guide/console
-          /feishu /integrations/feishu
-          /troubleshooting /self-hosting/troubleshooting
-          /sources /reference/sources
-          /goals /about/goals
-          /architecture /about/architecture
-          /zh/install /zh/self-hosting/install
-          /zh/accounts /zh/guide/people
-          /zh/agents /zh/guide/on-call
-          /zh/ssh /zh/guide/machines
-          /zh/catalog /zh/guide/monitoring
-          /zh/status /zh/guide/status-pages
-          /zh/pages /zh/guide/console
-          /zh/feishu /zh/integrations/feishu
-          /zh/troubleshooting /zh/self-hosting/troubleshooting
-          /zh/sources /zh/reference/sources
-          /zh/goals /zh/about/goals
-          /zh/architecture /zh/about/architecture
-          EOF
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$s/no-such-page")" = 404
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$s/zh/no-such-page")" = 404
-          curl -fsSI "$s/" | grep -i '^cache-control: no-cache' >/dev/null
-          # brand assets, metadata and language detection from @openlinkos/vitepress-theme
-          curl -fsS -o /dev/null "$s/favicon.ico"
-          curl -fsS "$s/site.webmanifest" | grep '"icons"' >/dev/null
-          curl -fsS "$s/robots.txt" | grep 'Sitemap: https://beacon.openlinkos.com/sitemap.xml' >/dev/null
-          curl -fsS "$s/sitemap.xml" | grep 'hreflang="x-default"' >/dev/null
-          curl -fsS "$s/.well-known/security.txt" | grep '^Contact:' >/dev/null
-          curl -fsS "$s/" | grep 'hreflang="zh-CN"' >/dev/null
-          curl -fsS "$s/" | grep 'id="openlinkos-lang"' >/dev/null
-          docker rm -f site
+          # the project, the first time (no grep -q: with pipefail it would stop wrangler early and fail the pipe)
+          if ! npx --yes "$WRANGLER" pages project list | grep -w "$PROJECT" >/dev/null; then
+            npx --yes "$WRANGLER" pages project create "$PROJECT" --production-branch main
+          fi
+          npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch "$BRANCH" --commit-hash "$SHA" \
+            --commit-dirty=true 2>&1 | tee deploy.log
+          # the addresses wrangler reports: this deployment's own, and the branch's alias
+          url=$(grep -oE 'https://[0-9a-f]{8}\.[a-z0-9-]+\.pages\.dev' deploy.log | head -n 1)
+          test -n "$url"
+          echo "url=$url" >>"$GITHUB_OUTPUT"
+          alias=$(grep -i 'alias' deploy.log | grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.pages\.dev' | head -n 1 || true)
+          echo "alias=$alias" >>"$GITHUB_OUTPUT"
+      - name: smoke test
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: bash docs/smoke.sh "$URL"
+      - name: the preview's address on the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.deploy.outputs.url }}
+          ALIAS: ${{ steps.deploy.outputs.alias }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          body="**Site preview:** ${ALIAS:-$URL}
 
-      - name: build and push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: docs/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=max
-          sbom: true
+          This commit ($SHA) on its own: $URL. The preview passed the site's smoke test."
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --edit-last --create-if-none --body "$body"
