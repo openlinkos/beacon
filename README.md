@@ -2,7 +2,7 @@
   <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
 </h1>
 
-**Self-hosted monitoring and SSH access for the AI agents that run your servers.**
+**Self-hosted infrastructure for AI agents, shared with the people who manage them.**
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
@@ -10,24 +10,32 @@
 
 English | [简体中文](README.zh-CN.md) · Documentation: [beacon.openlinkos.com](https://beacon.openlinkos.com)
 
-Beacon checks your websites and services from several places at once, the way your users reach them, and says why a check fails: DNS, connection, TLS, timeout, status code. When a service goes down, it wakes your AI agent (Claude Code, Codex, or anything that speaks MCP or HTTP) and hands it the evidence in one call: what every location sees, what changed just before, what has already been done. The agent logs in to your servers through Beacon with its own `ssh`, or with Beacon's tools for running commands and editing files, fixes what it can, has every location check again, and leaves a note on the alert. It never holds a password or a private key, and every command it runs is recorded and can be replayed in a browser. Your users see a status page; the people on call get a card in Feishu and, when nobody answers, a call on their phone.
+Agents and people use Beacon for the same jobs:
 
-> **Status: early (0.3, release candidates).** Probing, alert routing, Feishu cards and phone escalation, the SSH channel with its recordings, waking agents, evidence, probing on demand, the console and public status pages work end to end, and run the makers' own servers. Until 1.0 the configuration may change between minor versions; the [changelog](CHANGELOG.md) says what to do when it does.
+- **Secrets: a team password manager.** People keep and share passwords, keys and tokens. An agent uses one by grant, often without seeing it, and every use is recorded with its reason. *In development.*
+- **Trusted access for agents.** Each agent is an identity that acts for a person, within that person's role. Claude Code and Codex sign in through the browser; headless agents take scoped tokens that renew themselves.
+- **Machines: an SSH bastion.** Agents reach your servers with their own `ssh`, `scp` and `rsync`, or Beacon's MCP tools, and never hold a password or a private key.
+- **Monitoring and alerts.** Probes check your services from where your users are and say why a check failed. A failure wakes your agent with the evidence in one call, reaches the people on call in Feishu and on their phones, and shows on a public status page. Agents put the services they build under the same probes.
+
+Everything either of them does is on the record: who did it, for whom, and why. Every command an agent runs is recorded and replays in a browser.
+
+> **Status: early (0.3, release candidates).** Probing, alert routing, Feishu cards and phone escalation, the SSH channel with its recordings, agents' identities and tokens, waking agents, evidence, probing on demand, the console and public status pages work end to end, and run the makers' own servers. The password manager and views of a service's own metrics are in development; [the goals](docs/about/goals.md) say where Beacon is going. Until 1.0 the configuration may change between minor versions; the [changelog](CHANGELOG.md) says what to do when it does.
 
 ## Why
 
 AI coding agents are already good at operations work: reading logs, finding the wrong line in a configuration, restarting the right service. What keeps people from letting them do it is everything around the work.
 
+- **To call a service, it needs your passwords.** Someone pastes a token into the chat, and from there it can end up in a transcript, a prompt or a repository. Nobody can say later which agent used it, or why.
 - **The agent does not know that something broke.** Monitoring tools page people and draw dashboards. An agent hears of an outage only when someone pastes the alert into a chat, and then has to guess what the probes saw.
 - **To touch a server, it needs your keys.** The usual way is to give the agent your SSH key or a root password. From then on it can reach every machine they open, from anywhere, and nothing records what it ran.
 - **Afterwards, nobody can tell what happened.** The agent's commands scrolled past in a terminal nobody was watching. Reviewing them means asking the agent, which remembers nothing between sessions.
 
-Beacon is built for the agent to do the work and for people to see all of it:
+And an agent cannot close the loop alone: a person decides what it may use, and does the same jobs. Infrastructure only agents could use would leave people with a second set of tools. Beacon is built for agents to do the work, and for people to use the same place, grant from it and see all of it:
 
 - **Checked from where your users are.** A probe of under 20 MB, on any small machine, checks HTTP, TLS, TCP, container registries, Git and domain expiry, and records why each check failed. A service is down only when several locations agree, so one location's bad network wakes nobody.
 - **The agent is woken with the evidence.** A signed webhook or a GitHub workflow wakes the agent you choose. One call, `get_evidence`, returns each location's result, the other alerts in the same failure domain, the deployments just before, and what people and agents have done so far.
 - **Server access without handing over keys.** Agents use their own `ssh`, `scp` and `rsync` through Beacon, or its MCP tools. Beacon signs a certificate valid for five minutes for each connection, and your servers trust only Beacon. Revoke one agent, or stop them all with one switch.
-- **Every command on record.** Sessions are recorded and replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. You review what was done afterwards instead of approving each step in advance.
+- **Every action on record.** Sessions are recorded and replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. Every change to the configuration is a version with who made it and why. You review what was done afterwards instead of approving each step in advance.
 - **Fixed means checked again.** After a fix the agent asks every location to probe the service at once (`probe_now`) and sees their answers within a minute.
 - **People stay in the loop.** A public status page for your users, a console for your team, alert cards in Feishu that can be acknowledged and silenced, and escalation to phones through Pushover when nobody answers.
 - **Small, and yours.** One Go service and one probe binary, on VictoriaMetrics; a machine with 2 CPUs and 4 GB is plenty. Apache-2.0. Beacon calls no model and needs no cloud account.

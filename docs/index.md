@@ -1,11 +1,11 @@
 ---
 layout: home
-title: Put your AI agent on call
+title: Infrastructure for AI agents, on the record
 ---
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
-  <template #title>Put your AI agent on call</template>
-  <template #lead>Beacon checks your services from where their users are, wakes an agent with the evidence when one breaks, lets it reach the machine without ever holding a key, and records every command it runs.</template>
+  <template #title>Infrastructure for AI agents, on the record</template>
+  <template #lead>Your agents reach your machines and watch your services through Beacon, and soon take the credentials they are granted there too. Your team uses the same place for the same jobs, and everything either does is on the record.</template>
   <template #actions>
     <a href="/guide/quickstart">Quickstart</a>
     <a class="ghost" href="/guide/concepts">How it works</a>
@@ -19,7 +19,7 @@ title: Put your AI agent on call
 
 ## One outage, end to end {#one-outage}
 
-The recording above is the loop the try environment runs on your machine. You break the demo service; the alert, the repair, the check and the replay follow. Here are its five steps, each beside what it returns. At 3 a.m. they run with nobody watching.
+The recording above is one loop these parts make possible. In the try environment you break a demo service; the alert, the repair, the check and the replay follow. Here are its five steps. At 3 a.m. they run with nobody watching.
 
 <OlSteps :steps="[
   { title: 'Several locations see it fail', text: 'A probe of under 20 MB runs on any small machine and checks each service the way its users reach it, recording why a check fails. A service is down only when several locations agree, so one flaky location wakes nobody.', media: '/landing/step-probes.svg', alt: 'The evidence a failing service produces: the service, the target, the location and the reason' },
@@ -29,19 +29,29 @@ The recording above is the loop the try environment runs on your machine. You br
   { title: 'The alert resolves; you replay the session', text: 'The group resolves once the probes recover, the agent notes left on its timeline. In the console every session replays in the browser, command by command.', media: '/media/console-alert-light.png', alt: 'The alert group after the repair: the timeline with the agent notes, the probe recovered' },
 ]" />
 
-## Three pillars {#three-pillars}
+## One place for agents and people {#one-place}
 
-### Checked from where your users are {#checked-from-where-your-users-are}
+Each part does a job people already have a tool for. Agents use it in the ways they already work, and people at least as well as that tool.
 
-Probes check HTTP, TLS, TCP, container registries, Git and domain expiry, and say why a check fails: DNS, connection, TLS, timeout, status code. Targets and modules live in Beacon, so changing what is checked needs no redeployment. [Monitor a service](/guide/monitoring).
+### A team password manager {#a-team-password-manager}
 
-### The agent never holds a key {#the-agent-never-holds-a-key}
+People keep and share passwords, keys and tokens. An agent uses one by grant, can use it without seeing it, and each use is recorded with its reason. In development: [Goals](/about/goals) describes it.
+
+### Trusted access for agents {#trusted-access-for-agents}
+
+Each agent is an identity that acts for a person, within that person's role. Claude Code and Codex sign in through the browser; a headless agent takes a token that renews itself. [Invite your team](/guide/people).
+
+### An SSH bastion: the agent never holds a key {#the-agent-never-holds-a-key}
 
 Each connection gets a certificate valid for five minutes, and the machines trust only Beacon. Revoke one agent, or stop them all with one switch. [Give agents a machine](/guide/machines).
 
-### Every command on record {#every-command-on-record}
+### Monitoring, checked from where your users are {#checked-from-where-your-users-are}
 
-Sessions replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. You review what was done, instead of approving each step in advance. [Review what agents did](/guide/console).
+Probes check HTTP, TLS, TCP, container registries, Git and domain expiry, and say why a check fails: DNS, connection, TLS, timeout, status code. Targets live in Beacon, so an agent can put a service it built under the probes itself. [Monitor a service](/guide/monitoring).
+
+### Every action on record {#every-command-on-record}
+
+Sessions replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. Each change is traced to who made it, for whom, and why. You review what was done, instead of approving each step in advance. [Review what agents did](/guide/console).
 
 ## Works with the tools agents already know {#works-with}
 

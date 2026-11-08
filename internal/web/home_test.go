@@ -154,7 +154,7 @@ func TestLandingPage(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<html lang="en">`, `data-brand="beacon"`, `class="ol-site-header"`, `class="ol-site-footer"`, "<title>Beacon</title>",
-		`<h1 class="ol-hero-title" id="hero-title">Beacon</h1>`, "Self-hosted monitoring and SSH access for the AI agents that run your servers.",
+		`<h1 class="ol-hero-title" id="hero-title">Beacon</h1>`, "Self-hosted infrastructure for AI agents, shared with the people who manage them.",
 		`<a class="ol-btn ol-btn-primary ol-btn-lg" href="/console">`, `<a class="ol-btn ol-btn-ghost ol-btn-sm" href="/console">Sign in</a>`,
 		poweredLine, `<a href="https://github.com/openlinkos/beacon">GitHub</a>`,
 	} {
