@@ -13,7 +13,7 @@ get() { curl -sS --retry 5 --retry-all-errors --retry-delay 3 "$@"; }
 page() { get -f "$s$1"; }
 has() { page "$1" | grep -F -- "$2" >/dev/null || { echo "$1 lacks: $2" >&2; exit 1; }; }
 
-has / 'Put your AI agent on call'
+has / 'Infrastructure for AI agents, on the record'
 has / 'beacon/deploy/try'
 has / 'One outage, end to end'
 has / 'hreflang="zh-CN"'

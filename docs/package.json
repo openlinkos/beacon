@@ -2,7 +2,7 @@
   "name": "@openlinkos/beacon-site",
   "private": true,
   "version": "0.0.0",
-  "description": "The site of Beacon, infrastructure for AI agents that run operations: beacon.openlinkos.com.",
+  "description": "The site of Beacon, infrastructure for AI agents and the people who manage them: beacon.openlinkos.com.",
   "license": "Apache-2.0",
   "author": "OpenLinkOS",
   "homepage": "https://beacon.openlinkos.com",

@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-ffe534cb
+sourceHash: sha256-9cebf760
 layout: home
-title: 让你的 AI Agent 值班
+title: 给 AI Agent 的基础设施，一切可追溯
 ---
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
-  <template #title>让你的 AI Agent 值班</template>
-  <template #lead>Beacon 从用户所在的地方检测你的服务，出问题时带着证据叫醒你的 Agent，让它不持有任何密钥就能上机器，并记下它执行的每一条命令。</template>
+  <template #title>给 AI Agent 的基础设施，一切可追溯</template>
+  <template #lead>你的 Agent 经 Beacon 登上机器、盯住服务，很快也在这里取用授权给它的凭据。你的团队在同一个地方做同样的事，双方做的每件事都有记录。</template>
   <template #actions>
     <a href="/zh/guide/quickstart">10 分钟试用</a>
     <a class="ghost" href="/zh/guide/concepts">工作原理</a>
@@ -20,7 +20,7 @@ title: 让你的 AI Agent 值班
 
 ## 一次故障，从头到尾 {#one-outage}
 
-上面的录像就是试用环境在你机器上跑的那个闭环。你弄坏演示服务，告警、修复、复测和回放随之而来。下面是它的五步，每步旁边是那一步返回的东西。凌晨三点，它们在没人盯着的时候照常运转。
+上面的录像是这几部分合起来做到的一个闭环。在试用环境里你弄坏一个演示服务，告警、修复、复测和回放随之而来。下面是它的五步。凌晨三点，它们在没人盯着的时候照常运转。
 
 <OlSteps :steps="[
   { title: '多个检测点同时看到故障', text: '一个不到 20 MB 的检测程序装在任何小机器上，按用户访问的路径检测每个服务，并记下每次失败的原因。多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。', media: '/landing/step-probes.svg', alt: '一项服务出故障时产生的证据：服务、目标、检测点和原因' },
@@ -30,19 +30,29 @@ title: 让你的 AI Agent 值班
   { title: '告警恢复，人在控制台回放', text: '检测恢复后告警组随即解除，Agent 的备注留在时间线上。在控制台里，每次会话都能在浏览器里逐条命令回放。', media: '/media/console-alert-light.png', alt: '修复后的告警组：带 Agent 备注的时间线、恢复的检测' },
 ]" />
 
-## 三根支柱 {#three-pillars}
+## Agent 和人用同一个地方 {#one-place}
 
-### 从用户所在的地方检测 {#checked-from-where-your-users-are}
+每一部分做的，都是人已经有工具在做的一件事。Agent 按它已有的方式来用，人用起来至少和那件工具一样好。
 
-检测程序检查 HTTP、TLS、TCP、镜像仓库、Git 和域名到期，并说清失败的原因：解析、连接、TLS、超时还是状态码。检测目标和模块放在 Beacon 里，改检测内容不用重新部署。[检测一个服务](/zh/guide/monitoring)。
+### 团队密码管理器 {#a-team-password-manager}
 
-### Agent 不持有密钥 {#the-agent-never-holds-a-key}
+人在这里保存、共享密码、密钥和令牌。Agent 凭授权使用，可以只用不看，每次使用都连同理由记录下来。正在开发中，[目标](/zh/about/goals)里有它的样子。
+
+### Agent 的可信访问 {#trusted-access-for-agents}
+
+每个 Agent 都是一个身份，代表某个人行事，不超出这个人的角色。Claude Code 和 Codex 在浏览器里登录；无界面的 Agent 用一个能自动续期的令牌。[邀请你的团队](/zh/guide/people)。
+
+### SSH 跳板机：Agent 不持有密钥 {#the-agent-never-holds-a-key}
 
 每次连接签一张五分钟有效的证书，机器只信任 Beacon。可以单独吊销一个 Agent，也可以一个开关停下所有 Agent。[给 Agent 一台机器](/zh/guide/machines)。
 
-### 每条命令都有记录 {#every-command-on-record}
+### 监控：从用户所在的地方检测 {#checked-from-where-your-users-are}
 
-会话能在浏览器里回放，交互 shell 拆成一条条命令和退出码，Agent 的备注写在告警上。事后复查做了什么，而不是事前逐条审批。[复查 Agent 做了什么](/zh/guide/console)。
+检测程序检查 HTTP、TLS、TCP、镜像仓库、Git 和域名到期，并说清失败的原因：解析、连接、TLS、超时还是状态码。检测目标放在 Beacon 里，Agent 能自己把开发的服务加进检测。[检测一个服务](/zh/guide/monitoring)。
+
+### 每个动作都有记录 {#every-command-on-record}
+
+会话能在浏览器里回放，交互 shell 拆成一条条命令和退出码，Agent 的备注写在告警上。每次修改都追溯到是谁做的、代表谁、为什么。事后复查做了什么，而不是事前逐条审批。[复查 Agent 做了什么](/zh/guide/console)。
 
 ## 接入 {#works-with}
 

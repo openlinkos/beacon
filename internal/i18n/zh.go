@@ -204,7 +204,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Tokens":                        "令牌",
 	"Scopes":                        "权限范围",
 	"Sign in to see your services, alerts and servers, and everything your agents did on them.":                                              "登录后可以看到服务、告警和服务器，以及 Agent 在上面做过的每一件事。",
-	"Self-hosted monitoring and SSH access for the AI agents that run your servers.":                                                         "为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。",
+	"Self-hosted infrastructure for AI agents, shared with the people who manage them.":                                                      "给 AI Agent 用的自托管基础设施，由 Agent 和管理它们的人共用。",
 	"Paste a Beacon token. What you may do here is what its scopes allow; status:read at least.":                                             "粘贴一个 Beacon 令牌。在这里能做什么取决于它的权限范围，至少要有 status:read。",
 	"Beacon keeps only a session bound to the token, for 12 hours or until the token expires or is revoked; the token itself is not stored.": "Beacon 只保存与令牌绑定的会话，有效 12 小时，令牌过期或被吊销时随之结束；令牌本身不会被保存。",
 	"On the host, make a token for yourself with":                                                                                            "在主机上为自己创建令牌：",

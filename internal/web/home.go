@@ -32,7 +32,7 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 	l := s.Lang
 	name := s.Branding.Name()
 	v := &statusView{Lang: l.HTML(), Title: name, Name: name, Brand: "beacon", Version: s.version(), Icons: statusSprite,
-		L: statusLabelsIn(l), Root: "/", Description: s.t("Self-hosted monitoring and SSH access for the AI agents that run your servers.")}
+		L: statusLabelsIn(l), Root: "/", Description: s.t("Self-hosted infrastructure for AI agents, shared with the people who manage them.")}
 	v.Mark, v.MarkHero = marks(v.Brand)
 	v.SignIn, v.private = s.consoleLink(r, l, false)
 	v.Powered = s.poweredBy(l)
