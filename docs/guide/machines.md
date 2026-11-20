@@ -89,6 +89,8 @@ Other options and commands:
 - `machine add … -replace` pins a new host key after a reinstall.
 - `machine remove NAME` forgets a machine, and keeps its sessions on record.
 
+The console does the same for someone with `machines:write`, on **Machines**. **Add a machine** takes the name, the address (`host` or `host:port`, or behind NAT), the account (`beacon` when left out), whether it is critical, a note, and, for a machine behind NAT, the key it connects out with and an optional host key. The page then shows, once, what the machine needs: the same lines the command prints. A machine's page edits the note, the critical flag and the account, pins the host key again (and shows the old and new fingerprints), and, for one behind NAT, changes the key it connects out with. **Remove the machine** asks for the machine's name, typed in full. The machine is forgotten, an open connector closes, and its sessions stay on record.
+
 A machine Beacon cannot reach is added the other way round: [Machines behind NAT](#machines-behind-nat).
 
 ## Give an agent access {#give-an-agent-access}

@@ -82,6 +82,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default): who, where, what, when, the exit status |
 | `get_session` | `sessions:read` or `machines:ssh` | A session's transcript (`id`): a command's whole output, or an interactive shell's commands with their output and exit status |
 | `add_machine` | `machines:write` | Add a machine, pinning its host key (`name`, `address`, `user`, `critical`, `note`, `replace`); `address: connector` for one behind NAT, with `connector_key` and optionally `host_key`. The result says what the machine needs |
+| `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The host key and the address stay |
 | `set_machine_connector` | `machines:write` | Set or change the key a machine behind NAT connects out with (`name`, `key`); a connection made with the old key is closed |
 | `remove_machine` | `machines:write` | Forget a machine (`name`); its sessions stay on record |
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
@@ -119,11 +120,13 @@ The public status pages are made from the alert groups and the maintenance windo
 | --- | --- | --- |
 | `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used |
 | `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only |
+| `create_agent` | any credential; the bridge decides | Make an agent (`name`, `owner`, `preset`, `scopes`, `machines`, `expires`). Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. `expires` (such as `90d`) returns a token, its secret shown once |
+| `update_agent` | any credential; the bridge decides | Change an agent's preset, custom scopes or machines (`name`, and `preset`, `scopes`, `machines`, each optional). A field left out stays. Custom scopes follow the same rule as `create_agent` |
 | `add_ssh_key` | `machines:ssh` | Register your own public key for the SSH channel (`key`, an `authorized_keys` line; `comment`), so that your own ssh, scp, sftp and rsync reach the machines you may reach; `list_machines` then gives the `ssh_config` block. The key belongs to the credential you call with (`via`): it works while that token or OAuth sign-in does and is removed with it. Shown to the person you act for, and echoed to the alert chat |
 | `list_ssh_keys` | `machines:ssh` | Your SSH keys |
 | `remove_ssh_key` | `machines:ssh` | Remove one of your keys (`fingerprint`); connections signed in with it are closed |
 
-No agent preset gives `accounts:write`. An agent manages people only if an owner gave it that scope on the command line. Changing roles, disabling people and password resets are not MCP tools. They are for people, on the console or the centre.
+No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant that scope, even one that holds it. Changing roles, disabling people and password resets are not MCP tools. They are for people, on the console or the centre.
 
 ## Your token
 

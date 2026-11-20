@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f93c4b3e
+sourceHash: sha256-9e7589c2
 ---
 
 # MCP 工具
@@ -86,6 +86,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）：谁、在哪里、做了什么、什么时候、退出码 |
 | `get_session` | `sessions:read` 或 `machines:ssh` | 会话的文字记录（`id`）：命令的全部输出，或者交互 shell 的每条命令及其输出和退出码 |
 | `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
+| `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。主机密钥和地址不变 |
 | `set_machine_connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥（`name`、`key`）；用旧密钥建立的连接会被关掉 |
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
@@ -123,11 +124,13 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
 | `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
+| `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
+| `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器（`name`，以及可选的 `preset`、`scopes`、`machines`）。不填的字段保持原样。自定义 scope 的规则与 `create_agent` 相同 |
 | `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |
 | `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
 
-没有哪个 Agent 预设给 `accounts:write`。只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。修改角色、停用成员和重设密码都不是 MCP 工具。那是人的事，在控制台或中心上做。
+没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予这个作用域，哪怕自己持有。修改角色、停用成员和重设密码都不是 MCP 工具。那是人的事，在控制台或中心上做。
 
 ## 你的令牌 {#your-token}
 

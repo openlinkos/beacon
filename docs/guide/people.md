@@ -104,12 +104,12 @@ An agent may do what its preset asks for **and** its owner's role allows, worked
 
 - No preset gives `config:write` or `accounts:write`.
 - A preset above the owner's role is refused when the agent is made or changed.
-- A **custom** agent lists scopes of its own instead, still within the owner's role (`beacon agent add … -scopes status:read,config:write`).
+- A **custom** agent lists scopes of its own instead, still within the owner's role and within what the caller may do. An owner who is a person sets them in the console; a person or a legacy token with `accounts:write` sets them through the API and MCP; the command line does too (`beacon agent add … -scopes status:read,config:write`). An agent never sets them, even one that holds `accounts:write`. The list is people's scopes only, and never empty. What the agent may do stays the intersection with its owner's role, read again on every request.
 
 The console's **Agents** page lists your agents; an owner sees everyone's. Each agent's page:
 
 - shows what it may do now;
-- changes its preset and machines;
+- changes its preset and machines, and, for an owner who is a person, its custom scopes;
 - lists its OAuth sign-ins, tokens and keys, and revokes or removes any of them;
 - deletes the agent with all its credentials.
 
@@ -211,14 +211,14 @@ The commands for people and agents:
 - `beacon user role NAME ROLE`
 - `beacon user disable` and `beacon user enable NAME`
 - `beacon user reset NAME`
-- `beacon agent add NAME -owner USER [-preset P] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
+- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
 - `beacon agent list`
 - `beacon agent remove NAME`
 - `beacon token claim NAME -owner USER`
 
-`ROLE` is `viewer`, `oncall`, `operator` or `owner`. A preset is `readonly`, `oncall` or `operator`. Every subcommand and flag is in the command-line reference: [Command line](../reference/cli.md).
+`ROLE` is `viewer`, `oncall`, `operator` or `owner`. A preset is `readonly`, `oncall`, `operator` or `custom`. Every subcommand and flag is in the command-line reference: [Command line](../reference/cli.md).
 
-The same operations are on the REST API under `/api/v1/users` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write`, which no preset gives. Changing roles, disabling people and password resets are not offered through MCP.
+The same operations are on the REST API under `/api/v1/users` and `/api/v1/agents` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write` for people's accounts, which no preset gives. Changing roles, disabling people and password resets are not offered through MCP.
 
 ## Security {#security}
 

@@ -51,7 +51,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration, the status pages and maintenance windows |
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
 | `machines:ssh` | The SSH channel with the agent's own keys, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
-| `machines:write` | Adding and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
+| `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
 | `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
@@ -64,9 +64,9 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `alerts:send` | Posting alerts as the rule engine does |
 | `changes:write` | Posting change events |
 
-People and agents do not choose scopes one by one. People get theirs from their role, and agents from their preset within their owner's role. Only machines' tokens and experts' are made with scopes by name. Which role and which preset give which scopes is in [Roles, presets and scopes](permissions.md).
+People get their scopes from their role. An agent gets them from its preset, within its owner's role, or from a custom list an owner set. Only machines' tokens, and experts' tokens, are made with scopes by name. Which role and which preset give which scopes is in [Roles, presets and scopes](permissions.md).
 
-An agent may use a scope when its preset gives it and its owner's role does too. This is checked on every request, so demoting or disabling the owner limits the agent at once. An OAuth sign-in is also held to the preset and machines the person allowed it. A refusal (`auth.scope`) says what the agent's preset within its owner's role allows.
+An agent may use a scope when its preset or its custom list gives it, and its owner's role does too. This is checked on every request, so demoting or disabling the owner limits the agent at once. An OAuth sign-in is also held to the preset and machines the person allowed it. A refusal (`auth.scope`) says what the agent's preset within its owner's role allows.
 
 `GET /api/v1/token` and `POST /api/v1/token/renew` take any scope: the token itself is the credential.
 
@@ -102,6 +102,7 @@ An agent may use a scope when its preset gives it and its owner's role does too.
 | `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
 | `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
+| `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. The host key and the address stay |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
@@ -164,7 +165,7 @@ The public pages themselves need no token ([below](#other-routes-on-port-17001))
 
 The people who sign in to Beacon, for an owner's credential, and the caller's own SSH keys for the SSH channel ([Invite your team](../guide/people.md)).
 
-No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope on the command line. Password resets have no MCP tool.
+No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant it, even one that holds it. Password resets have no MCP tool.
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -175,6 +176,8 @@ No agent preset gives `accounts:write`. An agent manages people only when an own
 | `GET /api/v1/ssh-keys` | `machines:ssh` | The caller's own SSH keys; an agent's are its agent's, whichever of its credentials asks, and a key the agent registered itself says through which (`via`: `token:NAME` or `grant:ID`) |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | Register a public key: `key` (an `authorized_keys` line) and `comment`. An agent's key belongs to the credential it came with: it works while that token or OAuth sign-in does, and is removed with it. A key belongs to one agent or token, never to a machine's connector (`key.exists`) |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
+| `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machines`, `expires`. Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
+| `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes` or `machines`. A field left out stays. Custom scopes follow the same rule. An unknown name, including a legacy token, is `agent.not_found` |
 
 ## The token
 
@@ -273,6 +276,8 @@ Each sends with a token of its own:
 | `user.last_owner` | 409 | The change would leave Beacon without an enabled owner; make someone else owner first |
 | `key.not_found` | 404 | The caller has no SSH key with that fingerprint |
 | `key.exists` | 409 | The key belongs to another agent or token, or is a machine's connector key |
+| `agent.not_found` | 404 | No agent with this name. A legacy token is not an agent, and this route does not widen it |
+| `agent.exists` | 409 | An agent with this name exists |
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |
