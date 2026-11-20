@@ -247,6 +247,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/ssh/resume", s.with("machines:write", s.sshPause(false)))
 	mux.Handle("GET /api/v1/machines", s.with("status:read|machines:ssh", s.listMachines))
 	mux.Handle("POST /api/v1/machines", s.with("machines:write", s.addMachine))
+	mux.Handle("PATCH /api/v1/machines/{name}", s.with("machines:write", s.updateMachine))
 	mux.Handle("DELETE /api/v1/machines/{name}", s.with("machines:write", s.removeMachine))
 	mux.Handle("POST /api/v1/machines/{name}/run", s.with("machines:ssh", s.runCommand))
 	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
@@ -267,7 +268,7 @@ var Routes = []string{
 	"GET /api/v1/bridge", "GET /api/v1/alerts", "GET /api/v1/alerts/{id}", "POST /api/v1/alerts/{id}/ack",
 	"GET /api/v1/silences", "POST /api/v1/silences", "DELETE /api/v1/silences/{id}", "GET /api/v1/audit",
 	"GET /api/v1/ssh", "POST /api/v1/ssh/pause", "POST /api/v1/ssh/resume",
-	"GET /api/v1/machines", "POST /api/v1/machines", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
+	"GET /api/v1/machines", "POST /api/v1/machines", "PATCH /api/v1/machines/{name}", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
 	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
 	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
 	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",

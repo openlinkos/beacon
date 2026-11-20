@@ -102,6 +102,19 @@ func (s *Server) addMachine(w http.ResponseWriter, r *http.Request, who bridge.A
 	writeJSON(w, http.StatusCreated, a)
 }
 
+func (s *Server) updateMachine(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	var in sshgate.MachineUpdate
+	if !readJSON(w, r, &in) {
+		return
+	}
+	v, err := s.SSH.Update(r.Context(), gateActor(who), r.PathValue("name"), in)
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
 func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
 	if err := s.SSH.Remove(r.Context(), gateActor(who), r.PathValue("name")); err != nil {
 		s.gateError(w, err)

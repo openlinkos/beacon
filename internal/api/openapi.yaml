@@ -1197,6 +1197,29 @@ paths:
                       host_key_pending: {type: boolean, description: The host key is not pinned yet; it is learned when the connector first connects}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}:
+    patch:
+      summary: Change a machine's note, whether it is critical, and the account on it
+      description: "Scope: machines:write. The host key and the address stay. A field left out stays as it is."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: {type: string}
+                critical: {type: boolean}
+                user: {type: string, description: The account on the machine}
+      responses:
+        "200":
+          description: The machine
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Machine"}
+        default: {$ref: "#/components/responses/Error"}
     delete:
       summary: Forget a machine; its sessions stay on record
       description: "Scope: machines:write"

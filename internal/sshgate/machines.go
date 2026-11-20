@@ -176,6 +176,50 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey()}, nil
 }
 
+// MachineUpdate changes a machine's note, whether it is critical, and the account on it. A nil field
+// stays as it is. The host key and the address are kept.
+type MachineUpdate struct {
+	Note     *string `json:"note,omitempty"`
+	Critical *bool   `json:"critical,omitempty"`
+	User     *string `json:"user,omitempty"`
+}
+
+// Update changes a machine's note, whether it is critical, and the account on it. The host key and the
+// address stay. A nil field is left as it is.
+func (g *Gate) Update(ctx context.Context, who Actor, name string, in MachineUpdate) (MachineView, error) {
+	if g == nil {
+		return MachineView{}, ErrDisabled
+	}
+	m, ok := g.d.Store.Machine(name)
+	if !ok {
+		return MachineView{}, fmt.Errorf("%w called %q", ErrNoMachine, name)
+	}
+	if in.User != nil && !userRe.MatchString(*in.User) {
+		return MachineView{}, fmt.Errorf("%w: user %q is not an account name", ErrBadInput, *in.User)
+	}
+	beforeNote, beforeCritical, beforeUser := m.Note, m.Critical, m.User
+	if in.User != nil {
+		m.User = *in.User
+	}
+	if in.Note != nil {
+		m.Note = strings.TrimSpace(*in.Note)
+	}
+	if in.Critical != nil {
+		m.Critical = *in.Critical
+	}
+	t, _ := g.principal(who)
+	if m.Note == beforeNote && m.Critical == beforeCritical && m.User == beforeUser {
+		return g.view(m, t), nil
+	}
+	if err := g.d.Store.PutMachine(m); err != nil {
+		return MachineView{}, err
+	}
+	detail := fmt.Sprintf("note %q -> %q; critical %v -> %v; user %s -> %s", beforeNote, m.Note, beforeCritical, m.Critical, beforeUser, m.User)
+	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_update", Target: m.Name, Detail: detail})
+	g.post(ctx, i18n.T(g.d.Lang, "%s changed machine %s", who.Name, m.Name))
+	return g.view(m, t), nil
+}
+
 // Remove forgets a machine; its sessions stay on record. A connector machine's connection is closed.
 func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 	if g == nil {

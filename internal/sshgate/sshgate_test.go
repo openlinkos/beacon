@@ -673,3 +673,66 @@ func TestPrune(t *testing.T) {
 		t.Errorf("the recording was kept: %v", err)
 	}
 }
+
+func TestUpdateMachine(t *testing.T) {
+	e := setup(t)
+	who := Actor{Name: "op", Via: "api"}
+	before, ok := e.st.Machine("box")
+	if !ok {
+		t.Fatal("no box")
+	}
+	note, crit := "moved", true
+	v, err := e.g.Update(context.Background(), who, "box", MachineUpdate{Note: &note, Critical: &crit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := e.st.Machine("box")
+	if m.Note != "moved" || !m.Critical || m.User != before.User || m.HostKey != before.HostKey || m.Address != before.Address || m.Added != before.Added {
+		t.Fatalf("updated: %+v", m)
+	}
+	if v.HostKey == "" || v.HostKey != fingerprint(before.HostKey) || v.Note != "moved" || !v.Critical {
+		t.Fatalf("view: %+v", v)
+	}
+	user := "ops"
+	if _, err := e.g.Update(context.Background(), who, "box", MachineUpdate{User: &user}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = e.st.Machine("box")
+	if m.User != "ops" || m.Note != "moved" || !m.Critical || m.HostKey != before.HostKey {
+		t.Fatalf("partial: %+v", m)
+	}
+	bad := "Root"
+	if _, err := e.g.Update(context.Background(), who, "box", MachineUpdate{User: &bad}); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("bad user: %v", err)
+	}
+	if m2, _ := e.st.Machine("box"); m2.User != "ops" || m2.Note != "moved" {
+		t.Fatalf("a refused update wrote: %+v", m2)
+	}
+	if _, err := e.g.Update(context.Background(), who, "nope", MachineUpdate{Note: &note}); !errors.Is(err, ErrNoMachine) {
+		t.Fatalf("missing: %v", err)
+	}
+	found := false
+	for _, a := range e.st.AuditLog(20) {
+		if a.Action == "machine_update" && a.Target == "box" && a.Via == "api" && strings.Contains(a.Detail, "moved") && strings.Contains(a.Detail, "ops") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("audit: %+v", e.st.AuditLog(5))
+	}
+	if !strings.Contains(e.bot.all(), "op") || !strings.Contains(e.bot.all(), "box") {
+		t.Fatalf("chat: %s", e.bot.all())
+	}
+	n := len(e.st.AuditLog(100))
+	same := "moved"
+	if _, err := e.g.Update(context.Background(), who, "box", MachineUpdate{Note: &same}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.st.AuditLog(100)) != n {
+		t.Fatal("a no-op was audited")
+	}
+	var none *Gate
+	if _, err := none.Update(context.Background(), who, "box", MachineUpdate{}); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("nil gate: %v", err)
+	}
+}

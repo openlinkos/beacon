@@ -58,8 +58,16 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("A later change touched the same items; revert that one first, or change them through the API.")
 	case "invalid":
 		return s.t("The configuration would not pass its checks after this change, so nothing changed.")
-	case "ssh_off":
+	case "ssh_off", "ssh.disabled":
 		return s.t("The SSH channel is off.")
+	case "machine.exists":
+		return s.t("A machine with this name exists already.")
+	case "machine.unreachable":
+		return s.t("The machine could not be reached, so nothing was added.")
+	case "machine.not_found":
+		return s.t("There is no such machine, or no longer.")
+	case "confirm":
+		return s.t("Type the machine's name exactly to remove it.")
 	case "not_revocable":
 		return s.t("Only tokens that reach machines, and agents' tokens, are revoked here; revoke the others with beacon token revoke on the host.")
 	case "forbidden":
