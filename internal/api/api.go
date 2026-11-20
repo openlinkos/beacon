@@ -258,6 +258,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
 	s.registerToken(mux)
 	s.registerPeople(mux)
+	s.registerAgents(mux)
 	mux.Handle("PUT /api/v1/machines/{name}/connector", s.with("machines:write", s.setConnector))
 	mux.Handle("POST /api/v1/probe-now", s.with("alerts:write", s.probeNow))
 	s.registerStatus(mux)

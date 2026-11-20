@@ -121,7 +121,7 @@ type AgentInput struct {
 	Name     string
 	Owner    string
 	Preset   string
-	Scopes   []string // PresetCustom only, from the command line
+	Scopes   []string // PresetCustom only; see checkCustom
 	Machines []string
 	SSHKeys  []string // authorized_keys lines
 	TTL      time.Duration
@@ -196,6 +196,51 @@ func (b *Bridge) mayManage(who Actor, owner string) bool {
 	}
 	p, ok := b.caller(who)
 	return ok && p.Person() && p.User == owner
+}
+
+// maySetCustom reports whether who may choose an agent's custom scopes: the command line, or a person
+// or a legacy token with accounts:write. An agent never may, not even one that holds accounts:write,
+// and not on itself.
+func (b *Bridge) maySetCustom(who Actor) bool {
+	if who.Via == "cli" && who.Key == "" {
+		return true
+	}
+	p, ok := b.caller(who)
+	return ok && p.Agent == "" && p.Has("accounts:write")
+}
+
+// checkCustom reports whether scopes may be an agent's custom scopes: at least one, each a scope of
+// people (store.PeopleScopes), each within the agent's owner's role, and, except for the command line,
+// each a scope the caller itself holds. It changes nothing.
+func (b *Bridge) checkCustom(who Actor, owner store.Account, scopes []string) error {
+	if !b.maySetCustom(who) {
+		return fmt.Errorf("%w: custom scopes need accounts:write from a person or the command line, never an agent", ErrForbidden)
+	}
+	if len(scopes) == 0 {
+		return fmt.Errorf("%w: a custom agent needs at least one scope", ErrBadInput)
+	}
+	cli := who.Via == "cli" && who.Key == ""
+	var caller store.Principal
+	if !cli {
+		var ok bool
+		caller, ok = b.caller(who)
+		if !ok {
+			return fmt.Errorf("%w: custom scopes need accounts:write from a person or the command line", ErrForbidden)
+		}
+	}
+	allowed := store.RoleScopes(owner.Role)
+	for _, sc := range scopes {
+		if !slices.Contains(store.PeopleScopes, sc) {
+			return fmt.Errorf("%w: an agent's scope is one of the people's scopes, not %q", ErrBadInput, sc)
+		}
+		if !slices.Contains(allowed, sc) {
+			return fmt.Errorf("%w: %s gives more than %s's role (%s) allows", ErrBadInput, sc, owner.Username, owner.Role)
+		}
+		if !cli && !caller.Has(sc) {
+			return fmt.Errorf("%w: you cannot grant %s; you do not hold it", ErrForbidden, sc)
+		}
+	}
+	return nil
 }
 
 // consoleURL is the address of a console page with a one-time code.
@@ -468,11 +513,12 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 	if in.Preset == "" {
 		in.Preset = store.PresetFor(owner.Role)
 	}
-	if in.Preset != store.PresetCustom && !store.PresetWithin(in.Preset, owner.Role) {
+	if in.Preset == store.PresetCustom {
+		if err := b.checkCustom(who, owner, in.Scopes); err != nil {
+			return AgentCreated{}, err
+		}
+	} else if !store.PresetWithin(in.Preset, owner.Role) {
 		return AgentCreated{}, fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows; choose %s or less", ErrBadInput, in.Preset, owner.Username, owner.Role, store.PresetFor(owner.Role))
-	}
-	if in.Preset == store.PresetCustom && !b.admin(who) {
-		return AgentCreated{}, fmt.Errorf("%w: custom scopes are for the command line", ErrForbidden)
 	}
 	var keys []store.SSHKey
 	for _, line := range in.SSHKeys {
@@ -529,45 +575,80 @@ func machinesText(m []string) string {
 	return strings.Join(m, ",")
 }
 
+// AgentUpdate changes an agent. A nil field stays as it is. Scopes is nil to keep them; a non-nil list
+// sets the custom scopes (and is refused when it is empty). Scopes are applied only when the result is
+// custom; a preset clears them.
+type AgentUpdate struct {
+	Preset   *string
+	Machines *[]string
+	Scopes   []string
+}
+
 // UpdateAgent sets what an agent may do and the machines it reaches, for its owner or an admin. The
-// preset may not exceed the owner's role; custom (a claimed token's scopes) stays as it is.
-func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name, preset string, machines []string) error {
+// preset may not exceed the owner's role. Custom scopes follow checkCustom: a person or a legacy token
+// with accounts:write, or the command line, never an agent, and never beyond the owner's role or the
+// caller's own scopes.
+func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up AgentUpdate) (AgentView, error) {
 	a, ok := b.d.Store.Agent(name)
 	if !ok {
-		return fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
+		return AgentView{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
 	}
 	if !b.mayManage(who, a.Owner) {
-		return ErrForbidden
+		return AgentView{}, ErrForbidden
 	}
 	owner, ok := b.d.Store.Account(a.Owner)
 	if !ok {
-		return ErrForbidden
+		return AgentView{}, ErrForbidden
 	}
-	if preset == "" {
-		preset = a.Preset
+	preset := a.Preset
+	if up.Preset != nil && *up.Preset != "" {
+		preset = *up.Preset
 	}
-	if preset == store.PresetCustom && a.Preset != store.PresetCustom {
-		return fmt.Errorf("%w: custom scopes are for the command line", ErrBadInput)
+	machines := a.Machines
+	if up.Machines != nil {
+		machines = *up.Machines
 	}
-	if preset != store.PresetCustom && !store.PresetWithin(preset, owner.Role) {
-		return fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows", ErrBadInput, preset, owner.Username, owner.Role)
+	scopes := a.Scopes
+	if preset == store.PresetCustom {
+		// A list was sent, or the agent is moving onto custom: both are setting scopes, checked before
+		// anything is written. An agent that is already custom and sends no list keeps its scopes.
+		if up.Scopes != nil || a.Preset != store.PresetCustom {
+			scopes = up.Scopes
+			if err := b.checkCustom(who, owner, scopes); err != nil {
+				return AgentView{}, err
+			}
+		}
+	} else if !store.PresetWithin(preset, owner.Role) {
+		return AgentView{}, fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows", ErrBadInput, preset, owner.Username, owner.Role)
 	}
-	before := a.Preset + " " + machinesText(a.Machines)
+	before := agentChangeText(a)
 	a, err := b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
 		x.Preset, x.Machines = preset, machines
+		if preset == store.PresetCustom {
+			x.Scopes = scopes
+		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
+		return AgentView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
-	after := a.Preset + " " + machinesText(a.Machines)
+	after := agentChangeText(a)
 	if before == after {
-		return nil
+		return b.agentView(a), nil
 	}
 	b.Recheck()
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_update", Target: name, Detail: before + " -> " + after})
 	b.echo(ctx, b.t("%s changed agent %s to %s, %s, via %s", who.Name, name, b.presetName(a.Preset), b.machinesWords(a.Machines), b.viaName(who.Via)))
-	return nil
+	return b.agentView(a), nil
+}
+
+// agentChangeText is an agent's preset, its custom scopes and its machines, for the audit log.
+func agentChangeText(a store.Agent) string {
+	text := a.Preset
+	if a.Preset == store.PresetCustom && len(a.Scopes) > 0 {
+		text += " " + strings.Join(a.Scopes, ",")
+	}
+	return text + " " + machinesText(a.Machines)
 }
 
 // NewAgentToken gives an agent another static token, for its owner or an admin.

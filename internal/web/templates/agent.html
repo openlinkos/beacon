@@ -11,7 +11,9 @@
   <form class="ol-panel" method="post" action="{{.SettingsAction}}">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "settings"}} {{.L.Settings}}</h2></div>
     <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">
-      {{if .Custom}}<input type="hidden" name="preset" value="custom">
+      {{if .CanCustom}}<div class="ol-field"><label class="ol-label" for="agent-preset">{{.L.Preset}}</label><select class="ol-select" id="agent-preset" name="preset">{{range .Presets}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+      <div class="ol-field"><p class="ol-label">{{.L.CustomScopes}}</p><p class="ol-hint">{{.L.CustomScopesHint}}</p><div class="ol-cluster">{{range .ScopeOptions}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="scopes" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-mono">{{.Label}}</span></label>{{end}}</div></div>
+      {{else if .Custom}}<input type="hidden" name="preset" value="custom">
       {{else}}<div class="ol-field"><label class="ol-label" for="agent-preset">{{.L.Preset}}</label><select class="ol-select" id="agent-preset" name="preset">{{range .Presets}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>{{end}}
       <div class="ol-field"><label class="ol-label" for="agent-machines">{{.L.Machines}}</label><input class="ol-input ol-input-mono" id="agent-machines" name="machines" value="{{.Machines}}" maxlength="2000" autocapitalize="none" spellcheck="false" aria-describedby="agent-machines-hint"><p class="ol-hint" id="agent-machines-hint">{{.L.MachinesHint}}</p></div>
     </div>

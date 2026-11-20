@@ -32,7 +32,7 @@ var PeopleScopes = []string{"status:read", "alerts:write", "incidents:write", "m
 
 // Agent presets: what an agent may do, as a role says it for a person. An agent never does more than its
 // owner's role allows. PresetCustom keeps a list of scopes of its own (a claimed legacy token's, or one
-// an expert chose on the command line).
+// an owner chose).
 const PresetCustom = "custom"
 
 // Presets are the agents' presets, weakest first.

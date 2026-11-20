@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -133,5 +134,95 @@ func TestPeopleOperations(t *testing.T) {
 	}
 	if strings.Contains(chat, out.Secret) || strings.Contains(chat, "code=") {
 		t.Error("a secret or a link reached the chat")
+	}
+}
+
+// TestCustomScopes: an owner (and the command line) may set custom scopes within the owner's role;
+// an agent may not, even with accounts:write; a refused change writes nothing and is not audited.
+func TestCustomScopes(t *testing.T) {
+	e := testutil.New(t)
+	ctx := context.Background()
+	cli := bridge.Actor{Name: "cli:root", Via: "cli"}
+	code, _, _ := e.Store.CreateSetupLink()
+	if _, err := e.Bridge.Join(ctx, code, "alice", "", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := e.Bridge.Invite(ctx, cli, "oncall", "")
+	u, _ := url.Parse(inv.URL)
+	if _, err := e.Bridge.Join(ctx, u.Query().Get("code"), "bob", "", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "ops", Owner: "alice", Preset: store.PresetCustom, Scopes: []string{"config:write", "status:read"}}); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := e.Store.Agent("ops"); !slices.Equal(a.Scopes, []string{"config:write", "status:read"}) {
+		t.Fatalf("stored scopes: %+v", a.Scopes)
+	}
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "too", Owner: "bob", Preset: store.PresetCustom, Scopes: []string{"config:write"}}); !errors.Is(err, bridge.ErrBadInput) {
+		t.Fatalf("beyond the owner's role: %v", err)
+	}
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "none", Owner: "alice", Preset: store.PresetCustom}); !errors.Is(err, bridge.ErrBadInput) {
+		t.Fatalf("no scope: %v", err)
+	}
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "probe", Owner: "alice", Preset: store.PresetCustom, Scopes: []string{"probe:write"}}); !errors.Is(err, bridge.ErrBadInput) {
+		t.Fatalf("a machine's scope: %v", err)
+	}
+
+	admin, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "admin-bot", Owner: "alice", Preset: store.PresetCustom,
+		Scopes: []string{"status:read", "accounts:write"}, TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := e.Store.Authenticate(admin.Secret)
+	agent := bridge.ActorOf(p, "api")
+	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Scopes: []string{"status:read"}}); !errors.Is(err, bridge.ErrForbidden) {
+		t.Fatalf("an agent changes scopes: %v", err)
+	}
+	machines := []string{"edge-1"}
+	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Machines: &machines}); err != nil {
+		t.Fatalf("an agent changes machines only: %v", err)
+	}
+	if a, _ := e.Store.Agent("ops"); !slices.Equal(a.Scopes, []string{"config:write", "status:read"}) || !slices.Equal(a.Machines, []string{"edge-1"}) {
+		t.Fatalf("machines-only changed the scopes: %+v", a)
+	}
+
+	secret := e.Token(t, "owner-script", store.PeopleScopes...)
+	op, _ := e.Store.Authenticate(secret)
+	owner := bridge.ActorOf(op, "api")
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "codex", Owner: "bob", Preset: "oncall"}); err != nil {
+		t.Fatal(err)
+	}
+	preset := store.PresetCustom
+	if _, err := e.Bridge.UpdateAgent(ctx, owner, "codex", bridge.AgentUpdate{Preset: &preset, Scopes: []string{"alerts:write", "status:read"}}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range e.Store.AuditLog(50) {
+		if a.Action == "agent_update" && a.Target == "codex" && strings.Contains(a.Detail, "oncall") && strings.Contains(a.Detail, "custom") && strings.Contains(a.Detail, "alerts:write") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("audit: %+v", e.Store.AuditLog(5))
+	}
+	narrow := e.Token(t, "narrow", "status:read", "accounts:write")
+	np, _ := e.Store.Authenticate(narrow)
+	if _, err := e.Bridge.CreateAgent(ctx, bridge.ActorOf(np, "api"), bridge.AgentInput{Name: "wide", Owner: "alice", Preset: store.PresetCustom, Scopes: []string{"status:read", "config:write"}}); !errors.Is(err, bridge.ErrForbidden) {
+		t.Fatalf("beyond the caller: %v", err)
+	}
+	before, _ := e.Store.Agent("codex")
+	audits := len(e.Store.AuditLog(1000))
+	if _, err := e.Bridge.UpdateAgent(ctx, agent, "codex", bridge.AgentUpdate{Preset: &preset, Scopes: []string{"status:read", "machines:ssh"}}); !errors.Is(err, bridge.ErrForbidden) {
+		t.Fatalf("an agent sets scopes: %v", err)
+	}
+	if a, _ := e.Store.Agent("codex"); a.Preset != before.Preset || !slices.Equal(a.Scopes, before.Scopes) {
+		t.Fatalf("a refused update changed codex: %+v", a)
+	}
+	if len(e.Store.AuditLog(1000)) != audits {
+		t.Fatal("a refused update was audited")
+	}
+	empty := []string{}
+	if _, err := e.Bridge.UpdateAgent(ctx, owner, "ops", bridge.AgentUpdate{Scopes: empty}); !errors.Is(err, bridge.ErrBadInput) {
+		t.Fatalf("empty scopes: %v", err)
 	}
 }
