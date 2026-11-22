@@ -64,7 +64,7 @@ Then the script:
 That takes about 10 seconds. It ends with:
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.21 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon 0.3.0-rc.22 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 
