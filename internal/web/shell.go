@@ -231,6 +231,12 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Invitation withdrawn"), "success"
 	case "saved":
 		return s.t("Saved"), "success"
+	case "removed":
+		return s.t("Machine removed"), "success"
+	case "replaced":
+		return s.t("Host key pinned again"), "success"
+	case "connector":
+		return s.t("Connect-out key changed"), "success"
 	case "key_added":
 		return s.t("SSH key added"), "success"
 	case "key_removed":

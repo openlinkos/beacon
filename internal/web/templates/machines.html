@@ -20,6 +20,25 @@
 
 {{define "content"}}<div class="ol-stack">
 {{template "switch" .}}
+{{if .Channel.Can}}
+<form class="ol-panel" method="post" action="{{console "/machines"}}">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "plus"}} {{.L.Add}}</h2></div>
+  <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="ol-field"><label class="ol-label" for="m-name">{{.L.Name}}</label><input class="ol-input ol-input-mono" id="m-name" name="name" required maxlength="63" autocapitalize="none" spellcheck="false"></div>
+    <fieldset class="ol-field"><legend class="ol-label">{{.L.Address}}</legend>
+      <label class="ol-check"><input class="ol-radio" type="radio" name="reach" value="dial" checked><span>{{.L.Dial}}</span></label>
+      <label class="ol-check"><input class="ol-radio" type="radio" name="reach" value="connector"><span>{{.L.Behind}}</span></label>
+    </fieldset>
+    <div class="ol-field"><label class="ol-label" for="m-address">{{.L.Address}}</label><input class="ol-input ol-input-mono" id="m-address" name="address" maxlength="253" autocapitalize="none" spellcheck="false" aria-describedby="m-address-hint"><p class="ol-hint" id="m-address-hint">{{.L.AddressHint}}</p></div>
+    <div class="ol-field"><label class="ol-label" for="m-user">{{.L.User}}</label><input class="ol-input ol-input-mono" id="m-user" name="user" maxlength="32" autocapitalize="none" spellcheck="false" aria-describedby="m-user-hint"><p class="ol-hint" id="m-user-hint">{{.L.UserHint}}</p></div>
+    <label class="ol-check"><input class="ol-checkbox" type="checkbox" name="critical" value="on"><span>{{.L.CriticalMachine}}</span></label>
+    <div class="ol-field"><label class="ol-label" for="m-note">{{.L.Note}}</label><input class="ol-input" id="m-note" name="note" maxlength="2000" aria-describedby="m-note-hint"><p class="ol-hint" id="m-note-hint">{{.L.NoteHint}}</p></div>
+    <div class="ol-field"><label class="ol-label" for="m-ckey">{{.L.ConnectorKey}}</label><textarea class="ol-textarea ol-input-mono" id="m-ckey" name="connector_key" rows="2" maxlength="8000" spellcheck="false" aria-describedby="m-ckey-hint"></textarea><p class="ol-hint" id="m-ckey-hint">{{.L.ConnectorHint}}</p></div>
+    <div class="ol-field"><label class="ol-label" for="m-hkey">{{.L.HostKeyOpt}}</label><textarea class="ol-textarea ol-input-mono" id="m-hkey" name="host_key" rows="2" maxlength="8000" spellcheck="false" aria-describedby="m-hkey-hint"></textarea><p class="ol-hint" id="m-hkey-hint">{{.L.HostKeyHint}}</p></div>
+  </div>
+  <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "plus"}}{{.L.Add}}</button></div>
+</form>
+{{end}}
 {{if .Rows}}
 <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
   <thead><tr><th>{{.L.Name}}</th><th>{{.L.Address}}</th><th>{{.L.Critical}}</th><th class="ol-num">{{.L.Sessions24h}}</th><th>{{.L.LastSession}}</th></tr></thead>

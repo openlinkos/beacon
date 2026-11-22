@@ -56,9 +56,9 @@ The sidebar has the overview on its own, then three parts:
 | `/console/monitors`, `/console/monitors/{service}` | What is monitored and how it is doing now ([below](#monitors-and-status-pages)) |
 | `/console/status-pages`, `/console/status-pages/{name}` | The status pages as the public sees them now ([below](#monitors-and-status-pages)) |
 | `/console/silences` | What keeps alerts from paging people: the maintenance windows and the silences ([below](#silences-and-maintenance)) |
-| `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, and sessions in the last 24 hours. One machine's address, host key, recent sessions and the commands run on it. Above them, the pause switch for the whole channel |
+| `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, and sessions in the last 24 hours. With `machines:write`: add a machine, edit its note, whether it is critical and its account, pin the host key again, change a connector's key, and remove a machine after typing its name. One machine's address, host key, recent sessions and the commands run on it. Above them, the pause switch for the whole channel |
 | `/console/sessions`, `/console/sessions/{id}` | Every session, with facets for agent, machine, kind, via, exit status and day, and search over commands. The session's page has its replay ([below](#the-sessions-page-and-its-replay)) |
-| `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys. The commands to connect a client by OAuth, and the form for a headless agent's token. Each agent's page, to change and revoke it |
+| `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys. The commands to connect a client by OAuth, and the form for a headless agent's token. Each agent's page changes its preset and machines, and revokes it. An owner who signs in as a person also sets custom scopes there |
 | `/console/tokens` | Every token: scopes, machines, keys, expiry, whose agent it is. **Legacy** marks those from before accounts, with the form to claim one. Never a secret |
 | `/console/config`, `/console/config/history/{version}` | The configuration, read-only (locations, heartbeats, resources, target sets, modules), and its history. Who, when, through what and why; each version item by item as a diff, with the form to revert it |
 | `/console/hooks` | The agent hooks configured, and every call made: hook, event, status, attempts, when, for which alert |
@@ -203,7 +203,7 @@ Three things it does not do:
 
 - **No sign-in from anywhere else.** Beacon's own accounts are the only way in.
 - **No approval workflow.** The forms are what the person's role already allows through the API, and the pause switch is the brake.
-- **No editing the configuration beyond reverting a change, and no planning maintenance.** A revert goes through the same checks as the files. Agents and scripts plan maintenance through MCP and the API; the console ends a window.
+- **No editing what is monitored, beyond reverting a change, and no planning maintenance.** Machines, and an agent's custom scopes, are changed in the console. The catalogue, probe targets and modules are not: a revert goes through the same checks as the files. Agents and scripts plan maintenance through MCP and the API; the console ends a window.
 
 What is monitored and what the status pages show are changed where the configuration is: the files, the API, MCP's `put_config` and the command line. That way every change is checked, versioned and attributed. The monitors and status pages in the console show the result.
 

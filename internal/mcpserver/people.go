@@ -6,6 +6,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // People and the caller's SSH keys, as the REST routes under /api/v1/users and /api/v1/ssh-keys offer
@@ -35,6 +37,20 @@ type (
 	okKeyOut struct {
 		OK          bool   `json:"ok"`
 		Fingerprint string `json:"fingerprint"`
+	}
+	createAgentIn struct {
+		Name     string   `json:"name" jsonschema:"the agent's name: 2 to 40 lower-case letters, digits, dots, dashes and underscores"`
+		Owner    string   `json:"owner" jsonschema:"whose agent; a person makes agents for themself when this is left out"`
+		Preset   string   `json:"preset" jsonschema:"readonly, oncall, operator or custom; the strongest preset within the owner's role when left out"`
+		Scopes   []string `json:"scopes,omitempty" jsonschema:"custom only: people's scopes, at least one, within the owner's role and within what you yourself may do"`
+		Machines []string `json:"machines,omitempty" jsonschema:"machines it may reach; none: all"`
+		Expires  string   `json:"expires,omitempty" jsonschema:"the first token's lifetime, such as 90d or 12h; left out, no token"`
+	}
+	updateAgentIn struct {
+		Name     string    `json:"name" jsonschema:"the agent's name"`
+		Preset   *string   `json:"preset,omitempty" jsonschema:"readonly, oncall, operator or custom; left out, it stays"`
+		Scopes   []string  `json:"scopes,omitempty" jsonschema:"custom only; left out, the scopes stay. An empty list is refused"`
+		Machines *[]string `json:"machines,omitempty" jsonschema:"machines it may reach; left out, they stay; empty: all"`
 	}
 )
 
@@ -97,5 +113,45 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 				return nil, okKeyOut{}, err
 			}
 			return nil, okKeyOut{OK: true, Fingerprint: in.Fingerprint}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "create_agent", Title: "Make an agent",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
+		Description: "Make an agent for a person, and a token when expires is set (such as 90d). The secret is shown once. preset is readonly, oncall, operator or custom. Custom scopes are people's scopes, only for a person or a legacy token with accounts:write (never an agent), within the owner's role and within what you yourself may do. You never give an agent a scope or a machine you do not hold. Recorded and echoed to the alert chat."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in createAgentIn) (*mcp.CallToolResult, bridge.AgentCreated, error) {
+			p, err := caller(ctx)
+			if err != nil {
+				return nil, bridge.AgentCreated{}, err
+			}
+			who := bridge.ActorOf(p, "mcp")
+			agent := bridge.AgentInput{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Machines: in.Machines}
+			if in.Preset == store.PresetCustom {
+				agent.Scopes = in.Scopes
+				if agent.Scopes == nil {
+					agent.Scopes = []string{}
+				}
+			}
+			if in.Expires != "" {
+				d, err := ctl.ParseTTL(in.Expires)
+				if err != nil {
+					return nil, bridge.AgentCreated{}, err
+				}
+				agent.TTL = d
+			}
+			out, err := b.CreateAgent(ctx, who, agent)
+			return nil, out, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "update_agent", Title: "Change an agent",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. You never give an agent a scope or a machine you do not hold; narrowing an agent stays allowed. Empty machines means all machines. Recorded and echoed to the alert chat."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in updateAgentIn) (*mcp.CallToolResult, bridge.AgentView, error) {
+			p, err := caller(ctx)
+			if err != nil {
+				return nil, bridge.AgentView{}, err
+			}
+			who := bridge.ActorOf(p, "mcp")
+			v, err := b.UpdateAgent(ctx, who, in.Name, bridge.AgentUpdate{Preset: in.Preset, Scopes: in.Scopes, Machines: in.Machines})
+			return nil, v, err
 		})
 }

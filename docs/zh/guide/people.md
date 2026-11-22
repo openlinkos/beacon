@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-97af2043
+sourceHash: sha256-ee41b81c
 ---
 
 # 邀请你的团队
@@ -108,12 +108,13 @@ Agent 是替某个人（它的所有者）行事的程序。可以是某人工�
 
 - 没有任何预设给 `config:write` 或 `accounts:write`。
 - 预设超出所有者角色的，在创建或修改 Agent 时会被拒绝。
-- **custom** 预设的 Agent 自行列出 scope，仍以所有者角色为上限（`beacon agent add … -scopes status:read,config:write`）。
+- 调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
+- **custom** 预设的 Agent 自行列出 scope，仍不超过所有者的角色，也不超过调用者自己能做的。以本人身份登录的所有者在控制台里设置；持有 `accounts:write` 的人或旧式令牌经 API 和 MCP 设置；命令行也可以（`beacon agent add … -scopes status:read,config:write`）。Agent 永远不能设置，哪怕它自己持有 `accounts:write`。清单只能是人的 scope，且不能为空。Agent 实际能做的，仍是与所有者角色的交集，每个请求重新读取。
 
 控制台的**Agents**页列出你的 Agent；所有者能看到所有人的。每个 Agent 的页面：
 
 - 显示它现在能做什么；
-- 修改其预设和机器；
+- 修改其预设和机器；以本人身份登录的所有者还可以改自定义 scope；
 - 列出其 OAuth 登录、令牌和密钥，可吊销或删除其中任何一项；
 - 可以连同全部凭据一起删除这个 Agent。
 
@@ -215,14 +216,14 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 - `beacon user role NAME ROLE`
 - `beacon user disable` 和 `beacon user enable NAME`
 - `beacon user reset NAME`
-- `beacon agent add NAME -owner USER [-preset P] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
+- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
 - `beacon agent list`
 - `beacon agent remove NAME`
 - `beacon token claim NAME -owner USER`
 
-`ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`。预设是 `readonly`、`oncall` 或 `operator`。每个子命令和参数见命令行参考：[命令行](../reference/cli.md)。
+`ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`。预设是 `readonly`、`oncall`、`operator` 或 `custom`。每个子命令和参数见命令行参考：[命令行](../reference/cli.md)。
 
-同样的操作在 REST API 的 `/api/v1/users` 下（[REST API](../reference/api.md#people-and-ssh-keys)），需要 `accounts:write`，没有任何预设给出它。改角色、停用成员和重置密码不经 MCP 提供。
+同样的操作在 REST API 的 `/api/v1/users` 和 `/api/v1/agents` 下（[REST API](../reference/api.md#people-and-ssh-keys)）。管人的账号需要 `accounts:write`，没有任何预设给出它。改角色、停用成员和重置密码不经 MCP 提供。
 
 ## 安全 {#security}
 

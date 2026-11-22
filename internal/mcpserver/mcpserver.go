@@ -257,6 +257,12 @@ type (
 		ConnectorKey string `json:"connector_key,omitempty" jsonschema:"connector machines: the public key the machine signs in with (an authorized_keys line); can be set later with set_machine_connector"`
 		HostKey      string `json:"host_key,omitempty" jsonschema:"connector machines: the machine's sshd host key (its /etc/ssh/ssh_host_ed25519_key.pub); left out, Beacon learns it when the connector first connects"`
 	}
+	updateIn struct {
+		Name     string  `json:"name" jsonschema:"the machine's name"`
+		Note     *string `json:"note,omitempty" jsonschema:"what the machine is; left out, the note stays"`
+		Critical *bool   `json:"critical,omitempty" jsonschema:"whether the machine is critical; left out, it stays"`
+		User     *string `json:"user,omitempty" jsonschema:"the account on the machine; left out, it stays"`
+	}
 	nameIn struct {
 		Name string `json:"name" jsonschema:"the machine's name"`
 	}
@@ -498,6 +504,18 @@ func addMachineTools(s *mcp.Server, g SSH) {
 			a, err := g.Gate.Add(ctx, who, sshgate.MachineInput{Name: in.Name, Address: in.Address, User: in.User, Critical: in.Critical, Note: in.Note, Replace: in.Replace,
 				ConnectorKey: in.ConnectorKey, HostKey: in.HostKey})
 			return nil, a, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "update_machine", Title: "Change a machine",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Change a machine's note, whether it is critical, and the account on it. A field left out stays as it is. The host key and the address stay."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in updateIn) (*mcp.CallToolResult, sshgate.MachineView, error) {
+			who, err := gate(ctx, "machines:write")
+			if err != nil {
+				return nil, sshgate.MachineView{}, err
+			}
+			v, err := g.Gate.Update(ctx, who, in.Name, sshgate.MachineUpdate{Note: in.Note, Critical: in.Critical, User: in.User})
+			return nil, v, err
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "set_machine_connector", Title: "Set a machine's connector key",

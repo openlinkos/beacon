@@ -82,7 +82,8 @@ func machineList(text string) []string {
 type agentLabels struct {
 	Agent, Owner, Preset, Scopes, Machines, Credentials, Keys, Created, New, Name, NameHint, MachinesHint, Expires, Create, Tokens, Grants,
 	Client, LastUsed, Revoke, NewToken, AddKey, Key, KeyHint, Comment, Remove, Delete, DeleteHint, Save, Settings, SSHConfig, OAuth, OAuthHelp,
-	Headless, HeadlessHelp, Hooks, None, Renewed, All, NoAgents, NoTokens, NoGrants, NoKeys, Fingerprint, Added, Until, Allowed string
+	Headless, HeadlessHelp, Hooks, None, Renewed, All, NoAgents, NoTokens, NoGrants, NoKeys, Fingerprint, Added, Until, Allowed,
+	CustomScopes, CustomScopesHint string
 }
 
 func (s *Server) agentLabels() agentLabels {
@@ -103,7 +104,23 @@ func (s *Server) agentLabels() agentLabels {
 		Hooks: s.t("Hooks that wake agents"), None: s.t("None"), Renewed: s.t("Renewed"), All: s.t("All machines"),
 		NoAgents: s.t("No agents yet."), NoTokens: s.t("No tokens."), NoGrants: s.t("No OAuth sign-ins."), NoKeys: s.t("No SSH keys."),
 		Fingerprint: s.t("Fingerprint"), Added: s.t("Added"), Until: s.t("Expires"), Allowed: s.t("Allowed"),
+		CustomScopes:     s.t("Custom scopes"),
+		CustomScopesHint: s.t("Tick these only with the Custom preset. They stay within the owner's role, and within what you yourself may do."),
 	}
+}
+
+// scopeOptions are the people's scopes, the ones in selected ticked.
+func (s *Server) scopeOptions(selected []string) []option {
+	var out []option
+	for _, sc := range store.PeopleScopes {
+		out = append(out, option{Value: sc, Label: sc, Selected: slices.Contains(selected, sc)})
+	}
+	return out
+}
+
+// withCustom adds the custom preset to presets. Only an owner who is a person is offered it.
+func (s *Server) withCustom(presets []option, selected string) []option {
+	return append(presets, option{Value: store.PresetCustom, Label: s.presetName(store.PresetCustom), Selected: selected == store.PresetCustom})
 }
 
 type agentRow struct {
@@ -116,8 +133,10 @@ type agentsPage struct {
 	L                    agentLabels
 	Rows                 []agentRow
 	Presets, Expiries    []option
+	ScopeOptions         []option
 	Owners               []option
 	CanCreate, ShowOwner bool
+	CanCustom            bool
 	ClaudeCmd, CodexCmd  string
 	HooksHref            string
 }
@@ -155,6 +174,11 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 		role = v.Account.Role
 	}
 	p.Presets = s.presetOptions(role, "")
+	if v.owner() && v.person() {
+		p.CanCustom = true
+		p.Presets = s.withCustom(p.Presets, "")
+		p.ScopeOptions = s.scopeOptions(nil)
+	}
 	if v.owner() {
 		for _, a := range s.Store.Accounts() {
 			if !a.Disabled {
@@ -200,8 +224,12 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, v *viewer) 
 	if v.owner() {
 		owner = f.Get("owner")
 	}
-	out, err := s.Bridge.CreateAgent(r.Context(), v.actor(), bridge.AgentInput{Name: strings.TrimSpace(f.Get("name")), Owner: owner, Preset: f.Get("preset"),
-		Machines: machineList(f.Get("machines")), TTL: ttl})
+	in := bridge.AgentInput{Name: strings.TrimSpace(f.Get("name")), Owner: owner, Preset: f.Get("preset"),
+		Machines: machineList(f.Get("machines")), TTL: ttl}
+	if in.Preset == store.PresetCustom {
+		in.Scopes = append([]string{}, f["scopes"]...) // none ticked is an empty list, which the bridge refuses
+	}
+	out, err := s.Bridge.CreateAgent(r.Context(), v.actor(), in)
 	if err != nil {
 		back(w, r, consolePath("/agents"), "error", agentProblem(err))
 		return
@@ -233,7 +261,8 @@ type agentPage struct {
 	Scopes                                                    []string
 	Presets, Expiries                                         []option
 	Machines, SSHConfig                                       string
-	Custom                                                    bool
+	ScopeOptions                                              []option
+	Custom, CanCustom                                         bool
 	Tokens                                                    []agentTokenRow
 	Grants                                                    []grantRow
 	Keys                                                      []keyRow
@@ -258,6 +287,11 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 		role = owner.Role
 	}
 	p.Presets = s.presetOptions(role, a.Preset)
+	if v.owner() && v.person() {
+		p.CanCustom = true
+		p.Presets = s.withCustom(p.Presets, a.Preset)
+		p.ScopeOptions = s.scopeOptions(a.Wanted)
+	}
 	p.Facts = []kvLink{{K: s.t("In the audit log"), V: a.Actor}, {K: s.t("Owner"), V: a.Owner}, {K: s.t("Preset"), V: s.presetName(a.Preset)},
 		{K: s.t("Created"), V: s.clock(a.Created) + " · " + a.CreatedBy}}
 	if a.Preset == store.PresetCustom {
@@ -299,7 +333,17 @@ func (s *Server) agentSettings(w http.ResponseWriter, r *http.Request, v *viewer
 		s.missing(w, r, v)
 		return
 	}
-	if err := s.Bridge.UpdateAgent(r.Context(), v.actor(), name, r.PostForm.Get("preset"), machineList(r.PostForm.Get("machines"))); err != nil {
+	f := r.PostForm
+	preset := f.Get("preset")
+	machines := machineList(f.Get("machines"))
+	up := bridge.AgentUpdate{Preset: &preset, Machines: &machines}
+	// A person who is an owner and chooses custom always sends a list, so an unticked form is empty and
+	// refused. Anyone else sets scopes only when the form carries them; a custom agent saved without
+	// that field keeps its scopes. The bridge checks the caller again.
+	if preset == store.PresetCustom && (f.Has("scopes") || (v.owner() && v.person())) {
+		up.Scopes = append([]string{}, f["scopes"]...)
+	}
+	if _, err := s.Bridge.UpdateAgent(r.Context(), v.actor(), name, up); err != nil {
 		back(w, r, agentHref(a.Name), "error", agentProblem(err))
 		return
 	}

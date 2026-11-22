@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f4d97823
+sourceHash: sha256-7e650d66
 ---
 
 # REST API
@@ -55,7 +55,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `status:read` | 读取：告警、证据和时间线、变更事件、静默、审计日志、机器和会话、配置、状态页和维护窗口 |
 | `alerts:write` | 处理告警：认领、静默和结束静默、备注、按需重测 |
 | `machines:ssh` | 用 Agent 自己的密钥登录 SSH 通道，使用机器工具（执行、读、写、改），查看它能到达的机器和这些机器上的会话 |
-| `machines:write` | 添加和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
+| `machines:write` | 添加、修改和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
 | `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
@@ -68,9 +68,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `alerts:send` | 像规则引擎一样发送告警 |
 | `changes:write` | 发送变更事件 |
 
-人和 Agent 不用一个个挑作用域。人的作用域来自角色，Agent 的来自预设，且不超出所有者的角色。只有机器的令牌和熟手用的令牌是按名字指定作用域创建的。哪个角色、哪个预设给哪些作用域，见[角色、预设与权限](permissions.md)。
+人和 Agent 不用一个个挑作用域。人的作用域来自角色。Agent 的来自预设，不超出所有者的角色，或来自所有者设定的自定义清单。只有机器的令牌和熟手用的令牌按名字指定作用域。哪个角色、哪个预设给哪些作用域，见[角色、预设与权限](permissions.md)。
 
-Agent 要用一个作用域，得它的预设给了、它的所有者的角色也给了。每次请求时都会检查，所以降低或停用所有者，会立即限制这个 Agent。OAuth 登录还另外受成员当初允许的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
+Agent 要用一个作用域，得它的预设或自定义清单给了它，它的所有者的角色也给了。每次请求时都会检查，所以降低或停用所有者，会立即限制这个 Agent。OAuth 登录还另外受成员当初允许的预设和机器限制。被拒绝时（`auth.scope`），消息会说明这个 Agent 的预设在所有者角色范围内允许什么。
 
 `GET /api/v1/token` 和 `POST /api/v1/token/renew` 不限作用域：令牌本身就是凭据。
 
@@ -106,6 +106,7 @@ Agent 要用一个作用域，得它的预设给了、它的所有者的角色�
 | `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器 |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
 | `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置 |
+| `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。主机密钥和地址不变 |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
@@ -168,7 +169,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[邀请你的团队](../guide/people.md)）。
 
-没有哪个 Agent 预设给 `accounts:write`。只有所有者在命令行上把这个作用域给了 Agent，Agent 才能管理成员。重设密码没有 MCP 工具。
+没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。重设密码没有 MCP 工具。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -179,6 +180,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不会是机器的连接器密钥（`key.exists`） |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
+| `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
+| `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
 
 ## 令牌 {#the-token}
 
@@ -277,6 +280,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `user.last_owner` | 409 | 这样改会让 Beacon 没有启用的所有者；先让另一个人成为所有者 |
 | `key.not_found` | 404 | 调用者没有这个指纹的 SSH 密钥 |
 | `key.exists` | 409 | 这个密钥属于另一个 Agent 或令牌，或者是某台机器的连接器密钥 |
+| `agent.not_found` | 404 | 没有这个名字的 Agent。旧式令牌不是 Agent，这条路径也不会放大它的权限 |
+| `agent.exists` | 409 | 已有这个名字的 Agent |
 | `probe.busy` | 429 | 这个目标在 15 秒内刚按需重测过，或者这个令牌已有三个请求在进行 |
 | `probe.not_found` | 404 | 没有正在工作的检测点检测这个目标 |
 | `probe.unavailable` | 503 | 这个 Beacon 没有网关，无法检测 |

@@ -34,7 +34,7 @@ Beacon 的设计是让 Agent 干活，让人看得见全部：
 
 ## 功能
 
-- **MCP 服务器**（`/mcp`），43 个工具：告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
+- **MCP 服务器**（`/mcp`），46 个工具：告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`update_machine`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`create_agent`、`update_agent`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
 - **SSH 通道**（17002 端口）：`ssh`、`scp`、`sftp`、`rsync` 和 `ssh -L` 到任何登记过的机器，用户名就是机器名；NAT 后面的机器用普通的 `ssh -R` 自己连出来。
 - **检测程序**（`beacon-probe`）：和 Blackbox Exporter 兼容的检测并给出失败原因，主机指标和心跳，断网时先存进磁盘队列；检测目标和模块由中心下发，改检测内容不用重新部署。
 - **告警路由**，不需要 Alertmanager：分组、抑制、静默和死信开关都在服务里；vmalert 像发给 Alertmanager 一样把告警发给 Beacon。

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5693bbdf
+sourceHash: sha256-f1ba1f7c
 ---
 
 # 给 Agent 一台机器
@@ -92,6 +92,8 @@ OpenSSH 9.8 起，同一来源地址连接失败多了会被限制，而所有 A
 - `machine list` 列出所有机器。
 - `machine add … -replace` 在重装系统后重新固定主机密钥。
 - `machine remove NAME` 移除一台机器，它的会话记录仍然保留。
+
+持有 `machines:write` 的人在控制台的 **Machines** 页做同样的事。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
 
 Beacon 连不进去的机器，换个方向添加：见 [NAT 后面的机器](#machines-behind-nat)。
 
