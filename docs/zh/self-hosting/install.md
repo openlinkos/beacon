@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4d1529a4
+sourceHash: sha256-23493541
 ---
 
 # 装在服务器上
@@ -137,7 +137,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 大约 10 秒后，最后输出：
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.21 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon 0.3.0-rc.22 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 
