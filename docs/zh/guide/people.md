@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-23c6cc22
+sourceHash: sha256-ee41b81c
 ---
 
 # 邀请你的团队
@@ -108,6 +108,7 @@ Agent 是替某个人（它的所有者）行事的程序。可以是某人工�
 
 - 没有任何预设给 `config:write` 或 `accounts:write`。
 - 预设超出所有者角色的，在创建或修改 Agent 时会被拒绝。
+- 调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
 - **custom** 预设的 Agent 自行列出 scope，仍不超过所有者的角色，也不超过调用者自己能做的。以本人身份登录的所有者在控制台里设置；持有 `accounts:write` 的人或旧式令牌经 API 和 MCP 设置；命令行也可以（`beacon agent add … -scopes status:read,config:write`）。Agent 永远不能设置，哪怕它自己持有 `accounts:write`。清单只能是人的 scope，且不能为空。Agent 实际能做的，仍是与所有者角色的交集，每个请求重新读取。
 
 控制台的**Agents**页列出你的 Agent；所有者能看到所有人的。每个 Agent 的页面：

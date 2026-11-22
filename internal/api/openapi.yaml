@@ -1775,7 +1775,8 @@ paths:
         (accounts:write) for anyone. preset is readonly, oncall, operator or custom, and may not exceed
         the owner's role. Custom scopes are a list of the people's scopes. Only a person or a legacy
         token with accounts:write may set them, never an agent, never beyond the owner's role and never
-        beyond what the caller itself may do; an empty list is refused (bad_input, 400). expires, such
+        beyond what the caller itself may do; an empty list is refused (bad_input, 400). A caller never
+        gives an agent a scope or a machine it does not hold itself. expires, such
         as 90d, makes a token and the answer carries its secret, shown once. Audited (agent_create) and
         echoed to the alert chat. An agent of that name already is agent.exists (409); an unknown owner
         is bad_input (400).
@@ -1811,7 +1812,8 @@ paths:
         Any credential may call; the bridge decides (the agent's owner, or accounts:write). A field left
         out stays. Custom scopes follow the same rule as making an agent: accounts:write, not an agent,
         within the owner's role and within what the caller may do. Sending a preset other than custom
-        clears custom scopes. Empty machines means all machines. An unknown agent is agent.not_found
+        clears custom scopes. A caller never gives an agent a scope or a machine it does not hold itself;
+        narrowing an agent stays allowed. Empty machines means all machines. An unknown agent is agent.not_found
         (404), including a legacy token, which is not an agent and is not widened by this route.
         Audited (agent_update, with the preset and scopes before and after) and echoed to the alert chat.
       parameters:

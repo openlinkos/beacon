@@ -104,6 +104,7 @@ An agent may do what its preset asks for **and** its owner's role allows, worked
 
 - No preset gives `config:write` or `accounts:write`.
 - A preset above the owner's role is refused when the agent is made or changed.
+- A caller never gives an agent a scope or a machine it does not hold itself.
 - A **custom** agent lists scopes of its own instead, still within the owner's role and within what the caller may do. An owner who is a person sets them in the console; a person or a legacy token with `accounts:write` sets them through the API and MCP; the command line does too (`beacon agent add … -scopes status:read,config:write`). An agent never sets them, even one that holds `accounts:write`. The list is people's scopes only, and never empty. What the agent may do stays the intersection with its owner's role, read again on every request.
 
 The console's **Agents** page lists your agents; an owner sees everyone's. Each agent's page:

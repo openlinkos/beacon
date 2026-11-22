@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a962b12f
+sourceHash: sha256-81c68ebe
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -27,7 +27,7 @@ sourceHash: sha256-a962b12f
 
 ## 预设 {#presets}
 
-Agent 能做的永远不超过其所有者的角色。一个 scope，要**预设**或自定义清单给了它、*且*其所有者的角色也给了，Agent 才能用。
+Agent 能做的永远不超过其所有者的角色。一个 scope，要**预设**或自定义清单给了它、*且*其所有者的角色也给了，Agent 才能用。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
 
 没有预设给 `accounts:write`。Agent 要管人，只能是所有者以自定义 Agent 的方式给了它这个 scope：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。
 

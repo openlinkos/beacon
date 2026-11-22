@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9e7589c2
+sourceHash: sha256-7f1aa514
 ---
 
 # MCP 工具
@@ -124,8 +124,8 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
 | `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
-| `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
-| `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器（`name`，以及可选的 `preset`、`scopes`、`machines`）。不填的字段保持原样。自定义 scope 的规则与 `create_agent` 相同 |
+| `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
+| `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器（`name`，以及可选的 `preset`、`scopes`、`machines`）。不填的字段保持原样。自定义 scope 的规则与 `create_agent` 相同。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许 |
 | `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |
 | `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |

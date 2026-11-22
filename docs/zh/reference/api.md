@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5833f797
+sourceHash: sha256-7e650d66
 ---
 
 # REST API
@@ -180,8 +180,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不会是机器的连接器密钥（`key.exists`） |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
-| `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
-| `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。未知的名字，包括旧式令牌，是 `agent.not_found` |
+| `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
+| `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
 
 ## 令牌 {#the-token}
 

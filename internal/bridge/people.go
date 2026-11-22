@@ -209,6 +209,60 @@ func (b *Bridge) maySetCustom(who Actor) bool {
 	return ok && p.Agent == "" && p.Has("accounts:write")
 }
 
+// withinCaller reports whether who may give an agent these scopes and machines. The command line may.
+// Anyone else is read afresh: every scope must be one they hold, and when they reach only some machines
+// the agent must name some of those and no others. An empty machine list reaches every machine. It
+// changes nothing.
+func (b *Bridge) withinCaller(who Actor, scopes, machines []string) error {
+	if who.Via == "cli" && who.Key == "" {
+		return nil
+	}
+	caller, ok := b.caller(who)
+	if !ok {
+		return fmt.Errorf("%w: you cannot grant a scope you do not hold", ErrForbidden)
+	}
+	for _, sc := range scopes {
+		if !caller.Has(sc) {
+			return fmt.Errorf("%w: you cannot grant %s; you do not hold it", ErrForbidden, sc)
+		}
+	}
+	if len(caller.Machines) == 0 {
+		return nil
+	}
+	if len(machines) == 0 {
+		return fmt.Errorf("%w: you cannot grant all machines; you reach only %s", ErrForbidden, strings.Join(caller.Machines, ", "))
+	}
+	for _, m := range machines {
+		if !slices.Contains(caller.Machines, m) {
+			return fmt.Errorf("%w: you cannot grant machine %s; you do not reach it", ErrForbidden, m)
+		}
+	}
+	return nil
+}
+
+// grantWidens reports whether the resulting scopes or machines give an agent something it did not
+// already have. An empty machine list reaches every machine, so it widens an agent that was limited.
+func grantWidens(before store.Agent, scopes, machines []string) bool {
+	wanted := before.Wanted()
+	for _, sc := range scopes {
+		if !slices.Contains(wanted, sc) {
+			return true
+		}
+	}
+	if len(before.Machines) == 0 {
+		return false
+	}
+	if len(machines) == 0 {
+		return true
+	}
+	for _, m := range machines {
+		if !slices.Contains(before.Machines, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkCustom reports whether scopes may be an agent's custom scopes: at least one, each a scope of
 // people (store.PeopleScopes), each within the agent's owner's role, and, except for the command line,
 // each a scope the caller itself holds. It changes nothing.
@@ -496,7 +550,9 @@ func (b *Bridge) Agent(who Actor, name string) (AgentView, error) {
 
 // CreateAgent makes an agent for a person (in.Owner; the caller when it is a person), with a first
 // token when in.TTL is set, and returns the token's secret, shown once, with the snippets that use it. A
-// person makes agents for themself; an admin for anyone. The preset may not exceed the owner's role.
+// person makes agents for themself; an admin for anyone. The preset may not exceed the owner's role. A
+// named preset's scopes, and the machines, must be within what the caller holds; custom scopes go
+// through checkCustom, and the machines through the same rule. The command line is exempt.
 func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (AgentCreated, error) {
 	if in.Owner == "" {
 		if p, ok := b.caller(who); ok && p.Person() {
@@ -513,12 +569,17 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 	if in.Preset == "" {
 		in.Preset = store.PresetFor(owner.Role)
 	}
+	grant := store.PresetScopes(in.Preset)
 	if in.Preset == store.PresetCustom {
 		if err := b.checkCustom(who, owner, in.Scopes); err != nil {
 			return AgentCreated{}, err
 		}
+		grant = in.Scopes
 	} else if !store.PresetWithin(in.Preset, owner.Role) {
 		return AgentCreated{}, fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows; choose %s or less", ErrBadInput, in.Preset, owner.Username, owner.Role, store.PresetFor(owner.Role))
+	}
+	if err := b.withinCaller(who, grant, in.Machines); err != nil {
+		return AgentCreated{}, err
 	}
 	var keys []store.SSHKey
 	for _, line := range in.SSHKeys {
@@ -587,7 +648,9 @@ type AgentUpdate struct {
 // UpdateAgent sets what an agent may do and the machines it reaches, for its owner or an admin. The
 // preset may not exceed the owner's role. Custom scopes follow checkCustom: a person or a legacy token
 // with accounts:write, or the command line, never an agent, and never beyond the owner's role or the
-// caller's own scopes.
+// caller's own scopes. A change that would give the agent a scope it did not want, or a machine it did
+// not reach, must stay within what the caller holds. Narrowing keeps working. A refusal changes nothing
+// and is not audited. The command line is exempt.
 func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up AgentUpdate) (AgentView, error) {
 	a, ok := b.d.Store.Agent(name)
 	if !ok {
@@ -621,11 +684,24 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	} else if !store.PresetWithin(preset, owner.Role) {
 		return AgentView{}, fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows", ErrBadInput, preset, owner.Username, owner.Role)
 	}
+	wanted := scopes
+	if preset != store.PresetCustom {
+		wanted = store.PresetScopes(preset)
+	}
+	// Only a change that gives the agent something new is held to the caller. Narrowing, or leaving it
+	// as it is, stays allowed: the caller is not granting a scope or a machine.
+	if grantWidens(a, wanted, machines) {
+		if err := b.withinCaller(who, wanted, machines); err != nil {
+			return AgentView{}, err
+		}
+	}
 	before := agentChangeText(a)
 	a, err := b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
 		x.Preset, x.Machines = preset, machines
 		if preset == store.PresetCustom {
 			x.Scopes = scopes
+		} else {
+			x.Scopes = nil
 		}
 		return nil
 	})

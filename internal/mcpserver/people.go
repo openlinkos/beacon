@@ -117,7 +117,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "create_agent", Title: "Make an agent",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Make an agent for a person, and a token when expires is set (such as 90d). The secret is shown once. preset is readonly, oncall, operator or custom. Custom scopes are people's scopes, only for a person or a legacy token with accounts:write (never an agent), within the owner's role and within what you yourself may do. Recorded and echoed to the alert chat."},
+		Description: "Make an agent for a person, and a token when expires is set (such as 90d). The secret is shown once. preset is readonly, oncall, operator or custom. Custom scopes are people's scopes, only for a person or a legacy token with accounts:write (never an agent), within the owner's role and within what you yourself may do. You never give an agent a scope or a machine you do not hold. Recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in createAgentIn) (*mcp.CallToolResult, bridge.AgentCreated, error) {
 			p, err := caller(ctx)
 			if err != nil {
@@ -144,7 +144,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "update_agent", Title: "Change an agent",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. Empty machines means all machines. Recorded and echoed to the alert chat."},
+		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. You never give an agent a scope or a machine you do not hold; narrowing an agent stays allowed. Empty machines means all machines. Recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in updateAgentIn) (*mcp.CallToolResult, bridge.AgentView, error) {
 			p, err := caller(ctx)
 			if err != nil {

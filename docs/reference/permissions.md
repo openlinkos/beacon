@@ -23,7 +23,7 @@ A person's role, weakest first. Each may do what the one before it may, and more
 
 ## Presets
 
-An agent never does more than its owner's role allows. It may use a scope when its **preset**, or its custom list, gives it *and* its owner's role does too.
+An agent never does more than its owner's role allows. It may use a scope when its **preset**, or its custom list, gives it *and* its owner's role does too. A caller never gives an agent a scope or a machine it does not hold itself.
 
 No preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent: in the console, through the API or MCP, or on the command line. An agent cannot grant it, even one that holds it.
 
