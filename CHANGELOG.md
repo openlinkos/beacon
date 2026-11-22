@@ -6,6 +6,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.23 (2026-11-23)
+
+- **Built with Go 1.27.4**, which fixes GO-2026-6859 (CVE-2026-97054) in `net/http`: an HTTP/1 server that limits request bodies with `MaxBytesReader` could crash when a handler read the body while writing the response header. Beacon's API, console, OAuth, gateway and hook receiver all limit request bodies this way, so earlier releases (built with Go 1.27.3) are affected; `beacon`, `beacon-probe` and `beacon-oncall` are all rebuilt. No other change since rc.22, which this release supersedes.
+
 ### rc.22 (2026-11-22)
 
 - **Machines and agents' custom scopes in the console.** Someone with `machines:write` adds a machine, edits its note, critical flag and account, pins its host key again, changes a connector's key, and removes it after typing its name. The same edit of the note, the critical flag and the account is `PATCH /api/v1/machines/{name}` and the MCP tool `update_machine`. An owner who is a person sets an agent's custom scopes in the console. A person or a legacy token with `accounts:write` does so through `POST` and `PATCH /api/v1/agents` and the MCP tools `create_agent` and `update_agent`. An agent cannot, even one that holds `accounts:write`. Scopes stay within the owner's role and within what the caller may do, people's scopes only, and never empty. A caller never gives an agent a scope or a machine it does not hold itself, on a preset as well as on a custom list; narrowing an agent stays allowed. What an agent may do is still the intersection with its owner's role, read on every request. What is monitored (the catalogue, targets and modules) still changes through the files, the API and MCP.
