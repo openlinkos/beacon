@@ -215,13 +215,16 @@ PY
   wait_for 'The handed-off alert resolved' 150 resolved
   if [[ "${smoke_agent_reports:-false}" == true ]]; then
     smoke_failed_run_report
+    local delivery
+    delivery=$(jq -er '.delivery' "$work/hook.json")
     curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/recovered-agent-report.html"
-    awk '
-      /<tr[ >]/ { agent_run = /<tr class="kind-agent_run">/ }
+    awk -v anchor="agent-run-$delivery-failed" '
+      /<tr[ >]/ { agent_run = /<tr class="kind-agent_run"[ >]/ && index($0, "id=\"" anchor "\"") }
       agent_run && /Failed \(exit 79\)/ { found = 1 }
       /<\/tr>/ && !/<tr[ >]/ { agent_run = 0 }
       END { exit !found }
     ' "$work/recovered-agent-report.html"
+    printf 'The recovered incident shows exit 79 in the original delivery row.\n'
   fi
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
     jq -e --arg first "$first" --arg second "$second" --arg a "$first_note" --arg b "$second_note" '
