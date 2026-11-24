@@ -6,6 +6,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 - The overview flags a missing human notification route for critical alerts. The bridge summary reports notification configuration alongside Watchdog health.
 - Review machine settings revisions and safely restore an earlier account, critical flag and note in the console, REST API or MCP. Version checks prevent stale restores and console edits. Machine identity and keys are outside the settings snapshots.
+- Edit or remove an HTTP monitor from its service page. The same version checks and configuration history cover creation, edits and removal.
 
 ## 0.3.0
 

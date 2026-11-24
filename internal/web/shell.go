@@ -212,6 +212,8 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Silence ended"), "success"
 	case "monitor_added":
 		return s.t("Monitor added"), "success"
+	case "monitor_removed":
+		return s.t("Monitor removed"), "success"
 	case "maintenance_scheduled":
 		return s.t("Maintenance scheduled"), "success"
 	case "maintenance_ended":

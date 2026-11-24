@@ -360,6 +360,7 @@ type monitorPage struct {
 	Pages                  []pageRef
 	Alerts                 []serviceAlert
 	Schedule               string
+	Edit, EditLabel        string
 }
 
 // serviceAlert is one of a service's alert groups, firing or resolved.
@@ -381,6 +382,12 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		L: s.monitorLabels(), LL: s.labels(), Targets: ts, Pages: sc.pages[svc]}
 	if v.has("maintenance:write") {
 		p.Schedule = consolePath("/maintenance/new") + "?service=" + url.QueryEscape(svc)
+	}
+	if v.has("config:write") && s.Config != nil {
+		if _, ok := simpleMonitor(s.Config.State(), svc); ok {
+			p.Edit = consolePath("/monitors/") + url.PathEscape(svc) + "/edit"
+			p.EditLabel = s.t("Edit HTTP monitor")
+		}
 	}
 	now := s.now()
 	pe := s.Bridge.Probes(r.Context(), []string{svc}, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
