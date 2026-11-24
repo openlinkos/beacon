@@ -24,6 +24,12 @@
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
     </div>{{end}}
   </div>
+  {{with .Machines}}<div class="bc-alert-machines">
+    {{if .Items}}<div class="ol-cluster">
+      <h3 class="ol-label">{{.Title}}</h3>
+      {{range .Items}}<a class="ol-btn ol-btn-secondary" href="{{.Href}}" aria-label="{{.K}}">{{iconSm "server"}}{{.V}}</a>{{end}}
+    </div>{{else}}<p class="ol-hint">{{.Hint}}</p>{{end}}
+  </div>{{end}}
 </section>
 <div class="ol-layout-supporting">
 <div class="ol-stack">
@@ -52,7 +58,7 @@
   </section>
 
   <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
+    <div class="ol-panel-header bc-alert-sessions-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
     {{if .Sessions}}
     <ul class="ol-list">
     {{range .Sessions}}<li>

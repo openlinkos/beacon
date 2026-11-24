@@ -241,6 +241,11 @@ type alertActions struct {
 	Unsilence, Back                 string // where the form that ends the group's silence posts, and the page to come back to
 }
 
+type alertMachineLinks struct {
+	Title, Hint string
+	Items       []kvLink
+}
+
 type alertPage struct {
 	shell
 	L                                                                            labels
@@ -263,6 +268,7 @@ type alertPage struct {
 	Channel                                                                      string
 	Paused                                                                       bool
 	Actions                                                                      *alertActions
+	Machines                                                                     *alertMachineLinks
 }
 
 func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
@@ -272,7 +278,8 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		L: s.labels(), ID: al.ID, Heading: al.Title, Description: al.Description,
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
-		Window: s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To))}
+		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
+		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines)}
 	if al.Status == "firing" {
 		p.Status, p.StatusClass = s.t("Firing"), "danger"
 		p.When = s.t("Since %s (%s)", s.clock(al.StartsAt), s.dur(now.Sub(al.StartsAt)))
@@ -380,6 +387,36 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		}
 	}
 	return p
+}
+
+func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
+	if v == nil || !v.hasAny("status:read|machines:ssh") {
+		return nil
+	}
+	out := &alertMachineLinks{Title: s.t("Linked machines")}
+	if len(names) == 0 {
+		out.Hint = s.t("No machine is linked to this alert.")
+		return out
+	}
+	if s.SSH == nil {
+		out.Hint = s.t("The SSH channel is off.")
+		return out
+	}
+	for _, name := range names {
+		m, ok := s.Store.Machine(name)
+		if !ok {
+			continue
+		}
+		href := machinePath(m.Name)
+		if v.person() && v.Principal.Reaches(m.Name) {
+			href += "#ssh-connect"
+		}
+		out.Items = append(out.Items, kvLink{V: m.Name, K: s.t("Open machine %s", m.Name), Href: href})
+	}
+	if len(out.Items) == 0 {
+		out.Hint = s.t("This alert links to machines that are not enrolled.")
+	}
+	return out
 }
 
 // probes are the rows of what the probes saw over a window that began at from.

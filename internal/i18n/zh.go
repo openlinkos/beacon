@@ -957,4 +957,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"The credential has changed. Check its current details and try again.":            "凭据已有改动。请检查当前详情后重试。",
 	"The configured service could not be reached.":                                    "无法连接已配置的服务。",
 	"%s performed %s on team credential %s via %s":                                    "%[1]s 经%[4]s对团队凭据 %[3]s 执行了 %[2]s",
+
+	// Machine navigation from the alert response.
+	"Linked machines":                                     "关联机器",
+	"No machine is linked to this alert.":                 "此告警没有关联机器。",
+	"Open machine %s":                                     "打开机器 %s",
+	"This alert links to machines that are not enrolled.": "此告警关联的机器尚未登记。",
 }

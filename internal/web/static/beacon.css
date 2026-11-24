@@ -29,6 +29,13 @@
   padding-block: var(--ol-space-2);
 }
 .bc-alert-ack-note > textarea { max-width: 30rem; }
+.bc-alert-machines {
+  padding: var(--ol-space-3) var(--ol-space-4);
+  border-block-start: 1px solid var(--ol-color-border);
+}
+.bc-alert-machines .ol-btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.bc-alert-sessions-header { flex-wrap: wrap; }
+.bc-alert-sessions-header .ol-badge { white-space: normal; }
 .bc-alert-observations > .ol-list { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
 .kind-probe_now, #add-note { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
@@ -37,7 +44,7 @@
 
 @container ol-content (width < 40rem) {
   .bc-alert-controls { width: 100%; }
-  .bc-alert-buttons .ol-btn { min-height: 2.75rem; }
+  .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn { min-height: 2.75rem; }
 }
 
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
