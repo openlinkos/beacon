@@ -50,6 +50,10 @@ type callItem struct {
 	Hook, Alert, AlertHref, Status, StatusTone, At string
 }
 
+type deliveryRow struct {
+	Channel, Schedule, Result, Tone, At, Href string
+}
+
 // health is the overview's answer, in a sentence.
 type health struct{ Title, Text, Tone, Icon string }
 
@@ -70,24 +74,27 @@ type feedItem struct {
 type overviewLabels struct {
 	Attention, AllAlerts, Calm, CalmText, Sessions, AllSessions, NoSessions, Changes, AllChanges, NoChanges string
 	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Silenced                string
+	Notifications, OpenAlert                                                                                string
 }
 
 type overviewPage struct {
 	shell
-	L            overviewLabels
-	Health       health
-	Stats        []stat
-	Attention    []attentionItem
-	Sessions     []feedItem
-	Changes      []feedItem
-	Pages        []feedItem
-	Coming       []feedItem
-	Calls        []callItem
-	CallSummary  string
-	DeliveryHint string
-	DeliveryHelp kvLink
-	Channel      stat
-	Facts        []kvLink
+	L             overviewLabels
+	Health        health
+	Stats         []stat
+	Attention     []attentionItem
+	Sessions      []feedItem
+	Changes       []feedItem
+	Pages         []feedItem
+	Coming        []feedItem
+	Calls         []callItem
+	CallSummary   string
+	DeliveryHint  string
+	DeliveryHelp  kvLink
+	Notifications []deliveryRow
+	DeliveryDrill kvLink
+	Channel       stat
+	Facts         []kvLink
 }
 
 type kvLink struct{ K, V, Href string }
@@ -351,6 +358,46 @@ func (s *Server) healthOf(items []attentionItem, sh serviceHealth) health {
 	return h
 }
 
+func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow {
+	if len(routes) == 0 {
+		return nil
+	}
+	last := s.Bridge.LatestCriticalDeliveries()
+	rows := make([]deliveryRow, 0, len(routes))
+	for _, route := range routes {
+		row := deliveryRow{Channel: s.channel(route.Channel), Result: s.t("No recent response")}
+		switch route.Channel {
+		case "app":
+			row.Channel = s.t("Feishu")
+		case "webhook":
+			row.Channel = s.t("Feishu group bot")
+		}
+		var schedule []string
+		switch route.Initial {
+		case "primary":
+			schedule = append(schedule, s.t("When the alert opens"))
+		case "fallback":
+			schedule = append(schedule, s.t("When chat is unavailable"))
+		}
+		if route.After > 0 {
+			schedule = append(schedule, s.t("After %s if unacknowledged", route.After.String()))
+		}
+		row.Schedule = strings.Join(schedule, s.t(", "))
+		attempt, ok := last[route.Channel]
+		if ok {
+			row.Href = link.AlertPath(attempt.AlertID) + "#timeline"
+			row.At = s.ago(attempt.At)
+			if attempt.Result == "failed" {
+				row.Result, row.Tone = s.t("Submission failed"), "danger"
+			} else {
+				row.Result, row.Tone = s.t("Provider accepted"), "success"
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	f := s.figures(v)
 	sh := s.serviceHealth(r.Context())
@@ -363,6 +410,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
 		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
 		Beacon: s.t("Beacon"), Silenced: s.t("Silenced"),
+		Notifications: s.t("Critical notifications"), OpenAlert: s.t("Open alert"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
 	p.Attention = s.attention(v, f, sh)
@@ -371,9 +419,15 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
 	delivery := s.Bridge.Delivery()
 	if !delivery.CriticalToPeople {
+		if p.Health.Tone == "success" {
+			p.Health.Title = s.t("Monitoring is running")
+		}
 		p.DeliveryHint = s.t("Critical alerts have no route to people.")
 		p.DeliveryHelp = kvLink{V: s.t("Set up chat or phone notifications"),
 			Href: docsURL(s.Lang) + "reference/config#escalation-and-acknowledgements"}
+	} else {
+		p.Notifications = s.overviewDeliveries(delivery.CriticalRoutes)
+		p.DeliveryDrill = kvLink{V: s.t("Verify delivery"), Href: docsURL(s.Lang) + "guide/drills#verify-phone-delivery-and-handover"}
 	}
 
 	switch {
@@ -420,19 +474,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if f.ConfigBy != "" {
 		cv.V = s.t("%d, by %s via %s, %s", f.ConfigVersion, f.ConfigBy, f.ConfigVia, f.ConfigAt)
 	}
-	chat, phone := s.t("Off"), s.t("Off")
-	switch delivery.CriticalChat {
-	case "app":
-		chat = s.t("Feishu")
-	case "webhook":
-		chat = s.t("Feishu group bot")
-	}
-	if len(delivery.CriticalPhone) != 0 {
-		phone = strings.Join(delivery.CriticalPhone, s.t(", "))
-	}
 	p.Facts = []kvLink{
-		{K: s.t("Critical alert chat"), V: chat},
-		{K: s.t("Scheduled phone escalation"), V: phone},
 		cv,
 		{K: s.t("Beacon version"), V: s.version()},
 	}

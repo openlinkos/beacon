@@ -519,11 +519,75 @@ func TestReadyAndHumanDeliveryConfiguration(t *testing.T) {
 	}
 }
 
-type routeTestBark struct{ sent int }
+type routeTestBark struct {
+	sent int
+	link string
+}
 
-func (b *routeTestBark) Send(context.Context, string, string, string) error {
+func (b *routeTestBark) Send(_ context.Context, _, _, link string) error {
 	b.sent++
+	b.link = link
 	return nil
+}
+
+func TestPushoverOnlyRetriesInitialSubmission(t *testing.T) {
+	e := newEnv(t)
+	e.b.d.Feishu, e.b.d.Bot = nil, nil
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none", InitialPushover: true, Pushover: config.Duration(15 * time.Minute)}
+	d := e.b.Delivery()
+	if !d.CriticalToPeople || len(d.CriticalRoutes) != 1 || d.CriticalRoutes[0].Channel != "pushover" ||
+		d.CriticalRoutes[0].Initial != "primary" {
+		t.Fatalf("Pushover-only route: %+v", d)
+	}
+
+	ctx := context.Background()
+	e.push.fail = true
+	w := hook("firing", "critical", "phone-only")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	e.push.fail = false
+	e.now = e.now.Add(notificationRetry - time.Second)
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 1 {
+		t.Fatalf("wanted only the initial submission before the retry: %+v", e.push.sent)
+	}
+	e.now = e.now.Add(time.Second)
+	e.b.Tick(ctx)
+	id := GroupID(w.GroupKey)
+	if got := e.b.LatestCriticalDeliveries()["pushover"]; len(e.push.sent) != 2 || got.AlertID != id || got.Result != "ok" || !got.At.Equal(e.now) {
+		t.Fatalf("retried submission: %+v, latest response: %+v", e.push.sent, got)
+	}
+}
+
+func TestPhoneAndGroupBotLinkToSameIncident(t *testing.T) {
+	e := newEnv(t)
+	bark := &routeTestBark{}
+	e.b.d.Bark = bark
+	e.b.d.Config.PublicURL = "https://beacon.example.com/"
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "webhook", Pushover: config.Duration(time.Minute), Bark: config.Duration(time.Minute)}
+	ctx := context.Background()
+	w := hook("firing", "critical", "mobile")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(w.GroupKey)
+	want := "https://beacon.example.com/console/sign-in?next=%2Fconsole%2Falerts%2F" + id
+	if len(e.bot.texts) != 1 || !strings.Contains(e.bot.texts[0], want) || !strings.Contains(e.bot.texts[0], "https://ops.example/runbooks/ServiceDown.md") {
+		t.Fatalf("initial group bot notification: %q", e.bot.texts)
+	}
+	e.now = e.now.Add(time.Minute)
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 1 || e.push.sent[0].URL != want || e.push.sent[0].URLTitle != "Open alert" || bark.link != want {
+		t.Fatalf("phone notification links: Pushover %+v, Bark %q", e.push.sent, bark.link)
+	}
+	w.Status = "resolved"
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.bot.texts) != 2 || !strings.Contains(e.bot.texts[1], want) {
+		t.Fatalf("resolved group bot notification: %q", e.bot.texts)
+	}
 }
 
 func TestCriticalDeliveryWithoutInitialChat(t *testing.T) {

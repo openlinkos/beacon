@@ -383,9 +383,10 @@ func (b *Bridge) push(ctx context.Context, g *store.Group) {
 	if !notificationDue(g, "pushover", b.now()) {
 		return
 	}
+	target, label := b.phoneLink(g)
 	rc, err := b.d.Pushover.Send(ctx, notify.Emergency{
 		Title: b.t("%s: %s", b.severityName(g.Severity), b.title(g)), Message: b.plainBody(g),
-		URL: b.link(b.d.Config.Links.Runbook, g), URLTitle: b.t("Runbook"), Tag: g.ID,
+		URL: target, URLTitle: label, Tag: g.ID,
 	})
 	b.recordNotification(g, "pushover", err)
 	if err != nil {
@@ -578,15 +579,16 @@ func (b *Bridge) Tick(ctx context.Context) {
 				changed = true
 			}
 			lastPush := latestNotification(&g, "pushover")
-			retryFallback := g.Severity == "critical" && pol.Channel != "none" && lastPush.Result == "failed" && !lastPush.At.Before(g.NotifiedAt)
-			if b.d.Pushover != nil && !pushoverAccepted(&g) && (retryFallback || (pol.Pushover > 0 && since >= pol.Pushover.D())) &&
+			retryInitial := g.Severity == "critical" && (pol.Channel != "none" || pol.InitialPushover) && lastPush.Result == "failed" && !lastPush.At.Before(g.NotifiedAt)
+			if b.d.Pushover != nil && !pushoverAccepted(&g) && (retryInitial || (pol.Pushover > 0 && since >= pol.Pushover.D())) &&
 				notificationDue(&g, "pushover", now) {
 				b.push(ctx, &g)
 				changed = true
 			}
 			if pol.Bark > 0 && g.Barked.IsZero() && b.d.Bark != nil && since >= pol.Bark.D() &&
 				notificationDue(&g, "bark", now) {
-				err := b.d.Bark.Send(ctx, b.t("%s: %s", b.severityName(g.Severity), b.title(&g)), b.plainBody(&g), b.link(b.d.Config.Links.Runbook, &g))
+				target, _ := b.phoneLink(&g)
+				err := b.d.Bark.Send(ctx, b.t("%s: %s", b.severityName(g.Severity), b.title(&g)), b.plainBody(&g), target)
 				b.recordNotification(&g, "bark", err)
 				if err != nil {
 					b.count("bark", "error")
@@ -806,13 +808,21 @@ type Summary struct {
 
 // DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
 type DeliverySetup struct {
-	CriticalToPeople bool     `json:"critical_to_people"`
-	FeishuApp        bool     `json:"feishu_app"`
-	GroupBot         bool     `json:"group_bot"`
-	Pushover         bool     `json:"pushover"`
-	Bark             bool     `json:"bark"`
-	CriticalChat     string   `json:"critical_chat"`
-	CriticalPhone    []string `json:"critical_phone_escalation,omitempty"`
+	CriticalToPeople bool            `json:"critical_to_people"`
+	FeishuApp        bool            `json:"feishu_app"`
+	GroupBot         bool            `json:"group_bot"`
+	Pushover         bool            `json:"pushover"`
+	Bark             bool            `json:"bark"`
+	CriticalChat     string          `json:"critical_chat"`
+	CriticalPhone    []string        `json:"critical_phone_escalation,omitempty"`
+	CriticalRoutes   []DeliveryRoute `json:"critical_routes,omitempty"`
+}
+
+// DeliveryRoute is when a provider is called for a critical alert.
+type DeliveryRoute struct {
+	Channel string          `json:"channel"`
+	Initial string          `json:"initial,omitempty"` // primary or fallback
+	After   config.Duration `json:"after,omitempty"`   // escalation for an unacknowledged alert
 }
 
 // Delivery reports the configured routes for a new critical alert.
@@ -824,16 +834,37 @@ func (b *Bridge) Delivery() DeliverySetup {
 	switch {
 	case pol.Channel == "app" && d.FeishuApp:
 		d.CriticalChat = "app"
+		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "app", Initial: "primary"})
+		if d.GroupBot {
+			d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "webhook", Initial: "fallback"})
+		}
+		if pol.Buzz > 0 {
+			d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "feishu-buzz", After: pol.Buzz})
+		}
 	case chatSelected && d.GroupBot:
 		d.CriticalChat = "webhook"
+		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "webhook", Initial: "primary"})
 	}
 	if pol.Pushover > 0 && d.Pushover {
 		d.CriticalPhone = append(d.CriticalPhone, "Pushover")
 	}
+	if d.Pushover {
+		p := DeliveryRoute{Channel: "pushover", After: pol.Pushover}
+		switch {
+		case pol.InitialPushover || (chatSelected && d.CriticalChat == "none"):
+			p.Initial = "primary"
+		case chatSelected:
+			p.Initial = "fallback"
+		}
+		if p.Initial != "" || p.After > 0 {
+			d.CriticalRoutes = append(d.CriticalRoutes, p)
+		}
+	}
 	if pol.Bark > 0 && d.Bark {
 		d.CriticalPhone = append(d.CriticalPhone, "Bark")
+		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "bark", After: pol.Bark})
 	}
-	d.CriticalToPeople = d.CriticalChat != "none" || len(d.CriticalPhone) != 0 || (d.Pushover && (chatSelected || pol.InitialPushover))
+	d.CriticalToPeople = len(d.CriticalRoutes) > 0
 	return d
 }
 

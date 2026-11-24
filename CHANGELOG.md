@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Critical notification routes and recent provider responses are visible on the Overview. Initial Pushover-only submissions retry after one minute on failure. Phone pushes and Feishu group bot messages can open the same incident after sign-in.
+
 ## 0.3.0
 
 ### rc.27 (2026-11-25)

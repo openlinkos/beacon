@@ -3,12 +3,12 @@ package web
 import (
 	"html/template"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/version"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // The shell every page shares: the design system's workbench (.ol-app-workbench), with the sections in
@@ -114,7 +114,7 @@ func (s *Server) viewOnly(r *http.Request, kind, title string, a access) shell {
 		sh.Access = s.t("This link is valid until %s", s.clock(a.Until))
 	}
 	if s.Console() {
-		sh.SignInHref = consolePath("/sign-in") + "?next=" + url.QueryEscape(local(r.URL.EscapedPath()))
+		sh.SignInHref = link.SignInPath(local(r.URL.EscapedPath()))
 		sh.Nav = []navGroup{{Items: []navItem{{Key: "sign-in", Label: s.t("Sign in"), Href: sh.SignInHref, Icon: "log-in"}}}}
 	}
 	return sh

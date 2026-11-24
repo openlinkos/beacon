@@ -163,7 +163,9 @@ Without the whole `escalation` section, Beacon picks the best channel configured
 
 Without the section, critical alerts buzz after 10 minutes with the app, and escalate to Pushover after 15 minutes when it is configured. With only Pushover configured, Beacon sends the initial critical alert there immediately. Info alerts go to the group bot when there is one beside the app.
 
-With `channel: none`, only separately configured phone escalation can send a notification. The Overview shows the critical alert chat route and scheduled phone services. Confirm receipt on the destination device during a drill.
+With `channel: none`, only separately configured phone escalation can send a notification. **Critical notifications** on the Overview shows when each route may be used and the latest recorded attempt. Confirm receipt on the destination device during a drill.
+
+With `public_url` set, phone pushes and group bot messages link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
 
 | Key | Default | What it is |
 | --- | --- | --- |

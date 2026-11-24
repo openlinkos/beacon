@@ -1092,6 +1092,16 @@ paths:
                       bark: {type: boolean}
                       critical_chat: {type: string, enum: [app, webhook, none], description: Configured chat route for critical alerts}
                       critical_phone_escalation: {type: array, items: {type: string, enum: [Pushover, Bark]}, description: Phone services with a delay configured for unacknowledged critical alerts}
+                      critical_routes:
+                        type: array
+                        description: Notification routes configured for critical alerts.
+                        items:
+                          type: object
+                          required: [channel]
+                          properties:
+                            channel: {type: string, enum: [app, webhook, feishu-buzz, pushover, bark]}
+                            initial: {type: string, enum: [primary, fallback], description: How the route may be used when the alert opens}
+                            after: {type: string, description: Delay before attempting the route for an unacknowledged alert}
                   firing: {type: object, additionalProperties: {type: integer}}
                   acknowledged: {type: integer, description: Firing groups whose acknowledgement stops escalation to people}
                   feishu_api_calls_this_month: {type: integer}

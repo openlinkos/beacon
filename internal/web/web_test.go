@@ -331,7 +331,8 @@ func noInlineScript(t *testing.T, body string) {
 // projectLink reports whether u is one of the project's own addresses, the only places outside
 // Beacon a page of the console links to by itself.
 func projectLink(u string) bool {
-	return slices.Contains([]string{docsURL(i18n.EN), docsURL(i18n.ZH), version.Repo, issuesURL}, u)
+	const drill = "guide/drills#verify-phone-delivery-and-handover"
+	return slices.Contains([]string{docsURL(i18n.EN), docsURL(i18n.ZH), version.Repo, issuesURL, docsURL(i18n.EN) + drill, docsURL(i18n.ZH) + drill}, u)
 }
 
 func TestAlertPage(t *testing.T) {
