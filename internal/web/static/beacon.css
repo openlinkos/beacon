@@ -24,7 +24,7 @@
   gap: var(--ol-space-2);
   min-width: 0;
 }
-.bc-alert-ack-note > summary, .bc-alert-observations > summary {
+.bc-alert-ack-note > summary, .bc-alert-observations > summary, .bc-alert-handover summary {
   cursor: pointer;
   padding-block: var(--ol-space-2);
 }
@@ -37,6 +37,16 @@
 .bc-alert-sessions-header { flex-wrap: wrap; }
 .bc-alert-sessions-header .ol-badge { white-space: normal; }
 .bc-alert-signals { flex-basis: 100%; }
+.bc-alert-signals .ol-status { white-space: normal; }
+.bc-alert-handover {
+  display: grid;
+  flex-basis: 100%;
+  gap: var(--ol-space-1);
+  min-width: 0;
+  padding-inline-start: var(--ol-space-3);
+  border-inline-start: 2px solid var(--ol-color-border-strong);
+}
+.bc-alert-handover p { max-inline-size: 75ch; }
 .bc-alert-observations > :is(.ol-list, .ol-hint) { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations > .ol-hint { margin-block: var(--ol-space-1) var(--ol-space-2); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }

@@ -148,6 +148,12 @@ Send firing and recovery notifications to [a receiver you run](../integrations/n
 | `notification_webhook.url_file` | path | — | The absolute HTTP or HTTPS receiver URL, without userinfo or a fragment |
 | `notification_webhook.secret_file` | path | — | The shared secret used to sign each request |
 
+## Slack
+
+| Key | Type | Default | What it is |
+| --- | --- | --- | --- |
+| `slack.webhook_url_file` | path | — | A file containing the Slack app's [incoming webhook URL](../integrations/slack.md) |
+
 ## Pushover, Bark and healthchecks.io
 
 | Key | Type | Default | What it is |
@@ -169,17 +175,18 @@ When `escalation` is omitted, Beacon picks the first available channel in this o
 1. Feishu app.
 2. Feishu group bot.
 3. Notification webhook.
-4. `none`. The console, API and MCP show the alert.
+4. Slack.
+5. `none`. The console, API and MCP show the alert.
 
 Without the section, critical alerts buzz after 10 minutes with the app, and escalate to Pushover after 15 minutes when it is configured. With only Pushover configured, Beacon sends the initial critical alert there immediately. Info alerts go to the group bot when there is one beside the app.
 
 With `channel: none`, only separately configured phone escalation can send a notification. **Critical notifications** on the Overview shows when each route may be used and the latest recorded attempt. Confirm receipt on the destination device during a drill.
 
-With `public_url` set, phone pushes, group bot messages and notification webhooks link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
+With `public_url` set, phone pushes, group bot, Slack and notification webhook messages link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
 
 | Key | Default | What it is |
 | --- | --- | --- |
-| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (Feishu group bot), `notification_webhook` (signed notifications) or `none` (no notification when the alert first fires) |
+| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (Feishu group bot), `notification_webhook` (signed notifications), `slack` or `none` (no notification when the alert first fires) |
 | `escalation.critical.buzz` | `10m` with the app, off without it | Buzz the on-call people after this |
 | `escalation.critical.pushover` | `15m` with Pushover, off without it | An emergency push to phones after this |
 | `escalation.critical.bark` | off | A Bark push after this |

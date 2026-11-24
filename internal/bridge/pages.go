@@ -1,7 +1,9 @@
 package bridge
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/store"
@@ -21,36 +23,56 @@ func (b *Bridge) AlertPage(id string) string { return b.d.Pages.Alert(id) }
 // SessionPage is the signed link to a session's page, with its replay.
 func (b *Bridge) SessionPage(id string) string { return b.d.Pages.Session(id) }
 
-// sessionCounts counts the sessions in the group's window on its machines or by the agents that acted on
-// it: how many, on how many machines, and how many commands they ran (each command run through exec or a
-// file tool counts one; a shell counts the commands at its prompt).
-func (b *Bridge) sessionCounts(g *store.Group) (sessions, machines, commands int) {
-	seen := map[string]bool{}
-	for _, s := range b.sessions(g, b.window(g, defaultBefore), b.machines(g)) {
-		sessions++
-		seen[s.Machine] = true
-		switch s.Kind {
-		case "shell":
-			commands += s.Commands
-		case "exec", "file":
-			commands++
-		}
-	}
-	return sessions, len(seen), commands
+type cardSessions struct {
+	count, machines, commands int
+	latest                    time.Time
 }
 
-// agentBlock is the card's block about agents: which hooks were woken and how that went, and one line on
-// the sessions on the alert's machines so far, with the link to the alert's page where every session can
-// be replayed. Nil when there is nothing to say, and then left out of the card.
+// sessionSummary uses the same association and evidence window as the incident timeline.
+func (b *Bridge) sessionSummary(g *store.Group) cardSessions {
+	var summary cardSessions
+	seen := map[string]bool{}
+	for _, s := range b.relatedSessionRecords(g, b.window(g, defaultBefore), b.machines(g)) {
+		if s.Ended.IsZero() {
+			continue
+		}
+		summary.count++
+		seen[s.Machine] = true
+		if s.Ended.After(summary.latest) {
+			summary.latest = s.Ended
+		}
+		switch s.Kind {
+		case "shell":
+			summary.commands += s.Commands
+		case "exec", "file":
+			summary.commands++
+		}
+	}
+	summary.machines = len(seen)
+	return summary
+}
+
+func (s cardSessions) fingerprint() string {
+	if s.count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d/%d/%d", s.count, s.machines, s.commands, s.latest.UnixNano())
+}
+
+func (b *Bridge) sessionsBlock(s cardSessions) map[string]any {
+	if s.count == 0 {
+		return nil
+	}
+	return feishu.Markdown(strings.Join([]string{
+		b.t("**Finished SSH sessions**"),
+		b.t("%d sessions on %d machines, %d commands", s.count, s.machines, s.commands),
+		b.t("Latest session ended at %s", b.clock(s.latest)),
+	}, "\n"))
+}
+
+// agentBlock says which hooks were woken and how that went.
 func (b *Bridge) agentBlock(g *store.Group) map[string]any {
 	lines := b.agentLines(g)
-	if n, m, k := b.sessionCounts(g); n > 0 {
-		line := b.t("%d sessions on %d machines, %d commands", n, m, k)
-		if u := b.AlertPage(g.ID); u != "" {
-			line += " [" + b.t("Timeline") + "](" + u + ")"
-		}
-		lines = append(lines, line)
-	}
 	if len(lines) == 0 {
 		return nil
 	}

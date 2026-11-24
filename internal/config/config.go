@@ -145,6 +145,7 @@ type Config struct {
 
 	Feishu              Feishu              `yaml:"feishu"`
 	NotificationWebhook NotificationWebhook `yaml:"notification_webhook"`
+	Slack               Slack               `yaml:"slack"`
 	Pushover            Pushover            `yaml:"pushover"`
 	Bark                Bark                `yaml:"bark"`
 	Healthchecks        Healthchecks        `yaml:"healthchecks"`
@@ -257,7 +258,7 @@ type Healthchecks struct {
 
 // Policy says how alerts of one severity are delivered and escalated. Zero durations turn off timed steps.
 type Policy struct {
-	Channel         string   `yaml:"channel"` // app (Feishu card), webhook (group bot), notification_webhook or none
+	Channel         string   `yaml:"channel"` // app (Feishu card), webhook (group bot), notification_webhook, slack or none
 	Buzz            Duration `yaml:"buzz"`
 	Pushover        Duration `yaml:"pushover"`
 	Bark            Duration `yaml:"bark"`
@@ -275,6 +276,7 @@ type Secrets struct {
 	FeishuWebhookSecret       string
 	NotificationWebhookURL    string
 	NotificationWebhookSecret string
+	SlackWebhookURL           string
 	PushoverUserKey           string
 	PushoverToken             string
 	BarkURL                   string
@@ -438,6 +440,8 @@ func (c *Config) defaults() {
 			ch = "webhook"
 		case c.NotificationWebhook.configured():
 			ch = NotificationWebhookChannel
+		case c.Slack.WebhookURLFile != "":
+			ch = SlackChannel
 		}
 		crit, info := Policy{Channel: ch}, Policy{Channel: ch}
 		if ch == "app" {
@@ -669,9 +673,13 @@ func (c *Config) validate() error {
 			if !c.NotificationWebhook.configured() {
 				bad("escalation.%s uses the notification webhook, but notification_webhook is not configured", sev)
 			}
+		case SlackChannel:
+			if c.Slack.WebhookURLFile == "" {
+				bad("escalation.%s uses Slack, but slack.webhook_url_file is not set", sev)
+			}
 		case "none":
 		default:
-			bad("escalation.%s.channel must be app, webhook, %s or none, not %q", sev, NotificationWebhookChannel, p.Channel)
+			bad("escalation.%s.channel must be app, webhook, %s, %s or none, not %q", sev, NotificationWebhookChannel, SlackChannel, p.Channel)
 		}
 		if p.Buzz < 0 || p.Pushover < 0 || p.Bark < 0 {
 			bad("escalation.%s: durations cannot be negative", sev)
@@ -726,6 +734,7 @@ func (c *Config) readSecrets() error {
 	read(&s.FeishuWebhookURL, c.Feishu.WebhookURLFile, "feishu.webhook_url_file")
 	read(&s.FeishuWebhookSecret, c.Feishu.WebhookSecretFile, "feishu.webhook_secret_file")
 	errs = append(errs, c.readNotificationWebhookSecrets())
+	errs = append(errs, c.readSlackSecret())
 	read(&s.PushoverUserKey, c.Pushover.UserKeyFile, "pushover.user_key_file")
 	read(&s.PushoverToken, c.Pushover.TokenFile, "pushover.token_file")
 	read(&s.BarkURL, c.Bark.URLFile, "bark.url_file")

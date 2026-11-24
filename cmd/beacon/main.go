@@ -230,6 +230,9 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 	if cfg.NotificationWebhook.URLFile != "" {
 		fmt.Fprintln(stdout, "notification webhook configured")
 	}
+	if cfg.Slack.WebhookURLFile != "" {
+		fmt.Fprintln(stdout, "Slack webhook configured")
+	}
 	fmt.Fprintf(stdout, "files: %s\n", inFiles)
 	fmt.Fprintf(stdout, "database: %s\n", inDB)
 	return 0
@@ -356,6 +359,9 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	if sec.NotificationWebhookURL != "" {
 		deps.NotificationWebhook = &notify.Webhook{URL: sec.NotificationWebhookURL, Secret: sec.NotificationWebhookSecret}
+	}
+	if sec.SlackWebhookURL != "" {
+		deps.Slack = &notify.Slack{URL: sec.SlackWebhookURL}
 	}
 	var listener *feishu.Listener
 	if deps.Feishu != nil && cfg.Feishu.Callback == "websocket" {

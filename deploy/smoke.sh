@@ -4,6 +4,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
+# shellcheck source=smoke-failed-agent.sh
+source ./smoke-failed-agent.sh
 if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
   id beacon >/dev/null 2>&1; then
   echo 'Use a clean checkout on a disposable Linux runner.' >&2
@@ -31,6 +33,7 @@ work=$(mktemp -d "${RUNNER_TEMP:?use a disposable Linux runner}/beacon-reference
 start=$SECONDS
 second_probe=
 oncall_pid=
+phone_pid=
 token=
 recovery_volume=
 cleanup() {
@@ -46,12 +49,18 @@ cleanup() {
       curl -fsS --max-time 5 "https://beacon-status.test/api/v1/alerts?state=all" -H "Authorization: Bearer $token" |
         jq -c '[.alerts[] | {id, service, status, labels}]' || true
     fi
+    if [[ -f "$work/fail-agent" ]]; then
+      tail -n 8 "$work/oncall.log" "$work/phone.log" >&2 || true
+    fi
   fi
   if [[ -n "$second_probe" ]]; then
     kill "$second_probe" 2>/dev/null || true
   fi
   if [[ -n "$oncall_pid" ]]; then
     kill "$oncall_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$phone_pid" ]]; then
+    kill "$phone_pid" 2>/dev/null || true
   fi
   if sudo test -s "$work/sshd.pid"; then
     sudo kill "$(sudo cat "$work/sshd.pid")" 2>/dev/null || true
@@ -148,7 +157,7 @@ agents:
     service: drill
 YAML
 "$work/beacon-oncall" -listen "$host:22301" -secret-file "$work/hook-secret" -log-dir "$work/hook-logs" \
-  -run "jq -ce 'select(.event == \"firing\" and .alert.labels.alertname == \"ServiceDown\")' > '$work/hook.tmp' && mv '$work/hook.tmp' '$work/hook.json'" \
+  -run "jq -ce 'select(.event == \"firing\" and .alert.labels.alertname == \"ServiceDown\")' > '$work/hook.tmp' && mv '$work/hook.tmp' '$work/hook.json' && if test -f '$work/fail-agent'; then exit 79; fi" \
   > "$work/oncall.log" 2>&1 &
 oncall_pid=$!
 hook_health() { curl -fsS "http://$host:22301/healthz" >/dev/null; }
@@ -350,3 +359,26 @@ cmp "$work/recording" "$work/restored-recording"
 curl -fsS -b "$work/restored-cookies" "$status_url/console/sessions/$session" > "$work/restored-replay.html"
 grep -Fq 'id="player"' "$work/restored-replay.html"
 printf 'Cold SQLite restore preserved account access, the incident note, SSH replay and credential revocation after %ss\n' "$((SECONDS - start))"
+
+# A fresh episode preserves the separate successful Agent and restore checks above. The Bark
+# endpoint belongs to this runner and records provider acceptance without reaching a device.
+smoke_phone_receiver "$host" 22302 "$work" > "$work/phone.log" 2>&1 &
+phone_pid=$!
+phone_health() { curl -fsS --noproxy '*' "http://$host:22302/healthz" >/dev/null; }
+wait_for 'The isolated phone receiver is listening' 15 phone_health
+printf 'http://%s:22302/bark\n' "$host" > "$work/bark-url"
+sudo install -o 65532 -g 65532 -m 0400 "$work/bark-url" secrets/smoke-bark-url
+cat >> config.yaml <<'YAML'
+
+bark:
+  url_file: /etc/beacon/secrets/smoke-bark-url
+
+escalation:
+  critical: {channel: none, bark: 20s}
+YAML
+beacon check-config -config /etc/beacon/config.yaml
+restore_compose restart beacon
+wait_for 'The restored centre is ready for the failed-Agent drill' 45 centre_health
+test "$(curl -fsS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 200
+wait_for 'Both probes see a healthy service before the failed-Agent drill' 90 probes 1
+smoke_failed_agent_drill "$alert"

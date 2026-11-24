@@ -6,6 +6,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.31 (2026-11-25)
+
+- Send firing and recovery messages to a Slack channel from an incoming webhook. Messages return responders to the same alert after sign-in, and the Overview shows the latest Slack response.
+- Refresh an existing Feishu incident card with the completed SSH sessions and their latest finish time, within the existing card update budget.
+- Put the current handover note, human ownership and failed agent-hook delivery in the incident's response area.
+- Rehearse a failed agent run, phone escalation, handover by two on-call people and verified HTTP recovery in the reference deployment.
+
 ### rc.30 (2026-11-25)
 
 - Route human alert notifications to a configured webhook. Beacon signs firing and recovery events, keeps queued deliveries across restarts and links recipients back to the alert after sign-in.

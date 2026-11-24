@@ -11,6 +11,7 @@ import (
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -26,6 +27,7 @@ type labels struct {
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
+	HandoverNote, FullHandoverNote                                                                                           string
 }
 
 func (s *Server) labels() labels {
@@ -48,6 +50,7 @@ func (s *Server) labels() labels {
 		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
 		ProbeResults: s.t("On-demand check results."),
 		SignIn:       s.t("Sign in"), TakeOver: s.t("Take over"),
+		HandoverNote: s.t("Handover note"), FullHandoverNote: s.t("Read full handover note"),
 	}
 }
 
@@ -148,6 +151,8 @@ func (s *Server) channel(ch string) string {
 		return s.t("the group bot")
 	case config.NotificationWebhookChannel:
 		return s.t("Notification webhook")
+	case config.SlackChannel:
+		return "Slack"
 	case "pushover":
 		return "Pushover"
 	case "bark":
@@ -257,18 +262,20 @@ type alertMachineLinks struct {
 	Items       []kvLink
 }
 
+type handoverNote struct{ Preview, Full string }
+
 type alertPage struct {
 	shell
 	L                                                                            labels
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
-	Ownership                                                                    string
+	Ownership, Escalation                                                        string
 	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
-	PeopleDeliveryFailed                                                         bool
+	HookFailed, PeopleDeliveryFailed                                             bool
+	Handover                                                                     handoverNote
 	Services                                                                     []string
 	Labels                                                                       []kv
-	State                                                                        []string // acknowledged, silenced, buzzed, paged
 	Runbook, Dashboard, Window                                                   string
 	Probes                                                                       []probeRow
 	ProbesNote, ProbesError                                                      string
@@ -327,14 +334,21 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 			}
 		}
 	} else if al.Status == "firing" {
-		p.Ownership = s.t("Awaiting acknowledgement")
+		p.Ownership = s.t("Awaiting human acknowledgement")
 	}
-	if g.Silence != nil && now.Before(g.Silence.Until) {
-		p.State = append(p.State, s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By))
+	silenced := g.Silence != nil && now.Before(g.Silence.Until)
+	switch {
+	case silenced:
+		p.Escalation = s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By)
+	case g.Status == "firing" && g.Ack.StopsEscalation():
+		p.Escalation = s.t("Escalation is paused while this alert is acknowledged.")
 	}
-	if al.Status == "firing" {
-		p.HookState = s.hookState(tl)
+	if g.Status == "firing" {
+		p.HookState, p.HookFailed = s.hookState(tl)
 		p.PeopleDelivery, p.PeopleDeliveryFailed = s.peopleDelivery(tl)
+		if g.Ack.StopsEscalation() {
+			p.Handover = currentHandover(tl, g.Ack)
+		}
 	}
 	p.Probes = s.probes(ev.Probes, ev.Window.From, p.L)
 	if len(p.Probes) == 0 {
@@ -399,7 +413,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		if s.Bridge.CanProbeNow() {
 			p.Actions.Probe = base + "/probe-now"
 		}
-		if g.Silence != nil && now.Before(g.Silence.Until) {
+		if silenced {
 			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", base
 		}
 		if al.Status == "firing" {
@@ -413,6 +427,21 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		}
 	}
 	return p
+}
+
+// currentHandover uses the timeline's cleaned copy of the current acknowledgement note.
+func currentHandover(tl bridge.Timeline, ack *store.Ack) handoverNote {
+	for _, e := range slices.Backward(tl.Events) {
+		if e.Kind == "acknowledged" && e.At.Equal(ack.At) && e.By == ack.By && e.Via == ack.Via && e.Type == ack.Kind {
+			text := strings.Join(strings.Fields(e.Text), " ")
+			note := handoverNote{Preview: shorten(text, 120)}
+			if note.Preview != text {
+				note.Full = e.Text
+			}
+			return note
+		}
+	}
+	return handoverNote{}
 }
 
 func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
@@ -569,7 +598,7 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 	return out
 }
 
-func (s *Server) hookState(tl bridge.Timeline) string {
+func (s *Server) hookState(tl bridge.Timeline) (string, bool) {
 	var pending, failed bool
 	for _, e := range tl.Events {
 		if e.Kind != "agent" || e.Event != "firing" {
@@ -577,7 +606,7 @@ func (s *Server) hookState(tl bridge.Timeline) string {
 		}
 		switch e.Result {
 		case "ok":
-			return s.t("A hook accepted the alert. Check the timeline for Agent activity.")
+			return s.t("A hook accepted the alert. Check the timeline for Agent activity."), false
 		case "failed":
 			failed = true
 		default:
@@ -586,11 +615,11 @@ func (s *Server) hookState(tl bridge.Timeline) string {
 	}
 	switch {
 	case pending:
-		return s.t("Agent hook delivery pending.")
+		return s.t("Agent hook delivery pending."), false
 	case failed:
-		return s.t("Agent hook delivery failed.")
+		return s.t("Agent hook delivery failed."), true
 	default:
-		return s.t("No Agent hook was called.")
+		return s.t("No Agent hook was called."), false
 	}
 }
 

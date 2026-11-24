@@ -78,6 +78,7 @@ type Deps struct {
 	Bark                Barker
 	Bot                 Poster
 	NotificationWebhook WebhookSender
+	Slack               WebhookSender
 	VM                  Querier
 	Catalog             func() *catalog.Catalog
 	Metrics             *metrics.Metrics
@@ -112,6 +113,9 @@ type Bridge struct {
 	hooks         hooks        // calls that wake agents, in flight (agents.go)
 	webhookWake   chan struct{}
 	webhookActive map[string]bool // one in-flight notice per group, protected by mu
+	slackActive   bool            // one request at a time to the Slack channel, protected by mu
+
+	sessionCardCursor int // next group to check for session changes, protected by mu
 }
 
 const (
@@ -138,7 +142,7 @@ func New(d Deps) *Bridge {
 		lang = i18n.EN
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
-	if d.NotificationWebhook != nil {
+	if d.NotificationWebhook != nil || d.Slack != nil {
 		b.webhookWake = make(chan struct{}, 1)
 		b.webhookActive = make(map[string]bool)
 	}
@@ -273,11 +277,12 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
 			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
-			g.NotifyWebhook = false
+			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
+			g.CardSessionHash, g.CardSessionAttemptAt = "", time.Time{}
 			g.StartsAt = starts
 			if g.StartsAt.IsZero() {
 				g.StartsAt = b.now()
@@ -298,17 +303,20 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.ResolvedAt = b.now()
 		b.resolve(ctx, &g)
 		if g.NotifyWebhook {
-			b.queueWebhook(&g, "resolved")
+			b.queueWebhook(&g, config.NotificationWebhookChannel, "resolved")
+		}
+		if g.NotifySlack {
+			b.queueWebhook(&g, config.SlackChannel, "resolved")
 		}
 		b.wake(&g, "resolved")
 		err := b.saveGroup(g)
-		if err == nil && len(g.WebhookNotices) > 0 {
+		if err == nil && (len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0) {
 			b.wakeWebhooks()
 		}
 		return err
 	}
 	err := b.d.Store.PutGroupWithOutcome(g, previous)
-	if err == nil && len(g.WebhookNotices) > 0 {
+	if err == nil && (len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0) {
 		b.wakeWebhooks()
 	}
 	return err
@@ -322,9 +330,10 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 		b.push(ctx, g)
 		return
 	}
-	if pol.Channel == config.NotificationWebhookChannel {
-		g.NotifyWebhook = true
-		b.queueWebhook(g, "firing")
+	if pol.Channel == config.NotificationWebhookChannel || pol.Channel == config.SlackChannel {
+		g.NotifyWebhook = pol.Channel == config.NotificationWebhookChannel
+		g.NotifySlack = pol.Channel == config.SlackChannel
+		b.queueWebhook(g, pol.Channel, "firing")
 		return
 	}
 	if pol.Channel != "app" && pol.Channel != "webhook" {
@@ -334,10 +343,12 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 
 	triedPhone := false
 	if pol.Channel == "app" && b.appAllowed(g.Severity) {
-		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.card(ctx, g), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
+		sessions := b.sessionSummary(g)
+		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.cardWithSessions(ctx, g, sessions), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
 		b.feishuResult(err)
 		if err == nil {
 			g.Channel, g.MessageID, g.CardAt, g.CardHash = "app", id, b.now(), cardHash(g)
+			g.CardSessionHash = sessions.fingerprint()
 			b.count("feishu", "ok")
 			return
 		}
@@ -378,7 +389,11 @@ func (b *Bridge) refresh(ctx context.Context, g *store.Group) {
 }
 
 func (b *Bridge) patch(ctx context.Context, g *store.Group) {
-	err := b.d.Feishu.PatchCard(ctx, g.MessageID, b.card(ctx, g))
+	b.patchWithSessions(ctx, g, b.sessionSummary(g))
+}
+
+func (b *Bridge) patchWithSessions(ctx context.Context, g *store.Group, sessions cardSessions) {
+	err := b.d.Feishu.PatchCard(ctx, g.MessageID, b.cardWithSessions(ctx, g, sessions))
 	b.feishuResult(err)
 	if err != nil {
 		b.count("feishu-patch", "error")
@@ -387,6 +402,7 @@ func (b *Bridge) patch(ctx context.Context, g *store.Group) {
 	}
 	b.count("feishu-patch", "ok")
 	g.CardAt, g.CardHash = b.now(), cardHash(g)
+	g.CardSessionHash = sessions.fingerprint()
 }
 
 func (b *Bridge) resolve(ctx context.Context, g *store.Group) {
@@ -470,8 +486,10 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 		action = "silence"
 	}
 	recordParticipation(&g, who, action, b.now())
-	card := b.card(ctx, &g)
+	sessions := b.sessionSummary(&g)
+	card := b.cardWithSessions(ctx, &g, sessions)
 	g.CardAt, g.CardHash = b.now(), cardHash(&g)
+	g.CardSessionHash = sessions.fingerprint()
 	if err := b.d.Store.PutGroup(g); err != nil {
 		b.d.Log.Error("save group", "err", err)
 	}
@@ -553,13 +571,15 @@ func (b *Bridge) Tick(ctx context.Context) {
 	defer b.mu.Unlock()
 	now := b.now()
 	ttl := b.d.Config.AckTTL.D()
-	for _, g := range b.d.Store.Groups() {
+	groups := b.d.Store.Groups()
+	for i, g := range groups {
 		if !g.Firing() {
 			if now.Sub(g.ResolvedAt) > keepResolved {
 				if err := b.d.Store.DropResolvedGroup(g, b.archiveOutcome(g, now, now)); err != nil {
 					b.d.Log.Error("archive resolved alert group", "group", g.ID, "err", err)
-				} else if len(g.WebhookNotices) > 0 {
-					b.auditExpiredWebhooks(g.ID, len(g.WebhookNotices))
+				} else {
+					b.auditExpiredWebhooks(g.ID, config.NotificationWebhookChannel, len(g.WebhookNotices))
+					b.auditExpiredWebhooks(g.ID, config.SlackChannel, len(g.SlackNotices))
 				}
 			}
 			continue
@@ -657,8 +677,10 @@ func (b *Bridge) Tick(ctx context.Context) {
 			if err := b.d.Store.PutGroup(g); err != nil {
 				b.d.Log.Error("save group", "err", err)
 			}
+			groups[i] = g
 		}
 	}
+	b.refreshSessionCards(ctx, groups, now)
 }
 
 func (b *Bridge) onCallIDs() []string {
@@ -691,8 +713,14 @@ func (b *Bridge) Ready() (bool, []string) {
 			why = append(why, "the Feishu API budget for this month is used up")
 		}
 	}
-	if b.d.NotificationWebhook != nil && b.webhookWaitingOnFailure(now) {
-		why = append(why, "the notification webhook has a failed delivery waiting to retry")
+	if b.d.NotificationWebhook != nil || b.d.Slack != nil {
+		failedWebhook, failedSlack := b.failedWebhookDeliveries(now)
+		if failedWebhook {
+			why = append(why, "the notification webhook has a failed delivery waiting to retry")
+		}
+		if failedSlack {
+			why = append(why, "Slack has a failed delivery waiting to retry")
+		}
 	}
 	return len(why) == 0, why
 }
@@ -849,6 +877,7 @@ type DeliverySetup struct {
 	Pushover            bool            `json:"pushover"`
 	Bark                bool            `json:"bark"`
 	NotificationWebhook bool            `json:"notification_webhook,omitempty"`
+	Slack               bool            `json:"slack,omitempty"`
 	CriticalChat        string          `json:"critical_chat"`
 	CriticalPhone       []string        `json:"critical_phone_escalation,omitempty"`
 	CriticalRoutes      []DeliveryRoute `json:"critical_routes,omitempty"`
@@ -865,6 +894,7 @@ type DeliveryRoute struct {
 func (b *Bridge) Delivery() DeliverySetup {
 	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil,
 		NotificationWebhook: b.d.NotificationWebhook != nil,
+		Slack:               b.d.Slack != nil,
 		Bark:                b.d.Bark != nil, CriticalChat: "none"}
 	pol := b.d.Config.Policy("critical")
 	chatSelected := pol.Channel == "app" || pol.Channel == "webhook"
@@ -884,6 +914,9 @@ func (b *Bridge) Delivery() DeliverySetup {
 	case pol.Channel == config.NotificationWebhookChannel && d.NotificationWebhook:
 		d.CriticalChat = config.NotificationWebhookChannel
 		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: config.NotificationWebhookChannel, Initial: "primary"})
+	case pol.Channel == config.SlackChannel && d.Slack:
+		d.CriticalChat = config.SlackChannel
+		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: config.SlackChannel, Initial: "primary"})
 	}
 	if pol.Pushover > 0 && d.Pushover {
 		d.CriticalPhone = append(d.CriticalPhone, "Pushover")

@@ -76,10 +76,10 @@ go run ./cmd/beacon check-config -config config.example.yaml   # needs the secre
 
 The `v0.3.0-rc.30` candidate includes the shared console workflows, multi-location monitoring with editable probe scope, personal and delegated SSH, recorded sessions, incident outcomes, machine settings history, public status pages and the reference deployment. An alert links to its explicitly associated machines. Agent activity stays visible while Beacon waits for human ownership and makes any scheduled escalation. The reference deployment gives critical service outages a five-second initial group wait. Its installation drill verifies a signed wake through the released on-call harness and checks recovery from both probes. The signed notification webhook sends to a team's configured receiver with an ordered, persistent retry queue. The next acceptance checks are in [the goals](docs/about/goals.md).
 
-1. **Real delivery and handover** (goals 1 and 3). Verify the chat and phone recipients, an HTTP fault and the failure path when an agent cannot act. Check the incident from a phone and from the next shift's account.
+1. **Real delivery and handover** (goals 1 and 3). The reference deployment rehearses an HTTP fault, a failed agent run, local phone delivery and handover. Verify actual chat and phone recipients with the same incident on a phone and from the next shift's account.
 2. **Team credential custody** (goal 6). Verify storage, clear delegation and revocation, and a recovery procedure before relying on it. Ordinary password-manager tasks such as imports and browser filling have their own acceptance criteria.
-3. **More chat channels** (goal 9). Slack, Telegram, DingTalk, WeCom and ntfy, with actions where the channel supports them.
-4. **Closer to agents' tools** (goal 4). File search and background jobs, the card updated at the end of a session, and revocable sharing links.
+3. **More chat channels** (goal 9). Slack incoming webhooks send firing and recovery with a link to the incident. Telegram, DingTalk, WeCom and ntfy, and in-chat actions where the channel supports them, remain to do.
+4. **Closer to agents' tools** (goal 4). Feishu cards refresh when sessions end, under the existing budget. File search, background jobs and revocable sharing links remain to do.
 
 ## Git
 

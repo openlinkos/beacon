@@ -630,11 +630,7 @@ func actors(g *store.Group) []string {
 // sessions lists the latest sessions in the window, which opens before g started, on g's machines or by
 // the agents that acted on it, the oldest first.
 func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []SessionView {
-	who := actors(g)
-	rs := b.d.Store.SessionsBetween(w.From, w.To, 1000, func(r store.SessionRecord) bool {
-		return slices.Contains(machines, r.Machine) || slices.Contains(who, r.Agent)
-	})
-	rs = keepSessions(rs, g.StartsAt, machines)
+	rs := b.relatedSessionRecords(g, w, machines)
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
 		v := SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via, Machine: r.Machine, Kind: r.Kind, Command: cleanLine(r.Command),
@@ -646,6 +642,17 @@ func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []Session
 		out = append(out, v)
 	}
 	return out
+}
+
+func (b *Bridge) relatedSessionRecords(g *store.Group, w Window, machines []string) []store.SessionRecord {
+	who := actors(g)
+	if len(machines) == 0 && len(who) == 0 {
+		return nil
+	}
+	rs := b.d.Store.SessionsBetween(w.From, w.To, 1000, func(r store.SessionRecord) bool {
+		return slices.Contains(machines, r.Machine) || slices.Contains(who, r.Agent)
+	})
+	return keepSessions(rs, g.StartsAt, machines)
 }
 
 // keepSessions keeps at most maxListed of rs (the oldest first), the latest ones; but the sessions on the

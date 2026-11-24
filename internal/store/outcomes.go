@@ -82,7 +82,11 @@ func (s *Store) DropResolvedGroup(g Group, outcome *IncidentOutcome) error {
 				return err
 			}
 		}
-		return tx.Delete(bucketGroups, []byte(g.ID))
+		key := []byte(g.ID)
+		if err := tx.Delete(bucketSlackNotices, key); err != nil {
+			return err
+		}
+		return tx.Delete(bucketGroups, key)
 	})
 }
 

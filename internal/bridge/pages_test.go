@@ -67,14 +67,10 @@ func TestPageLinksAndCardBlock(t *testing.T) {
 	}
 	g, _ := e.st.Group(id)
 	c := cardText(e.b.card(ctx, &g))
-	if !strings.Contains(c, "1 sessions on 1 machines, 3 commands") && !strings.Contains(c, "2 sessions on 1 machines, 3 commands") {
-		t.Errorf("the card lacks the sessions line: %s", c)
-	}
-	if !strings.Contains(c, "2 sessions on 1 machines, 3 commands") {
-		t.Errorf("sessions line: %s", c)
-	}
-	if !strings.Contains(c, `**Agents**`) || !strings.Contains(c, `[Timeline](https://beacon.example.com/console/alerts/`+id+`?s=`) {
-		t.Errorf("the agent block lacks its title or the page link: %s", c)
+	for _, want := range []string{"**Finished SSH sessions**", "2 sessions on 1 machines, 3 commands", "Latest session ended at 10-30 09:59"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("the card lacks %q: %s", want, c)
+		}
 	}
 	if !strings.Contains(c, `"default_url":"https://beacon.example.com/console/alerts/`+id+`?s=`) || !strings.Contains(c, `"content":"Timeline"`) {
 		t.Errorf("the card lacks the Timeline button: %s", c)
@@ -118,7 +114,7 @@ func TestPageLinksAndCardBlock(t *testing.T) {
 	// without sessions or agents, the block is left out
 	e.st.DeleteSessionsBefore(e.now.Add(time.Hour))
 	g, _ = e.st.Group(id)
-	if c := cardText(e.b.card(ctx, &g)); strings.Contains(c, "**Agents**") {
-		t.Errorf("an empty agent block: %s", c)
+	if c := cardText(e.b.card(ctx, &g)); strings.Contains(c, "**Finished SSH sessions**") || strings.Contains(c, "**Agents**") {
+		t.Errorf("an empty activity block: %s", c)
 	}
 }

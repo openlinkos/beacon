@@ -41,7 +41,7 @@ You need:
 - **A small machine for the first probe location**: any Linux with systemd, on x86_64 or arm64, with 64 MB of memory to spare. A VPS where your users are is best. The centre itself will do for the second location.
 - **A machine agents may work on**, which the centre can reach on its SSH port. The probe machine will do.
 - **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)). For automatic wake, you also need a receiver the centre can reach that starts your agent.
-- **A test destination** for human notifications. Use a receiver that can relay a [signed notification webhook](../integrations/notification-webhook.md) to a test chat. If you use a Feishu or Lark app, arrange to add its bot and have its version and callback subscription approved.
+- **A test destination** for human notifications. Prepare a [Slack incoming webhook](../integrations/slack.md) or a receiver that can relay a [signed notification webhook](../integrations/notification-webhook.md) to a test chat. If you use a Feishu or Lark app, arrange to add its bot and have its version and callback subscription approved.
 
 ## 1. Install the centre
 
@@ -232,7 +232,7 @@ On the consent page, choose the **On call** preset and select `edge-1`. In Claud
 
 ## 5. The first drill
 
-**Connect your own test group.** For a receiver you run, [set up a notification webhook](../integrations/notification-webhook.md) and have the receiver relay to your test group. For Feishu or Lark cards, follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. The Feishu group is set by `feishu.chat_id`. On the console’s Overview, confirm the route you chose appears under **Critical notifications**.
+**Connect your own test group.** For Slack, [authorise an incoming webhook](../integrations/slack.md) for your test channel. For a receiver you run, [set up a notification webhook](../integrations/notification-webhook.md) and have the receiver relay to your test group. For Feishu or Lark cards, follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. The Feishu group is set by `feishu.chat_id`. On the console’s Overview, confirm the route you chose appears under **Critical notifications**.
 
 **Prepare automatic wake.** Follow [Wake an agent](../guide/on-call.md#wake-an-agent) and start its receiver before the drill. For the first test, scope the hook to `service: '^drill$'`. In the reference deployment, run `sudo ./install.sh` after adding the hook secret so Beacon can read it. Use the machine and read-only command from step 4 for the test run, and have the agent leave a note on `drill`.
 

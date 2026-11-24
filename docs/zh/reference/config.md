@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0bf58179
+sourceHash: sha256-f36c56bd
 ---
 
 # config.yaml
@@ -152,6 +152,12 @@ sourceHash: sha256-0bf58179
 | `notification_webhook.url_file` | 路径 | — | 接收端的 HTTP 或 HTTPS 绝对地址，去掉用户信息和片段 |
 | `notification_webhook.secret_file` | 路径 | — | 用于给每次请求签名的共享密钥 |
 
+## Slack
+
+| 键 | 类型 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `slack.webhook_url_file` | 路径 | — | 保存 Slack 应用[传入 Webhook URL](../integrations/slack.md) 的文件 |
+
 ## Pushover、Bark 与 healthchecks.io {#pushover-bark-and-healthchecksio}
 
 | 键 | 类型 | 默认值 | 含义 |
@@ -173,17 +179,18 @@ sourceHash: sha256-0bf58179
 1. 飞书应用。
 2. 飞书群机器人。
 3. 通知 Webhook。
-4. `none`。控制台、API 和 MCP 会显示告警。
+4. Slack。
+5. `none`。控制台、API 和 MCP 会显示告警。
 
 段缺省时，critical 告警在配了应用时 10 分钟后加急，配了 Pushover 时 15 分钟后升级到手机。只配置了 Pushover 时，Beacon 会立即通过它发送首次 critical 告警。info 级告警在应用之外还有机器人时，走机器人。
 
 `channel: none` 时，只有单独配置的手机升级会发出通知。概览里的**严重告警通知**显示各渠道的发送时机和最近一次提交结果。演练时到接收设备上核对是否收到。
 
-设置 `public_url` 后，手机推送、群机器人消息和通知 Webhook 中的链接会通过控制台登录页打开同一个事件。自动选择 Pushover 作为唯一渠道时，首次提交失败会在一分钟后重试。
+设置 `public_url` 后，手机推送、群机器人、Slack 和通知 Webhook 消息中的链接会通过控制台登录页打开同一个事件。自动选择 Pushover 作为唯一渠道时，首次提交失败会在一分钟后重试。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（飞书群机器人）、`notification_webhook`（带签名的通知）或 `none`（告警首次触发时不发通知） |
+| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（飞书群机器人）、`notification_webhook`（带签名的通知）、`slack` 或 `none`（告警首次触发时不发通知） |
 | `escalation.critical.buzz` | 配了应用 `10m`，否则关 | 这段时间后在飞书上加急值班的人 |
 | `escalation.critical.pushover` | 配了 Pushover `15m`，否则关 | 这段时间后向手机发紧急推送 |
 | `escalation.critical.bark` | 关 | 这段时间后发 Bark 推送 |

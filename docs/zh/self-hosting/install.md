@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c5c1c7a8
+sourceHash: sha256-63190390
 ---
 
 # 装在服务器上
@@ -45,7 +45,7 @@ sourceHash: sha256-c5c1c7a8
 - **一台小机器做第一个检测点**：任何带 systemd 的 Linux，x86_64 或 arm64，有 64 MB 空闲内存即可。最好是放在用户所在地区的 VPS。第二个检测点可以直接用中心。
 - **一台给 Agent 干活的机器**，中心能连到它的 SSH 端口。用检测点那台也可以。
 - **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。要自动唤醒 Agent，还需要一个中心能够访问、可以启动 Agent 的接收端。
-- **人工通知的测试目的地**。可用接收端将[带签名的通知 Webhook](../integrations/notification-webhook.md) 转发到测试群。使用飞书或 Lark 应用时，先准备将机器人加入群聊，并审批应用版本和回调订阅。
+- **人工通知的测试目的地**。准备 [Slack 传入 Webhook](../integrations/slack.md)，或用接收端将[带签名的通知 Webhook](../integrations/notification-webhook.md)转发到测试群。使用飞书或 Lark 应用时，先准备将机器人加入群聊，并审批应用版本和回调订阅。
 
 ## 1. 安装中心 {#1-install-the-centre}
 
@@ -236,7 +236,7 @@ claude mcp login beacon
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
-**接入自己的测试群。** 自己运行接收端时，按[配置通知 Webhook](../integrations/notification-webhook.md)操作，由它转发到测试群。需要飞书或 Lark 卡片时，按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。飞书群由 `feishu.chat_id` 指定。在控制台概览的**严重告警通知**中核对所选渠道。
+**接入自己的测试群。** 使用 Slack 时，为测试频道[授权传入 Webhook](../integrations/slack.md)。自己运行接收端时，按[配置通知 Webhook](../integrations/notification-webhook.md)操作，由它转发到测试群。需要飞书或 Lark 卡片时，按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。飞书群由 `feishu.chat_id` 指定。在控制台概览的**严重告警通知**中核对所选渠道。
 
 **准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。初次测试时，把钩子的服务范围限定为 `service: '^drill$'`。使用参考部署时，新增钩子密钥文件后运行 `sudo ./install.sh`，让 Beacon 能读取它。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
 

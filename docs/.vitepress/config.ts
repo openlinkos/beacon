@@ -107,6 +107,7 @@ const parts = (zh: boolean): Part[] => {
           p('/integrations/change-events', 'Deployments and Flux', '部署与 Flux'),
           p('/integrations/feishu', 'Set up the Feishu app', '配置飞书应用'),
           p('/integrations/notification-webhook', 'Send alerts to a notification webhook', '通过通知 Webhook 发送告警'),
+          p('/integrations/slack', 'Send alerts to Slack', '将告警发送到 Slack'),
         ),
       ],
     },
