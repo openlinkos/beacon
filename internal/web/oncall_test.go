@@ -31,6 +31,16 @@ func ackForm(t *testing.T, page answer, note string) url.Values {
 	return url.Values{"expected_ack": {field[1]}, "note": {note}}
 }
 
+func alertResponse(t *testing.T, a answer) string {
+	t.Helper()
+	_, body, found := strings.Cut(a.body, `aria-labelledby="alert-response">`)
+	if a.code != http.StatusOK || !found {
+		t.Fatalf("the alert response was missing from the page with status %d", a.code)
+	}
+	body, _, _ = strings.Cut(body, "</section>")
+	return body
+}
+
 func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	owner := e.owner()
@@ -78,10 +88,23 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	if !strings.Contains(show.body, "Acknowledged by first-shift at") || !strings.Contains(show.body, "Take over") {
 		t.Fatal("Agent update displaced the first shift or omitted handover")
 	}
+	response := alertResponse(t, show)
+	for _, want := range []string{"Handover note", "Checked the failed dependency.", "Escalation is paused while this alert is acknowledged."} {
+		if !strings.Contains(response, want) {
+			t.Errorf("the takeover response lacks %q", want)
+		}
+	}
+	if strings.Contains(response, "finished initial checks") || strings.Contains(response, "Read full handover note") {
+		t.Fatal("the response added an Agent note or a disclosure for a short handover")
+	}
 	if a := second.post(post, ackForm(t, show, "Continuing the dependency investigation.")); a.header.Get("Location") != path+"?done=ack" {
 		t.Fatalf("next shift could not take over: %q", a.header.Get("Location"))
 	}
 	show = second.get(path)
+	response = alertResponse(t, show)
+	if !strings.Contains(response, "Continuing the dependency investigation.") || strings.Contains(response, "Checked the failed dependency.") {
+		t.Fatal("takeover did not replace the current handover")
+	}
 	for _, want := range []string{"Acknowledged by next-shift at", "Acknowledged by first-shift via the console",
 		"Checked the failed dependency.", "Continuing the dependency investigation.", "finished initial checks"} {
 		if !strings.Contains(show.body, want) {
@@ -92,6 +115,62 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 		if !audited(e.st, person, "ack") {
 			t.Errorf("missing durable acknowledgement for %s", person)
 		}
+	}
+}
+
+func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	viewer := e.invite(e.owner(), "duty", "oncall")
+	path := link.AlertPath(e.id)
+	g, _ := e.st.Group(e.id)
+	g.Agents[0].Status = "failed"
+	g.Agents[0].Error = "HTTP 503"
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	response := alertResponse(t, viewer.get(path))
+	for _, want := range []string{
+		"Awaiting human acknowledgement", "Notification accepted by the group bot",
+		`class="ol-status ol-status-danger" href="#timeline"><span class="ol-dot" aria-hidden="true"></span>Agent hook delivery failed.`,
+	} {
+		if !strings.Contains(response, want) {
+			t.Errorf("the response lacks %q", want)
+		}
+	}
+	actor := bridge.ActorOf(store.Principal{User: "duty", Agent: "responder"}, "mcp")
+	if _, err := e.b.Ack(context.Background(), e.id, actor, "Agent acknowledgement note"); err != nil {
+		t.Fatal(err)
+	}
+	response = alertResponse(t, viewer.get(path))
+	if !strings.Contains(response, "Awaiting a person. Agent acknowledgement") ||
+		strings.Contains(response, "Handover note") || strings.Contains(response, "Escalation is paused") {
+		t.Fatal("an Agent acknowledgement implied a human handover or paused escalation")
+	}
+
+	note := strings.Repeat("Check the upstream. ", 15) + hostile
+	if a := viewer.post(path+"/ack", ackForm(t, viewer.get(path), note)); a.header.Get("Location") != path+"?done=ack" {
+		t.Fatalf("could not acknowledge the alert: %q", a.header.Get("Location"))
+	}
+	response = alertResponse(t, viewer.get(path))
+	if !strings.Contains(response, "Read full handover note") || !strings.Contains(response, "&lt;script&gt;alert(1)&lt;/script&gt;") ||
+		strings.Contains(response, hostile) {
+		t.Fatal("the current handover does not expose its full text safely")
+	}
+	if _, err := e.b.Silence(context.Background(), e.id, time.Hour, bridge.Actor{Name: "duty", Via: "console"}, "known outage"); err != nil {
+		t.Fatal(err)
+	}
+	response = alertResponse(t, viewer.get(path))
+	if !strings.Contains(response, "Silenced until 2026-11-02 11:00:00 by duty") || strings.Contains(response, "Escalation is paused") {
+		t.Fatal("the response did not show the active silence")
+	}
+	g, _ = e.st.Group(e.id)
+	g.Status, g.ResolvedAt = "resolved", e.now
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	response = alertResponse(t, viewer.get(path))
+	if strings.Contains(response, "Handover note") || strings.Contains(response, "Agent hook delivery failed.") {
+		t.Fatal("a resolved alert showed handover or wake delivery as current")
 	}
 }
 
@@ -209,7 +288,7 @@ func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
 	}
 	show := b.get(u.RequestURI())
 	for _, want := range []string{u.Fragment, "oncall-user ran an on-demand check via the console", "0 passed, 1 failed, 1 missing",
-		"HTTP 502", "No result", `class="bc-alert-observations" open`, "Awaiting acknowledgement", "Alert delivered to hook oncall",
+		"HTTP 502", "No result", `class="bc-alert-observations" open`, "Awaiting human acknowledgement", "Alert delivered to hook oncall",
 		`<summary id="` + u.Fragment + `"><span class="ol-sr-only">On-demand check results. </span>0 passed, 1 failed, 1 missing`,
 		`id="timeline" tabindex="-1" aria-labelledby="alert-timeline"`, `src="/static/beacon-probe-result.js?v=`} {
 		if show.code != http.StatusOK || !strings.Contains(show.body, want) {

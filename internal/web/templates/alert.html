@@ -10,6 +10,7 @@
       </div>{{end}}
       {{if .When}}<p class="ol-hint">{{.When}}</p>{{end}}
       {{if .Ownership}}<p>{{.Ownership}}</p>{{end}}
+      {{if .Escalation}}<p class="ol-hint" id="escalation-effect">{{.Escalation}}</p>{{end}}
       {{if .Service}}<p class="ol-hint">{{.L.Service}} <strong>{{.Service}}</strong></p>
       {{else if .Services}}<p class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</p>{{end}}
     </div>
@@ -21,7 +22,7 @@
         {{if .Note}}<a class="ol-btn ol-btn-secondary" href="#add-note">{{iconSm "pencil"}}{{$.L.AddNote}}</a>{{end}}
       </div>
       {{if .Ack}}
-        <p class="ol-hint" id="escalation-effect">{{$.L.EscalationStops}}</p>
+        {{if not $.Escalation}}<p class="ol-hint" id="escalation-effect">{{$.L.EscalationStops}}</p>{{end}}
         <details class="bc-alert-ack-note"><summary>{{$.L.AckNote}}</summary>
           <div class="ol-stack">
             <label class="ol-sr-only" for="ack-note">{{$.L.AckNote}}</label>
@@ -32,9 +33,15 @@
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
     </div>{{end}}
+    {{if .Handover.Preview}}<div class="bc-alert-handover">
+      <h3 class="ol-label">{{.L.HandoverNote}}</h3>
+      <p class="ol-break">{{.Handover.Preview}}</p>
+      {{if .Handover.Full}}<details><summary>{{.L.FullHandoverNote}}</summary>
+        <p class="ol-text-pre ol-break">{{.Handover.Full}}</p></details>{{end}}
+    </div>{{end}}
     {{if .HookState}}<div class="ol-cluster bc-alert-signals">
-      <a class="ol-hint" href="#timeline">{{.HookState}}</a>
-      <a class="{{if .PeopleDeliveryFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{.PeopleDelivery}}</a>
+      <a class="{{if .HookFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .HookFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.HookState}}</a>
+      <a class="{{if .PeopleDeliveryFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .PeopleDeliveryFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.PeopleDelivery}}</a>
     </div>{{end}}
   </div>
   {{with .Machines}}<div class="bc-alert-machines">
@@ -113,10 +120,9 @@
 </div>
 
 <div class="ol-stack">
-  {{if or .State .Runbook .Dashboard (and .Actions .Actions.Unsilence)}}<section class="ol-panel">
+  {{if or .Runbook .Dashboard (and .Actions .Actions.Unsilence)}}<section class="ol-panel">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Details}}</h2></div>
     <div class="ol-panel-body">
-      {{range .State}}<p class="ol-hint">{{.}}</p>{{end}}
       {{with .Actions}}{{if .Unsilence}}<form method="post" action="{{.Unsilence}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="{{.Back}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "x"}}{{$.L.EndSilence}}</button></form>{{end}}{{end}}
       {{if or .Runbook .Dashboard}}<p class="ol-cluster">
         {{if .Runbook}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Runbook}}" rel="noopener noreferrer">{{.L.Runbook}}</a>{{end}}
