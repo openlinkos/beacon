@@ -6,23 +6,25 @@ What Beacon is for, what it will not do, and how to choose when goals pull apart
 
 Beacon is one piece of infrastructure for the AI era: the piece where agents run operations. Its makers build such pieces to remove what gets in the way of AI and agents at work, so that using them goes smoothly. Other pieces, such as memory that lasts across sessions, are other projects. Beacon stays in its lane.
 
-For Beacon that means: **operations are done by agents through Beacon; people watch, can stop them, and never have to do the work by hand.**
+People and agents operate through Beacon. A person can do the work directly, delegate it within their authority, and see who acted and whether the service recovered.
 
-It is measured two ways:
+Measure it in three ways:
 
 - **Coverage**: of everything agents do on machines and alerts, how much goes through Beacon. Target: all of it, with no key in any agent's hands.
 - **Closure**: of the critical alerts, how many an agent takes from being woken to a verified recovery with nobody stepping in. Target: most of them.
+- **Use by people**: how often a team does its regular work in Beacon, from registering services and connecting to machines through to incident handover. Track which jobs still send people to separate tools.
 
-Three guardrails are never traded for either: no alert lost, no credential leaked, nothing done without a record. A change that moves neither coverage nor closure, and upholds no guardrail, waits.
+Three guardrails apply throughout: no alert lost, no credential leaked, nothing done without a record. Prioritise changes that improve coverage, closure, people's work or these guardrails.
 
 ## In one sentence
 
-Beacon is the infrastructure an AI agent finds handiest when it runs operations: it sees whether services work, it reaches every machine, and it puts people and agents on one platform, all in the ways agents already work.
+Beacon is self-hosted operations infrastructure for people and the agents they delegate to, with shared monitoring, machine access, authorisation and audit.
 
-Two tests:
+Three tests:
 
 - An agent connecting for the first time, without reading anything written for Beacon and using only ssh, the shell, HTTP and MCP, can find out what is wrong in a real outage, fix it on the machine, and leave people able to see what it did.
 - Wherever Beacon runs, everything agents do in operations goes through it, and nobody ever hands a key to an agent.
+- A person can receive an alert on a phone, sign in to the same incident, connect to the affected machine under their own name, verify recovery and leave a handover. An administrator can enrol a service, see its first result, schedule maintenance and check what the public can see.
 
 ## The problem
 
@@ -48,10 +50,12 @@ Beacon offers the four in the ways agents already work, instead of a new system 
 
 ## Product goals: three pillars
 
+The deployed capabilities cover identity and delegation, SSH access, and service monitoring and alerts. Team credential custody is a fourth capability in development. Its first test is whether a person can keep a shared credential, authorise its use, trace each use and revoke the authorisation for future requests. Traceability applies to all four.
+
 | Goal | Done when (figures are targets) |
 | --- | --- |
 | **1. Sees** (monitoring): whether services work for their users, what broke and why | A critical outage reaches agents and people within 5 minutes; one probe location's hiccup disturbs nobody; every failure carries its location and its reason; one call returns the evidence |
-| **2. Reaches** (the SSH channel): agents get to every enrolled machine and work on it | ssh, scp, rsync, `ssh -L` and the MCP tools reach any enrolled machine, also behind NAT; the channel adds under 50 ms (measured: about 23 ms per new connection); agents never touch a password or a key |
+| **2. Reaches** (the SSH channel): people and agents get to enrolled machines and work on them | ssh, scp, rsync, `ssh -L` and the MCP tools reach any enrolled machine, also behind NAT; the channel adds under 50 ms (measured: about 23 ms per new connection); agents never touch a machine password or key. A session distinguishes a person acting directly from their agent |
 | **3. Connects** (the platform): people and agents share one identity and one timeline | An agent is one identity on SSH, REST and MCP, acting for a person and never beyond that person's role; a machine is enrolled once, and monitoring and the SSH channel share that identity; one timeline joins alerts, sessions, commands and notes; a new alert can wake an agent; people see in Feishu everything agents do, can replay it, and can pause agents at once |
 
 ## Design goals
@@ -81,7 +85,7 @@ The project has landed (1.0) when all three hold:
 
 1. **Where it runs**, every critical alert wakes an agent; most are closed by it, people are paged for the rest, and every operation agents do goes through Beacon.
 2. **A team elsewhere** installs Beacon in 30 minutes from the README with the reference deployment, enrols a probe, a machine and the agent program it already uses (Claude Code, Codex or another), and has the same loop running with its own chat.
-3. **People have one place to look**: from the card in the chat, one link opens the alert's timeline, each session's replay and the pause switch; people sign in with Beacon's own accounts, and there is no external sign-in.
+3. **People have one place to work**. The chat card opens the same incident in the console with evidence, recovery checks and session replays. People can act with Beacon's own accounts and grant only the access they intend. The console supports the common service setup, maintenance and SSH tasks on desktop, and the on-call actions are usable on a phone.
 
 ## When goals pull apart
 

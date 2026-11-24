@@ -1,6 +1,6 @@
 # What is Beacon
 
-Beacon is self-hosted monitoring and SSH access for the AI agents that run your servers. When a service breaks, it wakes your agent with the evidence, lets it onto the machine, and records everything it does.
+Beacon is self-hosted monitoring and SSH access for people and their AI agents. Respond in the console, connect from your terminal, or delegate to an agent. Every session has a record.
 
 - **Probes from where your users are.** Small probes check each service from several places and say why a check failed: DNS, connection, TLS, timeout or status code.
 - **Wakes your agent.** Claude Code, Codex or anything that speaks MCP or HTTP gets the alert, and the evidence in one call.

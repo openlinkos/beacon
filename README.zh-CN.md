@@ -2,7 +2,7 @@
   <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
 </h1>
 
-**为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。**
+**人和 AI Agent 共用的自托管监控与 SSH 接入。**
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
@@ -11,6 +11,8 @@
 [English](README.md) | 简体中文 · 文档：[beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)
 
 Beacon 从多个地方同时检测你的网站和服务，走的是用户访问时的那条路，并说清每次检测失败的原因：解析、连接、TLS、超时还是状态码。服务出问题时，它叫醒你的 AI Agent（Claude Code、Codex，或任何会用 MCP 或 HTTP 的 Agent），一次调用就把证据交给它：每个检测点看到了什么、故障前刚改过什么、已经有谁做过什么。Agent 经 Beacon 用自己的 `ssh` 登上服务器，或者用 Beacon 提供的执行命令、改文件的工具，把能修的修好，让各检测点立刻重测，再在告警上留一条备注。整个过程它不接触任何密码和私钥，执行的每一条命令都有记录，能在浏览器里回放。用户看状态页；值班的人在飞书里收到卡片，没人响应时手机会响。
+
+人可以在同一个控制台接手告警、接入服务、安排维护和管理 Agent 权限，也能用自己的终端连接机器，会话记在自己的账号下。团队凭据库仍在开发。
 
 > **状态：早期（0.3，预发布版）。** 检测、告警路由、飞书卡片和手机升级、带录像的 SSH 通道、唤醒 Agent、证据、按需重测、控制台和公开状态页都已打通，做它的人自己的服务器就由它管着。1.0 之前，小版本之间配置可能变化，[更新日志](CHANGELOG.md)会写清楚怎么改。
 
@@ -22,7 +24,7 @@ AI 编程 Agent 已经很会做运维活：读日志、找出配置里错的那�
 - **要碰服务器，就得给它你的密钥**。通常的做法是把 SSH 私钥或 root 密码交给 Agent。从此它能从任何地方进这些密钥能开的每一台机器，执行了什么没有任何记录。
 - **事后说不清发生了什么**。Agent 的命令在一个没人看的终端里滚过去了。想复盘只能问 Agent，而它在会话之间什么都不记得。
 
-Beacon 的设计是让 Agent 干活，让人看得见全部：
+人和 Agent 共用同一套运维能力：
 
 - **从用户所在的地方检测**。一个不到 20 MB 的检测程序，装在任何小机器上，检测 HTTP、TLS、TCP、镜像仓库、Git 和域名到期，并记下每次失败的原因。只有多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。
 - **叫醒 Agent 时证据一并给齐**。签名的 webhook 或 GitHub workflow 叫醒你指定的 Agent。一次 `get_evidence` 调用返回每个检测点的结果、同一故障域里的其他告警、故障前刚做的部署，以及人和 Agent 已经做过的事。

@@ -1,10 +1,10 @@
 ---
-sourceHash: sha256-af4e17f5
+sourceHash: sha256-aa1b8d57
 ---
 
 # Beacon 是什么
 
-Beacon 为管理服务器的 AI Agent 提供自托管的监控和 SSH 接入。服务出问题时，它带着证据叫醒你的 Agent，让它登上机器，并记下它做的每一件事。
+Beacon 为人和 AI Agent 提供共用的自托管监控与 SSH 接入。你可以在控制台处理告警、从终端上机，也可以委托 Agent。每次会话都有记录。
 
 - **从用户所在的地方检测**。小巧的检测程序从多个地方检测每个服务，并说清失败的原因：解析、连接、TLS、超时还是状态码。
 - **叫醒你的 Agent**。Claude Code、Codex，或任何会用 MCP 或 HTTP 的 Agent，收到告警，一次调用拿到证据。
