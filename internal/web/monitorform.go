@@ -40,6 +40,7 @@ type monitorFormPage struct {
 	Form, Monitors, Config      string
 	Scopes, Modules, Severities []option
 	Remove                      string
+	ScopeName                   string
 }
 
 func (s *Server) monitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
@@ -171,6 +172,12 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 	}
 	for i := range p.Scopes {
 		p.Scopes[i].Selected = p.Scopes[i].Value == in.Scope
+		if p.Scopes[i].Selected {
+			p.ScopeName = p.Scopes[i].Label
+		}
+	}
+	if p.ScopeName == "" {
+		p.ScopeName = in.Scope
 	}
 	if in.Severity == "" {
 		in.Severity = "warning"
