@@ -35,7 +35,7 @@ From top to bottom, a page shows:
 
 - **The overall state** in one line: all systems operational, a component down or partly down, maintenance in progress, or no data yet.
 - **Active incidents**, with their updates; **maintenance**, ongoing and scheduled.
-- **Components**, each with its state now and a bar of the last 90 days (on a phone, the last 30 days). One cell is a day: operational, partial outage, outage, maintenance or no data. Each cell's title gives the date and the share of the day it was available.
+- **Components**, each with its state now and a bar of the last 90 days (on a phone, the last 30 days). One cell is a day: operational, partial outage, outage, maintenance or no data. Open **Daily history** to read each date, state and availability across all 90 days on any screen.
 - **The last 30 days**: the incidents and maintenance that ended, each linking to its own page (`/status/<name>/incidents/<id>`).
 - **The probe locations** by their public names, and **Sign in** to the console.
 

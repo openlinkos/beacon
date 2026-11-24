@@ -59,6 +59,10 @@
       {{if .Description}}<span class="ol-list-meta">{{.Description}}</span>{{end}}
       <div class="ol-uptime ol-uptime-lg bc-uptime" role="img" aria-label="{{.Strip}}">{{range .Cells}}<span{{if .Class}} class="{{.Class}}"{{end}} title="{{.Title}}"></span>{{end}}</div>
       <span class="ol-list-meta bc-uptime-axis"><span class="bc-axis-90">{{$.L.DaysAgo 90}}</span><span class="bc-axis-30">{{$.L.DaysAgo 30}}</span><span>{{if .Avail}}{{$.L.Available .Avail}}{{else}}{{$.L.NoData}}{{end}}</span><span>{{$.L.Today}}</span></span>
+      {{if .Cells}}<details class="ol-details bc-history">
+        <summary aria-label="{{$.L.DailyHistoryFor .Title}}">{{$.L.DailyHistory}}</summary>
+        <ul class="bc-history-days" role="list">{{range .RecentDays}}<li>{{.Title}}</li>{{end}}</ul>
+      </details>{{end}}
     </li>{{end}}
     </ul>
   </div>{{end}}

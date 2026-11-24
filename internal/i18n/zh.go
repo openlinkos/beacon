@@ -511,6 +511,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Legend":                                                           "图例",
 	"All updates":                                                      "全部进展",
 	"Today":                                                            "今天",
+	"Daily history":                                                    "逐日记录",
+	"Daily history for %s":                                             "逐日记录（%s）",
 	"From":                                                             "从",
 	"Until":                                                            "至",
 	"%s%%":                                                             "%s%%",

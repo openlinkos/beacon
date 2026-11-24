@@ -371,6 +371,13 @@ type componentView struct {
 
 type cellView struct{ Class, Title string }
 
+// RecentDays lists the same days as the strip with the most recent first.
+func (c componentView) RecentDays() []cellView {
+	days := slices.Clone(c.Cells)
+	slices.Reverse(days)
+	return days
+}
+
 type incidentView struct {
 	ID, Title, Href, Tone, Impact, State string
 	ImpactTone                           string

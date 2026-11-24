@@ -28,7 +28,7 @@ type statusLabels struct {
 	Operational, Degraded, Down, InMaintenance, NoData, Resolved  string
 	Detected, Acknowledged, Update, ByAgent, ByPerson, Affected   string
 	Started, Ended, Lasted, Back, Subscribe, JSONLink, Home, Docs string
-	Abuse, Privacy, Legend, AllUpdates, Today                     string
+	Abuse, Privacy, Legend, AllUpdates, Today, DailyHistory       string
 	From, Until, Locations                                        string
 }
 
@@ -47,7 +47,8 @@ func statusLabelsIn(l i18n.Lang) statusLabels {
 		Abuse: i18n.T(l, "Report abuse"), Privacy: i18n.T(l, "Privacy"),
 		Legend:     i18n.T(l, "Legend"),
 		AllUpdates: i18n.T(l, "All updates"), Today: i18n.T(l, "Today"),
-		From: i18n.T(l, "From"), Until: i18n.T(l, "Until"), Locations: i18n.T(l, "Probe locations"),
+		DailyHistory: i18n.T(l, "Daily history"),
+		From:         i18n.T(l, "From"), Until: i18n.T(l, "Until"), Locations: i18n.T(l, "Probe locations"),
 	}
 }
 
@@ -72,6 +73,10 @@ func (s statusLabels) strip(days int, avail string, down, degraded, maint int) s
 
 func (s statusLabels) HistoryIn(tz string) string {
 	return i18n.T(s.l, "The last 90 days, a day each; days begin at midnight in %s.", tz)
+}
+
+func (s statusLabels) DailyHistoryFor(title string) string {
+	return i18n.T(s.l, "Daily history for %s", title)
 }
 
 func (s statusLabels) updatedAt(t string) string { return i18n.T(s.l, "Updated %s", t) }
