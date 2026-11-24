@@ -29,7 +29,7 @@ sourceHash: sha256-81c68ebe
 
 Agent 能做的永远不超过其所有者的角色。一个 scope，要**预设**或自定义清单给了它、*且*其所有者的角色也给了，Agent 才能用。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
 
-没有预设给 `accounts:write`。Agent 要管人，只能是所有者以自定义 Agent 的方式给了它这个 scope：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。
+只有所有者账号、独立管理令牌和本机命令行可以管理成员账号。即使旧的自定义权限包含 `accounts:write`，Agent 身份也不能用它管理成员账号或 Agent 身份。
 
 | 预设 | 它要的 scope | 谁的 Agent 拿到它 |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `incidents:write` | operator 及以上 | 为手工写事件预留；还没有路径用它 |
 | `machines:write` | operator 及以上 | 增删改机器、连接器密钥、暂停 Agent 的访问 |
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
-| `accounts:write` | owner；无预设 | 管理人和所有人的 Agent；只有 owner，且只能手工给 |
+| `accounts:write` | 所有者账号或独立管理令牌 | 管理成员账号和所有人的 Agent |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |
 | `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本 |

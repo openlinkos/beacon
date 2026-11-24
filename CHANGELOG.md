@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Account and Agent identity administration now requires an owner account, a standalone administration token or the local command line. A delegated Agent can still manage its own SSH keys within its existing access.
+
 ## 0.3.0
 
 ### rc.25 (2026-11-25)

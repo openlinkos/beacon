@@ -8,7 +8,7 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// People and the caller's SSH keys. Managing accounts needs accounts:write (an owner's): listing them,
+// People and the caller's SSH keys. Managing accounts needs a standalone administration token with accounts:write: listing them,
 // inviting people, changing roles, disabling, making password reset links. Any credential with
 // machines:ssh manages its own SSH keys: an agent's are its agent's, shown to its owner.
 

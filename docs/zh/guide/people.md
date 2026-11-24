@@ -223,7 +223,7 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 
 `ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`。预设是 `readonly`、`oncall`、`operator` 或 `custom`。每个子命令和参数见命令行参考：[命令行](../reference/cli.md)。
 
-同样的操作在 REST API 的 `/api/v1/users` 和 `/api/v1/agents` 下（[REST API](../reference/api.md#people-and-ssh-keys)）。管人的账号需要 `accounts:write`，没有任何预设给出它。改角色、停用成员和重置密码不经 MCP 提供。
+同样的操作在 REST API 的 `/api/v1/users` 和 `/api/v1/agents` 下（[REST API](../reference/api.md#people-and-ssh-keys)）。以所有者账号或独立管理令牌管理成员账号需要 `accounts:write`。Agent 凭据可以在现有 SSH 权限内管理自己的 SSH 密钥。改角色、停用成员和重置密码不经 MCP 提供。
 
 ## 安全 {#security}
 

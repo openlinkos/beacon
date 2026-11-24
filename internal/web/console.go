@@ -64,7 +64,7 @@ func (v *viewer) hasAny(scopes string) bool {
 func (v *viewer) person() bool { return v != nil && v.Account != nil }
 
 // owner reports whether the viewer manages people and everyone's agents.
-func (v *viewer) owner() bool { return v.has("accounts:write") }
+func (v *viewer) owner() bool { return v.has("accounts:write") && v.Principal.Agent == "" }
 
 // name is how the audit log names the viewer.
 func (v *viewer) name() string { return v.Principal.Name() }

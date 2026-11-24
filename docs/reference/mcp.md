@@ -130,7 +130,7 @@ The public status pages are made from the alert groups and the maintenance windo
 | `list_ssh_keys` | `machines:ssh` | Your SSH keys |
 | `remove_ssh_key` | `machines:ssh` | Remove one of your keys (`fingerprint`); connections signed in with it are closed |
 
-No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant that scope, even one that holds it. Changing roles, disabling people and password resets are not MCP tools. They are for people, on the console or the centre.
+Account administration tools require an owner credential issued independently of any Agent. Existing custom Agent credentials with `accounts:write` cannot administer accounts or Agent identities. Agents with SSH access can manage their own SSH keys. People change roles, disable accounts and reset passwords in the console, through REST or on the centre.
 
 ## Your token
 

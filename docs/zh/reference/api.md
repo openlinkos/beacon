@@ -58,7 +58,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `machines:write` | 添加、修改和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
-| `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
+| `accounts:write` | 管理成员账号和所有人的 Agent，供所有者账号或独立管理令牌使用 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
 | `probe:write` | 检测点：推送结果，获取它的检测目标、检测模块和设置，按需重测。只能以它自己的检测点身份写入 |
@@ -173,7 +173,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[邀请你的团队](../guide/people.md)）。
 
-没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。重设密码没有 MCP 工具。
+管理成员账号和 Agent 身份需要所有者账号、持有 `accounts:write` 的独立管理令牌，或本机管理命令行。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理这些身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。重设密码没有 MCP 工具。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |

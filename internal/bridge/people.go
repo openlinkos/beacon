@@ -180,13 +180,14 @@ func (b *Bridge) caller(who Actor) (store.Principal, bool) {
 	return b.d.Store.PrincipalWith(who.Key, who.Cred)
 }
 
-// admin reports whether who may manage everyone: the command line, or accounts:write.
+// admin reports whether who may manage identities: the local command line, an owner account, or a
+// standalone token with accounts:write. Agents handle their own credentials through separate methods.
 func (b *Bridge) admin(who Actor) bool {
 	if who.Via == "cli" && who.Key == "" {
 		return true
 	}
 	p, ok := b.caller(who)
-	return ok && p.Has("accounts:write")
+	return ok && p.Agent == "" && p.Has("accounts:write")
 }
 
 // mayManage reports whether who may manage the agents of owner: an admin, or owner themself.
@@ -196,17 +197,6 @@ func (b *Bridge) mayManage(who Actor, owner string) bool {
 	}
 	p, ok := b.caller(who)
 	return ok && p.Person() && p.User == owner
-}
-
-// maySetCustom reports whether who may choose an agent's custom scopes: the command line, or a person
-// or a legacy token with accounts:write. An agent never may, not even one that holds accounts:write,
-// and not on itself.
-func (b *Bridge) maySetCustom(who Actor) bool {
-	if who.Via == "cli" && who.Key == "" {
-		return true
-	}
-	p, ok := b.caller(who)
-	return ok && p.Agent == "" && p.Has("accounts:write")
 }
 
 // withinCaller reports whether who may give an agent these scopes and machines. The command line may.
@@ -267,7 +257,7 @@ func grantWidens(before store.Agent, scopes, machines []string) bool {
 // people (store.PeopleScopes), each within the agent's owner's role, and, except for the command line,
 // each a scope the caller itself holds. It changes nothing.
 func (b *Bridge) checkCustom(who Actor, owner store.Account, scopes []string) error {
-	if !b.maySetCustom(who) {
+	if !b.admin(who) {
 		return fmt.Errorf("%w: custom scopes need accounts:write from a person or the command line, never an agent", ErrForbidden)
 	}
 	if len(scopes) == 0 {
@@ -320,7 +310,7 @@ func (b *Bridge) userView(a store.Account) UserView {
 // Users lists the accounts and the pending invitations; for an admin only.
 func (b *Bridge) Users(who Actor) ([]UserView, []LinkView, error) {
 	if !b.admin(who) {
-		return nil, nil, fmt.Errorf("%w: listing people needs accounts:write", ErrForbidden)
+		return nil, nil, fmt.Errorf("%w: listing people needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	users := []UserView{}
 	for _, a := range b.d.Store.Accounts() {
@@ -348,7 +338,7 @@ func (b *Bridge) User(who Actor, username string) (UserView, error) {
 // Invite makes an invitation to join with role, valid for a day; the link is shown only now.
 func (b *Bridge) Invite(ctx context.Context, who Actor, role, note string) (LinkView, error) {
 	if !b.admin(who) {
-		return LinkView{}, fmt.Errorf("%w: inviting people needs accounts:write", ErrForbidden)
+		return LinkView{}, fmt.Errorf("%w: inviting people needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	code, l, err := b.d.Store.CreateInvitation(role, note, who.Name)
 	if err != nil {
@@ -377,7 +367,7 @@ func (b *Bridge) WithdrawInvitation(ctx context.Context, who Actor, id string) e
 // or a disabled account limits their sessions and agents at once; Beacon always keeps an enabled owner.
 func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch UserChange) (UserView, error) {
 	if !b.admin(who) {
-		return UserView{}, fmt.Errorf("%w: changing people needs accounts:write", ErrForbidden)
+		return UserView{}, fmt.Errorf("%w: changing people needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	before, ok := b.d.Store.Account(username)
 	if !ok {
@@ -431,7 +421,7 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 // ResetLink makes a one-time link, valid 30 minutes, with which username chooses a new password.
 func (b *Bridge) ResetLink(ctx context.Context, who Actor, username string) (LinkView, error) {
 	if !b.admin(who) {
-		return LinkView{}, fmt.Errorf("%w: resetting a password needs accounts:write", ErrForbidden)
+		return LinkView{}, fmt.Errorf("%w: resetting a password needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	code, l, err := b.d.Store.CreateResetLink(username, who.Name)
 	if err != nil {
@@ -805,7 +795,7 @@ func (b *Bridge) RevokeGrant(ctx context.Context, who Actor, id string) error {
 // ClaimToken makes a legacy token an agent's of owner (an admin only): see store.ClaimToken.
 func (b *Bridge) ClaimToken(ctx context.Context, who Actor, token, owner, agent, preset string) (AgentView, error) {
 	if !b.admin(who) {
-		return AgentView{}, fmt.Errorf("%w: claiming tokens needs accounts:write", ErrForbidden)
+		return AgentView{}, fmt.Errorf("%w: claiming tokens needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	if preset != "" && preset != store.PresetCustom && !store.ValidPreset(preset) {
 		return AgentView{}, fmt.Errorf("%w: unknown preset %q", ErrBadInput, preset)

@@ -134,7 +134,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
 
-没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予这个作用域，哪怕自己持有。修改角色、停用成员和重设密码都不是 MCP 工具。那是人的事，在控制台或中心上做。
+账号管理工具需要独立于 Agent 签发的所有者管理凭据。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理成员账号或 Agent 身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。成员可通过控制台、REST 或中心命令行更改角色、停用账号和重设密码。
 
 ## 你的令牌 {#your-token}
 

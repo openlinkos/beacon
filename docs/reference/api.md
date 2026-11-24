@@ -54,7 +54,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
-| `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
+| `accounts:write` | Managing accounts and everyone's agents, for owner accounts and standalone administration tokens |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
 | `probe:write` | A probe location: pushing results, fetching its targets, modules and settings, probing on demand. Writes only as its own location |
@@ -169,7 +169,7 @@ The public pages themselves need no token ([below](#other-routes-on-port-17001))
 
 The people who sign in to Beacon, for an owner's credential, and the caller's own SSH keys for the SSH channel ([Invite your team](../guide/people.md)).
 
-No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant it, even one that holds it. Password resets have no MCP tool.
+Account and Agent administration requires an owner account, an independent token with `accounts:write`, or the local administrator command line. An Agent credential cannot administer accounts or Agent identities, even when an older custom scope includes `accounts:write`. Agents with SSH access can manage their own SSH keys. Password resets have no MCP tool.
 
 | Route | Scope | What |
 | --- | --- | --- |

@@ -2008,7 +2008,7 @@ paths:
   /users:
     get:
       summary: The people who sign in to Beacon, and the invitations not yet used
-      description: "Scope: accounts:write (an owner's)."
+      description: "Scope: accounts:write, held by a standalone administration token."
       responses:
         "200":
           description: The people and the invitations
@@ -2024,7 +2024,7 @@ paths:
     post:
       summary: Invite a person
       description: >-
-        Scope: accounts:write. A one-time link, valid for 24 hours, with which the person joins with the role,
+        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 24 hours, with which the person joins with the role,
         choosing their username and password. The link is in the answer only; Beacon keeps a hash of its code.
         Audited (user_invite) and echoed to the alert chat, without the link.
       requestBody:
@@ -2048,7 +2048,7 @@ paths:
     patch:
       summary: Change a person's role, display name or contact, or disable or enable them
       description: >-
-        Scope: accounts:write. A lowered role or a disabled account limits the person's sessions and agents
+        Scope: accounts:write, held by a standalone administration token. A lowered role or a disabled account limits the person's sessions and agents
         at once (their SSH sessions that may no longer reach a machine are closed); Beacon always keeps an
         enabled owner (user.last_owner, 409). Audited (user_role, user_disable, user_enable, user_update) and
         echoed to the alert chat.
@@ -2076,7 +2076,7 @@ paths:
     post:
       summary: Make a password reset link for a person
       description: >-
-        Scope: accounts:write. A one-time link, valid for 30 minutes, with which the person chooses a new
+        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 30 minutes, with which the person chooses a new
         password; their sign-ins end then. Not offered over MCP. Audited (user_reset_link) and echoed to the
         alert chat, without the link.
       parameters:

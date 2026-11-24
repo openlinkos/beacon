@@ -179,11 +179,11 @@ func TestCustomScopes(t *testing.T) {
 		t.Fatalf("an agent changes scopes: %v", err)
 	}
 	machines := []string{"edge-1"}
-	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Machines: &machines}); err != nil {
-		t.Fatalf("an agent changes machines only: %v", err)
+	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Machines: &machines}); !errors.Is(err, bridge.ErrForbidden) {
+		t.Fatalf("an agent changed another agent's machines: %v", err)
 	}
-	if a, _ := e.Store.Agent("ops"); !slices.Equal(a.Scopes, []string{"config:write", "status:read"}) || !slices.Equal(a.Machines, []string{"edge-1"}) {
-		t.Fatalf("machines-only changed the scopes: %+v", a)
+	if a, _ := e.Store.Agent("ops"); !slices.Equal(a.Scopes, []string{"config:write", "status:read"}) || len(a.Machines) != 0 {
+		t.Fatalf("a refused edit changed the agent: %+v", a)
 	}
 
 	secret := e.Token(t, "owner-script", store.PeopleScopes...)
@@ -298,7 +298,7 @@ func TestGrantWithinCaller(t *testing.T) {
 	agent := bridge.ActorOf(ap, "api")
 	before, _ = e.Store.Agent("admin-bot")
 	audits, chats = len(e.Store.AuditLog(1000)), len(e.Bot.Texts)
-	if _, err := e.Bridge.UpdateAgent(ctx, agent, "admin-bot", bridge.AgentUpdate{Preset: &op}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "you do not hold it") {
+	if _, err := e.Bridge.UpdateAgent(ctx, agent, "admin-bot", bridge.AgentUpdate{Preset: &op}); !errors.Is(err, bridge.ErrForbidden) {
 		t.Fatalf("an agent widens itself: %v", err)
 	}
 	sameAgent(t, e, "admin-bot", before)

@@ -25,7 +25,7 @@ A person's role, weakest first. Each may do what the one before it may, and more
 
 An agent never does more than its owner's role allows. It may use a scope when its **preset**, or its custom list, gives it *and* its owner's role does too. A caller never gives an agent a scope or a machine it does not hold itself.
 
-No preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent: in the console, through the API or MCP, or on the command line. An agent cannot grant it, even one that holds it.
+Owner accounts, standalone administration tokens and the local command line administer accounts. An Agent identity cannot use `accounts:write` for account or Agent administration, including when an older custom scope contains it.
 
 | Preset | Scopes it asks for | Whose agents get it |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `incidents:write` | operator and above | Reserved for incidents written by hand; no route takes it yet |
 | `machines:write` | operator and above | Adding, changing and removing machines, connector keys, pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
-| `accounts:write` | owner; no preset | Managing people and everyone's agents; an owner's, by hand only |
+| `accounts:write` | owner account or standalone administration token | Managing people and everyone's agents |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
 | `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success |

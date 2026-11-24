@@ -56,7 +56,7 @@ type (
 
 func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_users", Title: "List people", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
-		Description: "The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used. Needs accounts:write."},
+		Description: "The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used. Needs a standalone token with accounts:write."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, usersOut, error) {
 			who, err := need(ctx, "accounts:write")
 			if err != nil {
@@ -68,7 +68,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "invite_user", Title: "Invite a person",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs accounts:write. Recorded and echoed to the alert chat (without the link)."},
+		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write. Recorded and echoed to the alert chat (without the link)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in inviteIn) (*mcp.CallToolResult, bridge.LinkView, error) {
 			who, err := need(ctx, "accounts:write")
 			if err != nil {
