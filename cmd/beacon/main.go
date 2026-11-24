@@ -643,7 +643,12 @@ func routerConfig(c config.Routing) (router.Config, error) {
 		if err != nil {
 			return out, err
 		}
-		out.Routes = append(out.Routes, router.Route{Match: m, GroupBy: r.GroupBy})
+		route := router.Route{Match: m, GroupBy: r.GroupBy}
+		if r.GroupWait != nil {
+			wait := r.GroupWait.D()
+			route.GroupWait = &wait
+		}
+		out.Routes = append(out.Routes, route)
 	}
 	for _, in := range c.Inhibit {
 		src, err := router.CompileLabels(in.Source)

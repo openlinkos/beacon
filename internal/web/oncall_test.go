@@ -20,6 +20,7 @@ import (
 )
 
 var expectedAck = regexp.MustCompile(`name="expected_ack" value="([0-9a-f]+)"`)
+var ackNoteSubmit = regexp.MustCompile(`id="ack-note"[^>]*></textarea>\s*<button type="submit" form="alert-ack"[^>]*>([^<]+)</button>`)
 
 func ackForm(t *testing.T, page answer, note string) url.Values {
 	t.Helper()
@@ -38,13 +39,20 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	reader := e.invite(owner, "reader", "viewer")
 	path := link.AlertPath(e.id)
 	post := path + "/ack"
-	stale := ackForm(t, second.get(path), "")
+	unclaimed := second.get(path)
+	stale := ackForm(t, unclaimed, "A note from an earlier view.")
+	if m := ackNoteSubmit.FindStringSubmatch(unclaimed.body); len(m) != 2 || m[1] != "Acknowledge with note" {
+		t.Fatalf("no form submit after the acknowledgement note: %q", m)
+	}
 
 	who := bridge.ActorOf(store.Principal{User: "first-shift", Agent: "responder"}, "mcp")
 	if _, err := e.b.Ack(context.Background(), e.id, who, "looking into it"); err != nil {
 		t.Fatal(err)
 	}
 	show := first.get(path)
+	if m := ackNoteSubmit.FindStringSubmatch(show.body); len(m) != 2 || m[1] != "Take over with note" {
+		t.Fatalf("no form submit after the takeover note: %q", m)
+	}
 	for _, want := range []string{"Agent acknowledgement from first-shift / responder", "Take over",
 		"A hook accepted the alert. Check the timeline for Agent activity.", "Notification accepted by the group bot"} {
 		if !strings.Contains(show.body, want) {
@@ -56,6 +64,9 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	}
 	if a := second.post(post, stale); a.header.Get("Location") != path+"?error=ack_changed" {
 		t.Fatalf("stale form redirected to %q", a.header.Get("Location"))
+	}
+	if a := first.get(path); strings.Contains(a.body, stale.Get("note")) {
+		t.Fatal("a note from a stale takeover was saved")
 	}
 	if a := first.post(post, ackForm(t, show, "Checked the failed dependency.")); a.header.Get("Location") != path+"?done=ack" {
 		t.Fatalf("first shift could not claim it: %q", a.header.Get("Location"))

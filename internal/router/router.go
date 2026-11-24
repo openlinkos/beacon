@@ -44,10 +44,11 @@ type Config struct {
 	Inhibit        []Inhibit
 }
 
-// Route changes the grouping of the alerts it matches; the first matching route wins.
+// Route can override grouping and the initial wait; the first matching route wins.
 type Route struct {
-	Match   Labels
-	GroupBy []string
+	Match     Labels
+	GroupBy   []string
+	GroupWait *time.Duration
 }
 
 // Inhibit mutes target alerts while a source alert fires with the same values of the Equal labels.
@@ -192,7 +193,7 @@ func (r *Router) Ingest(in []Postable) error {
 		if a.endsAt.IsZero() {
 			a.endsAt = now.Add(r.cfg.ResolveTimeout)
 		}
-		if key, labels := r.groupOf(a.labels); r.groups[key] == nil && now.Before(a.endsAt) {
+		if key, labels, _ := r.groupOf(a.labels); r.groups[key] == nil && now.Before(a.endsAt) {
 			r.groups[key] = &group{key: key, labels: labels, firstSeen: now} // group_wait counts from here
 		}
 	}
@@ -225,20 +226,27 @@ func (r *Router) Restore(groups []store.Group) {
 		if len(members) == 0 {
 			continue
 		}
-		key, labels := r.groupOf(members[0].labels)
+		key, labels, _ := r.groupOf(members[0].labels)
 		r.groups[key] = &group{key: key, labels: labels, firstSeen: g.StartsAt, lastSent: now, notified: true,
 			sentHash: hashOf(members, map[string]bool{}, now)}
 	}
 }
 
-// groupOf is the group key and group labels of an alert.
-func (r *Router) groupOf(labels map[string]string) (string, map[string]string) {
+// groupOf is the group key, labels and initial wait for an alert.
+func (r *Router) groupOf(labels map[string]string) (string, map[string]string, time.Duration) {
 	by, route := r.cfg.GroupBy, -1
+	wait := r.cfg.GroupWait
 	for i, rt := range r.cfg.Routes {
 		if rt.Match.match(labels) {
-			route = i
+			// A wait-only route joins the existing group, so changing its timer preserves its incident ID.
+			if len(rt.GroupBy) > 0 || rt.GroupWait == nil {
+				route = i
+			}
 			if len(rt.GroupBy) > 0 {
 				by = rt.GroupBy
+			}
+			if rt.GroupWait != nil {
+				wait = *rt.GroupWait
 			}
 			break
 		}
@@ -255,7 +263,7 @@ func (r *Router) groupOf(labels map[string]string) (string, map[string]string) {
 	if route >= 0 {
 		prefix = fmt.Sprintf("{}/{route=%d}", route)
 	}
-	return prefix + ":{" + strings.Join(parts, ",") + "}", gl
+	return prefix + ":{" + strings.Join(parts, ",") + "}", gl, wait
 }
 
 // muted reports whether a firing alert is inhibited by another firing alert or matched by an active silence.
@@ -344,32 +352,42 @@ func (r *Router) Flush(ctx context.Context) {
 			muted[a.fp] = true
 		}
 	}
-	members := map[string][]*alert{}
+	type groupMembers struct {
+		alerts []*alert
+		wait   time.Duration
+		live   bool
+	}
+	members := map[string]groupMembers{}
 	for _, a := range r.alerts {
-		key, labels := r.groupOf(a.labels)
-		members[key] = append(members[key], a)
+		key, labels, wait := r.groupOf(a.labels)
+		m := members[key]
+		m.alerts = append(m.alerts, a)
+		if now.Before(a.endsAt) && !muted[a.fp] {
+			if !m.live || wait < m.wait {
+				m.wait = wait
+			}
+			m.live = true
+		}
+		members[key] = m
 		if r.groups[key] == nil {
 			r.groups[key] = &group{key: key, labels: labels, firstSeen: now}
 		}
 	}
 	for key, g := range r.groups {
-		ms := members[key]
+		m := members[key]
+		ms := m.alerts
 		sort.Slice(ms, func(i, j int) bool { return ms[i].fp < ms[j].fp })
-		live := false // a firing alert that is not muted
-		for _, a := range ms {
-			live = live || (now.Before(a.endsAt) && !muted[a.fp])
-		}
 		h := hashOf(ms, muted, now)
 		switch {
 		case now.Before(g.retryAt):
 			continue
-		case live && !g.notified && now.Sub(g.firstSeen) < r.cfg.GroupWait:
+		case m.live && !g.notified && now.Sub(g.firstSeen) < m.wait:
 			continue // wait for more alerts of the group
-		case live && (!g.notified || (h != g.sentHash && now.Sub(g.lastSent) >= r.cfg.GroupInterval)):
+		case m.live && (!g.notified || (h != g.sentHash && now.Sub(g.lastSent) >= r.cfg.GroupInterval)):
 			due = append(due, send{g: g, hook: r.webhook(g, ms, muted, now, "firing"), hash: h})
-		case !live && g.notified && !anyFiring(ms, now):
+		case !m.live && g.notified && !anyFiring(ms, now):
 			due = append(due, send{g: g, hook: r.webhook(g, ms, muted, now, "resolved"), hash: h, done: true})
-		case !live && !g.notified && !anyFiring(ms, now):
+		case !m.live && !g.notified && !anyFiring(ms, now):
 			r.forget(g, ms) // fired and resolved (or stayed muted) before it was ever sent
 		}
 	}
@@ -384,7 +402,7 @@ func (r *Router) Flush(ctx context.Context) {
 		} else {
 			d.g.lastSent, d.g.sentHash, d.g.notified = now, d.hash, true
 			if d.done {
-				r.forget(d.g, members[d.g.key])
+				r.forget(d.g, members[d.g.key].alerts)
 			}
 		}
 		r.mu.Unlock()

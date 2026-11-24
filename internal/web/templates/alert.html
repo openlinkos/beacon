@@ -18,7 +18,11 @@
       {{if .Ack}}
         <p class="ol-hint" id="escalation-effect">{{$.L.EscalationStops}}</p>
         <details class="bc-alert-ack-note"><summary>{{$.L.AckNote}}</summary>
-          <label class="ol-sr-only" for="ack-note">{{$.L.AckNote}}</label><textarea form="alert-ack" class="ol-textarea" id="ack-note" name="note" rows="2" maxlength="2000"></textarea>
+          <div class="ol-stack">
+            <label class="ol-sr-only" for="ack-note">{{$.L.AckNote}}</label>
+            <textarea form="alert-ack" class="ol-textarea" id="ack-note" name="note" rows="2" maxlength="2000"></textarea>
+            <button type="submit" form="alert-ack" class="ol-btn ol-btn-secondary" aria-describedby="escalation-effect">{{if .TakeOver}}{{$.L.TakeOverWithNote}}{{else}}{{$.L.AckWithNote}}{{end}}</button>
+          </div>
         </details>
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}

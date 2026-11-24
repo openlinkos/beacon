@@ -125,6 +125,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Acknowledged by %s":                              "%s 已认领",
 	"Awaiting a person. %s":                           "等待值班人认领。%s",
 	"Take over":                                       "接手",
+	"Take over with note":                             "接手并备注",
 	"The acknowledgement changed. Review who is responding and try again.": "认领状态已变化。请查看当前处置人后重试。",
 	"Acknowledging stops escalation while the alert is acknowledged.":      "告警被认领期间，暂停向人升级通知。",
 	"Probe again now":                                          "立即复测",

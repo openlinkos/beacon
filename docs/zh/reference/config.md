@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f691866b
+sourceHash: sha256-5d0d5546
 ---
 
 # config.yaml
@@ -59,8 +59,9 @@ sourceHash: sha256-f691866b
 | `routing.group_wait` | 时长 | `30s` | 一组的第一条告警之后，先等更多告警再发卡片 |
 | `routing.group_interval` | 时长 | `2m` | 之后至多按这个频率更新卡片 |
 | `routing.resolve_timeout` | 时长 | `5m` | 规则引擎不再发送的告警在这之后转为恢复 |
-| `routing.routes.match` | 标签到正则的映射 | — | 路由匹配什么；第一个匹配的路由改变分组 |
+| `routing.routes.match` | 标签到正则的映射 | — | 第一个匹配的路由可以覆盖分组与首次等待时长 |
 | `routing.routes.group_by` | 标签名列表 | — | 该路由自己的分组，多个服务合一张卡 |
+| `routing.routes.group_wait` | 时长 | `routing.group_wait` | 匹配告警的首次等待时长。`0s` 表示在路由器下一次运行时发送。只设置等待时长会沿用已有分组键。按组内已触发且未被静默或抑制的告警取最短等待时长 |
 | `routing.inhibit.source` | 标签到正则的映射 | — | 源告警触发期间 |
 | `routing.inhibit.target` | 标签到正则的映射 | — | `equal` 标签取值相同的目标告警被静默 |
 | `routing.inhibit.equal` | 标签名列表 | — | 必须取值相同的标签 |

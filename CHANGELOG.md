@@ -4,10 +4,15 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
-- The reference and trial installers and the probe package now default to the same published version. The reference deployment includes a CI drill from a clean Linux installation through two probes, MCP, recorded SSH and recovery.
-- The reference ServiceDown rule evaluates the required probe quorum directly, without waiting for the intermediate availability metrics to be written back between evaluations.
-
 ## 0.3.0
+
+### rc.27 (2026-11-25)
+
+- The reference and trial installers and the probe package now default to the same published version. The reference deployment includes a CI drill from a clean Linux installation through two probes, MCP, recorded SSH and recovery.
+- The reference ServiceDown rule evaluates the required probe quorum directly every ten seconds. It retains the existing data delay allowance, probe quorum and hold time.
+- Alert routes can shorten the initial group wait. An override that only changes the wait preserves the incident ID and its timeline.
+- Acknowledge or take over an alert with a handover note using the button immediately after the note field.
+- The backup guide restores the latest separately retained team credential anchor before startup and skips the older anchor from the database archive.
 
 ### rc.26 (2026-11-25)
 

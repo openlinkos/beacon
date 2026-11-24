@@ -139,6 +139,66 @@ func TestRouteGroupsAcrossServicesAndIntervals(t *testing.T) {
 	}
 }
 
+func TestRouteGroupWaitKeepsIncidentIdentity(t *testing.T) {
+	critical := down("git")
+	warning := down("registry")
+	warning["severity"] = "warning"
+	plain := newEnv(t, base)
+	key, _, _ := plain.r.groupOf(critical)
+
+	cfg := base
+	match, err := CompileLabels(map[string]string{"alertname": "ServiceDown", "severity": "critical"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := 5 * time.Second
+	cfg.Routes = []Route{{Match: match, GroupWait: &wait}}
+	e := newEnv(t, cfg)
+	e.fire(critical, warning)
+	e.tick(4 * time.Second)
+	if hooks := e.s.take(); len(hooks) != 0 {
+		t.Fatalf("received alerts before the shorter wait: %+v", hooks)
+	}
+	e.tick(time.Second)
+	if hooks := e.s.take(); len(hooks) != 1 || hooks[0].GroupKey != key || hooks[0].CommonLabels["severity"] != "critical" {
+		t.Fatalf("expected only the critical alert with its original group key: %+v", hooks)
+	}
+	e.tick(25 * time.Second)
+	if hooks := e.s.take(); len(hooks) != 1 || hooks[0].CommonLabels["severity"] != "warning" {
+		t.Fatalf("expected the warning after the configured default wait: %+v", hooks)
+	}
+	e.resolve(critical)
+	e.tick(time.Second)
+	if hooks := e.s.take(); len(hooks) != 1 || hooks[0].GroupKey != key || hooks[0].Status != "resolved" {
+		t.Fatalf("expected the same critical alert to resolve: %+v", hooks)
+	}
+}
+
+func TestRouteGroupWaitIgnoresSilencedMember(t *testing.T) {
+	match, err := CompileLabels(map[string]string{"severity": "critical"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := time.Duration(0)
+	cfg := base
+	cfg.Routes = []Route{{Match: match, GroupWait: &zero}}
+	e := newEnv(t, cfg)
+	critical, warning := down("git"), down("git")
+	warning["severity"] = "warning"
+	e.fire(critical, warning)
+	if _, err := e.r.CreateSilence(context.Background(), map[string]string{"severity": "critical"}, e.now, e.now.Add(time.Hour), "alice", "deploy"); err != nil {
+		t.Fatal(err)
+	}
+	e.tick(5 * time.Second)
+	if hooks := e.s.take(); len(hooks) != 0 {
+		t.Fatalf("silenced critical alert shortened the wait: %+v", hooks)
+	}
+	e.tick(25 * time.Second)
+	if hooks := e.s.take(); len(hooks) != 1 || hooks[0].CommonLabels["severity"] != "warning" {
+		t.Fatalf("expected only the warning after its wait: %+v", hooks)
+	}
+}
+
 func TestInhibitAndSilence(t *testing.T) {
 	cfg := base
 	src, _ := CompileLabels(map[string]string{"alertname": "HostDown"})
@@ -214,7 +274,7 @@ func TestResolveTimeoutAndRestore(t *testing.T) {
 	// restart: the bridge's firing group comes back; the rule engine does not resend it
 	r2 := newEnv(t, base)
 	fp := Fingerprint(down("hub"))
-	key, _ := r2.r.groupOf(down("hub"))
+	key, _, _ := r2.r.groupOf(down("hub"))
 	r2.r.Restore([]store.Group{{ID: "x", Key: key, Status: "firing", StartsAt: r2.now.Add(-time.Hour),
 		Alerts: []store.Alert{{Fingerprint: fp, Status: "firing", Labels: down("hub"), StartsAt: r2.now.Add(-time.Hour)}}}})
 	r2.tick(time.Minute)

@@ -81,15 +81,32 @@ func TestParseFull(t *testing.T) {
 
 func TestRoutingErrors(t *testing.T) {
 	d := t.TempDir()
-	rules := "rules: {token_file: " + secret(t, d, "tok", "0123456789abcdef0123456789") + "}\n"
+	rules := "rules: {token_file: " + secret(t, d, "tok", "0123456789abcdef0123456789") + "}\nvictoriametrics: {url: 'http://vm:8428'}\n"
 	for name, y := range map[string]string{
-		"bad regexp":     "routing: {routes: [{match: {alertname: '('}}]}\n",
-		"route no match": "routing: {routes: [{group_by: [a]}]}\n",
-		"inhibit target": "routing: {inhibit: [{source: {alertname: A}}]}\n",
+		"bad regexp":          "routing: {routes: [{match: {alertname: '('}}]}\n",
+		"route no match":      "routing: {routes: [{group_by: [a]}]}\n",
+		"negative route wait": "routing: {routes: [{match: {alertname: A}, group_wait: -1s}]}\n",
+		"inhibit target":      "routing: {inhibit: [{source: {alertname: A}}]}\n",
 	} {
 		if _, err := Parse([]byte(rules + y)); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+}
+
+func TestRouteGroupWaitOptional(t *testing.T) {
+	d := t.TempDir()
+	rules := "rules: {token_file: " + secret(t, d, "tok", "0123456789abcdef0123456789") + "}\nvictoriametrics: {url: 'http://vm:8428'}\n"
+	c, err := Parse([]byte(rules + `routing:
+  routes:
+    - {match: {severity: critical}, group_wait: 0s}
+    - {match: {severity: warning}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Routing.Routes[0].GroupWait == nil || c.Routing.Routes[0].GroupWait.D() != 0 || c.Routing.Routes[1].GroupWait != nil {
+		t.Fatalf("expected immediate and inherited route waits: %+v", c.Routing.Routes)
 	}
 }
 

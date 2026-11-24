@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cb7cdf11
+sourceHash: sha256-7505937d
 ---
 
 # 备份与恢复
@@ -38,15 +38,16 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
    ```bash
    sudo install -d -m 0700 /opt/beacon-backups
    cd /opt/beacon
-   docker compose stop beacon
+   docker compose stop beacon &&
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
      sh -c 'cd /var/lib/beacon || exit 1
-       set -- beacon.db* recordings
+       set -- beacon.db*
+       if [ -d recordings ]; then set -- "$@" recordings; fi
        if [ -f team-credentials/epochs ]; then set -- "$@" team-credentials/epochs; fi
        tar -czf /backup/beacon-$(date +%F).tgz "$@"'
    ```
 
-   启用[团队凭据库](../guide/team-credentials.md)后，在受保护的独立存储中保留最新且已验证的 `team-credentials/epochs`。每次备份凭据策略时更新这份独立副本。另行备份 `credentials.key_file` 所指的密钥文件。
+   启用[团队凭据库](../guide/team-credentials.md)后，在受保护的独立存储中保留最新且已验证的 `team-credentials/epochs`。每次凭据策略变更经确认后都更新这份独立副本，撤销授权也一样，无需等到下次数据库备份。另行备份 `credentials.key_file` 所指的密钥文件。
 
 2. **备份指标**，同样的做法。拷多久取决于数据有多大：这是大头。
 
@@ -90,20 +91,33 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
 
    `install.sh` 只生成缺失的密钥。所以恢复出来的 `ssh-host-key` 和 `ssh-ca-key` 会留下来，Agent 对机器的访问也就扛过了重建。它会在空卷上启动一切；下一步把状态倒回去。
 
-2. **倒回状态和录像：**
-
-   如果启用了凭据库，解包前保留最新且独立验证过的防回滚记录。解包后、重启前，将该记录放到 `data_dir/team-credentials/epochs`。数据库备份的版本须与该记录匹配或更新。存档里的防回滚记录可能早于备份后发生的授权撤销。
+2. **恢复状态和录像。** 如果原来启用了团队凭据库，从独立存储中取出最新且可靠的防回滚记录，选用与该记录匹配或更新的数据库备份。存档可能早于后续的授权撤销。解包时跳过存档附带的防回滚记录。
 
    ```bash
-   docker compose stop beacon
-   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     tar -C /var/lib/beacon -xzf /backup/beacon-YYYY-MM-DD.tgz
-   docker compose up -d
+   docker compose stop beacon &&
+   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup:ro alpine \
+     tar -C /var/lib/beacon --exclude=team-credentials/epochs -xzf /backup/beacon-YYYY-MM-DD.tgz
    ```
 
-   对着运行中的 Beacon 做这一步是不可能的：服务运行期间数据库是锁着的。同目录下的 `ctl.sock` 是服务的管理套接字。恢复时不必带上它。
+   让 Beacon 保持停止。服务运行期间数据库会被锁住。恢复时无需带上服务的管理套接字 `ctl.sock`。
 
-   如果找不到最新且可靠的防回滚记录，或没有与之匹配的数据库，请继续停用团队凭据库。恢复上游服务的访问令牌后再重新授权。凭据库不可用时，Beacon 仍可提供监控和 SSH。使用 PostgreSQL 的单中心部署备份数据库时，还要备份中心的本地防回滚记录与外部密钥。
+   **如果原来启用了团队凭据库**，将独立保存的防回滚记录放到 `/opt/beacon-backups/team-credential-epochs`，只允许 root 访问。启动 Beacon 之前，将这份记录恢复到数据卷，确保容器内的服务账户可以读取和更新它。
+
+   ```bash
+   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup:ro alpine \
+     sh -ec 'test -s /backup/team-credential-epochs
+       install -d -m 0700 -o 65532 -g 65532 /var/lib/beacon/team-credentials
+       install -m 0600 -o 65532 -g 65532 /backup/team-credential-epochs /var/lib/beacon/team-credentials/epochs
+       sync'
+   ```
+
+   如果找不到最新且可靠的防回滚记录，或没有匹配的数据库，在启动 Beacon 前先在 `config.yaml` 的 `credentials` 下设置 `enabled: false`。监控和 SSH 可以继续运行。恢复上游服务的访问令牌后再重新授权。使用 PostgreSQL 的单中心部署除了数据库备份，也需要独立留存的防回滚记录和外部密钥。
+
+   **启动 Beacon。** 先恢复独立的防回滚记录及其匹配的状态，或确保团队凭据库已停用。
+
+   ```bash
+   docker compose up -d
+   ```
 
 3. **倒回指标**，同样做法，用 `--volumes-from beacon-victoriametrics` 和 `tar -C /storage -xzf /backup/victoriametrics-YYYY-MM-DD.tgz`。
 
@@ -112,6 +126,7 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
    - 用原来的账号登录控制台。告警、静默、钩子都还是原样。
    - `docker exec beacon beacon config history` 列出你记得的那些版本。
    - 之前的一次会话，在控制台的**会话**页里还能打开回放。
+   - 如果恢复了团队凭据库，以所有者身份打开**团队凭据**，向已批准的服务发出测试请求。核对授权列表，并确认被撤销授权的 Agent 仍无法使用该凭据。
    - 检测点什么都不用做。它们的令牌没变，中心停着的这段时间它们把结果暂存在磁盘上。一分钟内总览里就能看到它们重新上报。
 
 ## 目录，以文件形式 {#the-catalogue-as-files}

@@ -95,6 +95,8 @@ services:
       - -notifier.url=http://beacon:17006
       - -notifier.bearerTokenFile=/run/secrets/rules-token
       - -evaluationInterval=30s
+      # Keep the faster ServiceDown group's renewals at least 30 seconds apart and its expiry at two minutes.
+      - -rule.resendDelay=30s
       - -disableAlertgroupLabel
       - -external.url=https://${STATUS_HOST:-status.example.com}
     ports:
