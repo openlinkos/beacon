@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a4c5a7b5
+sourceHash: sha256-0ac93a5e
 ---
 
 # REST API
@@ -260,10 +260,12 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
+| `machine.version_not_found` | 404 | 该机器设置版本无法访问 |
 | `machine.forbidden` | 403 | 调用者不能到达这台机器 |
 | `machine.unreachable` | 502 | Beacon 连不上这台机器 |
 | `machine.disconnected` | 502 | 机器在 NAT 后面，它的连接器没有连上 |
 | `machine.exists` | 409 | 已有同名机器；要替换请明确指定 |
+| `machine.changed` | 409 | 机器设置已有变化。读取当前版本后重试 |
 | `file.not_found` | 404 | 没有这个文件 |
 | `file.not_regular` | 400 | 这个路径不是普通文件 |
 | `file.binary` | 415 | 文件不是文本 |

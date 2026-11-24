@@ -256,10 +256,12 @@ Each sends with a token of its own:
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
+| `machine.version_not_found` | 404 | That machine settings revision is unavailable |
 | `machine.forbidden` | 403 | The caller may not reach this machine |
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |
 | `machine.disconnected` | 502 | The machine is behind NAT and its connector is not connected |
 | `machine.exists` | 409 | A machine with this name exists; replace it explicitly |
+| `machine.changed` | 409 | The machine settings changed after you opened them. Read the current version and retry |
 | `file.not_found` | 404 | No such file |
 | `file.not_regular` | 400 | The path is not a regular file |
 | `file.binary` | 415 | The file is not text |
