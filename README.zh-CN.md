@@ -2,7 +2,7 @@
   <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
 </h1>
 
-**人和 AI Agent 共用的自托管监控与 SSH 接入。**
+**人和 AI Agent 共用的自托管运维基础设施。**
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
@@ -10,7 +10,7 @@
 
 [English](README.md) | 简体中文 · 文档：[beacon.openlinkos.com/zh/](https://beacon.openlinkos.com/zh/)
 
-Beacon 从多个地方同时检测你的网站和服务，走的是用户访问时的那条路，并说清每次检测失败的原因：解析、连接、TLS、超时还是状态码。服务出问题时，它叫醒你的 AI Agent（Claude Code、Codex，或任何会用 MCP 或 HTTP 的 Agent），一次调用就把证据交给它：每个检测点看到了什么、故障前刚改过什么、已经有谁做过什么。Agent 经 Beacon 用自己的 `ssh` 登上服务器，或者用 Beacon 提供的执行命令、改文件的工具，把能修的修好，让各检测点立刻重测，再在告警上留一条备注。整个过程它不接触任何密码和私钥，执行的每一条命令都有记录，能在浏览器里回放。用户看状态页；值班的人在飞书里收到卡片，没人响应时手机会响。
+Beacon 从多个地方同时检测你的网站和服务，走的是用户访问时的那条路，并说清每次检测失败的原因：解析、连接、TLS、超时还是状态码。服务出问题时，它叫醒你的 AI Agent（Claude Code、Codex，或任何会用 MCP 或 HTTP 的 Agent），一次调用就把证据交给它：每个检测点看到了什么、故障前刚改过什么、已经有谁做过什么。Agent 经 Beacon 用自己的 `ssh` 登上服务器，或者用 Beacon 提供的执行命令、改文件的工具，把能修的修好，让各检测点立刻重测，再在告警上留一条备注。机器凭据由 Beacon 保管，经 Beacon 建立的 SSH 会话可以在浏览器中回放。用户看状态页；值班的人在飞书里收到卡片，没人响应时手机会响。
 
 人可以在同一个控制台接手告警、接入服务、安排维护和管理 Agent 权限，也能用自己的终端连接机器，会话记在自己的账号下。可选的[团队凭据库](docs/zh/guide/team-credentials.md)允许所有者和 Agent 在有审计记录的固定 HTTPS 请求中使用服务令牌。
 
@@ -29,14 +29,14 @@ AI 编程 Agent 已经很会做运维活：读日志、找出配置里错的那�
 - **从用户所在的地方检测**。一个不到 20 MB 的检测程序，装在任何小机器上，检测 HTTP、TLS、TCP、镜像仓库、Git 和域名到期，并记下每次失败的原因。只有多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。
 - **叫醒 Agent 时证据一并给齐**。签名的 webhook 或 GitHub workflow 叫醒你指定的 Agent。一次 `get_evidence` 调用返回每个检测点的结果、同一故障域里的其他告警、故障前刚做的部署，以及人和 Agent 已经做过的事。
 - **上服务器不用交出密钥**。Agent 经 Beacon 用自己的 `ssh`、`scp`、`rsync`，或者用 MCP 工具。每次连接 Beacon 签一张五分钟有效的证书，服务器只信任 Beacon。可以单独吊销一个 Agent，也可以一个开关停下所有 Agent。
-- **每条命令都有记录**。会话录下来能在浏览器里回放，交互 shell 拆成一条条命令和退出码，Agent 的备注写在告警上。事后复查做了什么，而不是事前逐条审批。
+- **复查处置过程**。SSH 会话可在浏览器中回放。受支持的 Shell 集成会标记交互会话中的命令和退出码。告警保留处理备注、已启用的执行回报和恢复检查。
 - **修好要再测一遍**。修完 Agent 让所有检测点立刻重测（`probe_now`），一分钟内看到各自的结果。
 - **人一直在场**。给用户看的公开状态页，给团队用的控制台，能在飞书卡片上直接认领和静默的告警，没人响应时经 Pushover 升级到手机。
 - **小，而且是你自己的**。一个 Go 服务、一个检测程序，跑在 VictoriaMetrics 上；2 核 4 GB 的机器绰绰有余。Apache-2.0 许可。Beacon 不调用任何模型，也不需要任何云账号。
 
 ## 功能
 
-- **MCP 服务器**（`/mcp`），46 个工具：告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`update_machine`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`create_agent`、`update_agent`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
+- **MCP 服务器**（`/mcp`）提供[运维工具](docs/zh/reference/mcp.md)，涵盖告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`update_machine`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`create_agent`、`update_agent`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
 - **SSH 通道**（17002 端口）：`ssh`、`scp`、`sftp`、`rsync` 和 `ssh -L` 到任何登记过的机器，用户名就是机器名；NAT 后面的机器用普通的 `ssh -R` 自己连出来。
 - **检测程序**（`beacon-probe`）：和 Blackbox Exporter 兼容的检测并给出失败原因，主机指标和心跳，断网时先存进磁盘队列；检测目标和模块由中心下发，改检测内容不用重新部署。
 - **告警路由**，不需要 Alertmanager：分组、抑制、静默和死信开关都在服务里；vmalert 像发给 Alertmanager 一样把告警发给 Beacon。

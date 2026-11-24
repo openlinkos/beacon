@@ -2,7 +2,7 @@
   <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
 </h1>
 
-**Self-hosted monitoring and SSH access for people and their AI agents.**
+**Self-hosted operations infrastructure for people and their AI agents.**
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
@@ -10,7 +10,7 @@
 
 English | [简体中文](README.zh-CN.md) · Documentation: [beacon.openlinkos.com](https://beacon.openlinkos.com)
 
-Beacon checks your websites and services from several places at once, the way your users reach them, and says why a check fails: DNS, connection, TLS, timeout, status code. When a service goes down, it wakes your AI agent (Claude Code, Codex, or anything that speaks MCP or HTTP) and hands it the evidence in one call: what every location sees, what changed just before, what has already been done. The agent logs in to your servers through Beacon with its own `ssh`, or with Beacon's tools for running commands and editing files, fixes what it can, has every location check again, and leaves a note on the alert. It never holds a password or a private key, and every command it runs is recorded and can be replayed in a browser. Your users see a status page; the people on call get a card in Feishu and, when nobody answers, a call on their phone.
+Beacon checks your websites and services from several places at once, the way your users reach them, and says why a check fails: DNS, connection, TLS, timeout, status code. When a service goes down, it wakes your AI agent (Claude Code, Codex, or anything that speaks MCP or HTTP) and hands it the evidence in one call: what every location sees, what changed just before, what has already been done. The agent logs in to your servers through Beacon with its own `ssh`, or with Beacon's tools for running commands and editing files, fixes what it can, has every location check again, and leaves a note on the alert. Beacon keeps the machine credentials and records the SSH sessions for replay in a browser. Your users see a status page; the people on call get a card in Feishu and, when nobody answers, a call on their phone.
 
 People use the same console to take over an alert, set up services, plan maintenance and control agent access. They can connect to a machine in their own terminal, with sessions recorded under their own account. An optional [team credential store](docs/guide/team-credentials.md) gives owners and agents audited use of service tokens for fixed HTTPS requests.
 
@@ -29,14 +29,14 @@ People and agents share the same operations:
 - **Checked from where your users are.** A probe of under 20 MB, on any small machine, checks HTTP, TLS, TCP, container registries, Git and domain expiry, and records why each check failed. A service is down only when several locations agree, so one location's bad network wakes nobody.
 - **The agent is woken with the evidence.** A signed webhook or a GitHub workflow wakes the agent you choose. One call, `get_evidence`, returns each location's result, the other alerts in the same failure domain, the deployments just before, and what people and agents have done so far.
 - **Server access without handing over keys.** Agents use their own `ssh`, `scp` and `rsync` through Beacon, or its MCP tools. Beacon signs a certificate valid for five minutes for each connection, and your servers trust only Beacon. Revoke one agent, or stop them all with one switch.
-- **Every command on record.** Sessions are recorded and replay in the browser, interactive shells are split into commands with their exit codes, and the agent's notes land on the alert. You review what was done afterwards instead of approving each step in advance.
+- **Revisit the work.** Replay SSH sessions in the browser. Supported shell integration marks commands and exit codes in interactive sessions. The alert keeps the notes, execution reports when enabled, and recovery checks.
 - **Fixed means checked again.** After a fix the agent asks every location to probe the service at once (`probe_now`) and sees their answers within a minute.
 - **People stay in the loop.** A public status page for your users, a console for your team, alert cards in Feishu that can be acknowledged and silenced, and escalation to phones through Pushover when nobody answers.
 - **Small, and yours.** One Go service and one probe binary, on VictoriaMetrics; a machine with 2 CPUs and 4 GB is plenty. Apache-2.0. Beacon calls no model and needs no cloud account.
 
 ## Features
 
-- **MCP server** at `/mcp` with 46 tools: alerts (`list_alerts`, `get_alert`, `ack_alert`, `silence_alert`, …), working an alert (`get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`), machines (`list_machines`, `update_machine`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, …), maintenance and status pages, the configuration, people and the agent's own SSH keys (`list_users`, `invite_user`, `create_agent`, `update_agent`, `add_ssh_key`, …), and the agent's own token (`whoami`, `renew_token`). Claude Code and Codex sign in to it through the browser, with MCP's OAuth. Every tool has the same REST route under `/api/v1`.
+- **MCP server** at `/mcp` with [tools](docs/reference/mcp.md) for alerts (`list_alerts`, `get_alert`, `ack_alert`, `silence_alert`, …), working an alert (`get_evidence`, `get_timeline`, `add_note`, `list_changes`, `probe_now`), machines (`list_machines`, `update_machine`, `run_command`, `read_file`, `write_file`, `edit_file`, `list_sessions`, `get_session`, …), maintenance and status pages, the configuration, people and the agent's own SSH keys (`list_users`, `invite_user`, `create_agent`, `update_agent`, `add_ssh_key`, …), and the agent's own token (`whoami`, `renew_token`). Claude Code and Codex sign in to it through the browser, with MCP's OAuth. Every tool has the same REST route under `/api/v1`.
 - **The SSH channel** on port 17002: `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` to any enrolled machine, the user name naming the machine, also machines behind NAT that connect out with plain `ssh -R`.
 - **Probes** (`beacon-probe`): Blackbox-compatible checks with failure reasons, host metrics and heartbeats, pushed through a queue on disk when the network is down; targets and modules come from the centre, so changing what is checked needs no redeployment.
 - **Alerting** without Alertmanager: grouping, inhibition, silences and a dead man's switch inside the service; vmalert posts its alerts to Beacon as it would to Alertmanager.
