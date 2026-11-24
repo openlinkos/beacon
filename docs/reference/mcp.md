@@ -132,6 +132,17 @@ The public status pages are made from the alert groups and the maintenance windo
 
 Account administration tools require an owner credential issued independently of any Agent. Existing custom Agent credentials with `accounts:write` cannot administer accounts or Agent identities. Agents with SSH access can manage their own SSH keys. People change roles, disable accounts and reset passwords in the console, through REST or on the centre.
 
+## Team credentials {#team-credentials}
+
+These tools are offered only when the [team credential store](../guide/team-credentials.md) is enabled. A grant supports repeated uses until it expires or an owner revokes it. Each use returns only an HTTP status code.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `list_team_credentials` | `secrets:use` | List the agent's active team credential grants |
+| `use_team_credential` | `secrets:use` | Send the configured HTTPS request under the agent's audited identity |
+
+People manage credential values and grants from their own console accounts. Use the agent's headless token. The standard OAuth presets keep their existing scopes.
+
 ## Your token
 
 | Tool | Scope | What it does |

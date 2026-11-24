@@ -56,6 +56,7 @@ import (
 	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/server"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -189,6 +190,14 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	sshListen := "off"
+	if cfg.Credentials.Enabled {
+		key, err := secrets.ReadKey(cfg.Credentials.KeyFile)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		clear(key)
+	}
 	if cfg.SSH.CAKeyFile != "" {
 		if _, _, err := sshKeys(cfg); err != nil {
 			fmt.Fprintln(stderr, err)
@@ -377,13 +386,31 @@ func serve(args []string, stderr io.Writer) int {
 		sdeps.VM = vm.New(cfg.VictoriaMetrics.URL, &http.Client{Timeout: 30 * time.Second}) // a day of minutes per query
 	}
 	pagesOut := status.New(sdeps)
+	var credentials *secrets.Service
+	if cfg.Credentials.Enabled {
+		vaultDeps := secrets.Deps{Store: st, AnchorDir: filepath.Join(cfg.DataDir, "team-credentials"),
+			AllowedHosts: cfg.Credentials.AllowedHosts, Lang: lang, Log: log}
+		if bot != nil {
+			vaultDeps.Bot = bot
+		}
+		key, err := secrets.ReadKey(cfg.Credentials.KeyFile)
+		if err == nil {
+			credentials, err = secrets.Open(key, vaultDeps)
+			clear(key)
+		}
+		if err != nil {
+			log.Error("team credentials are unavailable", "err", err)
+		}
+	}
 	sd := server.Deps{
-		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Status: pagesOut},
+		Bridge: br, API: &api.Server{Bridge: br, SSH: gate, SSHAddress: cfg.SSH.PublicAddress, Auth: auth, Log: log, Config: cdb, Status: pagesOut,
+			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
-			mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL)),
+			mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL), mcpserver.WithTeamCredentials(credentials, cfg.Credentials.Enabled)),
 		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
-			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa}, // the public pages at /, the console at /console
+			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa,
+			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled}, // the public pages at /, the console at /console
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway

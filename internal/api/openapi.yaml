@@ -49,11 +49,30 @@ components:
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable, incident.not_found, incident.unavailable]
+            audit.unavailable, incident.not_found, incident.unavailable,
+            credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending]
         docs:
           type: string
           format: uri
           description: "On a 401 (auth.required, auth.invalid): the API's reference, which says how to get a token"
+    TeamCredential:
+      type: object
+      required: [id, name, version, updated]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        endpoint: {type: string, format: uri, description: Visible to owners}
+        version: {type: integer}
+        updated: {type: string, format: date-time}
+        grants:
+          type: array
+          items:
+            type: object
+            properties:
+              agent: {type: string}
+              owner: {type: string}
+              agent_created: {type: string, format: date-time}
+              until: {type: string, format: date-time}
     Ack:
       type: object
       properties:
@@ -1004,6 +1023,40 @@ components:
 security:
   - token: []
 paths:
+  /team-credentials:
+    get:
+      summary: List team credential metadata
+      description: "Scope: secrets:use. Agents see only live grants. Available when credentials.enabled is true."
+      responses:
+        "200":
+          description: Credentials without their values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials: {type: array, items: {$ref: "#/components/schemas/TeamCredential"}}
+        "403": {description: No access}
+        "503": {description: The credential store cannot be verified}
+  /team-credentials/{id}/use:
+    post:
+      summary: Send one authenticated HTTPS request to the credential's fixed endpoint
+      description: "Scope: secrets:use for agents with a live grant. Sends a GET after auditing it."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Upstream HTTP status. No upstream headers or body.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: integer, minimum: 100, maximum: 599}
+        "403": {description: No access}
+        "502": {description: The service could not be reached}
+        "503": {description: The credential store cannot be verified}
   /openapi.yaml:
     get:
       summary: This description

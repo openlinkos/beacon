@@ -93,6 +93,22 @@ func TestRoutingErrors(t *testing.T) {
 	}
 }
 
+func TestTeamCredentialsRequireOneCentre(t *testing.T) {
+	base := full(t)
+	if c, err := Parse([]byte(base)); err != nil || c.Credentials.Enabled {
+		t.Fatalf("existing config should leave credentials off: %v", err)
+	}
+	block := "\ncredentials: {enabled: true, key_file: /etc/beacon/key, allowed_hosts: [api.example.com]}\n"
+	if c, err := Parse([]byte(base + block)); err != nil || !c.Credentials.Enabled {
+		t.Fatalf("credentials not available to a single centre: %v", err)
+	}
+	ha := "\nha: {enabled: true}\nstorage: {driver: postgres, dsn_file: " +
+		secret(t, t.TempDir(), "dsn", "postgres://example.invalid/testing") + "}\n"
+	if _, err := Parse([]byte(base + block + ha)); err == nil || !strings.Contains(err.Error(), "requires a single centre") {
+		t.Fatalf("HA unexpectedly allowed team credentials with local anchors: %v", err)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	d := t.TempDir()
 	tok := secret(t, d, "am", "0123456789abcdef0123456789")

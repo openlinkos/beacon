@@ -138,6 +138,10 @@ The console's forms are the API's and the command line's operations, on the same
 
 A form the person's role does not allow is not offered, and is refused if sent anyway. A page your role does not allow says "Not with your role", with the scope it needs and your role.
 
+### Team credentials {#team-credentials}
+
+On installations with the credential store enabled, owners can store and replace a bearer token, send a test request as themselves, and delegate or revoke the same request for an agent. See [Use a team credential](team-credentials.md).
+
 ## The alert's page {#the-alerts-page}
 
 The card's **Timeline** button opens it. The response panel shows how long the alert has been firing and who acknowledged it. On a phone or desktop, you can acknowledge it, probe again or jump to the note form from the same panel.

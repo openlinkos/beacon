@@ -54,6 +54,16 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("The alert is not firing any more.")
 	case "bad_input":
 		return s.t("That did not work: say why in the text, and keep it under 2,000 characters.")
+	case "credential_denied":
+		return s.t("You cannot make this change to the credential or grant.")
+	case "credential_invalid":
+		return s.t("Check the credential details, the approved HTTPS endpoint or the agent's scope.")
+	case "credential_changed":
+		return s.t("The credential has changed. Check its current details and try again.")
+	case "credential_upstream":
+		return s.t("The configured service could not be reached.")
+	case "credential_unavailable":
+		return s.t("The team credential store cannot be verified.")
 	case "conflict":
 		return s.t("A later change touched the same items; revert that one first, or change them through the API.")
 	case "invalid":

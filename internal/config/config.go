@@ -134,6 +134,12 @@ type Config struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
 	Branding Branding `yaml:"branding"`
+	// Credentials is the opt-in team credentials store and its fixed HTTPS destinations.
+	Credentials struct {
+		Enabled      bool     `yaml:"enabled"`
+		KeyFile      string   `yaml:"key_file"`
+		AllowedHosts []string `yaml:"allowed_hosts"`
+	} `yaml:"credentials"`
 	// OAuth is how MCP clients sign in to Beacon (docs/guide/people.md).
 	OAuth OAuth `yaml:"oauth"`
 
@@ -526,6 +532,12 @@ func (c *Config) validate() error {
 		if c.HA.Expire.D() <= c.HA.Renew.D() {
 			bad("ha.expire must outlast ha.renew, or the lease expires between renewals")
 		}
+	}
+	if c.Credentials.Enabled && (c.Credentials.KeyFile == "" || len(c.Credentials.AllowedHosts) == 0) {
+		bad("credentials.enabled requires credentials.key_file and at least one credentials.allowed_hosts entry")
+	}
+	if c.Credentials.Enabled && c.HA.Enabled {
+		bad("credentials.enabled requires a single centre so one durable rollback anchor protects the credential policy")
 	}
 
 	sshRecording := c.SSH.Recordings

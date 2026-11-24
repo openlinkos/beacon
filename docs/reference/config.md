@@ -107,6 +107,16 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 | `branding.powered_by` | bool | `true` | `false` leaves "Powered by Beacon, open source" out of the public pages' footer |
 | `oauth.client_id_documents` | bool | `true` | Take MCP clients by the metadata document their `client_id` names (Claude Code's and Codex's do), which Beacon fetches from the internet. `false` when Beacon cannot reach the internet: clients then register themselves |
 
+## Team credentials {#team-credentials}
+
+These settings enable the [team credential store](../guide/team-credentials.md).
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `credentials.enabled` | boolean | false | Enable encrypted team credentials on a single centre. HTTPS use is offered to agents through REST and MCP |
+| `credentials.key_file` | path | — | File containing 64 hexadecimal digits for a dedicated 256-bit key |
+| `credentials.allowed_hosts` | list of strings | — | Exact approved HTTPS host names. Include the port when the endpoint writes it explicitly |
+
 ## Feishu
 
 The self-built app (cards, button callbacks, buzz) and the group's custom bot ([Set up the Feishu app](../integrations/feishu.md)).

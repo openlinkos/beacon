@@ -185,6 +185,9 @@ func (s *Server) agentLabels() agentLabels {
 func (s *Server) scopeOptions(selected []string) []option {
 	var out []option
 	for _, sc := range activeAgentScopes(store.PeopleScopes) {
+		if sc == "secrets:use" && s.Credentials == nil && !slices.Contains(selected, sc) {
+			continue
+		}
 		out = append(out, option{Value: sc, Label: sc, Selected: slices.Contains(selected, sc)})
 	}
 	return out

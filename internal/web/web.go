@@ -38,6 +38,7 @@ import (
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/oauth"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -90,11 +91,13 @@ type Server struct {
 	Log      *slog.Logger
 	Now      func() time.Time
 
-	Store     *store.Store
-	Config    *configdb.Service
-	Hooks     []config.Agent
-	Reporting func() map[string]time.Time
-	Version   string
+	Store                 *store.Store
+	Config                *configdb.Service
+	Credentials           *secrets.Service
+	CredentialsConfigured bool
+	Hooks                 []config.Agent
+	Reporting             func() map[string]time.Time
+	Version               string
 
 	// Status computes the public status pages (status.go); nil leaves them out.
 	Status   *status.Service

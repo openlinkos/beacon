@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1d98ef4f
+sourceHash: sha256-d10d68ee
 ---
 
 # config.yaml
@@ -110,6 +110,16 @@ sourceHash: sha256-1d98ef4f
 | `branding.title` | 字符串 | `Beacon` | 没有状态页时 `/` 上那页对部署的称呼。一行，至多 80 个字符 |
 | `branding.powered_by` | 布尔 | `true` | `false` 则公共页脚不写 "Powered by Beacon, open source" |
 | `oauth.client_id_documents` | 布尔 | `true` | 按 `client_id` 所指名的元数据文档接纳 MCP 客户端（Claude Code 和 Codex 都是），Beacon 需从互联网取它。Beacon 上不了网时设 `false`：客户端改为自行注册 |
+
+## 团队凭据 {#team-credentials}
+
+这些设置用于启用[团队凭据库](../guide/team-credentials.md)。
+
+| 配置项 | 类型 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `credentials.enabled` | 布尔值 | false | 在单中心上启用加密凭据库。Agent 可以通过 REST 和 MCP 使用凭据 |
+| `credentials.key_file` | 路径 | — | 保存专用 256 位密钥的文件，内容为 64 个十六进制字符 |
+| `credentials.allowed_hosts` | 字符串列表 | — | 已批准的精确 HTTPS 主机名。端点写了端口时也要列出端口 |
 
 ## 飞书 {#feishu}
 

@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Opt-in team credentials for fixed HTTPS requests. Owners store and replace a bearer token, test it as themselves, and delegate its use to a named agent with an expiry. Uses are recorded before dispatch. Revocation takes effect for new requests, and responses expose only the upstream status.
+
 ## 0.3.0
 
 ### rc.25 (2026-11-25)

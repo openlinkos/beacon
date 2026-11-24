@@ -420,6 +420,9 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	if o.config != nil {
 		addConfigTools(s, o.config)
 	}
+	if o.credentials != nil || o.credentialsConfigured {
+		addCredentialTools(s, o.credentials)
+	}
 	return s
 }
 

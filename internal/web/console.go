@@ -118,6 +118,7 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/sign-in", s.signIn)
 	at("POST", "/sign-out", s.action("", s.signOut))
 	s.registerAccounts(at)
+	s.registerCredentials(at)
 
 	at("GET", "", s.console("", s.overview))
 	at("GET", "/{$}", s.toOverview)

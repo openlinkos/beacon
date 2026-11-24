@@ -19,7 +19,7 @@ A person's role, weakest first. Each may do what the one before it may, and more
 | `viewer` | `status:read`, `sessions:read` | Seeing what happens: alerts, evidence, sessions, the console |
 | `oncall` | + `alerts:write`, `machines:ssh` | Working an alert: acknowledging, silencing, notes, and reaching machines through the SSH channel |
 | `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | Changing what is run: maintenance windows, machines and their keys |
-| `owner` | + `config:write`, `accounts:write` | The deployment itself: what is monitored, and the people on it |
+| `owner` | + `config:write`, `accounts:write`, `secrets:use` | Deployment configuration, people and team credentials |
 
 ## Presets
 
@@ -32,7 +32,7 @@ Owner accounts, standalone administration tokens and the local command line admi
 | `readonly` | `status:read`, `sessions:read` | the strongest a viewer's agents may have |
 | `oncall` | + `alerts:write`, `machines:ssh` | the strongest an on-call person's agents may have |
 | `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | the strongest an operator's or an owner's agents may have |
-| `custom` | A list of its own, from the nine scopes of people and agents, at least one | chosen on purpose: in the console by an owner who is a person, through the API and MCP by a person or a legacy token with `accounts:write` (never an agent), with `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly. Never beyond the owner's role or what the caller may do. Claiming never widens what a token may do |
+| `custom` | A list of its own from the scopes of people and agents, at least one | chosen on purpose: in the console by an owner who is a person, through the API and MCP by a person or a legacy token with `accounts:write` (never an agent), with `beacon agent add -scopes`, or a claimed legacy token whose scopes no preset matches exactly. Never beyond the owner's role or what the caller may do. Claiming never widens what a token may do |
 
 A person's agents get the strongest preset their owner's role allows, unless they choose less (`beacon agent add -preset`, or the console). When an owner is demoted, their agents are held to the new role at once, on the next request.
 
@@ -40,7 +40,7 @@ An OAuth sign-in (Claude Code, Codex) is also held to the preset and the machine
 
 ## Scopes
 
-The first nine are for people and agents, on the REST API, MCP and the SSH channel. The rest are for machines, on the metrics gateway ([Sources](sources.md)).
+The first ten are for people and agents, on the REST API, MCP and the SSH channel. The rest are for machines, on the metrics gateway ([Sources](sources.md)).
 
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ The first nine are for people and agents, on the REST API, MCP and the SSH chann
 | `machines:write` | operator and above | Adding, changing and removing machines, connector keys, pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
 | `accounts:write` | owner account or standalone administration token | Managing people and everyone's agents |
+| `secrets:use` | owner; custom agents only | Listing and using the team credentials explicitly granted to that agent |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
 | `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success |

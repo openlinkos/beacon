@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-648c689b
+sourceHash: sha256-cb7cdf11
 ---
 
 # 备份与恢复
@@ -18,6 +18,7 @@ sourceHash: sha256-648c689b
 | 指标 | `victoriametrics-data` 卷，`beacon-victoriametrics` 容器内的 `/storage`；保留 400 天 | 状态页 90 天历史条背后的数据，证据里的检测窗口 |
 | 证书 | `caddy-data` 卷 | 不要紧：Caddy 会再向 Let's Encrypt 申请 |
 | 部署 | `/opt/beacon`：`.env`、`config.yaml`、`secrets/`、`catalog/`、`targets/`、`rules/` | 你的配置，SSH 通道的密钥 |
+| 团队凭据策略 | 状态数据库中的加密记录，以及 Beacon 数据目录的 `team-credentials/epochs` | 验证当前策略所需的防回滚记录。将最新版本另存一份受保护的独立副本 |
 
 关于密钥说两句。`install.sh` 在机器上生成它们，它们永不离开这台机器：
 
@@ -39,8 +40,13 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
    cd /opt/beacon
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     sh -c 'cd /var/lib/beacon && tar -czf /backup/beacon-$(date +%F).tgz beacon.db* recordings'
+     sh -c 'cd /var/lib/beacon || exit 1
+       set -- beacon.db* recordings
+       if [ -f team-credentials/epochs ]; then set -- "$@" team-credentials/epochs; fi
+       tar -czf /backup/beacon-$(date +%F).tgz "$@"'
    ```
+
+   启用[团队凭据库](../guide/team-credentials.md)后，在受保护的独立存储中保留最新且已验证的 `team-credentials/epochs`。每次备份凭据策略时更新这份独立副本。另行备份 `credentials.key_file` 所指的密钥文件。
 
 2. **备份指标**，同样的做法。拷多久取决于数据有多大：这是大头。
 
@@ -86,6 +92,8 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
 
 2. **倒回状态和录像：**
 
+   如果启用了凭据库，解包前保留最新且独立验证过的防回滚记录。解包后、重启前，将该记录放到 `data_dir/team-credentials/epochs`。数据库备份的版本须与该记录匹配或更新。存档里的防回滚记录可能早于备份后发生的授权撤销。
+
    ```bash
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
@@ -94,6 +102,8 @@ Beacon 运行期间一直打开并锁着 `beacon.db`。在它底下拷出来的�
    ```
 
    对着运行中的 Beacon 做这一步是不可能的：服务运行期间数据库是锁着的。同目录下的 `ctl.sock` 是服务的管理套接字。恢复时不必带上它。
+
+   如果找不到最新且可靠的防回滚记录，或没有与之匹配的数据库，请继续停用团队凭据库。恢复上游服务的访问令牌后再重新授权。凭据库不可用时，Beacon 仍可提供监控和 SSH。使用 PostgreSQL 的单中心部署备份数据库时，还要备份中心的本地防回滚记录与外部密钥。
 
 3. **倒回指标**，同样做法，用 `--volumes-from beacon-victoriametrics` 和 `tar -C /storage -xzf /backup/victoriametrics-YYYY-MM-DD.tgz`。
 

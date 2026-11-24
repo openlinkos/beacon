@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cdefad3f
+sourceHash: sha256-65273f6f
 ---
 
 # MCP 工具
@@ -135,6 +135,17 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
 
 账号管理工具需要独立于 Agent 签发的所有者管理凭据。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理成员账号或 Agent 身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。成员可通过控制台、REST 或中心命令行更改角色、停用账号和重设密码。
+
+## 团队凭据 {#team-credentials}
+
+启用[团队凭据库](../guide/team-credentials.md)后提供以下工具。授权在到期或被所有者撤销前可重复使用。每次使用只返回 HTTP 状态码。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `list_team_credentials` | `secrets:use` | 列出该 Agent 的有效授权 |
+| `use_team_credential` | `secrets:use` | 以 Agent 身份发出已配置的 HTTPS 请求并记录审计 |
+
+人在本人的控制台账号下管理凭据和授权。Agent 使用无头令牌。标准 OAuth 预设的作用域保持原样。
 
 ## 你的令牌 {#your-token}
 

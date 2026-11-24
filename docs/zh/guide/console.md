@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-754136a5
+sourceHash: sha256-a405b2ab
 ---
 
 # 复查 Agent 做了什么
@@ -141,6 +141,10 @@ sourceHash: sha256-754136a5
 控制台的表单就是 API 和命令行的操作，scope 相同。它们以登录成员的身份执行，`via` 记作 `console`。和每一次写入一样，都记入审计日志并回显到告警群。
 
 角色不允许的表单不会出现，强行提交也会被拒绝。角色不允许的页面显示「Not with your role」，并说明需要哪个 scope、你是什么角色。
+
+### 团队凭据 {#team-credentials}
+
+启用凭据库后，所有者可以保存或替换访问令牌，以本人身份发送测试请求，也能将同样的请求授权给 Agent 或撤销授权。参见[使用团队凭据](team-credentials.md)。
 
 ## 告警页 {#the-alerts-page}
 

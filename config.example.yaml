@@ -132,6 +132,12 @@ branding:
 oauth:
   client_id_documents: true                 # false when Beacon cannot reach the internet: clients then register themselves
 
+# The optional store for team bearer tokens, bound to a deployment-approved HTTPS service.
+# credentials:
+#   enabled: true
+#   key_file: /etc/beacon/secrets/team-credential-key  # 64 hexadecimal digits, kept with backups separately from the database
+#   allowed_hosts: [api.example.com]                  # exact host names, with an explicit port if the endpoint uses one
+
 feishu:
   # The self-built app (cards, button callbacks, buzz). See docs/integrations/feishu.md.
   app_id_file: /etc/beacon/secrets/feishu-app-id

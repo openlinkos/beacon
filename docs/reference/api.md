@@ -183,6 +183,24 @@ Account and Agent administration requires an owner account, an independent token
 | `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machines`, `expires`. Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
 | `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes` or `machines`. A field left out stays. Custom scopes follow the same rule. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed. An unknown name, including a legacy token, is `agent.not_found` |
 
+## Team credentials {#team-credentials}
+
+When the credential store is enabled, these operations let an agent use its [fixed HTTPS credential bindings](../guide/team-credentials.md). The owner's console handles token entry, rotation and granting access.
+
+| Operation | Scope | What it does |
+| --- | --- | --- |
+| `GET /api/v1/team-credentials` | `secrets:use` | List the agent's current grants |
+| `POST /api/v1/team-credentials/{id}/use` | `secrets:use` | Send the configured request without taking a request body, and return `{status}` after recording the use |
+
+### Credential errors
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `credential.denied` | 403 | The current identity cannot use or change the item |
+| `credential.upstream` | 502 | The service could not be reached |
+| `credential.anchor_pending` | 503 | A policy change is awaiting durable verification |
+| `credential.unavailable` | 503 | The store or use record could not be verified |
+
 ## The token
 
 | Route | Scope | What |

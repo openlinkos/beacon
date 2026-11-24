@@ -14,6 +14,7 @@ The examples assume the reference deployment from [On a server](install.md), run
 | The metrics | The `victoriametrics-data` volume, at `/storage` in the `beacon-victoriametrics` container; 400 days of retention | The history behind the status pages' 90-day bars and the evidence's probe windows |
 | The certificates | The `caddy-data` volume | Nothing that matters: Caddy asks Let's Encrypt again |
 | The deployment | `/opt/beacon`: `.env`, `config.yaml`, `secrets/`, `catalog/`, `targets/`, `rules/` | Your configuration, and the SSH channel's keys |
+| Team credential policy | The encrypted rows in the state database and `team-credentials/epochs` in Beacon's data directory | The rollback anchor needed to verify the current policy. Keep a protected, independently retained copy of its newest epoch |
 
 Two things about the secrets, which `install.sh` makes on the machine and which never leave it:
 
@@ -35,8 +36,13 @@ The stops cost seconds. While the gateway is down, each probe queues its results
    cd /opt/beacon
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     sh -c 'cd /var/lib/beacon && tar -czf /backup/beacon-$(date +%F).tgz beacon.db* recordings'
+     sh -c 'cd /var/lib/beacon || exit 1
+       set -- beacon.db* recordings
+       if [ -f team-credentials/epochs ]; then set -- "$@" team-credentials/epochs; fi
+       tar -czf /backup/beacon-$(date +%F).tgz "$@"'
    ```
+
+   Keep the newest known-good `team-credentials/epochs` in separate protected storage when the [team credential store](../guide/team-credentials.md) is enabled. Renew this independent copy with your credential policy backups. The key file configured in `credentials.key_file` is a separate backup item.
 
 2. **Back up the metrics** the same way. It takes as long as the copy does: this is the big one.
 
@@ -82,6 +88,8 @@ Onto the same machine with an emptied volume, or onto a fresh one.
 
 2. **Pour back the state and recordings:**
 
+   If the vault was enabled, preserve the newest independently verified rollback anchor before extracting. Restore it at `data_dir/team-credentials/epochs` after extracting and before restarting. Use a database backup that matches or is newer than that anchor. The archive's own epoch can be older than revocations made since the archive was created.
+
    ```bash
    docker compose stop beacon
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
@@ -90,6 +98,8 @@ Onto the same machine with an emptied volume, or onto a fresh one.
    ```
 
    Over a running Beacon this is impossible: the database is locked while the service runs. `ctl.sock` in the same directory is the service's admin socket. The restore need not carry it.
+
+   If the newest known-good rollback anchor or a matching database is unavailable, keep team credentials disabled and recover the upstream bearer tokens before delegating again. Beacon can continue to serve monitoring and SSH while the credential store is unavailable. PostgreSQL deployments using one Beacon centre must also back up its local anchor and external key alongside their database backup.
 
 3. **Pour back the metrics** likewise, with `--volumes-from beacon-victoriametrics` and `tar -C /storage -xzf /backup/victoriametrics-YYYY-MM-DD.tgz`.
 

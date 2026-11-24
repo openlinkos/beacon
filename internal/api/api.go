@@ -19,6 +19,7 @@ import (
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -213,13 +214,15 @@ func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account
 // Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
 // Config is the configuration Beacon holds (its routes are in config.go); nil leaves them out.
 type Server struct {
-	Bridge     *bridge.Bridge
-	SSH        *sshgate.Gate
-	SSHAddress string
-	Auth       *Auth
-	Log        *slog.Logger
-	Config     *configdb.Service
-	Status     *status.Service // the public status pages (status.go); nil: none
+	Bridge                *bridge.Bridge
+	SSH                   *sshgate.Gate
+	SSHAddress            string
+	Auth                  *Auth
+	Log                   *slog.Logger
+	Config                *configdb.Service
+	Status                *status.Service // the public status pages (status.go); nil: none
+	Credentials           *secrets.Service
+	CredentialsConfigured bool // configured but temporarily unavailable when Credentials is nil
 }
 
 // Register adds the API's routes to mux.
@@ -229,6 +232,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		_, _ = w.Write(openAPI)
 	})
 	s.registerConfig(mux)
+	s.registerCredentials(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
@@ -281,6 +285,7 @@ var Routes = []string{
 	"GET /api/v1/incident-outcomes", "GET /api/v1/incident-outcomes/{id}",
 	"PUT /api/v1/machines/{name}/connector",
 	"POST /api/v1/probe-now",
+	"GET /api/v1/team-credentials", "POST /api/v1/team-credentials/{id}/use",
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, who bridge.Actor)

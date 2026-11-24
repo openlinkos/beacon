@@ -149,6 +149,9 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 	if v.owner() {
 		admin = append(admin, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
 	}
+	if (s.Credentials != nil || s.CredentialsConfigured) && v.owner() && v.person() {
+		admin = append(admin, navItem{Key: "credentials", Label: s.t("Team credentials"), Href: consolePath("/credentials"), Icon: "key-round"})
+	}
 	admin = append(admin,
 		navItem{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)},
 		navItem{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"})

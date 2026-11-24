@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ac294403
+sourceHash: sha256-608f8b24
 ---
 
 # REST API
@@ -186,6 +186,24 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
 | `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
 | `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
+
+## 团队凭据 {#team-credentials}
+
+启用凭据库后，Agent 可通过这些接口使用[固定 HTTPS 端点的凭据](../guide/team-credentials.md)。所有者在控制台录入、替换令牌和管理授权。
+
+| 接口 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `GET /api/v1/team-credentials` | `secrets:use` | 列出该 Agent 的有效授权 |
+| `POST /api/v1/team-credentials/{id}/use` | `secrets:use` | 记录并发出已配置的请求，返回 `{status}`。该接口不接收请求体 |
+
+### 凭据错误 {#credential-errors}
+
+| 错误码 | HTTP | 含义 |
+| --- | --- | --- |
+| `credential.denied` | 403 | 当前身份无权使用或更改凭据 |
+| `credential.upstream` | 502 | 无法连接服务 |
+| `credential.anchor_pending` | 503 | 策略变更等待持久化验证 |
+| `credential.unavailable` | 503 | 无法验证凭据库或写入使用记录 |
 
 ## 令牌 {#the-token}
 

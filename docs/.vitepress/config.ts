@@ -76,7 +76,12 @@ const parts = (zh: boolean): Part[] => {
           p('/guide/machines', 'Give agents a machine', '给 Agent 一台机器'),
           p('/guide/stop', 'Stop an agent, pause everything', '停下 Agent，暂停一切'),
         ),
-        g('The team and permissions', '团队与权限', p('/guide/people', 'Invite your team', '邀请你的团队')),
+        g(
+          'The team and permissions',
+          '团队与权限',
+          p('/guide/people', 'Invite your team', '邀请你的团队'),
+          p('/guide/team-credentials', 'Use a team credential', '使用团队凭据'),
+        ),
       ],
     },
     {
