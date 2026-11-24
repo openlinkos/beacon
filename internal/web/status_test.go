@@ -216,6 +216,8 @@ func TestStatusPageRenders(t *testing.T) {
 		"Example Status", "API &lt;img src=x onerror=alert(1)&gt; is down", "Outage: API &lt;img",
 		"Fixing it &lt;script&gt;alert(1)&lt;/script&gt;", "Pull through the mirror &lt;script&gt;",
 		`class="ol-uptime ol-uptime-lg bc-uptime" role="img"`, `class="ol-uptime-down"`, `class="ol-uptime-ok"`,
+		`<summary aria-label="Daily history for Mirrors">Daily history</summary>`,
+		`<ul class="bc-history-days" role="list"><li>2026-11-02: Outage, `,
 		`popovertarget="family"`, "Free public services", `href="https://mirrors.example.com/"`, `href="mailto:abuse@example.com"`,
 		`hreflang="zh-CN" href="/status/public?lang=zh"`, `rel="canonical" href="https://uptime.example.com/"`,
 		`<link rel="alternate" type="application/atom+xml"`, "Registries", "Germany - Frankfurt",
@@ -251,6 +253,7 @@ func TestStatusPageRenders(t *testing.T) {
 
 	zh := e.get("/status/public?lang=zh")
 	for _, want := range []string{`<html lang="zh-CN">`, "Example Status ZH", i18n.T(i18n.ZH, "Components"), i18n.T(i18n.ZH, "Active incidents"),
+		i18n.T(i18n.ZH, "Daily history for %s", "Mirrors"),
 		`aria-current="true">` + i18n.ZH.Name(), `href="/status/public/incidents/` + e.incident + `?lang=zh"`} {
 		if !strings.Contains(zh.body, escaped(want)) && !strings.Contains(zh.body, want) {
 			t.Errorf("the Chinese page lacks %s", want)

@@ -367,10 +367,10 @@ func TestScopes(t *testing.T) {
 		t.Errorf("the chat was not told: %v", e.bot.sent)
 	}
 	done := w.get(link.AlertPath(e.id) + "?done=ack")
-	if !strings.Contains(done.body, "Alert acknowledged") || !strings.Contains(done.body, "ol-toast") {
+	if !strings.Contains(done.body, "Alert acknowledged") || !strings.Contains(done.body, `id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message" role="status"`) {
 		t.Error("no confirmation after acknowledging")
 	}
-	if bad := w.get(link.AlertPath(e.id) + "?error=bad_input"); !strings.Contains(bad.body, "ol-alert-danger") {
+	if bad := w.get(link.AlertPath(e.id) + "?error=bad_input"); !strings.Contains(bad.body, `id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message" role="alert"`) {
 		t.Error("no problem shown after a form that failed")
 	}
 
@@ -636,7 +636,7 @@ func TestOverviewShowsInitialPhoneAndProviderResult(t *testing.T) {
 	page := b.get("/console").body
 	for _, want := range []string{
 		"Critical notifications", "Pushover", "When the alert opens", "After 15m if unacknowledged",
-		"Submission failed", `href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
+		"Submission failed", `aria-label="Open alert from Pushover" href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
 		"Bark", "After 30m if unacknowledged", "No recent response",
 	} {
 		if !strings.Contains(page, want) {

@@ -250,6 +250,9 @@ func (c *conn) session(nc ssh.NewChannel) {
 		return
 	}
 	s := c.g.newSession(c.who, c.machine, c.next())
+	// The target can close as soon as it accepts a short command. Keep that close behind
+	// the acknowledgement of any request already sent to it.
+	var replyMu sync.Mutex
 	go func() {
 		for r := range areqs {
 			typ, payload := r.Type, r.Payload
@@ -287,9 +290,13 @@ func (c *conn) session(nc ssh.NewChannel) {
 				_ = ssh.Unmarshal(payload, &p)
 				s.start(p.Name, p.Name)
 			}
+			if r.WantReply {
+				replyMu.Lock()
+			}
 			ok, err := tch.SendRequest(typ, r.WantReply, payload)
 			if r.WantReply {
 				_ = r.Reply(ok && err == nil, nil)
+				replyMu.Unlock()
 			}
 		}
 	}()
@@ -312,7 +319,9 @@ func (c *conn) session(nc ssh.NewChannel) {
 			}
 		}
 		<-copied
+		replyMu.Lock()
 		_ = ach.Close()
+		replyMu.Unlock()
 	}()
 	go func() {
 		_, _ = io.Copy(tch, teeReader{ach, s.input})

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1cdadbca
+sourceHash: sha256-af35f5da
 ---
 
 # 装在服务器上
@@ -8,24 +8,23 @@ sourceHash: sha256-1cdadbca
 
 - 中心跑在一台机器上，你是它的所有者；
 - 两个检测点在检测你的服务；
-- 一台服务器登记为机器，Agent 可以通过 Beacon 在上面干活。
-
-接 Agent 和演练故障各有单独的页面，在第 4、5 步链过去。
+- 已登记一台机器，你能回放个人 SSH 会话和 Agent 会话；
+- 演练告警送达你的测试群，你能打开并认领同一条告警。
 
 这篇指南适合这样的读者：自己管着几台服务器，有一台装了 Docker 的机器的 root 权限，在工作站上用 Agent。想先看看闭环长什么样再拿出服务器，可以先[在本机试一试](../guide/quickstart.md)。
 
-每一步都写了要花多久、执行什么、应该看到什么，以及看到别的结果时怎么办。中心上的命令都在 `/opt/beacon` 下通过 `docker exec beacon beacon …` 执行。
+中心上的命令在 `/opt/beacon` 下执行。如果当前用户访问 Docker 套接字需要提权，请在 `docker` 前加 `sudo`。工作站上的命令使用自己的用户执行。
 
 | 步骤 | 时间 |
 | --- | --- |
-| [0. 需要准备什么](#0-what-you-need) | 不计时：一台机器、两个域名 |
+| [0. 需要准备什么](#0-what-you-need) | 准备机器、域名、测试群和 Agent 工作站 |
 | [1. 安装中心](#1-install-the-centre) | 3 分钟，其中脚本运行 1 到 2 分钟 |
 | [2. 第一个检测点](#2-the-first-probe) | 两个检测点共 5 分钟 |
 | [3. 第一台机器](#3-the-first-machine) | 4 分钟 |
-| [4. 第一个 Agent](#4-the-first-agent) | 5 分钟，见[在本机试一试](../guide/quickstart.md) |
-| [5. 第一次演练](#5-the-first-drill) | 10 分钟，见[演练一次故障](../guide/drills.md) |
+| [4. 首个账号、个人 SSH 和 Agent](#4-the-first-agent) | 客户端已安装时约 5 分钟 |
+| [5. 测试群、唤醒 Agent 和恢复](#5-the-first-drill) | 预留应用审批和钩子配置时间，之后演练约 10 分钟 |
 
-第 0 步准备好之后，第 1 到 3 步合计约 12 分钟。DNS 生效不由你决定，也不算在内。
+验收 30 分钟接入目标时，记录从开始按本指南操作到测试卡片显示恢复的总耗时，并单独记录等待 DNS 生效和应用审批的时间。
 
 ## 0. 需要准备什么 {#0-what-you-need}
 
@@ -45,7 +44,8 @@ sourceHash: sha256-1cdadbca
 - **一个邮箱地址**，Let's Encrypt 会往这里发证书相关的通知。必须是真实地址：安装脚本不接受 `example.com` 的邮箱。
 - **一台小机器做第一个检测点**：任何带 systemd 的 Linux，x86_64 或 arm64，有 64 MB 空闲内存即可。最好是放在用户所在地区的 VPS。第二个检测点可以直接用中心。
 - **一台给 Agent 干活的机器**，中心能连到它的 SSH 端口。用检测点那台也可以。
-- **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。
+- **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。要自动唤醒 Agent，还需要一个中心能够访问、可以启动 Agent 的接收端。
+- **组织内的测试群**，你需要能加入飞书或 Lark 应用机器人，并请管理员审批应用和稍后的回调订阅。
 
 ## 1. 安装中心 {#1-install-the-centre}
 
@@ -218,7 +218,7 @@ On the machine, as root, if not done yet:
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
-连接 Agent 约需 5 分钟。先在中心运行 `docker exec beacon beacon setup`，在工作站上打开它打印的一次性链接，创建所有者账号。
+连接 Agent 约需 5 分钟。先在中心运行 `docker exec beacon beacon setup`，在工作站上打开它打印的一次性链接，创建所有者账号。如果中心已有所有者，请打开 `https://status.example.com/console`，用该账号登录。
 
 **验证个人 SSH。** 按[以自己的身份连接](../guide/machines.md#connect-as-yourself)登记个人公钥，再到 `edge-1` 执行 `hostname`。在**会话**中回放，确认操作人是你的用户名。
 
@@ -236,18 +236,15 @@ claude mcp login beacon
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
-10 分钟，大部分时间在等，完整步骤见[演练一次故障](../guide/drills.md)。
+**接入自己的测试群。** 按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。在控制台概览的**严重告警通知**中核对飞书应用渠道。接收群由 `feishu.chat_id` 指定。应用版本可能需要组织审批。
 
-简言之：Beacon 自带一个用来演练的服务。有两个检测点时：
+**准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。初次测试时，把钩子的服务范围限定为 `service: '^drill$'`。使用参考部署时，新增钩子密钥文件后运行 `sudo ./install.sh`，让 Beacon 能读取它。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
 
-- `docker exec beacon beacon drill fail 15m` 让两个检测点都看到失败；
-- 约五分钟后可在 Beacon 看到 `ServiceDown` 告警；
-- `docker exec beacon beacon drill off` 恢复演练端点，检测点和规则引擎再次检查后，告警恢复。
+**跑通演练。** 两个检测点都在上报后，按[测试群演练](../integrations/feishu.md#6-check-it)操作。确认群里收到卡片，打开的是同一条告警，认领备注出现在时间线上。检查接收端确实启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认探测恢复、同一张卡片显示恢复。检测与规则触发时序见[演练一次故障](../guide/drills.md)。手机推送和备用送达按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
 
 ## 接下来 {#what-next}
 
-- [配置飞书应用](../integrations/feishu.md)，让告警以卡片送达成员。每个密钥放进 `/opt/beacon/secrets/` 下的一个文件，`/opt/beacon/config.yaml` 里的 `feishu:` 段取消注释。`sudo ./install.sh` 加 `docker compose restart beacon` 让它生效（[配置](configuration.md)）。
-- [让 Agent 值班](../guide/on-call.md)，新告警自动叫醒 Agent，不用等人去问。其余每件事按能力分在[使用 Beacon](../guide/using-beacon.md)里。
+- [使用 Beacon](../guide/using-beacon.md)按能力介绍其余运维任务。
 - [升级](upgrade.md)、[备份与恢复](backup.md)和[安全模型](security.md)让它一直跑下去。
 - 上面某一步没有按预期发生时，见[常见问题](troubleshooting.md)。
 - [目标](../about/goals.md)：Beacon 为什么而做，以及它不做什么。

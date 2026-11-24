@@ -1,8 +1,13 @@
+{{define "scripts"}}{{range .Events}}{{if and .Probe .Probe.Open}}<script src="/static/beacon-probe-result.js?v={{$.Version}}" defer></script>{{end}}{{end}}{{end}}
 {{define "content"}}<div class="ol-stack">
 <section class="ol-panel bc-alert-response" data-state="{{.StatusClass}}" aria-labelledby="alert-response">
   <div class="ol-panel-body bc-alert-response-body">
     <div class="bc-alert-summary">
       <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
+      {{if .Feedback}}<div class="ol-alert ol-alert-{{.FeedbackTone}}" id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message" role="{{if eq .FeedbackTone "danger"}}alert{{else}}status{{end}}">
+        {{if eq .FeedbackTone "danger"}}{{icon "circle-alert"}}{{else}}{{icon "circle-check"}}{{end}}
+        <div class="ol-alert-body"><p id="alert-action-message">{{.Feedback}}</p></div>
+      </div>{{end}}
       {{if .When}}<p class="ol-hint">{{.When}}</p>{{end}}
       {{if .Ownership}}<p>{{.Ownership}}</p>{{end}}
       {{if .Service}}<p class="ol-hint">{{.L.Service}} <strong>{{.Service}}</strong></p>
@@ -81,17 +86,17 @@
     {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
   </section>
 
-  <section class="ol-panel" id="timeline">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "clock"}} {{.L.Timeline}}</h2></div>
+  <section class="ol-panel" id="timeline" tabindex="-1" aria-labelledby="alert-timeline">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-timeline">{{icon "clock"}} {{.L.Timeline}}</h2></div>
     <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Time}}</th><th>{{.L.What}}</th></tr></thead>
       <tbody>
-      {{range .Events}}<tr class="kind-{{.Kind}}"{{if .Anchor}} id="{{.Anchor}}"{{end}}>
+      {{range .Events}}<tr class="kind-{{.Kind}}">
         <td><time datetime="{{.ISO}}">{{.At}}</time></td>
         <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}
-          {{with .Probe}}<details class="bc-alert-observations"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>
+          {{if .Probe}}<details class="bc-alert-observations"{{if .Probe.Open}} open{{end}}><summary id="{{.Anchor}}"><span class="ol-sr-only">{{$.L.ProbeResults}} </span>{{.Probe.Summary}}</summary>
             <ul class="ol-list">
-              {{range .Rows}}<li>
+              {{range .Probe.Rows}}<li>
                 <span class="ol-list-row"><strong class="ol-list-title">{{.Location}}</strong><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span></span>
                 <span class="ol-cell-sub ol-break">{{.Instance}} <span class="ol-mono">{{.Module}}</span></span>
                 {{if .Reason}}<span class="ol-cell-sub ol-break">{{.Reason}}</span>{{end}}
@@ -126,8 +131,8 @@
       <div class="ol-field"><label class="ol-label" for="silence-why">{{$.L.SilenceWhy}}</label><input class="ol-input" id="silence-why" name="comment" required maxlength="500"></div></div>
     <div class="ol-panel-footer"><span></span><span class="ol-btn-group">{{range .Durations}}<button type="submit" name="duration" value="{{.K}}" class="ol-btn ol-btn-secondary ol-btn-sm">{{.V}}</button>{{end}}</span></div>
   </form>{{end}}
-  {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}" tabindex="-1">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
+  {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}" tabindex="-1" aria-labelledby="alert-add-note">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-add-note">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
     <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
       <div class="ol-field"><label class="ol-label" for="note-text">{{$.L.Note}}</label><textarea class="ol-textarea" id="note-text" name="text" rows="3" required maxlength="2000"></textarea></div></div>
     <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "pencil"}}{{$.L.AddNote}}</button></div>

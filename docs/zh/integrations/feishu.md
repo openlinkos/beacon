@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-aac042bc
+sourceHash: sha256-8a5ed5ac
 ---
 
 # 配置飞书应用
@@ -16,8 +16,8 @@ feishu:
   on_call:                             # 只有他们能操作卡片，加急也只发给他们
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # name 显示在卡片上
   monthly_budget: 10000                # 应用每月的 API 调用次数（见「额度」）
-  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # 自定义机器人
-  webhook_keyword: Beacon
+  # webhook_url_file: /etc/beacon/secrets/feishu-webhook-url      # 可选的群自定义机器人
+  # webhook_keyword: Beacon
 ```
 
 卡片写明什么坏了、从什么时候开始、哪些检测点失败及原因、Agent 留了什么备注。告警有变化，卡片就原地更新，恢复后变绿。
@@ -26,7 +26,7 @@ feishu:
 - 严重告警 10 分钟没人认领，就在应用内给他们加急。
 - 同一个群里再放一个自定义机器人，发不占 API 额度的普通消息。
 
-你需要在自己的组织里建一个自建应用，并由管理员审批。操作本身大约一刻钟，审批要多久取决于你的组织。
+演练需要一个 Beacon 中心和两个正在上报的检测点。你还需要能在飞书或 Lark 组织中创建自建应用、将应用加入测试群，并请组织管理员审批应用发布。请预留组织审批所需的时间。
 
 Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击。只用群自定义机器人做不到：它发的消息没有回调，也不能更新。不过这个机器人和应用搭配仍然有用，负责发普通消息：
 
@@ -34,7 +34,7 @@ Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击
 - 应用当月额度快用完之后的告警；
 - 人和 Agent 操作的回显。
 
-建两个应用，一个正式用、一个测试用（例如「Beacon」和「Beacon Dev」）。飞书把每次回调只交给一个连接，测试实例如果用正式应用，会抢走正式环境的点击。
+已有正式应用时，请用独立的应用和群做测试。飞书每次只把回调交给一个连接，测试实例复用正式应用时可能收到正式告警的卡片操作。
 
 ## 1. 创建应用 {#1-create-the-app}
 
@@ -51,61 +51,68 @@ Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击
 | 以应用身份发消息（`im:message:send_as_bot`） | 向告警群发卡片 |
 | 获取与更新应用发送的消息（`im:message` 或 `im:message:update`） | 原地更新卡片 |
 | 发送应用内加急消息（`im:message.urgent`） | 给值班的人加急 |
+| 获取群组信息（`im:chat:readonly`） | 配置时查找测试群和群成员 |
 
 如果后台里的权限名称不一样，就找接口「发送消息」「更新应用发送的消息卡片」「发送应用内加急」对应的权限。
 
-## 3. 回调 {#3-callbacks}
+## 3. 发布应用 {#3-publish}
 
-在「事件与回调」→「回调配置」里，选择点击怎么送到 Beacon：
+发布一个包含机器人能力和上述权限的应用版本，并将测试群成员纳入应用的可用范围。审批通过后再把应用加入群。回调订阅等 Beacon 运行起来后再发布。
 
-- **长连接**（推荐，`feishu.callback: websocket`，也是默认值）：选「使用长连接接收回调」。由 Beacon 主动连到飞书，不需要公网地址。然后添加回调「卡片回传交互」（`card.action.trigger`）。
-- **HTTP**（`feishu.callback: http`）：请求地址填 `https://<你的域名>/hooks/feishu`。把 **Verification Token** 写进 `feishu.verification_token_file` 指向的文件。开了加密的话，把 **Encrypt Key** 写进 `feishu.encrypt_key_file` 指向的文件。然后添加「卡片回传交互」。
+## 4. 准备测试群 {#4-prepare-the-test-group}
 
-`card.action.trigger` 要在**回调**页签添加，不是事件页签：旧版的卡片回调不走长连接。
+1. 在自己的组织里创建群，例如「Beacon 测试告警」，拉入会认领测试告警的成员。
+2. 在群设置中打开**群机器人 → 添加机器人**，选择刚发布的应用。
+3. 在所用平台的 API 调试台，用**同一个测试应用**的 `tenant_access_token` 调用[获取用户或机器人所在的群列表](https://open.feishu.cn/document/server-docs/group/chat/list)（`GET /im/v1/chats`）。复制测试群的 `chat_id`（`oc_…`）。
+4. 保持选中同一个应用，调用[获取群成员列表](https://open.feishu.cn/document/server-docs/group/chat-member/get)（`GET /im/v1/chats/{chat_id}/members`）。将 `member_id_type` 设为 `open_id`，把每位测试值班人的 `member_id`（`ou_…`）填入 `feishu.on_call`。飞书为不同应用分别生成这些 ID。Beacon 的控制台账号由**成员**页面单独管理。
+5. 如需测试纯文本消息和备用送达，在同一测试群添加**自定义机器人**。关键词设为 `Beacon`，或与 `feishu.webhook_keyword` 保持一致。将 webhook 地址写入 `feishu.webhook_url_file` 指向的文件。若启用签名校验，再把签名密钥写入 `feishu.webhook_secret_file` 指向的文件。首次只测试应用卡片时，可以保留这些配置的注释。
 
-## 4. 发布 {#4-publish}
+## 5. 启动 Beacon 并订阅回调 {#5-configure-callbacks}
 
-创建版本并发布。管理员在管理后台审批。权限改动只在已发布的版本里生效，所以改过权限要重新发布。
+把 App ID 和 App Secret 分别写入 `app_id_file` 和 `app_secret_file` 指向的文件。参考部署的这些文件位于 `/opt/beacon/secrets/`。编辑 `/opt/beacon/config.yaml` 中的 `feishu:`，填入测试群 ID 和至少一位测试值班人的 `open_id`。使用 Lark 时设置 `domain: lark`。
 
-## 5. 告警群 {#5-the-alert-chat}
+应用配置前，先在 Beacon 配置里选好回调方式。
 
-1. 建一个群（例如「告警」），拉入值班的人。
-2. 把应用的机器人加进群（群设置 → 群机器人 → 添加机器人）。
-3. 找到群的 `chat_id`（`oc_…`），例如在 API 调试台以应用身份调用「获取用户或机器人所在的群列表」。
-4. 找到每个值班的人在这个应用下的 `open_id`（`ou_…`）。只有这些人能操作卡片，加急也只发给他们。
-5. 在同一个群里再加一个**自定义机器人**。安全设置选关键词（默认 `Beacon`，可用 `feishu.webhook_keyword` 修改）和/或签名校验（密钥写进 `feishu.webhook_secret_file` 指向的文件）。复制它的 webhook 地址。
+- **长连接（推荐）**。设置 `callback: websocket`，允许机器向飞书或 Lark 开放平台发起连接。
+- **HTTP**。设置 `callback: http`。将应用的 **Verification Token** 写入 `verification_token_file` 指向的文件。应用启用回调加密时，将 **Encrypt Key** 写入 `encrypt_key_file` 指向的文件。将文件路径填到 `feishu:` 下。飞书需要能通过你的公网域名访问 `https://status.example.com/hooks/feishu`。
 
-每个密钥写进各自的文件。参考部署把这些文件放在 `/opt/beacon/secrets/` 下，`install.sh` 会把它们的属主设为 65532、权限设为 0400。其余写进 Beacon 的配置：就是本页开头的那段，填上第 3 步的 `chat_id` 和第 4 步的 `open_id`。
+参考部署按下列命令应用变更。`install.sh` 会把密钥文件的属主设为 65532、权限设为 0400，校验配置，并在配置或密钥变更后重启 Beacon。
 
-`beacon check-config` 会拒绝：
+```bash
+cd /opt/beacon
+sudo ./install.sh
+docker exec beacon beacon check-config -config /etc/beacon/config.yaml
+```
 
-- 配了应用却没有 `chat_id`，或 `on_call` 里一个人都没有；
-- `open_id` 不以 `ou_` 开头；
-- HTTP 回调没有 Verification Token。
+配置检查应显示 `Feishu app true`。然后打开开发者后台的**事件与回调 → 回调配置**。
+
+1. **长连接**。在 `docker compose logs beacon` 中看到 `feishu long connection ready` 后，选择**使用长连接接收回调**并保存。飞书要求客户端在线才允许保存。[飞书长连接配置指南](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/step-1-choose-a-subscription-mode/configure-callback-request-address)
+2. **HTTP**。选择将回调发送到开发者服务器，保存上面配置的 HTTPS 回调地址。Beacon 必须运行，才能响应飞书的地址校验。
+3. 在**回调配置**中添加**卡片回传交互**（`card.action.trigger`）。发布新版并等审批通过，再测试卡片操作。[飞书回调订阅指南](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/callback-overview)
 
 ## 6. 检查 {#6-check-it}
 
-重启 Beacon，让它读到新配置：参考部署在 `/opt/beacon` 下执行 `docker compose restart beacon`。然后依次检查：
+在中心检查就绪状态。
 
 ```bash
-docker exec beacon beacon check-config               # configuration OK: Feishu app true, …
-docker logs beacon 2>&1 | grep 'feishu long connection'
-curl -s http://127.0.0.1:17001/readyz                # 在中心上：{"not_ready":null,"ready":true}
+curl -sS -i http://127.0.0.1:17001/readyz
+```
+
+就绪接口返回 HTTP 200 且两个检测点都在上报后，启动演练。
+
+```bash
 docker exec beacon beacon drill fail 15m
 ```
 
-- **日志**：启动后几秒内，应出现 `feishu long connection ready`。`callback: http` 时没有这一行。没有这一行，或者出现 `feishu long connection lost`、`error`，就检查：
-  - 文件里的 App ID 和 App Secret；
-  - 带机器人和权限的那个版本已经发布并通过审批；
-  - 回调选的是长连接。
-- **`/readyz`**：告警送不到人时，返回 503 并列出原因。带 `status:read` 的令牌用 `GET /api/v1/bridge`（MCP 的 `status_summary`）也能看到同样的信息，还有本月已用的调用次数。原因有：
-  - 「the Feishu long connection is down」（长连接断了）；
-  - 「a Feishu API call failed in the last 10 minutes」（10 分钟内有飞书 API 调用失败）；
-  - 「the Feishu API budget for this month is used up」（本月额度已用完）；
-  - 或者规则引擎的 Watchdog 没有到达。
-- **演练**：让 `/drill/healthz` 失败。检测点发现、告警触发后（两个检测点时约 4 到 5 分钟），群里会收到卡片。认领、静默，再执行 `docker exec beacon beacon drill off`，看卡片变绿。
-- **点击后提示「只有值班的人可以处理告警」**：点的人 `open_id` 不在 `feishu.on_call` 里。或者这个 `open_id` 是从别的应用查到的：`open_id` 是按应用区分的。
-- **Beacon 根本没收到点击**：卡片不变，审计日志里也没有途径为 `feishu` 的记录。说明点击去了别处：被一个用着正式应用的测试实例收走了。或者 `card.action.trigger` 加在了事件页签而不是回调页签，哪里都没送到。
+1. 在**测试群**中等待 `drill` 的严重 `ServiceDown` 卡片。启动演练后约需五分钟。打开**时间线**，登录 Beacon 控制台，确认显示的是同一条告警。
+2. 用 `feishu.on_call` 里登记的飞书账号，在卡片上选择**认领并备注**。确认同一告警的时间线上出现备注和值班人的名字。
+3. 执行 `docker exec beacon beacon drill off`。确认探测恢复、同一张卡片变绿。如需测试定时手机推送或群自定义机器人备用送达，请按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)验证。
+
+如果某一步没有按预期发生：
+
+- **长连接一直没就绪。** 检查 App ID、App Secret、域名和出站网络。HTTP 回调模式不会打印长连接日志。
+- **`/readyz` 返回 503。** 查看 `not_ready` 列出的原因，可能涉及长连接、最近的飞书 API 调用失败、每月额度或未收到规则引擎的 Watchdog。也可以用有 `status:read` 权限的令牌，通过 `GET /api/v1/bridge` 或 MCP 的 `status_summary` 查看原因和 API 用量。收到卡片并能认领，才能验证你们群内的送达。
+- **卡片到了，但认领失败。** 检查已发布的回调订阅是否包含 `card.action.trigger`，值班人的 `ou_…` 是否由这个应用查到。若另一个实例复用同一应用，它可能收到这次点击。
 
 ## 额度 {#quota}
 

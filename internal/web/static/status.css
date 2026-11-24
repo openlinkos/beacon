@@ -31,6 +31,22 @@
   .bc-axis-30 { display: none; }
 }
 
+/* The strip's daily results are also readable without hovering or relying on colour. */
+.bc-history > summary { min-block-size: var(--ol-size-control-sm); }
+.bc-history-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  column-gap: var(--ol-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--ol-font-size-xs);
+}
+.bc-history-days > li {
+  padding-block: var(--ol-space-1-5);
+  border-block-start: 1px solid var(--ol-color-border);
+}
+
 /* An incident's updates, the newest first, on a line that joins them. */
 .bc-updates { display: flex; flex-direction: column; gap: var(--ol-space-4); margin: var(--ol-space-3) 0; padding: 0; list-style: none; }
 .bc-update { padding-inline-start: var(--ol-space-4); border-inline-start: 2px solid var(--ol-color-border); }

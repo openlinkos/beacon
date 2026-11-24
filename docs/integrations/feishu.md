@@ -12,8 +12,8 @@ feishu:
   on_call:                             # only they may act on cards; they are buzzed
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # the name is shown on cards
   monthly_budget: 10000                # the app's API calls per month (see Quota)
-  webhook_url_file: /etc/beacon/secrets/feishu-webhook-url        # the custom bot
-  webhook_keyword: Beacon
+  # webhook_url_file: /etc/beacon/secrets/feishu-webhook-url      # optional custom bot
+  # webhook_keyword: Beacon
 ```
 
 A card says what is wrong and since when, which locations fail and why, and what agents have noted. It changes in place as the alert does, and turns green when it resolves.
@@ -22,7 +22,7 @@ A card says what is wrong and since when, which locations fail and why, and what
 - A critical alert nobody acknowledges buzzes them in the app after 10 minutes.
 - A custom bot in the same group carries plain messages that cost no API quota.
 
-You need to create a self-built app in your organisation, which an administrator approves. The steps take a quarter of an hour, and the approval as long as your organisation takes.
+You need a Beacon centre and two reporting probe locations for the drill. In your Feishu or Lark organisation, you need permission to create a self-built app and add it to a test group, and an administrator who can approve app releases. Allow for your organisation’s approval time.
 
 Beacon sends cards through a **self-built app** and receives its button clicks. A group's custom bot alone cannot do this: its messages have no callbacks and cannot be updated. The bot is still useful beside the app, for plain messages:
 
@@ -30,7 +30,7 @@ Beacon sends cards through a **self-built app** and receives its button clicks. 
 - alerts once the app's monthly budget runs low;
 - the echoes of what people and agents do.
 
-Create two apps, one for production and one for testing (for example "Beacon" and "Beacon Dev"). Feishu hands each callback to one connection only, so a test instance using the production app would take clicks away from production.
+Use a separate app and group for testing when you already have a production app. Feishu delivers each callback to one connection, so a test instance using the production app can receive production card actions.
 
 ## 1. Create the app
 
@@ -47,61 +47,68 @@ Under **Permissions & scopes**, enable:
 | Send messages as an app (`im:message:send_as_bot`) | Sending cards to the alert chat |
 | Read and update messages sent by the app (`im:message` or `im:message:update`) | Updating a card in place |
 | Send urgent messages in app (`im:message.urgent`) | Buzzing the people on call |
+| Obtain group information (`im:chat:readonly`) | Looking up the test group and its members during setup |
 
 If the console names them differently, look for the permissions behind the APIs "send message", "update app message card" and "buzz a message in app".
 
-## 3. Callbacks
+## 3. Publish the app {#3-publish}
 
-Under **Events & callbacks → Callback configuration**, choose how the clicks reach Beacon:
+Publish a version with the Bot feature and those permissions. Include the test group’s members in the app’s availability scope. Wait for approval before adding the app to the group. You will publish the callback subscription after Beacon is running.
 
-- **Long connection** (recommended; `feishu.callback: websocket`, the default): choose "Receive callbacks through a persistent connection". Beacon connects out to Feishu, so it needs no public URL. Then add the callback **Card action** (`card.action.trigger`).
-- **HTTP** (`feishu.callback: http`): set the request URL to `https://<your host>/hooks/feishu`. Put the **Verification Token** in the file that `feishu.verification_token_file` names. If you turned encryption on, put the **Encrypt Key** in the file that `feishu.encrypt_key_file` names. Then add **Card action**.
+## 4. Prepare the test group {#4-prepare-the-test-group}
 
-Add `card.action.trigger` on the **callback** tab, not the event tab: the old card callback does not travel over the long connection.
+1. Create a group in your organisation, such as “Beacon test alerts”, and add the people who will acknowledge test alerts.
+2. In the group’s settings, open **Bots → Add bot** and choose the app you published.
+3. In your platform’s API explorer, using the **same test app’s** `tenant_access_token`, call [Obtain groups where the user or bot is a member](https://open.feishu.cn/document/server-docs/group/chat/list) (`GET /im/v1/chats`). Copy the test group’s `chat_id` (`oc_…`).
+4. With the same app selected, call [Obtain group member list](https://open.feishu.cn/document/server-docs/group/chat-member/get) (`GET /im/v1/chats/{chat_id}/members`). Set `member_id_type` to `open_id`. Copy each test responder’s `member_id` (`ou_…`) into `feishu.on_call`. Feishu issues these IDs separately for each app. Beacon’s console logins are managed separately under **People**.
+5. To exercise plain-text delivery and fallback, add a **custom bot** to the same test group. Set its security keyword to `Beacon` or match it in `feishu.webhook_keyword`. Save its webhook URL in the file named by `feishu.webhook_url_file`. If you enable signing, save its signing secret in `feishu.webhook_secret_file` as well. A first test of app cards can leave these bot settings commented out.
 
-## 4. Publish
+## 5. Start Beacon and subscribe to callbacks {#5-configure-callbacks}
 
-Create a version and publish it. An administrator approves it in the admin console. Permission changes take effect only in a published version, so publish again after changing them.
+Put the app ID and app secret in the two files named by `app_id_file` and `app_secret_file`. For the reference deployment, these files live under `/opt/beacon/secrets/`. Update the `feishu:` block in `/opt/beacon/config.yaml` with the test group ID and at least one responder’s `open_id`. Use `domain: lark` for Lark.
 
-## 5. The alert chat
+Choose the callback mode in Beacon’s configuration before loading it:
 
-1. Create a group (for example "Alerts") and add the people on call.
-2. Add the app's bot to the group (group settings → Bots → Add bot).
-3. Find the group's `chat_id` (`oc_…`), for example with the API explorer's "get chat list", called as the app.
-4. Find each on-call person's `open_id` (`ou_…`) for this app. Only these people can act on cards, and they are the ones buzzed.
-5. Add a **custom bot** to the same group. Under its security settings, choose a keyword (`Beacon` unless you set `feishu.webhook_keyword`) and/or a signature (its secret goes in the file `feishu.webhook_secret_file` names). Copy its webhook URL.
+- **Long connection (recommended).** Use `callback: websocket`. Allow outbound access to the Feishu or Lark platform.
+- **HTTP.** Use `callback: http`. Write the app’s **Verification Token** to the file named by `verification_token_file`. If the app encrypts callbacks, write its **Encrypt Key** to the file named by `encrypt_key_file`. Set the corresponding file paths under `feishu:`. Feishu must be able to reach Beacon at `https://status.example.com/hooks/feishu` using your public host name.
 
-Put each secret in its file. In the reference deployment the files are under `/opt/beacon/secrets/`, which `install.sh` gives owner 65532 and mode 0400. Put the rest in Beacon's configuration: the block at the top of this page, with the `chat_id` from step 3 and the `open_id`s from step 4.
-
-`beacon check-config` refuses:
-
-- an app without `chat_id`, or without at least one person in `on_call`;
-- an `open_id` that does not start with `ou_`;
-- an HTTP callback without its verification token.
-
-## 6. Check it
-
-Restart Beacon so that it reads the new configuration: `docker compose restart beacon` in `/opt/beacon`, for the reference deployment. Then check, in this order:
+In the reference deployment, apply the change as follows. `install.sh` sets the secret files to owner 65532 and mode 0400, validates the configuration, and restarts Beacon when its configuration or secrets have changed.
 
 ```bash
-docker exec beacon beacon check-config               # configuration OK: Feishu app true, …
-docker logs beacon 2>&1 | grep 'feishu long connection'
-curl -s http://127.0.0.1:17001/readyz                # on the centre: {"not_ready":null,"ready":true}
+cd /opt/beacon
+sudo ./install.sh
+docker exec beacon beacon check-config -config /etc/beacon/config.yaml
+```
+
+The configuration check should say `Feishu app true`. Then go to **Events & callbacks → Callback configuration** in the developer console:
+
+1. **For a long connection**, wait for `feishu long connection ready` in `docker compose logs beacon`. Then select **Receive callbacks through a persistent connection** and save. Feishu requires the client to be online before it saves the setting. [Feishu’s persistent connection guide](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/step-1-choose-a-subscription-mode/configure-callback-request-address)
+2. **For HTTP**, select the developer-server callback mode and save the HTTPS callback URL you configured above. Beacon must be running to answer Feishu’s verification request.
+3. Add **Card action** (`card.action.trigger`) in **Callback configuration**. Publish the new version and wait for approval before testing card actions. [Feishu’s callback subscription guide](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/callback-overview)
+
+## 6. Check it {#6-check-it}
+
+On the centre, check readiness.
+
+```bash
+curl -sS -i http://127.0.0.1:17001/readyz
+```
+
+When readiness returns HTTP 200 and both locations are reporting, start the drill.
+
+```bash
 docker exec beacon beacon drill fail 15m
 ```
 
-- **The log** has `feishu long connection ready` within seconds of the start. With `callback: http` there is no such line. If it is missing, or says `feishu long connection lost` or `error`, check:
-  - the App ID and App Secret in their files;
-  - that the app's version with the bot and the permissions is published and approved;
-  - that the callback is set to the persistent connection.
-- **`/readyz`** answers 503 with the reasons when alerts cannot reach people. `GET /api/v1/bridge` (MCP `status_summary`) says the same to a token with `status:read`, with the calls used this month. The reasons are:
-  - "the Feishu long connection is down";
-  - "a Feishu API call failed in the last 10 minutes";
-  - "the Feishu API budget for this month is used up";
-  - or that the rule engine's Watchdog has not arrived.
-- **The drill** makes `/drill/healthz` fail. Once your probe locations see it and the alert fires (4 to 5 minutes with two locations), a card arrives in the group. Acknowledge it, silence it, then run `docker exec beacon beacon drill off` and watch it turn green.
-- **A click that answers "Only the people on call can act on alerts"** came from someone whose `open_id` is not in `feishu.on_call`. Or their `open_id` was taken from another app: an `open_id` is per app.
-- **Clicks Beacon never hears of** leave the card as it was, and the audit log has no entry with via `feishu`. They are going elsewhere: to a test instance running with the production app. Or nowhere, when `card.action.trigger` was added on the event tab instead of the callback tab.
+1. In the **test group**, wait for the critical `ServiceDown` card for `drill`. Allow approximately five minutes from starting the drill. Open **Timeline**, sign in to the Beacon console, and confirm it shows the same alert.
+2. From a Feishu account listed in `feishu.on_call`, use **Acknowledge with note** on the card. Confirm the note and the responder appear on the same incident’s timeline.
+3. Run `docker exec beacon beacon drill off`. Confirm the probes recover and the same card turns green. For scheduled phone delivery or group bot fallback, follow the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
+
+If something does not work:
+
+- **The long connection never gets ready.** Check the App ID, App Secret, domain and outbound access. With HTTP callbacks there is no long-connection log.
+- **`/readyz` returns 503.** Read its `not_ready` reasons. They can include the long connection, a recent Feishu API failure, monthly quota, or a missing rule-engine Watchdog. A token with `status:read` can also read the reasons and API usage in `GET /api/v1/bridge` or MCP `status_summary`. The card’s receipt and acknowledgement verify delivery in your group.
+- **A card arrives but the acknowledgement fails.** Check that `card.action.trigger` is in the published callback subscription and that the responder’s `ou_…` came from this app’s member lookup. If another instance uses the same app, it can receive the click instead.
 
 ## Quota
 

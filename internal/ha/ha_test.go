@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -182,7 +183,29 @@ func TestDefaultIDsDiffer(t *testing.T) {
 	}
 }
 
-// TestLeaderExpiresLocally: a hung take cannot keep Leader true past start+expiry-margin.
+func TestLocalLeaseDeadlines(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		lease := &Lease{}
+		start := time.Now()
+		lease.heldUntil.Store(start.Add(time.Second).UnixNano())
+		lease.healthyUntil.Store(start.Add(2 * time.Second).UnixNano())
+		lease.inner.Store(true)
+
+		if !lease.Leader() || !lease.Healthy() {
+			t.Fatal("a fresh lease should hold leadership and be healthy")
+		}
+		time.Sleep(time.Second)
+		if lease.Leader() || !lease.Healthy() {
+			t.Fatal("at the leadership deadline the lease should still be healthy without holding leadership")
+		}
+		time.Sleep(time.Second)
+		if lease.Healthy() {
+			t.Fatal("at the health deadline the lease should no longer be healthy")
+		}
+	})
+}
+
+// TestLeaderExpiresLocally checks that a blocked PostgreSQL renewal leaves the local deadlines in force.
 func TestLeaderExpiresLocally(t *testing.T) {
 	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
 		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
@@ -198,8 +221,8 @@ func TestLeaderExpiresLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go one.Run(ctx)
+	wait := one.GoRun(ctx)
+	defer func() { cancel(); wait() }()
 	deadline := time.Now().Add(3 * time.Second)
 	for !one.Leader() && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
@@ -216,12 +239,30 @@ func TestLeaderExpiresLocally(t *testing.T) {
 	if _, err := tx.Exec(`SELECT * FROM leader WHERE name = $1 FOR UPDATE`, o.Name); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(350 * time.Millisecond) // past start+expiry-margin, still inside Expire of the last take
+	// The last successful take started before the row lock was acquired. Its local deadlines may
+	// still be published by Run after the lock, so follow the recorded leadership deadline.
+	latestHealth := time.Now().Add(o.Expire)
+	latestLeader := latestHealth.Add(-o.margin())
+	for {
+		heldUntil := time.Unix(0, one.heldUntil.Load())
+		if heldUntil.After(latestLeader) {
+			t.Fatalf("leadership deadline %s exceeds the latest possible deadline %s", heldUntil, latestLeader)
+		}
+		remaining := time.Until(heldUntil)
+		if remaining <= 0 {
+			break
+		}
+		time.Sleep(remaining)
+	}
 	if one.Leader() {
 		t.Fatal("Leader stayed true while take was blocked past the local deadline")
 	}
-	if !one.Healthy() {
-		t.Fatal("a waiting instance that last heard from the database should still be healthy")
+	healthyUntil := time.Unix(0, one.healthyUntil.Load())
+	if healthyUntil.After(latestHealth) {
+		t.Fatalf("health deadline %s exceeds the latest possible deadline %s", healthyUntil, latestHealth)
+	}
+	if gap := healthyUntil.Sub(time.Unix(0, one.heldUntil.Load())); gap != o.margin() {
+		t.Fatalf("time between leadership and health deadlines = %s, want %s", gap, o.margin())
 	}
 }
 

@@ -51,7 +51,7 @@ type callItem struct {
 }
 
 type deliveryRow struct {
-	Channel, Schedule, Result, Tone, At, Href string
+	Channel, Schedule, Result, Tone, At, Href, OpenLabel string
 }
 
 // health is the overview's answer, in a sentence.
@@ -386,6 +386,7 @@ func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow
 		attempt, ok := last[route.Channel]
 		if ok {
 			row.Href = link.AlertPath(attempt.AlertID) + "#timeline"
+			row.OpenLabel = s.t("Open alert from %s", row.Channel)
 			row.At = s.ago(attempt.At)
 			if attempt.Result == "failed" {
 				row.Result, row.Tone = s.t("Submission failed"), "danger"
