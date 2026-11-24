@@ -648,6 +648,42 @@ func TestOverviewShowsInitialPhoneAndProviderResult(t *testing.T) {
 	}
 }
 
+func TestNotificationWebhookNamesInOverviewAndAlert(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZH} {
+		t.Run(string(lang), func(t *testing.T) {
+			e := newEnv(t, lang)
+			g, ok := e.st.Group(e.id)
+			if !ok {
+				t.Fatal("the fixture alert was missing")
+			}
+			const route = "notification_webhook"
+			g.Notifications = []store.Notification{
+				{At: e.now.Add(-time.Minute), Channel: route, Result: "ok"},
+				{At: e.now, Channel: route, Result: "failed"},
+			}
+			if err := e.st.PutGroup(g); err != nil {
+				t.Fatal(err)
+			}
+			name := i18n.T(lang, "Notification webhook")
+			path := link.AlertPath(e.id)
+			routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: route, Initial: "primary"}})
+			if len(routes) != 1 || routes[0].Channel != name || routes[0].Schedule != i18n.T(lang, "When the alert opens") ||
+				routes[0].Result != i18n.T(lang, "Submission failed") || routes[0].Href != path+"#timeline" {
+				t.Fatalf("wrong critical notification route: %+v", routes)
+			}
+			show := e.signedIn("reader", "status:read").get(path)
+			for _, want := range []string{
+				i18n.T(lang, "Notification accepted by %s", name),
+				i18n.T(lang, "Notification submission to %s failed", name),
+			} {
+				if show.code != http.StatusOK || !strings.Contains(show.body, want) {
+					t.Errorf("the alert page lacks %q", want)
+				}
+			}
+		})
+	}
+}
+
 func sshActor(name string) sshgate.Actor { return sshgate.Actor{Name: name, Via: "console"} }
 
 func tokenNamed(st *store.Store, name string) store.Token {
@@ -728,7 +764,7 @@ func TestTimelineKinds(t *testing.T) {
 		{At: e.now, Kind: "command", By: "claude-code", Machine: "edge-1", Text: "systemctl restart relay", ID: sessionID, Exit: &one},
 		{At: e.now, Kind: "heartbeat", ID: "backup", Text: "the nightly backup"},
 	}}
-	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels(), "")
+	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels(), "", false)
 	if rows[0].Text != "claude-code ran a command on edge-1" || rows[0].Detail != "systemctl restart relay (exit 1)" || !strings.HasPrefix(rows[0].Href, link.SessionPath(sessionID)+"?s=") {
 		t.Errorf("a command: %+v", rows[0])
 	}

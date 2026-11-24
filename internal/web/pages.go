@@ -145,6 +145,8 @@ func (s *Server) channel(ch string) string {
 		return s.t("the Feishu app")
 	case "webhook":
 		return s.t("the group bot")
+	case "notification_webhook":
+		return s.t("Notification webhook")
 	case "pushover":
 		return "Pushover"
 	case "bark":
@@ -218,9 +220,9 @@ type eventRow struct {
 	Probe                                       *probeEvent
 }
 type probeEvent struct {
-	Summary string
-	Open    bool
-	Rows    []probeRow
+	Summary, RecoveryHint string
+	Open                  bool
+	Rows                  []probeRow
 }
 
 type noteRow struct{ By, Via, At, Text string }
@@ -342,7 +344,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Related = append(p.Related, relatedRow{Title: r.Title, Severity: s.severity(r.Severity), SeverityClass: tone(r.Severity), Why: r.Why,
 			Acked: r.Acked, Href: s.signed(link.AlertPath(r.ID), a.Until)})
 	}
-	p.Events = s.events(tl, a, p.L, r.URL.Query().Get("probe"))
+	p.Events = s.events(tl, a, p.L, r.URL.Query().Get("probe"), g.Status == "firing")
 	for _, c := range ev.Done.Agents {
 		if c.Event != "firing" {
 			continue
@@ -483,7 +485,7 @@ func (s *Server) probes(pe bridge.ProbeEvidence, from time.Time, l labels) []pro
 }
 
 // events renders the timeline.
-func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe string) []eventRow {
+func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe string, firing bool) []eventRow {
 	out := make([]eventRow, 0, len(tl.Events))
 	for _, e := range tl.Events {
 		row := eventRow{At: s.short(e.At), ISO: iso(e.At), Kind: e.Kind}
@@ -525,7 +527,7 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		case "probe_now":
 			row.Text = s.t("%s ran an on-demand check via %s", e.By, s.via(e.Via))
 			row.Anchor = "probe-" + e.ID
-			row.Probe = s.probeEvent(e, l, e.ID == selectedProbe)
+			row.Probe = s.probeEvent(e, l, e.ID == selectedProbe, firing)
 		case "change":
 			row.Text, row.Detail = s.t("Change by %s", e.By), e.Text
 			if e.Type != "" {
@@ -634,7 +636,7 @@ func (s *Server) agentEvent(e bridge.Event) (text, detail string) {
 	return s.t("Delivery to hook %s pending", e.By), ""
 }
 
-func (s *Server) probeEvent(e bridge.Event, l labels, open bool) *probeEvent {
+func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeEvent {
 	p := &probeEvent{Open: open}
 	var passed, failed, missing int
 	for _, o := range e.Probes {
@@ -656,6 +658,9 @@ func (s *Server) probeEvent(e bridge.Event, l labels, open bool) *probeEvent {
 		p.Rows = append(p.Rows, r)
 	}
 	p.Summary = s.t("%d passed, %d failed, %d missing", passed, failed, missing)
+	if open && firing && passed > 0 && passed == len(e.Probes) {
+		p.RecoveryHint = s.t("The monitoring rule still reports this alert as firing.")
+	}
 	return p
 }
 

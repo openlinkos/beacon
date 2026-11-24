@@ -94,7 +94,8 @@
       {{range .Events}}<tr class="kind-{{.Kind}}">
         <td><time datetime="{{.ISO}}">{{.At}}</time></td>
         <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}
-          {{if .Probe}}<details class="bc-alert-observations"{{if .Probe.Open}} open{{end}}><summary id="{{.Anchor}}"><span class="ol-sr-only">{{$.L.ProbeResults}} </span>{{.Probe.Summary}}</summary>
+          {{if .Probe}}<details class="bc-alert-observations"{{if .Probe.Open}} open{{end}}><summary id="{{.Anchor}}"{{if .Probe.RecoveryHint}} aria-describedby="{{.Anchor}}-recovery"{{end}}><span class="ol-sr-only">{{$.L.ProbeResults}} </span>{{.Probe.Summary}}</summary>
+            {{if .Probe.RecoveryHint}}<p class="ol-hint" id="{{.Anchor}}-recovery">{{.Probe.RecoveryHint}}</p>{{end}}
             <ul class="ol-list">
               {{range .Probe.Rows}}<li>
                 <span class="ol-list-row"><strong class="ol-list-title">{{.Location}}</strong><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span></span>

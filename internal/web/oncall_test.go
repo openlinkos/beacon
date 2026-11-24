@@ -221,3 +221,42 @@ func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
 		t.Errorf("audit event: %+v", audit)
 	}
 }
+
+func TestAlertSeparatesPassingOnDemandCheckFromRuleRecovery(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	viewer := e.signedIn("reader", "status:read")
+	g, ok := e.st.Group(e.id)
+	if !ok {
+		t.Fatal("the fixture alert was missing")
+	}
+	g.ProbeRuns = []store.ProbeRun{
+		{ID: "passed", At: e.now, Results: []store.ProbeObservation{{Location: "edge-1", Status: "ok"}, {Location: "edge-2", Status: "ok"}}},
+		{ID: "failed", At: e.now, Results: []store.ProbeObservation{{Location: "edge-1", Status: "ok"}, {Location: "edge-2", Status: "failed"}}},
+		{ID: "missing", At: e.now, Results: []store.ProbeObservation{{Location: "edge-1", Status: "ok"}, {Location: "edge-2", Status: "missing"}}},
+		{ID: "empty", At: e.now},
+	}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	path := link.AlertPath(e.id)
+	const hint = "The monitoring rule still reports this alert as firing."
+	passed := viewer.get(path + "?probe=passed")
+	if passed.code != http.StatusOK || strings.Count(passed.body, hint) != 1 ||
+		!strings.Contains(passed.body, `id="probe-passed" aria-describedby="probe-passed-recovery"`) ||
+		!strings.Contains(passed.body, `id="probe-passed-recovery">`+hint) {
+		t.Fatal("selected, passing check lacks its recovery context")
+	}
+	for _, id := range []string{"", "failed", "missing", "empty"} {
+		if page := viewer.get(path + "?probe=" + id); page.code != http.StatusOK || strings.Contains(page.body, hint) {
+			t.Errorf("a check other than the selected passing one showed recovery context: %q", id)
+		}
+	}
+	g.Status, g.ResolvedAt = "resolved", e.now
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	if page := viewer.get(path + "?probe=passed"); page.code != http.StatusOK ||
+		!strings.Contains(page.body, "Alert resolved") || strings.Contains(page.body, hint) {
+		t.Error("finished alert still shows the passing check as awaiting rule recovery")
+	}
+}

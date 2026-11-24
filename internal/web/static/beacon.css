@@ -37,7 +37,8 @@
 .bc-alert-sessions-header { flex-wrap: wrap; }
 .bc-alert-sessions-header .ol-badge { white-space: normal; }
 .bc-alert-signals { flex-basis: 100%; }
-.bc-alert-observations > .ol-list { margin-inline-start: var(--ol-space-3); }
+.bc-alert-observations > :is(.ol-list, .ol-hint) { margin-inline-start: var(--ol-space-3); }
+.bc-alert-observations > .ol-hint { margin-block: var(--ol-space-1) var(--ol-space-2); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
 #alert-action-result, #timeline, #add-note, .bc-alert-observations > summary {
   scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8));
