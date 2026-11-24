@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-af35f5da
+sourceHash: sha256-c5c1c7a8
 ---
 
 # 装在服务器上
@@ -22,9 +22,9 @@ sourceHash: sha256-af35f5da
 | [2. 第一个检测点](#2-the-first-probe) | 两个检测点共 5 分钟 |
 | [3. 第一台机器](#3-the-first-machine) | 4 分钟 |
 | [4. 首个账号、个人 SSH 和 Agent](#4-the-first-agent) | 客户端已安装时约 5 分钟 |
-| [5. 测试群、唤醒 Agent 和恢复](#5-the-first-drill) | 预留应用审批和钩子配置时间，之后演练约 10 分钟 |
+| [5. 测试群、唤醒 Agent 和恢复](#5-the-first-drill) | 预留接收端和钩子配置时间，之后演练约 10 分钟 |
 
-验收 30 分钟接入目标时，记录从开始按本指南操作到测试卡片显示恢复的总耗时，并单独记录等待 DNS 生效和应用审批的时间。
+验收 30 分钟接入目标时，记录从开始按本指南操作到测试接收端显示恢复的总耗时，单独记录等待 DNS 生效及应用审批的时间。
 
 ## 0. 需要准备什么 {#0-what-you-need}
 
@@ -45,7 +45,7 @@ sourceHash: sha256-af35f5da
 - **一台小机器做第一个检测点**：任何带 systemd 的 Linux，x86_64 或 arm64，有 64 MB 空闲内存即可。最好是放在用户所在地区的 VPS。第二个检测点可以直接用中心。
 - **一台给 Agent 干活的机器**，中心能连到它的 SSH 端口。用检测点那台也可以。
 - **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。要自动唤醒 Agent，还需要一个中心能够访问、可以启动 Agent 的接收端。
-- **组织内的测试群**，你需要能加入飞书或 Lark 应用机器人，并请管理员审批应用和稍后的回调订阅。
+- **人工通知的测试目的地**。可用接收端将[带签名的通知 Webhook](../integrations/notification-webhook.md) 转发到测试群。使用飞书或 Lark 应用时，先准备将机器人加入群聊，并审批应用版本和回调订阅。
 
 ## 1. 安装中心 {#1-install-the-centre}
 
@@ -236,11 +236,11 @@ claude mcp login beacon
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
-**接入自己的测试群。** 按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。在控制台概览的**严重告警通知**中核对飞书应用渠道。接收群由 `feishu.chat_id` 指定。应用版本可能需要组织审批。
+**接入自己的测试群。** 自己运行接收端时，按[配置通知 Webhook](../integrations/notification-webhook.md)操作，由它转发到测试群。需要飞书或 Lark 卡片时，按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。飞书群由 `feishu.chat_id` 指定。在控制台概览的**严重告警通知**中核对所选渠道。
 
 **准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。初次测试时，把钩子的服务范围限定为 `service: '^drill$'`。使用参考部署时，新增钩子密钥文件后运行 `sudo ./install.sh`，让 Beacon 能读取它。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
 
-**跑通演练。** 两个检测点都在上报后，按[测试群演练](../integrations/feishu.md#6-check-it)操作。确认群里收到卡片，打开的是同一条告警，认领备注出现在时间线上。检查接收端确实启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认探测恢复、同一张卡片显示恢复。检测与规则触发时序见[演练一次故障](../guide/drills.md)。手机推送和备用送达按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
+**跑通演练。** 两个检测点都在上报后，[运行演练](../guide/drills.md)。确认测试群收到通知、打开链接是同一条告警。认领并备注，然后核对时间线。确认钩子启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认探测恢复且同一个渠道收到恢复消息。手机推送和备用送达按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
 
 ## 接下来 {#what-next}
 

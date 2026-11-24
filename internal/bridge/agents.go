@@ -3,9 +3,7 @@ package bridge
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +18,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/notify"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
 )
@@ -104,13 +103,6 @@ const (
 type dispatch struct {
 	Ref    string            `json:"ref"`
 	Inputs map[string]string `json:"inputs"`
-}
-
-// signature is a webhook body's X-Beacon-Signature: sha256= and the hex HMAC-SHA256 of the body.
-func signature(secret string, body []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func newDelivery() string {
@@ -289,7 +281,7 @@ func (b *Bridge) send(ctx context.Context, h config.Agent, c store.AgentCall, bo
 			req.Header.Set(name, value)
 		}
 		if h.Secret != "" {
-			req.Header.Set("X-Beacon-Signature", signature(h.Secret, body))
+			req.Header.Set("X-Beacon-Signature", notify.SignWebhook(h.Secret, body))
 		}
 		req.Header.Set("X-Beacon-Event", c.Event)
 		req.Header.Set("X-Beacon-Delivery", c.Delivery)

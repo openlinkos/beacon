@@ -21,5 +21,6 @@ What goes out from Beacon when an alert fires, and what comes in to explain it.
 2. [GitHub Actions](github-actions.md): a hook that dispatches a workflow, and a workflow that runs Claude Code.
 3. [Deployments and Flux](change-events.md): change events from CI and Flux, so that the evidence says what changed just before an alert.
 4. [Set up the Feishu app](feishu.md): alerts as cards in a Feishu or Lark group, with buttons for the people on call.
+5. [Send alerts to a notification webhook](notification-webhook.md): signed firing and recovery notifications for a receiver you run.
 
 When a hook fires, and what the agent does next, is in [Put an agent on call](../guide/on-call.md). What a hook sends, field by field, is in the [Webhooks reference](../reference/webhooks.md).

@@ -1,6 +1,6 @@
 // Package notify sends through the channels that are not the Feishu app: Pushover (iOS emergency
 // alerts that repeat until acknowledged), Bark (an iOS push that rings), the Feishu group's custom
-// bot (plain messages that need no app and spend no API quota), and healthchecks.io pings.
+// bot (plain messages that need no app and spend no API quota), signed team webhooks, and healthchecks.io pings.
 package notify
 
 import (

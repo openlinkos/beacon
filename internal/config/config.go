@@ -143,18 +143,19 @@ type Config struct {
 	// OAuth is how MCP clients sign in to Beacon (docs/guide/people.md).
 	OAuth OAuth `yaml:"oauth"`
 
-	Feishu       Feishu              `yaml:"feishu"`
-	Pushover     Pushover            `yaml:"pushover"`
-	Bark         Bark                `yaml:"bark"`
-	Healthchecks Healthchecks        `yaml:"healthchecks"`
-	Escalation   map[string]Policy   `yaml:"escalation"`
-	AckTTL       Duration            `yaml:"ack_ttl"`
-	Agents       []Agent             `yaml:"agents"`  // hooks that wake agents; see agents.go
-	Changes      Changes             `yaml:"changes"` // change events from the gateway
-	Secrets      Secrets             `yaml:"-"`
-	Location     *time.Location      `yaml:"-"`
-	Proxies      []netip.Prefix      `yaml:"-"`
-	OnCallByID   map[string]OnCaller `yaml:"-"`
+	Feishu              Feishu              `yaml:"feishu"`
+	NotificationWebhook NotificationWebhook `yaml:"notification_webhook"`
+	Pushover            Pushover            `yaml:"pushover"`
+	Bark                Bark                `yaml:"bark"`
+	Healthchecks        Healthchecks        `yaml:"healthchecks"`
+	Escalation          map[string]Policy   `yaml:"escalation"`
+	AckTTL              Duration            `yaml:"ack_ttl"`
+	Agents              []Agent             `yaml:"agents"`  // hooks that wake agents; see agents.go
+	Changes             Changes             `yaml:"changes"` // change events from the gateway
+	Secrets             Secrets             `yaml:"-"`
+	Location            *time.Location      `yaml:"-"`
+	Proxies             []netip.Prefix      `yaml:"-"`
+	OnCallByID          map[string]OnCaller `yaml:"-"`
 }
 
 // Branding is what Beacon's public pages say of the deployment and of Beacon (docs/guide/status-pages.md). Title
@@ -256,7 +257,7 @@ type Healthchecks struct {
 
 // Policy says how alerts of one severity are delivered and escalated. Zero durations turn off timed steps.
 type Policy struct {
-	Channel         string   `yaml:"channel"` // app (Feishu card), webhook (group bot) or none (no initial chat)
+	Channel         string   `yaml:"channel"` // app (Feishu card), webhook (group bot), notification_webhook or none
 	Buzz            Duration `yaml:"buzz"`
 	Pushover        Duration `yaml:"pushover"`
 	Bark            Duration `yaml:"bark"`
@@ -265,22 +266,24 @@ type Policy struct {
 
 // Secrets are the credentials read from the *_file paths.
 type Secrets struct {
-	RulesToken              string
-	FeishuAppID             string
-	FeishuAppSecret         string
-	FeishuVerificationToken string
-	FeishuEncryptKey        string
-	FeishuWebhookURL        string
-	FeishuWebhookSecret     string
-	PushoverUserKey         string
-	PushoverToken           string
-	BarkURL                 string
-	HealthchecksBridgeURL   string
-	SSHHostKey              string // OpenSSH private keys
-	SSHCAKey                string
-	StorageDSN              string // the PostgreSQL connection string
-	S3AccessKeyID           string // recordings in S3-compatible storage
-	S3SecretAccessKey       string
+	RulesToken                string
+	FeishuAppID               string
+	FeishuAppSecret           string
+	FeishuVerificationToken   string
+	FeishuEncryptKey          string
+	FeishuWebhookURL          string
+	FeishuWebhookSecret       string
+	NotificationWebhookURL    string
+	NotificationWebhookSecret string
+	PushoverUserKey           string
+	PushoverToken             string
+	BarkURL                   string
+	HealthchecksBridgeURL     string
+	SSHHostKey                string // OpenSSH private keys
+	SSHCAKey                  string
+	StorageDSN                string // the PostgreSQL connection string
+	S3AccessKeyID             string // recordings in S3-compatible storage
+	S3SecretAccessKey         string
 }
 
 // Duration is a time.Duration written as "10m" in YAML.
@@ -433,6 +436,8 @@ func (c *Config) defaults() {
 			ch = "app"
 		case c.Feishu.WebhookURLFile != "":
 			ch = "webhook"
+		case c.NotificationWebhook.configured():
+			ch = NotificationWebhookChannel
 		}
 		crit, info := Policy{Channel: ch}, Policy{Channel: ch}
 		if ch == "app" {
@@ -644,18 +649,29 @@ func (c *Config) validate() error {
 	if c.Pushover.Expire.D() > 3*time.Hour {
 		bad("pushover.expire must be at most 3h (a Pushover limit)")
 	}
+	if w := c.NotificationWebhook; (w.URLFile == "") != (w.SecretFile == "") {
+		bad("notification_webhook.url_file and notification_webhook.secret_file go together")
+	}
 	for sev, p := range c.Escalation {
 		if !slices.Contains(Severities, sev) {
 			bad("escalation: %q is not a severity (%s)", sev, strings.Join(Severities, ", "))
 		}
-		if p.Channel != "app" && p.Channel != "webhook" && p.Channel != "none" {
-			bad("escalation.%s.channel must be app, webhook or none, not %q", sev, p.Channel)
-		}
-		if p.Channel == "app" && f.AppIDFile == "" {
-			bad("escalation.%s uses the Feishu app, but feishu.app_id_file is not set", sev)
-		}
-		if p.Channel == "webhook" && f.WebhookURLFile == "" {
-			bad("escalation.%s uses the group bot, but feishu.webhook_url_file is not set", sev)
+		switch p.Channel {
+		case "app":
+			if f.AppIDFile == "" {
+				bad("escalation.%s uses the Feishu app, but feishu.app_id_file is not set", sev)
+			}
+		case "webhook":
+			if f.WebhookURLFile == "" {
+				bad("escalation.%s uses the group bot, but feishu.webhook_url_file is not set", sev)
+			}
+		case NotificationWebhookChannel:
+			if !c.NotificationWebhook.configured() {
+				bad("escalation.%s uses the notification webhook, but notification_webhook is not configured", sev)
+			}
+		case "none":
+		default:
+			bad("escalation.%s.channel must be app, webhook, %s or none, not %q", sev, NotificationWebhookChannel, p.Channel)
 		}
 		if p.Buzz < 0 || p.Pushover < 0 || p.Bark < 0 {
 			bad("escalation.%s: durations cannot be negative", sev)
@@ -709,6 +725,7 @@ func (c *Config) readSecrets() error {
 	read(&s.FeishuEncryptKey, c.Feishu.EncryptKeyFile, "feishu.encrypt_key_file")
 	read(&s.FeishuWebhookURL, c.Feishu.WebhookURLFile, "feishu.webhook_url_file")
 	read(&s.FeishuWebhookSecret, c.Feishu.WebhookSecretFile, "feishu.webhook_secret_file")
+	errs = append(errs, c.readNotificationWebhookSecrets())
 	read(&s.PushoverUserKey, c.Pushover.UserKeyFile, "pushover.user_key_file")
 	read(&s.PushoverToken, c.Pushover.TokenFile, "pushover.token_file")
 	read(&s.BarkURL, c.Bark.URLFile, "bark.url_file")

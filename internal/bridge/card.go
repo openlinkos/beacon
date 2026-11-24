@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -305,7 +306,12 @@ func (b *Bridge) plainResolved(g *store.Group) string {
 
 // notificationPage takes the recipient back to the alert after sign-in, without handing out read-only access.
 func (b *Bridge) notificationPage(g *store.Group) string {
-	return cleanURL(b.apiURL(link.SignInPath(link.AlertPath(g.ID))))
+	base, err := url.Parse(b.d.Config.PublicURL)
+	if err != nil {
+		return ""
+	}
+	base.User, base.RawQuery, base.Fragment, base.ForceQuery = nil, "", "", false
+	return cleanURL(strings.TrimSuffix(base.String(), "/") + link.SignInPath(link.AlertPath(g.ID)))
 }
 
 func (b *Bridge) phoneLink(g *store.Group) (string, string) {

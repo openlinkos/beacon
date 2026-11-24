@@ -227,6 +227,9 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "configuration OK: Feishu app %v, Pushover %v, Bark %v; gateway %q; SSH channel %s; %d agent hooks\n",
 		cfg.Feishu.AppIDFile != "", cfg.Pushover.TokenFile != "", cfg.Bark.URLFile != "", cfg.Gateway.Listen, sshListen, len(cfg.Agents))
+	if cfg.NotificationWebhook.URLFile != "" {
+		fmt.Fprintln(stdout, "notification webhook configured")
+	}
 	fmt.Fprintf(stdout, "files: %s\n", inFiles)
 	fmt.Fprintf(stdout, "database: %s\n", inDB)
 	return 0
@@ -350,6 +353,9 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	if sec.BarkURL != "" {
 		deps.Bark = &notify.Bark{URL: sec.BarkURL}
+	}
+	if sec.NotificationWebhookURL != "" {
+		deps.NotificationWebhook = &notify.Webhook{URL: sec.NotificationWebhookURL, Secret: sec.NotificationWebhookSecret}
 	}
 	var listener *feishu.Listener
 	if deps.Feishu != nil && cfg.Feishu.Callback == "websocket" {

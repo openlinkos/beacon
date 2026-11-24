@@ -68,20 +68,21 @@ type Querier interface {
 	Query(ctx context.Context, query string) ([]vm.Sample, error)
 }
 
-// Deps are the bridge's collaborators. Feishu, Pushover, Bark, Bot and VM may be nil.
+// Deps are the bridge's collaborators. Notification providers and VM may be nil.
 type Deps struct {
-	Config   *config.Config
-	Store    *store.Store
-	AM       Silencer
-	Feishu   feishu.API
-	Pushover Pusher
-	Bark     Barker
-	Bot      Poster
-	VM       Querier
-	Catalog  func() *catalog.Catalog
-	Metrics  *metrics.Metrics
-	Log      *slog.Logger
-	Now      func() time.Time
+	Config              *config.Config
+	Store               *store.Store
+	AM                  Silencer
+	Feishu              feishu.API
+	Pushover            Pusher
+	Bark                Barker
+	Bot                 Poster
+	NotificationWebhook WebhookSender
+	VM                  Querier
+	Catalog             func() *catalog.Catalog
+	Metrics             *metrics.Metrics
+	Log                 *slog.Logger
+	Now                 func() time.Time
 	// WSReady reports whether Feishu's long connection is up; nil when callbacks come over HTTP.
 	WSReady func() bool
 	// ProbeNow is the board of requests to probe on demand (probenow.go); nil without a gateway.
@@ -105,10 +106,12 @@ type Bridge struct {
 	lang    i18n.Lang
 	started time.Time
 
-	mu         sync.Mutex // serialises every change to the groups
-	watchdogAt atomic.Int64
-	feishuFail atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
-	hooks      hooks        // calls that wake agents, in flight (agents.go)
+	mu            sync.Mutex // serialises every change to the groups
+	watchdogAt    atomic.Int64
+	feishuFail    atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
+	hooks         hooks        // calls that wake agents, in flight (agents.go)
+	webhookWake   chan struct{}
+	webhookActive map[string]bool // one in-flight notice per group, protected by mu
 }
 
 const (
@@ -135,6 +138,10 @@ func New(d Deps) *Bridge {
 		lang = i18n.EN
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
+	if d.NotificationWebhook != nil {
+		b.webhookWake = make(chan struct{}, 1)
+		b.webhookActive = make(map[string]bool)
+	}
 	if d.Metrics != nil {
 		d.Metrics.Register("beacon_bridge_ready", "1 when the bridge can deliver alerts", "gauge", func() []metrics.Sample {
 			ok, _ := b.Ready()
@@ -266,6 +273,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
 			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
+			g.NotifyWebhook = false
 			g.Episode, g.Participation = newDelivery(), nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
@@ -289,10 +297,21 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "resolved"
 		g.ResolvedAt = b.now()
 		b.resolve(ctx, &g)
+		if g.NotifyWebhook {
+			b.queueWebhook(&g, "resolved")
+		}
 		b.wake(&g, "resolved")
-		return b.saveGroup(g)
+		err := b.saveGroup(g)
+		if err == nil && len(g.WebhookNotices) > 0 {
+			b.wakeWebhooks()
+		}
+		return err
 	}
-	return b.d.Store.PutGroupWithOutcome(g, previous)
+	err := b.d.Store.PutGroupWithOutcome(g, previous)
+	if err == nil && len(g.WebhookNotices) > 0 {
+		b.wakeWebhooks()
+	}
+	return err
 }
 
 func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
@@ -301,6 +320,11 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 	g.Channel = "none"
 	if pol.InitialPushover && b.d.Pushover != nil {
 		b.push(ctx, g)
+		return
+	}
+	if pol.Channel == config.NotificationWebhookChannel {
+		g.NotifyWebhook = true
+		b.queueWebhook(g, "firing")
 		return
 	}
 	if pol.Channel != "app" && pol.Channel != "webhook" {
@@ -534,6 +558,8 @@ func (b *Bridge) Tick(ctx context.Context) {
 			if now.Sub(g.ResolvedAt) > keepResolved {
 				if err := b.d.Store.DropResolvedGroup(g, b.archiveOutcome(g, now, now)); err != nil {
 					b.d.Log.Error("archive resolved alert group", "group", g.ID, "err", err)
+				} else if len(g.WebhookNotices) > 0 {
+					b.auditExpiredWebhooks(g.ID, len(g.WebhookNotices))
 				}
 			}
 			continue
@@ -643,7 +669,7 @@ func (b *Bridge) onCallIDs() []string {
 	return ids
 }
 
-// Ready checks the alerting pipeline's Watchdog and the health checks for a configured Feishu app.
+// Ready checks the alerting pipeline's Watchdog and the configured notification providers.
 func (b *Bridge) Ready() (bool, []string) {
 	var why []string
 	now := b.now()
@@ -665,13 +691,19 @@ func (b *Bridge) Ready() (bool, []string) {
 			why = append(why, "the Feishu API budget for this month is used up")
 		}
 	}
+	if b.d.NotificationWebhook != nil && b.webhookWaitingOnFailure(now) {
+		why = append(why, "the notification webhook has a failed delivery waiting to retry")
+	}
 	return len(why) == 0, why
 }
 
 // Run ticks until ctx is done and pings the healthchecks.io check every minute when ready.
 func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool) error) {
+	var webhooks sync.WaitGroup
+	defer webhooks.Wait()
 	b.resumeWakes(ctx)
 	b.initOutcomes()
+	b.sendWebhooks(ctx, &webhooks)
 	tick := time.NewTicker(15 * time.Second)
 	defer tick.Stop()
 	beat := time.NewTicker(time.Minute)
@@ -684,6 +716,9 @@ func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool
 			return
 		case <-tick.C:
 			b.Tick(ctx)
+			b.sendWebhooks(ctx, &webhooks)
+		case <-b.webhookWake:
+			b.sendWebhooks(ctx, &webhooks)
 		case <-prune.C:
 			b.pruneOutcomes()
 		case <-beat.C:
@@ -808,14 +843,15 @@ type Summary struct {
 
 // DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
 type DeliverySetup struct {
-	CriticalToPeople bool            `json:"critical_to_people"`
-	FeishuApp        bool            `json:"feishu_app"`
-	GroupBot         bool            `json:"group_bot"`
-	Pushover         bool            `json:"pushover"`
-	Bark             bool            `json:"bark"`
-	CriticalChat     string          `json:"critical_chat"`
-	CriticalPhone    []string        `json:"critical_phone_escalation,omitempty"`
-	CriticalRoutes   []DeliveryRoute `json:"critical_routes,omitempty"`
+	CriticalToPeople    bool            `json:"critical_to_people"`
+	FeishuApp           bool            `json:"feishu_app"`
+	GroupBot            bool            `json:"group_bot"`
+	Pushover            bool            `json:"pushover"`
+	Bark                bool            `json:"bark"`
+	NotificationWebhook bool            `json:"notification_webhook,omitempty"`
+	CriticalChat        string          `json:"critical_chat"`
+	CriticalPhone       []string        `json:"critical_phone_escalation,omitempty"`
+	CriticalRoutes      []DeliveryRoute `json:"critical_routes,omitempty"`
 }
 
 // DeliveryRoute is when a provider is called for a critical alert.
@@ -828,7 +864,8 @@ type DeliveryRoute struct {
 // Delivery reports the configured routes for a new critical alert.
 func (b *Bridge) Delivery() DeliverySetup {
 	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil,
-		Bark: b.d.Bark != nil, CriticalChat: "none"}
+		NotificationWebhook: b.d.NotificationWebhook != nil,
+		Bark:                b.d.Bark != nil, CriticalChat: "none"}
 	pol := b.d.Config.Policy("critical")
 	chatSelected := pol.Channel == "app" || pol.Channel == "webhook"
 	switch {
@@ -844,6 +881,9 @@ func (b *Bridge) Delivery() DeliverySetup {
 	case chatSelected && d.GroupBot:
 		d.CriticalChat = "webhook"
 		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: "webhook", Initial: "primary"})
+	case pol.Channel == config.NotificationWebhookChannel && d.NotificationWebhook:
+		d.CriticalChat = config.NotificationWebhookChannel
+		d.CriticalRoutes = append(d.CriticalRoutes, DeliveryRoute{Channel: config.NotificationWebhookChannel, Initial: "primary"})
 	}
 	if pol.Pushover > 0 && d.Pushover {
 		d.CriticalPhone = append(d.CriticalPhone, "Pushover")

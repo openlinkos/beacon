@@ -96,6 +96,10 @@ jobs:
           "$RUNNER_TEMP/beacon" check-config -config "$RUNNER_TEMP/config.yaml"
           "$RUNNER_TEMP/beacon-probe" check -modules deploy/targets/modules.yml
 
+      - name: Signed notification delivery across a restart
+        timeout-minutes: 4
+        run: python3 deploy/smoke-notification-webhook.py "$RUNNER_TEMP/beacon"
+
       - name: Shell scripts
         run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/beacon-heartbeat
 
