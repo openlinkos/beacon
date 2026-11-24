@@ -4,24 +4,23 @@ This guide takes you from a bare Linux machine to the parts of Beacon that live 
 
 - the centre runs on one machine, with you as its owner;
 - two probe locations check your services;
-- one server is enrolled as a machine agents may work on through Beacon.
-
-Connecting your agent and rehearsing an outage have their own pages, linked from steps 4 and 5.
+- one server is enrolled and you can replay a personal SSH session and an agent’s session;
+- a drill sends an alert to your test chat and you can open and acknowledge the same incident.
 
 The guide is written for someone who runs a few servers, has root on a machine with Docker, and uses an agent on a workstation. To see the whole loop before you commit a server, [try it on your laptop](../guide/quickstart.md) first.
 
-Each step says how long it takes, what to run, what you should see, and what to do when you see something else. Commands on the centre run from `/opt/beacon`, through `docker exec beacon beacon …`.
+Run the centre’s commands from `/opt/beacon`. Use `sudo` with `docker` if your user needs it to access the Docker socket. Run workstation commands as your own user.
 
 | Step | Time |
 | --- | --- |
-| [0. What you need](#0-what-you-need) | not counted: a machine, two DNS names |
+| [0. What you need](#0-what-you-need) | Prepare the machines, DNS names, test chat and agent workstation |
 | [1. Install the centre](#1-install-the-centre) | 3 minutes, of which the script runs for 1 to 2 |
 | [2. The first probe](#2-the-first-probe) | 5 minutes for two locations |
 | [3. The first machine](#3-the-first-machine) | 4 minutes |
-| [4. The first agent](#4-the-first-agent) | 5 minutes, in [Try it on your laptop](../guide/quickstart.md) |
-| [5. The first drill](#5-the-first-drill) | 10 minutes, in [Rehearse an outage](../guide/drills.md) |
+| [4. First account, personal SSH and agent](#4-the-first-agent) | About 5 minutes with the client installed |
+| [5. Test chat, agent wake and recovery](#5-the-first-drill) | Allow for app approval and hook setup, then about 10 minutes for the drill |
 
-Steps 1 to 3 take about 12 minutes once step 0 is done. DNS propagation is outside your hands, and outside the count.
+For the 30-minute onboarding target, record the time from starting this guide to seeing the test card recover. Record DNS and app approval waits separately.
 
 ## 0. What you need
 
@@ -41,7 +40,8 @@ You need:
 - **An e-mail address** Let's Encrypt can write to about the certificates. It must be a real one: the installer refuses `example.com` addresses.
 - **A small machine for the first probe location**: any Linux with systemd, on x86_64 or arm64, with 64 MB of memory to spare. A VPS where your users are is best. The centre itself will do for the second location.
 - **A machine agents may work on**, which the centre can reach on its SSH port. The probe machine will do.
-- **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)).
+- **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)). For automatic wake, you also need a receiver the centre can reach that starts your agent.
+- **A test chat** in your Feishu or Lark organisation, with permission to add an app’s bot. Arrange for an administrator to approve the app and its later callback subscription.
 
 ## 1. Install the centre
 
@@ -214,7 +214,7 @@ Two more settings are worth making now rather than later:
 
 ## 4. The first agent
 
-5 minutes to connect the agent. Make the first account on the centre with the link printed by `docker exec beacon beacon setup`. Open the link on your workstation and create the owner account.
+5 minutes to connect the agent. Make the first account on the centre with the link printed by `docker exec beacon beacon setup`. Open the link on your workstation and create the owner account. If the centre already has an owner, sign in at `https://status.example.com/console` and use that account instead.
 
 **Check personal SSH.** Follow [Connect as yourself](../guide/machines.md#connect-as-yourself) to register your personal key and run `hostname` on `edge-1`. Replay the session in **Sessions** and check that it shows your username.
 
@@ -232,18 +232,15 @@ On the consent page, choose the **On call** preset and select `edge-1`. In Claud
 
 ## 5. The first drill
 
-10 minutes, most of it waiting, written out in [Rehearse an outage](../guide/drills.md).
+**Connect your own test group.** Follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. On the console’s Overview, confirm the Feishu app route appears under **Critical notifications**. The actual group is set by `feishu.chat_id`. The platform may need time to approve the versions.
 
-In short, Beacon has a service of its own to rehearse on. With two locations:
+**Prepare automatic wake.** Follow [Wake an agent](../guide/on-call.md#wake-an-agent) and start its receiver before the drill. For the first test, scope the hook to `service: '^drill$'`. In the reference deployment, run `sudo ./install.sh` after adding the hook secret so Beacon can read it. Use the machine and read-only command from step 4 for the test run, and have the agent leave a note on `drill`.
 
-- `docker exec beacon beacon drill fail 15m` makes both locations fail;
-- Beacon shows the `ServiceDown` alert about five minutes later;
-- `docker exec beacon beacon drill off` restores the drill endpoint, then the alert resolves after the probes and rule engine check it again.
+**Exercise the loop.** With both locations reporting, run the [test chat drill](../integrations/feishu.md#6-check-it). Check that the card reached your group and opens the same alert, and that acknowledging with a note appears on its timeline. Check the receiver actually started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check the same card shows the resolution. [Rehearse an outage](../guide/drills.md) describes the probe and rule timing. For phone and fallback delivery, use its [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
 
 ## What next
 
-- [Set up the Feishu app](../integrations/feishu.md), so alerts reach people as cards. Each secret goes in a file under `/opt/beacon/secrets/`, and the `feishu:` section in `/opt/beacon/config.yaml` is uncommented. `sudo ./install.sh` followed by `docker compose restart beacon` applies it ([Configuration](configuration.md)).
-- [Put an agent on call](../guide/on-call.md), so a new alert wakes an agent instead of waiting for someone to ask. [Using Beacon](../guide/using-beacon.md) has every other task, by capability.
+- [Using Beacon](../guide/using-beacon.md) covers the remaining operations tasks by capability.
 - [Upgrades](upgrade.md), [Backup and restore](backup.md) and [Security model](security.md) keep it running.
 - [Troubleshooting](troubleshooting.md) for when something above does not happen.
 - [Goals](../about/goals.md): what Beacon is for, and what it will not do.
