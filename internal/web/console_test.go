@@ -636,7 +636,7 @@ func TestOverviewShowsInitialPhoneAndProviderResult(t *testing.T) {
 	page := b.get("/console").body
 	for _, want := range []string{
 		"Critical notifications", "Pushover", "When the alert opens", "After 15m if unacknowledged",
-		"Submission failed", `href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
+		"Submission failed", `aria-label="Open alert from Pushover" href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
 		"Bark", "After 30m if unacknowledged", "No recent response",
 	} {
 		if !strings.Contains(page, want) {

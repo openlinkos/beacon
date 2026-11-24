@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Show operational figures sooner on the Overview. Notification links name their provider for assistive technology.
+
 ## 0.3.0
 
 ### rc.28 (2026-11-25)

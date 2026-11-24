@@ -130,6 +130,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Submission failed":                               "提交失败",
 	"Provider accepted":                               "提供方已受理",
 	"Open alert":                                      "打开告警",
+	"Open alert from %s":                              "打开告警（%s 通知）",
 	"Acknowledged by %s":                              "%s 已认领",
 	"Awaiting a person. %s":                           "等待值班人认领。%s",
 	"Take over":                                       "接手",
