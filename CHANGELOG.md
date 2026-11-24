@@ -4,10 +4,14 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.29 (2026-11-25)
+
 - Show operational figures sooner on the Overview. Notification links name their provider for assistive technology.
 - Keyboard focus follows an alert's acknowledgement, form error or on-demand check result. Alert action confirmations stay visible, and sign-in errors are associated with the form.
-
-## 0.3.0
+- Open a component's daily status and availability for the last 90 days with a keyboard or by touch.
+- Connect the Feishu test app and publish its callbacks before the first self-hosted drill. The install guide walks through receiving, acknowledging and resolving the same alert in the test group.
 
 ### rc.28 (2026-11-25)
 
