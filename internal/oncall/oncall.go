@@ -54,6 +54,8 @@ type Options struct {
 	LogDir      string        // where each run's output goes, as <time>-<delivery>.log
 	Keep        time.Duration // logs older than this are removed (30 days by default; 0 keeps them all)
 	Log         *slog.Logger  // the harness's own log (stderr by default)
+	ReportURL   string        // configured Beacon base URL for execution reports
+	ReportToken string        // bearer token for execution reports, separate from the inbound hook secret
 }
 
 // Payload is what Beacon sends (bridge.HookPayload), as far as the harness reads it. The program gets
@@ -93,8 +95,10 @@ type Server struct {
 	running map[*exec.Cmd]struct{}
 
 	queue       chan *job
-	outstanding int            // accepted runs not yet finished; capped at Concurrency + Queue
-	wg          sync.WaitGroup // the workers
+	outstanding int            // accepted work, including pending terminal reports; capped at Concurrency + Queue
+	wg          sync.WaitGroup // the execution workers
+	reports     *runReporter
+	done        chan struct{}
 }
 
 type job struct {
@@ -129,6 +133,11 @@ func New(o Options) (*Server, error) {
 	if o.Log == nil {
 		o.Log = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
+	reports, err := newRunReporter(o)
+	if err != nil {
+		return nil, err
+	}
+	o.ReportToken = ""
 	if err := os.MkdirAll(o.LogDir, 0o750); err != nil {
 		return nil, fmt.Errorf("log directory: %w", err)
 	}
@@ -136,8 +145,11 @@ func New(o Options) (*Server, error) {
 	// concurrency plus the queue, so a send that outstanding has already allowed cannot block on a
 	// worker that has not reached its receive; outstanding is what refuses a delivery.
 	s := &Server{o: o, log: o.Log, now: time.Now, seen: map[string]time.Time{}, running: map[*exec.Cmd]struct{}{},
-		queue: make(chan *job, o.Concurrency+o.Queue)}
+		queue: make(chan *job, o.Concurrency+o.Queue), reports: reports, done: make(chan struct{})}
 	s.prune()
+	if reports != nil {
+		reports.start(o.Concurrency, s.finishJob)
+	}
 	for range o.Concurrency {
 		s.wg.Add(1)
 		go s.worker()
@@ -311,26 +323,33 @@ func (s *Server) worker() {
 		s.mu.Lock()
 		abandon := s.abandon
 		s.mu.Unlock()
+		result := runReport{Status: runNotStarted}
 		if abandon {
 			s.log.Warn("run abandoned", "reason", "shutting down", "delivery", j.p.Delivery, "alert", j.p.Alert.ID)
 		} else {
-			s.run(j)
+			result = s.run(j)
 		}
-		s.mu.Lock()
-		s.outstanding--
-		s.mu.Unlock()
+		if s.reports == nil || !s.reports.queueTerminal(j.p, result) {
+			s.finishJob()
+		}
 	}
 }
 
+func (s *Server) finishJob() {
+	s.mu.Lock()
+	s.outstanding--
+	s.mu.Unlock()
+}
+
 // run starts the program for a delivery and waits for it, up to the timeout.
-func (s *Server) run(j *job) {
+func (s *Server) run(j *job) runReport {
 	s.prune()
 	start := s.now()
 	name := filepath.Join(s.o.LogDir, start.UTC().Format(logTime)+"-"+j.p.Delivery+".log")
 	out, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640) //nolint:gosec // our own log directory
 	if err != nil {
 		s.log.Error("run not started", "reason", "cannot open the log", "delivery", j.p.Delivery, "err", err)
-		return
+		return runReport{Status: runNotStarted}
 	}
 	defer func() { _ = out.Close() }()
 
@@ -340,13 +359,25 @@ func (s *Server) run(j *job) {
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.Env = append(os.Environ(), Environment(j.p)...)
 	setGroup(cmd)
+	s.mu.Lock()
+	abandon := s.abandon
+	s.mu.Unlock()
+	if abandon {
+		s.log.Warn("run abandoned", "reason", "shutting down", "delivery", j.p.Delivery, "alert", j.p.Alert.ID)
+		return runReport{Status: runNotStarted}
+	}
 	if err := cmd.Start(); err != nil {
 		s.log.Error("run not started", "delivery", j.p.Delivery, "alert", j.p.Alert.ID, "err", err)
 		fmt.Fprintf(out, "--- beacon-oncall: not started: %v\n", err)
-		return
+		return runReport{Status: runNotStarted}
 	}
+	timer := time.NewTimer(s.o.Timeout)
+	defer timer.Stop()
 	s.mu.Lock()
 	s.running[cmd] = struct{}{}
+	if s.abandon {
+		kill(cmd) // shutdown may have passed its deadline while the process was starting
+	}
 	s.mu.Unlock()
 	s.log.Info("run started", "delivery", j.p.Delivery, "event", j.p.Event, "hook", j.p.Hook, "alert", j.p.Alert.ID,
 		"pid", cmd.Process.Pid, "log", name)
@@ -354,9 +385,10 @@ func (s *Server) run(j *job) {
 	done := make(chan struct{})
 	var waitErr error
 	go func() { waitErr = cmd.Wait(); close(done) }()
+	if s.reports != nil {
+		s.reports.queueRunning(j.p)
+	}
 	timedOut := false
-	timer := time.NewTimer(s.o.Timeout)
-	defer timer.Stop()
 	select {
 	case <-done:
 	case <-timer.C:
@@ -396,6 +428,7 @@ func (s *Server) run(j *job) {
 	fmt.Fprintf(out, "\n--- beacon-oncall: %s after %s\n", how, took)
 	s.log.Info("run ended", "delivery", j.p.Delivery, "event", j.p.Event, "alert", j.p.Alert.ID, "exit", code,
 		"timed_out", timedOut, "duration", took, "log", name)
+	return executionResult(timedOut, code)
 }
 
 // prune removes the logs older than Keep.
@@ -429,12 +462,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if !s.closed {
 		s.closed = true
 		close(s.queue)
+		go s.drain()
 	}
 	s.mu.Unlock()
-	done := make(chan struct{})
-	go func() { s.wg.Wait(); close(done) }()
 	select {
-	case <-done:
+	case <-s.done:
 		return nil
 	case <-ctx.Done():
 	}
@@ -444,8 +476,20 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		kill(cmd)
 	}
 	s.mu.Unlock()
-	<-done
+	if s.reports != nil {
+		stop := time.AfterFunc(reportBudget, s.reports.cancel)
+		defer stop.Stop()
+	}
+	<-s.done
 	return ctx.Err()
+}
+
+func (s *Server) drain() {
+	s.wg.Wait()
+	if s.reports != nil {
+		s.reports.close()
+	}
+	close(s.done)
 }
 
 // Environment is what the program learns about the alert, beside the payload on its standard input.

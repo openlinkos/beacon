@@ -6,6 +6,7 @@
 //
 //	beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
 //	              [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
+//	              [-report-url BEACON_URL -report-token-file FILE]
 //	beacon-oncall version
 package main
 
@@ -34,6 +35,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
                 [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
+                [-report-url BEACON_URL -report-token-file FILE]
                                                      take Beacon's webhook and run the program for each alert
   beacon-oncall version
 `)
@@ -73,6 +75,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", 30*time.Minute, "time a program gets before its process group is killed")
 	logDir := fs.String("log-dir", "/var/lib/beacon-oncall/logs", "directory for each run's output, as <time>-<delivery>.log")
 	keep := fs.Duration("keep", 720*time.Hour, "logs older than this are removed; 0 keeps them all")
+	reportURL := fs.String("report-url", "", "Beacon base URL for execution reports")
+	reportTokenFile := fs.String("report-token-file", "", "file with the separate Beacon token for execution reports")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -84,6 +88,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *secretFile == "" || *runCmd == "" {
 		fmt.Fprintln(stderr, "-secret-file and -run are required")
 		usage(stderr)
+		return 2
+	}
+	if (*reportURL == "") != (*reportTokenFile == "") {
+		fmt.Fprintln(stderr, "-report-url and -report-token-file must be set together")
 		return 2
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
@@ -100,8 +108,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(secret) < 24 {
 		log.Warn("the secret is short; Beacon asks for at least 24 characters")
 	}
+	var reportToken string
+	if *reportTokenFile != "" {
+		b, err := os.ReadFile(*reportTokenFile)
+		if err != nil {
+			log.Error("cannot start: cannot read the report token file")
+			return 1
+		}
+		reportToken = strings.TrimSpace(string(b))
+		if reportToken == "" {
+			log.Error("cannot start: the report token file is empty")
+			return 1
+		}
+	}
 	s, err := oncall.New(oncall.Options{Secret: secret, Run: *runCmd, RunResolved: *runResolved, Concurrency: *concurrency,
-		Timeout: *timeout, LogDir: *logDir, Keep: *keep, Log: log})
+		Timeout: *timeout, LogDir: *logDir, Keep: *keep, Log: log, ReportURL: *reportURL, ReportToken: reportToken})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1
@@ -131,7 +152,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	wctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	if err := s.Shutdown(wctx); err != nil {
-		log.Warn("programs still running were killed", "err", err)
+		if *reportURL != "" {
+			log.Warn("the shutdown deadline passed while draining runs and reports", "err", err)
+		} else {
+			log.Warn("programs still running were killed", "err", err)
+		}
 	}
 	return 0
 }
