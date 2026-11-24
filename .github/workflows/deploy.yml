@@ -21,6 +21,9 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,6 +102,23 @@ jobs:
       - name: Signed notification delivery across a restart
         timeout-minutes: 4
         run: python3 deploy/smoke-notification-webhook.py "$RUNNER_TEMP/beacon"
+
+      - name: Signed notification delivery with the reference release
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=openlinkos/beacon
+          release=$(sed -n 's/^BEACON_VERSION=//p' deploy/.env.example)
+          archive="beacon_${release#v}_linux_amd64.tar.gz"
+          work=$(mktemp -d "$RUNNER_TEMP/beacon-release.XXXXXX")
+          gh release download "$release" --repo "$repo" --pattern "$archive" --pattern SHA256SUMS --dir "$work"
+          (cd "$work" && awk -v file="$archive" '$2==file' SHA256SUMS | sha256sum --check)
+          gh attestation verify "$work/$archive" --repo "$repo" \
+            --signer-workflow "$repo/.github/workflows/release.yml" --source-ref "refs/tags/$release"
+          tar -xzf "$work/$archive" -C "$work" beacon
+          python3 deploy/smoke-notification-webhook.py "$work/beacon"
 
       - name: Shell scripts
         run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/beacon-heartbeat
