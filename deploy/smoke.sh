@@ -138,6 +138,21 @@ curl -fsSL --retry 3 "$release/$oncall_archive" -o "$work/$oncall_archive"
 (cd "$work" && awk -v file="$oncall_archive" '$2 == file' SHA256SUMS | sha256sum -c --status)
 tar -xzf "$work/$oncall_archive" -C "$work" beacon-oncall
 "$work/beacon-oncall" version | grep -F "beacon-oncall ${version#v} ("
+smoke_agent_reports=false
+report_args=()
+if smoke_runner_reports_supported "$work/beacon-oncall"; then
+  smoke_agent_reports=true
+  reporter_name=smoke-runner
+  reporter_token=$(beacon token create "$reporter_name" -scopes alerts:report)
+  printf '::add-mask::%s\n' "$reporter_token"
+  printf '%s\n' "$reporter_token" > "$work/report-token"
+  report_args=(-report-url "$status_url" -report-token-file "$work/report-token")
+elif [[ "$version" == v0.3.0-rc.32 ]]; then
+  echo 'The rc.32 reference harness must support Agent run reports.' >&2
+  exit 1
+else
+  printf 'The pinned harness %s predates Agent run reporting.\n' "$version"
+fi
 openssl rand -hex 32 > "$work/hook-secret"
 sudo install -o 65532 -g 65532 -m 0400 "$work/hook-secret" secrets/smoke-hook-secret
 openssl rand -hex 32 > "$work/credential-key"
@@ -156,7 +171,11 @@ agents:
     secret_file: /etc/beacon/secrets/smoke-hook-secret
     service: drill
 YAML
+if [[ "$smoke_agent_reports" == true ]]; then
+  printf '    reporter: "token:%s"\n' "$reporter_name" >> config.yaml
+fi
 "$work/beacon-oncall" -listen "$host:22301" -secret-file "$work/hook-secret" -log-dir "$work/hook-logs" \
+  "${report_args[@]}" \
   -run "jq -ce 'select(.event == \"firing\" and .alert.labels.alertname == \"ServiceDown\")' > '$work/hook.tmp' && mv '$work/hook.tmp' '$work/hook.json' && if test -f '$work/fail-agent'; then exit 79; fi" \
   > "$work/oncall.log" 2>&1 &
 oncall_pid=$!
@@ -166,6 +185,10 @@ beacon check-config -config /etc/beacon/config.yaml
 docker compose restart beacon
 centre_health() { curl -fsS "$status_url/healthz" >/dev/null; }
 wait_for 'Reference centre is ready with its on-call hook' 45 centre_health
+if [[ "$smoke_agent_reports" == true ]]; then
+  test "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $reporter_token" \
+    "$status_url/api/v1/alerts")" = 403
+fi
 
 setup=$(beacon setup)
 form=$(curl -fsS -c "$work/cookies" "$setup" | sed -n 's/.*name="form" value="\([^"]*\)".*/\1/p')
