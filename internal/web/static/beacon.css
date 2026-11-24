@@ -128,3 +128,15 @@
   overflow-y: auto;
 }
 .bc-maintenance-choices .ol-check { min-block-size: 2.5rem; }
+
+.bc-ssh-command {
+  justify-content: space-between;
+  padding: var(--ol-space-2) var(--ol-space-3);
+  border-radius: var(--ol-radius-control);
+  background: var(--ol-color-bg-subtle);
+}
+
+#ssh-connect { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+
+.bc-copy-feedback:empty,
+.bc-ssh-command [hidden] { display: none; }

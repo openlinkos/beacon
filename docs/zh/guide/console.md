@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-de35e7aa
+sourceHash: sha256-fe301b63
 ---
 
 # 复查 Agent 做了什么
@@ -60,7 +60,7 @@ sourceHash: sha256-de35e7aa
 | `/console/monitors`、`/console/monitors/{service}` | 监控了什么、现在怎么样（[见下](#monitors-and-status-pages)） |
 | `/console/status-pages`、`/console/status-pages/{name}` | 公众现在看到的状态页（[见下](#monitors-and-status-pages)） |
 | `/console/silences` | 让告警不去通知人的东西：维护窗口和静默（[见下](#silences-and-maintenance)） |
-| `/console/machines`、`/console/machines/{name}` | 通道能到达的机器、NAT 后的机器是否连着、最近 24 小时的会话。有 `machines:write` 时：添加机器，修改备注、是否关键和账户，重新固定主机密钥，更换连接器密钥，以及输入机器名之后移除它。单台机器的地址、主机密钥、最近会话和上面执行过的命令。可按机器名称、地址或备注搜索。需要登记时打开**添加机器**。独立的**暂停全部 SSH 访问**按钮会停止通过 Beacon 的机器操作，监控继续运行 |
+| `/console/machines`、`/console/machines/{name}` | 通道能到达的机器、NAT 后的机器是否连着、最近 24 小时的会话。有 `machines:write` 时：添加机器，修改备注、是否关键和账户，重新固定主机密钥，更换连接器密钥，以及输入机器名之后移除它。单台机器的地址、主机密钥、最近会话和上面执行过的命令。可按机器名称、地址或备注搜索。需要登记时打开**添加机器**。有 SSH 权限的成员可选择 **SSH** 获取以本人身份连接的命令和终端配置。独立的**暂停全部 SSH 访问**按钮会停止通过 Beacon 的机器操作，监控继续运行 |
 | `/console/sessions`、`/console/sessions/{id}` | 所有会话，可按 Agent、机器、类型、via、退出状态、日期筛选，可搜命令。会话页带回放（[见下](#the-sessions-page-and-its-replay)） |
 | `/console/agents`、`/console/agents/{name}` | 你的 Agent（所有者看到所有人的）：各自现在能做什么、凭据、密钥。可展开 OAuth 客户端的接入说明和无界面 Agent 的令牌表单。编辑时会显示所选预设的权限，可明确选择授予全部现有及将来登记的机器，或仅指定机器。每个 Agent 的页面可改预设和机器，并可吊销其凭据。以本人身份登录的所有者还可以在那里设置自定义 scope |
 | `/console/tokens` | 所有令牌：scope、机器、密钥、到期、属于谁的 Agent。账号出现之前的标成**Legacy**，旁边是认领表单。永远不会出现密钥本身 |

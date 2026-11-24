@@ -859,4 +859,20 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"The window is no longer valid. Check the start and end times.":                                        "维护窗口已无法安排。请检查起止时间。",
 	"Immediately after scheduling":                                                                         "安排维护后立即开始",
 	"Announce planned work and silence alerts for its services during the window.":                         "提前公告计划维护，并在维护期间静默所选服务的告警。",
+
+	// Connecting from the machines pages.
+	"Set ssh.public_address in Beacon's configuration to show the connection command.": "在 Beacon 配置中设置 ssh.public_address，即可显示连接命令。",
+	"Connect over SSH":                                      "通过 SSH 连接",
+	"Connect to %s over SSH":                                "通过 SSH 连接 %s",
+	"SSH access is paused for all machines.":                "所有机器的 SSH 访问已暂停。",
+	"View the SSH channel":                                  "查看 SSH 通道",
+	"This machine is not connected to the SSH channel yet.": "这台机器尚未连上 SSH 通道。",
+	"Register this device's public key in your account to connect as yourself.":             "在个人账户中登记这台设备的公钥，即可用自己的身份连接。",
+	"Ask the owner to set the public address of the SSH channel.":                           "请联系所有者设置 SSH 通道的公开地址。",
+	"Beacon records the session as %s.":                                                     "Beacon 以 %s 的身份记录本次会话。",
+	"First-time terminal setup":                                                             "首次使用的终端配置",
+	"Add each block to the file named above it, then run the SSH command in your terminal.": "按标注将各段添加到对应文件，然后在终端运行 SSH 命令。",
+	"Copy command":   "复制命令",
+	"Command copied": "命令已复制",
+	"Could not copy the command. Select it and copy it from the page.": "无法自动复制。请在页面上选中命令并复制。",
 }

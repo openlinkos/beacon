@@ -290,6 +290,7 @@ var staticFiles = map[string]string{
 	"asciinema-player.css":              "text/css; charset=utf-8",
 	"beacon-player.js":                  "text/javascript; charset=utf-8",
 	"beacon-agent-form.js":              "text/javascript; charset=utf-8",
+	"beacon-copy.js":                    "text/javascript; charset=utf-8",
 	"beacon.css":                        "text/css; charset=utf-8",
 	"status.css":                        "text/css; charset=utf-8",
 	"ol/ui.css":                         "text/css; charset=utf-8",

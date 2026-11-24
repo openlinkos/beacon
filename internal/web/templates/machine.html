@@ -1,4 +1,24 @@
-{{define "content"}}<div class="ol-layout-supporting">
+{{define "head"}}{{if and .Connection .Connection.Command}}<script defer src="/static/beacon-copy.js?v={{.Version}}"></script>{{end}}{{end}}
+
+{{define "content"}}<div class="ol-stack">
+  {{with .Connection}}<section class="ol-panel" id="ssh-connect" aria-labelledby="ssh-connect-title">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="ssh-connect-title">{{icon "terminal"}} {{.Title}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+      <p class="ol-hint">{{.Hint}}</p>
+      {{if .Href}}<div><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Href}}">{{.Link}}</a></div>{{end}}
+      {{if .Command}}
+      <div class="bc-ssh-command ol-cluster">
+        <code class="ol-mono ol-break" id="ssh-command">{{.Command}}</code>
+        <button type="button" class="ol-btn ol-btn-secondary ol-btn-sm" data-copy-source="ssh-command" data-copied="{{.Copied}}" data-copy-error="{{.CopyError}}" hidden>{{.Copy}}</button>
+      </div>
+      <p class="ol-hint bc-copy-feedback" id="ssh-command-status" role="status"></p>
+      <details class="ol-details"><summary>{{.Setup}}</summary>
+        <div class="ol-stack"><p class="ol-hint">{{.SetupHint}}</p><div class="ol-code ol-code-wrap"><pre><code>{{.Config}}</code></pre></div></div>
+      </details>
+      {{end}}
+    </div>
+  </section>{{end}}
+<div class="ol-layout-supporting">
   <div class="ol-stack">
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Sessions}}</h2></div>
@@ -67,4 +87,4 @@
     </form>
     {{end}}
   </div>
-</div>{{end}}
+</div></div>{{end}}

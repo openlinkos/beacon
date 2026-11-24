@@ -48,7 +48,7 @@
 </div>
 {{if .Rows}}
 <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-  <thead><tr><th>{{.L.Name}}</th><th>{{.L.Address}}</th><th>{{.L.Critical}}</th><th class="ol-num">{{.L.Sessions24h}}</th><th>{{.L.LastSession}}</th></tr></thead>
+  <thead><tr><th>{{.L.Name}}</th><th>{{.L.Address}}</th><th>{{.L.Critical}}</th><th class="ol-num">{{.L.Sessions24h}}</th><th>{{.L.LastSession}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Connect}}</span></th></tr></thead>
   <tbody>
   {{range .Rows}}<tr>
     <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Name}}</a></td>
@@ -56,6 +56,7 @@
     <td>{{if .Critical}}<span class="ol-badge ol-badge-danger">{{$.L.Critical}}</span>{{end}}</td>
     <td class="ol-num" data-label="{{$.L.Sessions24h}}">{{.Sessions}}</td>
     <td data-label="{{$.L.LastSession}}">{{if .LastHref}}<a href="{{.LastHref}}">{{.Last}}</a>{{end}}</td>
+    <td class="ol-actions">{{if .ConnectLabel}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Href}}#ssh-connect" aria-label="{{.ConnectLabel}}">{{iconSm "terminal"}}SSH</a>{{end}}</td>
   </tr>{{end}}
   </tbody>
 </table></div>
