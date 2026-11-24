@@ -39,19 +39,28 @@ What the agent may do follows from its preset and your role, read afresh on ever
 
 ## Connect with your own ssh, scp and rsync
 
-1. **Register the agent's public key.** Ask Claude Code to *"register my SSH key ~/.ssh/id_ed25519.pub with Beacon"*, and it calls `add_ssh_key` ([SSH keys](../guide/people.md#ssh-keys)).
-2. **Get the machines.** `list_machines` (MCP) or `GET /api/v1/machines` returns the machines and whether the agent reaches each. It also returns an `ssh_config` block and a `known_hosts` line.
-3. **Put the block in `~/.ssh/config`** and the line in `~/.ssh/known_hosts`:
+1. **Register a key for this agent.** On its workstation, make a dedicated key. Beacon accepts each SSH key fingerprint for one identity.
 
+   ```bash
+   mkdir -p -m 700 ~/.ssh
+   ssh-keygen -t ed25519 -f ~/.ssh/beacon-claude-code
    ```
+
+   Ask Claude Code to *"register the public key from `~/.ssh/beacon-claude-code.pub` with Beacon using `add_ssh_key`"*. Keep the private key on the workstation. If you set a passphrase, unlock the key in your running `ssh-agent` with `ssh-add ~/.ssh/beacon-claude-code` before asking Claude Code to connect.
+2. **Get the machines.** `list_machines` (MCP) or `GET /api/v1/machines` returns the machines and whether the agent reaches each. It also returns an `ssh_config` block and a `known_hosts` line.
+3. **Put the block in `~/.ssh/beacon-claude-code.conf`** and the line in `~/.ssh/known_hosts`. Add `IdentityFile` and `IdentitiesOnly` to each machine's `Host` block so the client uses the agent's key. The block below shows the result for `edge-1`.
+
+   ```ssh-config
    Host edge-1
-     HostName ssh.example.com
+     HostName status.example.com
      Port 17002
      User edge-1
      HostKeyAlias beacon
+     IdentityFile ~/.ssh/beacon-claude-code
+     IdentitiesOnly yes
    ```
 
-4. **Connect.** `ssh edge-1 'systemctl status relay'`, `scp`, `sftp`, `rsync -e ssh` and `ssh -L` work as usual.
+4. **Connect.** Ask the agent to run `ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname`. Use the same `-F` option for `scp`, `sftp` and `ssh -L`, or `rsync -e 'ssh -F ~/.ssh/beacon-claude-code.conf'`. Open **Sessions** in the console and replay the new command. The actor is `person / agent`.
 
 The user name tells Beacon which machine. On the machine, the session runs as `beacon`. `HostKeyAlias beacon` makes ssh check Beacon's own host key, the same for every machine. Beacon checks each machine's pinned key itself.
 

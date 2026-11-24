@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-63843fb9
+sourceHash: sha256-0ddc5fab
 ---
 
 # Claude Code
@@ -43,19 +43,28 @@ Agent 能做什么，由它的预设和你的角色决定，每次请求时重�
 
 ## 用自己的 ssh、scp 和 rsync 连接 {#connect-with-your-own-ssh-scp-and-rsync}
 
-1. **登记 Agent 的公钥**。对 Claude Code 说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`（[SSH 密钥](../guide/people.md#ssh-keys)）。
-2. **取得机器列表**。`list_machines`（MCP）或 `GET /api/v1/machines` 返回机器列表，以及 Agent 能否连每台机器。它还给出一段 `ssh_config` 和一行 `known_hosts`。
-3. **把这段配置放进 `~/.ssh/config`**，把那一行放进 `~/.ssh/known_hosts`：
+1. **给这个 Agent 登记密钥**。在运行 Agent 的工作站上生成一把专用密钥。Beacon 只允许把同一个 SSH 密钥指纹登记给一个身份。
 
+   ```bash
+   mkdir -p -m 700 ~/.ssh
+   ssh-keygen -t ed25519 -f ~/.ssh/beacon-claude-code
    ```
+
+   请 Claude Code *「用 `add_ssh_key` 将 `~/.ssh/beacon-claude-code.pub` 的公钥登记到 Beacon」*。私钥留在工作站。若设置了口令，先运行 `ssh-add ~/.ssh/beacon-claude-code`，在已运行的 `ssh-agent` 中解锁密钥，再请 Claude Code 连接。
+2. **取得机器列表**。`list_machines`（MCP）或 `GET /api/v1/machines` 返回机器列表，以及 Agent 能否连每台机器。它还给出一段 `ssh_config` 和一行 `known_hosts`。
+3. **把配置段保存到 `~/.ssh/beacon-claude-code.conf`**，把主机密钥行加入 `~/.ssh/known_hosts`。在每台机器的 `Host` 段中添加 `IdentityFile` 和 `IdentitiesOnly`，让客户端选用 Agent 的密钥。`edge-1` 的完整示例如下。
+
+   ```ssh-config
    Host edge-1
-     HostName ssh.example.com
+     HostName status.example.com
      Port 17002
      User edge-1
      HostKeyAlias beacon
+     IdentityFile ~/.ssh/beacon-claude-code
+     IdentitiesOnly yes
    ```
 
-4. **连接**。`ssh edge-1 'systemctl status relay'`、`scp`、`sftp`、`rsync -e ssh` 和 `ssh -L` 都和平常一样用。
+4. **连接**。请 Agent 执行 `ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname`。`scp`、`sftp` 和 `ssh -L` 同样可用 `-F`，`rsync` 可用 `rsync -e 'ssh -F ~/.ssh/beacon-claude-code.conf'`。打开控制台的**会话**，回放刚执行的命令。操作人应显示为 `人 / Agent`。
 
 用户名告诉 Beacon 要去哪台机器。会话在机器上以 `beacon` 账户运行。`HostKeyAlias beacon` 让 ssh 校验 Beacon 自己的主机密钥，所有机器都是同一把。每台机器固定下来的主机密钥，由 Beacon 自己校验。
 

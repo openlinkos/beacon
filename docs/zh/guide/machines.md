@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7c1c6914
+sourceHash: sha256-229625ac
 ---
 
 # 给 Agent 一台机器
@@ -83,7 +83,9 @@ sourceHash: sha256-7c1c6914
    beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart relay, /usr/bin/journalctl
    ```
 
-OpenSSH 9.8 起，同一来源地址连接失败多了会被限制，而所有 Agent 都从 Beacon 的地址连过来。所以要在机器的 `beacon.conf` 里加上 `PerSourcePenaltyExemptList 203.0.113.7`。
+确认 `sshd_config` 已包含 `/etc/ssh/sshd_config.d/*.conf`。重新加载前先运行 `sshd -t`。Debian 和 Ubuntu 的服务名是 `ssh`，RHEL 等发行版使用 `sshd`。
+
+如果机器上的 OpenSSH 支持 `PerSourcePenaltyExemptList`（9.8 引入），在 `beacon.conf` 中添加 `PerSourcePenaltyExemptList 203.0.113.7`，将示例地址换成中心的来源地址。Beacon 发起的所有连接都从这个地址到达。改完后验证配置并重新加载 sshd。
 
 其他选项和命令：
 
@@ -99,13 +101,29 @@ Beacon 连不进去的机器，换个方向添加：见 [NAT 后面的机器](#m
 
 ## 以自己的身份连接 {#connect-as-yourself}
 
-有值班或更高角色时，在**你的账号 → 个人 SSH 密钥**登记设备的公钥，私钥留在设备本地。在**机器**页打开目标机器，把连接配置加到 SSH 客户端，再按页面给出的命令连接。管理员设置 `ssh.public_address` 后，页面才会显示连接配置。
+有值班或更高角色时，在**你的账号 → 个人 SSH 密钥**登记专供个人账号使用的公钥。需要新密钥时，在工作站上生成。
 
-Beacon 用你的用户名记录这次会话。Agent 的会话记为 `人 / Agent`。每个身份用自己的公钥。在**你的账号**移除个人公钥，会关闭它已打开的连接，并拒绝它再次登录。
+```bash
+mkdir -p -m 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/beacon-personal
+```
+
+只登记 `~/.ssh/beacon-personal.pub` 的内容，配套私钥留在工作站。Beacon 只允许把同一个密钥指纹登记给一个身份，所以同一台工作站上的 Agent 也需要另用一把密钥。
+
+打开**机器 → edge-1 → 通过 SSH 连接**。把页面给出的 `Host` 段复制到独立的 `~/.ssh/beacon-personal.conf`，再在 `Host beacon-edge-1` 下加这两行。
+
+```ssh-config
+  IdentityFile ~/.ssh/beacon-personal
+  IdentitiesOnly yes
+```
+
+将页面给出的主机密钥行加入 `~/.ssh/known_hosts`。运行 `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`。即使工作站还有别的密钥或共享的 SSH 连接，这份独立配置也会选用你的密钥。参考部署会设置 `ssh.public_address`，让控制台能显示这些配置。
+
+打开**会话**，找到 `edge-1` 上刚执行的命令并开始回放。操作人应显示为你的用户名。Agent 的会话记为 `人 / Agent`。在**你的账号**移除个人公钥，会关闭它已打开的连接，并阻止它再次登录。
 
 ## 给 Agent 权限 {#give-an-agent-access}
 
-Claude Code 这样用 OAuth 登录的交互式 Agent，会自己登记公钥。对它说 *「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`。
+用 OAuth 登录的交互式 Agent 可以直接调用 `run_command`，无需登记 SSH 密钥。如果要用自己的 OpenSSH 客户端，按[用自己的 ssh、scp 和 rsync 连接](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)登记专用的 Agent 密钥。
 
 无界面的 Agent 在创建时带上公钥：
 
@@ -173,10 +191,10 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 1. **让 Agent 执行一条命令：**
 
    ```
-   ssh edge-1 'hostname'
+   ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname
    ```
 
-2. **把会话读回来。** 打开 `/console/sessions`，或者问 `list_sessions`。会话和它的录像都在，告警群里也有那一行。
+2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接。
 
 通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。
 

@@ -79,7 +79,9 @@ The CA's private key lets whoever holds it into every machine that trusts it. Ke
    beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart relay, /usr/bin/journalctl
    ```
 
-OpenSSH 9.8 and later penalise an address after failed connections, and every agent comes from Beacon's. So add `PerSourcePenaltyExemptList 203.0.113.7` to the machine's `beacon.conf`.
+Check that `sshd_config` includes `/etc/ssh/sshd_config.d/*.conf`. Run `sshd -t` before reloading. The service is `ssh` on Debian and Ubuntu and `sshd` on distributions such as RHEL.
+
+If the machine's OpenSSH supports `PerSourcePenaltyExemptList` (introduced in 9.8), add `PerSourcePenaltyExemptList 203.0.113.7` to `beacon.conf`, using the centre's source address. All connections from Beacon arrive from that address. Validate and reload sshd after the change.
 
 Other options and commands:
 
@@ -95,13 +97,29 @@ A machine Beacon cannot reach is added the other way round: [Machines behind NAT
 
 ## Connect as yourself {#connect-as-yourself}
 
-With the On call role or above, register your device's public key in **Your account → Personal SSH keys**. Keep the private key on your device. Open the machine in **Machines**, add its connection settings to your SSH client, and connect as shown there. The administrator sets `ssh.public_address` to make the connection instructions available.
+With the On call role or above, register a public key reserved for your account in **Your account → Personal SSH keys**. If you need a new key, create it on your workstation.
 
-Beacon records the session under your username. An agent records its sessions as `person / agent`. Each identity uses its own public key. Remove a personal key in **Your account** to close its active connections and stop it from signing in again.
+```bash
+mkdir -p -m 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/beacon-personal
+```
+
+Register only the contents of `~/.ssh/beacon-personal.pub`. Keep the matching private key on your workstation. Beacon accepts each key fingerprint for one identity, so the agent needs a different key even on the same workstation.
+
+Open **Machines → edge-1 → Connect over SSH**. Copy the `Host` block into a dedicated file, `~/.ssh/beacon-personal.conf`, and add these two lines under `Host beacon-edge-1`.
+
+```ssh-config
+  IdentityFile ~/.ssh/beacon-personal
+  IdentitiesOnly yes
+```
+
+Add the displayed host key line to `~/.ssh/known_hosts`. Run `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`. The dedicated configuration selects your key even when the workstation has keys or shared SSH connections configured for other uses. The reference deployment sets `ssh.public_address` so the console can show these settings.
+
+Open **Sessions**, find the command on `edge-1` and start its replay. The actor is your username. An agent's sessions show `person / agent`. Remove a personal key in **Your account** to close its active connections and stop it from signing in again.
 
 ## Give an agent access {#give-an-agent-access}
 
-An interactive agent such as Claude Code, signed in with OAuth, registers its own key. Ask it to *"register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`.
+An interactive agent signed in with OAuth can run `run_command` without registering an SSH key. To use its own OpenSSH client, follow [Connect with your own ssh, scp and rsync](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync) to register a dedicated agent key.
 
 A headless agent is made with its key:
 
@@ -169,10 +187,10 @@ What the channel guarantees here is in the [security model](../self-hosting/secu
 1. **Ask the agent to run one command:**
 
    ```
-   ssh edge-1 'hostname'
+   ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname
    ```
 
-2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session is there with its recording, and the alert chat has the line about it.
+2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link.
 
 When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it.
 

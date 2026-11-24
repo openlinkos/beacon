@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1fa07493
+sourceHash: sha256-736481ce
 ---
 
 # 演练一次故障
@@ -55,7 +55,7 @@ docker exec beacon beacon drill fail 15m
 然后让它逐步动手，一次练一环：
 
 - **`add_note`** 把 Agent 的发现记到时间线和卡片。参考 Agent 把认领和静默留给值班人。值班人的认领有效期间，暂停向人升级通知。用控制台或卡片亲自验证接手流程。
-- **在机器上执行命令。** 演练的机器若是 [SSH 通道](machines.md)能到的，让 Agent 在上面执行一条命令。会话会连同回放出现在告警页上。
+- **在机器上执行命令。** 请 Agent 在一台[已登记的机器](machines.md)上运行 `hostname`，然后在**会话**中回放。参考演练使用 Beacon 自身的健康检查端点，没有关联机器。有明确关联机器的告警会在详情页同时显示相关会话。
 - **`probe_now`** 让每个检测点立刻复测目标。它不会改变演练的答案：服务仍是 503。但练的正是 Agent 修完真故障后要做的那次调用。
 
 ## 结束演练，看它恢复 {#end-it-and-watch-it-recover}
@@ -81,7 +81,7 @@ docker exec beacon beacon drill off
 
 - **在中心的 VictoriaMetrics**（`http://127.0.0.1:8428/vmui`）里，`probe_success{service="drill"}` 有两条序列，演练期间都是 0。
 - **演练服务**对 `curl -i https://status.example.com/drill/healthz` 回答 `503`。
-- **在控制台上**，告警页显示每个检测点的结果、备注和静默。Agent 开过的会话及其回放也在上面（[复查 Agent 做了什么](console.md)）。
+- **在控制台上**，告警页显示每个检测点的结果、备注和已设的静默。通过 SSH 做的那次检查可在**会话**里回放（[复查 Agent 做了什么](console.md)）。
 - **6 分钟后还没有告警**，先确认两个检测点都在汇报、healthz 确实回答 503。[告警一直没有来](../self-hosting/troubleshooting.md#an-alert-never-arrives)讲得更全。
 
 ## 下一步 {#next}

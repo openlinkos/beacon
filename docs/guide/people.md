@@ -140,7 +140,7 @@ The SSH channel signs an agent in by its public key. An agent registers its own 
 - `list_ssh_keys`;
 - `remove_ssh_key`.
 
-Ask Claude Code *"Register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`. `list_machines` then gives the `ssh_config` block for its own ssh ([Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)).
+Register a separate key for each agent and each person. Beacon refuses a key fingerprint already registered to another identity. Follow [Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync) to create and register an agent key and select it in the SSH client.
 
 Who a key belongs to:
 

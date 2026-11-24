@@ -51,7 +51,7 @@ It finds the alert with `list_alerts` and reads `get_evidence`. That one answer 
 Then let it act, one step of the loop at a time:
 
 - **`add_note`** records the agent's findings on the timeline and card. The reference agent leaves acknowledgement and silencing to the person on call. A person's acknowledgement stops escalation while it is active. Use the console or the card to test taking charge yourself.
-- **A command on the machine.** If the drill's machine is one the [SSH channel](machines.md) reaches, have the agent run a command on it. The session lands on the alert's page with its replay.
+- **A command on a machine.** Ask the agent to run `hostname` on an [enrolled machine](machines.md) and replay it in **Sessions**. The reference drill exercises Beacon's own health endpoint and has no linked machine. For an alert with a linked machine, its page also shows related sessions.
 - **`probe_now`** has every location probe the target again at once. It does not change the drill's answer: the service is still 503. But it exercises the call an agent makes after a real fix.
 
 ## End it and watch it recover {#end-it-and-watch-it-recover}
@@ -77,7 +77,7 @@ While it fires and after it recovers:
 
 - **In VictoriaMetrics** on the centre (`http://127.0.0.1:8428/vmui`), `probe_success{service="drill"}` has two series, both 0 while the drill runs.
 - **The drill service** answers `503` to `curl -i https://status.example.com/drill/healthz`.
-- **On the console**, the alert's page shows each location's result, the note and the silence. It also shows any session the agent opened, with its replay ([Review what agents did](console.md)).
+- **On the console**, the alert's page shows each location's result, the note and any silence. Open the replay for the SSH check in **Sessions** ([Review what agents did](console.md)).
 - **If no alert fires after 6 minutes**, check that both locations report and that the healthz answers 503. [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives) goes further.
 
 ## Next

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0f206d8b
+sourceHash: sha256-602f5aa3
 ---
 
 # 邀请你的团队
@@ -144,7 +144,7 @@ SSH 通道按公钥让 Agent 登录。Agent 用手里已有的凭据、经 MCP �
 - `list_ssh_keys`；
 - `remove_ssh_key`。
 
-对 Claude Code 说*「把我的 SSH 公钥 ~/.ssh/id_ed25519.pub 登记到 Beacon」*，它就会调用 `add_ssh_key`。`list_machines` 随后给出供它自己的 ssh 用的 `ssh_config` 段（[接入 Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)）。
+给每个 Agent 和每个个人账号分别登记密钥。Beacon 会拒绝已登记给其他身份的密钥指纹。按[接入 Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)生成并登记 Agent 的密钥，再让 SSH 客户端选用它。
 
 密钥属于谁：
 
