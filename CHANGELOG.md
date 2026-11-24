@@ -5,12 +5,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ## Unreleased
 
 - The overview flags a missing human notification route for critical alerts. The bridge summary reports notification configuration alongside Watchdog health.
+- Review machine settings revisions and safely restore an earlier account, critical flag and note in the console, REST API or MCP. Version checks prevent stale restores and console edits. Machine identity and keys are outside the settings snapshots.
 
 ## 0.3.0
 
 ### rc.24 (2026-11-25)
-- Review machine settings revisions and safely restore an earlier account, critical flag and note in the console, REST API or MCP. Version checks prevent stale restores and console edits. Machine identity and keys are outside the settings snapshots.
-
 
 - Updated the WebSocket dependency used by the Feishu listener to fix [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278).
 - People with SSH access can register personal public keys in **Your account** and copy a connection command and terminal setup from the machine page. Sessions record the principal and the credential used. Removing a key or losing the role closes its connections.
