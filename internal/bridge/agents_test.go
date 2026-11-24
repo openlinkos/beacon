@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/notify"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -64,11 +65,11 @@ func TestSignature(t *testing.T) {
 	body := []byte(`{"event":"firing"}`)
 	mac := hmac.New(sha256.New, []byte("secret"))
 	mac.Write(body)
-	if got, want := signature("secret", body), "sha256="+hex.EncodeToString(mac.Sum(nil)); got != want {
+	if got, want := notify.SignWebhook("secret", body), "sha256="+hex.EncodeToString(mac.Sum(nil)); got != want {
 		t.Fatalf("signature %s, want %s", got, want)
 	}
 	// a known value, so receivers in any language can check theirs
-	if got := signature("It's a Secret to Everybody", []byte("Hello, World!")); got != "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17" {
+	if got := notify.SignWebhook("It's a Secret to Everybody", []byte("Hello, World!")); got != "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17" {
 		t.Fatalf("signature of the known example: %s", got)
 	}
 }
@@ -96,7 +97,7 @@ func TestWakeAgentRetries(t *testing.T) {
 		t.Fatalf("attempts: %d", len(hs.reqs))
 	}
 	for i, r := range hs.reqs {
-		if r.Header.Get("X-Beacon-Signature") != signature(hookSecret, hs.bodies[i]) || r.Header.Get("X-Beacon-Event") != "firing" ||
+		if r.Header.Get("X-Beacon-Signature") != notify.SignWebhook(hookSecret, hs.bodies[i]) || r.Header.Get("X-Beacon-Event") != "firing" ||
 			r.Header.Get("X-Beacon-Delivery") != g.Agents[0].Delivery || string(hs.bodies[i]) != string(hs.bodies[0]) {
 			t.Fatalf("attempt %d: %v %s", i, r.Header, hs.bodies[i])
 		}

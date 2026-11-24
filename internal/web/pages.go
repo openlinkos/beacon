@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -145,7 +146,7 @@ func (s *Server) channel(ch string) string {
 		return s.t("the Feishu app")
 	case "webhook":
 		return s.t("the group bot")
-	case "notification_webhook":
+	case config.NotificationWebhookChannel:
 		return s.t("Notification webhook")
 	case "pushover":
 		return "Pushover"

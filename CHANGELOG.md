@@ -6,6 +6,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.30 (2026-11-25)
+
+- Route human alert notifications to a configured webhook. Beacon signs firing and recovery events, keeps queued deliveries across restarts and links recipients back to the alert after sign-in.
+- Explain when the selected on-demand probe has passed and the rule still reports the alert as firing.
+
 ### rc.29 (2026-11-25)
 
 - Show operational figures sooner on the Overview. Notification links name their provider for assistive technology.

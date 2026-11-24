@@ -58,37 +58,49 @@ var ErrNotFound = errors.New("not found")
 
 // Group is one alert group and what was done about it.
 type Group struct {
-	ID            string            `json:"id"`
-	Key           string            `json:"key"`
-	Status        string            `json:"status"` // firing or resolved
-	Severity      string            `json:"severity"`
-	Labels        map[string]string `json:"labels"`
-	Common        map[string]string `json:"common"`
-	Annotations   map[string]string `json:"annotations"`
-	Alerts        []Alert           `json:"alerts"`
-	StartsAt      time.Time         `json:"starts_at"`
-	ResolvedAt    time.Time         `json:"resolved_at,omitzero"`
-	Channel       string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
-	MessageID     string            `json:"message_id,omitempty"`
-	NotifiedAt    time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
-	ChannelAt     time.Time         `json:"channel_at,omitzero"`  // acceptance of the first app or bot notification
-	CardAt        time.Time         `json:"card_at,omitzero"`
-	CardHash      string            `json:"card_hash,omitempty"`
-	Ack           *Ack              `json:"ack,omitempty"`
-	PriorAcks     []Ack             `json:"prior_acks,omitempty"`
-	Silence       *Silence          `json:"silence,omitempty"`
-	Buzzed        time.Time         `json:"buzzed,omitzero"`
-	Pushed        time.Time         `json:"pushed,omitzero"`
-	Receipt       string            `json:"receipt,omitempty"`
-	ReceiptAt     time.Time         `json:"receipt_at,omitzero"`
-	Barked        time.Time         `json:"barked,omitzero"`
-	Notifications []Notification    `json:"notifications,omitempty"`
-	Notes         []Note            `json:"notes,omitempty"`  // see agents.go
-	Agents        []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
-	ProbeRuns     []ProbeRun        `json:"probe_runs,omitempty"`
-	Episode       string            `json:"episode,omitempty"`
-	Participation []Participation   `json:"participation,omitempty"`
-	Updated       time.Time         `json:"updated"`
+	ID             string            `json:"id"`
+	Key            string            `json:"key"`
+	Status         string            `json:"status"` // firing or resolved
+	Severity       string            `json:"severity"`
+	Labels         map[string]string `json:"labels"`
+	Common         map[string]string `json:"common"`
+	Annotations    map[string]string `json:"annotations"`
+	Alerts         []Alert           `json:"alerts"`
+	StartsAt       time.Time         `json:"starts_at"`
+	ResolvedAt     time.Time         `json:"resolved_at,omitzero"`
+	Channel        string            `json:"channel"` // the initial chat route that accepted the alert
+	MessageID      string            `json:"message_id,omitempty"`
+	NotifiedAt     time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
+	ChannelAt      time.Time         `json:"channel_at,omitzero"`  // acceptance of the first app or bot notification
+	CardAt         time.Time         `json:"card_at,omitzero"`
+	CardHash       string            `json:"card_hash,omitempty"`
+	Ack            *Ack              `json:"ack,omitempty"`
+	PriorAcks      []Ack             `json:"prior_acks,omitempty"`
+	Silence        *Silence          `json:"silence,omitempty"`
+	Buzzed         time.Time         `json:"buzzed,omitzero"`
+	Pushed         time.Time         `json:"pushed,omitzero"`
+	Receipt        string            `json:"receipt,omitempty"`
+	ReceiptAt      time.Time         `json:"receipt_at,omitzero"`
+	Barked         time.Time         `json:"barked,omitzero"`
+	Notifications  []Notification    `json:"notifications,omitempty"`
+	NotifyWebhook  bool              `json:"notify_webhook,omitempty"`  // this episode was routed to the notification webhook
+	WebhookNotices []WebhookNotice   `json:"webhook_notices,omitempty"` // queued in incident order, including earlier episodes
+	Notes          []Note            `json:"notes,omitempty"`           // see agents.go
+	Agents         []AgentCall       `json:"agents,omitempty"`          // the hooks called to wake agents
+	ProbeRuns      []ProbeRun        `json:"probe_runs,omitempty"`
+	Episode        string            `json:"episode,omitempty"`
+	Participation  []Participation   `json:"participation,omitempty"`
+	Updated        time.Time         `json:"updated"`
+}
+
+// WebhookNotice is a notification that has not yet been accepted by the receiver.
+type WebhookNotice struct {
+	Delivery string          `json:"delivery"`
+	Event    string          `json:"event"`
+	Episode  string          `json:"episode"`
+	At       time.Time       `json:"at"`
+	RetryAt  time.Time       `json:"retry_at,omitzero"`
+	Body     json.RawMessage `json:"body"`
 }
 
 // Alert is one alert in a group.
