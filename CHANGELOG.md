@@ -4,6 +4,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Updated the WebSocket dependency used by the Feishu listener to fix [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278).
 - People with SSH access can register personal public keys in **Your account** and use their own SSH client to connect. Sessions record the principal and the credential used. Removing a key or losing the role closes its connections.
 - **Find machines and review Agent permissions in the console.** The fleet opens with search and a compact global SSH control. Machine registration is available when needed. When assigning an Agent machine access, choose all current and future machines or select specific registered machines. The editor previews the selection and the preset permissions.
 - **The alert page puts response actions first.** A person can acknowledge an alert or repeat its probes from the first panel. Signed visitors return to the same page when they sign in. An on-demand check by alert ID adds per-target results to the alert timeline and a matching audit entry. Cards and the console show whether an alert reached an agent hook separately from acknowledgement and recovery.
