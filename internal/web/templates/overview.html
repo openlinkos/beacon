@@ -39,6 +39,7 @@
     </section>
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/hooks"}}">{{.L.AllCalls}}</a></div>
+      {{if .Calls}}<div class="ol-panel-body"><p class="ol-hint">{{.CallSummary}}</p></div>{{end}}
       {{if .Calls}}<ul class="ol-list">
         {{range .Calls}}<li>
           <span class="ol-list-row"><a class="ol-list-title" href="{{.AlertHref}}">{{.Alert}}</a><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></span>

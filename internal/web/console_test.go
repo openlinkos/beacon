@@ -433,7 +433,7 @@ func audited(st *store.Store, actor, action string) bool {
 // consolePages are every page of the console, with what each must show of the test's data.
 func (e *env) consolePages() map[string][]string {
 	return map[string][]string{
-		"/console":                         {"Needs attention", "Firing alerts", "Probe locations", "1 of 2", "Agent hook deliveries today", "Agent sessions today", "Latest sessions", "v0.3.0-test", "git.example.com is down"},
+		"/console":                         {"Needs attention", "Firing alerts", "Probe locations", "1 of 2", "Agent hook deliveries today", "Machine sessions today", "Latest sessions", "v0.3.0-test", "git.example.com is down"},
 		"/console/alerts":                  {"git.example.com is down &lt;script&gt;", "Firing", "Critical", "git-example-com", `ol-facet`},
 		"/console/alerts?severity=warning": {"Nothing matches."},
 		link.AlertPath(e.id):               {"git.example.com is down &lt;script&gt;", "restarting the relay &lt;script&gt;", "Timeline", "relay 1.2.3 &lt;script&gt;"},

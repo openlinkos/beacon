@@ -74,17 +74,18 @@ type overviewLabels struct {
 
 type overviewPage struct {
 	shell
-	L         overviewLabels
-	Health    health
-	Stats     []stat
-	Attention []attentionItem
-	Sessions  []feedItem
-	Changes   []feedItem
-	Pages     []feedItem
-	Coming    []feedItem
-	Calls     []callItem
-	Channel   stat
-	Facts     []kvLink
+	L           overviewLabels
+	Health      health
+	Stats       []stat
+	Attention   []attentionItem
+	Sessions    []feedItem
+	Changes     []feedItem
+	Pages       []feedItem
+	Coming      []feedItem
+	Calls       []callItem
+	CallSummary string
+	Channel     stat
+	Facts       []kvLink
 }
 
 type kvLink struct{ K, V, Href string }
@@ -362,6 +363,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Attention = s.attention(v, f, sh)
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
+	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
 
 	switch {
 	case !f.ChannelOn:
@@ -449,12 +451,9 @@ func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) []stat {
 	if f.Connected < f.Connectors {
 		mach.Tone = "warning"
 	}
-	work := stat{Label: s.t("Agent sessions today"), Value: num(f.SessionsToday), Icon: "bot",
+	work := stat{Label: s.t("Machine sessions today"), Value: num(f.SessionsToday), Icon: "terminal",
 		Href: consolePath("/sessions?day=") + url.QueryEscape(s.day(s.now())),
-		Meta: s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
-	if f.WokenFailed > 0 {
-		work.Tone = "danger"
-	}
+		Meta: s.t("Command records and replays")}
 	return []stat{firing, svc, loc, mach, work}
 }
 
