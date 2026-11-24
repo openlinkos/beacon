@@ -5,6 +5,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ## Unreleased
 
 - Show operational figures sooner on the Overview. Notification links name their provider for assistive technology.
+- Keyboard focus follows an alert's acknowledgement, form error or on-demand check result. Alert action confirmations stay visible, and sign-in errors are associated with the form.
 
 ## 0.3.0
 

@@ -142,6 +142,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"No result":                                                "无结果",
 	"%s ran an on-demand check via %s":                         "%[1]s 经%[2]s发起复测",
 	"%d passed, %d failed, %d missing":                         "通过 %d 项，失败 %d 项，缺失 %d 项",
+	"On-demand check results.":                                 "复测结果。",
 	"This Beacon has no gateway for on-demand checks.":         "此 Beacon 未启用网关，无法立即复测。",
 	"No eligible probe targets are configured for this alert.": "此告警没有可复测的探测目标，请检查监控配置。",
 	"The probes are busy. Try again in a moment.":              "探测点正在处理其他请求，请稍后重试。",

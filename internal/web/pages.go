@@ -23,7 +23,7 @@ type labels struct {
 	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
-	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote                                                                    string
+	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 }
 
@@ -45,7 +45,8 @@ func (s *Server) labels() labels {
 		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
 		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging stops escalation while the alert is acknowledged."),
 		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
-		SignIn: s.t("Sign in"), TakeOver: s.t("Take over"),
+		ProbeResults: s.t("On-demand check results."),
+		SignIn:       s.t("Sign in"), TakeOver: s.t("Take over"),
 	}
 }
 
@@ -259,6 +260,7 @@ type alertPage struct {
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
 	Ownership                                                                    string
+	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
 	PeopleDeliveryFailed                                                         bool
 	Services                                                                     []string
@@ -289,6 +291,11 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
 		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines)}
+	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
+	if p.Problem != "" {
+		p.Feedback, p.FeedbackTone = p.Problem, "danger"
+	}
+	p.Toast, p.Problem = "", ""
 	if al.Status == "firing" {
 		p.Status, p.StatusClass = s.t("Firing"), "danger"
 		p.When = s.t("Since %s (%s)", s.clock(al.StartsAt), s.dur(now.Sub(al.StartsAt)))

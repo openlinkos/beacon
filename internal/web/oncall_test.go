@@ -117,6 +117,14 @@ func TestSignedAlertReturnsToAlertAfterSignIn(t *testing.T) {
 	if p.code != http.StatusOK || form == nil || !strings.Contains(p.body, `name="next" value="`+path+`"`) {
 		t.Fatalf("sign-in page did not retain the unsigned alert path (status %d)", p.code)
 	}
+	bad := b.do(http.MethodPost, "/console/sign-in", url.Values{
+		"username": {"operator"}, "password": {"wrong password"}, "form": {form[1]}, "next": {path},
+	})
+	form = formRe.FindStringSubmatch(bad.body)
+	if bad.code != http.StatusUnauthorized || form == nil || !strings.Contains(bad.body, `role="alert" id="sign-in-error"`) ||
+		!strings.Contains(bad.body, `aria-describedby="sign-in-error"`) {
+		t.Fatalf("sign-in error is not associated with the form (status %d)", bad.code)
+	}
 	signedIn := b.do(http.MethodPost, "/console/sign-in", url.Values{
 		"username": {"operator"}, "password": {password}, "form": {form[1]}, "next": {path},
 	})
@@ -201,7 +209,9 @@ func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
 	}
 	show := b.get(u.RequestURI())
 	for _, want := range []string{u.Fragment, "oncall-user ran an on-demand check via the console", "0 passed, 1 failed, 1 missing",
-		"HTTP 502", "No result", `class="bc-alert-observations" open`, "Awaiting acknowledgement", "Alert delivered to hook oncall"} {
+		"HTTP 502", "No result", `class="bc-alert-observations" open`, "Awaiting acknowledgement", "Alert delivered to hook oncall",
+		`<summary id="` + u.Fragment + `"><span class="ol-sr-only">On-demand check results. </span>0 passed, 1 failed, 1 missing`,
+		`id="timeline" tabindex="-1" aria-labelledby="alert-timeline"`, `src="/static/beacon-probe-result.js?v=`} {
 		if show.code != http.StatusOK || !strings.Contains(show.body, want) {
 			t.Errorf("alert result lacks %q (status %d)", want, show.code)
 		}
