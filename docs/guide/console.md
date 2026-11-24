@@ -144,7 +144,7 @@ On installations with the credential store enabled, owners can store and replace
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
+The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. The current handover note stays next to the response actions, and a failed agent hook is shown separately from human ownership. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
 
 The Feishu app card updates in place when sessions in the alert's evidence close. **Finished SSH sessions** shows session, machine and command counts and the most recent finish time. Open **Timeline** to find the replays. Beacon batches session updates and spaces them at least five minutes apart per card. It reserves the last 10% of the Feishu budget for urgent delivery.
 
