@@ -45,7 +45,10 @@ func TestRunReportsExecutedAndUnstartedJobs(t *testing.T) {
 			agent := script(t, dir, `env | grep -F 'lbt_fixture_only' && exit 99
 echo 'private command output'
 `+tc.command)
-			s, _ := newServer(t, Options{Run: agent, LogDir: logDir, ReportURL: receiver.URL, ReportToken: fixtureReportToken})
+			// Replace the launcher shell so Go observes the process signal directly. A shell waiting for
+			// a child can translate that child's signal into a conventional numeric exit status.
+			command := "exec '" + strings.ReplaceAll(agent, "'", "'\\''") + "'"
+			s, _ := newServer(t, Options{Run: command, LogDir: logDir, ReportURL: receiver.URL, ReportToken: fixtureReportToken})
 			if tc.removeLogDir {
 				if err := os.Remove(logDir); err != nil {
 					t.Fatal(err)
