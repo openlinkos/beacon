@@ -31,6 +31,7 @@ var (
 const (
 	probeWaitDefault = 45 * time.Second
 	probeWaitMax     = 90 * time.Second
+	keepProbeRuns    = 10
 )
 
 // ProbeNowInput is what to probe: one of AlertID (the targets of the group's alerts), Target (with an
@@ -74,14 +75,14 @@ type ProbeNow struct {
 	Targets   []ProbeTarget    `json:"targets"`
 	Locations []string         `json:"locations"` // expected to answer
 	Results   []ProbeNowResult `json:"results"`
-	Missing   []string         `json:"missing"`
-	Complete  bool             `json:"complete"` // every expected location answered
+	Missing   []string         `json:"missing"`  // locations with at least one missing result
+	Complete  bool             `json:"complete"` // every expected result arrived
 	Summary   string           `json:"summary"`
 	Untrusted Untrusted        `json:"untrusted"`
 }
 
-// probeWants reads what the input asks for, as the board takes it, and the words for the chat.
-func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, error) {
+// probeWants reads what the input asks for, and the alert episode the result belongs to, if any.
+func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, time.Time, error) {
 	given := 0
 	for _, s := range []string{in.AlertID, in.Target, in.Service} {
 		if strings.TrimSpace(s) != "" {
@@ -90,17 +91,17 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, error) {
 	}
 	switch {
 	case given != 1:
-		return nil, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
+		return nil, time.Time{}, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
 	case in.Module != "" && in.Target == "":
-		return nil, fmt.Errorf("%w: module goes with target", ErrBadInput)
+		return nil, time.Time{}, fmt.Errorf("%w: module goes with target", ErrBadInput)
 	case in.Target != "":
-		return []probenow.Want{{Target: strings.TrimSpace(in.Target), Module: strings.TrimSpace(in.Module)}}, nil
+		return []probenow.Want{{Target: strings.TrimSpace(in.Target), Module: strings.TrimSpace(in.Module)}}, time.Time{}, nil
 	case in.Service != "":
-		return []probenow.Want{{Service: strings.TrimSpace(in.Service)}}, nil
+		return []probenow.Want{{Service: strings.TrimSpace(in.Service)}}, time.Time{}, nil
 	}
 	g, ok := b.d.Store.Group(in.AlertID)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, time.Time{}, ErrNotFound
 	}
 	// the alerts' own targets first (instance and module, as probe rules carry them), else their services
 	var wants []probenow.Want
@@ -118,15 +119,18 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, error) {
 		}
 	}
 	if len(wants) == 0 {
-		return nil, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+		return nil, time.Time{}, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
 	}
-	return wants, nil
+	return wants, g.StartsAt, nil
 }
+
+// CanProbeNow reports whether this Beacon has a gateway for on-demand checks.
+func (b *Bridge) CanProbeNow() bool { return b.d.ProbeNow != nil }
 
 // ProbeNow has every location that probes the input's targets probe them again at once, waits for their
 // answers (in.Wait seconds, 45 by default and at most 90) and returns them per location.
 func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (ProbeNow, error) {
-	if b.d.ProbeNow == nil {
+	if !b.CanProbeNow() {
 		return ProbeNow{}, ErrProbeUnavailable
 	}
 	wait := time.Duration(in.Wait) * time.Second
@@ -136,7 +140,7 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	case wait < time.Second || wait > probeWaitMax:
 		return ProbeNow{}, fmt.Errorf("%w: wait is 1 to %d seconds", ErrBadInput, int(probeWaitMax.Seconds()))
 	}
-	wants, err := b.probeWants(in)
+	wants, starts, err := b.probeWants(in)
 	if err != nil {
 		return ProbeNow{}, err
 	}
@@ -149,12 +153,63 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	}
 	wctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	v, _ = b.d.ProbeNow.Await(wctx, v.ID)
-	out := b.probeNowView(v)
+	if settled, ok := b.d.ProbeNow.Await(wctx, v.ID); ok {
+		v = settled
+	}
+	observations := probeObservations(v)
+	tally := tallyProbes(observations)
+	out := probeNowView(v, tally)
 	what := b.probeWhat(b.lang, v)
-	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "probe_now", Target: cleanLine(b.probeWhat(i18n.EN, v)), Detail: out.Summary})
-	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), b.probeSummary(b.lang, v)))
+	audit := store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "probe_now", Target: cleanLine(b.probeWhat(i18n.EN, v)), Detail: out.Summary}
+	if in.AlertID != "" {
+		audit.Target = in.AlertID
+		audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
+		b.recordProbeRun(in.AlertID, starts, store.ProbeRun{ID: v.ID, At: b.now(), By: who.Name, Via: who.Via, Results: observations})
+	}
+	_ = b.d.Store.Audit(audit)
+	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), tally.summary(b.lang)))
 	return out, nil
+}
+
+// probeObservations records every expected target-location pair, even when a probe replied but
+// omitted a target.
+func probeObservations(v probenow.View) []store.ProbeObservation {
+	type point struct{ location, target, module string }
+	answers := make(map[point]probenow.Result, len(v.Results))
+	for _, r := range v.Results {
+		answers[point{r.Location, r.Target, r.Module}] = r
+	}
+	var observations []store.ProbeObservation
+	for _, target := range v.Targets {
+		for _, location := range target.Locations {
+			item := store.ProbeObservation{Location: location, Instance: cleanLine(target.Instance), Module: cleanLine(target.Module), Status: "missing"}
+			if r, ok := answers[point{location, target.Instance, target.Module}]; ok {
+				item.Status, item.HTTPCode = "ok", r.HTTPStatus
+				if !r.Success {
+					item.Status, item.Reason = "failed", clean(r.Reason, maxShort, false)
+				}
+			}
+			observations = append(observations, item)
+		}
+	}
+	return observations
+}
+
+// recordProbeRun saves the results on the alert episode the caller actually checked.
+func (b *Bridge) recordProbeRun(id string, starts time.Time, run store.ProbeRun) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g, ok := b.d.Store.Group(id)
+	if !ok || !g.StartsAt.Equal(starts) {
+		return
+	}
+	g.ProbeRuns = append(g.ProbeRuns, run)
+	if len(g.ProbeRuns) > keepProbeRuns {
+		g.ProbeRuns = g.ProbeRuns[len(g.ProbeRuns)-keepProbeRuns:]
+	}
+	if err := b.d.Store.PutGroup(g); err != nil {
+		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
+	}
 }
 
 // probeWhat names what was probed in one phrase: the target, or how many targets of which services.
@@ -172,55 +227,67 @@ func (b *Bridge) probeWhat(l i18n.Lang, v probenow.View) string {
 	return i18n.T(l, "%d targets of %s", len(v.Targets), strings.Join(svcs, ", "))
 }
 
-// probeSummary is the one line: how many locations are OK, how many fail and why, how many did not
-// answer. A location with several targets is OK when all of them are.
-func (b *Bridge) probeSummary(l i18n.Lang, v probenow.View) string {
-	okBy := map[string]bool{}
-	reasons := map[string]bool{}
-	for _, r := range v.Results {
-		if _, seen := okBy[r.Location]; !seen {
-			okBy[r.Location] = true
-		}
-		if !r.Success {
-			okBy[r.Location] = false
-			reasons[clean(r.Reason, maxShort, false)] = true
-		}
-	}
-	ok, failing := 0, 0
-	for _, good := range okBy {
-		if good {
-			ok++
-		} else {
-			failing++
-		}
-	}
+type probeTally struct {
+	passed, failed   int
+	missing, reasons []string
+}
+
+// summary counts locations. A location is OK only when all of its expected results passed.
+func (t probeTally) summary(l i18n.Lang) string {
 	var parts []string
-	if ok > 0 || (failing == 0 && len(v.Missing) == 0) {
-		parts = append(parts, i18n.T(l, "%d OK", ok))
+	if t.passed > 0 || (t.failed == 0 && len(t.missing) == 0) {
+		parts = append(parts, i18n.T(l, "%d OK", t.passed))
 	}
-	if failing > 0 {
-		parts = append(parts, i18n.T(l, "%d failing (%s)", failing, strings.Join(slices.Sorted(func(yield func(string) bool) {
-			for r := range reasons {
-				if !yield(r) {
-					return
-				}
-			}
-		}), ", ")))
+	if t.failed > 0 {
+		parts = append(parts, i18n.T(l, "%d failing (%s)", t.failed, strings.Join(t.reasons, ", ")))
 	}
-	if len(v.Missing) > 0 {
-		parts = append(parts, i18n.T(l, "%d did not answer", len(v.Missing)))
+	if len(t.missing) > 0 {
+		parts = append(parts, i18n.T(l, "%d did not answer", len(t.missing)))
 	}
 	return strings.Join(parts, ", ")
 }
 
+func tallyProbes(observations []store.ProbeObservation) probeTally {
+	type result struct{ failed, missing bool }
+	var tally probeTally
+	locations := map[string]result{}
+	for _, o := range observations {
+		r := locations[o.Location]
+		switch o.Status {
+		case "failed":
+			r.failed = true
+			if !slices.Contains(tally.reasons, o.Reason) {
+				tally.reasons = append(tally.reasons, o.Reason)
+			}
+		case "missing":
+			r.missing = true
+		}
+		locations[o.Location] = r
+	}
+	for location, r := range locations {
+		if r.failed {
+			tally.failed++
+		}
+		if r.missing {
+			tally.missing = append(tally.missing, location)
+		}
+		if !r.failed && !r.missing {
+			tally.passed++
+		}
+	}
+	slices.Sort(tally.missing)
+	slices.Sort(tally.reasons)
+	return tally
+}
+
 // probeNowView is the answer for an agent, its text from the target sets and the probes cleaned.
-func (b *Bridge) probeNowView(v probenow.View) ProbeNow {
+func probeNowView(v probenow.View, tally probeTally) ProbeNow {
 	svcs := map[string]bool{}
 	for _, t := range v.Targets {
 		svcs[t.Service] = true
 	}
 	out := ProbeNow{ID: v.ID, Targets: make([]ProbeTarget, 0, len(v.Targets)), Locations: v.Expected, Results: make([]ProbeNowResult, 0, len(v.Results)),
-		Missing: v.Missing, Complete: v.Done, Summary: b.probeSummary(i18n.EN, v),
+		Missing: tally.missing, Complete: len(tally.missing) == 0, Summary: tally.summary(i18n.EN),
 		Untrusted: untrusted("targets[].instance", "targets[].module", "targets[].service", "results[].instance", "results[].module",
 			"results[].service", "results[].reason", "summary")}
 	if out.Locations == nil {

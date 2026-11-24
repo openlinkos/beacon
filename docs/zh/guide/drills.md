@@ -54,8 +54,7 @@ docker exec beacon beacon drill fail 15m
 
 然后让它逐步动手，一次练一环：
 
-- **`ack_alert`** 带备注认领，**`add_note`** 写下发现。两者都进告警的时间线，人在卡片和控制台上读得到。
-- **`silence_alert`** 静默告警。在中心上，`beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` 从命令行建一条。审计日志会记下它来自命令行，`beacon silence list` 能看到它。
+- **`add_note`** 把 Agent 的发现记到时间线和卡片。参考 Agent 把认领和静默留给值班人。告警被认领期间，暂停向人升级通知。用控制台或卡片亲自验证接手流程。
 - **在机器上执行命令。** 演练的机器若是 [SSH 通道](machines.md)能到的，让 Agent 在上面执行一条命令。会话会连同回放出现在告警页上。
 - **`probe_now`** 让每个检测点立刻复测目标。它不会改变演练的答案：服务仍是 503。但练的正是 Agent 修完真故障后要做的那次调用。
 

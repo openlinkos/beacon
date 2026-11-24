@@ -5,6 +5,39 @@
 .bc-player { margin-block: var(--ol-space-2); }
 .bc-player .ap-player { border-radius: var(--ol-radius-control); }
 
+/* Put taking charge and checking recovery ahead of the timeline at every width. */
+.bc-alert-response {
+  border-inline-start-width: 0.25rem;
+  border-inline-start-color: var(--ol-color-border-strong);
+}
+.bc-alert-response[data-state="danger"] { border-inline-start-color: var(--ol-color-danger-border); }
+.bc-alert-response[data-state="success"] { border-inline-start-color: var(--ol-color-success-border); }
+.bc-alert-response-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--ol-space-4);
+}
+.bc-alert-summary, .bc-alert-controls {
+  display: grid;
+  gap: var(--ol-space-2);
+  min-width: 0;
+}
+.bc-alert-ack-note > summary, .bc-alert-observations > summary {
+  cursor: pointer;
+  padding-block: var(--ol-space-2);
+}
+.bc-alert-ack-note > textarea { max-width: 30rem; }
+.bc-alert-observations > .ol-list { margin-inline-start: var(--ol-space-3); }
+.bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
+.kind-probe_now:target { background: var(--ol-color-info-bg); }
+
+@container ol-content (width < 40rem) {
+  .bc-alert-controls { width: 100%; }
+  .bc-alert-buttons .ol-btn { min-height: 2.75rem; }
+}
+
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
 .bc-diff code { display: block; }
 .bc-diff-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }

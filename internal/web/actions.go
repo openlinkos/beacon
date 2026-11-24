@@ -76,6 +76,12 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("That name is taken; choose another.")
 	case "not_found":
 		return s.t("There is no such thing, or no longer.")
+	case "probe_unavailable":
+		return s.t("This Beacon has no gateway for on-demand checks.")
+	case "probe_no_targets":
+		return s.t("No eligible probe targets are configured for this alert.")
+	case "probe_busy":
+		return s.t("The probes are busy. Try again in a moment.")
 	case "window_over":
 		return s.t("That maintenance window has ended already.")
 	case "bad_agent":
@@ -175,6 +181,26 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	back(w, r, page, "done", "note")
+}
+
+func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
+	id := r.PathValue("id")
+	page := link.AlertPath(id)
+	result, err := s.Bridge.ProbeNow(r.Context(), v.actor(), bridge.ProbeNowInput{AlertID: id})
+	switch {
+	case errors.Is(err, bridge.ErrNotFound):
+		s.missing(w, r, v)
+	case errors.Is(err, bridge.ErrProbeUnavailable):
+		back(w, r, page, "error", "probe_unavailable")
+	case errors.Is(err, bridge.ErrBadInput), errors.Is(err, bridge.ErrProbeNotFound):
+		back(w, r, page, "error", "probe_no_targets")
+	case errors.Is(err, bridge.ErrProbeBusy):
+		back(w, r, page, "error", "probe_busy")
+	case err != nil:
+		s.failed(w, r, page, "probe on demand", err)
+	default:
+		http.Redirect(w, r, page+"?probe="+url.QueryEscape(result.ID)+"#probe-"+url.PathEscape(result.ID), http.StatusSeeOther) //nolint:gosec // G710: local alert page and anchor
+	}
 }
 
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *viewer) {

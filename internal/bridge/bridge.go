@@ -260,6 +260,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "firing"
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
+			g.ProbeRuns = nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
 			g.StartsAt = starts

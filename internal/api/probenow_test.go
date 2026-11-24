@@ -98,7 +98,7 @@ func TestProbeNowRoute(t *testing.T) {
 	if last := e.Bot.Texts[len(e.Bot.Texts)-1]; last != "claude-code had 2 locations probe 2 targets of hub-example-com again via API: 2 OK" {
 		t.Errorf("echo %q", last)
 	}
-	if a := e.Store.AuditLog(1); a[0].Action != "probe_now" || a[0].Via != "api" || a[0].Target != "2 targets of hub-example-com" {
+	if a := e.Store.AuditLog(1); a[0].Action != "probe_now" || a[0].Via != "api" || a[0].Target != testutil.GroupID() || !strings.Contains(a[0].Detail, "2 OK") {
 		t.Errorf("audit %+v", a[0])
 	}
 }

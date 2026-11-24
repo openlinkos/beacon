@@ -359,11 +359,11 @@ func (b *Bridge) called(ctx context.Context, g *store.Group, c store.AgentCall, 
 	title := chatSafe(b.title(g))
 	switch {
 	case c.Status != "ok":
-		b.echo(ctx, b.t("Could not reach agent %s about \"%s\": %s", c.Hook, title, chatSafe(c.Error)))
+		b.echo(ctx, b.t("Delivery to hook %s for \"%s\" failed: %s", c.Hook, title, chatSafe(c.Error)))
 	case c.Event == "resolved":
-		b.echo(ctx, b.t("Told agent %s that \"%s\" resolved", c.Hook, title))
+		b.echo(ctx, b.t("Delivered recovery notice for \"%s\" to hook %s", title, c.Hook))
 	default:
-		b.echo(ctx, b.t("Woke agent %s for \"%s\"", c.Hook, title))
+		b.echo(ctx, b.t("Delivered alert to hook %s for \"%s\"", c.Hook, title))
 	}
 }
 

@@ -383,7 +383,7 @@ func (b *Board) Answer(id, location string, results []targets.TargetResult) erro
 	defer b.mu.Unlock()
 	b.sweep()
 	r := b.reqs[id]
-	if r == nil {
+	if r == nil || !slices.Contains(r.Expected, location) {
 		return fmt.Errorf("%w: no request %s; it may have expired", ErrNotFound, id)
 	}
 	if _, dup := r.answered[location]; dup {
@@ -395,7 +395,7 @@ func (b *Board) Answer(id, location string, results []targets.TargetResult) erro
 	for _, res := range results {
 		for _, t := range r.Targets {
 			k := t.Instance + "\x00" + t.Module
-			if t.Instance != res.Target || t.Module != res.Module || seen[k] {
+			if t.Instance != res.Target || t.Module != res.Module || seen[k] || !slices.Contains(t.Locations, location) {
 				continue
 			}
 			seen[k] = true

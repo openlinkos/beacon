@@ -1,4 +1,31 @@
-{{define "content"}}<div class="ol-layout-supporting">
+{{define "content"}}<div class="ol-stack">
+<section class="ol-panel bc-alert-response" data-state="{{.StatusClass}}" aria-labelledby="alert-response">
+  <div class="ol-panel-body bc-alert-response-body">
+    <div class="bc-alert-summary">
+      <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
+      {{if .When}}<p class="ol-hint">{{.When}}</p>{{end}}
+      {{if .Ownership}}<p>{{.Ownership}}</p>{{end}}
+      {{if .Service}}<p class="ol-hint">{{.L.Service}} <strong>{{.Service}}</strong></p>
+      {{else if .Services}}<p class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</p>{{end}}
+    </div>
+    {{if .SignInHref}}<div class="ol-cluster"><a class="ol-btn ol-btn-primary" href="{{.SignInHref}}">{{iconSm "log-in"}}{{.L.SignIn}}</a></div>{{end}}
+    {{with .Actions}}<div class="bc-alert-controls">
+      <div class="ol-cluster bc-alert-buttons">
+        {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{$.L.Acknowledge}}</button></form>{{end}}
+        {{if .Probe}}<form method="post" action="{{.Probe}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-btn {{if .Ack}}ol-btn-secondary{{else}}ol-btn-primary{{end}}" aria-describedby="probe-wait">{{iconSm "activity"}}{{$.L.ProbeNow}}</button></form>{{end}}
+        {{if .Note}}<a class="ol-btn ol-btn-secondary" href="#add-note">{{iconSm "pencil"}}{{$.L.AddNote}}</a>{{end}}
+      </div>
+      {{if .Ack}}
+        <p class="ol-hint" id="escalation-effect">{{$.L.EscalationStops}}</p>
+        <details class="bc-alert-ack-note"><summary>{{$.L.AckNote}}</summary>
+          <label class="ol-sr-only" for="ack-note">{{$.L.AckNote}}</label><textarea form="alert-ack" class="ol-textarea" id="ack-note" name="note" rows="2" maxlength="2000"></textarea>
+        </details>
+      {{end}}
+      {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
+    </div>{{end}}
+  </div>
+</section>
+<div class="ol-layout-supporting">
 <div class="ol-stack">
   {{if .Description}}<p class="ol-text-prose">{{.Description}}</p>{{end}}
 
@@ -45,9 +72,20 @@
     <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Time}}</th><th>{{.L.What}}</th></tr></thead>
       <tbody>
-      {{range .Events}}<tr class="kind-{{.Kind}}">
+      {{range .Events}}<tr class="kind-{{.Kind}}"{{if .Anchor}} id="{{.Anchor}}"{{end}}>
         <td><time datetime="{{.ISO}}">{{.At}}</time></td>
-        <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}</td>
+        <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}
+          {{with .Probe}}<details class="bc-alert-observations"{{if .Open}} open{{end}}><summary>{{.Summary}}</summary>
+            <ul class="ol-list">
+              {{range .Rows}}<li>
+                <span class="ol-list-row"><strong class="ol-list-title">{{.Location}}</strong><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span></span>
+                <span class="ol-cell-sub ol-break">{{.Instance}} <span class="ol-mono">{{.Module}}</span></span>
+                {{if .Reason}}<span class="ol-cell-sub ol-break">{{.Reason}}</span>{{end}}
+                {{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}
+              </li>{{end}}
+            </ul>
+          </details>{{end}}
+        </td>
       </tr>{{end}}
       </tbody>
     </table></div>
@@ -55,14 +93,9 @@
 </div>
 
 <div class="ol-stack">
-  <section class="ol-panel">
+  {{if or .State .Runbook .Dashboard (and .Actions .Actions.Unsilence)}}<section class="ol-panel">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Details}}</h2></div>
     <div class="ol-panel-body">
-      <dl class="ol-dl ol-dl-stack">
-        <dt>{{.L.Status}}</dt><dd>{{.When}}</dd>
-        {{if .Service}}<dt>{{.L.Service}}</dt><dd>{{.Service}}</dd>{{end}}
-        {{if .Services}}<dt>{{.L.Services}}</dt><dd><span class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</span></dd>{{end}}
-      </dl>
       {{range .State}}<p class="ol-hint">{{.}}</p>{{end}}
       {{with .Actions}}{{if .Unsilence}}<form method="post" action="{{.Unsilence}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back" value="{{.Back}}"><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "x"}}{{$.L.EndSilence}}</button></form>{{end}}{{end}}
       {{if or .Runbook .Dashboard}}<p class="ol-cluster">
@@ -70,22 +103,16 @@
         {{if .Dashboard}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Dashboard}}" rel="noopener noreferrer">{{.L.Dashboard}}</a>{{end}}
       </p>{{end}}
     </div>
-  </section>
+  </section>{{end}}
 
   {{with .Actions}}
-  {{if .Ack}}<form class="ol-panel" method="post" action="{{.Ack}}">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "circle-check"}} {{$.L.Acknowledge}}</h2></div>
-    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
-      <div class="ol-field"><label class="ol-label" for="ack-note">{{$.L.AckNote}}</label><textarea class="ol-textarea" id="ack-note" name="note" rows="2" maxlength="2000"></textarea></div></div>
-    <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "check"}}{{$.L.Acknowledge}}</button></div>
-  </form>{{end}}
   {{if .Silence}}<form class="ol-panel" method="post" action="{{.Silence}}">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "timer"}} {{$.L.Silence}}</h2></div>
     <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
       <div class="ol-field"><label class="ol-label" for="silence-why">{{$.L.SilenceWhy}}</label><input class="ol-input" id="silence-why" name="comment" required maxlength="500"></div></div>
     <div class="ol-panel-footer"><span></span><span class="ol-btn-group">{{range .Durations}}<button type="submit" name="duration" value="{{.K}}" class="ol-btn ol-btn-secondary ol-btn-sm">{{.V}}</button>{{end}}</span></div>
   </form>{{end}}
-  {{if .Note}}<form class="ol-panel" method="post" action="{{.Note}}">
+  {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
     <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
       <div class="ol-field"><label class="ol-label" for="note-text">{{$.L.Note}}</label><textarea class="ol-textarea" id="note-text" name="text" rows="3" required maxlength="2000"></textarea></div></div>
@@ -134,5 +161,6 @@
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "list-filter"}} {{.L.Labels}}</h2></div>
     <div class="ol-panel-body"><dl class="ol-dl ol-dl-stack">{{range .Labels}}<dt>{{.K}}</dt><dd class="ol-mono ol-break">{{.V}}</dd>{{end}}</dl></div>
   </section>
+</div>
 </div>
 </div>{{end}}

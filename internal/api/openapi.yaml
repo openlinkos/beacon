@@ -306,8 +306,8 @@ components:
               at: {type: string, format: date-time}
               kind:
                 type: string
-                enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, resolved]
-                description: "command: one run at a shell's prompt (id is its session); heartbeat: its last success (id is its name), even before the window"
+                enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
+                description: "command: one run at a shell's prompt (id is its session); heartbeat: its last success (id is its name), even before the window; probe_now: observations of an on-demand check (id is its request)"
               by: {type: string}
               via: {type: string}
               text: {type: string}
@@ -322,6 +322,18 @@ components:
               url: {type: string, description: "A change's link, or the signed link to a session's page where people replay it"}
               related: {type: string, enum: [service, machine, agent]}
               phase: {type: string, enum: [before, during, after], description: "On changes, sessions, commands and heartbeats: before the group started, while it fired, or after it resolved"}
+              probes:
+                type: array
+                description: On-demand results per target and expected location
+                items:
+                  type: object
+                  properties:
+                    location: {type: string}
+                    instance: {type: string}
+                    module: {type: string}
+                    status: {type: string, enum: [ok, failed, missing]}
+                    reason: {type: string}
+                    http_status: {type: integer}
     Machine:
       type: object
       properties:
@@ -870,8 +882,8 @@ components:
         targets: {type: array, items: {$ref: "#/components/schemas/ProbeTarget"}}
         locations: {type: array, items: {type: string}, description: The locations expected to answer}
         results: {type: array, items: {$ref: "#/components/schemas/ProbeNowResult"}, description: Failing first}
-        missing: {type: array, items: {type: string}, description: Locations that did not answer in time}
-        complete: {type: boolean, description: Every expected location answered}
+        missing: {type: array, items: {type: string}, description: Locations with at least one missing result}
+        complete: {type: boolean, description: Every expected result arrived}
         summary: {type: string, description: "One line, such as 7 OK, 2 failing (dns)"}
         untrusted: {$ref: "#/components/schemas/Untrusted"}
   parameters:

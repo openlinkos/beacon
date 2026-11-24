@@ -180,7 +180,7 @@ func (s *Server) access(r *http.Request, scopes string) access {
 	}
 	if sig := r.URL.Query().Get(link.Param); sig != "" && s.Pages != nil && s.Pages.Signer != nil {
 		if until, ok := s.Pages.Signer.Verify(http.MethodGet, r.URL.Path, sig); ok {
-			return access{OK: true, Until: until, Viewer: v}
+			return access{OK: true, Until: until}
 		}
 	}
 	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {

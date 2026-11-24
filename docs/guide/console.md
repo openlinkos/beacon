@@ -74,21 +74,21 @@ The sidebar has the overview on its own, then three parts:
 - services answering at every location;
 - probe locations reporting;
 - machines, and those behind NAT connected;
-- agent sessions today, with the agents woken by alerts.
+- agent sessions today, with the status of today's alert deliveries to agent hooks.
 
 **Needs attention** lists the alerts firing, the worst first. Those someone acknowledged or silenced come after the rest. Then it lists what Beacon sees going wrong that no firing alert names:
 
 - a service failing;
 - a probe location gone quiet;
 - a machine behind NAT not connected;
-- a hook that failed to wake an agent;
+- a failed delivery to an agent hook;
 - the channel paused.
 
 Beside it are:
 
 - the status pages, as the public sees them;
 - what is coming up: maintenance in progress or planned, and resources expiring within 30 days;
-- the agents woken today;
+- today's agent hook deliveries;
 - the latest sessions and changes;
 - the channel's state and the configuration's version.
 
@@ -132,17 +132,17 @@ A form the person's role does not allow is not offered, and is refused if sent a
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. From top to bottom:
+The card's **Timeline** button opens it. The response panel shows how long the alert has been firing and who acknowledged it. On a phone or desktop, you can acknowledge it, probe again or jump to the note form from the same panel.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.
 - **What people were told and did**: acknowledged, silenced, paged. A button ends the silence.
 - **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it.
 - **Related alerts** in the same failure domain.
-- **Agents**: whether they reach machines, which hooks were woken, and one line "N sessions on M machines, K commands".
+- **Agents**: whether they reach machines, delivery to each hook, and one line "N sessions on M machines, K commands".
 - **Sessions**: every session in the alert's window on the machines its labels name, each with a **Replay** link.
 - **Notes**, **Changes** and the **Timeline**: everything in time order, as `get_timeline` returns it.
 
-The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence).
+The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
 
 ## The session's page and its replay {#the-sessions-page-and-its-replay}
 
@@ -165,6 +165,8 @@ The links Beacon puts in the chat open one page without signing in. Such a link 
 - the signature is the base64url HMAC-SHA256 of the method, the path and the expiry, under a key Beacon keeps in its database.
 
 Links are valid for `pages.link_ttl`, 30 days by default. Each grants exactly one page, view-only: the alert's page, or the session's page with its recording. A link for another path, with a changed expiry, or expired, fails. Every failure is a plain 404, the same as for a page that does not exist, so a wrong link reveals nothing.
+
+**Sign in** on that page returns to the same alert or session. After sign-in, the page uses the account's own permissions.
 
 **Anyone holding a link can see that page, recording included, without signing in anywhere.** So:
 

@@ -82,6 +82,7 @@ type Group struct {
 	Barked      time.Time         `json:"barked,omitzero"`
 	Notes       []Note            `json:"notes,omitempty"`  // see agents.go
 	Agents      []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
+	ProbeRuns   []ProbeRun        `json:"probe_runs,omitempty"`
 	Updated     time.Time         `json:"updated"`
 }
 

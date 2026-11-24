@@ -278,7 +278,7 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 			break
 		}
 		if c.Status == "failed" {
-			out = append(out, attentionItem{Icon: "bot", Tone: "danger", Title: s.t("Hook %s failed to wake an agent", c.Hook), Href: c.item.AlertHref,
+			out = append(out, attentionItem{Icon: "bot", Tone: "danger", Title: s.t("Delivery to hook %s failed", c.Hook), Href: c.item.AlertHref,
 				Sub: c.title, Badge: s.t("Agent call"), BadgeTone: "danger", When: s.ago(c.At), kind: "hook"})
 		}
 	}
@@ -323,7 +323,7 @@ func (s *Server) healthOf(items []attentionItem, sh serviceHealth) health {
 	var parts []string
 	for _, k := range []struct{ kind, name string }{
 		{"alert", s.t("Firing alerts")}, {"service", s.t("Services in trouble")}, {"channel", s.t("The SSH channel")},
-		{"location", s.t("Probe locations not reporting")}, {"machine", s.t("Machines not connected")}, {"hook", s.t("Agents not woken")},
+		{"location", s.t("Probe locations not reporting")}, {"machine", s.t("Machines not connected")}, {"hook", s.t("Hook deliveries failed")},
 	} {
 		switch n := kinds[k.kind]; {
 		case n == 0:
@@ -347,7 +347,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Changes: s.t("Latest changes"), AllChanges: s.t("All changes"), NoChanges: s.t("No deployment or other change was reported yet."),
 		Pages: s.t("Status pages"), AllPages: s.t("All status pages"), NoPages: s.t("No status pages."),
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
-		Woken: s.t("Agents woken today"), AllCalls: s.t("All agent calls"), NoneWoken: s.t("No agent was woken today."),
+		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
 		Beacon: s.t("Beacon"), Acked: s.t("Acknowledged"), Silenced: s.t("Silenced"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
@@ -443,7 +443,7 @@ func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) []stat {
 	}
 	work := stat{Label: s.t("Agent sessions today"), Value: num(f.SessionsToday), Icon: "bot",
 		Href: consolePath("/sessions?day=") + url.QueryEscape(s.day(s.now())),
-		Meta: s.t("%d woken by alerts, %d failed, %d waiting", f.Woken, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
+		Meta: s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
 	if f.WokenFailed > 0 {
 		work.Tone = "danger"
 	}
@@ -520,7 +520,7 @@ func (s *Server) calls() []call {
 	for _, g := range s.Bridge.Groups(false) {
 		for _, c := range g.Agents {
 			x := call{AgentCall: c, alert: g.ID, title: g.Title}
-			x.item = callItem{Hook: c.Hook, Alert: g.Title, AlertHref: link.AlertPath(g.ID), Status: s.callStatus(c.Status), StatusTone: tone(c.Status), At: s.clock(c.At)}
+			x.item = callItem{Hook: c.Hook, Alert: g.Title, AlertHref: link.AlertPath(g.ID), Status: s.callStatus(c.Status), StatusTone: callTone(c.Status), At: s.clock(c.At)}
 			out = append(out, x)
 		}
 	}
@@ -531,9 +531,16 @@ func (s *Server) calls() []call {
 func (s *Server) callStatus(status string) string {
 	switch status {
 	case "ok":
-		return s.t("Done")
+		return s.t("Delivered")
 	case "failed":
 		return s.t("Failed")
 	}
 	return s.t("Pending")
+}
+
+func callTone(status string) string {
+	if status == "ok" {
+		return "info"
+	}
+	return tone(status)
 }

@@ -24,6 +24,7 @@ type labels struct {
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence                                                                                                   string
+	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn                                                         string
 }
 
 func (s *Server) labels() labels {
@@ -41,6 +42,9 @@ func (s *Server) labels() labels {
 		ID: s.t("Id"), Time: s.t("Time"), What: s.t("What happened"), Acknowledge: s.t("Acknowledge"), AckNote: s.t("A note for the others (optional)"),
 		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
 		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
+		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging stops escalation while the alert is acknowledged."),
+		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
+		SignIn: s.t("Sign in"),
 	}
 }
 
@@ -183,7 +187,7 @@ func (s *Server) pageShell(r *http.Request, a access, nav, kind, title string, p
 	if a.Viewer != nil {
 		return s.shellFor(r, a.Viewer, nav, title, parent)
 	}
-	return s.viewOnly(kind, title, a)
+	return s.viewOnly(r, kind, title, a)
 }
 
 // ---- the alert page
@@ -193,7 +197,7 @@ type kv struct{ K, V string }
 type probeRow struct {
 	Location, Service, Instance, Module string
 	OK                                  bool
-	State, Since, Reason, Detail        string
+	State, Since, Reason, Detail, Tone  string
 }
 
 type relatedRow struct {
@@ -203,7 +207,14 @@ type relatedRow struct {
 
 type eventRow struct {
 	At, ISO, Kind, Text, Detail, Href, HrefText string
+	Anchor                                      string
 	External                                    bool
+	Probe                                       *probeEvent
+}
+type probeEvent struct {
+	Summary string
+	Open    bool
+	Rows    []probeRow
 }
 
 type noteRow struct{ By, Via, At, Text string }
@@ -225,9 +236,9 @@ type changeRow struct {
 
 // alertActions are the forms the alert's page offers someone signed in with alerts:write.
 type alertActions struct {
-	CSRF, Ack, Silence, Note string // where the forms post; "" leaves a form out
-	Durations                []kv   // the silence's choices: value, label
-	Unsilence, Back          string // where the form that ends the group's silence posts, and the page to come back to
+	CSRF, Ack, Silence, Note, Probe string // where the forms post; "" leaves a form out
+	Durations                       []kv   // the silence's choices: value, label
+	Unsilence, Back                 string // where the form that ends the group's silence posts, and the page to come back to
 }
 
 type alertPage struct {
@@ -235,6 +246,7 @@ type alertPage struct {
 	L                                                                            labels
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
+	Ownership                                                                    string
 	Services                                                                     []string
 	Labels                                                                       []kv
 	State                                                                        []string // acknowledged, silenced, buzzed, paged
@@ -280,7 +292,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Labels = append(p.Labels, kv{k, al.Labels[k]})
 	}
 	if d := ev.Done; d.Ack != nil {
-		p.State = append(p.State, s.t("Acknowledged by %s at %s via %s", d.Ack.By, s.clock(d.Ack.At), s.via(d.Ack.Via)))
+		p.Ownership = s.t("Acknowledged by %s at %s via %s", d.Ack.By, s.clock(d.Ack.At), s.via(d.Ack.Via))
+	} else if al.Status == "firing" {
+		p.Ownership = s.t("Awaiting acknowledgement")
 	}
 	if g.Silence != nil && now.Before(g.Silence.Until) {
 		p.State = append(p.State, s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By))
@@ -300,18 +314,18 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Related = append(p.Related, relatedRow{Title: r.Title, Severity: s.severity(r.Severity), SeverityClass: tone(r.Severity), Why: r.Why,
 			Acked: r.Acked, Href: s.signed(link.AlertPath(r.ID), a.Until)})
 	}
-	p.Events = s.events(tl, a, p.L)
+	p.Events = s.events(tl, a, p.L, r.URL.Query().Get("probe"))
 	for _, c := range ev.Done.Agents {
 		if c.Event != "firing" {
 			continue
 		}
 		switch c.Status {
 		case "ok":
-			p.Agents = append(p.Agents, s.t("Agent %s woken at %s", c.Hook, s.clock(c.Done)))
+			p.Agents = append(p.Agents, s.t("Alert delivered to hook %s at %s", c.Hook, s.clock(c.Done)))
 		case "failed":
-			p.Agents = append(p.Agents, s.t("Could not wake agent %s", c.Hook))
+			p.Agents = append(p.Agents, s.t("Delivery to hook %s failed", c.Hook))
 		default:
-			p.Agents = append(p.Agents, s.t("Waking agent %s", c.Hook))
+			p.Agents = append(p.Agents, s.t("Delivery to hook %s pending", c.Hook))
 		}
 	}
 	for _, n := range ev.Done.Notes {
@@ -351,6 +365,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	if v := a.Viewer; v != nil && v.has("alerts:write") {
 		base := link.AlertPath(al.ID)
 		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
+		if s.Bridge.CanProbeNow() {
+			p.Actions.Probe = base + "/probe-now"
+		}
 		if g.Silence != nil && now.Before(g.Silence.Until) {
 			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", base
 		}
@@ -406,7 +423,7 @@ func (s *Server) probes(pe bridge.ProbeEvidence, from time.Time, l labels) []pro
 }
 
 // events renders the timeline.
-func (s *Server) events(tl bridge.Timeline, a access, l labels) []eventRow {
+func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe string) []eventRow {
 	out := make([]eventRow, 0, len(tl.Events))
 	for _, e := range tl.Events {
 		row := eventRow{At: s.short(e.At), ISO: iso(e.At), Kind: e.Kind}
@@ -433,6 +450,10 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels) []eventRow {
 			row.Text = s.t("Silence ended")
 		case "agent":
 			row.Text, row.Detail = s.agentEvent(e)
+		case "probe_now":
+			row.Text = s.t("%s ran an on-demand check via %s", e.By, s.via(e.Via))
+			row.Anchor = "probe-" + e.ID
+			row.Probe = s.probeEvent(e, l, e.ID == selectedProbe)
 		case "change":
 			row.Text, row.Detail = s.t("Change by %s", e.By), e.Text
 			if e.Type != "" {
@@ -474,22 +495,41 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels) []eventRow {
 }
 
 func (s *Server) agentEvent(e bridge.Event) (text, detail string) {
-	if e.Event == "resolved" {
-		switch e.Result {
-		case "ok":
-			return s.t("Agent %s told that the alert resolved", e.By), ""
-		case "failed":
-			return s.t("Could not reach agent %s", e.By), e.Text
-		}
-		return s.t("Telling agent %s", e.By), ""
-	}
 	switch e.Result {
 	case "ok":
-		return s.t("Agent %s woken", e.By), ""
+		if e.Event == "resolved" {
+			return s.t("Recovery notice delivered to hook %s", e.By), ""
+		}
+		return s.t("Alert delivered to hook %s", e.By), ""
 	case "failed":
-		return s.t("Could not wake agent %s", e.By), e.Text
+		return s.t("Delivery to hook %s failed", e.By), e.Text
 	}
-	return s.t("Waking agent %s", e.By), ""
+	return s.t("Delivery to hook %s pending", e.By), ""
+}
+
+func (s *Server) probeEvent(e bridge.Event, l labels, open bool) *probeEvent {
+	p := &probeEvent{Open: open}
+	var passed, failed, missing int
+	for _, o := range e.Probes {
+		r := probeRow{Location: o.Location, Instance: o.Instance, Module: o.Module, Reason: o.Reason}
+		switch o.Status {
+		case "ok":
+			r.State, r.Tone = l.OK, "success"
+			passed++
+		case "failed":
+			r.State, r.Tone = l.Failing, "danger"
+			failed++
+		default:
+			r.State, r.Tone = l.NoResult, "warning"
+			missing++
+		}
+		if o.HTTPCode > 0 {
+			r.Detail = s.t("HTTP %d", o.HTTPCode)
+		}
+		p.Rows = append(p.Rows, r)
+	}
+	p.Summary = s.t("%d passed, %d failed, %d missing", passed, failed, missing)
+	return p
 }
 
 // sessions renders the sessions on the alert's machines, each with the commands of its transcript.

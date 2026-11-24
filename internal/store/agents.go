@@ -27,3 +27,21 @@ type AgentCall struct {
 	Due      time.Time `json:"due,omitzero"`    // when it goes out, if it waits
 	Done     time.Time `json:"done,omitzero"`
 }
+
+// ProbeRun records what each expected target and location returned during an alert's on-demand check.
+type ProbeRun struct {
+	ID      string             `json:"id"`
+	At      time.Time          `json:"at"`
+	By      string             `json:"by"`
+	Via     string             `json:"via"`
+	Results []ProbeObservation `json:"results"`
+}
+
+type ProbeObservation struct {
+	Location string `json:"location"`
+	Instance string `json:"instance"`
+	Module   string `json:"module"`
+	Status   string `json:"status"` // ok, failed or missing
+	Reason   string `json:"reason,omitempty"`
+	HTTPCode int    `json:"http_status,omitempty"`
+}

@@ -243,14 +243,15 @@ func TestRevokedTokenEndsSession(t *testing.T) {
 // writes are every form the console posts, with what it sends.
 func (e *env) writes() map[string]url.Values {
 	return map[string]url.Values{
-		"/console/alerts/" + e.id + "/ack":     {"note": {"on it"}},
-		"/console/alerts/" + e.id + "/silence": {"duration": {"4h"}, "comment": {"maintenance"}},
-		"/console/alerts/" + e.id + "/notes":   {"text": {"restarted the relay"}},
-		"/console/machines/pause":              {},
-		"/console/machines/resume":             {},
-		"/console/tokens/agent-1/revoke":       {},
-		"/console/config/history/1/revert":     {"note": {"undo"}},
-		"/console/sign-out":                    {},
+		"/console/alerts/" + e.id + "/ack":       {"note": {"on it"}},
+		"/console/alerts/" + e.id + "/silence":   {"duration": {"4h"}, "comment": {"maintenance"}},
+		"/console/alerts/" + e.id + "/notes":     {"text": {"restarted the relay"}},
+		"/console/alerts/" + e.id + "/probe-now": {},
+		"/console/machines/pause":                {},
+		"/console/machines/resume":               {},
+		"/console/tokens/agent-1/revoke":         {},
+		"/console/config/history/1/revert":       {"note": {"undo"}},
+		"/console/sign-out":                      {},
 	}
 }
 
@@ -432,7 +433,7 @@ func audited(st *store.Store, actor, action string) bool {
 // consolePages are every page of the console, with what each must show of the test's data.
 func (e *env) consolePages() map[string][]string {
 	return map[string][]string{
-		"/console":                         {"Needs attention", "Firing alerts", "Probe locations", "1 of 2", "Agents woken today", "Agent sessions today", "Latest sessions", "v0.3.0-test", "git.example.com is down"},
+		"/console":                         {"Needs attention", "Firing alerts", "Probe locations", "1 of 2", "Agent hook deliveries today", "Agent sessions today", "Latest sessions", "v0.3.0-test", "git.example.com is down"},
 		"/console/alerts":                  {"git.example.com is down &lt;script&gt;", "Firing", "Critical", "git-example-com", `ol-facet`},
 		"/console/alerts?severity=warning": {"Nothing matches."},
 		link.AlertPath(e.id):               {"git.example.com is down &lt;script&gt;", "restarting the relay &lt;script&gt;", "Timeline", "relay 1.2.3 &lt;script&gt;"},
@@ -444,7 +445,7 @@ func (e *env) consolePages() map[string][]string {
 		"/console/tokens":                  {"root", "status:read", "All machines"},
 		"/console/config":                  {"edge-1", "Europe - Frankfurt", "Asia - Shanghai", "alice", "new location &lt;script&gt;"},
 		"/console/config/history/1":        {"location edge-1", "Europe - Frankfurt", `data-op="add"`},
-		"/console/hooks":                   {"oncall", "hooks.example.com", "202", "Done"},
+		"/console/hooks":                   {"oncall", "hooks.example.com", "202", "Delivered"},
 		"/console/agents":                  {"Connect Claude Code or Codex", "claude mcp add --transport http beacon https://beacon.example.com/mcp"},
 		"/console/audit":                   {"add_note", "claude-code", "console_sign_in"},
 		"/console/changes":                 {"relay 1.2.3 &lt;script&gt;", "flux", "deploy"},
@@ -580,7 +581,7 @@ func TestOverviewFigures(t *testing.T) {
 	for _, want := range []string{
 		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
 		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
-		`href="/console/hooks"`, "1 woken by alerts, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		`href="/console/hooks"`, "1 delivered, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
 		if !strings.Contains(page, want) {
@@ -613,7 +614,7 @@ func TestViewOnlyLinks(t *testing.T) {
 			t.Fatalf("%s by link: %d", path, a.code)
 		}
 		checkPage(t, path, a.body)
-		if strings.Contains(a.body, `method="post"`) || strings.Contains(a.body, `href="/console/tokens"`) || !strings.Contains(a.body, `href="/console/sign-in"`) {
+		if strings.Contains(a.body, `method="post"`) || strings.Contains(a.body, `href="/console/tokens"`) || !strings.Contains(a.body, `href="/console/sign-in?next=`) {
 			t.Errorf("%s by link is not view-only", path)
 		}
 	}
@@ -674,7 +675,7 @@ func TestTimelineKinds(t *testing.T) {
 		{At: e.now, Kind: "command", By: "claude-code", Machine: "edge-1", Text: "systemctl restart relay", ID: sessionID, Exit: &one},
 		{At: e.now, Kind: "heartbeat", ID: "backup", Text: "the nightly backup"},
 	}}
-	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels())
+	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels(), "")
 	if rows[0].Text != "claude-code ran a command on edge-1" || rows[0].Detail != "systemctl restart relay (exit 1)" || !strings.HasPrefix(rows[0].Href, link.SessionPath(sessionID)+"?s=") {
 		t.Errorf("a command: %+v", rows[0])
 	}
