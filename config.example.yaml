@@ -73,9 +73,11 @@ routing:
   group_wait: 30s          # after a group's first alert, wait for more before the card
   group_interval: 2m       # then update it at most this often
   resolve_timeout: 5m      # an alert the rule engine stops sending resolves after this
-  routes:                  # the first match changes the grouping
+  routes:                  # the first match supplies any grouping and initial wait overrides
     - match: {alertname: MainlandPathDegraded|ServiceDegraded}
       group_by: [alertname, severity]   # one card for many services
+    - match: {alertname: ServiceDown, severity: critical}
+      group_wait: 5s      # use the existing service group and send it sooner
   inhibit:                 # mute targets while a source fires with the same equal labels
     - source: {alertname: HostDown}
       target: {alertname: ServiceDown|ServiceDegraded}

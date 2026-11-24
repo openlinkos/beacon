@@ -199,10 +199,11 @@ type Routing struct {
 	Inhibit        []Inhibit   `yaml:"inhibit"`
 }
 
-// RouteRule gives the alerts it matches their own grouping; the first match wins.
+// RouteRule can override grouping and the initial wait; the first match wins.
 type RouteRule struct {
-	Match   map[string]string `yaml:"match"`
-	GroupBy []string          `yaml:"group_by"`
+	Match     map[string]string `yaml:"match"`
+	GroupBy   []string          `yaml:"group_by"`
+	GroupWait *Duration         `yaml:"group_wait,omitempty"`
 }
 
 // Inhibit mutes target alerts while a source alert fires with the same values of the equal labels.
@@ -580,6 +581,9 @@ func (c *Config) validate() error {
 	for i, r := range c.Routing.Routes {
 		if len(r.Match) == 0 {
 			bad("routing.routes[%d] needs match", i)
+		}
+		if r.GroupWait != nil && r.GroupWait.D() < 0 {
+			bad("routing.routes[%d].group_wait must be non-negative", i)
 		}
 		checkLabels(fmt.Sprintf("routing.routes[%d].match", i), r.Match)
 	}

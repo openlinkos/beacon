@@ -55,8 +55,9 @@ Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in 
 | `routing.group_wait` | duration | `30s` | After a group's first alert, wait for more before the card |
 | `routing.group_interval` | duration | `2m` | Then update the card at most this often |
 | `routing.resolve_timeout` | duration | `5m` | An alert the rule engine stops sending resolves after this |
-| `routing.routes.match` | map of label to regular expression | — | What a route matches; the first route that fits changes the grouping |
+| `routing.routes.match` | map of label to regular expression | — | The first matching route supplies any grouping and initial wait overrides |
 | `routing.routes.group_by` | list of label names | — | That route's own grouping, one card for many services |
+| `routing.routes.group_wait` | duration | `routing.group_wait` | Initial wait for matching alerts. Use `0s` to send at the next router tick. A wait-only route keeps the group key. The shortest wait among firing, unmuted members applies |
 | `routing.inhibit.source` | map of label to regular expression | — | While a source alert fires |
 | `routing.inhibit.target` | map of label to regular expression | — | target alerts with the same `equal` labels are muted |
 | `routing.inhibit.equal` | list of label names | — | The labels whose values must match |
