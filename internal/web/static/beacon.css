@@ -36,8 +36,17 @@
 .bc-alert-machines .ol-btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .bc-alert-sessions-header { flex-wrap: wrap; }
 .bc-alert-sessions-header .ol-badge { white-space: normal; }
-.bc-alert-signals { flex-basis: 100%; }
+.bc-alert-signals {
+  display: grid;
+  flex-basis: 100%;
+  gap: var(--ol-space-2);
+  min-width: 0;
+}
 .bc-alert-signals .ol-status { white-space: normal; }
+.bc-alert-agent-run {
+  justify-self: start;
+  max-inline-size: 100%;
+}
 .bc-alert-handover {
   display: grid;
   flex-basis: 100%;
@@ -50,11 +59,11 @@
 .bc-alert-observations > :is(.ol-list, .ol-hint) { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations > .ol-hint { margin-block: var(--ol-space-1) var(--ol-space-2); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
-#alert-action-result, #timeline, #add-note, .bc-alert-observations > summary {
+#alert-action-result, #timeline, #add-note, .kind-agent_run[id], .bc-alert-observations > summary {
   scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8));
 }
 .kind-probe_now > td:last-child { flex: 1 1 100%; }
-.kind-probe_now:has(.bc-alert-observations > summary:target) { background: var(--ol-color-info-bg); }
+.kind-agent_run:target, .kind-probe_now:has(.bc-alert-observations > summary:target) { background: var(--ol-color-info-bg); }
 
 @container ol-content (width < 40rem) {
   .bc-alert-controls { width: 100%; }

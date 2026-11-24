@@ -264,6 +264,10 @@ type alertMachineLinks struct {
 
 type handoverNote struct{ Preview, Full string }
 
+type alertAgentRun struct {
+	Title, Status, Tone, Exit, Anchor string
+}
+
 type alertPage struct {
 	shell
 	L                                                                            labels
@@ -273,6 +277,7 @@ type alertPage struct {
 	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
 	HookFailed, PeopleDeliveryFailed                                             bool
+	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
 	Services                                                                     []string
 	Labels                                                                       []kv
@@ -343,8 +348,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	case g.Status == "firing" && g.Ack.StopsEscalation():
 		p.Escalation = s.t("Escalation is paused while this alert is acknowledged.")
 	}
+	p.HookState, p.HookFailed = s.hookState(tl, g.Status)
+	p.AgentRun = s.latestAgentRun(tl, g.Status)
 	if g.Status == "firing" {
-		p.HookState, p.HookFailed = s.hookState(tl)
 		p.PeopleDelivery, p.PeopleDeliveryFailed = s.peopleDelivery(tl)
 		if g.Ack.StopsEscalation() {
 			p.Handover = currentHandover(tl, g.Ack)
@@ -517,6 +523,12 @@ func (s *Server) probes(pe bridge.ProbeEvidence, from time.Time, l labels) []pro
 // events renders the timeline.
 func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe string, firing bool) []eventRow {
 	out := make([]eventRow, 0, len(tl.Events))
+	reports := make(map[string]bool)
+	for _, e := range tl.Events {
+		if e.Kind == "agent_run" && e.ID != "" {
+			reports[e.ID] = true
+		}
+	}
 	for _, e := range tl.Events {
 		row := eventRow{At: s.short(e.At), ISO: iso(e.At), Kind: e.Kind}
 		switch e.Kind {
@@ -554,6 +566,16 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 			row.Text = s.t("Silence ended")
 		case "agent":
 			row.Text, row.Detail = s.agentEvent(e)
+			if e.Result == "ok" && !reports[e.ID] {
+				row.Detail = s.t("No Agent program report recorded.")
+			}
+		case "agent_run":
+			run := s.agentRun(e)
+			row.Text, row.Detail = run.Title, run.Status
+			if run.Exit != "" {
+				row.Detail += " (" + run.Exit + ")"
+			}
+			row.Anchor = run.Anchor
 		case "probe_now":
 			row.Text = s.t("%s ran an on-demand check via %s", e.By, s.via(e.Via))
 			row.Anchor = "probe-" + e.ID
@@ -598,15 +620,18 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 	return out
 }
 
-func (s *Server) hookState(tl bridge.Timeline) (string, bool) {
+func (s *Server) hookState(tl bridge.Timeline, phase string) (string, bool) {
 	var pending, failed bool
 	for _, e := range tl.Events {
-		if e.Kind != "agent" || e.Event != "firing" {
+		if e.Kind != "agent" || e.Event != phase {
 			continue
 		}
 		switch e.Result {
 		case "ok":
-			return s.t("A hook accepted the alert. Check the timeline for Agent activity."), false
+			if phase == "resolved" {
+				return s.t("A hook accepted the recovery notice."), false
+			}
+			return s.t("A hook accepted the alert."), false
 		case "failed":
 			failed = true
 		default:
@@ -618,9 +643,64 @@ func (s *Server) hookState(tl bridge.Timeline) (string, bool) {
 		return s.t("Agent hook delivery pending."), false
 	case failed:
 		return s.t("Agent hook delivery failed."), true
-	default:
+	case phase == "firing":
 		return s.t("No Agent hook was called."), false
+	default:
+		return "", false
 	}
+}
+
+// latestAgentRun prefers the alert's current phase. A prior report stays visible when recovery has
+// no execution report or accepted wake of its own.
+func (s *Server) latestAgentRun(tl bridge.Timeline, phase string) *alertAgentRun {
+	var prior *alertAgentRun
+	accepted := false
+	for _, e := range slices.Backward(tl.Events) {
+		switch {
+		case e.Kind == "agent_run" && e.Event == phase:
+			run := s.agentRun(e)
+			return &run
+		case e.Kind == "agent" && e.Event == phase && e.Result == "ok":
+			accepted = true
+		case e.Kind == "agent_run" && e.Event == "firing" && phase == "resolved" && prior == nil:
+			run := s.agentRun(e)
+			prior = &run
+		}
+	}
+	if accepted {
+		return &alertAgentRun{Title: s.t("No Agent program report recorded.")}
+	}
+	return prior
+}
+
+func (s *Server) agentRun(e bridge.Event) alertAgentRun {
+	run := alertAgentRun{Exit: s.exit(e.Exit)}
+	switch e.Event {
+	case "firing":
+		run.Title = s.t("Agent program for the alert trigger (%s)", e.By)
+	case "resolved":
+		run.Title = s.t("Agent program for the recovery notice (%s)", e.By)
+	default:
+		run.Title = s.t("Agent program (%s)", e.By)
+	}
+	switch e.Result {
+	case "running":
+		run.Status, run.Tone = s.t("Running"), "info"
+	case "succeeded":
+		run.Status = s.t("Completed")
+	case "failed":
+		run.Status, run.Tone = s.t("Failed"), "danger"
+	case "timed_out":
+		run.Status, run.Tone = s.t("Timed out"), "danger"
+	case "not_started":
+		run.Status, run.Tone = s.t("Did not start"), "danger"
+	default:
+		run.Status = s.t("Status reported")
+	}
+	if e.ID != "" {
+		run.Anchor = "agent-run-" + e.ID + "-" + e.Result
+	}
+	return run
 }
 
 func (s *Server) peopleDelivery(tl bridge.Timeline) (string, bool) {

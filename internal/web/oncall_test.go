@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
@@ -64,7 +65,7 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 		t.Fatalf("no form submit after the takeover note: %q", m)
 	}
 	for _, want := range []string{"Agent acknowledgement from first-shift / responder", "Take over",
-		"A hook accepted the alert. Check the timeline for Agent activity.", "Notification accepted by the group bot"} {
+		"A hook accepted the alert.", "No Agent program report recorded.", "Notification accepted by the group bot"} {
 		if !strings.Contains(show.body, want) {
 			t.Errorf("takeover page lacks %q", want)
 		}
@@ -171,6 +172,92 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 	response = alertResponse(t, viewer.get(path))
 	if strings.Contains(response, "Handover note") || strings.Contains(response, "Agent hook delivery failed.") {
 		t.Fatal("a resolved alert showed handover or wake delivery as current")
+	}
+}
+
+func TestAlertTimelineDistinguishesAgentExecutionFromHookAcceptance(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	zero, one := 0, 1
+	tl := bridge.Timeline{Events: []bridge.Event{
+		{Kind: "agent", Event: "firing", By: "legacy-hook", Result: "ok", ID: "unreported", At: e.now},
+		{Kind: "agent", Event: "firing", By: "responder", Result: "ok", ID: "firing-call", At: e.now},
+		{Kind: "agent_run", Event: "firing", By: "responder", Result: "running", ID: "firing-call", At: e.now},
+		{Kind: "agent_run", Event: "firing", By: "responder", Result: "failed", ID: "firing-call", Exit: &one, At: e.now},
+		{Kind: "agent_run", Event: "firing", By: "other", Result: "timed_out", ID: "other-call", At: e.now},
+		{Kind: "agent_run", Event: "firing", By: "secondary", Result: "not_started", ID: "secondary-call", At: e.now},
+		{Kind: "agent_run", Event: "resolved", By: "responder", Result: "succeeded", ID: "recovery-call", Exit: &zero, At: e.now},
+	}}
+	rows := e.srv.events(tl, access{}, e.srv.labels(), "", true)
+	want := []struct{ title, detail string }{
+		{"Alert delivered to hook legacy-hook", "No Agent program report recorded."},
+		{"Alert delivered to hook responder", ""},
+		{"Agent program for the alert trigger (responder)", "Running"},
+		{"Agent program for the alert trigger (responder)", "Failed (exit 1)"},
+		{"Agent program for the alert trigger (other)", "Timed out"},
+		{"Agent program for the alert trigger (secondary)", "Did not start"},
+		{"Agent program for the recovery notice (responder)", "Completed (exit 0)"},
+	}
+	for i, row := range rows {
+		if row.Text != want[i].title || row.Detail != want[i].detail {
+			t.Errorf("timeline row %d shows %q and %q", i, row.Text, row.Detail)
+		}
+	}
+	if rows[2].Anchor == "" || rows[3].Anchor == "" || rows[2].Anchor == rows[3].Anchor {
+		t.Error("reports for the same delivery need distinct destinations")
+	}
+}
+
+func TestAlertResponseShowsAgentProgramWithoutChangingIncidentStatus(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	g, err := e.b.Group(e.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := e.b.Evidence(context.Background(), e.id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tl, err := e.b.Timeline(context.Background(), e.id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := 0
+	tl.Events = append(tl.Events, bridge.Event{Kind: "agent_run", Event: "firing", By: "oncall", Result: "succeeded", ID: "d1", Exit: &zero, At: e.now})
+	req := httptest.NewRequest(http.MethodGet, link.AlertPath(e.id), nil)
+	render := func() answer {
+		t.Helper()
+		w := httptest.NewRecorder()
+		e.srv.render(w, alertTmpl, e.srv.alertPage(req, ev, tl, g, access{}))
+		return answer{code: w.Code, body: w.Body.String()}
+	}
+	a := render()
+	response := alertResponse(t, a)
+	for _, want := range []string{"Awaiting human acknowledgement", "A hook accepted the alert.", "Agent program for the alert trigger (oncall)",
+		"Completed", "exit 0", `href="#agent-run-d1-succeeded"`} {
+		if !strings.Contains(response, want) {
+			t.Errorf("the response lacks %q", want)
+		}
+	}
+	if !strings.Contains(a.body, `id="agent-run-d1-succeeded" tabindex="-1"`) ||
+		!strings.Contains(a.body, `<span class="ol-badge ol-badge-danger">Firing</span>`) ||
+		strings.Contains(response, "No Agent program report recorded.") {
+		t.Fatal("a completed program did not link to its report or altered the firing alert")
+	}
+
+	// A recovery hook can be accepted while its execution has yet to report.
+	g.Status = "resolved"
+	ev.Alert.Status = "resolved"
+	tl.Events = append(tl.Events, bridge.Event{Kind: "agent", Event: "resolved", By: "oncall", Result: "ok", ID: "recovery", At: e.now})
+	response = alertResponse(t, render())
+	if !strings.Contains(response, "A hook accepted the recovery notice.") || !strings.Contains(response, "No Agent program report recorded.") ||
+		strings.Contains(response, "Completed") {
+		t.Fatal("the earlier run appeared as the recovery program's result")
+	}
+	tl.Events = append(tl.Events, bridge.Event{Kind: "agent_run", Event: "resolved", By: "oncall", Result: "not_started", ID: "recovery", At: e.now})
+	response = alertResponse(t, render())
+	if !strings.Contains(response, "Agent program for the recovery notice (oncall)") || !strings.Contains(response, "Did not start") ||
+		strings.Contains(response, "No Agent program report recorded.") || strings.Contains(response, "exit 0") {
+		t.Fatal("the recovery report was omitted or acquired an exit code from an earlier run")
 	}
 }
 

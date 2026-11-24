@@ -39,9 +39,18 @@
       {{if .Handover.Full}}<details><summary>{{.L.FullHandoverNote}}</summary>
         <p class="ol-text-pre ol-break">{{.Handover.Full}}</p></details>{{end}}
     </div>{{end}}
-    {{if .HookState}}<div class="ol-cluster bc-alert-signals">
-      <a class="{{if .HookFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .HookFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.HookState}}</a>
-      <a class="{{if .PeopleDeliveryFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .PeopleDeliveryFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.PeopleDelivery}}</a>
+    {{if or .HookState .PeopleDelivery .AgentRun}}<div class="bc-alert-signals">
+      {{if or .HookState .PeopleDelivery}}<div class="ol-cluster">
+        {{if .HookState}}<a class="{{if .HookFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .HookFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.HookState}}</a>{{end}}
+        {{if .PeopleDelivery}}<a class="{{if .PeopleDeliveryFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{if .PeopleDeliveryFailed}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.PeopleDelivery}}</a>{{end}}
+      </div>{{end}}
+      {{with .AgentRun}}
+        {{if .Status}}<a class="ol-cluster bc-alert-agent-run" href="#{{if .Anchor}}{{.Anchor}}{{else}}timeline{{end}}">
+          <span class="ol-break">{{.Title}}</span>
+          <span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Status}}</span>
+          {{if .Exit}}<span class="ol-hint">{{.Exit}}</span>{{end}}
+        </a>{{else}}<p class="ol-hint bc-alert-agent-run">{{.Title}}</p>{{end}}
+      {{end}}
     </div>{{end}}
   </div>
   {{with .Machines}}<div class="bc-alert-machines">
@@ -98,7 +107,7 @@
     <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Time}}</th><th>{{.L.What}}</th></tr></thead>
       <tbody>
-      {{range .Events}}<tr class="kind-{{.Kind}}">
+      {{range .Events}}<tr class="kind-{{.Kind}}"{{if and (eq .Kind "agent_run") .Anchor}} id="{{.Anchor}}" tabindex="-1"{{end}}>
         <td><time datetime="{{.ISO}}">{{.At}}</time></td>
         <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}
           {{if .Probe}}<details class="bc-alert-observations"{{if .Probe.Open}} open{{end}}><summary id="{{.Anchor}}"{{if .Probe.RecoveryHint}} aria-describedby="{{.Anchor}}-recovery"{{end}}><span class="ol-sr-only">{{$.L.ProbeResults}} </span>{{.Probe.Summary}}</summary>
