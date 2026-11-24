@@ -23,7 +23,7 @@ type labels struct {
 	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
-	SessionsOn, EndSilence                                                                                                   string
+	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote                                                                    string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 }
 
@@ -40,6 +40,7 @@ func (s *Server) labels() labels {
 		RecordingCut: s.t("The recording was cut at 16 MiB"), RecordingError: s.t("The recording could not be loaded"),
 		Details: s.t("Details"), Status: s.t("Status"), Severity: s.t("Severity"), Kind: s.t("Kind"), Ended: s.t("Ended"),
 		ID: s.t("Id"), Time: s.t("Time"), What: s.t("What happened"), Acknowledge: s.t("Acknowledge"), AckNote: s.t("A note for the others (optional)"),
+		AckWithNote: s.t("Acknowledge with note"), TakeOverWithNote: s.t("Take over with note"),
 		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
 		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
 		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging stops escalation while the alert is acknowledged."),

@@ -28,7 +28,7 @@
   cursor: pointer;
   padding-block: var(--ol-space-2);
 }
-.bc-alert-ack-note > textarea { max-width: 30rem; }
+.bc-alert-ack-note textarea { max-width: 30rem; }
 .bc-alert-machines {
   padding: var(--ol-space-3) var(--ol-space-4);
   border-block-start: 1px solid var(--ol-color-border);
@@ -45,7 +45,7 @@
 
 @container ol-content (width < 40rem) {
   .bc-alert-controls { width: 100%; }
-  .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn { min-height: 2.75rem; }
+  .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn, .bc-alert-ack-note .ol-btn { min-height: 2.75rem; }
 }
 
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
