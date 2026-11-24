@@ -74,6 +74,12 @@ A woken agent works the same way. The hook only takes the place of the person wh
 
 Delivery of the alert itself never waits for the hook.
 
+## Take over an alert
+
+Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. An acknowledgement by an identified Agent leaves that escalation in effect. An explicit silence still pauses it.
+
+As the person on call, open the alert page and select **Acknowledge**. Use **Take over** if a previous shift or an Agent has already acknowledged it. Add a brief note about the next action. The timeline keeps up to 20 previous acknowledgements and their notes, and the audit log records each acknowledgement. Check the probes and the alert state to verify recovery.
+
 ## The evidence {#the-evidence}
 
 One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}/evidence`, or the MCP tool `get_evidence` (scope `status:read`).
@@ -134,7 +140,7 @@ A note tells everyone what was wrong, what was done and what remains. Send it wi
 - The chat hears each one.
 - The audit log keeps them all. A note is at most 2000 characters, and a group keeps its latest 100.
 
-A note does not acknowledge the alert. `ack_alert` does, and only people should use it. A note that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
+The reference Agent uses notes and leaves acknowledgement and silencing to the person on call. An identified Agent's `ack_alert` call records its response, and a person's acknowledgement pauses escalation for `ack_ttl`. Standalone credentials and stored acknowledgements of unknown origin keep their earlier behaviour and pause escalation. A note that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
 
 ## Change events {#change-events}
 

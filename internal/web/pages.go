@@ -24,7 +24,7 @@ type labels struct {
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence                                                                                                   string
-	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn                                                         string
+	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 }
 
 func (s *Server) labels() labels {
@@ -44,7 +44,7 @@ func (s *Server) labels() labels {
 		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
 		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging stops escalation while the alert is acknowledged."),
 		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
-		SignIn: s.t("Sign in"),
+		SignIn: s.t("Sign in"), TakeOver: s.t("Take over"),
 	}
 }
 
@@ -145,6 +145,10 @@ func (s *Server) channel(ch string) string {
 		return s.t("the group bot")
 	case "pushover":
 		return "Pushover"
+	case "bark":
+		return "Bark"
+	case "feishu-buzz":
+		return s.t("Feishu urgent alerts")
 	}
 	return s.t("no channel")
 }
@@ -239,6 +243,8 @@ type alertActions struct {
 	CSRF, Ack, Silence, Note, Probe string // where the forms post; "" leaves a form out
 	Durations                       []kv   // the silence's choices: value, label
 	Unsilence, Back                 string // where the form that ends the group's silence posts, and the page to come back to
+	AckVersion                      string
+	TakeOver                        bool
 }
 
 type alertMachineLinks struct {
@@ -252,6 +258,8 @@ type alertPage struct {
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
 	Ownership                                                                    string
+	HookState, PeopleDelivery                                                    string
+	PeopleDeliveryFailed                                                         bool
 	Services                                                                     []string
 	Labels                                                                       []kv
 	State                                                                        []string // acknowledged, silenced, buzzed, paged
@@ -298,19 +306,24 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	for _, k := range keys {
 		p.Labels = append(p.Labels, kv{k, al.Labels[k]})
 	}
-	if d := ev.Done; d.Ack != nil {
-		p.Ownership = s.t("Acknowledged by %s at %s via %s", d.Ack.By, s.clock(d.Ack.At), s.via(d.Ack.Via))
+	if ack := g.Ack; ack != nil {
+		if ack.StopsEscalation() {
+			p.Ownership = s.t("Acknowledged by %s at %s via %s", ack.By, s.clock(ack.At), s.via(ack.Via))
+		} else {
+			p.Ownership = s.t("Agent acknowledgement from %s at %s via %s", ack.By, s.clock(ack.At), s.via(ack.Via))
+			if al.Status == "firing" {
+				p.Ownership = s.t("Awaiting a person. %s", p.Ownership)
+			}
+		}
 	} else if al.Status == "firing" {
 		p.Ownership = s.t("Awaiting acknowledgement")
 	}
 	if g.Silence != nil && now.Before(g.Silence.Until) {
 		p.State = append(p.State, s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By))
 	}
-	if ev.Done.Buzzed != nil {
-		p.State = append(p.State, s.t("Buzzed in Feishu at %s", s.clock(*ev.Done.Buzzed)))
-	}
-	if ev.Done.Pushed != nil {
-		p.State = append(p.State, s.t("Pushover alert sent at %s", s.clock(*ev.Done.Pushed)))
+	if al.Status == "firing" {
+		p.HookState = s.hookState(tl)
+		p.PeopleDelivery, p.PeopleDeliveryFailed = s.peopleDelivery(tl)
 	}
 	p.Probes = s.probes(ev.Probes, ev.Window.From, p.L)
 	if len(p.Probes) == 0 {
@@ -381,8 +394,10 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		if al.Status == "firing" {
 			p.Actions.Silence = base + "/silence"
 			p.Actions.Durations = []kv{{"1h", s.t("1 hour")}, {"4h", s.t("4 hours")}, {"24h", s.t("24 hours")}}
-			if ev.Done.Ack == nil {
+			if g.Ack == nil || g.Ack.Via != "console" || g.Ack.By != v.name() {
 				p.Actions.Ack = base + "/ack"
+				p.Actions.AckVersion = g.AckVersion
+				p.Actions.TakeOver = g.Ack != nil
 			}
 		}
 	}
@@ -468,13 +483,25 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		case "started":
 			row.Text = s.t("Alert started")
 		case "notified":
-			row.Text = s.t("People notified via %s", s.channel(e.Via))
+			row.Text = s.t("Notification accepted by %s", s.channel(e.Via))
 		case "buzzed":
-			row.Text = s.t("Buzzed in Feishu")
+			row.Text = s.t("Feishu accepted the urgent alert")
 		case "pushover":
-			row.Text = s.t("Pushover alert sent")
+			row.Text = s.t("Pushover accepted the page")
+		case "notification":
+			switch e.Result {
+			case "ok":
+				row.Text = s.t("Notification accepted by %s", s.channel(e.Via))
+			case "failed":
+				row.Text = s.t("Notification submission to %s failed", s.channel(e.Via))
+			default:
+				row.Text = s.t("Notification attempt via %s recorded", s.channel(e.Via))
+			}
 		case "acknowledged":
 			row.Text, row.Detail = s.t("Acknowledged by %s via %s", e.By, s.via(e.Via)), e.Text
+			if e.Type == "agent" {
+				row.Text = s.t("Agent acknowledgement from %s via %s", e.By, s.via(e.Via))
+			}
 		case "note":
 			row.Text, row.Detail = s.t("%s left a note via %s", e.By, s.via(e.Via)), e.Text
 		case "silenced":
@@ -529,6 +556,61 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		out = append(out, row)
 	}
 	return out
+}
+
+func (s *Server) hookState(tl bridge.Timeline) string {
+	var pending, failed bool
+	for _, e := range tl.Events {
+		if e.Kind != "agent" || e.Event != "firing" {
+			continue
+		}
+		switch e.Result {
+		case "ok":
+			return s.t("A hook accepted the alert. Check the timeline for Agent activity.")
+		case "failed":
+			failed = true
+		default:
+			pending = true
+		}
+	}
+	switch {
+	case pending:
+		return s.t("Agent hook delivery pending.")
+	case failed:
+		return s.t("Agent hook delivery failed.")
+	default:
+		return s.t("No Agent hook was called.")
+	}
+}
+
+func (s *Server) peopleDelivery(tl bridge.Timeline) (string, bool) {
+	seen := map[string]bool{}
+	var accepted string
+	for _, e := range slices.Backward(tl.Events) {
+		var route string
+		switch e.Kind {
+		case "notified", "notification", "pushover":
+			route = e.Via
+		case "buzzed":
+			route = "feishu-buzz"
+		default:
+			continue
+		}
+		if seen[route] {
+			continue
+		}
+		seen[route] = true
+		if e.Result == "failed" {
+			return s.t("Notification submission to %s failed", s.channel(route)), true
+		}
+		if accepted == "" && e.Result == "ok" {
+			accepted = s.t("Notification accepted by %s", s.channel(route))
+		}
+	}
+	if accepted == "" {
+		return s.t("No people notification acceptance recorded."), false
+	}
+	return accepted, false
 }
 
 func (s *Server) agentEvent(e bridge.Event) (text, detail string) {

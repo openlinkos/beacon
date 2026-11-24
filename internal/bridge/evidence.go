@@ -558,7 +558,7 @@ func (b *Bridge) related(g *store.Group) []RelatedAlert {
 			continue
 		}
 		out = append(out, RelatedAlert{ID: o.ID, Title: cleanLine(b.title(&o)), Severity: o.Severity, Service: cleanLine(b.service(&o)),
-			StartsAt: o.StartsAt, Acked: o.Ack != nil, Why: why})
+			StartsAt: o.StartsAt, Acked: o.Ack.StopsEscalation(), Why: why})
 		if len(out) == maxRelated {
 			break
 		}
@@ -742,7 +742,7 @@ func (b *Bridge) silences(g *store.Group, w Window) []SilenceView {
 }
 
 func (b *Bridge) done(g *store.Group, w Window, machines []string) Done {
-	d := Done{Silences: b.silences(g, w), Notes: []store.Note{}, Agents: []store.AgentCall{}, Buzzed: tp(g.Buzzed), Pushed: tp(g.Pushed),
+	d := Done{Silences: b.silences(g, w), Notes: []store.Note{}, Agents: []store.AgentCall{}, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
 		Machines: machines, Sessions: b.sessions(g, w, machines)}
 	if g.Ack != nil {
 		a := *g.Ack

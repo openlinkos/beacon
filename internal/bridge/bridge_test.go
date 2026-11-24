@@ -77,10 +77,14 @@ type fakePush struct {
 	sent      []notify.Emergency
 	cancelled []string
 	acked     bool
+	fail      bool
 }
 
 func (p *fakePush) Send(_ context.Context, m notify.Emergency) (string, error) {
 	p.sent = append(p.sent, m)
+	if p.fail {
+		return "", errors.New("pushover unavailable")
+	}
 	return "rc1", nil
 }
 func (p *fakePush) Receipt(context.Context, string) (notify.Receipt, error) {
@@ -265,6 +269,163 @@ func TestEscalation(t *testing.T) {
 	e.b.Tick(ctx)
 	if len(e.fs.buzzes) != 2 {
 		t.Errorf("second buzz expected, got %d", len(e.fs.buzzes))
+	}
+}
+
+func TestCriticalEscalationWithoutHumanAcknowledgement(t *testing.T) {
+	fastRetries(t)
+	for _, tc := range []struct {
+		name   string
+		status int
+		ack    bool
+	}{
+		{name: "no assigned hook"},
+		{name: "hook accepted without activity", status: 202},
+		{name: "hook failed", status: 503},
+		{name: "agent acknowledged but did not restore service", status: 202, ack: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			if tc.status != 0 {
+				hs := newHookServer(t, tc.status)
+				e.b.d.Config.Agents = []config.Agent{webhookAgent(hs.srv.URL+"/hook", false)}
+			}
+			ctx := context.Background()
+			w := hook("firing", "critical", "f1")
+			if err := e.b.HandleWebhook(ctx, w); err != nil {
+				t.Fatal(err)
+			}
+			e.b.waitWakes()
+			if len(e.fs.sends) != 1 {
+				t.Fatal("chat was not attempted independently of the hook")
+			}
+			id := GroupID(w.GroupKey)
+			group, _ := e.st.Group(id)
+			switch tc.status {
+			case 0:
+				if len(group.Agents) != 0 {
+					t.Fatalf("a hook was called without an assignment: %+v", group.Agents)
+				}
+			case 202:
+				if len(group.Agents) != 1 || group.Agents[0].Status != "ok" || group.Agents[0].Code != 202 {
+					t.Fatalf("test hook did not accept the alert: %+v", group.Agents)
+				}
+			case 503:
+				if len(group.Agents) != 1 || group.Agents[0].Status != "failed" || group.Agents[0].Attempts < 2 {
+					t.Fatalf("test hook did not fail all its attempts: %+v", group.Agents)
+				}
+			}
+			if tc.ack {
+				who := ActorOf(store.Principal{User: "alex", Agent: "oncall"}, "mcp")
+				ack, err := e.b.Ack(ctx, id, who, "looking into it")
+				if err != nil || ack.Ack == nil || ack.Ack.Kind != "agent" || ack.Ack.StopsEscalation() {
+					t.Fatalf("Agent acknowledgement: %+v, %v", ack.Ack, err)
+				}
+			}
+			e.now = e.now.Add(15 * time.Minute)
+			e.push.fail = true
+			e.b.Tick(ctx)
+			timeline, err := e.b.Timeline(ctx, id, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var failed bool
+			for _, event := range timeline.Events {
+				if event.Kind == "pushover" {
+					t.Fatal("failed request recorded as an accepted Pushover message")
+				}
+				failed = failed || (event.Kind == "notification" && event.Via == "pushover" && event.Result == "failed")
+			}
+			if !failed {
+				t.Fatal("missed the Pushover failure in the timeline")
+			}
+			e.push.fail = false
+			e.b.Tick(ctx)
+			if len(e.push.sent) != 1 {
+				t.Fatal("an immediate retry would page on every tick")
+			}
+			e.now = e.now.Add(time.Minute)
+			e.b.Tick(ctx)
+			g, _ := e.st.Group(id)
+			if len(e.push.sent) != 2 || g.Receipt == "" || g.Ack.StopsEscalation() || len(e.push.cancelled) != 0 {
+				t.Fatalf("unclaimed alert did not retry, or acceptance became acknowledgement: %+v", g)
+			}
+			timeline, err = e.b.Timeline(ctx, id, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var accepted bool
+			for _, event := range timeline.Events {
+				accepted = accepted || (event.Kind == "pushover" && event.Result == "ok")
+			}
+			if !accepted {
+				t.Fatal("missed the Pushover API acceptance in the timeline")
+			}
+			e.push.acked = true
+			e.now = e.now.Add(receiptEvery)
+			e.b.Tick(ctx)
+			g, _ = e.st.Group(id)
+			if !g.Ack.StopsEscalation() || g.Ack.Kind != "person" || g.Ack.Via != "pushover" {
+				t.Fatalf("phone acknowledgement did not establish human ownership: %+v", g.Ack)
+			}
+		})
+	}
+}
+
+func TestLegacyAcknowledgementAndFailedPage(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := hook("firing", "critical", "f1")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(w.GroupKey)
+	g, _ := e.st.Group(id)
+	g.Pushed = e.now
+	g.Ack = &store.Ack{By: "previous responder", Via: "mcp", At: e.now}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(15 * time.Minute)
+	e.b.Tick(ctx)
+	view, err := e.b.Group(id)
+	if err != nil || view.Pushed != nil || !view.Ack.StopsEscalation() || len(e.push.sent) != 0 {
+		t.Fatalf("legacy failed attempt or acknowledgement was misclassified: %+v, %v", view, err)
+	}
+}
+
+func TestExplicitSilenceAfterAgentAcknowledgement(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := hook("firing", "critical", "f1")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(w.GroupKey)
+	who := ActorOf(store.Principal{User: "alex", Agent: "oncall"}, "mcp")
+	e.now = e.now.Add(15 * time.Minute)
+	e.b.Tick(ctx)
+	if _, err := e.b.Ack(ctx, id, who, "looking into it"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.push.sent) != 1 || len(e.push.cancelled) != 0 {
+		t.Fatal("an Agent acknowledgement cancelled the emergency page")
+	}
+	silenced, err := e.b.Silence(ctx, id, time.Hour, who, "explicit maintenance")
+	if err != nil || silenced.Silence == nil || len(e.push.cancelled) != 1 {
+		t.Fatalf("explicit silence did not pause the page: %+v, %v", silenced.Silence, err)
+	}
+	e.now = e.now.Add(40 * time.Minute)
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 1 {
+		t.Fatal("page sent during explicit silence")
+	}
+	if err := e.b.ExpireSilence(ctx, silenced.Silence.ID, Actor{Name: "alex", Via: "console", Key: "user:alex"}); err != nil {
+		t.Fatal(err)
+	}
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 2 {
+		t.Fatal("escalation did not resume when explicit silence ended")
 	}
 }
 

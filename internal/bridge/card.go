@@ -163,7 +163,7 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 	switch {
 	case !firing:
 		colour = feishu.Green
-	case g.Ack != nil:
+	case g.Ack.StopsEscalation(), g.Silence != nil && g.Silence.Until.After(now):
 		colour = feishu.Yellow
 	case g.Severity == "critical":
 		colour = feishu.Red
@@ -210,7 +210,11 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 
 	var state []string
 	if g.Ack != nil {
-		state = append(state, b.t("Acknowledged by %s at %s via %s", g.Ack.By, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
+		if g.Ack.StopsEscalation() {
+			state = append(state, b.t("Acknowledged by %s at %s via %s", g.Ack.By, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
+		} else {
+			state = append(state, b.t("Agent acknowledgement from %s at %s via %s", g.Ack.By, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
+		}
 		if g.Ack.Note != "" {
 			state = append(state, b.t("Note: %s", g.Ack.Note))
 		}
@@ -221,8 +225,8 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 	if !g.Buzzed.IsZero() {
 		state = append(state, b.t("Buzzed in Feishu at %s", b.clock(g.Buzzed)))
 	}
-	if !g.Pushed.IsZero() {
-		state = append(state, b.t("Pushover alert sent at %s", b.clock(g.Pushed)))
+	if pushoverAccepted(g) {
+		state = append(state, b.t("Pushover accepted the page at %s", b.clock(g.Pushed)))
 	}
 
 	els := []map[string]any{feishu.Markdown(strings.Join(md, "\n"))}
@@ -249,7 +253,7 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 			return v
 		}
 		var acts []map[string]any
-		if g.Ack == nil {
+		if !g.Ack.StopsEscalation() {
 			acts = append(acts, feishu.Button(b.t("Acknowledge"), "primary_filled", val("ack")))
 		}
 		if g.Silence == nil || now.After(g.Silence.Until) {
@@ -259,7 +263,7 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 				feishu.Button(b.t("Silence 24h"), "default", val("silence", "d", "24h")))
 		}
 		els = append(els, feishu.Hr(), feishu.Row(append(acts, links...)...))
-		if g.Ack == nil {
+		if !g.Ack.StopsEscalation() {
 			els = append(els, feishu.NoteForm("ack_note", b.t("What are you doing about it?"), b.t("Acknowledge with note"), val("note")))
 		}
 	} else if len(links) > 0 {

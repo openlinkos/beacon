@@ -50,7 +50,7 @@ It finds the alert with `list_alerts` and reads `get_evidence`. That one answer 
 
 Then let it act, one step of the loop at a time:
 
-- **`add_note`** records the agent's findings on the timeline and card. The reference agent leaves acknowledgement and silencing to the person on call. Acknowledging stops escalation while the acknowledgement is active. Use the console or the card to test taking charge yourself.
+- **`add_note`** records the agent's findings on the timeline and card. The reference agent leaves acknowledgement and silencing to the person on call. A person's acknowledgement stops escalation while it is active. Use the console or the card to test taking charge yourself.
 - **A command on the machine.** If the drill's machine is one the [SSH channel](machines.md) reaches, have the agent run a command on it. The session lands on the alert's page with its replay.
 - **`probe_now`** has every location probe the target again at once. It does not change the drill's answer: the service is still 503. But it exercises the call an agent makes after a real fix.
 

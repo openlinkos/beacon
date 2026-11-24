@@ -71,15 +71,18 @@ type Group struct {
 	Channel       string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
 	MessageID     string            `json:"message_id,omitempty"`
 	NotifiedAt    time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
+	ChannelAt     time.Time         `json:"channel_at,omitzero"`  // acceptance of the first app or bot notification
 	CardAt        time.Time         `json:"card_at,omitzero"`
 	CardHash      string            `json:"card_hash,omitempty"`
 	Ack           *Ack              `json:"ack,omitempty"`
+	PriorAcks     []Ack             `json:"prior_acks,omitempty"`
 	Silence       *Silence          `json:"silence,omitempty"`
 	Buzzed        time.Time         `json:"buzzed,omitzero"`
 	Pushed        time.Time         `json:"pushed,omitzero"`
 	Receipt       string            `json:"receipt,omitempty"`
 	ReceiptAt     time.Time         `json:"receipt_at,omitzero"`
 	Barked        time.Time         `json:"barked,omitzero"`
+	Notifications []Notification    `json:"notifications,omitempty"`
 	Notes         []Note            `json:"notes,omitempty"`  // see agents.go
 	Agents        []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
 	ProbeRuns     []ProbeRun        `json:"probe_runs,omitempty"`
@@ -104,6 +107,18 @@ type Ack struct {
 	Via  string    `json:"via"` // feishu, pushover, api, mcp
 	Note string    `json:"note,omitempty"`
 	At   time.Time `json:"at"`
+	Kind string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
+}
+
+// StopsEscalation reports whether the acknowledgement pauses notifications to people.
+// Standalone and older unclassified acknowledgements retain their original behaviour.
+func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
+
+// Notification records a provider submission outcome, independently of human acknowledgement.
+type Notification struct {
+	At      time.Time `json:"at"`
+	Channel string    `json:"channel"`
+	Result  string    `json:"result"` // ok or failed
 }
 
 // Silence is the silence created for a group.

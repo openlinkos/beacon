@@ -344,7 +344,7 @@ func TestScopes(t *testing.T) {
 	if a := w.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"  "}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
 		t.Errorf("an empty note: %q", a.header.Get("Location"))
 	}
-	if a := w.post("/console/alerts/"+e.id+"/ack", url.Values{"note": {"on it"}}); a.code != http.StatusSeeOther {
+	if a := w.post("/console/alerts/"+e.id+"/ack", ackForm(t, page, "on it")); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=ack" {
 		t.Errorf("acknowledging: %d", a.code)
 	}
 	if a := w.post("/console/alerts/"+e.id+"/silence", url.Values{"duration": {"7d"}, "comment": {"x"}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a754fbe1
+sourceHash: sha256-2bcdd89f
 ---
 
 # 让 Agent 值班
@@ -78,6 +78,12 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
 
 告警本身的送达从不等钩子。
 
+## 接手告警 {#take-over-an-alert}
+
+告警页的处置区显示钩子和通知的提交结果。即使 Agent 无法启动，或还没有留下可供查看的操作记录，钩子也可能已经接收告警。在值班人认领之前，人工升级通知按配置继续。已识别身份的 Agent 认领后，升级通知仍会继续。明确设置的静默仍会暂停通知。
+
+值班人可以打开告警页，点击**认领**。上一班值班人或 Agent 已认领时，点击**接手**。用简短备注交代下一步。时间线最多保留最近 20 次历史认领及其备注，审计日志记录每次认领。通过复测结果和告警状态确认恢复。
+
 ## 证据 {#the-evidence}
 
 一次调用拿到 Agent 判断告警所需的全部信息：`GET /api/v1/alerts/{id}/evidence`，或 MCP 工具 `get_evidence`（作用域 `status:read`）。
@@ -138,7 +144,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
 - 告警群里每条都会出现。
 - 审计日志全部保留。每条最多 2000 个字符，每个告警组保留最新的 100 条。
 
-写备注不等于认领告警。认领用 `ack_alert`，而且只应该由人来做。以 `public:` 开头的备注还会作为事件的进展显示在[状态页](status-pages.md)上。
+参考 Agent 用备注记录进展，将认领和静默留给值班人。已识别身份的 Agent 调用 `ack_alert` 时，只记录其响应。人认领后会暂停人工升级通知，持续时间由 `ack_ttl` 决定。独立凭据和未记录身份来源的历史认领沿用原有行为，仍会暂停升级通知。以 `public:` 开头的备注还会作为事件的进展显示在[状态页](status-pages.md)上。
 
 ## 变更事件 {#change-events}
 

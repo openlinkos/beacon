@@ -77,9 +77,10 @@ components:
       type: object
       properties:
         by: {type: string}
-        via: {type: string, enum: [feishu, pushover, api, mcp]}
+        via: {type: string, enum: [feishu, pushover, api, mcp, console, cli]}
         note: {type: string}
         at: {type: string, format: date-time}
+        kind: {type: string, enum: [person, agent, unattributed], description: Agent acknowledgements leave human escalation in effect. Absent for older acknowledgements.}
     SilenceRef:
       type: object
       properties:
@@ -326,12 +327,12 @@ components:
               at: {type: string, format: date-time}
               kind:
                 type: string
-                enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
-                description: "command: one run at a shell's prompt (id is its session); heartbeat: its last success (id is its name), even before the window; probe_now: observations of an on-demand check (id is its request)"
+                enum: [started, notified, buzzed, pushover, notification, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
+                description: "notification: a provider submission without its own event kind. Successful submissions record provider acceptance. Acknowledgement is a separate event."
               by: {type: string}
               via: {type: string}
               text: {type: string}
-              type: {type: string, description: "A change's kind, a session's kind, a hook's kind"}
+              type: {type: string, description: "A change's kind, a session's kind, a hook's kind, or an acknowledgement's actor kind"}
               machine: {type: string}
               service: {type: string}
               id: {type: string}
@@ -1130,7 +1131,7 @@ paths:
   /alerts/{id}/ack:
     post:
       summary: Acknowledge a firing alert group
-      description: "Scope: alerts:write. Stops escalation (Feishu buzz, Pushover) for four hours."
+      description: "Scope: alerts:write. An Agent acknowledgement leaves human escalation in effect. A person's or a standalone credential's acknowledgement pauses escalation for the configured acknowledgement timeout."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -1172,7 +1173,7 @@ paths:
     get:
       summary: An alert group's timeline
       description: >-
-        Scope: status:read. Started, notified, buzzed, Pushover, acknowledged, notes, silences, agents woken, the
+        Scope: status:read. Started, notification submissions, acknowledgements, notes, silences, agents woken, the
         change events and sessions of the evidence, resolved: in time order, over the evidence's window.
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
