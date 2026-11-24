@@ -98,3 +98,13 @@ jobs:
 
       - name: Shell scripts
         run: shellcheck --severity=style --shell=sh deploy/install.sh deploy/probe/install.sh deploy/probe/beacon-heartbeat
+
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fresh reference installation and outage drill
+        run: bash deploy/smoke.sh
