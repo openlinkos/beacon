@@ -51,7 +51,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `status_summary` | `status:read` | Whether alerts can reach people right now (and why not), groups firing by severity, how many are acknowledged, and the Feishu API budget used this month |
+| `status_summary` | `status:read` | Alerting pipeline health, configured human notification routes, firing groups by severity, acknowledgement counts and the Feishu API budget |
 | `list_alerts` | `status:read` | Alert groups, firing first and newest first, with who acknowledged or silenced them and how far escalation went. `state: all` adds those resolved in the last seven days |
 | `get_alert` | `status:read` | One group by `id`: labels, runbook and dashboard, acknowledgement, silence, escalation, notes, the agents woken, and the signed link to its page in the console |
 | `list_silences` | `status:read` | Silences active or pending, ending soonest first |

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7f1aa514
+sourceHash: sha256-03a1ddb7
 ---
 
 # MCP 工具
@@ -55,7 +55,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `status_summary` | `status:read` | 告警现在能否送到人（不能的话为什么），按级别统计的正在触发的告警组，已认领的数量，以及本月用掉的飞书 API 额度 |
+| `status_summary` | `status:read` | 告警链路健康、人工通知配置、各级别告警组数量、已认领数量与飞书 API 额度 |
 | `list_alerts` | `status:read` | 告警组，正在触发的在前、新的在前，带上谁认领或静默了、升级到了哪一步。`state: all` 加上最近七天恢复的 |
 | `get_alert` | `status:read` | 按 `id` 取一个告警组：标签、处理手册和面板、认领、静默、升级、备注、唤醒过的 Agent，以及它在控制台里那一页的签名链接 |
 | `list_silences` | `status:read` | 生效中和待生效的静默，最先结束的在前 |

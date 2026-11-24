@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7e650d66
+sourceHash: sha256-92fd4bed
 ---
 
 # REST API
@@ -78,7 +78,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/bridge` | `status:read` | 告警现在能否送到人（`ready`；不能时 `not_ready` 列出原因：没收到规则引擎的 Watchdog、飞书连接断了、最近 10 分钟有飞书调用失败、额度用完），按级别统计的正在触发的告警组，已认领的数量，本月飞书 API 调用次数和额度 |
+| `GET /api/v1/bridge` | `status:read` | 告警链路健康（`ready`，原因见 `not_ready`）、人工通知配置（`delivery`）、各级别告警组数量、已认领数量与飞书 API 额度 |
 | `GET /api/v1/alerts` | `status:read` | 告警组，正在触发的在前，新的在前；`?state=all` 加上最近七天恢复的 |
 | `GET /api/v1/alerts/{id}` | `status:read` | 一个告警组：标签、处理手册和面板、认领、静默、升级、备注、唤醒过的 Agent，以及 `page`，即它在控制台里那一页的签名链接 |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | 认领一个正在触发的告警组，可以带 `note`：升级到手机暂停 `ack_ttl` 这么久（默认 4 小时） |

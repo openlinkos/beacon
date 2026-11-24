@@ -74,18 +74,19 @@ type overviewLabels struct {
 
 type overviewPage struct {
 	shell
-	L           overviewLabels
-	Health      health
-	Stats       []stat
-	Attention   []attentionItem
-	Sessions    []feedItem
-	Changes     []feedItem
-	Pages       []feedItem
-	Coming      []feedItem
-	Calls       []callItem
-	CallSummary string
-	Channel     stat
-	Facts       []kvLink
+	L            overviewLabels
+	Health       health
+	Stats        []stat
+	Attention    []attentionItem
+	Sessions     []feedItem
+	Changes      []feedItem
+	Pages        []feedItem
+	Coming       []feedItem
+	Calls        []callItem
+	CallSummary  string
+	DeliveryHint string
+	Channel      stat
+	Facts        []kvLink
 }
 
 type kvLink struct{ K, V, Href string }
@@ -364,6 +365,9 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
 	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
+	if !s.Bridge.Delivery().CriticalToPeople {
+		p.DeliveryHint = s.t("Critical alerts have no route to people. Set up chat or phone notifications before relying on escalation.")
+	}
 
 	switch {
 	case !f.ChannelOn:

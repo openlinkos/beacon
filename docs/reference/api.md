@@ -74,7 +74,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/bridge` | `status:read` | Whether alerts can reach people now (`ready`, and `not_ready` with the reasons: no Watchdog from the rule engine, the Feishu connection down, a failed Feishu call in the last 10 minutes, the budget used up), groups firing by severity, how many are acknowledged, the Feishu API calls this month against the budget |
+| `GET /api/v1/bridge` | `status:read` | Alerting pipeline health (`ready`, with reasons in `not_ready`), human notification configuration (`delivery`), firing groups by severity, acknowledgement counts and the Feishu API budget |
 | `GET /api/v1/alerts` | `status:read` | Alert groups, firing first, newest first; `?state=all` adds those resolved in the last seven days |
 | `GET /api/v1/alerts/{id}` | `status:read` | One group: labels, runbook and dashboard, acknowledgement, silence, escalation, notes, the agents woken, and `page`, the signed link to its page in the console |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | Acknowledge a firing group, with an optional `note`: escalation to phones stops for `ack_ttl` (4 hours by default) |

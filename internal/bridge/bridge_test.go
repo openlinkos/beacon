@@ -342,6 +342,18 @@ func TestReadyWithoutWatchdog(t *testing.T) {
 	}
 }
 
+func TestReadyAndHumanDeliveryConfiguration(t *testing.T) {
+	e := newEnv(t)
+	e.b.d.Feishu, e.b.d.Bot, e.b.d.Pushover = nil, nil, nil
+	if s := e.b.Summarize(); !s.Ready || s.Delivery.CriticalToPeople {
+		t.Fatalf("Watchdog grace period with no delivery route: %+v", s)
+	}
+	e.b.d.Bot = e.bot
+	if d := e.b.Delivery(); !d.CriticalToPeople || !d.GroupBot || d.FeishuApp || d.Pushover {
+		t.Fatalf("group bot delivery route: %+v", d)
+	}
+}
+
 func TestAPIOperations(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

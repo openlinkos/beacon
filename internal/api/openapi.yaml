@@ -945,7 +945,7 @@ paths:
         "200": {description: The OpenAPI document}
   /bridge:
     get:
-      summary: Whether alerts can reach people, alerts firing by severity, Feishu API usage
+      summary: Alerting pipeline health, notification configuration, and alerts firing by severity
       description: "Scope: status:read"
       responses:
         "200":
@@ -955,8 +955,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  ready: {type: boolean}
+                  ready: {type: boolean, description: The Watchdog and the configured Feishu app pass their health checks}
                   not_ready: {type: array, items: {type: string}}
+                  delivery:
+                    type: object
+                    description: Configuration of human notifications. An actual alert delivery verifies the route.
+                    properties:
+                      critical_to_people: {type: boolean, description: A human notification route for critical alerts is configured}
+                      feishu_app: {type: boolean}
+                      group_bot: {type: boolean}
+                      pushover: {type: boolean}
                   firing: {type: object, additionalProperties: {type: integer}}
                   acknowledged: {type: integer}
                   feishu_api_calls_this_month: {type: integer}

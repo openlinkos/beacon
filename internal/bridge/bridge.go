@@ -549,7 +549,7 @@ func (b *Bridge) onCallIDs() []string {
 	return ids
 }
 
-// Ready reports whether alerts can reach people, with the reasons when they cannot.
+// Ready checks the alerting pipeline's Watchdog and the health checks for a configured Feishu app.
 func (b *Bridge) Ready() (bool, []string) {
 	var why []string
 	now := b.now()
@@ -702,12 +702,29 @@ type Summary struct {
 	Acknowledged int            `json:"acknowledged"`
 	FeishuCalls  int64          `json:"feishu_api_calls_this_month"`
 	FeishuBudget int            `json:"feishu_api_budget"`
+	Delivery     DeliverySetup  `json:"delivery"`
+}
+
+// DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
+type DeliverySetup struct {
+	CriticalToPeople bool `json:"critical_to_people"`
+	FeishuApp        bool `json:"feishu_app"`
+	GroupBot         bool `json:"group_bot"`
+	Pushover         bool `json:"pushover"`
+}
+
+// Delivery reports the configured routes for a new critical alert.
+func (b *Bridge) Delivery() DeliverySetup {
+	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil}
+	d.CriticalToPeople = (d.FeishuApp && b.d.Config.Policy("critical").Channel == "app") || d.GroupBot || d.Pushover
+	return d
 }
 
 // Summarize returns the summary.
 func (b *Bridge) Summarize() Summary {
 	ok, why := b.Ready()
-	s := Summary{Ready: ok, NotReady: why, Firing: map[string]int{}, FeishuCalls: b.d.Store.Counter(b.quotaKey()), FeishuBudget: b.d.Config.Feishu.MonthlyBudget}
+	s := Summary{Ready: ok, NotReady: why, Firing: map[string]int{}, FeishuCalls: b.d.Store.Counter(b.quotaKey()),
+		FeishuBudget: b.d.Config.Feishu.MonthlyBudget, Delivery: b.Delivery()}
 	for _, sev := range config.Severities {
 		s.Firing[sev] = 0
 	}

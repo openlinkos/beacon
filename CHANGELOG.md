@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- The overview flags a missing human notification route for critical alerts. The bridge summary reports notification configuration alongside Watchdog health.
+
 ## 0.3.0
 
 ### rc.24 (2026-11-25)
