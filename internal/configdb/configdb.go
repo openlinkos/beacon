@@ -96,8 +96,9 @@ type State struct {
 	Targets *targets.Set
 	Modules []byte // the module file, handed to probes as it is; nil when there is none
 
-	entries map[string][]byte // as stored, by key; never changed once built
-	problem error             // why the state does not pass the checks, if it does not
+	entries        map[string][]byte // as stored, by key; never changed once built
+	problem        error             // why the state does not pass the checks, if it does not
+	consoleTargets map[string]bool
 }
 
 // Service holds the configuration.
@@ -118,7 +119,7 @@ func Open(d Deps) *Service {
 		d.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Service{d: d}
-	entries, version, err := d.Store.Config()
+	entries, console, version, err := d.Store.ConfigWithConsoleTargets()
 	if err != nil {
 		d.Log.Error("the configuration could not be read from the database", "err", err)
 		st := build(map[string][]byte{})
@@ -128,6 +129,7 @@ func Open(d Deps) *Service {
 	}
 	st := build(entries)
 	st.Version = version
+	s.loadConsoleTargets(st, console)
 	if st.problem != nil {
 		d.Log.Error("the configuration in the database does not pass its checks; serving it until it is put right",
 			"version", version, "err", st.problem)
@@ -143,7 +145,7 @@ func Open(d Deps) *Service {
 func (s *Service) Reload() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	entries, version, err := s.d.Store.Config()
+	entries, console, version, err := s.d.Store.ConfigWithConsoleTargets()
 	if err != nil {
 		s.d.Log.Error("the configuration could not be reloaded from the database; keeping the catalogue in memory", "err", err)
 		if s.d.Bot != nil {
@@ -156,6 +158,7 @@ func (s *Service) Reload() {
 	}
 	st := build(entries)
 	st.Version = version
+	s.loadConsoleTargets(st, console)
 	if st.problem != nil {
 		s.d.Log.Error("the configuration in the database does not pass its checks; serving it until it is put right",
 			"version", version, "err", st.problem)
@@ -202,12 +205,35 @@ func (st *State) Summary() string {
 // that differ only in what is not an item (the module file's comments, say) are a change too, with no
 // items, so that probes get the module file as it was imported.
 func (s *Service) commit(ctx context.Context, who Actor, action, note string, reverts int64, next map[string][]byte, dryRun bool) (store.ConfigChange, error) {
+	return s.commitWithConsoleTargets(ctx, who, action, note, reverts, next, dryRun, nil, 0)
+}
+
+func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, action, note string, reverts int64,
+	next map[string][]byte, dryRun bool, owned map[string]bool, expectVersion int64,
+) (store.ConfigChange, error) {
 	cur := s.state.Load()
 	st := build(next)
 	if st.problem != nil {
 		return store.ConfigChange{}, fmt.Errorf("%w: %w", ErrInvalid, st.problem)
 	}
 	items := diff(cur.entries, next)
+	st.consoleTargets = maps.Clone(cur.consoleTargets)
+	if st.consoleTargets == nil {
+		st.consoleTargets = map[string]bool{}
+	}
+	for i := range items {
+		item := &items[i]
+		if item.Kind != KindTargets {
+			continue
+		}
+		item.ConsoleTracked = true
+		item.ConsoleBefore, item.ConsoleAfter = cur.consoleTargets[item.Key], owned[item.Key] && item.After != nil
+		if item.ConsoleAfter {
+			st.consoleTargets[item.Key] = true
+		} else {
+			delete(st.consoleTargets, item.Key)
+		}
+	}
 	ch := store.ConfigChange{Time: s.d.Now().UTC(), Actor: who.Name, Via: who.Via, Action: action, Reverts: reverts,
 		Note: strings.TrimSpace(note), Items: items}
 	warnings := append(s.unenrolled(st.Catalog), pageWarnings(st)...)
@@ -230,7 +256,7 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 			writes = append(writes, store.ConfigWrite{Key: k, Was: was})
 		}
 	}
-	ch, err := s.d.Store.CommitConfig(ch, writes)
+	ch, err := s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
 	if errors.Is(err, store.ErrConflict) {
 		return store.ConfigChange{}, fmt.Errorf("%w meanwhile; read it again and retry", ErrConflict)
 	}

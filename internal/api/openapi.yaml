@@ -796,7 +796,7 @@ components:
         version: {type: integer}
         time: {type: string, format: date-time}
         actor: {type: string, description: "The token's name, or cli:<user>"}
-        via: {type: string, enum: [api, mcp, cli, start, signal]}
+        via: {type: string, enum: [api, mcp, cli, console, start, signal]}
         action: {type: string, enum: [put, delete, import, revert]}
         reverts: {type: integer, description: The version a revert undid}
         note: {type: string}
@@ -815,6 +815,9 @@ components:
               op: {type: string, enum: [added, changed, removed]}
               before: {description: "The value before (absent when added; left out in the history list)"}
               after: {description: "The value after (absent when removed; left out in the history list)"}
+              console_tracked: {type: boolean, description: Target ownership was recorded for this change}
+              console_before: {type: boolean, description: The console managed this target set before the change}
+              console_after: {type: boolean, description: The console managed this target set after the change}
     Token:
       type: object
       description: >-

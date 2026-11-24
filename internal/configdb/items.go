@@ -508,7 +508,8 @@ func (s *Service) Revert(ctx context.Context, who Actor, v int64, note string) (
 	now := items(cur.entries)
 	var conflicts []string
 	for _, it := range ch.Items {
-		if !bytes.Equal(now[itemKey{it.Kind, it.Key}], it.After) {
+		if !bytes.Equal(now[itemKey{it.Kind, it.Key}], it.After) ||
+			(it.ConsoleTracked && cur.ConsoleTarget(it.Key) != it.ConsoleAfter) {
 			later := s.d.Store.ConfigChanges(0, 1, func(c store.ConfigChange) bool { return c.Version > v && touches(c, it.Kind, it.Key) })
 			at := ""
 			if len(later) == 1 {
@@ -525,12 +526,17 @@ func (s *Service) Revert(ctx context.Context, who Actor, v int64, note string) (
 	if next == nil {
 		next = map[string][]byte{}
 	}
+	owned := map[string]bool{}
 	for _, it := range ch.Items {
 		if err := set(next, it.Kind, it.Key, it.Before); err != nil {
 			return store.ConfigChange{}, fmt.Errorf("%s %s: %w", it.Kind, it.Key, err)
 		}
+		if it.ConsoleBefore || (!it.ConsoleTracked && it.Kind == KindTargets && cur.ConsoleTarget(it.Key) &&
+			legacyMonitorChange(ch, it, "Edit HTTP monitor ") && it.Before != nil) {
+			owned[it.Key] = true
+		}
 	}
-	return s.commit(ctx, who, "revert", note, v, next, false)
+	return s.commitWithConsoleTargets(ctx, who, "revert", note, v, next, false, owned, 0)
 }
 
 func touches(c store.ConfigChange, kind, key string) bool {

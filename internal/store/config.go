@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -13,8 +14,9 @@ import (
 // The configuration Beacon holds (the catalogue, the probe targets and modules; see package configdb):
 // its entries, by key, and every change to them, by version. The buckets are made with the first change.
 var (
-	bucketConfig        = []byte("config")
-	bucketConfigChanges = []byte("config_changes")
+	bucketConfig         = []byte("config")
+	bucketConfigChanges  = []byte("config_changes")
+	bucketConsoleTargets = []byte("config_console_targets")
 )
 
 // keepConfigChanges is how many changes are kept; the oldest beyond it are dropped. Tests lower it.
@@ -45,11 +47,14 @@ type ConfigChange struct {
 
 // ConfigItem is one item a change touched. Before is absent for an item added, After for one removed.
 type ConfigItem struct {
-	Kind   string          `json:"kind"`
-	Key    string          `json:"key"`
-	Op     string          `json:"op"` // added, changed or removed
-	Before json.RawMessage `json:"before,omitempty"`
-	After  json.RawMessage `json:"after,omitempty"`
+	Kind           string          `json:"kind"`
+	Key            string          `json:"key"`
+	Op             string          `json:"op"` // added, changed or removed
+	Before         json.RawMessage `json:"before,omitempty"`
+	After          json.RawMessage `json:"after,omitempty"`
+	ConsoleTracked bool            `json:"console_tracked,omitempty"` // distinguish older history without target ownership
+	ConsoleBefore  bool            `json:"console_before,omitempty"`
+	ConsoleAfter   bool            `json:"console_after,omitempty"`
 }
 
 // ConfigWrite sets one entry (Value nil: removes it), provided it still holds Was (nil: absent).
@@ -61,34 +66,73 @@ type ConfigWrite struct {
 // Config returns the configuration's entries and its version: 0 when it was never changed.
 // A read error is returned; the maps are empty then, and must not be taken as an empty catalogue.
 func (s *Store) Config() (map[string][]byte, int64, error) {
+	entries, _, version, err := s.ConfigWithConsoleTargets()
+	return entries, version, err
+}
+
+// ConfigWithConsoleTargets also returns the names of the target sets the console manages. The
+// marker is separate from target JSON so exported files cannot adopt a monitor.
+func (s *Store) ConfigWithConsoleTargets() (map[string][]byte, map[string]bool, int64, error) {
 	out := map[string][]byte{}
+	console := map[string]bool{}
 	var version int64
 	err := s.db.View(func(tx kv.Tx) error {
 		tx.Range(bucketConfig, kv.Range{}, func(k, v []byte) bool {
 			out[string(k)] = bytes.Clone(v)
 			return true
 		})
+		tx.Range(bucketConsoleTargets, kv.Range{}, func(k, v []byte) bool {
+			if data := out["targets/"+string(k)]; data != nil {
+				sum := sha256.Sum256(data)
+				if bytes.Equal(v, sum[:]) {
+					console[string(k)] = true
+				}
+			}
+			return true
+		})
 		version = int64(tx.Sequence(bucketConfigChanges))
 		return nil
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
-	return out, version, nil
+	return out, console, version, nil
 }
 
 // CommitConfig applies writes and records c as the next version, all or nothing: when an entry no
 // longer holds what its write expects, nothing changes and the error is ErrConflict.
 func (s *Store) CommitConfig(c ConfigChange, writes []ConfigWrite) (ConfigChange, error) {
+	return s.CommitConfigAtVersion(c, writes, 0)
+}
+
+// CommitConfigAtVersion is CommitConfig with an optional expected configuration version.
+func (s *Store) CommitConfigAtVersion(c ConfigChange, writes []ConfigWrite, version int64) (ConfigChange, error) {
 	if c.Time.IsZero() {
 		c.Time = s.now().UTC()
 	}
 	c.Unchanged = false
 	err := s.db.Update(func(tx kv.Tx) error {
+		if version > 0 && int64(tx.Sequence(bucketConfigChanges)) != version {
+			return ErrConflict
+		}
 		for _, w := range writes {
 			cur := tx.Get(bucketConfig, []byte(w.Key))
 			if (cur == nil) != (w.Was == nil) || !bytes.Equal(cur, w.Was) {
 				return ErrConflict
+			}
+		}
+		for _, item := range c.Items {
+			if item.Kind != "targets" {
+				continue
+			}
+			key := []byte(item.Key)
+			if item.ConsoleAfter {
+				sum := sha256.Sum256(item.After)
+				if err := tx.Put(bucketConsoleTargets, key, sum[:]); err != nil {
+					return err
+				}
+			} else if err := tx.Delete(bucketConsoleTargets, key); err != nil {
+				return err
 			}
 		}
 		for _, w := range writes {

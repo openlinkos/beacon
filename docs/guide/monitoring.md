@@ -13,7 +13,7 @@ The reference deployment runs commands as `docker exec beacon beacon …`.
 
 ## Add an HTTP monitor {#add-an-http-monitor}
 
-For a monitor created here, open the service's **Edit HTTP monitor** to change the endpoint, check profile or alert severity, or to remove the check. The service name and probe locations stay attached to the target set. Each change is recorded and can be reverted from configuration history.
+For a monitor created here, open the service's **Edit HTTP monitor** to change its endpoint, probe locations, check profile or alert severity, or to remove the check. Changes to probe locations move the target set in one version, with the service name and its history intact. Configuration history can revert the change. Manage target sets supplied through files or the configuration API at their existing entry points.
 
 In the console, open **Monitors** and select **Add HTTP monitor**. Give the service a name and its HTTP or HTTPS endpoint. Choose an existing GET or HEAD check profile, the locations that should probe it and its alert severity. Use an endpoint without a query, fragment or credentials.
 
