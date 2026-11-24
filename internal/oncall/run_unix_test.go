@@ -190,6 +190,7 @@ touch "`+dir+`/$BEACON_DELIVERY.end"
 }
 
 func TestTimeoutKillsTheProcessGroup(t *testing.T) {
+	const timeout = 3 * time.Second
 	old := killGrace
 	killGrace = 300 * time.Millisecond
 	t.Cleanup(func() { killGrace = old })
@@ -201,7 +202,8 @@ echo $! > "`+dir+`/child.pid"
 echo $$ > "`+dir+`/shell.pid"
 wait
 `)
-	s, logs := newServer(t, Options{Run: run, Timeout: 500 * time.Millisecond})
+	// Allow time for shell startup on slower hosts so the test exercises a running child.
+	s, logs := newServer(t, Options{Run: run, Timeout: timeout})
 	fire(t, s, "d1", http.StatusAccepted)
 	waitFor(t, "child started", 3*time.Second, func() bool { return exists(filepath.Join(dir, "shell.pid")) && exists(filepath.Join(dir, "child.pid")) })
 	shell, child := pidFrom(t, filepath.Join(dir, "shell.pid")), pidFrom(t, filepath.Join(dir, "child.pid"))
@@ -225,7 +227,7 @@ wait
 	if len(matches) != 1 {
 		t.Fatalf("logs: %v", matches)
 	}
-	if out, _ := os.ReadFile(matches[0]); !strings.Contains(string(out), "killed after the 500ms timeout") {
+	if out, _ := os.ReadFile(matches[0]); !strings.Contains(string(out), fmt.Sprintf("killed after the %s timeout", timeout)) {
 		t.Errorf("log:\n%s", out)
 	}
 }
