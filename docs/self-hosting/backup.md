@@ -125,6 +125,8 @@ Onto the same machine with an emptied volume, or onto a fresh one.
    - If team credentials were restored, open **Team credentials** as an owner and send a test request to an approved service. Confirm the expected grants and verify that an agent whose grant was revoked is still denied.
    - The probe locations need nothing. Their tokens are unchanged, and they queued while the centre was down. The overview counts them reporting again within a minute.
 
+The Linux reference deployment smoke test restores a stopped SQLite service into a fresh volume. It checks a new owner sign-in, the incident note and SSH replay, and that a revoked agent remains unable to use the credential after the independent anchor is restored.
+
 ## The catalogue, as files
 
 The catalogue is inside `beacon.db`, so every backup of the state holds it. To also keep the configuration in force as files, for git or to move it between centres:

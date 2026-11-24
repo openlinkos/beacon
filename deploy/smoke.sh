@@ -4,11 +4,35 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
+if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
+  id beacon >/dev/null 2>&1; then
+  echo 'Use a clean checkout on a disposable Linux runner.' >&2
+  exit 1
+fi
+docker info >/dev/null
+# The reference installer uses fixed names. Refuse a runner that already holds any of its resources.
+for container in beacon beacon-victoriametrics beacon-vmalert beacon-caddy; do
+  if docker container inspect "$container" >/dev/null 2>&1; then
+    echo "The runner already has the container $container." >&2
+    exit 1
+  fi
+done
+for volume in beacon_beacon-data beacon_victoriametrics-data beacon_caddy-data beacon_caddy-config; do
+  if docker volume inspect "$volume" >/dev/null 2>&1; then
+    echo "The runner already has the volume $volume." >&2
+    exit 1
+  fi
+done
+if docker network inspect beacon >/dev/null 2>&1; then
+  echo 'The runner already has the beacon network.' >&2
+  exit 1
+fi
 work=$(mktemp -d "${RUNNER_TEMP:?use a disposable Linux runner}/beacon-reference.XXXXXX")
 start=$SECONDS
 second_probe=
 oncall_pid=
 token=
+recovery_volume=
 cleanup() {
   local result=$?
   if (( result != 0 )); then
@@ -34,6 +58,9 @@ cleanup() {
   fi
   sudo systemctl stop beacon-probe 2>/dev/null || true
   docker compose down -v >/dev/null 2>&1 || true
+  if [[ -n "$recovery_volume" ]]; then
+    docker volume rm "$recovery_volume" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -104,7 +131,14 @@ tar -xzf "$work/$oncall_archive" -C "$work" beacon-oncall
 "$work/beacon-oncall" version | grep -F "beacon-oncall ${version#v} ("
 openssl rand -hex 32 > "$work/hook-secret"
 sudo install -o 65532 -g 65532 -m 0400 "$work/hook-secret" secrets/smoke-hook-secret
+openssl rand -hex 32 > "$work/credential-key"
+sudo install -o 65532 -g 65532 -m 0400 "$work/credential-key" secrets/smoke-credential-key
 cat >> config.yaml <<YAML
+
+credentials:
+  enabled: true
+  key_file: /etc/beacon/secrets/smoke-credential-key
+  allowed_hosts: ['127.0.0.1:1']
 
 agents:
   - name: smoke-oncall
@@ -141,7 +175,8 @@ if [[ ! -x /usr/sbin/sshd ]]; then
   sudo apt-get -y -qq install openssh-server
 fi
 ssh-keygen -q -t ed25519 -N '' -f "$work/target_key"
-sudo ssh-keygen -y -f secrets/ssh-ca-key > "$work/ca.pub"
+ca_public_key=$(sudo ssh-keygen -y -f secrets/ssh-ca-key)
+printf '%s\n' "$ca_public_key" > "$work/ca.pub"
 sudo install -m 0644 "$work/ca.pub" /etc/ssh/beacon-reference-ca.pub
 sudo install -d -m 0755 /run/sshd
 sudo useradd -m -s /bin/sh -p '*' beacon
@@ -194,7 +229,8 @@ jq -e '.result.structuredContent | .exit_code == 0 and .stdout == "beacon\n"' <<
 session=$(jq -er '.result.structuredContent.session' <<< "$run")
 curl -fsS "$status_url/api/v1/sessions/$session/recording" -H "Authorization: Bearer $token" > "$work/recording"
 test -s "$work/recording"
-note=$(jq -nc --arg alert "$alert" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add_note","arguments":{"id":$alert,"text":"Verified restricted machine access and the recorded session."}}}')
+note_text='Verified restricted machine access and the recorded session.'
+note=$(jq -nc --arg alert "$alert" --arg text "$note_text" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add_note","arguments":{"id":$alert,"text":$text}}}')
 rpc "$note" | jq -e '.result != null and .result.isError != true' >/dev/null
 beacon drill off
 probe=$(jq -nc --arg alert "$alert" '{jsonrpc:"2.0",id:4,method:"tools/call",params:{name:"probe_now",arguments:{alert_id:$alert,wait:45}}}')
@@ -206,3 +242,109 @@ resolved() {
 }
 wait_for 'The same alert resolved' 150 resolved
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
+
+# Add and revoke a fixture grant before the backup. The endpoint is inside the Beacon container and
+# is unused by the test. The REST list verifies delegation without sending any upstream request.
+credential_agent=credential-recovery
+credential_token=$(beacon agent add "$credential_agent" -owner duty-person -scopes secrets:use 2>"$work/credential-agent.log")
+printf '::add-mask::%s\n' "$credential_token"
+credential_value=$(openssl rand -hex 32)
+printf '::add-mask::%s\n' "$credential_value"
+credential_post() {
+  local page=$1 action=$2 csrf
+  shift 2
+  csrf=$(curl -fsS -b "$work/cookies" "$status_url$page" |
+    sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' | awk 'NR == 1 {print}') || return 1
+  test -n "$csrf" || return 1
+  test "$(curl -fsS -b "$work/cookies" -o /dev/null -D "$work/credential.headers" -w '%{http_code}' \
+    --data-urlencode "csrf=$csrf" "$@" "$status_url$action")" = 303 || return 1
+  awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "$work/credential.headers"
+}
+credential_created=$(credential_post /console/credentials /console/credentials \
+  --data-urlencode 'name=Reference recovery fixture' --data-urlencode 'endpoint=https://127.0.0.1:1/ready' \
+  --data-urlencode "value=$credential_value")
+[[ "$credential_created" == /console/credentials/*\?done=saved ]]
+credential_page=${credential_created%%\?*}
+credential_id=${credential_page##*/}
+test "$(credential_post "$credential_page" "$credential_page/grant" --data-urlencode "agent=$credential_agent" \
+  --data-urlencode version=1 --data-urlencode hours=1)" = "$credential_page?done=saved"
+credential_api="$status_url/api/v1/team-credentials"
+curl -fsS -H "Authorization: Bearer $credential_token" "$credential_api" |
+  jq -e --arg id "$credential_id" 'any(.credentials[]; .id == $id)' >/dev/null
+test "$(credential_post "$credential_page" "$credential_page/revoke" --data-urlencode "agent=$credential_agent" \
+  --data-urlencode version=2)" = "$credential_page?done=saved"
+
+# Rehearse the documented cold backup and restore with the same Alpine helper. The independent
+# epoch is captured from the stopped service into its own directory before restoring the archive.
+mkdir "$work/archive" "$work/anchor"
+docker compose stop beacon
+docker run --rm --volumes-from beacon:ro -v "$work/archive:/backup" -v "$work/anchor:/anchor" alpine \
+  sh -ec 'umask 077
+    cd /var/lib/beacon
+    set -- beacon.db*
+    if [ -d recordings ]; then set -- "$@" recordings; fi
+    test -s team-credentials/epochs
+    cp team-credentials/epochs /anchor/team-credential-epochs
+    tar -czf /backup/beacon.tgz "$@" team-credentials/epochs'
+
+volume_name="beacon-smoke-restore-${work##*.}"
+if docker volume inspect "$volume_name" >/dev/null 2>&1; then
+  echo 'The recovery volume already exists.' >&2
+  exit 1
+fi
+recovery_volume=$(docker volume create "$volume_name")
+docker run --rm -v "$recovery_volume:/var/lib/beacon" -v "$work/archive:/backup:ro" alpine \
+  sh -ec 'test -z "$(ls -A /var/lib/beacon)"
+    tar -C /var/lib/beacon --exclude=team-credentials/epochs -xzf /backup/beacon.tgz
+    test -s /var/lib/beacon/beacon.db
+    test -d /var/lib/beacon/recordings
+    test ! -e /var/lib/beacon/team-credentials/epochs'
+cat > "$work/recovery.compose.yml" <<YAML
+volumes:
+  beacon-data:
+    name: $recovery_volume
+    external: true
+YAML
+restore_compose() { docker compose -f compose.yaml -f "$work/recovery.compose.yml" "$@"; }
+restore_compose up -d --no-deps --force-recreate beacon
+test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/beacon"}}{{.Name}}{{end}}{{end}}' beacon)" = "$recovery_volume"
+wait_for 'Restored centre is ready' 60 centre_health
+test "$(curl -sS -b "$work/cookies" -o /dev/null -w '%{http_code}' "$status_url/console/credentials")" = 503
+test "$(curl -sS -H "Authorization: Bearer $credential_token" -o "$work/credential-error.json" \
+  -w '%{http_code}' "$credential_api")" = 503
+jq -e '.code == "credential.unavailable"' "$work/credential-error.json" >/dev/null
+
+restore_compose stop beacon
+docker run --rm --volumes-from beacon -v "$work/anchor:/backup:ro" alpine \
+  sh -ec 'test -s /backup/team-credential-epochs
+    install -d -m 0700 -o 65532 -g 65532 /var/lib/beacon/team-credentials
+    install -m 0600 -o 65532 -g 65532 /backup/team-credential-epochs /var/lib/beacon/team-credentials/epochs
+    sync'
+restore_compose start beacon
+wait_for 'Restored centre is ready with the independent anchor' 60 centre_health
+
+form=$(curl -fsS -c "$work/restored-cookies" "$status_url/console/sign-in" |
+  sed -n 's/.*name="form" value="\([^"]*\)".*/\1/p')
+test -n "$form"
+test "$(curl -fsS -b "$work/restored-cookies" -c "$work/restored-cookies" -o /dev/null -w '%{http_code}' \
+  --data-urlencode "form=$form" --data-urlencode username=duty-person --data-urlencode "password=$password" \
+  "$status_url/console/sign-in")" = 303
+curl -fsS -b "$work/restored-cookies" "$status_url$credential_page" > "$work/restored-credential.html"
+grep -Fq 'Reference recovery fixture' "$work/restored-credential.html"
+grep -Fq 'No agent grants for this credential.' "$work/restored-credential.html"
+if grep -Fq "$credential_value" "$work/restored-credential.html"; then
+  echo 'The restored console disclosed the credential value.' >&2
+  exit 1
+fi
+test "$(curl -sS -X POST -H "Authorization: Bearer $credential_token" -o "$work/credential-error.json" \
+  -w '%{http_code}' "$credential_api/$credential_id/use")" = 403
+jq -e '.code == "credential.denied"' "$work/credential-error.json" >/dev/null
+
+resolved
+curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
+  jq -e --arg note "$note_text" 'any(.events[]; .kind == "note" and .text == $note)' >/dev/null
+curl -fsS "$status_url/api/v1/sessions/$session/recording" -H "Authorization: Bearer $token" > "$work/restored-recording"
+cmp "$work/recording" "$work/restored-recording"
+curl -fsS -b "$work/restored-cookies" "$status_url/console/sessions/$session" > "$work/restored-replay.html"
+grep -Fq 'id="player"' "$work/restored-replay.html"
+printf 'Cold SQLite restore preserved account access, the incident note, SSH replay and credential revocation after %ss\n' "$((SECONDS - start))"
