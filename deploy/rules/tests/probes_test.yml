@@ -38,16 +38,19 @@ tests:
   - name: half of the locations failing is an outage, at the target's severity
     interval: 1m
     input_series:
-      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+      - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-1",region="overseas"}'
         values: '1x5 0x20'
-      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+      - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="cn-1",region="mainland"}'
         values: '1x5 0x20'
-      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+      - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-2",region="overseas"}'
         values: '1x25'
-      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-3",region="overseas"}'
+      - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-3",region="overseas"}'
         values: '1x25'
     alert_rule_test:
       - eval_time: 7m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 8m30s
         alertname: ServiceDown
         exp_alerts: []
       - eval_time: 9m
@@ -55,7 +58,7 @@ tests:
         exp_alerts:
           - exp_labels:
               service: example.com
-              severity: critical
+              severity: warning
               failure_domain: origin-1
             exp_annotations:
               summary: example.com is down
@@ -71,7 +74,7 @@ tests:
       - expr: beacon:service_up
         eval_time: 12m
         exp_samples:
-          - labels: '{__name__="beacon:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+          - labels: '{__name__="beacon:service_up",service="example.com",severity="warning",failure_domain="origin-1"}'
             value: 0
 
   - name: a target without a severity label is critical when down

@@ -10,6 +10,29 @@
 #   - every mainland location failing while the overseas ones succeed is a path problem (MainlandPathDegraded);
 #   - a location that has sent nothing for 10 minutes is down (ProbeLocationDown).
 groups:
+  # Check outages more often than the recording rules. Use raw probe results and vmalert's normal data delay
+  # so a probe's current batch has time to reach VictoriaMetrics before we judge it.
+  - name: service-outages
+    interval: 10s
+    rules:
+      - alert: ServiceDown
+        expr: |
+          WITH (
+            location_failing = max by (service, severity, failure_domain, location, region) (
+              max_over_time(probe_success{job="probe"}[3m])
+            ) == bool 0,
+            reporting = count by (service, severity, failure_domain) (location_failing),
+            failing = sum by (service, severity, failure_domain) (location_failing)
+          )
+          ((failing >= bool 2) * (failing * 2 >= bool reporting)) == 1
+        for: 1m
+        labels:
+          severity: '{{ or $labels.severity "critical" }}'
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
+          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
   - name: probes
     interval: 30s
     rules:
@@ -39,26 +62,6 @@ groups:
       # 1 = up. Availability over a day is avg_over_time(beacon:service_up[1d])
       - record: beacon:service_up
         expr: 1 - beacon:service_down
-
-      # Evaluate the outage from the probes in one query. The recording rules above are written
-      # asynchronously and their intermediate values can lag by several evaluation intervals.
-      - alert: ServiceDown
-        expr: |
-          WITH (
-            location_failing = max by (service, severity, failure_domain, location, region) (
-              max_over_time(probe_success{job="probe"}[3m])
-            ) == bool 0,
-            reporting = count by (service, severity, failure_domain) (location_failing),
-            failing = sum by (service, severity, failure_domain) (location_failing)
-          )
-          ((failing >= bool 2) * (failing * 2 >= bool reporting)) == 1
-        for: 1m
-        labels:
-          severity: '{{ or $labels.severity "critical" }}'
-        annotations:
-          summary: "{{ $labels.service }} is down"
-          description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
-          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 
       - alert: ServiceDegraded
         # always a warning, so the target's severity is aggregated away first (vmalert would otherwise keep it
