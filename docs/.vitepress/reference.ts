@@ -143,8 +143,9 @@ const configKeys = (): string[] => {
   const out: string[] = [];
   const walk = (fields: { tag: string | null; type?: string; fields?: unknown[] }[], prefix: string) => {
     for (const f of fields) {
-      if (!f.tag || f.tag === '-') continue;
-      const path = prefix + f.tag;
+      const key = f.tag?.split(',', 1)[0];
+      if (!key || key === '-') continue;
+      const path = prefix + key;
       if (f.fields) {
         walk(f.fields as typeof fields, `${path}.`);
         continue;
