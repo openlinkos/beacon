@@ -116,3 +116,13 @@
   border: 1px solid var(--ol-color-border);
   border-radius: var(--ol-radius-control);
 }
+.bc-maintenance-services { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.bc-maintenance-services legend { padding: 0; }
+.bc-maintenance-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--ol-space-1) var(--ol-space-3);
+  max-block-size: 16rem;
+  overflow-y: auto;
+}
+.bc-maintenance-choices .ol-check { min-block-size: 2.5rem; }

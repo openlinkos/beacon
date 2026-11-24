@@ -102,6 +102,8 @@ Beside it are:
 
 A service's page has what each location saw of its targets in the last 30 minutes, with the reasons. It also lists its targets with their target sets, and its alerts.
 
+With `config:write`, use **Add HTTP monitor** to select an endpoint, its check profile and its probe locations. The new service opens immediately so you can see when its first results arrive. The change appears in **Configuration** history. See [Monitor a service](monitoring.md#add-an-http-monitor).
+
 `/console/status-pages` shows the status pages as the public sees them now: each page's address, state, components, active incidents and maintenance windows. One page's view has:
 
 - its components, with the services behind each, their state and 90-day availability;
@@ -116,13 +118,13 @@ A service's page has what each location saw of its targets in the last 30 minute
 - **The maintenance windows.** Those in progress and planned come first, then the last 20 that ended. Each shows its services, its times and who planned it.
 - **The silences** in force or to come, as Alertmanager holds them. Each shows what it matches, its comment, who made it, when it ends and the alert it silences.
 
-Who ends what:
+What each role may do:
 
-- Whoever may plan a window (`maintenance:write`) can end it early, or call it off before it starts.
+- With `maintenance:write`, schedule a window, end it early, or call it off before it starts.
 - Whoever may silence (`alerts:write`) can end a silence.
 - A window's silences end with the window.
 
-Windows are planned ahead of time with `schedule_maintenance` or `POST /api/v1/maintenance`, so that the status pages announce them.
+**Schedule maintenance** lets you select services and preview which public pages and components will announce the window. A service's monitor page opens the same form with that service selected. Agents and scripts use `schedule_maintenance` or `POST /api/v1/maintenance`.
 
 ### Forms and roles {#forms-and-roles}
 
@@ -201,13 +203,12 @@ The console is on the OpenLinkOS design system ([`@openlinkos/ui`](https://githu
 - **Language and scheme.** The console is in the configured language, English or Chinese, and follows the system's light or dark scheme.
 - **Not indexed.** Its pages are marked `noindex`, since their links carry signatures.
 
-Three things it does not do:
+Two things it does not do:
 
 - **No sign-in from anywhere else.** Beacon's own accounts are the only way in.
 - **No approval workflow.** The forms are what the person's role already allows through the API, and the pause switch is the brake.
-- **No editing what is monitored, beyond reverting a change, and no planning maintenance.** Machines, and an agent's custom scopes, are changed in the console. The catalogue, probe targets and modules are not: a revert goes through the same checks as the files. Agents and scripts plan maintenance through MCP and the API; the console ends a window.
 
-What is monitored and what the status pages show are changed where the configuration is: the files, the API, MCP's `put_config` and the command line. That way every change is checked, versioned and attributed. The monitors and status pages in the console show the result.
+Use the files, the API, MCP's `put_config` or the command line for advanced checks, catalogue and status page definitions. Configuration changes from every entry point are checked, versioned and attributed.
 
 ## Check it
 

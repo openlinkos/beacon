@@ -7,9 +7,15 @@ What Beacon watches lives in its database as versions. Every change is checked b
 **You need:**
 
 - A centre with at least one probe location reporting. To add one, see [Probe locations](../self-hosting/probes.md).
-- A credential with `config:write`: the console's **Configuration** page, or a token. Reads take `status:read`.
+- A console account or token with `config:write`. Reads take `status:read`.
 
 The reference deployment runs commands as `docker exec beacon beacon …`.
+
+## Add an HTTP monitor {#add-an-http-monitor}
+
+In the console, open **Monitors** and select **Add HTTP monitor**. Give the service a name and its HTTP or HTTPS endpoint. Choose an existing GET or HEAD check profile, the locations that should probe it and its alert severity. Use an endpoint without a query, fragment or credentials.
+
+After saving, check the service page for the first probe results. Each new monitor has its own versioned target set and can be reverted from **Configuration**. Existing rules evaluate the results. Public status pages show the service when explicitly configured to include it.
 
 ## Add a probe location {#locations}
 

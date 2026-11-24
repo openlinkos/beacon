@@ -183,6 +183,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 A maintenance window is planned work on some services. The pages announce it ahead of time, show its components in maintenance while it lasts, and mark those days.
 
+In the console, open **Silences and maintenance** and choose **Schedule maintenance**. Preview the public announcement and the affected services before scheduling. The preview lists the pages and components that currently show those services.
+
 | To | REST | MCP tool |
 | --- | --- | --- |
 | Plan a window | `POST /api/v1/maintenance` | `schedule_maintenance` |

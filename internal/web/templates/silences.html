@@ -1,7 +1,10 @@
 {{define "content"}}<div class="ol-stack">
 {{if .Unread}}<div class="ol-alert ol-alert-warning">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Unread}}</p></div></div>{{end}}
 <section class="ol-section" id="maintenance">
-  <div class="ol-section-header"><div><h2 class="ol-section-title">{{.L.Windows}}</h2><p class="ol-section-description">{{.L.WindowsHint}}</p></div></div>
+  <div class="ol-section-header">
+    <div><h2 class="ol-section-title">{{.L.Windows}}</h2><p class="ol-section-description">{{.L.WindowsHint}}</p></div>
+    {{if .Schedule}}<a class="ol-btn ol-btn-primary" href="{{.Schedule}}">{{iconSm "plus"}}{{.L.Schedule}}</a>{{end}}
+  </div>
   {{if .Windows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
     <thead><tr><th>{{.L.Title}}</th><th>{{.L.Status}}</th><th>{{.L.Services}}</th><th>{{.L.Starts}}</th><th>{{.L.Ends}}</th><th>{{.L.By}}</th><th></th></tr></thead>
     <tbody>{{range .Windows}}<tr>

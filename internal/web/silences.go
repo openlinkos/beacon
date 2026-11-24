@@ -16,16 +16,16 @@ import (
 
 // What keeps alerts from paging people: the silences in force or to come, and the maintenance windows,
 // planned, in progress and past. A silence is made on its alert's page (or by an agent, with
-// silence_alert); a window is planned with schedule_maintenance or the API, ahead of time, for the
-// status pages to announce. Here either is ended early: a silence by whoever may silence, a window by
+// silence_alert); a window is planned here, through MCP or through the API for the status pages to
+// announce. Here either is ended early: a silence by whoever may silence, a window by
 // whoever may plan one. A window's silences end with it, so they are ended through the window.
 
 // maxPastWindows is how many of the windows that ended the page lists.
 const maxPastWindows = 20
 
 type silencesLabels struct {
-	Windows, Silences, Title, Services, Starts, Ends, Status, By, Matches, Comment, Alert, State string
-	NoWindows, NoSilences, WindowsHint, SilencesHint, EndNow, CallOff, End, WithWindow, Problem  string
+	Windows, Silences, Title, Services, Starts, Ends, Status, By, Matches, Comment, Alert, State          string
+	NoWindows, NoSilences, WindowsHint, SilencesHint, EndNow, CallOff, End, WithWindow, Problem, Schedule string
 }
 
 func (s *Server) silencesLabels() silencesLabels {
@@ -35,11 +35,11 @@ func (s *Server) silencesLabels() silencesLabels {
 		Comment: s.t("Comment"), Alert: s.t("Alert"), State: s.t("State"),
 		NoWindows:    s.t("No maintenance is planned."),
 		NoSilences:   s.t("Nothing is silenced."),
-		WindowsHint:  s.t("Plan maintenance ahead of time with schedule_maintenance or POST /api/v1/maintenance: the status pages announce it, and its services page nobody while it lasts."),
+		WindowsHint:  s.t("Announce planned work and silence alerts for its services during the window."),
 		SilencesHint: s.t("Silence an alert from its page, for an hour to a day, saying why; every alert of its group stays quiet until the silence ends."),
 		EndNow:       s.t("End now"), CallOff: s.t("Call off"), End: s.t("End the silence"),
 		WithWindow: s.t("Ends with its maintenance window"),
-		Problem:    s.t("The silences could not be read from Alertmanager"),
+		Problem:    s.t("The silences could not be read from Alertmanager"), Schedule: s.t("Schedule maintenance"),
 	}
 }
 
@@ -57,6 +57,7 @@ type silencesPage struct {
 	Windows  []windowItem
 	Silences []silenceItem
 	Unread   string // why the silences could not be read
+	Schedule string
 }
 
 var silencesTmpl = parse("silences.html")
@@ -87,6 +88,9 @@ func (s *Server) windowState(m store.Maintenance, now time.Time) (string, string
 
 func (s *Server) silencesPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := silencesPage{shell: s.shellFor(r, v, "silences", s.t("Silences and maintenance")), L: s.silencesLabels()}
+	if v.has("maintenance:write") {
+		p.Schedule = consolePath("/maintenance/new")
+	}
 	now := s.now()
 	ws := s.Bridge.MaintenanceWindows()
 	// the windows in progress, then those to come, soonest first, then those that ended, latest first

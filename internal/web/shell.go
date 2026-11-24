@@ -210,6 +210,10 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Note added"), "success"
 	case "unsilenced":
 		return s.t("Silence ended"), "success"
+	case "monitor_added":
+		return s.t("Monitor added"), "success"
+	case "maintenance_scheduled":
+		return s.t("Maintenance scheduled"), "success"
 	case "maintenance_ended":
 		return s.t("Maintenance ended; its services page people again"), "success"
 	case "called_off":

@@ -1,0 +1,77 @@
+{{define "content"}}<div class="ol-layout-supporting">
+  {{if .Preview}}
+  <form method="post" action="{{.Form}}" class="ol-panel">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="version" value="{{.Version}}">
+    <input type="hidden" name="title" value="{{.Draft.Title}}">
+    <input type="hidden" name="description" value="{{.Draft.Description}}">
+    <input type="hidden" name="start" value="{{.Draft.Start}}">
+    <input type="hidden" name="end" value="{{.Draft.End}}">
+    {{range .Draft.Services}}<input type="hidden" name="service" value="{{.}}">{{end}}
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Public}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+      <div><h3>{{.Preview.Title}}</h3>{{with .Preview.Description}}<p class="ol-text-pre ol-break">{{.}}</p>{{end}}</div>
+      <dl class="ol-dl ol-dl-stack">
+        <dt>{{.L.Starts}}</dt><dd>{{.Preview.Starts}}</dd>
+        <dt>{{.L.Ends}}</dt><dd>{{.Preview.Ends}}</dd>
+      </dl>
+      {{if .Preview.Pages}}<ul class="ol-list">{{range .Preview.Pages}}<li><a href="{{.Href}}">{{.Label}}</a></li>{{end}}</ul>
+      {{else}}<p class="ol-hint">{{.L.NoPublic}}</p>{{end}}
+    </div>
+    <div class="ol-panel-footer">
+      <button type="submit" name="intent" value="edit" class="ol-btn ol-btn-secondary">{{.L.Edit}}</button>
+      <button type="submit" name="intent" value="schedule" class="ol-btn ol-btn-primary">{{iconSm "clock"}}{{.L.Publish}}</button>
+    </div>
+  </form>
+  {{else if .Services}}
+  <form method="post" action="{{.Form}}" class="ol-panel">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="ol-panel-body ol-stack">
+      <div class="ol-field">
+        <label class="ol-label" for="maintenance-title">{{.L.Title}}</label>
+        <input class="ol-input" id="maintenance-title" name="title" value="{{.Draft.Title}}" required maxlength="200" aria-describedby="maintenance-public-hint">
+        <p class="ol-hint" id="maintenance-public-hint">{{.L.TitleHint}}</p>
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="maintenance-description">{{.L.Description}}</label>
+        <textarea class="ol-textarea" id="maintenance-description" name="description" rows="3" maxlength="2000" aria-describedby="maintenance-public-hint">{{.Draft.Description}}</textarea>
+      </div>
+      <fieldset class="ol-field bc-maintenance-services" aria-describedby="maintenance-service-hint">
+        <legend class="ol-label">{{.L.Services}}</legend>
+        <p class="ol-hint" id="maintenance-service-hint">{{.L.ServicesHint}}</p>
+        <div class="bc-maintenance-choices">
+          {{range .Services}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="service" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-break">{{.Label}}</span></label>{{end}}
+        </div>
+      </fieldset>
+      <div class="ol-field">
+        <label class="ol-label" for="maintenance-start">{{.L.Starts}}</label>
+        <input class="ol-input" id="maintenance-start" type="datetime-local" name="start" value="{{.Draft.Start}}" aria-describedby="maintenance-timezone">
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="maintenance-end">{{.L.Ends}}</label>
+        <input class="ol-input" id="maintenance-end" type="datetime-local" name="end" value="{{.Draft.End}}" required aria-describedby="maintenance-timezone">
+        <p class="ol-hint" id="maintenance-timezone">{{.L.Timezone}}</p>
+      </div>
+    </div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{.Silences}}">{{.L.Cancel}}</a>
+      <button type="submit" name="intent" value="preview" class="ol-btn ol-btn-primary">{{.L.Preview}}</button>
+    </div>
+  </form>
+  {{else}}
+  <section class="ol-panel">
+    <div class="ol-panel-body"><p>{{.L.NoServices}}</p></div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{.Silences}}">{{.L.Cancel}}</a>
+      <a class="ol-btn ol-btn-primary" href="{{.Monitors}}">{{.L.Monitors}}</a>
+    </div>
+  </section>
+  {{end}}
+  <aside class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Effect}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+      <p>{{.L.EffectHint}}</p>
+      {{if .Preview}}<ul class="ol-list">{{range .Draft.Services}}<li class="ol-break">{{.}}</li>{{end}}</ul>{{end}}
+    </div>
+  </aside>
+</div>{{end}}
