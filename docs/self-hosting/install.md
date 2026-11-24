@@ -63,7 +63,7 @@ grep BEACON_VERSION .env.example
 sudo ./install.sh
 ```
 
-The script asks for the two host names and the e-mail address. To run it unattended, give them in the environment: `STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh`.
+The script asks for the two host names and the e-mail address. To run it unattended, give them in the environment: `sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh`.
 
 Then it does the rest:
 
@@ -116,15 +116,16 @@ If it does not go like this:
 
 Beacon tells an outage from a hiccup by agreement. A service is down only when at least two locations fail it, and they are at least half of the locations reporting. So the first location gives you data, and the second gives you alerts.
 
-**Enrol the first location.** The catalogue already holds one location, `edge-1`. The catalogue is `catalog/locations.yaml`, imported into Beacon's database at the first start. On the centre, enrol the location. The token is printed once:
+**Enrol the first location.** The catalogue already holds one location, `edge-1`. The catalogue is `catalog/locations.yaml`, imported into Beacon's database at the first start. On the centre, enrol the location. Save the one-time token into a private temporary file.
 
 ```bash
-docker exec beacon beacon enroll probe edge-1 > edge-1.token
+edge_1_token=$(mktemp)
+docker exec beacon beacon enroll probe edge-1 > "$edge_1_token"
 ```
 
-You should see `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`. `edge-1.token` holds a line starting with `lbt_`.
+You should see `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`. The file at `$edge_1_token` holds a line starting with `lbt_`.
 
-**Install the probe.** Copy `/opt/beacon/probe/` and `edge-1.token` to the probe machine, and run there, as root:
+**Install the probe.** Transfer `/opt/beacon/probe/` and the file at `$edge_1_token` to a private directory on the probe machine over SSH. Save the file as `edge-1.token` there. From that directory, run this as root.
 
 ```bash
 sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
@@ -136,6 +137,8 @@ About 10 seconds later it ends with:
 edge-1: beacon-probe beacon 0.3.0-rc.23 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
+
+Once the first push succeeds, remove the temporary file on the centre and its transferred copy. The probe uses the copy installed at `/etc/beacon-probe/token`.
 
 From then on the location probes every minute whatever the gateway hands it. Changing what is checked never means touching the probe again.
 
@@ -153,16 +156,19 @@ From then on the location probes every minute whatever the gateway hands it. Cha
 ```bash
 docker exec beacon beacon config import /etc/beacon -dry-run
 docker exec beacon beacon config import /etc/beacon -note "second probe location"
-docker exec beacon beacon enroll probe edge-2 > edge-2.token
+edge_2_token=$(mktemp)
+docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 ```
 
-The dry run should list one line, `+ locations edge-2`, under `would change 1 items (nothing changed):`. The import lists the same under `version 2: import of 1 items`.
+The dry run should list one line, `+ location edge-2`, under `would change 1 items (nothing changed):`. The import lists the same under `version 2: import of 1 items`.
 
-**Install the second probe** as above, on the second machine. On the centre itself, point it at the gateway's own port, which the reference deployment publishes on `127.0.0.1`:
+**Install the second probe** as above using the token at `$edge_2_token`. If the second probe runs on the centre itself, install it in the same terminal using the loopback gateway instead.
 
 ```bash
-sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
+sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_token"
 ```
+
+Once the second push succeeds, remove the temporary token file and any transferred copy.
 
 An import makes the files the whole configuration. Anything changed through the API or MCP that the files do not hold is removed. That is why `-dry-run` comes first.
 
@@ -195,29 +201,31 @@ On the machine, as root, if not done yet:
 (see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
-**Run those four lines on the machine**, as root. They make sshd trust Beacon's certificate authority (CA), the key that signs a short-lived certificate for each connection. They also create the account those certificates name.
+**On the machine, as root**, run the first three lines printed by `machine add`. They configure the certificate authority (CA) that signs each short-lived connection and create the account those certificates name. Check that `sshd_config` includes `/etc/ssh/sshd_config.d/*.conf`, then run `sshd -t`. Once it passes, reload `ssh` on Debian or Ubuntu, or `sshd` on distributions such as RHEL.
 
 If `machine add` fails with `the machine cannot be reached`, the centre cannot open a connection to the machine's SSH port. Allow it in the machine's firewall. For a machine behind NAT, add it the other way round, as [Machines behind NAT](../guide/machines.md#machines-behind-nat) describes.
 
 Two more settings are worth making now rather than later:
 
 - **What the `beacon` account may do is the real boundary.** Give it only what the work needs, for example in `/etc/sudoers.d/beacon`: `beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`.
-- **Exempt the centre from OpenSSH's penalties** for failed connections. Every agent arrives from the centre's address, so add `PerSourcePenaltyExemptList 203.0.113.7` (the centre's address) to `beacon.conf`.
+- **Exempt the centre from OpenSSH's penalties** if the machine supports `PerSourcePenaltyExemptList` (introduced in 9.8). Add `PerSourcePenaltyExemptList 203.0.113.7` to `beacon.conf` with the centre's source address, then validate and reload sshd.
 
 [Give agents a machine](../guide/machines.md) has the rest.
 
 ## 4. The first agent
 
-5 minutes. Every step of it is written out in [Try it on your laptop](../guide/quickstart.md), and the commands are the same against your server.
+5 minutes to connect the agent. Make the first account on the centre with the link printed by `docker exec beacon beacon setup`. Open the link on your workstation and create the owner account.
 
-In short, make the first account with the one-time link the service prints. Then connect your agent over MCP, and sign it in through the browser:
+**Check personal SSH.** Follow [Connect as yourself](../guide/machines.md#connect-as-yourself) to register your personal key and run `hostname` on `edge-1`. Replay the session in **Sessions** and check that it shows your username.
+
+**Connect the agent's MCP client.** On the workstation, add the server and sign in through the browser.
 
 ```bash
-docker exec beacon beacon setup
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
+claude mcp login beacon
 ```
 
-The agent never does more than your role allows. Every command it runs on a machine is on record, with a replay.
+On the consent page, choose the **On call** preset and select `edge-1`. In Claude Code, ask the agent to call Beacon's `whoami` and then `run_command` on `edge-1` with the command `hostname`. Open its replay in **Sessions** and check that the actor is `person / agent`. This check uses Beacon's SSH channel without registering a key for the MCP client. For the agent's own `ssh` and `scp`, set up a [separate agent key](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 
 - Roles and invitations are in [Invite your team](../guide/people.md).
 - Codex, other clients and headless agents with tokens are in [Integrations](../integrations/index.md).
@@ -229,8 +237,8 @@ The agent never does more than your role allows. Every command it runs on a mach
 In short, Beacon has a service of its own to rehearse on. With two locations:
 
 - `docker exec beacon beacon drill fail 15m` makes both locations fail;
-- `ServiceDown` fires about 4 to 5 minutes later;
-- `beacon drill off` ends it, and the alert resolves at once.
+- Beacon shows the `ServiceDown` alert about five minutes later;
+- `docker exec beacon beacon drill off` restores the drill endpoint, then the alert resolves after the probes and rule engine check it again.
 
 ## What next
 

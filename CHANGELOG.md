@@ -4,6 +4,9 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- The reference and trial installers and the probe package now default to the same published version. The reference deployment includes a CI drill from a clean Linux installation through two probes, MCP, recorded SSH and recovery.
+- The reference ServiceDown rule evaluates the required probe quorum directly, without waiting for the intermediate availability metrics to be written back between evaluations.
+
 ## 0.3.0
 
 ### rc.26 (2026-11-25)

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f12e69cb
+sourceHash: sha256-11fab8af
 ---
 # 在本机试一试
 
@@ -81,7 +81,7 @@ localhost 上的明文 http 在这里没有问题。控制台的 cookie 是 `Sec
 Beacon 现在有什么在告警？
 ```
 
-Agent 会调用 `status_summary`，用它返回的结果回答。没有 firing 的告警：演示服务正常，检测点在汇报，告警能够送达。
+Agent 会调用 `status_summary`，用它返回的结果回答。没有 firing 的告警：演示服务正常，检测点在汇报。
 
 这就是 Agent 平时的视角。凌晨三点问同一句话，答案就是你马上要制造的那条告警。
 

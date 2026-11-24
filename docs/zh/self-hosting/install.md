@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c75df3b9
+sourceHash: sha256-1cdadbca
 ---
 
 # 装在服务器上
@@ -67,7 +67,7 @@ grep BEACON_VERSION .env.example
 sudo ./install.sh
 ```
 
-脚本会询问两个域名和邮箱地址。想无人值守地安装，就把它们放在环境变量里：`STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh`。
+脚本会询问两个域名和邮箱地址。想无人值守地安装，就把它们放在环境变量里：`sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh`。
 
 剩下的事脚本自己做：
 
@@ -120,15 +120,16 @@ curl https://metrics.example.com/api/v1/targets  # {"code":"auth.required",…}�
 
 Beacon 靠多个检测点的一致判断，来区分真正的故障和偶尔的抖动。至少两个检测点检测失败，并且失败的至少占有数据的检测点的一半，才算服务故障。所以第一个检测点带来数据，第二个检测点才带来告警。
 
-**登记第一个检测点**。目录里已经有一个检测点 `edge-1`。目录就是 `catalog/locations.yaml`，在首次启动时导入 Beacon 的数据库。在中心上登记这个检测点，令牌只打印这一次：
+**登记第一个检测点**。目录里已经有一个检测点 `edge-1`。目录就是 `catalog/locations.yaml`，在首次启动时导入 Beacon 的数据库。在中心上登记这个检测点，把只打印一次的令牌保存到权限受限的临时文件。
 
 ```bash
-docker exec beacon beacon enroll probe edge-1 > edge-1.token
+edge_1_token=$(mktemp)
+docker exec beacon beacon enroll probe edge-1 > "$edge_1_token"
 ```
 
-应该看到 `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`。`edge-1.token` 里是一行以 `lbt_` 开头的令牌。
+应该看到 `enrolled probe-edge-1 (probe:write, expires …); the token above is not shown again`。`$edge_1_token` 指向的临时文件里是一行以 `lbt_` 开头的令牌。
 
-**安装检测程序**。把 `/opt/beacon/probe/` 目录和 `edge-1.token` 复制到检测点机器上，以 root 执行：
+**安装检测程序**。通过 SSH 将 `/opt/beacon/probe/` 目录和 `$edge_1_token` 指向的文件复制到检测点机器上只有你能访问的目录。将令牌文件保存为 `edge-1.token`，在该目录下以 root 执行以下命令。
 
 ```bash
 sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.token
@@ -140,6 +141,8 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 edge-1: beacon-probe beacon 0.3.0-rc.23 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
+
+确认首次推送成功后，删除中心上的临时文件和传到检测点的副本。检测程序使用已安装在 `/etc/beacon-probe/token` 的令牌。
 
 从此这个检测点每分钟检测一次网关交给它的目标。以后改检测内容，都不用再动检测点。
 
@@ -157,16 +160,19 @@ the gateway at https://metrics.example.com accepted the first push; the location
 ```bash
 docker exec beacon beacon config import /etc/beacon -dry-run
 docker exec beacon beacon config import /etc/beacon -note "second probe location"
-docker exec beacon beacon enroll probe edge-2 > edge-2.token
+edge_2_token=$(mktemp)
+docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 ```
 
-预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ locations edge-2`。正式导入则在 `version 2: import of 1 items` 下面列出同样一行。
+预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ location edge-2`。正式导入则在 `version 2: import of 1 items` 下面列出同样一行。
 
-**安装第二个检测程序**，在第二台机器上照上面的步骤做。如果装在中心上，就让它直接连网关自己的端口，参考部署把这个端口开放在 `127.0.0.1` 上：
+**安装第二个检测程序**。照前面的步骤使用 `$edge_2_token` 指向的令牌。如果装在中心本机，就在同一个终端中使用回环地址安装。
 
 ```bash
-sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file edge-2.token
+sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_token"
 ```
+
+确认第二个检测点推送成功后，删除临时令牌文件和传过去的副本。
 
 导入会让这些文件成为全部配置。通过 API 或 MCP 改过、而文件里没有的内容会被删掉。所以要先用 `-dry-run` 预演。
 
@@ -199,29 +205,31 @@ On the machine, as root, if not done yet:
 (see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)
 ```
 
-**在机器上执行中间这四行**，以 root 身份。它们让 sshd 信任 Beacon 的 CA，也就是为每次连接签发短期证书的那把密钥。它们还创建证书里指定的账户。
+**在机器上以 root 身份**执行 `machine add` 打印出来的前三行命令。它们配置为每次连接签发短期证书的 CA，并创建证书里指定的账户。确认 `sshd_config` 包含 `/etc/ssh/sshd_config.d/*.conf`，再运行 `sshd -t`。验证通过后，在 Debian 或 Ubuntu 上重新加载 `ssh`，RHEL 等发行版则重新加载 `sshd`。
 
 如果 `machine add` 报 `the machine cannot be reached`，说明中心连不上这台机器的 SSH 端口。在机器的防火墙里放行。如果机器在 NAT 后面，就按 [NAT 后面的机器](../guide/machines.md#machines-behind-nat)反过来添加。
 
 还有两项配置最好现在就做：
 
 - **`beacon` 账户能做什么，才是真正的边界**。只给它干活需要的权限，比如在 `/etc/sudoers.d/beacon` 里写：`beacon ALL=(root) NOPASSWD: /usr/bin/systemctl restart beacon-probe, /usr/bin/journalctl`。
-- **别让 OpenSSH 因连接失败惩罚中心的地址**。所有 Agent 都从中心的地址连过来，所以在 `beacon.conf` 里加上 `PerSourcePenaltyExemptList 203.0.113.7`（中心的地址）。
+- **让中心的地址免受 OpenSSH 的连接失败惩罚**，前提是机器支持 `PerSourcePenaltyExemptList`（9.8 引入）。在 `beacon.conf` 中添加 `PerSourcePenaltyExemptList 203.0.113.7`，将示例地址换成中心的来源地址，再验证配置并重新加载 sshd。
 
 其余内容见[给 Agent 一台机器](../guide/machines.md)。
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
-5 分钟。每一步都写在[在本机试一试](../guide/quickstart.md)里，对着你的服务器执行同样的命令。
+连接 Agent 约需 5 分钟。先在中心运行 `docker exec beacon beacon setup`，在工作站上打开它打印的一次性链接，创建所有者账号。
 
-简言之：用服务打印的一次性链接建第一个账号。然后通过 MCP 接上你的 Agent，在浏览器里给它授权：
+**验证个人 SSH。** 按[以自己的身份连接](../guide/machines.md#connect-as-yourself)登记个人公钥，再到 `edge-1` 执行 `hostname`。在**会话**中回放，确认操作人是你的用户名。
+
+**接入 Agent 的 MCP 客户端。** 在工作站上添加 Beacon，通过浏览器登录。
 
 ```bash
-docker exec beacon beacon setup
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
+claude mcp login beacon
 ```
 
-Agent 能做的事不会超出你的角色。它在机器上执行的每条命令都有记录，可以回放。
+在授权页选择**值班**预设，并选定 `edge-1`。在 Claude Code 中请 Agent 调用 Beacon 的 `whoami`，然后通过 `run_command` 在 `edge-1` 上执行 `hostname`。在**会话**中打开回放，确认操作人显示为 `人 / Agent`。这项检查会用到 Beacon 的 SSH 通道，MCP 客户端无需登记 SSH 密钥。要让 Agent 直接使用 `ssh` 和 `scp`，请[登记独立的 Agent 密钥](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
 
 - 角色和邀请成员，见[邀请你的团队](../guide/people.md)。
 - Codex、其他客户端和用令牌的无头 Agent，见[接入](../integrations/index.md)。
@@ -233,8 +241,8 @@ Agent 能做的事不会超出你的角色。它在机器上执行的每条命�
 简言之：Beacon 自带一个用来演练的服务。有两个检测点时：
 
 - `docker exec beacon beacon drill fail 15m` 让两个检测点都看到失败；
-- 约 4 到 5 分钟后 `ServiceDown` 触发；
-- `beacon drill off` 结束演练，告警随即恢复。
+- 约五分钟后可在 Beacon 看到 `ServiceDown` 告警；
+- `docker exec beacon beacon drill off` 恢复演练端点，检测点和规则引擎再次检查后，告警恢复。
 
 ## 接下来 {#what-next}
 

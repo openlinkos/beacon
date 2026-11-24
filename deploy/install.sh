@@ -2,7 +2,7 @@
 # Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/self-hosting/install.md walks
 # through the first half hour).
 #   sudo ./install.sh                                              asks for the host names and the ACME address
-#   STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh    unattended
+#   sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh    unattended
 # Idempotent: it makes what is missing (.env, the secrets, the host names in the files), validates, pulls,
 # starts, waits for health and prints the next steps. Run it again after changing a file or BEACON_VERSION.
 set -eu
@@ -149,8 +149,9 @@ say "  $STATUS_HOST:17002            the SSH channel"
 say ""
 say "Next (docs/self-hosting/install.md has the details and how long each takes); run these from this directory:"
 say "  1. A probe location (edge-1 is in catalog/locations.yaml; add yours there or through the API):"
-say "       docker exec beacon beacon enroll probe edge-1 > /tmp/edge-1.token"
-say "     then on that machine, with probe/ and the token copied over:"
+say "       probe_token=\$(mktemp)"
+say "       docker exec beacon beacon enroll probe edge-1 > \"\$probe_token\""
+say "     then on that machine, with probe/ and the private token file copied over:"
 say "       sh probe/install.sh -gateway https://$METRICS_HOST -token-file edge-1.token"
 say "  2. A machine agents may reach (prints the lines its sshd needs):"
 say "       docker exec beacon beacon machine add NAME HOST"
