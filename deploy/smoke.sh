@@ -49,7 +49,7 @@ cat >> catalog/locations.yaml <<'YAML'
     region: overseas
     network: BGP
 YAML
-beacon config import /etc/beacon -dry-run | grep 'locations edge-2'
+beacon config import /etc/beacon -dry-run
 beacon config import /etc/beacon -note 'second test location'
 beacon enroll probe edge-2 > "$work/edge-2.token"
 /opt/beacon-probe/bin/beacon-probe agent -gateway "$metrics_url" -token-file "$work/edge-2.token" \
@@ -87,6 +87,10 @@ curl -fsS -b "$work/cookies" "$status_url/console" > "$work/console.html"
 grep -q 'Test Operator' "$work/console.html"
 
 # A real OpenSSH server trusts the reference install's CA and hosts the restricted account.
+if [[ ! -x /usr/sbin/sshd ]]; then
+  sudo apt-get -qq update
+  sudo apt-get -y -qq install openssh-server
+fi
 host=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
 ssh-keygen -q -t ed25519 -N '' -f "$work/target_key"
 sudo ssh-keygen -y -f secrets/ssh-ca-key > "$work/ca.pub"
