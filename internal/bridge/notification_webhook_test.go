@@ -24,7 +24,7 @@ func runWebhookDispatch(b *Bridge, ctx context.Context) {
 
 func TestNotificationWebhookRetainsOrderedTransitions(t *testing.T) {
 	e := newEnv(t)
-	e.b.d.Config.PublicURL = "https://beacon.example.com/"
+	e.b.d.Config.PublicURL = "https://ops:example-password@beacon.example.com/?access=fixture#example"
 	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: config.NotificationWebhookChannel}
 	var attempts [][]byte
 	deps := e.b.d
