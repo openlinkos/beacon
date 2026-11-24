@@ -85,6 +85,7 @@ type overviewPage struct {
 	Calls        []callItem
 	CallSummary  string
 	DeliveryHint string
+	DeliveryHelp kvLink
 	Channel      stat
 	Facts        []kvLink
 }
@@ -229,12 +230,15 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
 		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
+		owned := g.Ack.StopsEscalation()
 		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
 			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
-			Acked: g.Ack != nil, Silenced: silenced, Unclaimed: g.Ack == nil && !silenced, kind: "alert"}
+			Acked: owned, Silenced: silenced, Unclaimed: !owned && !silenced, kind: "alert"}
 		switch {
 		case item.Acked:
 			item.Response = s.t("Acknowledged by %s", g.Ack.By)
+		case item.Unclaimed && g.Ack != nil:
+			item.Response = s.t("Awaiting a person. %s", s.t("Agent acknowledgement from %s via %s", g.Ack.By, s.via(g.Ack.Via)))
 		case item.Unclaimed:
 			item.Response = s.t("Awaiting acknowledgement")
 		}
@@ -365,8 +369,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
 	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
-	if !s.Bridge.Delivery().CriticalToPeople {
-		p.DeliveryHint = s.t("Critical alerts have no route to people. Set up chat or phone notifications before relying on escalation.")
+	delivery := s.Bridge.Delivery()
+	if !delivery.CriticalToPeople {
+		p.DeliveryHint = s.t("Critical alerts have no route to people.")
+		p.DeliveryHelp = kvLink{V: s.t("Set up chat or phone notifications"),
+			Href: docsURL(s.Lang) + "reference/config#escalation-and-acknowledgements"}
 	}
 
 	switch {
@@ -413,7 +420,22 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if f.ConfigBy != "" {
 		cv.V = s.t("%d, by %s via %s, %s", f.ConfigVersion, f.ConfigBy, f.ConfigVia, f.ConfigAt)
 	}
-	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}}
+	chat, phone := s.t("Off"), s.t("Off")
+	switch delivery.CriticalChat {
+	case "app":
+		chat = s.t("Feishu")
+	case "webhook":
+		chat = s.t("Feishu group bot")
+	}
+	if len(delivery.CriticalPhone) != 0 {
+		phone = strings.Join(delivery.CriticalPhone, s.t(", "))
+	}
+	p.Facts = []kvLink{
+		{K: s.t("Critical alert chat"), V: chat},
+		{K: s.t("Scheduled phone escalation"), V: phone},
+		cv,
+		{K: s.t("Beacon version"), V: s.version()},
+	}
 	s.render(w, overviewTmpl, p)
 }
 

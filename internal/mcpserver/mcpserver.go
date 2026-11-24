@@ -29,9 +29,10 @@ import (
 
 // Instructions tell an agent what the server is for and how to use the write tools responsibly.
 const Instructions = `Beacon watches services and sends alerts to the people on call through Feishu,
-escalating to their phones when nobody acknowledges them. Use these tools to see what is alerting and why
+escalating to their phones while nobody has taken responsibility. Use these tools to see what is alerting and why
 (status_summary, list_alerts, get_alert, list_silences, list_audit) and, with a write token, to act on it.
-Acknowledge an alert only when someone is working on it, and say what in the note. Silence only with a
+Use notes to report your findings and check results. An Agent acknowledgement leaves human escalation in effect.
+Silence only with a
 reason, for as short a time as will do (24 hours at most); a silence stops notifications for every alert in
 the group.
 
@@ -371,7 +372,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "ack_alert", Title: "Acknowledge an alert",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Acknowledge a firing alert group: escalation to people's phones stops for four hours. Say what is being done in the note."},
+		Description: "Acknowledge a firing alert group and say what is being done in the note. An Agent acknowledgement leaves human escalation in effect. A person's acknowledgement or a standalone token acknowledgement pauses escalation for the configured acknowledgement timeout."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in ackIn) (*mcp.CallToolResult, bridge.GroupView, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {

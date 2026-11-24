@@ -5,16 +5,84 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/probenow"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
+
+var expectedAck = regexp.MustCompile(`name="expected_ack" value="([0-9a-f]+)"`)
+
+func ackForm(t *testing.T, page answer, note string) url.Values {
+	t.Helper()
+	field := expectedAck.FindStringSubmatch(page.body)
+	if page.code != http.StatusOK || len(field) != 2 {
+		t.Fatalf("acknowledgement form missing on page with status %d", page.code)
+	}
+	return url.Values{"expected_ack": {field[1]}, "note": {note}}
+}
+
+func TestHumanTakeoverAndShiftHandover(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	owner := e.owner()
+	first := e.invite(owner, "first-shift", "oncall")
+	second := e.invite(owner, "next-shift", "oncall")
+	reader := e.invite(owner, "reader", "viewer")
+	path := link.AlertPath(e.id)
+	post := path + "/ack"
+	stale := ackForm(t, second.get(path), "")
+
+	who := bridge.ActorOf(store.Principal{User: "first-shift", Agent: "responder"}, "mcp")
+	if _, err := e.b.Ack(context.Background(), e.id, who, "looking into it"); err != nil {
+		t.Fatal(err)
+	}
+	show := first.get(path)
+	for _, want := range []string{"Agent acknowledgement from first-shift / responder", "Take over",
+		"A hook accepted the alert. Check the timeline for Agent activity.", "Notification accepted by the group bot"} {
+		if !strings.Contains(show.body, want) {
+			t.Errorf("takeover page lacks %q", want)
+		}
+	}
+	if a := reader.get(path); strings.Contains(a.body, `id="alert-ack"`) {
+		t.Fatal("viewer can see takeover controls")
+	}
+	if a := second.post(post, stale); a.header.Get("Location") != path+"?error=ack_changed" {
+		t.Fatalf("stale form redirected to %q", a.header.Get("Location"))
+	}
+	if a := first.post(post, ackForm(t, show, "Checked the failed dependency.")); a.header.Get("Location") != path+"?done=ack" {
+		t.Fatalf("first shift could not claim it: %q", a.header.Get("Location"))
+	}
+	if _, err := e.b.Ack(context.Background(), e.id, who, "finished initial checks"); err != nil {
+		t.Fatal(err)
+	}
+	show = second.get(path)
+	if !strings.Contains(show.body, "Acknowledged by first-shift at") || !strings.Contains(show.body, "Take over") {
+		t.Fatal("Agent update displaced the first shift or omitted handover")
+	}
+	if a := second.post(post, ackForm(t, show, "Continuing the dependency investigation.")); a.header.Get("Location") != path+"?done=ack" {
+		t.Fatalf("next shift could not take over: %q", a.header.Get("Location"))
+	}
+	show = second.get(path)
+	for _, want := range []string{"Acknowledged by next-shift at", "Acknowledged by first-shift via the console",
+		"Checked the failed dependency.", "Continuing the dependency investigation.", "finished initial checks"} {
+		if !strings.Contains(show.body, want) {
+			t.Errorf("handover timeline lacks %q", want)
+		}
+	}
+	for _, person := range []string{"first-shift", "next-shift"} {
+		if !audited(e.st, person, "ack") {
+			t.Errorf("missing durable acknowledgement for %s", person)
+		}
+	}
+}
 
 func TestSignedAlertReturnsToAlertAfterSignIn(t *testing.T) {
 	e := newEnv(t, i18n.EN)

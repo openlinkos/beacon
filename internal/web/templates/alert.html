@@ -11,7 +11,7 @@
     {{if .SignInHref}}<div class="ol-cluster"><a class="ol-btn ol-btn-primary" href="{{.SignInHref}}">{{iconSm "log-in"}}{{.L.SignIn}}</a></div>{{end}}
     {{with .Actions}}<div class="bc-alert-controls">
       <div class="ol-cluster bc-alert-buttons">
-        {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{$.L.Acknowledge}}</button></form>{{end}}
+        {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="expected_ack" value="{{.AckVersion}}"><button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{if .TakeOver}}{{$.L.TakeOver}}{{else}}{{$.L.Acknowledge}}{{end}}</button></form>{{end}}
         {{if .Probe}}<form method="post" action="{{.Probe}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-btn {{if .Ack}}ol-btn-secondary{{else}}ol-btn-primary{{end}}" aria-describedby="probe-wait">{{iconSm "activity"}}{{$.L.ProbeNow}}</button></form>{{end}}
         {{if .Note}}<a class="ol-btn ol-btn-secondary" href="#add-note">{{iconSm "pencil"}}{{$.L.AddNote}}</a>{{end}}
       </div>
@@ -23,7 +23,17 @@
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
     </div>{{end}}
+    {{if .HookState}}<div class="ol-cluster bc-alert-signals">
+      <a class="ol-hint" href="#timeline">{{.HookState}}</a>
+      <a class="{{if .PeopleDeliveryFailed}}ol-status ol-status-danger{{else}}ol-hint{{end}}" href="#timeline">{{.PeopleDelivery}}</a>
+    </div>{{end}}
   </div>
+  {{with .Machines}}<div class="bc-alert-machines">
+    {{if .Items}}<div class="ol-cluster">
+      <h3 class="ol-label">{{.Title}}</h3>
+      {{range .Items}}<a class="ol-btn ol-btn-secondary" href="{{.Href}}" aria-label="{{.K}}">{{iconSm "server"}}{{.V}}</a>{{end}}
+    </div>{{else}}<p class="ol-hint">{{.Hint}}</p>{{end}}
+  </div>{{end}}
 </section>
 <div class="ol-layout-supporting">
 <div class="ol-stack">
@@ -52,7 +62,7 @@
   </section>
 
   <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
+    <div class="ol-panel-header bc-alert-sessions-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
     {{if .Sessions}}
     <ul class="ol-list">
     {{range .Sessions}}<li>

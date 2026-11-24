@@ -19,7 +19,7 @@ type Timeline struct {
 	Events     []Event         `json:"events"`
 }
 
-// Event is one entry of a timeline. Kind is started, notified, buzzed, pushover, acknowledged, note,
+// Event is one entry of a timeline. Kind is started, notified, buzzed, pushover, notification, acknowledged, note,
 // silenced, silence_ended, agent, change, session, command (one run at a shell's prompt), heartbeat (its
 // last success), probe_now or resolved; the other fields say what each needs. URL is a change's link, or the signed
 // link to a session's page, where people replay it. Phase, on changes, sessions, commands and heartbeats,
@@ -36,7 +36,7 @@ type Event struct {
 	ID      string                   `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
 	Until   *time.Time               `json:"until,omitempty"`
 	Event   string                   `json:"event,omitempty"`  // an agent call: for firing or resolved
-	Result  string                   `json:"result,omitempty"` // an agent call: ok, failed or pending
+	Result  string                   `json:"result,omitempty"` // for hook and notification attempts: ok, failed or pending
 	Exit    *int                     `json:"exit,omitempty"`   // a session's or a command's exit status
 	URL     string                   `json:"url,omitempty"`
 	Related string                   `json:"related,omitempty"` // why a change or session is listed: service, machine or agent
@@ -61,11 +61,14 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 			ev = append(ev, e)
 		}
 	}
-	add(Event{At: g.NotifiedAt, Kind: "notified", Via: g.Channel})
-	add(Event{At: g.Buzzed, Kind: "buzzed", Via: "feishu"})
-	add(Event{At: g.Pushed, Kind: "pushover", Via: "pushover"})
+	for _, e := range notificationEvents(&g) {
+		add(e)
+	}
+	for _, a := range g.PriorAcks {
+		add(Event{At: a.At, Kind: "acknowledged", By: a.By, Via: a.Via, Type: a.Kind, Text: clean(a.Note, maxLong, true)})
+	}
 	if g.Ack != nil {
-		add(Event{At: g.Ack.At, Kind: "acknowledged", By: g.Ack.By, Via: g.Ack.Via, Text: clean(g.Ack.Note, maxLong, true)})
+		add(Event{At: g.Ack.At, Kind: "acknowledged", By: g.Ack.By, Via: g.Ack.Via, Type: g.Ack.Kind, Text: clean(g.Ack.Note, maxLong, true)})
 	}
 	for _, n := range g.Notes {
 		add(Event{At: n.At, Kind: "note", By: n.By, Via: n.Via, Text: clean(n.Text, maxLong, true)})

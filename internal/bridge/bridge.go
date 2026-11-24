@@ -265,15 +265,19 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "firing"
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
-			g.ProbeRuns = nil
+			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
 			g.Episode, g.Participation = newDelivery(), nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
+			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
 			g.StartsAt = starts
 			if g.StartsAt.IsZero() {
 				g.StartsAt = b.now()
 			}
 			b.notifyNew(ctx, &g)
+			if g.Channel == "app" || g.Channel == "webhook" {
+				g.ChannelAt = g.NotifiedAt
+			}
 			b.wake(&g, "firing")
 		} else {
 			b.refresh(ctx, &g)
@@ -294,6 +298,17 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 	g.NotifiedAt = b.now()
 	pol := b.d.Config.Policy(g.Severity)
+	g.Channel = "none"
+	if pol.InitialPushover && b.d.Pushover != nil {
+		b.push(ctx, g)
+		return
+	}
+	if pol.Channel != "app" && pol.Channel != "webhook" {
+		b.d.Log.Info("alert recorded without an initial human notification", "group", g.ID, "summary", b.title(g))
+		return
+	}
+
+	triedPhone := false
 	if pol.Channel == "app" && b.appAllowed(g.Severity) {
 		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.card(ctx, g), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
 		b.feishuResult(err)
@@ -302,10 +317,12 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 			b.count("feishu", "ok")
 			return
 		}
+		b.recordNotification(g, "app", err)
 		b.count("feishu", "error")
 		b.d.Log.Error("feishu card failed; falling back", "group", g.ID, "err", err)
 		if g.Severity == "critical" && b.d.Pushover != nil {
 			b.push(ctx, g)
+			triedPhone = true
 		}
 	}
 	if b.d.Bot != nil {
@@ -315,19 +332,15 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 			b.count("feishu-bot", "ok")
 			return
 		}
+		b.recordNotification(g, "webhook", err)
 		b.count("feishu-bot", "error")
 		b.d.Log.Error("feishu group bot failed", "group", g.ID, "err", err)
 	}
-	if g.Pushed.IsZero() && b.d.Pushover != nil && g.Severity == "critical" {
+	if !triedPhone && b.d.Pushover != nil && g.Severity == "critical" {
 		b.push(ctx, g)
 	}
-	if g.Channel == "" {
-		g.Channel = "none"
-		if b.d.Feishu == nil && b.d.Bot == nil && b.d.Pushover == nil {
-			b.d.Log.Info("alert recorded; no notification channel is configured", "group", g.ID, "summary", b.title(g))
-			return
-		}
-		b.d.Log.Error("alert could not be delivered by any channel", "group", g.ID, "summary", b.title(g))
+	if g.Pushed.IsZero() {
+		b.d.Log.Error("alert could not be delivered by its initial routes", "group", g.ID, "summary", b.title(g))
 	}
 }
 
@@ -353,10 +366,8 @@ func (b *Bridge) patch(ctx context.Context, g *store.Group) {
 }
 
 func (b *Bridge) resolve(ctx context.Context, g *store.Group) {
-	if !g.Pushed.IsZero() && b.d.Pushover != nil && g.Ack == nil {
-		if err := b.d.Pushover.CancelByTag(ctx, g.ID); err != nil {
-			b.d.Log.Warn("pushover cancel failed", "group", g.ID, "err", err)
-		}
+	if pushoverAccepted(g) && b.d.Pushover != nil && !g.Ack.StopsEscalation() {
+		b.cancelPushover(ctx, g)
 	}
 	switch {
 	case b.patchAllowed(g, true):
@@ -369,10 +380,14 @@ func (b *Bridge) resolve(ctx context.Context, g *store.Group) {
 }
 
 func (b *Bridge) push(ctx context.Context, g *store.Group) {
+	if !notificationDue(g, "pushover", b.now()) {
+		return
+	}
 	rc, err := b.d.Pushover.Send(ctx, notify.Emergency{
 		Title: b.t("%s: %s", b.severityName(g.Severity), b.title(g)), Message: b.plainBody(g),
 		URL: b.link(b.d.Config.Links.Runbook, g), URLTitle: b.t("Runbook"), Tag: g.ID,
 	})
+	b.recordNotification(g, "pushover", err)
 	if err != nil {
 		b.count("pushover", "error")
 		b.d.Log.Error("pushover failed", "group", g.ID, "err", err)
@@ -402,6 +417,7 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 		return feishu.Response{Toast: b.t("This alert has already resolved"), ToastKind: "info", Card: b.card(ctx, &g)}
 	}
 	var toast string
+	who := Actor{Name: person.Name, Via: "feishu"}
 	switch act {
 	case "ack", "note":
 		note := ""
@@ -409,14 +425,14 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 			note, _ = a.Form["note"].(string)
 			note = strings.TrimSpace(note)
 		}
-		b.ack(ctx, &g, person.Name, "feishu", note)
+		b.ack(ctx, &g, who, note)
 		toast = b.t("Acknowledged")
 	case "silence":
 		d, err := time.ParseDuration(fmt.Sprint(a.Value["d"]))
 		if err != nil || d <= 0 || d > maxSilence {
 			return feishu.Response{Toast: b.t("Unknown action"), ToastKind: "error"}
 		}
-		if err := b.silence(ctx, &g, d, person.Name, "feishu", "from the Feishu card"); err != nil {
+		if err := b.silence(ctx, &g, d, who, "from the Feishu card"); err != nil {
 			b.d.Log.Error("silence failed", "group", g.ID, "err", err)
 			return feishu.Response{Toast: b.t("Could not silence: %s", err.Error()), ToastKind: "error"}
 		}
@@ -428,7 +444,7 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	if act == "silence" {
 		action = "silence"
 	}
-	recordParticipation(&g, Actor{Name: person.Name, Via: "feishu"}, action, b.now())
+	recordParticipation(&g, who, action, b.now())
 	card := b.card(ctx, &g)
 	g.CardAt, g.CardHash = b.now(), cardHash(&g)
 	if err := b.d.Store.PutGroup(g); err != nil {
@@ -438,35 +454,74 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	return feishu.Response{Toast: toast, ToastKind: "success", Card: card}
 }
 
-func (b *Bridge) ack(ctx context.Context, g *store.Group, by, via, note string) {
-	g.Ack = &store.Ack{By: by, Via: via, Note: note, At: b.now()}
-	if !g.Pushed.IsZero() && b.d.Pushover != nil {
+func (b *Bridge) ack(ctx context.Context, g *store.Group, who Actor, note string) {
+	a := store.Ack{By: who.Name, Via: who.Via, Note: note, At: b.now(), Kind: actorKind(who)}
+	if a.Kind == "agent" && g.Ack.StopsEscalation() {
+		rememberAck(g, a)
+		return
+	}
+	if g.Ack != nil {
+		rememberAck(g, *g.Ack)
+	}
+	g.Ack = &a
+	if a.Kind != "agent" {
+		b.cancelPushover(ctx, g)
+	}
+}
+
+func (b *Bridge) cancelPushover(ctx context.Context, g *store.Group) {
+	if pushoverAccepted(g) && b.d.Pushover != nil {
 		if err := b.d.Pushover.CancelByTag(ctx, g.ID); err != nil {
 			b.d.Log.Warn("pushover cancel failed", "group", g.ID, "err", err)
 		}
 	}
 }
 
-func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, by, via, comment string) error {
+func rememberAck(g *store.Group, a store.Ack) {
+	a.Note = clean(a.Note, maxLong, true)
+	g.PriorAcks = append(g.PriorAcks, a)
+	if n := len(g.PriorAcks); n > 20 {
+		g.PriorAcks = g.PriorAcks[n-20:]
+	}
+}
+
+func ackVersion(g *store.Group) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%q %s", g.Episode, g.StartsAt.UTC().Format(time.RFC3339Nano))
+	if a := g.Ack; a != nil {
+		_, _ = fmt.Fprintf(h, " %q %q %q %q %s", a.By, a.Via, a.Note, a.Kind, a.At.UTC().Format(time.RFC3339Nano))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, who Actor, comment string) error {
 	labels := g.Labels
 	if len(labels) == 0 {
 		labels = map[string]string{"alertname": g.Common["alertname"]}
 	}
 	now := b.now()
-	id, err := b.d.AM.CreateSilence(ctx, labels, now, now.Add(d), by, comment)
+	id, err := b.d.AM.CreateSilence(ctx, labels, now, now.Add(d), who.Name, comment)
 	if err != nil {
 		return err
 	}
-	g.Silence = &store.Silence{ID: id, By: by, Until: now.Add(d)}
-	if g.Ack == nil {
-		b.ack(ctx, g, by, via, "")
-	}
+	b.markSilence(ctx, g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
 	return nil
+}
+
+func (b *Bridge) markSilence(ctx context.Context, g *store.Group, silence store.Silence, who Actor) {
+	g.Silence = &silence
+	if g.Ack == nil {
+		b.ack(ctx, g, who, "")
+	}
+	if !g.Ack.StopsEscalation() {
+		b.cancelPushover(ctx, g)
+		g.Pushed, g.Receipt, g.ReceiptAt = time.Time{}, "", time.Time{}
+	}
 }
 
 // ---- Escalation and upkeep
 
-// Tick escalates unacknowledged alerts, polls Pushover receipts, restarts escalation when an
+// Tick escalates alerts without human acknowledgement, polls Pushover receipts, restarts escalation when an
 // acknowledgement or silence lapses, and drops old resolved groups. Run calls it every 15 seconds.
 func (b *Bridge) Tick(ctx context.Context) {
 	b.mu.Lock()
@@ -484,49 +539,66 @@ func (b *Bridge) Tick(ctx context.Context) {
 		}
 		changed := false
 		pol := b.d.Config.Policy(g.Severity)
-		if g.Ack != nil && now.Sub(g.Ack.At) > ttl && (g.Silence == nil || now.After(g.Silence.Until)) {
-			b.d.Log.Info("acknowledgement lapsed; escalating again", "group", g.ID)
+		silenced := g.Silence != nil && g.Silence.Until.After(now)
+		if g.Ack != nil && now.Sub(g.Ack.At) > ttl && !silenced {
+			resume := g.Ack.StopsEscalation()
+			rememberAck(&g, *g.Ack)
 			g.Ack, g.Silence = nil, nil
-			g.NotifiedAt, g.Buzzed, g.Pushed, g.Barked, g.Receipt = now, time.Time{}, time.Time{}, time.Time{}, ""
+			if resume {
+				b.d.Log.Info("acknowledgement lapsed; escalating again", "group", g.ID)
+				if g.ChannelAt.IsZero() && (g.Channel == "app" || g.Channel == "webhook") {
+					g.ChannelAt = g.NotifiedAt
+				}
+				g.NotifiedAt, g.Buzzed, g.Pushed, g.Barked, g.Receipt = now, time.Time{}, time.Time{}, time.Time{}, ""
+				g.ReceiptAt = time.Time{}
+			}
 			if b.patchAllowed(&g, false) {
 				b.patch(ctx, &g)
 			}
 			changed = true
 		}
-		if g.Ack == nil && !g.NotifiedAt.IsZero() {
+		canEscalate := !g.Ack.StopsEscalation() && !silenced
+		if canEscalate && !g.NotifiedAt.IsZero() {
 			since := now.Sub(g.NotifiedAt)
-			if pol.Buzz > 0 && g.Buzzed.IsZero() && g.MessageID != "" && b.d.Feishu != nil && since >= pol.Buzz.D() && b.quota() < 1 {
+			if pol.Buzz > 0 && g.Buzzed.IsZero() && g.MessageID != "" && b.d.Feishu != nil && since >= pol.Buzz.D() && b.quota() < 1 &&
+				notificationDue(&g, "feishu-buzz", now) {
 				err := b.d.Feishu.UrgentApp(ctx, g.MessageID, b.onCallIDs())
+				b.recordNotification(&g, "feishu-buzz", err)
 				b.feishuResult(err)
 				if err != nil {
 					b.count("feishu-buzz", "error")
 					b.d.Log.Warn("feishu buzz failed", "group", g.ID, "err", err)
 				} else {
 					b.count("feishu-buzz", "ok")
-				}
-				g.Buzzed, changed = now, true
-				if b.patchAllowed(&g, false) {
-					b.patch(ctx, &g)
-				}
-			}
-			if pol.Pushover > 0 && g.Pushed.IsZero() && b.d.Pushover != nil && since >= pol.Pushover.D() {
-				b.push(ctx, &g)
-				if g.Pushed.IsZero() {
-					g.Pushed = now // do not retry every tick; the failure is counted and logged
+					g.Buzzed = now
+					if b.patchAllowed(&g, false) {
+						b.patch(ctx, &g)
+					}
 				}
 				changed = true
 			}
-			if pol.Bark > 0 && g.Barked.IsZero() && b.d.Bark != nil && since >= pol.Bark.D() {
-				if err := b.d.Bark.Send(ctx, b.t("%s: %s", b.severityName(g.Severity), b.title(&g)), b.plainBody(&g), b.link(b.d.Config.Links.Runbook, &g)); err != nil {
+			lastPush := latestNotification(&g, "pushover")
+			retryFallback := g.Severity == "critical" && pol.Channel != "none" && lastPush.Result == "failed" && !lastPush.At.Before(g.NotifiedAt)
+			if b.d.Pushover != nil && !pushoverAccepted(&g) && (retryFallback || (pol.Pushover > 0 && since >= pol.Pushover.D())) &&
+				notificationDue(&g, "pushover", now) {
+				b.push(ctx, &g)
+				changed = true
+			}
+			if pol.Bark > 0 && g.Barked.IsZero() && b.d.Bark != nil && since >= pol.Bark.D() &&
+				notificationDue(&g, "bark", now) {
+				err := b.d.Bark.Send(ctx, b.t("%s: %s", b.severityName(g.Severity), b.title(&g)), b.plainBody(&g), b.link(b.d.Config.Links.Runbook, &g))
+				b.recordNotification(&g, "bark", err)
+				if err != nil {
 					b.count("bark", "error")
 					b.d.Log.Warn("bark failed", "group", g.ID, "err", err)
 				} else {
 					b.count("bark", "ok")
+					g.Barked = now
 				}
-				g.Barked, changed = now, true
+				changed = true
 			}
 		}
-		if g.Ack == nil && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery {
+		if canEscalate && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery {
 			g.ReceiptAt, changed = now, true
 			r, err := b.d.Pushover.Receipt(ctx, g.Receipt)
 			switch {
@@ -537,7 +609,10 @@ func (b *Bridge) Tick(ctx context.Context) {
 				if r.Device != "" {
 					by += " (" + r.Device + ")"
 				}
-				g.Ack = &store.Ack{By: by, Via: "pushover", At: r.At}
+				if g.Ack != nil {
+					rememberAck(&g, *g.Ack)
+				}
+				g.Ack = &store.Ack{By: by, Via: "pushover", At: r.At, Kind: "person"}
 				if g.Ack.At.IsZero() {
 					g.Ack.At = now
 				}
@@ -628,9 +703,10 @@ func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool
 
 // ErrNotFound and ErrNotFiring are returned for unknown or finished alert groups.
 var (
-	ErrNotFound  = errors.New("no such alert group")
-	ErrNotFiring = errors.New("the alert group is not firing")
-	ErrBadInput  = errors.New("bad input")
+	ErrNotFound   = errors.New("no such alert group")
+	ErrNotFiring  = errors.New("the alert group is not firing")
+	ErrBadInput   = errors.New("bad input")
+	ErrAckChanged = errors.New("the alert acknowledgement changed")
 )
 
 // Actor is who performs an operation: Name as the audit log and the chat name it (a person, "person /
@@ -662,6 +738,7 @@ type GroupView struct {
 	ResolvedAt  *time.Time        `json:"resolved_at,omitempty"`
 	Channel     string            `json:"channel"`
 	Ack         *store.Ack        `json:"ack,omitempty"`
+	AckVersion  string            `json:"-"` // the console form's view of the current acknowledgement
 	Silence     *store.Silence    `json:"silence,omitempty"`
 	Buzzed      *time.Time        `json:"buzzed_at,omitempty"`
 	Pushed      *time.Time        `json:"pushover_at,omitempty"`
@@ -689,7 +766,7 @@ func (b *Bridge) view(g *store.Group) GroupView {
 	return GroupView{
 		ID: g.ID, Status: g.Status, Severity: g.Severity, Title: b.title(g), Description: g.Annotations["description"],
 		Service: b.service(g), Labels: g.Labels, Alerts: firing, StartsAt: g.StartsAt, ResolvedAt: tp(g.ResolvedAt),
-		Channel: g.Channel, Ack: g.Ack, Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: tp(g.Pushed),
+		Channel: g.Channel, Ack: g.Ack, AckVersion: ackVersion(g), Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
 		Runbook: b.link(b.d.Config.Links.Runbook, g), Dashboard: b.link(b.d.Config.Links.GrafanaService, g),
 		Notes: g.Notes, Agents: g.Agents, Page: b.AlertPage(g.ID),
 	}
@@ -729,16 +806,34 @@ type Summary struct {
 
 // DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
 type DeliverySetup struct {
-	CriticalToPeople bool `json:"critical_to_people"`
-	FeishuApp        bool `json:"feishu_app"`
-	GroupBot         bool `json:"group_bot"`
-	Pushover         bool `json:"pushover"`
+	CriticalToPeople bool     `json:"critical_to_people"`
+	FeishuApp        bool     `json:"feishu_app"`
+	GroupBot         bool     `json:"group_bot"`
+	Pushover         bool     `json:"pushover"`
+	Bark             bool     `json:"bark"`
+	CriticalChat     string   `json:"critical_chat"`
+	CriticalPhone    []string `json:"critical_phone_escalation,omitempty"`
 }
 
 // Delivery reports the configured routes for a new critical alert.
 func (b *Bridge) Delivery() DeliverySetup {
-	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil}
-	d.CriticalToPeople = (d.FeishuApp && b.d.Config.Policy("critical").Channel == "app") || d.GroupBot || d.Pushover
+	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil,
+		Bark: b.d.Bark != nil, CriticalChat: "none"}
+	pol := b.d.Config.Policy("critical")
+	chatSelected := pol.Channel == "app" || pol.Channel == "webhook"
+	switch {
+	case pol.Channel == "app" && d.FeishuApp:
+		d.CriticalChat = "app"
+	case chatSelected && d.GroupBot:
+		d.CriticalChat = "webhook"
+	}
+	if pol.Pushover > 0 && d.Pushover {
+		d.CriticalPhone = append(d.CriticalPhone, "Pushover")
+	}
+	if pol.Bark > 0 && d.Bark {
+		d.CriticalPhone = append(d.CriticalPhone, "Bark")
+	}
+	d.CriticalToPeople = d.CriticalChat != "none" || len(d.CriticalPhone) != 0 || (d.Pushover && (chatSelected || pol.InitialPushover))
 	return d
 }
 
@@ -753,7 +848,7 @@ func (b *Bridge) Summarize() Summary {
 	for _, g := range b.d.Store.Groups() {
 		if g.Firing() {
 			s.Firing[g.Severity]++
-			if g.Ack != nil {
+			if g.Ack.StopsEscalation() {
 				s.Acknowledged++
 			}
 		}
@@ -788,6 +883,15 @@ func (b *Bridge) viaName(via string) string {
 
 // Ack acknowledges a firing group for an API or MCP caller.
 func (b *Bridge) Ack(ctx context.Context, id string, who Actor, note string) (GroupView, error) {
+	return b.acknowledge(ctx, id, who, note, nil)
+}
+
+// AckIfUnchanged acknowledges a firing group only if the console form still shows its current owner.
+func (b *Bridge) AckIfUnchanged(ctx context.Context, id string, who Actor, note, expected string) (GroupView, error) {
+	return b.acknowledge(ctx, id, who, note, &expected)
+}
+
+func (b *Bridge) acknowledge(ctx context.Context, id string, who Actor, note string, expected *string) (GroupView, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
@@ -797,8 +901,11 @@ func (b *Bridge) Ack(ctx context.Context, id string, who Actor, note string) (Gr
 	if !g.Firing() {
 		return b.view(&g), ErrNotFiring
 	}
-	b.ack(ctx, &g, who.Name, who.Via, strings.TrimSpace(note))
-	recordParticipation(&g, who, "ack", g.Ack.At)
+	if expected != nil && *expected != ackVersion(&g) {
+		return b.view(&g), ErrAckChanged
+	}
+	b.ack(ctx, &g, who, strings.TrimSpace(note))
+	recordParticipation(&g, who, "ack", b.now())
 	if b.patchAllowed(&g, false) {
 		b.patch(ctx, &g)
 	}
@@ -806,7 +913,11 @@ func (b *Bridge) Ack(ctx context.Context, id string, who Actor, note string) (Gr
 		return GroupView{}, err
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "ack", Target: g.ID, Detail: note})
-	b.echo(ctx, b.t("%s acknowledged \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))+noteSuffix(b, note))
+	text := b.t("%s acknowledged \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
+	if actorKind(who) == "agent" {
+		text = b.t("%s recorded an Agent acknowledgement for \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
+	}
+	b.echo(ctx, text+noteSuffix(b, note))
 	return b.view(&g), nil
 }
 
@@ -835,7 +946,7 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 	if !g.Firing() {
 		return b.view(&g), ErrNotFiring
 	}
-	if err := b.silence(ctx, &g, d, who.Name, who.Via, comment); err != nil {
+	if err := b.silence(ctx, &g, d, who, comment); err != nil {
 		return GroupView{}, err
 	}
 	recordParticipation(&g, who, "silence", b.now())
@@ -881,10 +992,7 @@ func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d 
 		if !g.Firing() || !everyAlertHas(&g, labels) {
 			continue
 		}
-		g.Silence = &store.Silence{ID: id, By: who.Name, Until: now.Add(d)}
-		if g.Ack == nil {
-			b.ack(ctx, &g, who.Name, who.Via, "")
-		}
+		b.markSilence(ctx, &g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
 		recordParticipation(&g, who, "silence", now)
 		if b.patchAllowed(&g, false) {
 			b.patch(ctx, &g)

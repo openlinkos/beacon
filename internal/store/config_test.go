@@ -97,3 +97,43 @@ func TestConfigReadError(t *testing.T) {
 		t.Fatalf("a failed read must not look like an empty catalogue: %d entries version %d", len(e), v)
 	}
 }
+
+func TestConsoleTargetOwnershipOutlivesConfigHistory(t *testing.T) {
+	keep := keepConfigChanges
+	keepConfigChanges = 1
+	t.Cleanup(func() { keepConfigChanges = keep })
+	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	const name = "all-http.example.monitor"
+	first := []byte(`[{"targets":["https://example.com/ready"]}]`)
+	if _, err := s.CommitConfig(ConfigChange{Items: []ConfigItem{{
+		Kind: "targets", Key: name, After: first, ConsoleTracked: true, ConsoleAfter: true,
+	}}}, []ConfigWrite{{Key: "targets/" + name, Value: first}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitConfig(ConfigChange{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ConfigChangeAt(1); ok {
+		t.Fatal("the target's creating event should have been pruned")
+	}
+	if _, owners, version, err := s.ConfigWithConsoleTargets(); err != nil || !owners[name] || version != 2 {
+		t.Fatalf("ownership was lost when config history was pruned: %v %d %v", owners, version, err)
+	}
+	replacement := []byte(`[{"targets":["https://example.com/health"]}]`)
+	change := ConfigChange{Items: []ConfigItem{{Kind: "targets", Key: name, Before: first, After: replacement,
+		ConsoleTracked: true, ConsoleBefore: true}}}
+	writes := []ConfigWrite{{Key: "targets/" + name, Was: first, Value: replacement}}
+	if _, err := s.CommitConfigAtVersion(change, writes, 1); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale version could change ownership: %v", err)
+	}
+	if _, err := s.CommitConfigAtVersion(change, writes, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, owners, version, err := s.ConfigWithConsoleTargets(); err != nil || owners[name] || version != 3 {
+		t.Fatalf("external replacement kept console ownership: %v %d %v", owners, version, err)
+	}
+}

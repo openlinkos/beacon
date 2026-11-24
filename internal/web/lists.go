@@ -83,7 +83,7 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 			}},
 		{Param: "severity", Title: s.t("Severity"), Value: func(g bridge.GroupView) string { return g.Severity }, Order: config.Severities, Label: s.severity},
 		{Param: "service", Title: s.t("Service"), Value: func(g bridge.GroupView) string { return g.Service }},
-		{Param: "acknowledged", Title: s.t("Acknowledged"), Value: func(g bridge.GroupView) string { return s.yesNo(g.Ack != nil) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
+		{Param: "acknowledged", Title: s.t("Acknowledged"), Value: func(g bridge.GroupView) string { return s.yesNo(g.Ack.StopsEscalation()) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
 		{Param: "silenced", Title: s.t("Silenced"), Value: func(g bridge.GroupView) string { return s.yesNo(silenced(g)) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
 	}
 	match := func(g bridge.GroupView, q string) bool {
@@ -99,7 +99,7 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Count = l.Total
 	for _, g := range kept {
 		row := alertRow{Title: g.Title, Href: link.AlertPath(g.ID), Severity: s.severity(g.Severity), SeverityTone: tone(g.Severity),
-			Service: g.Service, Since: s.clock(g.StartsAt), Acked: g.Ack != nil, Silenced: silenced(g)}
+			Service: g.Service, Since: s.clock(g.StartsAt), Acked: g.Ack.StopsEscalation(), Silenced: silenced(g)}
 		if g.Status == "firing" {
 			row.State, row.StateTone, row.When = s.t("Firing"), "danger", s.dur(now.Sub(g.StartsAt))
 		} else {

@@ -29,6 +29,8 @@ func problemCode(err error) string {
 	switch {
 	case errors.Is(err, bridge.ErrNotFiring):
 		return "not_firing"
+	case errors.Is(err, bridge.ErrAckChanged):
+		return "ack_changed"
 	case errors.Is(err, bridge.ErrBadInput):
 		return "bad_input"
 	case errors.Is(err, configdb.ErrConflict):
@@ -52,6 +54,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return ""
 	case "not_firing":
 		return s.t("The alert is not firing any more.")
+	case "ack_changed":
+		return s.t("The acknowledgement changed. Review who is responding and try again.")
 	case "bad_input":
 		return s.t("That did not work: say why in the text, and keep it under 2,000 characters.")
 	case "credential_denied":
@@ -150,7 +154,7 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, path, what strin
 func (s *Server) ack(w http.ResponseWriter, r *http.Request, v *viewer) {
 	id := r.PathValue("id")
 	page := link.AlertPath(id)
-	if _, err := s.Bridge.Ack(r.Context(), id, v.actor(), r.PostForm.Get("note")); err != nil {
+	if _, err := s.Bridge.AckIfUnchanged(r.Context(), id, v.actor(), r.PostForm.Get("note"), r.PostForm.Get("expected_ack")); err != nil {
 		if errors.Is(err, bridge.ErrNotFound) {
 			s.missing(w, r, v)
 			return

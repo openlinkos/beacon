@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d318d2ed
+sourceHash: sha256-77e7bea7
 ---
 
 # 常见问题
@@ -129,7 +129,7 @@ sudo -u beacon-probe /opt/beacon-probe/bin/beacon-probe run -modules /var/lib/be
 - **没有配置通知渠道**。没有 `feishu:` 段，也没有 `pushover:` 时，告警只记录、只显示。日志里写着 `alert recorded; no notification channel is configured`。按[配置飞书应用](../integrations/feishu.md)配好，再重启 Beacon。
 - **通知渠道出错了**。日志里有 `feishu card failed; falling back` 或 `alert could not be delivered by any channel`。`GET /api/v1/bridge` 会列出 `the Feishu long connection is down`、`a Feishu API call failed in the last 10 minutes` 或 `the Feishu API budget for this month is used up`。
 - **发给了自定义机器人**。`info` 级别的告警发给群里的自定义机器人，是纯文本消息，不是卡片。应用用掉 `feishu.monthly_budget` 的 70% 之后，警告级别的告警也是这样。
-- **还没到打电话的时候**。严重告警没人认领时，10 分钟后在飞书应用里加急值班的人，15 分钟后发 Pushover。认领之后，两者都停 `ack_ttl`（默认 4 小时）。
+- **还未收到紧急通知**。按参考配置，严重告警没有被人认领且没有静默时，会在 10 分钟后向飞书提交加急通知，15 分钟后向 Pushover 提交紧急通知。符合升级条件期间，提交失败会每分钟重试。告警时间线会记录渠道 API 何时接收请求，设备上的认领是单独的事件。人认领后，升级通知暂停 `ack_ttl`（默认 4 小时）。
 
 ### Agent 没有被叫醒 {#the-agent-is-not-woken}
 

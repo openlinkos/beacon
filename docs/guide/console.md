@@ -144,10 +144,12 @@ On installations with the credential store enabled, owners can store and replace
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. The response panel shows how long the alert has been firing and who acknowledged it. On a phone or desktop, you can acknowledge it, probe again or jump to the note form from the same panel.
+The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
+
+After signing in, **Linked machines** takes you to an enrolled machine named by the rule's explicit `machine` label or by the catalogue entry for a heartbeat. If your account can use SSH, the link opens the instructions for connecting with your own key. Otherwise it opens the machine details. Open the recorded session from the alert's **Sessions**, then add the handover in **Notes**.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.
-- **What people were told and did**: acknowledged, silenced, paged. A button ends the silence.
+- **Notifications and response**: provider acceptances, failed submissions, acknowledgement history and silences. A provider acceptance records receipt by its API. A Pushover acknowledgement records a response from the device. A button ends the silence.
 - **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it.
 - **Related alerts** in the same failure domain.
 - **Agents**: whether they reach machines, delivery to each hook, and one line "N sessions on M machines, K commands".

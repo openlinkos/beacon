@@ -77,10 +77,14 @@ type fakePush struct {
 	sent      []notify.Emergency
 	cancelled []string
 	acked     bool
+	fail      bool
 }
 
 func (p *fakePush) Send(_ context.Context, m notify.Emergency) (string, error) {
 	p.sent = append(p.sent, m)
+	if p.fail {
+		return "", errors.New("pushover unavailable")
+	}
 	return "rc1", nil
 }
 func (p *fakePush) Receipt(context.Context, string) (notify.Receipt, error) {
@@ -268,6 +272,163 @@ func TestEscalation(t *testing.T) {
 	}
 }
 
+func TestCriticalEscalationWithoutHumanAcknowledgement(t *testing.T) {
+	fastRetries(t)
+	for _, tc := range []struct {
+		name   string
+		status int
+		ack    bool
+	}{
+		{name: "no assigned hook"},
+		{name: "hook accepted without activity", status: 202},
+		{name: "hook failed", status: 503},
+		{name: "agent acknowledged but did not restore service", status: 202, ack: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			if tc.status != 0 {
+				hs := newHookServer(t, tc.status)
+				e.b.d.Config.Agents = []config.Agent{webhookAgent(hs.srv.URL+"/hook", false)}
+			}
+			ctx := context.Background()
+			w := hook("firing", "critical", "f1")
+			if err := e.b.HandleWebhook(ctx, w); err != nil {
+				t.Fatal(err)
+			}
+			e.b.waitWakes()
+			if len(e.fs.sends) != 1 {
+				t.Fatal("chat was not attempted independently of the hook")
+			}
+			id := GroupID(w.GroupKey)
+			group, _ := e.st.Group(id)
+			switch tc.status {
+			case 0:
+				if len(group.Agents) != 0 {
+					t.Fatalf("a hook was called without an assignment: %+v", group.Agents)
+				}
+			case 202:
+				if len(group.Agents) != 1 || group.Agents[0].Status != "ok" || group.Agents[0].Code != 202 {
+					t.Fatalf("test hook did not accept the alert: %+v", group.Agents)
+				}
+			case 503:
+				if len(group.Agents) != 1 || group.Agents[0].Status != "failed" || group.Agents[0].Attempts < 2 {
+					t.Fatalf("test hook did not fail all its attempts: %+v", group.Agents)
+				}
+			}
+			if tc.ack {
+				who := ActorOf(store.Principal{User: "alex", Agent: "oncall"}, "mcp")
+				ack, err := e.b.Ack(ctx, id, who, "looking into it")
+				if err != nil || ack.Ack == nil || ack.Ack.Kind != "agent" || ack.Ack.StopsEscalation() {
+					t.Fatalf("Agent acknowledgement: %+v, %v", ack.Ack, err)
+				}
+			}
+			e.now = e.now.Add(15 * time.Minute)
+			e.push.fail = true
+			e.b.Tick(ctx)
+			timeline, err := e.b.Timeline(ctx, id, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var failed bool
+			for _, event := range timeline.Events {
+				if event.Kind == "pushover" {
+					t.Fatal("failed request recorded as an accepted Pushover message")
+				}
+				failed = failed || (event.Kind == "notification" && event.Via == "pushover" && event.Result == "failed")
+			}
+			if !failed {
+				t.Fatal("missed the Pushover failure in the timeline")
+			}
+			e.push.fail = false
+			e.b.Tick(ctx)
+			if len(e.push.sent) != 1 {
+				t.Fatal("an immediate retry would page on every tick")
+			}
+			e.now = e.now.Add(time.Minute)
+			e.b.Tick(ctx)
+			g, _ := e.st.Group(id)
+			if len(e.push.sent) != 2 || g.Receipt == "" || g.Ack.StopsEscalation() || len(e.push.cancelled) != 0 {
+				t.Fatalf("unclaimed alert did not retry, or acceptance became acknowledgement: %+v", g)
+			}
+			timeline, err = e.b.Timeline(ctx, id, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var accepted bool
+			for _, event := range timeline.Events {
+				accepted = accepted || (event.Kind == "pushover" && event.Result == "ok")
+			}
+			if !accepted {
+				t.Fatal("missed the Pushover API acceptance in the timeline")
+			}
+			e.push.acked = true
+			e.now = e.now.Add(receiptEvery)
+			e.b.Tick(ctx)
+			g, _ = e.st.Group(id)
+			if !g.Ack.StopsEscalation() || g.Ack.Kind != "person" || g.Ack.Via != "pushover" {
+				t.Fatalf("phone acknowledgement did not establish human ownership: %+v", g.Ack)
+			}
+		})
+	}
+}
+
+func TestLegacyAcknowledgementAndFailedPage(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := hook("firing", "critical", "f1")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(w.GroupKey)
+	g, _ := e.st.Group(id)
+	g.Pushed = e.now
+	g.Ack = &store.Ack{By: "previous responder", Via: "mcp", At: e.now}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(15 * time.Minute)
+	e.b.Tick(ctx)
+	view, err := e.b.Group(id)
+	if err != nil || view.Pushed != nil || !view.Ack.StopsEscalation() || len(e.push.sent) != 0 {
+		t.Fatalf("legacy failed attempt or acknowledgement was misclassified: %+v, %v", view, err)
+	}
+}
+
+func TestExplicitSilenceAfterAgentAcknowledgement(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	w := hook("firing", "critical", "f1")
+	if err := e.b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(w.GroupKey)
+	who := ActorOf(store.Principal{User: "alex", Agent: "oncall"}, "mcp")
+	e.now = e.now.Add(15 * time.Minute)
+	e.b.Tick(ctx)
+	if _, err := e.b.Ack(ctx, id, who, "looking into it"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.push.sent) != 1 || len(e.push.cancelled) != 0 {
+		t.Fatal("an Agent acknowledgement cancelled the emergency page")
+	}
+	silenced, err := e.b.Silence(ctx, id, time.Hour, who, "explicit maintenance")
+	if err != nil || silenced.Silence == nil || len(e.push.cancelled) != 1 {
+		t.Fatalf("explicit silence did not pause the page: %+v, %v", silenced.Silence, err)
+	}
+	e.now = e.now.Add(40 * time.Minute)
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 1 {
+		t.Fatal("page sent during explicit silence")
+	}
+	if err := e.b.ExpireSilence(ctx, silenced.Silence.ID, Actor{Name: "alex", Via: "console", Key: "user:alex"}); err != nil {
+		t.Fatal(err)
+	}
+	e.b.Tick(ctx)
+	if len(e.push.sent) != 2 {
+		t.Fatal("escalation did not resume when explicit silence ended")
+	}
+}
+
 func TestSilenceFromCard(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -317,6 +478,10 @@ func TestRoutingAndFallbacks(t *testing.T) {
 	if len(e.push.sent) != 1 || len(e.bot.texts) != 3 {
 		t.Fatalf("fallback: pushover %d, bot %v", len(e.push.sent), e.bot.texts)
 	}
+	if g, ok := e.st.Group(GroupID(hook("firing", "critical", "f1").GroupKey)); !ok ||
+		latestNotification(&g, "app").Result != "failed" || g.Channel != "webhook" {
+		t.Fatalf("the failed initial card and accepted fallback were not recorded: %+v, exists=%v", g, ok)
+	}
 	if ok, why := e.b.Ready(); ok || !strings.Contains(strings.Join(why, ";"), "Feishu API call failed") {
 		t.Errorf("not ready after a Feishu failure: %v", why)
 	}
@@ -351,6 +516,97 @@ func TestReadyAndHumanDeliveryConfiguration(t *testing.T) {
 	e.b.d.Bot = e.bot
 	if d := e.b.Delivery(); !d.CriticalToPeople || !d.GroupBot || d.FeishuApp || d.Pushover {
 		t.Fatalf("group bot delivery route: %+v", d)
+	}
+}
+
+type routeTestBark struct{ sent int }
+
+func (b *routeTestBark) Send(context.Context, string, string, string) error {
+	b.sent++
+	return nil
+}
+
+func TestCriticalDeliveryWithoutInitialChat(t *testing.T) {
+	e := newEnv(t)
+	bark := &routeTestBark{}
+	e.b.d.Bark = bark
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none"}
+	if d := e.b.Delivery(); d.CriticalToPeople || d.CriticalChat != "none" || len(d.CriticalPhone) != 0 ||
+		!d.FeishuApp || !d.GroupBot || !d.Pushover || !d.Bark {
+		t.Fatalf("available providers changed the record-only policy: %+v", d)
+	}
+
+	ctx := context.Background()
+	recorded := hook("firing", "critical", "recorded")
+	recorded.GroupKey = "recorded-only"
+	if err := e.b.HandleWebhook(ctx, recorded); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(30 * time.Minute)
+	e.b.Tick(ctx)
+	if g, ok := e.st.Group(GroupID(recorded.GroupKey)); !ok || !g.Firing() || g.Channel != "none" {
+		t.Fatalf("recorded alert: %+v, exists=%v", g, ok)
+	}
+	if len(e.fs.sends) != 0 || len(e.bot.texts) != 0 || len(e.push.sent) != 0 || bark.sent != 0 {
+		t.Fatalf("record-only delivery: %d cards, %d bot messages, %d Pushover alerts, %d Bark alerts",
+			len(e.fs.sends), len(e.bot.texts), len(e.push.sent), bark.sent)
+	}
+
+	recorded.Status = "resolved"
+	if err := e.b.HandleWebhook(ctx, recorded); err != nil {
+		t.Fatal(err)
+	}
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none", Bark: config.Duration(time.Minute)}
+	if d := e.b.Delivery(); !d.CriticalToPeople || strings.Join(d.CriticalPhone, ",") != "Bark" {
+		t.Fatalf("Bark-only delivery route: %+v", d)
+	}
+	if err := e.b.HandleWebhook(ctx, hook("firing", "critical", "phone")); err != nil {
+		t.Fatal(err)
+	}
+	if bark.sent != 0 {
+		t.Fatal("Bark was sent before its delay")
+	}
+	e.now = e.now.Add(time.Minute)
+	e.b.Tick(ctx)
+	if bark.sent != 1 || len(e.bot.texts) != 0 || len(e.push.sent) != 0 {
+		t.Fatalf("scheduled Bark-only route: %d Bark alerts, %d bot messages, %d Pushover alerts",
+			bark.sent, len(e.bot.texts), len(e.push.sent))
+	}
+}
+
+type failingInitialPush struct {
+	fakePush
+	attempts int
+}
+
+func (p *failingInitialPush) Send(context.Context, notify.Emergency) (string, error) {
+	p.attempts++
+	return "", errors.New("provider unavailable")
+}
+
+func TestInitialPhoneFallbackMakesOneAttempt(t *testing.T) {
+	e := newEnv(t)
+	e.fs.fail = true
+	e.b.d.Bot = nil
+	push := &failingInitialPush{}
+	e.b.d.Pushover = push
+	if err := e.b.HandleWebhook(context.Background(), hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	if push.attempts != 1 {
+		t.Fatalf("initial phone fallback made %d attempts, want one", push.attempts)
+	}
+}
+
+func TestAutomaticPushoverOnlyRouteRemainsImmediate(t *testing.T) {
+	e := newEnv(t)
+	e.b.d.Feishu, e.b.d.Bot = nil, nil
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none", InitialPushover: true}
+	if err := e.b.HandleWebhook(context.Background(), hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.push.sent) != 1 || !e.b.Delivery().CriticalToPeople {
+		t.Fatalf("automatically selected Pushover: %d sent, delivery %+v", len(e.push.sent), e.b.Delivery())
 	}
 }
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d10d68ee
+sourceHash: sha256-f691866b
 ---
 
 # config.yaml
@@ -152,7 +152,7 @@ sourceHash: sha256-d10d68ee
 | `pushover.expire` | 时长 | `3h` | 重复多久后放弃。至多 `3h` |
 | `pushover.api` | URL | `https://api.pushover.net` | Pushover 的 API，供代理或测试用 |
 | `bark.url_file` | 路径 | — | 带响铃紧急级别的 iOS 推送：`https://api.day.app/<key>`，或自建服务 |
-| `healthchecks.bridge_url_file` | 路径 | — | 桥能送出告警时每分钟 ping 一次，不能时 ping `/fail`：基础设施之外的死人开关（healthchecks.io） |
+| `healthchecks.bridge_url_file` | 路径 | — | 规则链路以及已配置的飞书应用通过健康检查时，每分钟 ping 一次，否则 ping `/fail`。收件情况需要单独核对 |
 
 ## 升级与确认 {#escalation-and-acknowledgements}
 
@@ -162,13 +162,15 @@ sourceHash: sha256-d10d68ee
 
 1. 配了飞书应用，就用应用；
 2. 否则用群机器人；
-3. 都没有则 `none`：告警只记录，API 和 MCP 照样可看。
+3. 都没有则 `none`：记录告警，不发到聊天。控制台、API 和 MCP 仍能看到。
 
-段缺省时，critical 告警还会在配了应用时 10 分钟后加急，配了 Pushover 时 15 分钟后推手机。info 级告警在应用之外还有机器人时，走机器人。
+段缺省时，critical 告警在配了应用时 10 分钟后加急，配了 Pushover 时 15 分钟后升级到手机。只配置了 Pushover 时，Beacon 会立即通过它发送首次 critical 告警。info 级告警在应用之外还有机器人时，走机器人。
+
+`channel: none` 时，只有单独配置的手机升级会发出通知。概览显示严重告警的聊天渠道和定时手机推送服务。演练时到接收设备上核对是否收到。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（群机器人）或 `none`（只记录） |
+| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（群机器人）或 `none`（告警首次触发时不发通知） |
 | `escalation.critical.buzz` | 配了应用 `10m`，否则关 | 这段时间后在飞书上加急值班的人 |
 | `escalation.critical.pushover` | 配了 Pushover `15m`，否则关 | 这段时间后向手机发紧急推送 |
 | `escalation.critical.bark` | 关 | 这段时间后发 Bark 推送 |

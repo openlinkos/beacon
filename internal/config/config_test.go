@@ -197,6 +197,20 @@ func TestRecordOnlyAndDefaults(t *testing.T) {
 	if c.Escalation["critical"].Channel != "webhook" {
 		t.Errorf("bot only: %+v", c.Escalation)
 	}
+	push := am + "pushover:\n  token_file: " + secret(t, d, "pushover-token", "token") +
+		"\n  user_key_file: " + secret(t, d, "pushover-user", "user") + "\n"
+	if c, err = Parse([]byte(push)); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.Policy("critical"); p.Channel != "none" || !p.InitialPushover || p.Pushover.D() != 15*time.Minute {
+		t.Errorf("automatic phone-only route: %+v", p)
+	}
+	if c, err = Parse([]byte(push + "escalation: {critical: {channel: none}}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.Policy("critical"); p.InitialPushover || p.Pushover != 0 {
+		t.Errorf("explicit record-only route: %+v", p)
+	}
 }
 
 func TestGateway(t *testing.T) {

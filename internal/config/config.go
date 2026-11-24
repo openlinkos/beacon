@@ -253,12 +253,13 @@ type Healthchecks struct {
 	BridgeURLFile string `yaml:"bridge_url_file"`
 }
 
-// Policy says how alerts of one severity are delivered and escalated. Zero durations turn a step off.
+// Policy says how alerts of one severity are delivered and escalated. Zero durations turn off timed steps.
 type Policy struct {
-	Channel  string   `yaml:"channel"` // app (Feishu app card), webhook (group custom bot) or none (only recorded)
-	Buzz     Duration `yaml:"buzz"`
-	Pushover Duration `yaml:"pushover"`
-	Bark     Duration `yaml:"bark"`
+	Channel         string   `yaml:"channel"` // app (Feishu card), webhook (group bot) or none (no initial chat)
+	Buzz            Duration `yaml:"buzz"`
+	Pushover        Duration `yaml:"pushover"`
+	Bark            Duration `yaml:"bark"`
+	InitialPushover bool     `yaml:"-"` // with automatic routing, Pushover alone receives critical alerts immediately
 }
 
 // Secrets are the credentials read from the *_file paths.
@@ -424,7 +425,7 @@ func (c *Config) defaults() {
 	}
 	c.agentDefaults()
 	if c.Escalation == nil {
-		// The best channel configured; with none, alerts are only recorded (the API and MCP still show them).
+		// Choose the best chat channel, or notify critical alerts through Pushover alone.
 		ch := "none"
 		switch {
 		case c.Feishu.AppIDFile != "":
@@ -441,6 +442,7 @@ func (c *Config) defaults() {
 		}
 		if c.Pushover.TokenFile != "" {
 			crit.Pushover = Duration(15 * time.Minute)
+			crit.InitialPushover = ch == "none"
 		}
 		c.Escalation = map[string]Policy{"critical": crit, "warning": {Channel: ch}, "info": info}
 	}

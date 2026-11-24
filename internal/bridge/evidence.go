@@ -116,6 +116,9 @@ type Evidence struct {
 	Changes    []ChangeView    `json:"changes"` // related ones first, then the newest
 	Done       Done            `json:"done"`
 	Links      AlertLinks      `json:"links"`
+	// LinkedMachines are named by an explicit machine label or a catalogue heartbeat. The console
+	// uses these for navigation, independently of the broader correlations in Done.
+	LinkedMachines []string `json:"-"`
 }
 
 // ProbeEvidence is what the probes of the group's services saw, one result per location, target and
@@ -329,6 +332,7 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),
 		Probes: b.probeEvidence(ctx, &g, w), Heartbeats: b.heartbeats(ctx, &g, w), Related: b.related(&g),
 		Changes: b.changesAround(&g, w, machines), Done: done, Links: b.links(&g),
+		LinkedMachines: b.linkedMachines(&g),
 	}, nil
 }
 
@@ -554,7 +558,7 @@ func (b *Bridge) related(g *store.Group) []RelatedAlert {
 			continue
 		}
 		out = append(out, RelatedAlert{ID: o.ID, Title: cleanLine(b.title(&o)), Severity: o.Severity, Service: cleanLine(b.service(&o)),
-			StartsAt: o.StartsAt, Acked: o.Ack != nil, Why: why})
+			StartsAt: o.StartsAt, Acked: o.Ack.StopsEscalation(), Why: why})
 		if len(out) == maxRelated {
 			break
 		}
@@ -579,6 +583,15 @@ func (b *Bridge) machines(g *store.Group) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// linkedMachines excludes probe hosts, locations, failure domains and session correlations. None
+// of those on its own identifies where the affected service or job runs.
+func (b *Bridge) linkedMachines(g *store.Group) []string {
+	names := append(labelValues(g, "machine"), b.heartbeatMachines(g)...)
+	names = slices.DeleteFunc(names, func(name string) bool { return !store.MachineName.MatchString(name) })
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // changesAround lists the change events in the window: those about the group's services or machines
@@ -729,7 +742,7 @@ func (b *Bridge) silences(g *store.Group, w Window) []SilenceView {
 }
 
 func (b *Bridge) done(g *store.Group, w Window, machines []string) Done {
-	d := Done{Silences: b.silences(g, w), Notes: []store.Note{}, Agents: []store.AgentCall{}, Buzzed: tp(g.Buzzed), Pushed: tp(g.Pushed),
+	d := Done{Silences: b.silences(g, w), Notes: []store.Note{}, Agents: []store.AgentCall{}, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
 		Machines: machines, Sessions: b.sessions(g, w, machines)}
 	if g.Ack != nil {
 		a := *g.Ack

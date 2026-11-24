@@ -6,6 +6,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.26 (2026-11-25)
+
+- Honour the configured human notification route for each severity. A severity with no chat route stays out of chat at first firing and can still use its configured phone delay. The Overview shows the critical chat and scheduled phone routes and links to setup when there is no route.
+- Keep human escalation active after a delegated Agent acknowledges an alert. Record when a notification provider rejects or accepts a submission, and let the next person claim the alert with a handover note.
+- Open explicitly linked machines from an alert to connect with personal SSH and find the command in the session replay.
+- Change the probe locations of an HTTP monitor created in the console. The move retains the service name and is saved as one reversible configuration version. Imported target sets stay available through the existing configuration interfaces.
+
 ### rc.25 (2026-11-25)
 
 - Opt-in team credentials for fixed HTTPS requests. Owners store and replace a bearer token, test it as themselves, and delegate its use to a named agent with an expiry. Uses are recorded before dispatch. Revocation takes effect for new requests, and responses expose only the upstream status.

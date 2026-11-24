@@ -77,9 +77,10 @@ components:
       type: object
       properties:
         by: {type: string}
-        via: {type: string, enum: [feishu, pushover, api, mcp]}
+        via: {type: string, enum: [feishu, pushover, api, mcp, console, cli]}
         note: {type: string}
         at: {type: string, format: date-time}
+        kind: {type: string, enum: [person, agent, unattributed], description: Agent acknowledgements leave human escalation in effect. Absent for older acknowledgements.}
     SilenceRef:
       type: object
       properties:
@@ -326,12 +327,12 @@ components:
               at: {type: string, format: date-time}
               kind:
                 type: string
-                enum: [started, notified, buzzed, pushover, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
-                description: "command: one run at a shell's prompt (id is its session); heartbeat: its last success (id is its name), even before the window; probe_now: observations of an on-demand check (id is its request)"
+                enum: [started, notified, buzzed, pushover, notification, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
+                description: "notification: a provider submission without its own event kind. Successful submissions record provider acceptance. Acknowledgement is a separate event."
               by: {type: string}
               via: {type: string}
               text: {type: string}
-              type: {type: string, description: "A change's kind, a session's kind, a hook's kind"}
+              type: {type: string, description: "A change's kind, a session's kind, a hook's kind, or an acknowledgement's actor kind"}
               machine: {type: string}
               service: {type: string}
               id: {type: string}
@@ -796,7 +797,7 @@ components:
         version: {type: integer}
         time: {type: string, format: date-time}
         actor: {type: string, description: "The token's name, or cli:<user>"}
-        via: {type: string, enum: [api, mcp, cli, start, signal]}
+        via: {type: string, enum: [api, mcp, cli, console, start, signal]}
         action: {type: string, enum: [put, delete, import, revert]}
         reverts: {type: integer, description: The version a revert undid}
         note: {type: string}
@@ -815,6 +816,9 @@ components:
               op: {type: string, enum: [added, changed, removed]}
               before: {description: "The value before (absent when added; left out in the history list)"}
               after: {description: "The value after (absent when removed; left out in the history list)"}
+              console_tracked: {type: boolean, description: Target ownership was recorded for this change}
+              console_before: {type: boolean, description: The console managed this target set before the change}
+              console_after: {type: boolean, description: The console managed this target set after the change}
     Token:
       type: object
       description: >-
@@ -1085,8 +1089,11 @@ paths:
                       feishu_app: {type: boolean}
                       group_bot: {type: boolean}
                       pushover: {type: boolean}
+                      bark: {type: boolean}
+                      critical_chat: {type: string, enum: [app, webhook, none], description: Configured chat route for critical alerts}
+                      critical_phone_escalation: {type: array, items: {type: string, enum: [Pushover, Bark]}, description: Phone services with a delay configured for unacknowledged critical alerts}
                   firing: {type: object, additionalProperties: {type: integer}}
-                  acknowledged: {type: integer}
+                  acknowledged: {type: integer, description: Firing groups whose acknowledgement stops escalation to people}
                   feishu_api_calls_this_month: {type: integer}
                   feishu_api_budget: {type: integer}
         default: {$ref: "#/components/responses/Error"}
@@ -1124,7 +1131,7 @@ paths:
   /alerts/{id}/ack:
     post:
       summary: Acknowledge a firing alert group
-      description: "Scope: alerts:write. Stops escalation (Feishu buzz, Pushover) for four hours."
+      description: "Scope: alerts:write. An Agent acknowledgement leaves human escalation in effect. A person's or a standalone credential's acknowledgement pauses escalation for the configured acknowledgement timeout."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -1166,7 +1173,7 @@ paths:
     get:
       summary: An alert group's timeline
       description: >-
-        Scope: status:read. Started, notified, buzzed, Pushover, acknowledged, notes, silences, agents woken, the
+        Scope: status:read. Started, notification submissions, acknowledgements, notes, silences, agents woken, the
         change events and sessions of the evidence, resolved: in time order, over the evidence's window.
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}

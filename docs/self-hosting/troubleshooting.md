@@ -125,7 +125,7 @@ The alert is in `list_alerts`, but no card, no message and no phone call came.
 - **No channel configured.** Without a `feishu:` section or `pushover:`, alerts are recorded and shown, and nothing else. The log says `alert recorded; no notification channel is configured`. [Set up the Feishu app](../integrations/feishu.md), then restart Beacon.
 - **A channel failed.** The log says `feishu card failed; falling back` or `alert could not be delivered by any channel`. `GET /api/v1/bridge` lists `the Feishu long connection is down`, `a Feishu API call failed in the last 10 minutes` or `the Feishu API budget for this month is used up`.
 - **It went to the custom bot.** `info` alerts go to the group's custom bot, as plain messages, not cards. So do warnings, once the app has used 70% of `feishu.monthly_budget`.
-- **No phone call yet.** A critical alert reaches Pushover after 15 minutes without an acknowledgement. It buzzes the people on call in the Feishu app after 10. An acknowledgement stops both for `ack_ttl` (4 hours by default).
+- **No page yet.** With the reference delays, a critical alert without a human acknowledgement or an active silence submits a Feishu urgent alert after 10 minutes and a Pushover page after 15. Failed escalation submissions retry at one-minute intervals while the alert remains eligible. The alert timeline shows when the provider's API accepted a submission. The device acknowledgement is a separate event. A human acknowledgement pauses escalation for `ack_ttl` (4 hours by default).
 
 ### The agent is not woken
 

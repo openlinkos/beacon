@@ -79,7 +79,7 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "get_timeline", Title: "Get an alert's timeline", Annotations: read,
 		Description: "An alert group's story in time order: changes, sessions and commands on its machines from before it started " +
-			"(phase before), a heartbeat's last success, started, notified, buzzed, Pushover, acknowledged, notes, silences, agents " +
+			"(phase before), a heartbeat's last success, started, notification submissions, acknowledgements, notes, silences, agents " +
 			"woken, what was done while it fired, resolved."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in evidenceIn) (*mcp.CallToolResult, bridge.Timeline, error) {
 			if _, err := need(ctx, "status:read"); err != nil {

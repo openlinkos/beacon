@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -40,22 +39,20 @@ type monitorFormPage struct {
 	Form, Monitors, Config      string
 	Scopes, Modules, Severities []option
 	Remove                      string
-	ScopeName                   string
 }
 
 func (s *Server) monitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
 	s.showMonitorForm(w, r, v, s.monitorDraft(), monitorInput{}, "", http.StatusOK)
 }
 
-// simpleMonitor finds the shape the console writes. File-managed multi-target services use the
-// configuration API, where all of their labels and targets can be represented.
+// simpleMonitor finds a console-owned target with the shape its form can edit.
 func simpleMonitor(state *configdb.State, service string) (monitorInput, bool) {
 	if state == nil || !monitorName.MatchString(service) {
 		return monitorInput{}, false
 	}
 	for _, file := range state.Targets.Files() {
 		scope, ok := strings.CutSuffix(file, "-http."+service+".monitor.yaml")
-		if !ok {
+		if !ok || !state.ConsoleTarget(strings.TrimSuffix(file, ".yaml")) {
 			continue
 		}
 		g := state.Targets.Groups(file)
@@ -75,7 +72,7 @@ func httpMonitorURL(raw string) bool {
 		len(raw) <= 2048 && !strings.Contains(raw, "#")
 }
 
-func (in monitorInput) set() string { return in.Scope + "-http." + in.Service + ".monitor" }
+func (in monitorInput) set() string { return configdb.ConsoleTargetName(in.Scope, in.Service) }
 
 func (s *Server) editMonitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
 	draft := s.monitorDraft()
@@ -158,6 +155,7 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 	}
 	if svc := r.PathValue("service"); svc != "" {
 		p.L.Add = s.t("Save")
+		p.L.AfterHint = s.t("The new probe locations take effect on the next fetch. The service name and its history stay the same.")
 		p.L.Remove = s.t("Remove monitor")
 		p.L.RemoveHint = s.t("Stop this check. Its configuration history and audit records remain available.")
 		p.Monitors = consolePath("/monitors/") + url.PathEscape(svc)
@@ -172,12 +170,6 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 	}
 	for i := range p.Scopes {
 		p.Scopes[i].Selected = p.Scopes[i].Value == in.Scope
-		if p.Scopes[i].Selected {
-			p.ScopeName = p.Scopes[i].Label
-		}
-	}
-	if p.ScopeName == "" {
-		p.ScopeName = in.Scope
 	}
 	if in.Severity == "" {
 		in.Severity = "warning"
@@ -194,13 +186,18 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	in := monitorInput{Service: value("service"), URL: value("url"), Scope: value("scope"), Module: value("module"), Severity: value("severity")}
 	draft := s.monitorDraft()
 	edit := r.PathValue("service") != ""
+	var previous string
 	if edit {
 		cur, ok := simpleMonitor(draft.state, r.PathValue("service"))
 		if !ok {
 			s.missing(w, r, v)
 			return
 		}
-		in.Service, in.Scope = cur.Service, cur.Scope
+		previous = cur.set()
+		in.Service = cur.Service
+		if in.Scope == "" {
+			in.Scope = cur.Scope // edit forms opened before the upgrade did not submit a scope
+		}
 	}
 	bad := func(message string, code int) { s.showMonitorForm(w, r, v, draft, in, message, code) }
 	version, err := strconv.ParseInt(value("version"), 10, 64)
@@ -229,43 +226,27 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 
-	// One set per service keeps changes independently reversible. The dot before the name keeps
-	// the target set's prefix from matching a longer location id.
-	set := in.set()
-	files := draft.state.Targets.Files()
-	if !edit && slices.Contains(files, set+".yaml") {
-		bad(s.t("A target set for this name already exists. Choose another service name."), http.StatusConflict)
-		return
-	}
-	for _, file := range files {
-		if edit && file == set+".yaml" {
-			continue
-		}
-		for _, group := range draft.state.Targets.Groups(file) {
-			if group.Labels["service"] == in.Service {
-				bad(s.t("A monitor for this service already exists. Choose another service name."), http.StatusConflict)
-				return
-			}
-		}
-	}
-	groups := []targets.Group{{Targets: []string{in.URL}, Labels: map[string]string{
+	group := targets.Group{Targets: []string{in.URL}, Labels: map[string]string{
 		"service": in.Service, "module": in.Module, "severity": in.Severity, "visibility": "internal",
-	}}}
-	raw, _ := json.Marshal(groups) // target groups contain only strings
+	}}
 	note, done := "Add HTTP monitor ", "monitor_added"
 	if edit {
 		note, done = "Edit HTTP monitor ", "saved"
 	}
-	_, err = s.Config.PutIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, configdb.KindTargets,
-		set, raw, note+in.Service, version)
+	_, err = s.Config.SetConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, previous,
+		in.Scope, group, note+in.Service, version)
 	switch {
+	case errors.Is(err, configdb.ErrConsoleTargetExists):
+		bad(s.t("A target set already uses this name and scope. Choose different probe locations or review the configuration."), http.StatusConflict)
+	case errors.Is(err, configdb.ErrConsoleServiceExists):
+		bad(s.t("A target set already monitors this service. Review the probe configuration."), http.StatusConflict)
 	case errors.Is(err, configdb.ErrConflict):
 		draft = s.monitorDraft()
 		bad(s.t("The configuration changed. Review the current options and save again."), http.StatusConflict)
 	case errors.Is(err, configdb.ErrInvalid):
 		bad(s.t("The configuration would not pass its checks after this change, so nothing changed."), http.StatusBadRequest)
 	case err != nil:
-		s.log().Error("console: adding a monitor failed", "err", err)
+		s.log().Error("console: saving a monitor failed", "err", err)
 		bad(s.t("That did not work; the log says why."), http.StatusInternalServerError)
 	default:
 		back(w, r, consolePath("/monitors/")+url.PathEscape(in.Service), "done", done)
@@ -284,7 +265,7 @@ func (s *Server) removeMonitor(w http.ResponseWriter, r *http.Request, v *viewer
 		s.showMonitorForm(w, r, v, draft, in, s.t("The configuration changed. Review the current options and save again."), http.StatusConflict)
 		return
 	}
-	if _, err := s.Config.DeleteIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, configdb.KindTargets,
+	if _, err := s.Config.DeleteConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"},
 		in.set(), "Remove HTTP monitor "+in.Service, version); err != nil {
 		s.failed(w, r, consolePath("/monitors/")+url.PathEscape(in.Service)+"/edit", "monitor_remove", err)
 		return

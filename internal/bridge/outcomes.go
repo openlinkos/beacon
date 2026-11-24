@@ -25,17 +25,21 @@ func (b *Bridge) outcomeCutoff(now time.Time) time.Time {
 	return now.Add(-keep)
 }
 
-// recordParticipation keeps the latest recorded alert action per kind of actor. A standalone
-// credential does not identify a human or agent even if it came from the console or MCP.
-func recordParticipation(g *store.Group, who Actor, action string, now time.Time) {
-	kind := "unattributed"
+// actorKind classifies identified principals. Standalone credentials do not identify a human or agent.
+func actorKind(who Actor) string {
 	prefix, _, _ := strings.Cut(who.Key, ":")
 	switch {
 	case prefix == "agent":
-		kind = "agent"
+		return "agent"
 	case prefix == "user", who.Via == "feishu", who.Via == "pushover":
-		kind = "person"
+		return "person"
 	}
+	return "unattributed"
+}
+
+// recordParticipation keeps the latest recorded alert action per kind of actor.
+func recordParticipation(g *store.Group, who Actor, action string, now time.Time) {
+	kind := actorKind(who)
 	p := store.Participation{Kind: kind, By: cleanLine(who.Name), Via: who.Via, Action: action, At: now}
 	i := slices.IndexFunc(g.Participation, func(previous store.Participation) bool { return previous.Kind == kind })
 	if i == -1 {
