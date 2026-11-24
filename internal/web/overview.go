@@ -55,9 +55,9 @@ type health struct{ Title, Text, Tone, Icon string }
 
 // attentionItem is one thing that needs someone: an alert, or what Beacon sees that no alert names.
 type attentionItem struct {
-	Icon, Tone, Title, Href, Sub, Badge, BadgeTone, When string
-	Acked, Silenced                                      bool
-	kind                                                 string // alert, service, channel, location, machine or hook
+	Icon, Tone, Title, Href, Sub, Badge, BadgeTone, When, Response string
+	Acked, Silenced, Unclaimed                                     bool
+	kind                                                           string // alert, service, channel, location, machine or hook
 }
 
 // feedItem is a line of a short list beside the rest: a session, a change, a page, a coming event.
@@ -69,7 +69,7 @@ type feedItem struct {
 
 type overviewLabels struct {
 	Attention, AllAlerts, Calm, CalmText, Sessions, AllSessions, NoSessions, Changes, AllChanges, NoChanges string
-	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Acked, Silenced         string
+	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Silenced                string
 }
 
 type overviewPage struct {
@@ -227,8 +227,16 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
 		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
-		out = append(out, attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
-			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt), Acked: g.Ack != nil, Silenced: silenced, kind: "alert"})
+		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
+			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
+			Acked: g.Ack != nil, Silenced: silenced, Unclaimed: g.Ack == nil && !silenced, kind: "alert"}
+		switch {
+		case item.Acked:
+			item.Response = s.t("Acknowledged by %s", g.Ack.By)
+		case item.Unclaimed:
+			item.Response = s.t("Awaiting acknowledgement")
+		}
+		out = append(out, item)
 	}
 	for _, it := range sh.Trouble {
 		if !alerting[it.Title] {
@@ -343,12 +351,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := overviewPage{shell: s.shellFor(r, v, "overview", s.t("Overview")), L: overviewLabels{
 		Attention: s.t("Needs attention"), AllAlerts: s.t("All alerts"), Calm: s.t("Nothing needs attention"),
 		CalmText: s.t("No alert is firing, and the services, probe locations, machines and hooks are as they should be."),
-		Sessions: s.t("Latest sessions"), AllSessions: s.t("All sessions"), NoSessions: s.t("No agent has worked on a machine yet."),
+		Sessions: s.t("Latest sessions"), AllSessions: s.t("All sessions"), NoSessions: s.t("No machine sessions recorded yet."),
 		Changes: s.t("Latest changes"), AllChanges: s.t("All changes"), NoChanges: s.t("No deployment or other change was reported yet."),
 		Pages: s.t("Status pages"), AllPages: s.t("All status pages"), NoPages: s.t("No status pages."),
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
 		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
-		Beacon: s.t("Beacon"), Acked: s.t("Acknowledged"), Silenced: s.t("Silenced"),
+		Beacon: s.t("Beacon"), Silenced: s.t("Silenced"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
 	p.Attention = s.attention(v, f, sh)
