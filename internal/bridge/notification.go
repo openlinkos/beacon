@@ -92,3 +92,29 @@ func notificationEvents(g *store.Group) []Event {
 	}
 	return events
 }
+
+// DeliveryAttempt links a recent provider response to its incident.
+type DeliveryAttempt struct {
+	AlertID, Result string
+	At              time.Time
+}
+
+// LatestCriticalDeliveries returns the newest recorded outcome per channel among retained critical incidents.
+func (b *Bridge) LatestCriticalDeliveries() map[string]DeliveryAttempt {
+	results := map[string]DeliveryAttempt{}
+	for _, g := range b.d.Store.Groups() {
+		if g.Severity != "critical" {
+			continue
+		}
+		for _, e := range notificationEvents(&g) {
+			channel := e.Via
+			if e.Kind == "buzzed" {
+				channel = "feishu-buzz"
+			}
+			if (e.Result == "ok" || e.Result == "failed") && e.At.After(results[channel].At) {
+				results[channel] = DeliveryAttempt{AlertID: g.ID, Result: e.Result, At: e.At}
+			}
+		}
+	}
+	return results
+}

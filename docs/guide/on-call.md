@@ -80,6 +80,8 @@ Read the alert page's response panel for the hook and notification results. A ho
 
 As the person on call, open the alert page and select **Acknowledge**. Use **Take over** if a previous shift or an Agent has already acknowledged it. Add a brief note about the next action. The timeline keeps up to 20 previous acknowledgements and their notes, and the audit log records each acknowledgement. Check the probes and the alert state to verify recovery.
 
+Use a drill to [verify real phone delivery and a two-person handover](drills.md#verify-phone-delivery-and-handover) before putting the routes on call.
+
 ## The evidence {#the-evidence}
 
 One call gathers what an agent needs to judge an alert: `GET /api/v1/alerts/{id}/evidence`, or the MCP tool `get_evidence` (scope `status:read`).

@@ -40,6 +40,25 @@
         <p class="ol-empty-text">{{.L.CalmText}}</p>
       </div></div>{{end}}
     </section>
+    <div class="ol-stack">
+    {{if .Notifications}}
+    <section class="ol-panel" aria-labelledby="critical-notifications">
+      <div class="ol-panel-header">
+        <h2 class="ol-panel-title" id="critical-notifications">{{icon "message-square"}} {{.L.Notifications}}</h2>
+        <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.DeliveryDrill.Href}}">{{.DeliveryDrill.V}}</a>
+      </div>
+      <ul class="ol-list">
+        {{range .Notifications}}<li>
+          <span class="ol-list-row">
+            <span class="ol-list-title">{{.Channel}}</span>
+            <span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Result}}</span>
+          </span>
+          <span class="ol-list-meta">{{.Schedule}}</span>
+          {{if .Href}}<span class="ol-list-meta"><a href="{{.Href}}">{{$.L.OpenAlert}}</a><span>{{.At}}</span></span>{{end}}
+        </li>{{end}}
+      </ul>
+    </section>
+    {{end}}
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/hooks"}}">{{.L.AllCalls}}</a></div>
       {{if .Calls}}<div class="ol-panel-body"><p class="ol-hint">{{.CallSummary}}</p></div>{{end}}
@@ -50,6 +69,7 @@
         </li>{{end}}
       </ul>{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneWoken}}</p></div>{{end}}
     </section>
+    </div>
 </div>
 
 <section class="ol-stats" aria-label="{{.Heading}}">

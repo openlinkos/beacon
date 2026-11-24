@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.28 (2026-11-25)
+
+- Critical notification routes and recent provider responses are visible on the Overview. Initial Pushover-only submissions retry after one minute on failure. Phone pushes and Feishu group bot messages can open the same incident after sign-in.
+- A probe performs each on-demand request once at a time and can retry after its answer fails.
+- The reference installation test rehearses a cold SQLite restore before checking the original incident, recording and credential revocation.
+
 ### rc.27 (2026-11-25)
 
 - The reference and trial installers and the probe package now default to the same published version. The reference deployment includes a CI drill from a clean Linux installation through two probes, MCP, recorded SSH and recovery.

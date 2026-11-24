@@ -28,6 +28,7 @@ type gateway struct {
 	requests       chan string       // GET /api/v1/agent/requests: a poll hangs until a list is sent; nil: 404, as from an older gateway
 	requestsStatus int               // when set, the requests route answers this status instead
 	polls          int               // polls seen
+	answerStatus   int               // for answers; 0 = 204
 	answers        map[string]string // POST /api/v1/agent/requests/{id}: the body, by id
 }
 
@@ -97,11 +98,15 @@ func (g *gateway) server(t *testing.T, target string) *httptest.Server {
 			if id, ok := strings.CutPrefix(r.URL.Path, "/api/v1/agent/requests/"); ok && r.Method == http.MethodPost {
 				b, _ := io.ReadAll(r.Body)
 				g.mu.Lock()
+				defer g.mu.Unlock()
+				if g.answerStatus != 0 {
+					w.WriteHeader(g.answerStatus)
+					return
+				}
 				if g.answers == nil {
 					g.answers = map[string]string{}
 				}
 				g.answers[id] = string(b)
-				g.mu.Unlock()
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}

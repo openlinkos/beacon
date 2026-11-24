@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -137,6 +138,9 @@ func (p *Pages) Session(id string) string {
 // Root is where the console is, with the pages a link opens. Until 0.3.0 they were at the site's root,
 // and the links handed out until then name those paths: Moved says which of them a link may still open.
 const Root = "/console"
+
+// SignInPath opens a local page after the recipient signs in.
+func SignInPath(next string) string { return Root + "/sign-in?next=" + url.QueryEscape(next) }
 
 // AlertPath is the path of an alert group's page.
 func AlertPath(id string) string { return Root + "/alerts/" + id }

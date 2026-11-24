@@ -12,6 +12,7 @@ import (
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // t renders a message in the bridge's language.
@@ -283,13 +284,33 @@ func (b *Bridge) plainBody(g *store.Group) string {
 }
 
 func (b *Bridge) plainFiring(g *store.Group) string {
-	s := b.t("Firing (%s): %s", b.severityName(g.Severity), b.title(g)) + "\n" + b.plainBody(g)
-	if u := b.link(b.d.Config.Links.Runbook, g); u != "" {
-		s += "\n" + u
+	lines := []string{b.t("Firing (%s): %s", b.severityName(g.Severity), cleanLine(b.title(g)))}
+	if u := b.notificationPage(g); u != "" {
+		lines = append(lines, u)
 	}
-	return s
+	lines = append(lines, b.plainBody(g))
+	if u := cleanURL(b.link(b.d.Config.Links.Runbook, g)); u != "" {
+		lines = append(lines, u)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (b *Bridge) plainResolved(g *store.Group) string {
-	return b.t("Resolved: %s, after %s", b.title(g), b.dur(g.ResolvedAt.Sub(g.StartsAt)))
+	text := b.t("Resolved: %s, after %s", cleanLine(b.title(g)), b.dur(g.ResolvedAt.Sub(g.StartsAt)))
+	if u := b.notificationPage(g); u != "" {
+		text += "\n" + u
+	}
+	return text
+}
+
+// notificationPage takes the recipient back to the alert after sign-in, without handing out read-only access.
+func (b *Bridge) notificationPage(g *store.Group) string {
+	return cleanURL(b.apiURL(link.SignInPath(link.AlertPath(g.ID))))
+}
+
+func (b *Bridge) phoneLink(g *store.Group) (string, string) {
+	if u := b.notificationPage(g); u != "" {
+		return u, b.t("Open alert")
+	}
+	return cleanURL(b.link(b.d.Config.Links.Runbook, g)), b.t("Runbook")
 }
