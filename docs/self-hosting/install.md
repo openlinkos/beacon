@@ -160,7 +160,7 @@ edge_2_token=$(mktemp)
 docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 ```
 
-The dry run should list one line, `+ locations edge-2`, under `would change 1 items (nothing changed):`. The import lists the same under `version 2: import of 1 items`.
+The dry run should list one line, `+ location edge-2`, under `would change 1 items (nothing changed):`. The import lists the same under `version 2: import of 1 items`.
 
 **Install the second probe** as above using the token at `$edge_2_token`. If the second probe runs on the centre itself, install it in the same terminal using the loopback gateway instead.
 

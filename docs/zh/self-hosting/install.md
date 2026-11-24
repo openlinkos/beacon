@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-15a40c29
+sourceHash: sha256-95c1f5ba
 ---
 
 # 装在服务器上
@@ -164,7 +164,7 @@ edge_2_token=$(mktemp)
 docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 ```
 
-预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ locations edge-2`。正式导入则在 `version 2: import of 1 items` 下面列出同样一行。
+预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ location edge-2`。正式导入则在 `version 2: import of 1 items` 下面列出同样一行。
 
 **安装第二个检测程序**。照前面的步骤使用 `$edge_2_token` 指向的令牌。如果装在中心本机，就在同一个终端中使用回环地址安装。
 

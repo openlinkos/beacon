@@ -7,12 +7,26 @@ cd "$(dirname "$0")"
 work=$(mktemp -d "${RUNNER_TEMP:?use a disposable Linux runner}/beacon-reference.XXXXXX")
 start=$SECONDS
 second_probe=
+token=
 cleanup() {
+  local result=$?
+  if (( result != 0 )); then
+    for metric in probe_success beacon:probe_failing beacon:service_down; do
+      curl -fsSG --max-time 5 http://127.0.0.1:8428/api/v1/query --data-urlencode "query=$metric{service=\"drill\"}" |
+        jq -c --arg metric "$metric" '{metric: $metric, samples: .data.result}' || true
+    done
+    curl -fsS --max-time 5 http://127.0.0.1:8880/api/v1/rules |
+      jq -c '[.data.groups[].rules[] | select(.name == "ServiceDown") | {name, state, health, lastError, alerts}]' || true
+    if [[ -n "$token" ]]; then
+      curl -fsS --max-time 5 "https://beacon-status.test/api/v1/alerts?state=all" -H "Authorization: Bearer $token" |
+        jq -c '[.alerts[] | {id, service, status, labels}]' || true
+    fi
+  fi
   if [[ -n "$second_probe" ]]; then
     kill "$second_probe" 2>/dev/null || true
   fi
-  if [[ -s "$work/sshd.pid" ]]; then
-    sudo kill "$(cat "$work/sshd.pid")" 2>/dev/null || true
+  if sudo test -s "$work/sshd.pid"; then
+    sudo kill "$(sudo cat "$work/sshd.pid")" 2>/dev/null || true
   fi
   sudo systemctl stop beacon-probe 2>/dev/null || true
   docker compose down -v >/dev/null 2>&1 || true
@@ -94,6 +108,7 @@ fi
 host=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
 ssh-keygen -q -t ed25519 -N '' -f "$work/target_key"
 sudo ssh-keygen -y -f secrets/ssh-ca-key > "$work/ca.pub"
+sudo install -m 0644 "$work/ca.pub" /etc/ssh/beacon-reference-ca.pub
 sudo install -d -m 0755 /run/sshd
 sudo useradd -m -s /bin/sh -p '*' beacon
 cat > "$work/sshd.conf" <<CONFIG
@@ -101,7 +116,7 @@ ListenAddress $host
 Port 22300
 HostKey $work/target_key
 PidFile $work/sshd.pid
-TrustedUserCAKeys $work/ca.pub
+TrustedUserCAKeys /etc/ssh/beacon-reference-ca.pub
 AuthenticationMethods publickey
 PasswordAuthentication no
 PermitRootLogin no
@@ -109,7 +124,11 @@ AllowUsers beacon
 CONFIG
 sudo /usr/sbin/sshd -f "$work/sshd.conf"
 beacon machine add target "$host:22300"
-token=$(beacon agent add recovery -owner duty-person -preset operator -machines target)
+if ! token=$(beacon agent add recovery -owner duty-person -preset operator -machines target 2>"$work/agent-instructions"); then
+  echo 'Could not enrol the MCP agent' >&2
+  exit 1
+fi
+printf '::add-mask::%s\n' "$token"
 rpc() {
   curl -fsS "$status_url/mcp" -H "Authorization: Bearer $token" \
     -H 'Accept: application/json, text/event-stream' -H 'Content-Type: application/json' \
@@ -119,6 +138,8 @@ rpc '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"
   jq -e '.result.serverInfo.name != null' >/dev/null
 
 beacon drill fail 15m
+test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 503
+wait_for 'Both probes saw the failed drill' 120 probes 0
 firing() {
   curl -fsS "$status_url/api/v1/alerts" -H "Authorization: Bearer $token" |
     jq -er '[.alerts[] | select(.service == "drill" and .status == "firing") | .id][0] // empty'
