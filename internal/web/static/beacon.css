@@ -31,6 +31,8 @@
 .bc-alert-ack-note > textarea { max-width: 30rem; }
 .bc-alert-observations > .ol-list { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
+.kind-probe_now, #add-note { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+.kind-probe_now > td:last-child { flex: 1 1 100%; }
 .kind-probe_now:target { background: var(--ol-color-info-bg); }
 
 @container ol-content (width < 40rem) {
