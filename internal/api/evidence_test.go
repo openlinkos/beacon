@@ -5,9 +5,47 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
+
+func TestReportAgentRunIsScopedAndBoundToItsDelivery(t *testing.T) {
+	e := testutil.WithAgentRun(t)
+	c := serveTestAPI(t, e)
+	runner := e.Token(t, "runner", bridge.AgentRunScope)
+	other := e.Token(t, "other", bridge.AgentRunScope)
+	operator := e.Token(t, "operator", "alerts:write")
+	path := "/api/v1/alerts/" + testutil.GroupID() + "/agent-runs/"
+	result := `{"status":"failed","exit_code":79}`
+	for _, tc := range []struct {
+		delivery, token, body, code string
+		status                      int
+	}{
+		{"test-delivery", "", result, "auth.required", 401},
+		{"test-delivery", operator, result, "auth.scope", 403},
+		{"test-delivery", other, result, "auth.scope", 403},
+		{"unknown", runner, result, "agent_run.not_found", 404},
+		{"test-delivery", runner, `{"status":"succeeded","exit_code":79}`, "bad_input", 400},
+		{"test-delivery", runner, `{"status":"failed","exit_code":-1}`, "bad_input", 400},
+	} {
+		if code, out := c.do("PUT", path+tc.delivery, tc.token, tc.body); code != tc.status || out["code"] != tc.code {
+			t.Errorf("want %d %s, got %d %v", tc.status, tc.code, code, out)
+		}
+	}
+	if code, out := c.do("PUT", path+"test-delivery", runner, result); code != 200 || out["status"] != "failed" || out["exit_code"] != float64(79) || out["by"] != "runner" {
+		t.Fatalf("terminal report with a pending hook response: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", path+"test-delivery", runner, `{"status":"running"}`); code != 200 || out["status"] != "failed" {
+		t.Errorf("late running report: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", path+"test-delivery", runner, `{"status":"timed_out"}`); code != 409 || out["code"] != "agent_run.conflict" {
+		t.Errorf("terminal report overwritten: %d %v", code, out)
+	}
+	if code, out := c.do("POST", "/api/v1/alerts/"+testutil.GroupID()+"/ack", runner, `{}`); code != 403 || out["code"] != "auth.scope" {
+		t.Errorf("reporter can acknowledge the incident: %d %v", code, out)
+	}
+}
 
 func TestEvidenceRoutes(t *testing.T) {
 	e, c := setup(t)

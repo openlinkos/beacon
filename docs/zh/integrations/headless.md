@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-3f6411eb
+sourceHash: sha256-d62f7c92
 ---
 
 # 无头 Agent 与 CI
@@ -68,6 +68,8 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 | `-timeout` | 每个程序最多运行多久；默认 `30m`。超时后整个进程组被杀掉 |
 | `-log-dir` | 每次运行的标准输出和标准错误，文件名为 `<time>-<delivery>.log`，最后一行写明退出状态和用时 |
 | `-keep` | 超过这个时长的日志会被删除；默认 `720h`。`0` 表示全部保留 |
+| `-report-url` | 可选。执行回报要发往的 Beacon 中心 HTTPS 地址。与 `-report-token-file` 一起设置 |
+| `-report-token-file` | 钩子指定的回报方使用的独立凭据，作用域为 `alerts:report` |
 
 ### 它怎么应答 {#what-it-answers}
 
@@ -78,6 +80,28 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 每个 `delivery` 它会记住 24 小时，所以已经接下的调用再重试时，返回 202，但不再运行任何程序。认的是签名过的请求体里的 id，不是请求头。
 
 `GET /healthz` 返回 `ok`，可以用来检查它是否在运行。收到 SIGTERM 后，它不再接收新调用，并等待正在运行的程序结束，最多等 `-timeout`。
+
+### 回报程序执行情况 {#report-programme-execution}
+
+要在事件中查看程序做了什么，先在中心创建专用令牌。把它的值保存到接收程序可读的文件中。Agent 处置故障时使用另一枚令牌。
+
+```sh
+docker exec beacon beacon token create agent-run-reporter -scopes alerts:report -expires 30d
+```
+
+在钩子配置里写入 `reporter: token:agent-run-reporter`，然后重启中心。为 `beacon-oncall` 设置固定的中心地址和回报令牌文件：
+
+```bash
+beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs \
+  -report-url https://status.example.com \
+  -report-token-file /etc/beacon-oncall/run-report-token
+```
+
+HA 部署需要先升级两个中心再配置回报方。回退时先恢复旧版中心配置，并从旧版接收程序的启动命令中移除执行回报参数。
+
+事件分别显示签名唤醒和实际执行。接收程序可回报程序已启动、成功退出、失败退出、超时或未能启动，并在知道退出码时一并回报。程序的输出保存在本地日志中。回报遇到临时故障时会短时间重试。接收程序意外停止时，内存中尚未提交的回报可能丢失。控制台缺少执行记录时可以核对接收程序日志，并用恢复检测确认服务状态。
 
 ### 程序拿到什么 {#what-the-program-gets}
 

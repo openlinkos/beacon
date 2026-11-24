@@ -26,6 +26,18 @@ type AgentCall struct {
 	At       time.Time `json:"at"`              // when the call was made
 	Due      time.Time `json:"due,omitzero"`    // when it goes out, if it waits
 	Done     time.Time `json:"done,omitzero"`
+	Reporter string    `json:"reporter,omitempty"`  // principal allowed to report this delivery
+	Run      *AgentRun `json:"run,omitempty"`       // the latest reported phase of the external programme
+	RunStart *AgentRun `json:"run_start,omitempty"` // a reported start retained after a terminal result
+}
+
+// AgentRun is an execution report for an accepted hook delivery. The time is when Beacon recorded it.
+type AgentRun struct {
+	Status   string    `json:"status"`
+	ExitCode *int      `json:"exit_code,omitempty"`
+	At       time.Time `json:"at"`
+	By       string    `json:"by"`
+	Via      string    `json:"via"`
 }
 
 // ProbeRun records what each expected target and location returned during an alert's on-demand check.

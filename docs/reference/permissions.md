@@ -19,7 +19,7 @@ A person's role, weakest first. Each may do what the one before it may, and more
 | `viewer` | `status:read`, `sessions:read` | Seeing what happens: alerts, evidence, sessions, the console |
 | `oncall` | + `alerts:write`, `machines:ssh` | Working an alert: acknowledging, silencing, notes, and reaching machines through the SSH channel |
 | `operator` | + `maintenance:write`, `incidents:write`, `machines:write` | Changing what is run: maintenance windows, machines and their keys |
-| `owner` | + `config:write`, `accounts:write`, `secrets:use` | Deployment configuration, people and team credentials |
+| `owner` | + `config:write`, `accounts:write`, `secrets:use`, `alerts:report` | Deployment configuration, people, team credentials and delegation of execution reporting |
 
 ## Presets
 
@@ -40,7 +40,7 @@ An OAuth sign-in (Claude Code, Codex) is also held to the preset and the machine
 
 ## Scopes
 
-The first ten are for people and agents, on the REST API, MCP and the SSH channel. The rest are for machines, on the metrics gateway ([Sources](sources.md)).
+People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine scopes cover the metrics gateway ([Sources](sources.md)).
 
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
@@ -54,6 +54,7 @@ The first ten are for people and agents, on the REST API, MCP and the SSH channe
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
 | `accounts:write` | owner account or standalone administration token | Managing people and everyone's agents |
 | `secrets:use` | owner; custom agents only | Listing and using the team credentials explicitly granted to that agent |
+| `alerts:report` | standalone token or custom agent of an owner | Reporting execution for the deliveries assigned to this reporter in `agents[].reporter` |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
 | `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success |

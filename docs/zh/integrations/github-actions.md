@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-33c21440
+sourceHash: sha256-771197e4
 ---
 
 # GitHub Actions
@@ -29,6 +29,8 @@ jobs:
 ```
 
 像上面这样通过 `env` 传入输入值，不要直接写进脚本。能触发这个 workflow 的人都能决定输入的内容。运行 Claude Code 的完整 workflow 见下文[在 workflow 里运行 Claude Code](#run-claude-code-in-the-workflow)。
+
+启用[执行回报](../reference/webhooks.md#report-execution)时，先在 workflow 声明额外的 `delivery` 输入，再设置钩子的 `reporter`。配置好回报方后，Beacon 会传入投递 ID。让这个 workflow 使用独立的 `alerts:report` 凭据，并将此凭据的身份绑定到钩子。
 
 ## Beacon 里的钩子 {#the-hook-in-beacon}
 

@@ -42,11 +42,16 @@ func (c client) do(method, path, token, body string) (int, map[string]any) {
 
 func setup(t *testing.T) (*testutil.Env, client) {
 	e := testutil.New(t)
+	return e, serveTestAPI(t, e)
+}
+
+func serveTestAPI(t *testing.T, e *testutil.Env) client {
+	t.Helper()
 	mux := http.NewServeMux()
 	(&Server{Bridge: e.Bridge, Auth: &Auth{Store: e.Store}, Log: slog.Default()}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return e, client{t, srv}
+	return client{t, srv}
 }
 
 func TestAuth(t *testing.T) {

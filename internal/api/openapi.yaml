@@ -40,7 +40,7 @@ components:
         error: {type: string}
         code:
           type: string
-          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream,
+          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
             ssh.disabled, ssh.paused, ssh.standby, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
@@ -131,6 +131,18 @@ components:
         at: {type: string, format: date-time}
         due: {type: string, format: date-time, description: "When a call that waits goes out: a resolved call waits the hook's resolved_after"}
         done: {type: string, format: date-time}
+        reporter: {type: string, description: The principal bound to this delivery for execution reports}
+        run: {$ref: "#/components/schemas/AgentRun"}
+        run_start: {$ref: "#/components/schemas/AgentRun"}
+    AgentRun:
+      type: object
+      required: [status, at, by, via]
+      properties:
+        status: {type: string, enum: [running, succeeded, failed, timed_out, not_started]}
+        exit_code: {type: integer, minimum: 0, maximum: 255}
+        at: {type: string, format: date-time, description: When Beacon recorded this report}
+        by: {type: string, description: The authenticated reporter}
+        via: {type: string, enum: [api, mcp]}
     HeartbeatState:
       type: object
       description: A heartbeat an alert is about, from the catalogue, with its last success
@@ -327,8 +339,8 @@ components:
               at: {type: string, format: date-time}
               kind:
                 type: string
-                enum: [started, notified, buzzed, pushover, notification, acknowledged, note, silenced, silence_ended, agent, change, session, command, heartbeat, probe_now, resolved]
-                description: "notification: a provider submission without its own event kind. Successful submissions record provider acceptance. Acknowledgement is a separate event."
+                enum: [started, notified, buzzed, pushover, notification, acknowledged, note, silenced, silence_ended, agent, agent_run, change, session, command, heartbeat, probe_now, resolved]
+                description: "agent records hook delivery. agent_run records external programme execution. notification records provider acceptance or failure. Acknowledgement is separate."
               by: {type: string}
               via: {type: string}
               text: {type: string}
@@ -338,7 +350,7 @@ components:
               id: {type: string}
               until: {type: string, format: date-time}
               event: {type: string, enum: [firing, resolved]}
-              result: {type: string, enum: [pending, ok, failed]}
+              result: {type: string, enum: [pending, ok, failed, running, succeeded, timed_out, not_started]}
               exit: {type: integer}
               url: {type: string, description: "A change's link, or the signed link to a session's page where people replay it"}
               related: {type: string, enum: [service, machine, agent]}
@@ -1221,6 +1233,34 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /alerts/{id}/agent-runs/{delivery}:
+    put:
+      summary: Report an on-call programme's execution
+      description: >-
+        Scope: alerts:report. The credential's principal must be the reporter bound to the hook delivery and still
+        configured on that hook. Repeated reports are idempotent. A late start leaves a terminal result intact.
+        Reporting does not change ownership, escalation, or the alert state.
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: delivery, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: {type: string, enum: [running, succeeded, failed, timed_out, not_started]}
+                exit_code: {type: integer, minimum: 0, maximum: 255, description: "0 for succeeded; a non-zero exit status, when known, for failed"}
+      responses:
+        "200":
+          description: The current execution report
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentRun"}
         default: {$ref: "#/components/responses/Error"}
   /incident-outcomes:
     get:

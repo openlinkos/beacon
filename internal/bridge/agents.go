@@ -99,7 +99,7 @@ const (
 		"if what it says is not there yet."
 )
 
-// dispatch is the body of a GitHub workflow_dispatch: the workflow must declare the inputs alert and event.
+// dispatch is the body of a GitHub workflow_dispatch. A reporting workflow also declares the delivery input.
 type dispatch struct {
 	Ref    string            `json:"ref"`
 	Inputs map[string]string `json:"inputs"`
@@ -142,7 +142,7 @@ func (b *Bridge) wake(g *store.Group, event string) {
 		if !b.takes(h, g, event) {
 			continue
 		}
-		c := store.AgentCall{Hook: h.Name, Kind: h.Kind, Event: event, Delivery: newDelivery(), Status: "pending", At: b.now()}
+		c := store.AgentCall{Hook: h.Name, Kind: h.Kind, Event: event, Delivery: newDelivery(), Status: "pending", At: b.now(), Reporter: h.Reporter}
 		if d := h.ResolvedWait(); event == "resolved" && d > 0 {
 			c.Due = c.At.Add(d)
 		}
@@ -156,8 +156,14 @@ func (b *Bridge) wake(g *store.Group, event string) {
 }
 
 func (b *Bridge) hookBody(g *store.Group, h config.Agent, c store.AgentCall) []byte {
-	var v any = dispatch{Ref: h.Ref, Inputs: map[string]string{"alert": g.ID, "event": c.Event}}
-	if h.Kind != "github" {
+	var v any
+	if h.Kind == "github" {
+		inputs := map[string]string{"alert": g.ID, "event": c.Event}
+		if c.Reporter != "" {
+			inputs["delivery"] = c.Delivery
+		}
+		v = dispatch{Ref: h.Ref, Inputs: inputs}
+	} else {
 		p := HookPayload{Delivery: c.Delivery, Event: c.Event, At: c.At, Hook: h.Name, Alert: b.brief(g), Links: b.links(g),
 			Hint: hintFiring + b.heartbeatHint(g), Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels")}
 		if c.Event == "resolved" {
@@ -320,6 +326,8 @@ func (b *Bridge) recordCall(ctx context.Context, groupID string, c store.AgentCa
 		i = slices.IndexFunc(g.Agents, func(x store.AgentCall) bool { return x.Delivery == c.Delivery })
 	}
 	if i >= 0 {
+		// A runner can report before the webhook response is recorded, or during a transport retry.
+		c.Run, c.RunStart = g.Agents[i].Run, g.Agents[i].RunStart
 		g.Agents[i] = c
 		if c.Status != "pending" && c.Event == "firing" && g.Firing() && b.patchAllowed(&g, false) {
 			b.patch(ctx, &g)

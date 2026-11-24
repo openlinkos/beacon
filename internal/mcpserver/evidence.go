@@ -115,4 +115,23 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 			g, err := b.AddNote(ctx, in.ID, who, in.Text)
 			return nil, g, err
 		})
+
+	type agentRunIn struct {
+		ID       string `json:"id" jsonschema:"alert group id"`
+		Delivery string `json:"delivery" jsonschema:"delivery id from the signed wake"`
+		Status   string `json:"status" jsonschema:"running, succeeded, failed, timed_out or not_started"`
+		ExitCode *int   `json:"exit_code,omitempty" jsonschema:"exit status from 0 to 255, when known"`
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "report_agent_run", Title: "Report an on-call programme's execution",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Report the start or outcome of the programme for a hook delivery where this credential is the configured reporter. " +
+			"Requires alerts:report. Record the actual observed status and exit code only. This leaves ownership, escalation and recovery to their existing controls."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in agentRunIn) (*mcp.CallToolResult, store.AgentRun, error) {
+			who, err := need(ctx, bridge.AgentRunScope)
+			if err != nil {
+				return nil, store.AgentRun{}, err
+			}
+			run, err := b.ReportAgentRun(ctx, in.ID, in.Delivery, who, bridge.AgentRunInput{Status: in.Status, ExitCode: in.ExitCode})
+			return nil, run, err
+		})
 }

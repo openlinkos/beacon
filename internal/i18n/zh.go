@@ -999,4 +999,12 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"No machine is linked to this alert.":                 "此告警没有关联机器。",
 	"Open machine %s":                                     "打开机器 %s",
 	"This alert links to machines that are not enrolled.": "此告警关联的机器尚未登记。",
+
+	// Programme execution reports echoed to the alert chat.
+	"Hook %s reported starting its programme for \"%s\"":             "钩子 %s 报告已为「%s」启动程序",
+	"Hook %s reported an exit status of 0 for \"%s\"":                "钩子 %s 报告「%s」的程序退出码为 0",
+	"Hook %s reported an exit status of %d for \"%s\"":               "钩子 %s 报告程序退出码为 %d，关联告警「%s」",
+	"Hook %s reported that its programme timed out for \"%s\"":       "钩子 %s 报告「%s」的程序运行超时",
+	"Hook %s reported that its programme could not start for \"%s\"": "钩子 %s 报告「%s」的程序未能启动",
+	"Hook %s reported that its programme failed for \"%s\"":          "钩子 %s 报告「%s」的程序运行失败",
 }

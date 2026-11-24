@@ -26,6 +26,8 @@ jobs:
 
 Pass the inputs through `env` as above, never into the script itself. Anyone who may dispatch the workflow chooses them. A complete workflow that runs Claude Code is in [Run Claude Code in the workflow](#run-claude-code-in-the-workflow) below.
 
+For [execution reporting](../reference/webhooks.md#report-execution), declare an additional `delivery` input in the workflow before setting `reporter` on its hook. Beacon supplies the delivery ID once reporting is configured. Give that workflow a separate `alerts:report` credential bound to its hook.
+
 ## The hook in Beacon
 
 List the hook in Beacon's configuration:

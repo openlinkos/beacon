@@ -20,7 +20,7 @@ type Timeline struct {
 }
 
 // Event is one entry of a timeline. Kind is started, notified, buzzed, pushover, notification, acknowledged, note,
-// silenced, silence_ended, agent, change, session, command (one run at a shell's prompt), heartbeat (its
+// silenced, silence_ended, agent, agent_run, change, session, command (one run at a shell's prompt), heartbeat (its
 // last success), probe_now or resolved; the other fields say what each needs. URL is a change's link, or the signed
 // link to a session's page, where people replay it. Phase, on changes, sessions, commands and heartbeats,
 // says whether the event came before the group started, while it fired or after it resolved.
@@ -36,8 +36,8 @@ type Event struct {
 	ID      string                   `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
 	Until   *time.Time               `json:"until,omitempty"`
 	Event   string                   `json:"event,omitempty"`  // an agent call: for firing or resolved
-	Result  string                   `json:"result,omitempty"` // for hook and notification attempts: ok, failed or pending
-	Exit    *int                     `json:"exit,omitempty"`   // a session's or a command's exit status
+	Result  string                   `json:"result,omitempty"` // provider result or reported execution phase
+	Exit    *int                     `json:"exit,omitempty"`   // a session, command or programme exit status
 	URL     string                   `json:"url,omitempty"`
 	Related string                   `json:"related,omitempty"` // why a change or session is listed: service, machine or agent
 	Phase   string                   `json:"phase,omitempty"`   // before, during or after
@@ -86,6 +86,12 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 			at = c.Done
 		}
 		add(Event{At: at, Kind: "agent", By: c.Hook, Type: c.Kind, Event: c.Event, ID: c.Delivery, Result: c.Status, Text: cleanLine(c.Error)})
+		for _, r := range []*store.AgentRun{c.RunStart, c.Run} {
+			if r != nil {
+				add(Event{At: r.At, Kind: "agent_run", By: c.Hook, Via: r.Via, Type: c.Kind,
+					Event: c.Event, ID: c.Delivery, Result: r.Status, Exit: r.ExitCode})
+			}
+		}
 	}
 	for _, run := range g.ProbeRuns {
 		add(Event{At: run.At, Kind: "probe_now", By: run.By, Via: run.Via, ID: run.ID, Probes: run.Results})

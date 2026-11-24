@@ -448,21 +448,37 @@ func (s *Store) PutGroup(g Group) error {
 
 // PutGroupWithOutcome updates the alert group and its current or preceding outcome in one transaction.
 func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
-	g.Updated = s.now().UTC()
-	b, err := json.Marshal(g)
-	if err != nil {
-		return err
-	}
 	return s.db.Update(func(tx kv.Tx) error {
 		if outcome != nil {
 			if err := putOutcome(tx, *outcome); err != nil {
 				return err
 			}
 		}
-		if err := putSlackDelivery(tx, g); err != nil {
+		return s.putGroup(tx, g)
+	})
+}
+
+func (s *Store) putGroup(tx kv.Tx, g Group) error {
+	g.Updated = s.now().UTC()
+	b, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	if err := putSlackDelivery(tx, g); err != nil {
+		return err
+	}
+	return tx.Put(bucketGroups, []byte(g.ID), b)
+}
+
+// PutGroupAndAudit saves a group change with its audit entry in one transaction.
+func (s *Store) PutGroupAndAudit(g Group, e AuditEntry) error {
+	return s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		if err := s.putGroup(tx, g); err != nil {
 			return err
 		}
-		return tx.Put(bucketGroups, []byte(g.ID), b)
+		return s.AppendAuditTx(raw, events.Event{
+			Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
+		})
 	})
 }
 
@@ -525,10 +541,9 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 
 // ---- Tokens
 
-// Scopes are the token scopes. Public reads need no token. The first nine are for people and agents
-// (the REST API, MCP and the SSH channel: PeopleScopes); the rest are for machines, on the metrics gateway.
+// Scopes are the token scopes. PeopleScopes also work through human and delegated identities.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
-	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write", "secrets:use",
+	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write", "secrets:use", "alerts:report",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send", "changes:write"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.

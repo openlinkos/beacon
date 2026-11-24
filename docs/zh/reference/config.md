@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f36c56bd
+sourceHash: sha256-26909bb7
 ---
 
 # config.yaml
@@ -216,6 +216,7 @@ sourceHash: sha256-f36c56bd
 | `agents.service` | 两者 | 匹配整个 `service` 标签的正则；留空匹配任何服务 |
 | `agents.resolved` | 两者 | 组恢复时也调用 |
 | `agents.resolved_after` | 两者 | 恢复调用等待多久，让 Agent 上一次运行先收尾留言。默认 `1m`，至多 `5m`；`0` 立即发送 |
+| `agents.reporter` | 两者 | 可选。将新投递的执行回报绑定到 `token:NAME` 或 `agent:NAME`。凭据需要 `alerts:report` |
 | `agents.url` | webhook | JSON 负载 POST 到的地址 |
 | `agents.secret_file` | webhook | HMAC-SHA256 签名密钥，以 `X-Beacon-Signature` 发送；至少 24 个字符。`secret_file` 或 `headers_file` 必须有其一，Agent 才能分辨 Beacon 的调用和伪造 |
 | `agents.headers_file` | webhook | 每次调用都带的 `Name: value` 行，供校验自己那套密钥的接收方；有了它 `secret_file` 可省 |

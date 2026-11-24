@@ -254,6 +254,19 @@ func TestGitHubDispatch(t *testing.T) {
 	}
 }
 
+func TestGitHubDispatchNamesTheDeliveryWhenReportingIsConfigured(t *testing.T) {
+	e := newEnv(t)
+	h := config.Agent{Kind: "github", Ref: "main"}
+	c := store.AgentCall{Event: "firing", Delivery: "one-delivery", Reporter: "token:runner"}
+	var payload dispatch
+	if err := json.Unmarshal(e.b.hookBody(&store.Group{ID: "one-alert"}, h, c), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Inputs["delivery"] != c.Delivery || payload.Inputs["alert"] != "one-alert" || payload.Inputs["event"] != "firing" {
+		t.Fatalf("workflow lacks the assigned delivery: %+v", payload)
+	}
+}
+
 func TestResumeWakes(t *testing.T) {
 	fastRetries(t)
 	e := newEnv(t)

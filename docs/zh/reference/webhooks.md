@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e192f57e
+sourceHash: sha256-c97487dc
 ---
 
 # Webhook {#webhooks}
@@ -120,3 +120,11 @@ func Genuine(secret, body []byte, signature string) bool {
 同时至多八个调用在跑。每次调用的结果（pending、`ok` 或 `failed`，连同尝试次数）留在告警组上、审计日志里、卡片上和告警群里。
 
 重启后，十分钟内发起、仍在 pending 的调用会被接手，更早的放弃。等待中的调用（`resolved_after`）到期才发出。期间告警组再次触发的话，就不再发。
+
+## 回报执行情况 {#report-execution}
+
+接收端观测到程序开始或结束时，可调用 `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` 或 `report_agent_run`。当前身份需要 `alerts:report`，且在发出投递和收到回报时都是钩子配置的 `reporter`。
+
+`status` 可用 `running`、`succeeded`、`failed`、`timed_out` 或 `not_started`。`succeeded` 要带 `exit_code: 0`。`failed` 在已知非零退出码时带上它。其他状态省略退出码。重复提交相同的最终状态和退出码，或稍后提交 `running`，都会返回已有的最终结果。冲突的结果返回 `agent_run.conflict`。旧告警周期的投递回报会被拒绝。
+
+时间线分别显示钩子的 HTTP 投递和程序执行。认领、升级和恢复验证继续走原来的告警流程。配置参考接收程序请看[无界面 Agent 和 CI](../integrations/headless.md#report-programme-execution)。

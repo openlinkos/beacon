@@ -73,6 +73,24 @@ func New(t *testing.T) *Env {
 	return NewWith(t, nil)
 }
 
+// WithAgentRun seeds a pending reference delivery without making a network call.
+func WithAgentRun(t *testing.T) *Env {
+	t.Helper()
+	var cfg *config.Config
+	e := NewWith(t, func(deps *bridge.Deps) { cfg = deps.Config })
+	cfg.Agents = []config.Agent{{Name: "agent-run", Reporter: "token:runner"}}
+	g, ok := e.Store.Group(GroupID())
+	if !ok {
+		t.Fatal("the test alert is missing")
+	}
+	g.Agents = []store.AgentCall{{Hook: "agent-run", Kind: "webhook", Event: "firing", Delivery: "test-delivery",
+		Status: "pending", At: g.StartsAt, Reporter: "token:runner"}}
+	if err := e.Store.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
 // NewWith is New with a last word on the bridge's dependencies, for tests that add a collaborator.
 func NewWith(t *testing.T, tweak func(*bridge.Deps)) *Env {
 	t.Helper()
