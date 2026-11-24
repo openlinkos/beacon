@@ -25,6 +25,8 @@ func (s *Server) registerAccounts(at func(method, path string, h http.HandlerFun
 	at("POST", "/reset", s.accountFormPost(store.LinkReset))
 	at("GET", "/account", s.console("", s.accountPage))
 	at("POST", "/account/password", s.action("", s.changePassword))
+	at("POST", "/account/keys", s.action("machines:ssh", s.addPersonalKey))
+	at("POST", "/account/keys/remove", s.action("", s.removePersonalKey))
 	at("GET", "/people", s.console("accounts:write", s.people))
 	at("POST", "/people/invite", s.action("accounts:write", s.invite))
 	at("POST", "/people/invitations/{id}/withdraw", s.action("accounts:write", s.withdraw))
@@ -55,9 +57,9 @@ func (s *Server) roleHelp(role string) string {
 	case "viewer":
 		return s.t("Sees everything: alerts, machines, sessions and their replays, the configuration, the audit log.")
 	case "oncall":
-		return s.t("And acts on alerts and reaches machines through the SSH channel, by their agents.")
+		return s.t("Acts on alerts and reaches machines through the SSH channel.")
 	case "operator":
-		return s.t("And adds and removes machines, pauses agents and schedules maintenance.")
+		return s.t("Adds and removes machines, pauses SSH access and schedules maintenance.")
 	case "owner":
 		return s.t("And changes the configuration, invites people, sets roles and manages every agent.")
 	}
@@ -269,6 +271,7 @@ type accountPage struct {
 	Person bool
 	Help   string
 	Agents string
+	SSH    *personalKeySection
 }
 
 var accountTmpl = parse("account.html")
@@ -286,11 +289,67 @@ func (s *Server) accountPage(w http.ResponseWriter, r *http.Request, v *viewer) 
 		}
 		p.Facts = append(p.Facts, kvLink{K: s.t("Agents"), V: num(len(s.Store.Agents(a.Username))), Href: consolePath("/agents")})
 		p.Help = s.t("A new password ends every other sign-in of yours.")
+		p.SSH = s.personalKeys(v)
 	} else {
 		p.Facts = []kvLink{{K: s.t("Token"), V: v.Token.Name}, {K: s.t("Scopes"), V: strings.Join(v.Principal.Scopes, ", ")},
 			{K: s.t("Expires"), V: s.clock(v.Token.Expires)}}
 	}
 	s.render(w, accountTmpl, p)
+}
+
+type personalKeySection struct {
+	Heading, Help, PublicKey, PublicKeyHint, Comment, Add, Remove, Empty string
+	CanAdd                                                               bool
+	Keys                                                                 []bridge.SSHKeyView
+}
+
+func (s *Server) personalKeys(v *viewer) *personalKeySection {
+	canAdd := v.has("machines:ssh") && s.SSH != nil
+	if !canAdd && len(v.Account.SSHKeys) == 0 {
+		return nil
+	}
+	keys, _ := s.Bridge.SSHKeys(v.actor(), "")
+	return &personalKeySection{
+		Heading:       s.t("Personal SSH keys"),
+		Help:          s.t("Use a public key from this device to connect from the Machines page. Sessions are recorded under your username."),
+		PublicKey:     s.t("Public key"),
+		PublicKeyHint: s.t("An authorized_keys line, such as the content of ~/.ssh/id_ed25519.pub; never a private key."),
+		Comment:       s.t("Comment"), Add: s.t("Add an SSH key"), Remove: s.t("Remove"), Empty: s.t("No SSH keys."),
+		CanAdd: canAdd, Keys: keys,
+	}
+}
+
+func (s *Server) addPersonalKey(w http.ResponseWriter, r *http.Request, v *viewer) {
+	path := consolePath("/account")
+	if !v.person() || s.SSH == nil {
+		back(w, r, path, "error", "forbidden")
+		return
+	}
+	if _, err := s.Bridge.AddSSHKey(r.Context(), v.actor(), "", r.PostForm.Get("key"), r.PostForm.Get("comment")); err != nil {
+		switch {
+		case errors.Is(err, store.ErrExists):
+			back(w, r, path, "error", "key_taken")
+		case errors.Is(err, bridge.ErrBadInput):
+			back(w, r, path, "error", "bad_key")
+		default:
+			s.failed(w, r, path, "key", err)
+		}
+		return
+	}
+	back(w, r, path, "done", "key_added")
+}
+
+func (s *Server) removePersonalKey(w http.ResponseWriter, r *http.Request, v *viewer) {
+	path := consolePath("/account")
+	if !v.person() {
+		back(w, r, path, "error", "forbidden")
+		return
+	}
+	if err := s.Bridge.RemoveSSHKey(r.Context(), v.actor(), "", r.PostForm.Get("fingerprint")); err != nil {
+		back(w, r, path, "error", agentProblem(err))
+		return
+	}
+	back(w, r, path, "done", "key_removed")
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, v *viewer) {

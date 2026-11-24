@@ -521,7 +521,7 @@ func TestRefusals(t *testing.T) {
 	if _, _, code := e.run(t, "box", "true"); code != 0 {
 		t.Errorf("resumed: exit %d", code)
 	}
-	if !strings.Contains(e.bot.all(), "paused agents' access") {
+	if !strings.Contains(e.bot.all(), "paused SSH access") {
 		t.Errorf("echo %q", e.bot.all())
 	}
 }

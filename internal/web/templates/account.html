@@ -4,6 +4,35 @@
   <div class="ol-panel-body"><dl class="ol-dl ol-dl-stack">{{range .Facts}}<dt>{{.K}}</dt><dd class="ol-break">{{if .Href}}<a href="{{.Href}}">{{.V}}</a>{{else}}{{.V}}{{end}}</dd>{{end}}</dl></div>
 </section>
 {{if .Person}}
+{{with .SSH}}<section id="ssh-keys" class="ol-panel">
+  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "key-round"}} {{.Heading}}</h2></div>
+  <div class="ol-panel-body ol-stack">
+    <p class="ol-hint">{{.Help}}</p>
+    {{if .Keys}}<ul class="ol-list">{{range .Keys}}
+      <li class="ol-list-item">
+        <span class="ol-break">{{if .Comment}}{{.Comment}} {{end}}<code>{{.Fingerprint}}</code></span>
+        <form method="post" action="{{console "/account/keys/remove"}}">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="fingerprint" value="{{.Fingerprint}}">
+          <button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{$.SSH.Remove}}</button>
+        </form>
+      </li>
+    {{end}}</ul>{{else}}<p class="ol-hint">{{.Empty}}</p>{{end}}
+    {{if .CanAdd}}
+    <form class="ol-stack" method="post" action="{{console "/account/keys"}}">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <div class="ol-field"><label for="personal-key" class="ol-label">{{.PublicKey}}</label>
+        <textarea id="personal-key" name="key" class="ol-textarea ol-input-mono" rows="2" required maxlength="8000" aria-describedby="personal-key-help" spellcheck="false"></textarea>
+        <p id="personal-key-help" class="ol-hint">{{.PublicKeyHint}}</p>
+      </div>
+      <div class="ol-field"><label for="personal-key-comment" class="ol-label">{{.Comment}}</label>
+        <input id="personal-key-comment" name="comment" class="ol-input" maxlength="100">
+      </div>
+      <div><button type="submit" class="ol-btn ol-btn-primary ol-btn-sm">{{iconSm "plus"}}{{.Add}}</button></div>
+    </form>
+    {{end}}
+  </div>
+</section>{{end}}
 <form class="ol-panel" method="post" action="{{console "/account/password"}}">
   <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "key-round"}} {{.L.Change}}</h2></div>
   <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">

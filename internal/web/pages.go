@@ -526,6 +526,7 @@ func (s *Server) commands(cs []sshgate.Command) []commandRow {
 type sessionPage struct {
 	shell
 	L                                                                      labels
+	ActorLabel                                                             string
 	ID, Agent, Via, Machine, Kind, Command, Started, Ended, Duration, Exit string
 	Failed, Open, Truncated                                                bool
 	Commands                                                               []commandRow
@@ -540,6 +541,14 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
 		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
 		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
+	p.ActorLabel = s.t("Actor")
+	if strings.HasPrefix(rec.Principal, "agent:") {
+		p.ActorLabel = p.L.Agent
+	} else if strings.HasPrefix(rec.Principal, "user:") {
+		p.ActorLabel = s.t("Person")
+	} else if strings.HasPrefix(rec.Principal, "token:") {
+		p.ActorLabel = s.t("Token")
+	}
 	p.Badges = []badge{{Text: p.Kind}}
 	switch {
 	case p.Open:

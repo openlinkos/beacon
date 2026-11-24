@@ -373,21 +373,6 @@ func (s *Store) AgentTokens(agent string) []Token {
 	return out
 }
 
-// KeyHolder names who holds the SSH key with this fingerprint: "token NAME", "agent NAME", or "".
-func (s *Store) KeyHolder(fingerprint string) string {
-	for _, t := range s.Tokens() {
-		if slices.ContainsFunc(t.SSHKeys, func(k SSHKey) bool { return k.Fingerprint == fingerprint }) {
-			return "token " + t.Name
-		}
-	}
-	for _, a := range s.Agents("") {
-		if slices.ContainsFunc(a.SSHKeys, func(k SSHKey) bool { return k.Fingerprint == fingerprint }) {
-			return "agent " + a.Name
-		}
-	}
-	return ""
-}
-
 // dropKeys removes from every agent the keys it added with the credential cred (SSHKey.Via), which is
 // going away.
 func dropKeys(tx kv.Tx, cred string) error {
@@ -442,14 +427,11 @@ const MaxSSHKeys = 20
 // AddAgentSSHKey gives an agent a key for the SSH channel. A key belongs to one principal and is never a
 // machine's connector key; adding a key the agent holds already is no change.
 func (s *Store) AddAgentSSHKey(agent string, k SSHKey) (Agent, error) {
-	if holder := s.KeyHolder(k.Fingerprint); holder != "" && holder != "agent "+agent {
-		return Agent{}, fmt.Errorf("%w: the key %s belongs to %s", ErrExists, k.Fingerprint, holder)
-	}
-	if m, ok := s.MachineByConnectorKey(k.Fingerprint); ok {
-		return Agent{}, fmt.Errorf("%w: the key %s is machine %s's connector key", ErrExists, k.Fingerprint, m.Name)
-	}
 	var out Agent
 	err := s.db.Update(func(tx kv.Tx) error {
+		if err := checkSSHKeyOwner(tx, k.Fingerprint, "agent "+agent); err != nil {
+			return err
+		}
 		a, ok := getAgent(tx, agent)
 		if !ok {
 			return ErrNotFound
@@ -636,6 +618,10 @@ func (s *Store) CredentialLive(cred string, p Principal) bool {
 		g, ok := s.Grant(name)
 		return ok && now.Before(g.Expires) && g.Agent == p.Agent
 	case "key":
+		if p.Person() {
+			a, ok := s.Account(p.User)
+			return ok && !a.Disabled && hasSSHKey(a.SSHKeys, name)
+		}
 		if p.Agent == "" {
 			return s.KeyHolder(name) == "token "+p.Token
 		}
@@ -844,8 +830,7 @@ func (s *Store) Authenticate(secret string) (Principal, bool) {
 	return Principal{}, false
 }
 
-// PrincipalBySSHKey resolves the holder of an SSH key: a token of its own that has not expired, or an
-// agent with a live credential.
+// PrincipalBySSHKey resolves a personal key, a live agent's key or an unexpired token's own key.
 func (s *Store) PrincipalBySSHKey(fingerprint string) (Principal, bool) {
 	if t, ok := s.TokenBySSHKey(fingerprint); ok && t.Agent == "" {
 		return s.TokenPrincipal(t)
@@ -865,19 +850,25 @@ func (s *Store) PrincipalBySSHKey(fingerprint string) (Principal, bool) {
 			return p, true
 		}
 	}
-	return Principal{}, false
+	var a Account
+	found := false
+	_ = s.db.View(func(tx kv.Tx) error {
+		a, found = accountBySSHKey(tx, fingerprint)
+		return nil
+	})
+	if !found || a.Disabled {
+		return Principal{}, false
+	}
+	return Principal{User: a.Username, Scopes: RoleScopes(a.Role)}, true
 }
 
 // AddTokenSSHKey gives a token of its own (not an agent's: AddAgentSSHKey) a key for the SSH channel,
 // under the same rule: a key belongs to one principal and is never a machine's connector key.
 func (s *Store) AddTokenSSHKey(name string, k SSHKey) (Token, error) {
-	if holder := s.KeyHolder(k.Fingerprint); holder != "" && holder != "token "+name {
-		return Token{}, fmt.Errorf("%w: the key %s belongs to %s", ErrExists, k.Fingerprint, holder)
-	}
-	if m, ok := s.MachineByConnectorKey(k.Fingerprint); ok {
-		return Token{}, fmt.Errorf("%w: the key %s is machine %s's connector key", ErrExists, k.Fingerprint, m.Name)
-	}
-	return s.UpdateToken(name, func(t *Token) error {
+	return s.updateToken(name, func(tx kv.Tx, t *Token) error {
+		if err := checkSSHKeyOwner(tx, k.Fingerprint, "token "+name); err != nil {
+			return err
+		}
 		if t.Agent != "" {
 			return fmt.Errorf("token %s is agent %s's: its keys are the agent's", name, t.Agent)
 		}

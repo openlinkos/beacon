@@ -20,7 +20,8 @@ Pick the switch by how much you want to stop:
 | Remove an SSH key | `remove_ssh_key`, or the agent's page | The connections signed in with that key close |
 | Delete the agent | `beacon agent remove NAME`, or its page | Every credential of its (tokens, sign-ins, keys) and what they had open. What it did stays on record |
 | Narrow the agent | Its page, or `beacon agent` on the centre: take a machine from its list, or lower its preset below `machines:ssh` | What it has open on the machines it may no longer reach closes. The rest keeps working |
-| Stop the owner | `beacon user disable NAME`, or `beacon user role NAME viewer` ([Change a role, disable someone](people.md#change-a-role-disable-someone)) | Their sign-ins end, their agents stop, and what those agents have open on machines closes |
+| Stop a person's SSH key | **Remove** under **Your account → Personal SSH keys** | Connections signed in with that key close |
+| Stop the owner | `beacon user disable NAME`, or `beacon user role NAME viewer` ([Change a role, disable someone](people.md#change-a-role-disable-someone)) | SSH connections from the person and their agents close. Disabling the person ends their console sign-ins, too |
 
 Revoking a token also ends the console sessions signed in with it. Revoking the token you signed in with signs you out.
 
@@ -30,7 +31,7 @@ Beacon also checks every minute for credentials that expired meanwhile. So a tok
 
 ## Pause the whole channel {#pause-the-whole-channel}
 
-To stop every agent at once, pause the SSH channel: for a compromise, a change freeze or a night off. It closes every open session at once, and refuses new ones until it is resumed. It is paused and resumed from any of three places: the command line, the console's **Machines** page, and the API or MCP.
+Pause the SSH channel to stop access for people and agents at once. It closes open client sessions and refuses new ones until it is resumed. The command line, the console's **Machines** page, the API and MCP can all pause or resume it.
 
 ```bash
 docker exec beacon beacon ssh pause     # or: ssh resume

@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- People with SSH access can register personal public keys in **Your account** and use their own SSH client to connect. Sessions record the principal and the credential used. Removing a key or losing the role closes its connections.
+
 ## 0.3.0
 
 ### rc.23 (2026-11-23)

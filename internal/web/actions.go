@@ -81,7 +81,7 @@ func (s *Server) problem(r *http.Request, code string) string {
 	case "bad_agent":
 		return s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
 	case "key_taken":
-		return s.t("That key belongs to another agent or token, or to a machine; a key belongs to one.")
+		return s.t("That key is already registered. Use a separate key for each person, agent, token or machine.")
 	case "bad_key":
 		return s.t("That is not a public key in the authorized_keys form (ssh-ed25519 AAAA…).")
 	case "last_owner":
