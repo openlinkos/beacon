@@ -114,6 +114,8 @@ type Bridge struct {
 	webhookWake   chan struct{}
 	webhookActive map[string]bool // one in-flight notice per group, protected by mu
 	slackActive   bool            // one request at a time to the Slack channel, protected by mu
+
+	sessionCardCursor int // next group to check for session changes, protected by mu
 }
 
 const (
@@ -280,6 +282,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
+			g.CardSessionHash, g.CardSessionAttemptAt = "", time.Time{}
 			g.StartsAt = starts
 			if g.StartsAt.IsZero() {
 				g.StartsAt = b.now()
@@ -340,10 +343,12 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 
 	triedPhone := false
 	if pol.Channel == "app" && b.appAllowed(g.Severity) {
-		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.card(ctx, g), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
+		sessions := b.sessionSummary(g)
+		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.cardWithSessions(ctx, g, sessions), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
 		b.feishuResult(err)
 		if err == nil {
 			g.Channel, g.MessageID, g.CardAt, g.CardHash = "app", id, b.now(), cardHash(g)
+			g.CardSessionHash = sessions.fingerprint()
 			b.count("feishu", "ok")
 			return
 		}
@@ -384,7 +389,11 @@ func (b *Bridge) refresh(ctx context.Context, g *store.Group) {
 }
 
 func (b *Bridge) patch(ctx context.Context, g *store.Group) {
-	err := b.d.Feishu.PatchCard(ctx, g.MessageID, b.card(ctx, g))
+	b.patchWithSessions(ctx, g, b.sessionSummary(g))
+}
+
+func (b *Bridge) patchWithSessions(ctx context.Context, g *store.Group, sessions cardSessions) {
+	err := b.d.Feishu.PatchCard(ctx, g.MessageID, b.cardWithSessions(ctx, g, sessions))
 	b.feishuResult(err)
 	if err != nil {
 		b.count("feishu-patch", "error")
@@ -393,6 +402,7 @@ func (b *Bridge) patch(ctx context.Context, g *store.Group) {
 	}
 	b.count("feishu-patch", "ok")
 	g.CardAt, g.CardHash = b.now(), cardHash(g)
+	g.CardSessionHash = sessions.fingerprint()
 }
 
 func (b *Bridge) resolve(ctx context.Context, g *store.Group) {
@@ -476,8 +486,10 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 		action = "silence"
 	}
 	recordParticipation(&g, who, action, b.now())
-	card := b.card(ctx, &g)
+	sessions := b.sessionSummary(&g)
+	card := b.cardWithSessions(ctx, &g, sessions)
 	g.CardAt, g.CardHash = b.now(), cardHash(&g)
+	g.CardSessionHash = sessions.fingerprint()
 	if err := b.d.Store.PutGroup(g); err != nil {
 		b.d.Log.Error("save group", "err", err)
 	}
@@ -559,7 +571,8 @@ func (b *Bridge) Tick(ctx context.Context) {
 	defer b.mu.Unlock()
 	now := b.now()
 	ttl := b.d.Config.AckTTL.D()
-	for _, g := range b.d.Store.Groups() {
+	groups := b.d.Store.Groups()
+	for i, g := range groups {
 		if !g.Firing() {
 			if now.Sub(g.ResolvedAt) > keepResolved {
 				if err := b.d.Store.DropResolvedGroup(g, b.archiveOutcome(g, now, now)); err != nil {
@@ -664,8 +677,10 @@ func (b *Bridge) Tick(ctx context.Context) {
 			if err := b.d.Store.PutGroup(g); err != nil {
 				b.d.Log.Error("save group", "err", err)
 			}
+			groups[i] = g
 		}
 	}
+	b.refreshSessionCards(ctx, groups, now)
 }
 
 func (b *Bridge) onCallIDs() []string {

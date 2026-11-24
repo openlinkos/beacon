@@ -175,6 +175,9 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"%d OK":             "%d 个正常",
 	"%d failing (%s)":   "%d 个失败（%s）",
 	"%d did not answer": "%d 个未应答",
+	// finished sessions on the Feishu incident card
+	"**Finished SSH sessions**":  "**已结束的 SSH 会话**",
+	"Latest session ended at %s": "最近一次会话结束于 %s",
 	// the pages people open from the chat (internal/web), and the links to them on cards and in the chat
 	"Timeline":   "时间线",
 	"**Agents**": "**Agent**",

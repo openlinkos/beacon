@@ -85,15 +85,20 @@ type Group struct {
 	Notifications  []Notification    `json:"notifications,omitempty"`
 	NotifyWebhook  bool              `json:"notify_webhook,omitempty"`  // this episode was routed to the notification webhook
 	WebhookNotices []WebhookNotice   `json:"webhook_notices,omitempty"` // queued in incident order, including earlier episodes
-	NotifySlack    bool              `json:"-"`                         // stored separately from the group JSON
-	SlackNotices   []WebhookNotice   `json:"-"`
-	slackStored    bool
-	Notes          []Note          `json:"notes,omitempty"`  // see agents.go
-	Agents         []AgentCall     `json:"agents,omitempty"` // the hooks called to wake agents
-	ProbeRuns      []ProbeRun      `json:"probe_runs,omitempty"`
-	Episode        string          `json:"episode,omitempty"`
-	Participation  []Participation `json:"participation,omitempty"`
-	Updated        time.Time       `json:"updated"`
+	Notes          []Note            `json:"notes,omitempty"`           // see agents.go
+	Agents         []AgentCall       `json:"agents,omitempty"`          // the hooks called to wake agents
+	ProbeRuns      []ProbeRun        `json:"probe_runs,omitempty"`
+	Episode        string            `json:"episode,omitempty"`
+	Participation  []Participation   `json:"participation,omitempty"`
+	Updated        time.Time         `json:"updated"`
+
+	// These track the session summary delivered on the current Feishu card and back off failed refreshes.
+	CardSessionHash      string    `json:"card_session_hash,omitempty"`
+	CardSessionAttemptAt time.Time `json:"card_session_attempt_at,omitzero"`
+
+	NotifySlack  bool            `json:"-"` // stored separately from the group JSON
+	SlackNotices []WebhookNotice `json:"-"`
+	slackStored  bool
 }
 
 // WebhookNotice is a notification that has not yet been accepted by the receiver.

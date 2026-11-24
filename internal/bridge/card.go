@@ -159,6 +159,10 @@ func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 
 // card renders the group's card.
 func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
+	return b.cardWithSessions(ctx, g, b.sessionSummary(g))
+}
+
+func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions cardSessions) feishu.Card {
 	now := b.now()
 	firing := g.Firing()
 	colour := feishu.Orange
@@ -235,7 +239,7 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 	if len(state) > 0 {
 		els = append(els, feishu.Markdown("<font color='grey'>"+strings.Join(state, "\n")+"</font>"))
 	}
-	els = append(els, b.agentBlock(g), b.notesBlock(g)) // nil without agents or notes, and then left out of the card
+	els = append(els, b.agentBlock(g), b.sessionsBlock(sessions), b.notesBlock(g))
 	var links []map[string]any
 	if u := b.AlertPage(g.ID); u != "" {
 		links = append(links, feishu.LinkButton(b.t("Timeline"), u))
