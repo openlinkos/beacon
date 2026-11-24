@@ -24,6 +24,8 @@ routing:
     # a network path or a CDN node failing takes many services with it: one card, not one per service
     - match: {alertname: MainlandPathDegraded|ServiceDegraded}
       group_by: [alertname, severity]
+    - match: {alertname: ServiceDown, severity: critical}
+      group_wait: 5s
   inhibit:
     # a service that is down altogether is not also reported as partly down
     - source: {alertname: ServiceDown}

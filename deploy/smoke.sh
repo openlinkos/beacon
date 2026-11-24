@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 work=$(mktemp -d "${RUNNER_TEMP:?use a disposable Linux runner}/beacon-reference.XXXXXX")
 start=$SECONDS
 second_probe=
+oncall_pid=
 token=
 cleanup() {
   local result=$?
@@ -24,6 +25,9 @@ cleanup() {
   fi
   if [[ -n "$second_probe" ]]; then
     kill "$second_probe" 2>/dev/null || true
+  fi
+  if [[ -n "$oncall_pid" ]]; then
+    kill "$oncall_pid" 2>/dev/null || true
   fi
   if sudo test -s "$work/sshd.pid"; then
     sudo kill "$(sudo cat "$work/sshd.pid")" 2>/dev/null || true
@@ -89,6 +93,37 @@ probes() {
 }
 wait_for 'Both installed probes reported a healthy drill' 120 probes 1
 
+# Receive a real signed wake in the released harness. The fixture program only accepts the ServiceDown episode.
+host=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+oncall_archive="beacon-oncall_${version#v}_linux_amd64.tar.gz"
+release="https://github.com/openlinkos/beacon/releases/download/$version"
+curl -fsSL --retry 3 "$release/SHA256SUMS" -o "$work/SHA256SUMS"
+curl -fsSL --retry 3 "$release/$oncall_archive" -o "$work/$oncall_archive"
+(cd "$work" && awk -v file="$oncall_archive" '$2 == file' SHA256SUMS | sha256sum -c --status)
+tar -xzf "$work/$oncall_archive" -C "$work" beacon-oncall
+"$work/beacon-oncall" version | grep -F "beacon-oncall ${version#v} ("
+openssl rand -hex 32 > "$work/hook-secret"
+sudo install -o 65532 -g 65532 -m 0400 "$work/hook-secret" secrets/smoke-hook-secret
+cat >> config.yaml <<YAML
+
+agents:
+  - name: smoke-oncall
+    kind: webhook
+    url: http://$host:22301/beacon
+    secret_file: /etc/beacon/secrets/smoke-hook-secret
+    service: drill
+YAML
+"$work/beacon-oncall" -listen "$host:22301" -secret-file "$work/hook-secret" -log-dir "$work/hook-logs" \
+  -run "jq -ce 'select(.event == \"firing\" and .alert.labels.alertname == \"ServiceDown\")' > '$work/hook.tmp' && mv '$work/hook.tmp' '$work/hook.json'" \
+  > "$work/oncall.log" 2>&1 &
+oncall_pid=$!
+hook_health() { curl -fsS "http://$host:22301/healthz" >/dev/null; }
+wait_for 'Released on-call harness is listening' 15 hook_health
+beacon check-config -config /etc/beacon/config.yaml
+docker compose restart beacon
+centre_health() { curl -fsS "$status_url/healthz" >/dev/null; }
+wait_for 'Reference centre is ready with its on-call hook' 45 centre_health
+
 setup=$(beacon setup)
 form=$(curl -fsS -c "$work/cookies" "$setup" | sed -n 's/.*name="form" value="\([^"]*\)".*/\1/p')
 test -n "$form"
@@ -105,7 +140,6 @@ if [[ ! -x /usr/sbin/sshd ]]; then
   sudo apt-get -qq update
   sudo apt-get -y -qq install openssh-server
 fi
-host=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
 ssh-keygen -q -t ed25519 -N '' -f "$work/target_key"
 sudo ssh-keygen -y -f secrets/ssh-ca-key > "$work/ca.pub"
 sudo install -m 0644 "$work/ca.pub" /etc/ssh/beacon-reference-ca.pub
@@ -145,11 +179,16 @@ firing() {
   curl -fsS "$status_url/api/v1/alerts" -H "Authorization: Bearer $token" |
     jq -er '[.alerts[] | select(.labels.alertname == "ServiceDown" and .service == "drill" and .status == "firing") | .id][0] // empty'
 }
-wait_for 'Reference rules opened the drill alert' "$((drill_started + 360 - SECONDS))" firing > "$work/alert"
-(( SECONDS <= drill_started + 360 ))
+wait_for 'Reference rules opened the drill alert' "$((drill_started + 300 - SECONDS))" firing > "$work/alert"
 alert=$(head -1 "$work/alert")
 tail -1 "$work/alert"
 printf 'The alert reached Beacon %ss after the injected failure\n' "$((SECONDS - drill_started))"
+hook_firing() {
+  [[ -s "$work/hook.json" ]] && jq -e --arg alert "$alert" '.alert.id == $alert' "$work/hook.json" >/dev/null
+}
+wait_for 'Signed drill alert started the Agent fixture' "$((drill_started + 300 - SECONDS))" hook_firing
+(( SECONDS <= drill_started + 300 ))
+printf 'The on-call harness started the Agent fixture %ss after the injected failure\n' "$((SECONDS - drill_started))"
 run=$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_command","arguments":{"machine":"target","command":"id -un"}}}')
 jq -e '.result.structuredContent | .exit_code == 0 and .stdout == "beacon\n"' <<< "$run" >/dev/null
 session=$(jq -er '.result.structuredContent.session' <<< "$run")
@@ -158,6 +197,8 @@ test -s "$work/recording"
 note=$(jq -nc --arg alert "$alert" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add_note","arguments":{"id":$alert,"text":"Verified restricted machine access and the recorded session."}}}')
 rpc "$note" | jq -e '.result != null and .result.isError != true' >/dev/null
 beacon drill off
+probe=$(jq -nc --arg alert "$alert" '{jsonrpc:"2.0",id:4,method:"tools/call",params:{name:"probe_now",arguments:{alert_id:$alert,wait:45}}}')
+rpc "$probe" | jq -e '.result.structuredContent | .complete and (.results | length == 2 and all(.[]; .ok) and (map(.location) | unique | sort == ["edge-1", "edge-2"]))' >/dev/null
 wait_for 'Both probes saw recovery' 120 probes 1
 resolved() {
   curl -fsS "$status_url/api/v1/alerts/$alert" -H "Authorization: Bearer $token" |
