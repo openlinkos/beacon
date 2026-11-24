@@ -137,6 +137,7 @@ rpc() {
 rpc '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"reference-smoke","version":"1"}}}' |
   jq -e '.result.serverInfo.name != null' >/dev/null
 
+drill_started=$SECONDS
 beacon drill fail 15m
 test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 503
 wait_for 'Both probes saw the failed drill' 120 probes 0
@@ -144,9 +145,11 @@ firing() {
   curl -fsS "$status_url/api/v1/alerts" -H "Authorization: Bearer $token" |
     jq -er '[.alerts[] | select(.service == "drill" and .status == "firing") | .id][0] // empty'
 }
-wait_for 'Reference rules opened the drill alert' 360 firing > "$work/alert"
+wait_for 'Reference rules opened the drill alert' "$((drill_started + 360 - SECONDS))" firing > "$work/alert"
+(( SECONDS <= drill_started + 360 ))
 alert=$(head -1 "$work/alert")
 tail -1 "$work/alert"
+printf 'The alert reached Beacon %ss after the injected failure\n' "$((SECONDS - drill_started))"
 run=$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_command","arguments":{"machine":"target","command":"id -un"}}}')
 jq -e '.result.structuredContent | .exit_code == 0 and .stdout == "beacon\n"' <<< "$run" >/dev/null
 session=$(jq -er '.result.structuredContent.session' <<< "$run")

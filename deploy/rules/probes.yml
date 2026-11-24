@@ -40,19 +40,21 @@ groups:
       - record: beacon:service_up
         expr: 1 - beacon:service_down
 
-      # At the target's severity (its severity label); the second rule gives critical to targets without one.
+      # Evaluate the outage from the probes in one query. The recording rules above are written
+      # asynchronously and their intermediate values can lag by several evaluation intervals.
       - alert: ServiceDown
-        expr: beacon:service_down{severity!=""} == 1
-        for: 1m
-        annotations:
-          summary: "{{ $labels.service }} is down"
-          description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
-          runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
-      - alert: ServiceDown
-        expr: beacon:service_down{severity=""} == 1
+        expr: |
+          WITH (
+            location_failing = max by (service, severity, failure_domain, location, region) (
+              max_over_time(probe_success{job="probe"}[3m])
+            ) == bool 0,
+            reporting = count by (service, severity, failure_domain) (location_failing),
+            failing = sum by (service, severity, failure_domain) (location_failing)
+          )
+          ((failing >= bool 2) * (failing * 2 >= bool reporting)) == 1
         for: 1m
         labels:
-          severity: critical
+          severity: '{{ or $labels.severity "critical" }}'
         annotations:
           summary: "{{ $labels.service }} is down"
           description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
