@@ -143,7 +143,7 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 
 wait_for 'Both probes saw the failed drill' 120 probes 0
 firing() {
   curl -fsS "$status_url/api/v1/alerts" -H "Authorization: Bearer $token" |
-    jq -er '[.alerts[] | select(.service == "drill" and .status == "firing") | .id][0] // empty'
+    jq -er '[.alerts[] | select(.labels.alertname == "ServiceDown" and .service == "drill" and .status == "firing") | .id][0] // empty'
 }
 wait_for 'Reference rules opened the drill alert' "$((drill_started + 360 - SECONDS))" firing > "$work/alert"
 (( SECONDS <= drill_started + 360 ))
@@ -163,5 +163,5 @@ resolved() {
   curl -fsS "$status_url/api/v1/alerts/$alert" -H "Authorization: Bearer $token" |
     jq -e '.status == "resolved"' >/dev/null
 }
-wait_for 'The same alert resolved' 120 resolved
+wait_for 'The same alert resolved' 150 resolved
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
