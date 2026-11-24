@@ -216,8 +216,12 @@ PY
   if [[ "${smoke_agent_reports:-false}" == true ]]; then
     smoke_failed_run_report
     curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/recovered-agent-report.html"
-    sed -n '/<tr class="kind-agent_run"/,/<\/tr>/p' "$work/recovered-agent-report.html" |
-      grep -F 'Failed (exit 79)' >/dev/null
+    awk '
+      /<tr[ >]/ { agent_run = /<tr class="kind-agent_run">/ }
+      agent_run && /Failed \(exit 79\)/ { found = 1 }
+      /<\/tr>/ && !/<tr[ >]/ { agent_run = 0 }
+      END { exit !found }
+    ' "$work/recovered-agent-report.html"
   fi
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
     jq -e --arg first "$first" --arg second "$second" --arg a "$first_note" --arg b "$second_note" '
