@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-faa89e72
+sourceHash: sha256-b2b41c97
 ---
 
 # 命令行
@@ -172,6 +172,8 @@ docker exec beacon beacon token list
 | `-secret-file` | 必填 | 存 hook 密钥的文件，与 Beacon 一侧的 `secret_file` 相同 |
 | `-run` | 必填 | 处理 firing 事件的程序 |
 | `-run-resolved` | 无 | 处理 resolved 事件的程序；不设则只确认、不运行 |
+| `-report-url` | 无 | 接收程序执行回报的固定 HTTPS 基地址。两个回报参数需同时设置 |
+| `-report-token-file` | 无 | 保存该钩子指定的独立 `alerts:report` 凭据的文件 |
 | `-concurrency` | `2` | 同时运行的程序数；其余排队。至多 32 |
 | `-timeout` | `30m` | 超时后杀死程序的整个进程组 |
 | `-log-dir` | `/var/lib/beacon-oncall/logs` | 每次运行的输出，文件名 `<time>-<delivery>.log` |

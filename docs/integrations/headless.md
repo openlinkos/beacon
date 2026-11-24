@@ -64,6 +64,8 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 | `-timeout` | What a program gets; `30m`. Then its whole process group is killed |
 | `-log-dir` | Each run's standard output and error, as `<time>-<delivery>.log`, with a closing line giving the exit status and the duration |
 | `-keep` | Logs older than this are removed; `720h`. `0` keeps them all |
+| `-report-url` | Optional fixed HTTPS base URL of the Beacon centre for execution reports. Set it together with `-report-token-file` |
+| `-report-token-file` | A separate credential with `alerts:report` for the configured hook reporter |
 
 ### What it answers
 
@@ -74,6 +76,28 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 It remembers each `delivery` for 24 hours, so a retry of a delivery it has taken is answered 202 and runs nothing. The id in the signed body counts, not the header.
 
 `GET /healthz` answers `ok`, for a check that it runs. On SIGTERM it takes no more deliveries, and waits for the programs that run, up to `-timeout`.
+
+### Report programme execution
+
+To show what the programme did on the incident, create a dedicated token on the centre. Keep its value in a file readable by the harness and use a different token for the agent's operations.
+
+```sh
+docker exec beacon beacon token create agent-run-reporter -scopes alerts:report -expires 30d
+```
+
+Set `reporter: token:agent-run-reporter` on the hook entry and restart the centre. Give `beacon-oncall` the fixed centre URL and the reporting token file:
+
+```bash
+beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs \
+  -report-url https://status.example.com \
+  -report-token-file /etc/beacon-oncall/run-report-token
+```
+
+Upgrade both centres in an HA deployment before setting the reporter. If rolling back, restore the earlier centre configuration and remove the reporting flags from the earlier harness invocation.
+
+The incident shows execution separately from the signed wake. The harness can report that the programme started, exited successfully, exited with an error, timed out or could not start. It reports the exit code when known. Programme output stays in the local log. The harness retries transient report failures within a short window. Reports still in memory can be lost if the harness stops abruptly. Check the harness log when execution is missing in the console, and confirm the service separately with a recovery check.
 
 ### What the program gets
 

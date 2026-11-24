@@ -212,6 +212,7 @@ Hooks that wake agents when a new alert group is first notified, telling them wh
 | `agents.service` | both | A regular expression over the whole `service` label; empty matches any service |
 | `agents.resolved` | both | Also call when the group resolves |
 | `agents.resolved_after` | both | How long the resolved call waits, so the agent's earlier run can leave its closing note first. Default `1m`, at most `5m`; `0` sends it at once |
+| `agents.reporter` | both | Optional principal bound to new deliveries for execution reports, `token:NAME` or `agent:NAME`. The credential needs `alerts:report` |
 | `agents.url` | webhook | Where the JSON payload is POSTed |
 | `agents.secret_file` | webhook | The HMAC-SHA256 signing secret, sent as `X-Beacon-Signature`; at least 24 characters. `secret_file` or `headers_file` is required, so the agent can tell Beacon's calls from a forgery |
 | `agents.headers_file` | webhook | `Name: value` lines sent with every call, for a receiver that checks a secret of its own; with it, `secret_file` is optional |

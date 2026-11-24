@@ -8,9 +8,33 @@ import (
 	"testing"
 
 	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
+
+func TestAgentRunTool(t *testing.T) {
+	e := testutil.WithAgentRun(t)
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
+	defer srv.Close()
+	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
+	runner := connect(t, srv.URL, e.Token(t, "runner", bridge.AgentRunScope))
+	other := connect(t, srv.URL, e.Token(t, "other", bridge.AgentRunScope))
+	id := testutil.GroupID()
+	in := map[string]any{"id": id, "delivery": "test-delivery", "status": "failed", "exit_code": 79}
+	if res, text := call(t, read, "report_agent_run", in); !res.IsError || !strings.Contains(text, bridge.AgentRunScope) {
+		t.Errorf("reading scope reported a run: %s", text)
+	}
+	if res, text := call(t, other, "report_agent_run", in); !res.IsError || !strings.Contains(text, "cannot report execution") {
+		t.Errorf("unassigned principal reported a run: %s", text)
+	}
+	if res, text := call(t, runner, "report_agent_run", in); res.IsError || !strings.Contains(text, `"via":"mcp"`) || !strings.Contains(text, `"exit_code":79`) {
+		t.Fatalf("report: %s", text)
+	}
+	if res, text := call(t, read, "get_timeline", map[string]any{"id": id}); res.IsError || !strings.Contains(text, `"kind":"agent_run"`) || !strings.Contains(text, `"result":"failed"`) {
+		t.Errorf("missing run event: %s", text)
+	}
+}
 
 func TestEvidenceTools(t *testing.T) {
 	e := testutil.New(t)

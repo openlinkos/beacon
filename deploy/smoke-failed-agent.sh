@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Sourced by smoke.sh on the disposable reference runner. The phone receiver only records requests.
 
+smoke_runner_reports_supported() {
+  local help
+  help=$("$1" -help 2>&1) || true
+  grep -Eq '^[[:space:]]+-report-url([[:space:]]|$)' <<< "$help" &&
+    grep -Eq '^[[:space:]]+-report-token-file([[:space:]]|$)' <<< "$help"
+}
+
 smoke_phone_receiver() {
   exec python3 - "$1" "$2" "$3" <<'PY'
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -80,6 +87,9 @@ smoke_shift_claim() {
   local person=$1 page=$2 button=$3 note=$4 csrf expected
   curl -fsS -b "$work/$person.cookies" "$status_url$page" > "$work/$person.alert.html"
   grep -Fq "$button" "$work/$person.alert.html"
+  if [[ "${smoke_agent_reports:-false}" == true ]]; then
+    smoke_failed_run_banner "$work/$person.alert.html"
+  fi
   csrf=$(sed -n 's/.*id="alert-ack".*name="csrf" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
   expected=$(sed -n 's/.*name="expected_ack" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
   test -n "$csrf"
@@ -90,6 +100,15 @@ smoke_shift_claim() {
   test "$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "$work/$person.headers")" = "$page?done=ack"
 }
 
+smoke_failed_run_banner() {
+  local banner
+  banner=$(sed -n '/<a class="[^"]*bc-alert-agent-run"/,/<\/a>/p' "$1")
+  grep -Fq 'A hook accepted the alert.' "$1" &&
+    grep -Fq 'Agent program for the alert trigger (smoke-oncall)' <<< "$banner" &&
+    grep -Fq '>Failed<' <<< "$banner" &&
+    grep -Fq '>exit 79<' <<< "$banner"
+}
+
 smoke_failed_wake() {
   hook_firing || return 1
   local delivery
@@ -98,6 +117,16 @@ smoke_failed_wake() {
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
     jq -e --arg delivery "$delivery" '
       any(.events[]; .kind == "agent" and .event == "firing" and .id == $delivery and .result == "ok")' >/dev/null
+}
+
+smoke_failed_run_report() {
+  local delivery
+  delivery=$(jq -er '.delivery' "$work/hook.json") || return 1
+  curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
+    jq -e --arg delivery "$delivery" '
+      any(.events[]; .kind == "agent" and .event == "firing" and .id == $delivery and .result == "ok") and
+      any(.events[]; .kind == "agent_run" and .event == "firing" and .id == $delivery and
+        .by == "smoke-oncall" and .via == "api" and .result == "failed" and .exit == 79)' >/dev/null
 }
 
 smoke_phone_acceptance() {
@@ -134,6 +163,9 @@ smoke_failed_agent_drill() {
   fi
   page="/console/alerts/$alert"
   wait_for 'The harness accepted the signed wake and its program exited 79' 30 smoke_failed_wake
+  if [[ "${smoke_agent_reports:-false}" == true ]]; then
+    wait_for 'Beacon recorded the accepted wake and actual exit 79 for the same delivery' 30 smoke_failed_run_report
+  fi
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
     jq -e 'all(.events[]; .kind != "note" and .kind != "acknowledged")' >/dev/null
   wait_for 'The alert evidence shows HTTP 503 at both locations' 30 smoke_failed_evidence
@@ -181,6 +213,16 @@ PY
   [[ "$location" == "$page?probe="* ]]
   wait_for 'Both probes measured HTTP recovery after handover' 120 probes 1
   wait_for 'The handed-off alert resolved' 150 resolved
+  if [[ "${smoke_agent_reports:-false}" == true ]]; then
+    smoke_failed_run_report
+    curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/recovered-agent-report.html"
+    awk '
+      /<tr[ >]/ { agent_run = /<tr class="kind-agent_run">/ }
+      agent_run && /Failed \(exit 79\)/ { found = 1 }
+      /<\/tr>/ && !/<tr[ >]/ { agent_run = 0 }
+      END { exit !found }
+    ' "$work/recovered-agent-report.html"
+  fi
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
     jq -e --arg first "$first" --arg second "$second" --arg a "$first_note" --arg b "$second_note" '
       [.events[] | select(.kind == "acknowledged" and .type == "person" and .via == "console") | [.by, .text]] ==

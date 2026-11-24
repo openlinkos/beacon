@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4de40cbe
+sourceHash: sha256-aff8024c
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -23,7 +23,7 @@ sourceHash: sha256-4de40cbe
 | `viewer` | `status:read`、`sessions:read` | 看发生了什么：告警、证据、会话、控制台 |
 | `oncall` | + `alerts:write`、`machines:ssh` | 处理告警：认领、静默、备注，以及经 SSH 通道上机器 |
 | `operator` | + `maintenance:write`、`incidents:write`、`machines:write` | 改运行的东西：维护窗口、机器和它们的密钥 |
-| `owner` | + `config:write`、`accounts:write`、`secrets:use` | 管理部署配置、成员和团队凭据 |
+| `owner` | + `config:write`、`accounts:write`、`secrets:use`、`alerts:report` | 管理部署配置、成员、团队凭据和执行回报的委托 |
 
 ## 预设 {#presets}
 
@@ -44,7 +44,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 
 ## Scope {#scopes}
 
-前十个属于人和 Agent，用在 REST API、MCP 和 SSH 通道。其余属于机器，用在指标网关（[数据来源](sources.md)）。
+人和 Agent 的作用域用于 REST API、MCP 和 SSH 通道。机器的作用域用于指标网关（[数据来源](sources.md)）。
 
 | Scope | 谁持有 | 允许什么 |
 | --- | --- | --- |
@@ -58,6 +58,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
 | `accounts:write` | 所有者账号或独立管理令牌 | 管理成员账号和所有人的 Agent |
 | `secrets:use` | owner；仅自定义 Agent | 列出和使用明确授权给该 Agent 的团队凭据 |
+| `alerts:report` | 独立令牌或 owner 的自定义 Agent | 为 `agents[].reporter` 指定给该身份的投递回报执行情况 |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |
 | `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本 |

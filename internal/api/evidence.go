@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -41,6 +42,26 @@ func (s *Server) addNote(w http.ResponseWriter, r *http.Request, who bridge.Acto
 		return
 	}
 	writeJSON(w, http.StatusCreated, g)
+}
+
+func (s *Server) reportAgentRun(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	var body bridge.AgentRunInput
+	if !readJSON(w, r, &body) {
+		return
+	}
+	run, err := s.Bridge.ReportAgentRun(r.Context(), r.PathValue("id"), r.PathValue("delivery"), who, body)
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, run)
+	case errors.Is(err, bridge.ErrForbidden):
+		writeError(w, http.StatusForbidden, "auth.scope", err.Error())
+	case errors.Is(err, bridge.ErrAgentRunNotFound):
+		writeError(w, http.StatusNotFound, "agent_run.not_found", err.Error())
+	case errors.Is(err, bridge.ErrAgentRunConflict):
+		writeError(w, http.StatusConflict, "agent_run.conflict", err.Error())
+	default:
+		s.opError(w, err)
+	}
 }
 
 func (s *Server) listChanges(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {

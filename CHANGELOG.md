@@ -6,6 +6,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.32 (2026-11-25)
+
+- Report on-call programme execution against the same signed wake. The response panel and timeline show starts, timeouts and exit results separately from webhook acceptance, human ownership and verified recovery.
+- Check that both on-call accounts can read the failed programme report during handover, then find the reported result in the same incident after verified recovery.
+
 ### rc.31 (2026-11-25)
 
 - Send firing and recovery messages to a Slack channel from an incoming webhook. Messages return responders to the same alert after sign-in, and the Overview shows the latest Slack response.

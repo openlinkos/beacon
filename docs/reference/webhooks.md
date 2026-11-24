@@ -116,3 +116,11 @@ A call that fails is retried after 5 seconds, 20 seconds, a minute and 3 minutes
 At most eight calls run at once. Every call's outcome (pending, `ok` or `failed`, with its attempts) is kept on the alert group, in the audit log, on the card and in the alert chat.
 
 A restart takes up a call that is still pending if it was made in the last ten minutes, and gives up on it otherwise. A call that was waiting (`resolved_after`) goes out when it is due. It is dropped if its group has fired again meanwhile.
+
+## Report execution
+
+When the receiver observes the programme starting or finishing, it may use `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` or `report_agent_run`. The principal needs `alerts:report` and must match the hook's configured `reporter` when the delivery was made and when the report arrives.
+
+Send `status` as `running`, `succeeded`, `failed`, `timed_out` or `not_started`. Use `exit_code: 0` for `succeeded`. For `failed`, include the non-zero exit code when known. Other phases omit it. Repeating a terminal status with the same code, or sending a late `running` report, returns the existing terminal result. A conflicting outcome returns `agent_run.conflict`. Reports on a delivery from an earlier episode are refused.
+
+The hook's HTTP submission and programme execution are both visible on the timeline. Execution reports leave acknowledgement, escalation and recovery checks to the existing alert workflow. See [Headless agents and CI](../integrations/headless.md#report-programme-execution) to configure the reference harness.

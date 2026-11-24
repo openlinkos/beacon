@@ -50,6 +50,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | --- | --- |
 | `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration, the status pages and maintenance windows |
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
+| `alerts:report` | Recording execution for hook deliveries assigned to this reporter |
 | `machines:ssh` | The SSH channel with the agent's own keys, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
 | `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
@@ -92,6 +93,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome, using the incident outcome ID. Includes alert resolution, recorded participation and the latest check's observation counts |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
+| `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
 
@@ -270,6 +272,8 @@ Each sends with a token of its own:
 | `incident.unavailable` | 500 | Incident outcomes cannot be read |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
+| `agent_run.not_found` | 404 | The hook delivery is absent from the current alert episode |
+| `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |

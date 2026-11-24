@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-29e62d8f
+sourceHash: sha256-40a1aed0
 ---
 
 # 让 Agent 值班
@@ -68,7 +68,7 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
 
    每次调用的结果同样记在审计日志（`wake_agent`）、告警群和控制台的 **Hook** 页面里。
 
-   送达表示钩子返回了成功的 HTTP 响应。例如，参考接收端可以在告警入队后立即返回 202。处理进展看备注和时间线，恢复情况看复测结果或告警规则的状态。
+   送达表示钩子返回了成功的 HTTP 响应。例如，参考接收端可以在告警入队后立即返回 202。配置[程序执行回报](../integrations/headless.md#report-programme-execution)后，可以在告警页查看程序何时启动、如何退出。用复测结果和告警规则的状态验证恢复。
 
 ### 钩子什么时候被调用 {#when-a-hook-is-called}
 

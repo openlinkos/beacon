@@ -30,6 +30,7 @@ type Agent struct {
 	Service       string    `yaml:"service"`        // a regular expression over the whole service; empty matches any
 	Resolved      bool      `yaml:"resolved"`       // also call when the group resolves
 	ResolvedAfter *Duration `yaml:"resolved_after"` // default 1m, at most 5m; nil (in code) sends at once
+	Reporter      string    `yaml:"reporter"`       // optional agent:NAME or token:NAME allowed to report runs
 
 	URL         string `yaml:"url"`          // webhook
 	SecretFile  string `yaml:"secret_file"`  // webhook: the signing secret
@@ -63,6 +64,8 @@ func (a Agent) ResolvedWait() time.Duration {
 
 // headerNameRe is an HTTP field name (RFC 9110 token).
 var headerNameRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+
+var reporterRe = regexp.MustCompile(`^(agent:[a-z0-9][a-z0-9._-]{1,39}|token:[a-z0-9][a-z0-9._-]{0,62})$`)
 
 // reservedHeaders are set by Beacon itself and cannot come from headers_file.
 var reservedHeaders = []string{"content-type", "content-length", "host", "user-agent", "x-beacon-signature", "x-beacon-event", "x-beacon-delivery"}
@@ -158,6 +161,9 @@ func (c *Config) validateAgents() []error {
 			bad("%s is listed twice", what)
 		}
 		seen[a.Name] = true
+		if a.Reporter != "" && !reporterRe.MatchString(a.Reporter) {
+			bad("%s.reporter must be agent:NAME or token:NAME", what)
+		}
 		for _, s := range a.Severities {
 			if !slices.Contains(Severities, s) {
 				bad("%s: %q is not a severity (%s)", what, s, strings.Join(Severities, ", "))
