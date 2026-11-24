@@ -18,9 +18,9 @@ Run the centre’s commands from `/opt/beacon`. Use `sudo` with `docker` if your
 | [2. The first probe](#2-the-first-probe) | 5 minutes for two locations |
 | [3. The first machine](#3-the-first-machine) | 4 minutes |
 | [4. First account, personal SSH and agent](#4-the-first-agent) | About 5 minutes with the client installed |
-| [5. Test chat, agent wake and recovery](#5-the-first-drill) | Allow for app approval and hook setup, then about 10 minutes for the drill |
+| [5. Test chat, agent wake and recovery](#5-the-first-drill) | Allow for destination and hook setup, then about 10 minutes for the drill |
 
-For the 30-minute onboarding target, record the time from starting this guide to seeing the test card recover. Record DNS and app approval waits separately.
+For the 30-minute onboarding target, record the time from starting this guide to seeing the recovery in your test destination. Record DNS and any app approval waits separately.
 
 ## 0. What you need
 
@@ -41,7 +41,7 @@ You need:
 - **A small machine for the first probe location**: any Linux with systemd, on x86_64 or arm64, with 64 MB of memory to spare. A VPS where your users are is best. The centre itself will do for the second location.
 - **A machine agents may work on**, which the centre can reach on its SSH port. The probe machine will do.
 - **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)). For automatic wake, you also need a receiver the centre can reach that starts your agent.
-- **A test chat** in your Feishu or Lark organisation, with permission to add an app’s bot. Arrange for an administrator to approve the app and its later callback subscription.
+- **A test destination** for human notifications. Use a receiver that can relay a [signed notification webhook](../integrations/notification-webhook.md) to a test chat. If you use a Feishu or Lark app, arrange to add its bot and have its version and callback subscription approved.
 
 ## 1. Install the centre
 
@@ -232,11 +232,11 @@ On the consent page, choose the **On call** preset and select `edge-1`. In Claud
 
 ## 5. The first drill
 
-**Connect your own test group.** Follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. On the console’s Overview, confirm the Feishu app route appears under **Critical notifications**. The actual group is set by `feishu.chat_id`. The platform may need time to approve the versions.
+**Connect your own test group.** For a receiver you run, [set up a notification webhook](../integrations/notification-webhook.md) and have the receiver relay to your test group. For Feishu or Lark cards, follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. The Feishu group is set by `feishu.chat_id`. On the console’s Overview, confirm the route you chose appears under **Critical notifications**.
 
 **Prepare automatic wake.** Follow [Wake an agent](../guide/on-call.md#wake-an-agent) and start its receiver before the drill. For the first test, scope the hook to `service: '^drill$'`. In the reference deployment, run `sudo ./install.sh` after adding the hook secret so Beacon can read it. Use the machine and read-only command from step 4 for the test run, and have the agent leave a note on `drill`.
 
-**Exercise the loop.** With both locations reporting, run the [test chat drill](../integrations/feishu.md#6-check-it). Check that the card reached your group and opens the same alert, and that acknowledging with a note appears on its timeline. Check the receiver actually started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check the same card shows the resolution. [Rehearse an outage](../guide/drills.md) describes the probe and rule timing. For phone and fallback delivery, use its [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
+**Exercise the loop.** With both locations reporting, [run the drill](../guide/drills.md). Check that the notification reached your test group and its link opens the same alert. Acknowledge with a note and check the timeline. Confirm the hook started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check the recovery reached the same destination. For phone and fallback delivery, use the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
 
 ## What next
 

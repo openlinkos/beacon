@@ -139,6 +139,15 @@ The self-built app (cards, button callbacks, buzz) and the group's custom bot ([
 | `feishu.webhook_secret_file` | path | — | When the bot signs its requests |
 | `feishu.webhook_keyword` | string | `Beacon` | The keyword, when the bot's security setting is one |
 
+## Notification webhook
+
+Send firing and recovery notifications to [a receiver you run](../integrations/notification-webhook.md). Set both files to enable the channel.
+
+| Key | Type | Default | What it is |
+| --- | --- | --- | --- |
+| `notification_webhook.url_file` | path | — | The absolute HTTP or HTTPS receiver URL, without userinfo or a fragment |
+| `notification_webhook.secret_file` | path | — | The shared secret used to sign each request |
+
 ## Pushover, Bark and healthchecks.io
 
 | Key | Type | Default | What it is |
@@ -155,21 +164,22 @@ The self-built app (cards, button callbacks, buzz) and the group's custom bot ([
 
 How alerts of each severity reach people. A zero duration turns off that scheduled step.
 
-Without the whole `escalation` section, Beacon picks the best channel configured:
+When `escalation` is omitted, Beacon picks the first available channel in this order.
 
-1. the Feishu app, when it is set;
-2. else the group bot;
-3. else `none`: record the alert without sending it to chat. The console, API and MCP still show it.
+1. Feishu app.
+2. Feishu group bot.
+3. Notification webhook.
+4. `none`. The console, API and MCP show the alert.
 
 Without the section, critical alerts buzz after 10 minutes with the app, and escalate to Pushover after 15 minutes when it is configured. With only Pushover configured, Beacon sends the initial critical alert there immediately. Info alerts go to the group bot when there is one beside the app.
 
 With `channel: none`, only separately configured phone escalation can send a notification. **Critical notifications** on the Overview shows when each route may be used and the latest recorded attempt. Confirm receipt on the destination device during a drill.
 
-With `public_url` set, phone pushes and group bot messages link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
+With `public_url` set, phone pushes, group bot messages and notification webhooks link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
 
 | Key | Default | What it is |
 | --- | --- | --- |
-| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (group bot) or `none` (no notification when the alert first fires) |
+| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (Feishu group bot), `notification_webhook` (signed notifications) or `none` (no notification when the alert first fires) |
 | `escalation.critical.buzz` | `10m` with the app, off without it | Buzz the on-call people after this |
 | `escalation.critical.pushover` | `15m` with Pushover, off without it | An emergency push to phones after this |
 | `escalation.critical.bark` | off | A Bark push after this |
@@ -177,7 +187,7 @@ With `public_url` set, phone pushes and group bot messages link to the same inci
 | `escalation.warning.buzz` | off | As `escalation.critical.buzz` |
 | `escalation.warning.pushover` | off | As `escalation.critical.pushover` |
 | `escalation.warning.bark` | off | As `escalation.critical.bark` |
-| `escalation.info.channel` | the app, or the group bot when both are set | Low-severity alerts need no app quota |
+| `escalation.info.channel` | the best channel configured, with the group bot preferred when both Feishu channels are set | As `escalation.critical.channel` |
 | `escalation.info.buzz` | off | As `escalation.critical.buzz` |
 | `escalation.info.pushover` | off | As `escalation.critical.pushover` |
 | `escalation.info.bark` | off | As `escalation.critical.bark` |

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-449f8535
+sourceHash: sha256-0bf58179
 ---
 
 # config.yaml
@@ -143,6 +143,15 @@ sourceHash: sha256-449f8535
 | `feishu.webhook_secret_file` | 路径 | — | 机器人对请求签名时用 |
 | `feishu.webhook_keyword` | 字符串 | `Beacon` | 机器人的安全设置是关键词时填 |
 
+## 通知 Webhook {#notification-webhook}
+
+将触发和恢复通知发送到[你运行的接收端](../integrations/notification-webhook.md)。两个文件都要配置，渠道才会启用。
+
+| 键 | 类型 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `notification_webhook.url_file` | 路径 | — | 接收端的 HTTP 或 HTTPS 绝对地址，去掉用户信息和片段 |
+| `notification_webhook.secret_file` | 路径 | — | 用于给每次请求签名的共享密钥 |
+
 ## Pushover、Bark 与 healthchecks.io {#pushover-bark-and-healthchecksio}
 
 | 键 | 类型 | 默认值 | 含义 |
@@ -159,21 +168,22 @@ sourceHash: sha256-449f8535
 
 各级告警怎么到达人。时长为零即关闭该步。
 
-整个 `escalation` 段缺省时，Beacon 按已配置的通道择优：
+未填写整个 `escalation` 段时，Beacon 按以下顺序选择已配置的渠道。
 
-1. 配了飞书应用，就用应用；
-2. 否则用群机器人；
-3. 都没有则 `none`：记录告警，不发到聊天。控制台、API 和 MCP 仍能看到。
+1. 飞书应用。
+2. 飞书群机器人。
+3. 通知 Webhook。
+4. `none`。控制台、API 和 MCP 会显示告警。
 
 段缺省时，critical 告警在配了应用时 10 分钟后加急，配了 Pushover 时 15 分钟后升级到手机。只配置了 Pushover 时，Beacon 会立即通过它发送首次 critical 告警。info 级告警在应用之外还有机器人时，走机器人。
 
 `channel: none` 时，只有单独配置的手机升级会发出通知。概览里的**严重告警通知**显示各渠道的发送时机和最近一次提交结果。演练时到接收设备上核对是否收到。
 
-设置 `public_url` 后，手机推送和群机器人消息会通过控制台登录页打开同一个事件。自动选择 Pushover 作为唯一渠道时，首次提交失败会在一分钟后重试。
+设置 `public_url` 后，手机推送、群机器人消息和通知 Webhook 中的链接会通过控制台登录页打开同一个事件。自动选择 Pushover 作为唯一渠道时，首次提交失败会在一分钟后重试。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（群机器人）或 `none`（告警首次触发时不发通知） |
+| `escalation.critical.channel` | 已配置的最优通道 | `app`（飞书卡片）、`webhook`（飞书群机器人）、`notification_webhook`（带签名的通知）或 `none`（告警首次触发时不发通知） |
 | `escalation.critical.buzz` | 配了应用 `10m`，否则关 | 这段时间后在飞书上加急值班的人 |
 | `escalation.critical.pushover` | 配了 Pushover `15m`，否则关 | 这段时间后向手机发紧急推送 |
 | `escalation.critical.bark` | 关 | 这段时间后发 Bark 推送 |
@@ -181,7 +191,7 @@ sourceHash: sha256-449f8535
 | `escalation.warning.buzz` | 关 | 同 `escalation.critical.buzz` |
 | `escalation.warning.pushover` | 关 | 同 `escalation.critical.pushover` |
 | `escalation.warning.bark` | 关 | 同 `escalation.critical.bark` |
-| `escalation.info.channel` | 应用；应用与机器人都有时走机器人 | 低级别告警不必占应用配额 |
+| `escalation.info.channel` | 已配置的最优通道，飞书应用和群机器人都有时优先群机器人 | 同 `escalation.critical.channel` |
 | `escalation.info.buzz` | 关 | 同 `escalation.critical.buzz` |
 | `escalation.info.pushover` | 关 | 同 `escalation.critical.pushover` |
 | `escalation.info.bark` | 关 | 同 `escalation.critical.bark` |

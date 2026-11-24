@@ -157,6 +157,11 @@ feishu:
   # webhook_secret_file: …                  # when the bot signs requests
   webhook_keyword: Beacon                   # when the bot's security setting is a keyword
 
+# Signed firing and recovery notifications for a receiver you run. Set both files.
+# notification_webhook:
+#   url_file: /etc/beacon/secrets/notification-webhook-url
+#   secret_file: /etc/beacon/secrets/notification-webhook-secret
+
 pushover:
   user_key_file: /etc/beacon/secrets/pushover-user-key
   token_file: /etc/beacon/secrets/pushover-app-token
@@ -171,6 +176,7 @@ healthchecks:
   bridge_url_file: /etc/beacon/secrets/healthchecks-bridge-url
 
 escalation:
+  # Each severity may select notification_webhook for the signed receiver.
   critical: {channel: app, buzz: 10m, pushover: 15m}
   warning: {channel: app}
   info: {channel: webhook}
