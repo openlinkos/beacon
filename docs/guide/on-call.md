@@ -64,7 +64,7 @@ A woken agent works the same way. The hook only takes the place of the person wh
 
    Each call's outcome is also in the audit log (`wake_agent`), in the alert chat and on the console's **Hooks** page.
 
-   Delivery means the hook returned a successful HTTP response. For example, the reference receiver can return 202 as soon as it queues the alert. Use the notes and timeline for work in progress and probe results or rule status for recovery.
+   Delivery means the hook returned a successful HTTP response. For example, the reference receiver can return 202 as soon as it queues the alert. Set up [execution reports](../integrations/headless.md#report-programme-execution) to see programme starts and exits on the alert page. Use probe results and rule status to verify recovery.
 
 ### When a hook is called
 

@@ -168,6 +168,8 @@ The reference harness on the agent's machine ([Agents woken by a webhook](../int
 | `-secret-file` | required | The file with the hook's secret, the same as Beacon's `secret_file` |
 | `-run` | required | The program for firing events |
 | `-run-resolved` | none | The program for resolved events; without it they are acknowledged and nothing runs |
+| `-report-url` | none | Fixed HTTPS base URL for programme execution reports. Set both report flags |
+| `-report-token-file` | none | The file with the separate `alerts:report` credential named by the hook |
 | `-concurrency` | `2` | Programs running at once; the rest wait. At most 32 |
 | `-timeout` | `30m` | The time a program gets before its process group is killed |
 | `-log-dir` | `/var/lib/beacon-oncall/logs` | Each run's output, as `<time>-<delivery>.log` |
