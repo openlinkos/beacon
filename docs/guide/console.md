@@ -111,6 +111,12 @@ With `config:write`, use **Add HTTP monitor** to select an endpoint, its check p
 - its maintenance;
 - links to the page, its JSON, feed and badge, as Beacon serves them under `/status/<name>`.
 
+### Machine settings history {#machine-settings-history}
+
+Open **Settings history** on a machine's page to see each revision of its account, critical flag and note, along with who changed them. With `machines:write`, you can copy an older snapshot into a new revision. Beacon refuses an edit or restore from a stale page. Reload to review newer changes.
+
+Enrolling or explicitly replacing a machine starts a new history. Restoring settings preserves its current address and keys. For a machine that predates this feature, the first recorded edit keeps a snapshot of the preceding settings.
+
 ### Silences and maintenance {#silences-and-maintenance}
 
 `/console/silences` shows what keeps alerts from paging people:

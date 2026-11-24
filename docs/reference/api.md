@@ -102,7 +102,9 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
 | `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
-| `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. The host key and the address stay |
+| `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. Set `if_version` to refuse stale edits. The host key and the address stay |
+| `GET /api/v1/machines/{name}/history` | `status:read` or `machines:ssh` | Read the current settings version and older revisions. Page with `before` (exclusive) and `limit` (default 30, maximum 100) |
+| `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |

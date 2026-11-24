@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -741,6 +741,8 @@ type Machine struct {
 	AddedBy              string    `json:"added_by,omitempty"`
 	ConnectorKey         string    `json:"connector_key,omitempty"`
 	ConnectorFingerprint string    `json:"connector_fingerprint,omitempty"`
+	MetadataVersion      int64     `json:"metadata_version,omitempty"`
+	HistoryStart         int64     `json:"history_start,omitempty"`
 }
 
 // MachineName is what a machine may be called: its host name, as probe locations are.
@@ -748,17 +750,8 @@ var MachineName = subjectRe
 
 // PutMachine adds or replaces a machine.
 func (s *Store) PutMachine(m Machine) error {
-	if !MachineName.MatchString(m.Name) {
-		return fmt.Errorf("machine name %q: use lower case letters, digits and dashes", m.Name)
-	}
-	b, _ := json.Marshal(m)
 	return s.db.Update(func(tx kv.Tx) error {
-		if fp := m.ConnectorFingerprint; m.Connector() && fp != "" {
-			if holder := keyHolder(tx, fp); holder != "" {
-				return fmt.Errorf("%w: the key %s belongs to %s", ErrExists, fp, holder)
-			}
-		}
-		return tx.Put(bucketMachines, []byte(m.Name), b)
+		return s.startMachineHistory(tx, &m, "registered", "")
 	})
 }
 

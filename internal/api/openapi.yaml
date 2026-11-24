@@ -42,6 +42,7 @@ components:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream,
             ssh.disabled, ssh.paused, ssh.standby, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
@@ -340,6 +341,7 @@ components:
         name: {type: string, description: The machine's host name; also the user name agents give the SSH channel}
         address: {type: string, description: "host:port Beacon connects to, or connector for a machine behind NAT that connects out to the channel itself"}
         user: {type: string, description: The account on the machine}
+        metadata_version: {type: integer, description: Current settings version (0 for an unversioned machine)}
         host_key_fingerprint: {type: string, description: "SHA256 fingerprint of the host key pinned when the machine was added; empty for a connector machine whose key is learned when it first connects"}
         critical: {type: boolean}
         note: {type: string}
@@ -349,6 +351,30 @@ components:
         connector: {type: boolean, description: The machine connects out to the channel (ssh -R) rather than being dialled; only on such machines}
         connected: {type: boolean, description: Whether the connector is connected right now; only on connector machines}
         connected_since: {type: string, format: date-time}
+    MachineHistory:
+      type: object
+      required: [version, revisions]
+      properties:
+        version: {type: integer, description: Current metadata version (0 before a legacy registration is first edited)}
+        revisions:
+          type: array
+          items:
+            type: object
+            required: [version, time, actor, via, action, metadata]
+            properties:
+              version: {type: integer}
+              time: {type: string, format: date-time}
+              actor: {type: string}
+              via: {type: string}
+              action: {type: string, enum: [registered, baseline, edited, restored]}
+              restored_version: {type: integer}
+              metadata:
+                type: object
+                required: [user, critical, note]
+                properties:
+                  user: {type: string}
+                  critical: {type: boolean}
+                  note: {type: string}
     Machines:
       type: object
       properties:
@@ -1297,6 +1323,7 @@ paths:
                 note: {type: string}
                 critical: {type: boolean}
                 user: {type: string, description: The account on the machine}
+                if_version: {type: integer, minimum: 0, description: Refuse the edit if the current metadata version has changed}
       responses:
         "200":
           description: The machine
@@ -1311,6 +1338,45 @@ paths:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         "204": {description: Forgotten}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/history:
+    get:
+      summary: List metadata revisions for the current registration
+      description: "Scope: status:read or machines:ssh. Only the account, critical flag and note are recorded."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+        - {name: before, in: query, schema: {type: integer, minimum: 0}, description: Return versions older than this one}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 30}}
+      responses:
+        "200":
+          description: Current version and snapshots, newest first
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MachineHistory"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/restore:
+    post:
+      summary: Restore earlier machine metadata as a new version
+      description: "Scope: machines:write. The target must belong to the current registration and if_version must match the current metadata version. The address and keys stay."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version, if_version]
+              properties:
+                version: {type: integer, minimum: 1}
+                if_version: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The machine; the version stays the same if the settings already match
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Machine"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/run:
     post:

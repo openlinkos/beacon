@@ -226,6 +226,10 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Token revoked"), "success"
 	case "reverted":
 		return s.t("Change reverted"), "success"
+	case "machine_restored":
+		return s.t("Machine settings restored"), "success"
+	case "machine_unchanged":
+		return s.t("The machine already has those settings."), "success"
 	case "password":
 		return s.t("Password changed; your other sign-ins ended"), "success"
 	case "role":

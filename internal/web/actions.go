@@ -66,6 +66,10 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("The machine could not be reached, so nothing was added.")
 	case "machine.not_found":
 		return s.t("There is no such machine, or no longer.")
+	case "machine.version_not_found":
+		return s.t("That version does not belong to the machine's current registration.")
+	case "machine.changed":
+		return s.t("The machine changed. Review the current settings and try again.")
 	case "confirm":
 		return s.t("Type the machine's name exactly to remove it.")
 	case "not_revocable":

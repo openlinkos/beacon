@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-03a1ddb7
+sourceHash: sha256-20b65dbc
 ---
 
 # MCP 工具
@@ -86,7 +86,9 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）：谁、在哪里、做了什么、什么时候、退出码 |
 | `get_session` | `sessions:read` 或 `machines:ssh` | 会话的文字记录（`id`）：命令的全部输出，或者交互 shell 的每条命令及其输出和退出码 |
 | `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
-| `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。主机密钥和地址不变 |
+| `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。可选的 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
+| `machine_history` | `status:read` 或 `machines:ssh` | 读取 `name` 的设置历史。用 `before`（不含该版本）和 `limit` 翻页 |
+| `restore_machine` | `machines:write` | 恢复 `name` 的早期设置 `version`，并提供当前 `if_version`。将账户、关键机器标记和备注复制到新版本 |
 | `set_machine_connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥（`name`、`key`）；用旧密钥建立的连接会被关掉 |
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |

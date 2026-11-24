@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,23 +179,25 @@ type personalConnection struct {
 
 type machinePage struct {
 	shell
-	L               machineLabels
-	LL              listLabels
-	Facts           []kv
-	Note            string
-	List            list
-	Sessions        []sessionItem
-	Commands        []commandItem
-	Can             bool
-	User            string
-	Critical        bool
-	Connector       bool
-	EditAction      string
-	ReplaceAction   string
-	ConnectorAction string
-	RemoveAction    string
-	OldFP, NewFP    string
-	Connection      *personalConnection
+	L                    machineLabels
+	LL                   listLabels
+	Facts                []kv
+	Note                 string
+	List                 list
+	Sessions             []sessionItem
+	Commands             []commandItem
+	Can                  bool
+	User                 string
+	Critical             bool
+	Connector            bool
+	EditAction           string
+	ReplaceAction        string
+	ConnectorAction      string
+	RemoveAction         string
+	OldFP, NewFP         string
+	Connection           *personalConnection
+	History, HistoryHref string
+	MetadataVersion      int64
 }
 
 var machineTmpl = parse("machine.html")
@@ -253,6 +256,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 	l := s.machineLabels()
 	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: consolePath("/machines")}), L: l, LL: s.listLabels(), Note: m.Note,
 		User: m.User, Critical: m.Critical, Connector: m.Connector, Connection: s.machineConnection(v, *m)}
+	p.History, p.HistoryHref, p.MetadataVersion = s.t("Settings history"), machinePath(name)+"/history", m.Version
 	if v.has("machines:write") {
 		p.Can = true
 		base := machinePath(name)
@@ -331,6 +335,10 @@ func (s *Server) machineErr(w http.ResponseWriter, r *http.Request, path string,
 		code = "ssh.disabled"
 	case errors.Is(err, sshgate.ErrNoMachine):
 		code = "machine.not_found"
+	case errors.Is(err, sshgate.ErrMachineVersion):
+		code = "machine.version_not_found"
+	case errors.Is(err, sshgate.ErrMachineChanged):
+		code = "machine.changed"
 	default:
 		s.log().Error("console machine action failed", "err", err)
 	}
@@ -397,7 +405,16 @@ func (s *Server) editMachine(w http.ResponseWriter, r *http.Request, v *viewer) 
 	f := r.PostForm
 	note, user := f.Get("note"), strings.TrimSpace(f.Get("user"))
 	critical := f.Get("critical") == "on"
-	if _, err := s.SSH.Update(r.Context(), v.gate(), name, sshgate.MachineUpdate{Note: &note, User: &user, Critical: &critical}); err != nil {
+	up := sshgate.MachineUpdate{Note: &note, User: &user, Critical: &critical}
+	if f.Has("if_version") {
+		version, err := strconv.ParseInt(f.Get("if_version"), 10, 64)
+		if err != nil {
+			back(w, r, page, "error", "machine.changed")
+			return
+		}
+		up.IfVersion = &version
+	}
+	if _, err := s.SSH.Update(r.Context(), v.gate(), name, up); err != nil {
 		s.machineErr(w, r, page, err)
 		return
 	}
