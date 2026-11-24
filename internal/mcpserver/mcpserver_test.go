@@ -107,7 +107,7 @@ func TestMCP(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 39 { // with the maintenance tools and the people's and keys' tools
+	if err != nil || len(tools.Tools) != 43 {
 		t.Fatalf("tools: %v %v", tools, err)
 	}
 	for _, tool := range tools.Tools {
@@ -117,6 +117,12 @@ func TestMCP(t *testing.T) {
 	}
 	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.example.com is down") {
 		t.Errorf("list_alerts: %s", text)
+	}
+	if res, text := call(t, read, "list_incident_outcomes", map[string]any{"group": testutil.GroupID()}); res.IsError || !strings.Contains(text, `"outcomes":[]`) {
+		t.Errorf("firing alert should have no outcome: %s", text)
+	}
+	if res, text := call(t, read, "get_incident_outcome", map[string]any{"id": "nope"}); !res.IsError || !strings.Contains(text, "no such incident outcome") {
+		t.Errorf("unknown incident: %s", text)
 	}
 	if _, text := call(t, read, "status_summary", nil); !strings.Contains(text, `"critical":1`) {
 		t.Errorf("status_summary: %s", text)

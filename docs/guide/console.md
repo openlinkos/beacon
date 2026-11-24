@@ -111,6 +111,12 @@ With `config:write`, use **Add HTTP monitor** to select an endpoint, its check p
 - its maintenance;
 - links to the page, its JSON, feed and badge, as Beacon serves them under `/status/<name>`.
 
+### Machine settings history {#machine-settings-history}
+
+Open **Settings history** on a machine's page to see each revision of its account, critical flag and note, along with who changed them. With `machines:write`, you can copy an older snapshot into a new revision. Beacon refuses an edit or restore from a stale page. Reload to review newer changes.
+
+Enrolling or explicitly replacing a machine starts a new history. Restoring settings preserves its current address and keys. For a machine that predates this feature, the first recorded edit keeps a snapshot of the preceding settings.
+
 ### Silences and maintenance {#silences-and-maintenance}
 
 `/console/silences` shows what keeps alerts from paging people:
@@ -132,6 +138,10 @@ The console's forms are the API's and the command line's operations, on the same
 
 A form the person's role does not allow is not offered, and is refused if sent anyway. A page your role does not allow says "Not with your role", with the scope it needs and your role.
 
+### Team credentials {#team-credentials}
+
+On installations with the credential store enabled, owners can store and replace a bearer token, send a test request as themselves, and delegate or revoke the same request for an agent. See [Use a team credential](team-credentials.md).
+
 ## The alert's page {#the-alerts-page}
 
 The card's **Timeline** button opens it. The response panel shows how long the alert has been firing and who acknowledged it. On a phone or desktop, you can acknowledge it, probe again or jump to the note form from the same panel.
@@ -145,6 +155,14 @@ The card's **Timeline** button opens it. The response panel shows how long the a
 - **Notes**, **Changes** and the **Timeline**: everything in time order, as `get_timeline` returns it.
 
 The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
+
+## Incident history {#incident-history}
+
+From **Alerts**, open **Incident history** to revisit each resolved episode, including when the same group fired again. The outcome records when Beacon marked the alert resolved, the latest alert action associated with each known kind of actor, and the latest on-demand check's counts by target and location. Standalone credentials appear as unattributed. A delivered hook alone does not make an agent a participant.
+
+**Related audit entries** opens the existing audit log filtered by the alert group and the episode's time window. The audit log's signed checkpoints cover the audit log. The outcome is a compact summary of observed activity and does not prove who caused recovery.
+
+The full alert evidence stays for seven days after recovery, or until the group fires again. Beacon then retains links to at most eight related sessions with the outcome. The outcome stays for `storage.incident_retention` after recovery, 180 days by default. Audit entries and session recordings follow their own retention settings. History is private to viewers with `status:read` and separate from the public status pages. Previously removed episodes cannot be reconstructed on upgrade.
 
 ## The session's page and its replay {#the-sessions-page-and-its-replay}
 

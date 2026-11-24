@@ -337,8 +337,13 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
-	if err := g.d.Store.PutMachine(m); err != nil {
+	sameConnector := func(cur store.Machine) bool {
+		return cur.Connector() && cur.HistoryStart == m.HistoryStart && cur.ConnectorFingerprint == m.ConnectorFingerprint && cur.HostKey == ""
+	}
+	m, err = g.d.Store.UpdateMachineIdentity(c.name, sameConnector, func(cur *store.Machine) {
+		cur.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
+	})
+	if err != nil {
 		return "", err
 	}
 	fp := ssh.FingerprintSHA256(k)
@@ -469,7 +474,9 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 			}
 		}
 	}
-	if err := g.d.Store.PutMachine(m); err != nil {
+	var err error
+	m, err = g.registerMachine(who, m, old, exists)
+	if err != nil {
 		return Added{}, err
 	}
 	if keyChanged { // the connection signed in with the old key ends; the machine reconnects with the new one
@@ -502,10 +509,14 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	if err != nil {
 		return MachineView{}, err
 	}
-	changed := m.ConnectorFingerprint != fp
-	m.ConnectorKey, m.ConnectorFingerprint = k, fp
-	if err := g.d.Store.PutMachine(m); err != nil {
-		return MachineView{}, err
+	changed := false
+	sameRegistration := func(cur store.Machine) bool { return cur.Connector() && cur.HistoryStart == m.HistoryStart }
+	m, err = g.d.Store.UpdateMachineIdentity(name, sameRegistration, func(cur *store.Machine) {
+		changed = cur.ConnectorFingerprint != fp
+		cur.ConnectorKey, cur.ConnectorFingerprint = k, fp
+	})
+	if err != nil {
+		return MachineView{}, machineVersionError(name, err)
 	}
 	if changed {
 		g.connectors.close(name)

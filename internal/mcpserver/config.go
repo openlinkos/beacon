@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -28,9 +29,11 @@ password_file is the name of a file in the probe's secrets directory, never a pa
 type Option func(*options)
 
 type options struct {
-	config   *configdb.Service
-	status   *status.Service
-	metadata func(*http.Request) string
+	config                *configdb.Service
+	credentials           *secrets.Service
+	credentialsConfigured bool
+	status                *status.Service
+	metadata              func(*http.Request) string
 }
 
 // WithResourceMetadata names, for a request, the protected resource metadata (RFC 9728) that a 401

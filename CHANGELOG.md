@@ -6,6 +6,15 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.25 (2026-11-25)
+
+- Opt-in team credentials for fixed HTTPS requests. Owners store and replace a bearer token, test it as themselves, and delegate its use to a named agent with an expiry. Uses are recorded before dispatch. Revocation takes effect for new requests, and responses expose only the upstream status.
+- Account and Agent identity administration now requires an owner account, a standalone administration token or the local command line. A delegated Agent can still manage its own SSH keys within its existing access.
+- The overview flags a missing human notification route for critical alerts. The bridge summary reports notification configuration alongside Watchdog health.
+- Review machine settings revisions and safely restore an earlier account, critical flag and note in the console, REST API or MCP. Version checks prevent stale restores and console edits. Machine identity and keys are outside the settings snapshots.
+- Edit or remove an HTTP monitor from its service page. The same version checks and configuration history cover creation, edits and removal.
+- **Revisit resolved incidents from the Alerts page.** A private outcome keeps alert resolution, observed participation and the latest on-demand check per episode for 180 days by default. It links to related audit entries after the original alert details have been cleaned up. REST and MCP expose the same history.
+
 ### rc.24 (2026-11-25)
 
 - Updated the WebSocket dependency used by the Feishu listener to fix [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278).

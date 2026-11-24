@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7f1aa514
+sourceHash: sha256-65273f6f
 ---
 
 # MCP 工具
@@ -55,7 +55,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `status_summary` | `status:read` | 告警现在能否送到人（不能的话为什么），按级别统计的正在触发的告警组，已认领的数量，以及本月用掉的飞书 API 额度 |
+| `status_summary` | `status:read` | 告警链路健康、人工通知配置、各级别告警组数量、已认领数量与飞书 API 额度 |
 | `list_alerts` | `status:read` | 告警组，正在触发的在前、新的在前，带上谁认领或静默了、升级到了哪一步。`state: all` 加上最近七天恢复的 |
 | `get_alert` | `status:read` | 按 `id` 取一个告警组：标签、处理手册和面板、认领、静默、升级、备注、唤醒过的 Agent，以及它在控制台里那一页的签名链接 |
 | `list_silences` | `status:read` | 生效中和待生效的静默，最先结束的在前 |
@@ -70,6 +70,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
+| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
+| `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录和复测统计。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
@@ -86,7 +88,9 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）：谁、在哪里、做了什么、什么时候、退出码 |
 | `get_session` | `sessions:read` 或 `machines:ssh` | 会话的文字记录（`id`）：命令的全部输出，或者交互 shell 的每条命令及其输出和退出码 |
 | `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
-| `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。主机密钥和地址不变 |
+| `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。可选的 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
+| `machine_history` | `status:read` 或 `machines:ssh` | 读取 `name` 的设置历史。用 `before`（不含该版本）和 `limit` 翻页 |
+| `restore_machine` | `machines:write` | 恢复 `name` 的早期设置 `version`，并提供当前 `if_version`。将账户、关键机器标记和备注复制到新版本 |
 | `set_machine_connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥（`name`、`key`）；用旧密钥建立的连接会被关掉 |
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
@@ -130,7 +134,18 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
 
-没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予这个作用域，哪怕自己持有。修改角色、停用成员和重设密码都不是 MCP 工具。那是人的事，在控制台或中心上做。
+账号管理工具需要独立于 Agent 签发的所有者管理凭据。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理成员账号或 Agent 身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。成员可通过控制台、REST 或中心命令行更改角色、停用账号和重设密码。
+
+## 团队凭据 {#team-credentials}
+
+启用[团队凭据库](../guide/team-credentials.md)后提供以下工具。授权在到期或被所有者撤销前可重复使用。每次使用只返回 HTTP 状态码。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `list_team_credentials` | `secrets:use` | 列出该 Agent 的有效授权 |
+| `use_team_credential` | `secrets:use` | 以 Agent 身份发出已配置的 HTTPS 请求并记录审计 |
+
+人在本人的控制台账号下管理凭据和授权。Agent 使用无头令牌。标准 OAuth 预设的作用域保持原样。
 
 ## 你的令牌 {#your-token}
 

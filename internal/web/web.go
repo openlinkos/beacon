@@ -22,10 +22,12 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -36,6 +38,7 @@ import (
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/oauth"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -88,11 +91,13 @@ type Server struct {
 	Log      *slog.Logger
 	Now      func() time.Time
 
-	Store     *store.Store
-	Config    *configdb.Service
-	Hooks     []config.Agent
-	Reporting func() map[string]time.Time
-	Version   string
+	Store                 *store.Store
+	Config                *configdb.Service
+	Credentials           *secrets.Service
+	CredentialsConfigured bool
+	Hooks                 []config.Agent
+	Reporting             func() map[string]time.Time
+	Version               string
 
 	// Status computes the public status pages (status.go); nil leaves them out.
 	Status   *status.Service
@@ -228,6 +233,12 @@ func (s *Server) alert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ev, err := s.Bridge.Evidence(r.Context(), id, "")
 	if err != nil {
+		if a.Viewer != nil && errors.Is(err, bridge.ErrNotFound) {
+			if prior, lookupErr := s.Bridge.IncidentOutcomes(id, "", 1); lookupErr == nil && len(prior.Outcomes) != 0 {
+				http.Redirect(w, r, consolePath("/incident-outcomes")+"?group="+url.QueryEscape(id), http.StatusSeeOther)
+				return
+			}
+		}
 		s.missing(w, r, a.Viewer)
 		return
 	}

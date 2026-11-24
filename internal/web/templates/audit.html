@@ -1,7 +1,17 @@
-{{define "content"}}<div class="ol-layout-filters">
+{{define "content"}}{{if .IncidentHref}}
+<div class="ol-stack">
+  <p class="ol-hint"><a href="{{.IncidentHref}}">{{.IncidentTitle}}</a></p>
+  {{template "audit-entries" .}}
+</div>
+{{else}}<div class="ol-layout-filters">
   {{template "facets" .}}
   <section class="ol-layout-main">
     {{template "filterbar" .}}
+    {{template "audit-entries" .}}
+  </section>
+</div>{{end}}{{end}}
+
+{{define "audit-entries"}}
     {{if .Rows}}
     <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Time}}</th><th>{{.L.Actor}}</th><th>{{.L.Action}}</th><th>{{.L.Target}}</th><th>{{.L.Detail}}</th></tr></thead>
@@ -17,5 +27,4 @@
     </table></div>
     {{template "pager" .}}
     {{else}}{{template "empty" .List.Empty}}{{end}}
-  </section>
-</div>{{end}}
+{{end}}

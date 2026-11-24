@@ -25,6 +25,7 @@ var (
 type monitorFormLabels struct {
 	Name, NameHint, URL, URLHint, Scope, Module, ModuleHint, Severity, SeverityHint string
 	Add, Cancel, After, AfterHint, ReviewConfig, NoModules, NoLocations, Config     string
+	Remove, RemoveHint                                                              string
 }
 
 type monitorInput struct {
@@ -38,10 +39,52 @@ type monitorFormPage struct {
 	Version                     int64
 	Form, Monitors, Config      string
 	Scopes, Modules, Severities []option
+	Remove                      string
+	ScopeName                   string
 }
 
 func (s *Server) monitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
 	s.showMonitorForm(w, r, v, s.monitorDraft(), monitorInput{}, "", http.StatusOK)
+}
+
+// simpleMonitor finds the shape the console writes. File-managed multi-target services use the
+// configuration API, where all of their labels and targets can be represented.
+func simpleMonitor(state *configdb.State, service string) (monitorInput, bool) {
+	if state == nil || !monitorName.MatchString(service) {
+		return monitorInput{}, false
+	}
+	for _, file := range state.Targets.Files() {
+		scope, ok := strings.CutSuffix(file, "-http."+service+".monitor.yaml")
+		if !ok {
+			continue
+		}
+		g := state.Targets.Groups(file)
+		if len(g) == 1 && len(g[0].Targets) == 1 && len(g[0].Labels) == 4 &&
+			g[0].Labels["service"] == service && g[0].Labels["visibility"] == "internal" &&
+			g[0].Labels["module"] != "" && g[0].Labels["severity"] != "" && httpMonitorURL(g[0].Targets[0]) {
+			return monitorInput{Service: service, Scope: scope, URL: g[0].Targets[0], Module: g[0].Labels["module"], Severity: g[0].Labels["severity"]}, true
+		}
+	}
+	return monitorInput{}, false
+}
+
+func httpMonitorURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.User == nil && u.RawQuery == "" && !u.ForceQuery &&
+		(u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
+		len(raw) <= 2048 && !strings.Contains(raw, "#")
+}
+
+func (in monitorInput) set() string { return in.Scope + "-http." + in.Service + ".monitor" }
+
+func (s *Server) editMonitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
+	draft := s.monitorDraft()
+	in, ok := simpleMonitor(draft.state, r.PathValue("service"))
+	if !ok {
+		s.missing(w, r, v)
+		return
+	}
+	s.showMonitorForm(w, r, v, draft, in, "", http.StatusOK)
 }
 
 type monitorDraft struct {
@@ -93,8 +136,12 @@ func (s *Server) monitorDraft() monitorDraft {
 }
 
 func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *viewer, draft monitorDraft, in monitorInput, problem string, code int) {
+	heading := s.t("Add HTTP monitor")
+	if r.PathValue("service") != "" {
+		heading = s.t("Edit HTTP monitor")
+	}
 	p := monitorFormPage{
-		shell: s.shellFor(r, v, "monitors", s.t("Add HTTP monitor"), crumb{Label: s.t("Monitors"), Href: consolePath("/monitors")}),
+		shell: s.shellFor(r, v, "monitors", heading, crumb{Label: s.t("Monitors"), Href: consolePath("/monitors")}),
 		L: monitorFormLabels{
 			Name: s.t("Service name"), NameHint: s.t("Use lower-case letters, digits, dots or dashes. This name groups results and alerts."),
 			URL: s.t("Endpoint URL"), URLHint: s.t("Use the full HTTP or HTTPS URL, without a query, fragment or credentials."),
@@ -109,6 +156,14 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 		Input: in, Form: consolePath("/monitors"), Monitors: consolePath("/monitors"), Config: consolePath("/config"),
 		Scopes: draft.scopes,
 	}
+	if svc := r.PathValue("service"); svc != "" {
+		p.L.Add = s.t("Save")
+		p.L.Remove = s.t("Remove monitor")
+		p.L.RemoveHint = s.t("Stop this check. Its configuration history and audit records remain available.")
+		p.Monitors = consolePath("/monitors/") + url.PathEscape(svc)
+		p.Form = p.Monitors + "/edit"
+		p.Remove = p.Monitors + "/remove"
+	}
 	if draft.state != nil {
 		p.Version = draft.state.Version
 	}
@@ -117,6 +172,12 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 	}
 	for i := range p.Scopes {
 		p.Scopes[i].Selected = p.Scopes[i].Value == in.Scope
+		if p.Scopes[i].Selected {
+			p.ScopeName = p.Scopes[i].Label
+		}
+	}
+	if p.ScopeName == "" {
+		p.ScopeName = in.Scope
 	}
 	if in.Severity == "" {
 		in.Severity = "warning"
@@ -132,12 +193,19 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	value := func(k string) string { return strings.TrimSpace(r.PostForm.Get(k)) }
 	in := monitorInput{Service: value("service"), URL: value("url"), Scope: value("scope"), Module: value("module"), Severity: value("severity")}
 	draft := s.monitorDraft()
+	edit := r.PathValue("service") != ""
+	if edit {
+		cur, ok := simpleMonitor(draft.state, r.PathValue("service"))
+		if !ok {
+			s.missing(w, r, v)
+			return
+		}
+		in.Service, in.Scope = cur.Service, cur.Scope
+	}
 	bad := func(message string, code int) { s.showMonitorForm(w, r, v, draft, in, message, code) }
 	version, err := strconv.ParseInt(value("version"), 10, 64)
-	u, urlErr := url.Parse(in.URL)
-	if urlErr != nil || u == nil || u.User != nil || u.RawQuery != "" || u.ForceQuery {
+	if !httpMonitorURL(in.URL) {
 		in.URL = "" // do not redisplay a URL that could contain submitted credentials
-		u = nil
 	}
 
 	switch {
@@ -150,9 +218,7 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	case !monitorName.MatchString(in.Service):
 		bad(s.t("Enter a service name of up to 64 characters, beginning with a lower-case letter or digit."), http.StatusBadRequest)
 		return
-	case u == nil || len(in.URL) > 2048 || (u.Scheme != "http" && u.Scheme != "https") ||
-		u.Hostname() == "" || strings.Contains(in.URL, "#"):
-		in.URL = ""
+	case in.URL == "":
 		bad(s.t("Enter an HTTP or HTTPS URL without a query, fragment or credentials."), http.StatusBadRequest)
 		return
 	case !slices.Contains(draft.modules, in.Module) || !slices.ContainsFunc(draft.scopes, func(o option) bool { return o.Value == in.Scope }):
@@ -165,13 +231,16 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 	// One set per service keeps changes independently reversible. The dot before the name keeps
 	// the target set's prefix from matching a longer location id.
-	set := in.Scope + "-http." + in.Service + ".monitor"
+	set := in.set()
 	files := draft.state.Targets.Files()
-	if slices.Contains(files, set+".yaml") {
+	if !edit && slices.Contains(files, set+".yaml") {
 		bad(s.t("A target set for this name already exists. Choose another service name."), http.StatusConflict)
 		return
 	}
 	for _, file := range files {
+		if edit && file == set+".yaml" {
+			continue
+		}
 		for _, group := range draft.state.Targets.Groups(file) {
 			if group.Labels["service"] == in.Service {
 				bad(s.t("A monitor for this service already exists. Choose another service name."), http.StatusConflict)
@@ -183,8 +252,12 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		"service": in.Service, "module": in.Module, "severity": in.Severity, "visibility": "internal",
 	}}}
 	raw, _ := json.Marshal(groups) // target groups contain only strings
+	note, done := "Add HTTP monitor ", "monitor_added"
+	if edit {
+		note, done = "Edit HTTP monitor ", "saved"
+	}
 	_, err = s.Config.PutIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, configdb.KindTargets,
-		set, raw, "Add HTTP monitor "+in.Service, version)
+		set, raw, note+in.Service, version)
 	switch {
 	case errors.Is(err, configdb.ErrConflict):
 		draft = s.monitorDraft()
@@ -195,6 +268,26 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.log().Error("console: adding a monitor failed", "err", err)
 		bad(s.t("That did not work; the log says why."), http.StatusInternalServerError)
 	default:
-		back(w, r, consolePath("/monitors/")+url.PathEscape(in.Service), "done", "monitor_added")
+		back(w, r, consolePath("/monitors/")+url.PathEscape(in.Service), "done", done)
 	}
+}
+
+func (s *Server) removeMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
+	draft := s.monitorDraft()
+	in, ok := simpleMonitor(draft.state, r.PathValue("service"))
+	if !ok {
+		s.missing(w, r, v)
+		return
+	}
+	version, err := strconv.ParseInt(r.PostForm.Get("version"), 10, 64)
+	if err != nil || version < 1 || version != draft.state.Version {
+		s.showMonitorForm(w, r, v, draft, in, s.t("The configuration changed. Review the current options and save again."), http.StatusConflict)
+		return
+	}
+	if _, err := s.Config.DeleteIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, configdb.KindTargets,
+		in.set(), "Remove HTTP monitor "+in.Service, version); err != nil {
+		s.failed(w, r, consolePath("/monitors/")+url.PathEscape(in.Service)+"/edit", "monitor_remove", err)
+		return
+	}
+	back(w, r, consolePath("/monitors"), "done", "monitor_removed")
 }

@@ -17,6 +17,7 @@ storage:
   audit:
     checkpoint_interval: 24h                # how often the audit log's hash chain gets a signed checkpoint
     retention: 8760h                        # how long audit entries are kept (365 days)
+  incident_retention: 4320h                 # private incident summaries after resolution (180 days)
   sqlite:
     journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
     synchronous: full                       # full (recommended: every commit is on the disk first), normal or off
@@ -130,6 +131,12 @@ branding:
 # How MCP clients (Claude Code, Codex) sign in to Beacon. See docs/guide/people.md.
 oauth:
   client_id_documents: true                 # false when Beacon cannot reach the internet: clients then register themselves
+
+# The optional store for team bearer tokens, bound to a deployment-approved HTTPS service.
+# credentials:
+#   enabled: true
+#   key_file: /etc/beacon/secrets/team-credential-key  # 64 hexadecimal digits, kept with backups separately from the database
+#   allowed_hosts: [api.example.com]                  # exact host names, with an explicit port if the endpoint uses one
 
 feishu:
   # The self-built app (cards, button callbacks, buzz). See docs/integrations/feishu.md.

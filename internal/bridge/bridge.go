@@ -245,6 +245,11 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	id := GroupID(w.GroupKey)
 	g, exists := b.d.Store.Group(id)
 	wasFiring := exists && g.Firing()
+	var previous *store.IncidentOutcome
+	if w.Status == "firing" && exists && !wasFiring {
+		now := b.now()
+		previous = b.archiveOutcome(g, now, now.Add(-time.Nanosecond))
+	}
 	g.ID, g.Key, g.Severity = id, w.GroupKey, sev
 	g.Labels, g.Common, g.Annotations = w.GroupLabels, w.CommonLabels, w.CommonAnnotations
 	g.Alerts = g.Alerts[:0]
@@ -261,6 +266,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
 			g.ProbeRuns = nil
+			g.Episode, g.Participation = newDelivery(), nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
 			g.StartsAt = starts
@@ -280,8 +286,9 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.ResolvedAt = b.now()
 		b.resolve(ctx, &g)
 		b.wake(&g, "resolved")
+		return b.saveGroup(g)
 	}
-	return b.d.Store.PutGroup(g)
+	return b.d.Store.PutGroupWithOutcome(g, previous)
 }
 
 func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
@@ -417,6 +424,11 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	default:
 		return feishu.Response{Toast: b.t("Unknown action"), ToastKind: "error"}
 	}
+	action := "ack"
+	if act == "silence" {
+		action = "silence"
+	}
+	recordParticipation(&g, Actor{Name: person.Name, Via: "feishu"}, action, b.now())
 	card := b.card(ctx, &g)
 	g.CardAt, g.CardHash = b.now(), cardHash(&g)
 	if err := b.d.Store.PutGroup(g); err != nil {
@@ -463,6 +475,11 @@ func (b *Bridge) Tick(ctx context.Context) {
 	ttl := b.d.Config.AckTTL.D()
 	for _, g := range b.d.Store.Groups() {
 		if !g.Firing() {
+			if now.Sub(g.ResolvedAt) > keepResolved {
+				if err := b.d.Store.DropResolvedGroup(g, b.archiveOutcome(g, now, now)); err != nil {
+					b.d.Log.Error("archive resolved alert group", "group", g.ID, "err", err)
+				}
+			}
 			continue
 		}
 		changed := false
@@ -524,6 +541,7 @@ func (b *Bridge) Tick(ctx context.Context) {
 				if g.Ack.At.IsZero() {
 					g.Ack.At = now
 				}
+				recordParticipation(&g, Actor{Name: by, Via: "pushover"}, "ack", g.Ack.At)
 				_ = b.d.Store.Audit(store.AuditEntry{Actor: by, Via: "pushover", Action: "ack", Target: g.ID, Detail: b.title(&g)})
 				if b.patchAllowed(&g, false) {
 					b.patch(ctx, &g)
@@ -538,7 +556,6 @@ func (b *Bridge) Tick(ctx context.Context) {
 			}
 		}
 	}
-	b.d.Store.DeleteGroups(func(g store.Group) bool { return !g.Firing() && now.Sub(g.ResolvedAt) > keepResolved })
 }
 
 func (b *Bridge) onCallIDs() []string {
@@ -549,7 +566,7 @@ func (b *Bridge) onCallIDs() []string {
 	return ids
 }
 
-// Ready reports whether alerts can reach people, with the reasons when they cannot.
+// Ready checks the alerting pipeline's Watchdog and the health checks for a configured Feishu app.
 func (b *Bridge) Ready() (bool, []string) {
 	var why []string
 	now := b.now()
@@ -577,16 +594,21 @@ func (b *Bridge) Ready() (bool, []string) {
 // Run ticks until ctx is done and pings the healthchecks.io check every minute when ready.
 func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool) error) {
 	b.resumeWakes(ctx)
+	b.initOutcomes()
 	tick := time.NewTicker(15 * time.Second)
 	defer tick.Stop()
 	beat := time.NewTicker(time.Minute)
 	defer beat.Stop()
+	prune := time.NewTicker(time.Hour)
+	defer prune.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 			b.Tick(ctx)
+		case <-prune.C:
+			b.pruneOutcomes()
 		case <-beat.C:
 			if ping == nil {
 				continue
@@ -702,12 +724,29 @@ type Summary struct {
 	Acknowledged int            `json:"acknowledged"`
 	FeishuCalls  int64          `json:"feishu_api_calls_this_month"`
 	FeishuBudget int            `json:"feishu_api_budget"`
+	Delivery     DeliverySetup  `json:"delivery"`
+}
+
+// DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
+type DeliverySetup struct {
+	CriticalToPeople bool `json:"critical_to_people"`
+	FeishuApp        bool `json:"feishu_app"`
+	GroupBot         bool `json:"group_bot"`
+	Pushover         bool `json:"pushover"`
+}
+
+// Delivery reports the configured routes for a new critical alert.
+func (b *Bridge) Delivery() DeliverySetup {
+	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil}
+	d.CriticalToPeople = (d.FeishuApp && b.d.Config.Policy("critical").Channel == "app") || d.GroupBot || d.Pushover
+	return d
 }
 
 // Summarize returns the summary.
 func (b *Bridge) Summarize() Summary {
 	ok, why := b.Ready()
-	s := Summary{Ready: ok, NotReady: why, Firing: map[string]int{}, FeishuCalls: b.d.Store.Counter(b.quotaKey()), FeishuBudget: b.d.Config.Feishu.MonthlyBudget}
+	s := Summary{Ready: ok, NotReady: why, Firing: map[string]int{}, FeishuCalls: b.d.Store.Counter(b.quotaKey()),
+		FeishuBudget: b.d.Config.Feishu.MonthlyBudget, Delivery: b.Delivery()}
 	for _, sev := range config.Severities {
 		s.Firing[sev] = 0
 	}
@@ -759,6 +798,7 @@ func (b *Bridge) Ack(ctx context.Context, id string, who Actor, note string) (Gr
 		return b.view(&g), ErrNotFiring
 	}
 	b.ack(ctx, &g, who.Name, who.Via, strings.TrimSpace(note))
+	recordParticipation(&g, who, "ack", g.Ack.At)
 	if b.patchAllowed(&g, false) {
 		b.patch(ctx, &g)
 	}
@@ -798,6 +838,7 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 	if err := b.silence(ctx, &g, d, who.Name, who.Via, comment); err != nil {
 		return GroupView{}, err
 	}
+	recordParticipation(&g, who, "silence", b.now())
 	if b.patchAllowed(&g, false) {
 		b.patch(ctx, &g)
 	}
@@ -844,6 +885,7 @@ func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d 
 		if g.Ack == nil {
 			b.ack(ctx, &g, who.Name, who.Via, "")
 		}
+		recordParticipation(&g, who, "silence", now)
 		if b.patchAllowed(&g, false) {
 			b.patch(ctx, &g)
 		}

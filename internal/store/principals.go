@@ -28,7 +28,7 @@ var bucketAgents = []byte("agents")
 // PeopleScopes are the scopes of people and agents: the REST API, MCP and the SSH channel. The others
 // in Scopes are machines', on the metrics gateway.
 var PeopleScopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
-	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write"}
+	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write", "secrets:use"}
 
 // Agent presets: what an agent may do, as a role says it for a person. An agent never does more than its
 // owner's role allows. PresetCustom keeps a list of scopes of its own (a claimed legacy token's, or one
@@ -564,6 +564,7 @@ type Principal struct {
 	Machines []string  `json:"machines,omitempty"`
 	Subject  string    `json:"subject,omitempty"`
 	Expires  time.Time `json:"expires,omitzero"`
+	proof    credentialProof
 }
 
 // Name is how the audit log, the chat and the console name the principal: the person, "person / agent"
@@ -823,7 +824,11 @@ func (s *Store) Authenticate(secret string) (Principal, bool) {
 		if !ok {
 			return Principal{}, false
 		}
-		return s.TokenPrincipal(t)
+		p, live := s.TokenPrincipal(t)
+		if live {
+			p.proof = credentialProof{kind: proofToken, hash: hashToken(secret)}
+		}
+		return p, live
 	case strings.HasPrefix(secret, AccessPrefix):
 		return s.verifyAccess(secret)
 	}

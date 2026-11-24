@@ -19,6 +19,7 @@ import (
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/status"
 	"github.com/openlinkos/beacon/internal/store"
@@ -213,13 +214,15 @@ func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account
 // Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
 // Config is the configuration Beacon holds (its routes are in config.go); nil leaves them out.
 type Server struct {
-	Bridge     *bridge.Bridge
-	SSH        *sshgate.Gate
-	SSHAddress string
-	Auth       *Auth
-	Log        *slog.Logger
-	Config     *configdb.Service
-	Status     *status.Service // the public status pages (status.go); nil: none
+	Bridge                *bridge.Bridge
+	SSH                   *sshgate.Gate
+	SSHAddress            string
+	Auth                  *Auth
+	Log                   *slog.Logger
+	Config                *configdb.Service
+	Status                *status.Service // the public status pages (status.go); nil: none
+	Credentials           *secrets.Service
+	CredentialsConfigured bool // configured but temporarily unavailable when Credentials is nil
 }
 
 // Register adds the API's routes to mux.
@@ -229,12 +232,15 @@ func (s *Server) Register(mux *http.ServeMux) {
 		_, _ = w.Write(openAPI)
 	})
 	s.registerConfig(mux)
+	s.registerCredentials(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
 	mux.Handle("POST /api/v1/alerts/{id}/ack", s.with("alerts:write", s.ackAlert))
 	mux.Handle("GET /api/v1/alerts/{id}/evidence", s.with("status:read", s.evidence))
 	mux.Handle("GET /api/v1/alerts/{id}/timeline", s.with("status:read", s.timeline))
+	mux.Handle("GET /api/v1/incident-outcomes", s.with("status:read", s.incidentOutcomes))
+	mux.Handle("GET /api/v1/incident-outcomes/{id}", s.with("status:read", s.incidentOutcome))
 	mux.Handle("POST /api/v1/alerts/{id}/notes", s.with("alerts:write", s.addNote))
 	mux.Handle("GET /api/v1/changes", s.with("status:read", s.listChanges))
 	mux.Handle("GET /api/v1/silences", s.with("status:read", s.listSilences))
@@ -248,6 +254,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/machines", s.with("status:read|machines:ssh", s.listMachines))
 	mux.Handle("POST /api/v1/machines", s.with("machines:write", s.addMachine))
 	mux.Handle("PATCH /api/v1/machines/{name}", s.with("machines:write", s.updateMachine))
+	mux.Handle("GET /api/v1/machines/{name}/history", s.with("status:read|machines:ssh", s.machineHistory))
+	mux.Handle("POST /api/v1/machines/{name}/restore", s.with("machines:write", s.restoreMachine))
 	mux.Handle("DELETE /api/v1/machines/{name}", s.with("machines:write", s.removeMachine))
 	mux.Handle("POST /api/v1/machines/{name}/run", s.with("machines:ssh", s.runCommand))
 	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
@@ -270,11 +278,14 @@ var Routes = []string{
 	"GET /api/v1/silences", "POST /api/v1/silences", "DELETE /api/v1/silences/{id}", "GET /api/v1/audit",
 	"GET /api/v1/ssh", "POST /api/v1/ssh/pause", "POST /api/v1/ssh/resume",
 	"GET /api/v1/machines", "POST /api/v1/machines", "PATCH /api/v1/machines/{name}", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
+	"GET /api/v1/machines/{name}/history", "POST /api/v1/machines/{name}/restore",
 	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
 	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
 	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",
+	"GET /api/v1/incident-outcomes", "GET /api/v1/incident-outcomes/{id}",
 	"PUT /api/v1/machines/{name}/connector",
 	"POST /api/v1/probe-now",
+	"GET /api/v1/team-credentials", "POST /api/v1/team-credentials/{id}/use",
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, who bridge.Actor)

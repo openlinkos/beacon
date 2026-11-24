@@ -1,4 +1,5 @@
 {{define "head"}}{{if and .Connection .Connection.Command}}<script defer src="/static/beacon-copy.js?v={{.Version}}"></script>{{end}}{{end}}
+{{define "actions"}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.HistoryHref}}">{{iconSm "history"}}{{.History}}</a>{{end}}
 
 {{define "content"}}<div class="ol-stack">
   {{with .Connection}}<section class="ol-panel" id="ssh-connect" aria-labelledby="ssh-connect-title">
@@ -55,6 +56,7 @@
     <form class="ol-panel" method="post" action="{{.EditAction}}">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "pencil"}} {{.L.Edit}}</h2></div>
       <div class="ol-panel-body ol-stack"><input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="if_version" value="{{.MetadataVersion}}">
         <div class="ol-field"><label class="ol-label" for="edit-note">{{.L.Note}}</label><input class="ol-input" id="edit-note" name="note" value="{{.Note}}" maxlength="2000"></div>
         <div class="ol-field"><label class="ol-label" for="edit-user">{{.L.User}}</label><input class="ol-input ol-input-mono" id="edit-user" name="user" value="{{.User}}" required maxlength="32" autocapitalize="none" spellcheck="false"></div>
         <label class="ol-check"><input class="ol-checkbox" type="checkbox" name="critical" value="on"{{if .Critical}} checked{{end}}><span>{{.L.Critical}}</span></label>

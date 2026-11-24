@@ -51,7 +51,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `status_summary` | `status:read` | Whether alerts can reach people right now (and why not), groups firing by severity, how many are acknowledged, and the Feishu API budget used this month |
+| `status_summary` | `status:read` | Alerting pipeline health, configured human notification routes, firing groups by severity, acknowledgement counts and the Feishu API budget |
 | `list_alerts` | `status:read` | Alert groups, firing first and newest first, with who acknowledged or silenced them and how far escalation went. `state: all` adds those resolved in the last seven days |
 | `get_alert` | `status:read` | One group by `id`: labels, runbook and dashboard, acknowledgement, silence, escalation, notes, the agents woken, and the signed link to its page in the console |
 | `list_silences` | `status:read` | Silences active or pending, ending soonest first |
@@ -66,6 +66,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | --- | --- | --- |
 | `get_evidence` | `status:read` | Everything to judge a group in one call (`id`, `before`: the window opens 30 minutes before the group started, at most 24 hours): each location's result now, since when it fails and why, the duration, HTTP status, attempts and certificate expiry; related groups in the same failure domain; change events; what people and agents have done; links |
 | `get_timeline` | `status:read` | The group's story in time order: started, notified, buzzed, Pushover, acknowledged, notes, silences, agents woken, changes, sessions and their commands, resolved |
+| `list_incident_outcomes` | `status:read` | Private resolved episodes (`group`, `before`, `limit` default 50, up to 200). Pass the returned cursor as `before` to continue |
+| `get_incident_outcome` | `status:read` | Read one retained outcome by episode ID, with participation and verification counts. To find related audit entries use `list_audit` with `target` set to its group and the episode's dates |
 | `add_note` | `alerts:write` | Leave a note on a group, firing or resolved (`id`, `text` of at most 2000 characters): what was found, what was done, what is next. People on call see it on the card; a note that begins with `public:` is also an update on the status pages. It does not acknowledge |
 | `list_changes` | `status:read` | Change events, newest first: deployments, configuration changes and Flux reconciliations (`service`, `machine`, `source`, `since`, 24 hours by default, `limit`, 100 by default, at most 1000) |
 | `probe_now` | `alerts:write` | Have every location that probes a target probe it again at once, and get each location's answer within the wait (`alert_id`, `target` with an optional `module`, or `service`; `wait` seconds, 45 by default, at most 90). Use it after a fix, instead of waiting for the next cycle |
@@ -82,7 +84,9 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default): who, where, what, when, the exit status |
 | `get_session` | `sessions:read` or `machines:ssh` | A session's transcript (`id`): a command's whole output, or an interactive shell's commands with their output and exit status |
 | `add_machine` | `machines:write` | Add a machine, pinning its host key (`name`, `address`, `user`, `critical`, `note`, `replace`); `address: connector` for one behind NAT, with `connector_key` and optionally `host_key`. The result says what the machine needs |
-| `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The host key and the address stay |
+| `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The optional `if_version` guards against concurrent edits. The host key and the address stay |
+| `machine_history` | `status:read` or `machines:ssh` | Read the settings history for `name`. Use `before` (exclusive) and `limit` to page |
+| `restore_machine` | `machines:write` | Restore an earlier settings `version` for `name`. Supply the current `if_version`. Copies the account, critical flag and note into a new version |
 | `set_machine_connector` | `machines:write` | Set or change the key a machine behind NAT connects out with (`name`, `key`); a connection made with the old key is closed |
 | `remove_machine` | `machines:write` | Forget a machine (`name`); its sessions stay on record |
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
@@ -126,7 +130,18 @@ The public status pages are made from the alert groups and the maintenance windo
 | `list_ssh_keys` | `machines:ssh` | Your SSH keys |
 | `remove_ssh_key` | `machines:ssh` | Remove one of your keys (`fingerprint`); connections signed in with it are closed |
 
-No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant that scope, even one that holds it. Changing roles, disabling people and password resets are not MCP tools. They are for people, on the console or the centre.
+Account administration tools require an owner credential issued independently of any Agent. Existing custom Agent credentials with `accounts:write` cannot administer accounts or Agent identities. Agents with SSH access can manage their own SSH keys. People change roles, disable accounts and reset passwords in the console, through REST or on the centre.
+
+## Team credentials {#team-credentials}
+
+These tools are offered only when the [team credential store](../guide/team-credentials.md) is enabled. A grant supports repeated uses until it expires or an owner revokes it. Each use returns only an HTTP status code.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `list_team_credentials` | `secrets:use` | List the agent's active team credential grants |
+| `use_team_credential` | `secrets:use` | Send the configured HTTPS request under the agent's audited identity |
+
+People manage credential values and grants from their own console accounts. Use the agent's headless token. The standard OAuth presets keep their existing scopes.
 
 ## Your token
 

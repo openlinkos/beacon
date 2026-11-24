@@ -1,5 +1,8 @@
 {{define "content"}}
-{{if .Schedule}}<p class="ol-cluster"><a class="ol-btn ol-btn-secondary" href="{{.Schedule}}">{{iconSm "clock"}}{{.L.Schedule}}</a></p>{{end}}
+{{if or .Schedule .Edit}}<p class="ol-cluster">
+  {{if .Edit}}<a class="ol-btn ol-btn-secondary" href="{{.Edit}}">{{iconSm "pencil"}}{{.EditLabel}}</a>{{end}}
+  {{if .Schedule}}<a class="ol-btn ol-btn-secondary" href="{{.Schedule}}">{{iconSm "clock"}}{{.L.Schedule}}</a>{{end}}
+</p>{{end}}
 <div class="ol-layout-supporting">
   <div class="ol-stack">
     <section class="ol-panel">

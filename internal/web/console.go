@@ -64,7 +64,7 @@ func (v *viewer) hasAny(scopes string) bool {
 func (v *viewer) person() bool { return v != nil && v.Account != nil }
 
 // owner reports whether the viewer manages people and everyone's agents.
-func (v *viewer) owner() bool { return v.has("accounts:write") }
+func (v *viewer) owner() bool { return v.has("accounts:write") && v.Principal.Agent == "" }
 
 // name is how the audit log names the viewer.
 func (v *viewer) name() string { return v.Principal.Name() }
@@ -118,10 +118,13 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/sign-in", s.signIn)
 	at("POST", "/sign-out", s.action("", s.signOut))
 	s.registerAccounts(at)
+	s.registerCredentials(at)
 
 	at("GET", "", s.console("", s.overview))
 	at("GET", "/{$}", s.toOverview)
 	at("GET", "/alerts", s.console("", s.alerts))
+	at("GET", "/incident-outcomes", s.console("status:read", s.incidentOutcomes))
+	at("GET", "/incident-outcomes/{id}", s.console("status:read", s.incidentOutcome))
 	at("POST", "/alerts/{id}/ack", s.action("alerts:write", s.ack))
 	at("POST", "/alerts/{id}/silence", s.action("alerts:write", s.silence))
 	at("POST", "/alerts/{id}/notes", s.action("alerts:write", s.note))
@@ -129,6 +132,8 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("GET", "/machines", s.console("status:read|machines:ssh", s.machines))
 	at("POST", "/machines", s.action("machines:write", s.addMachine))
 	at("GET", "/machines/{name}", s.console("status:read|machines:ssh", s.machine))
+	at("GET", "/machines/{name}/history", s.console("status:read|machines:ssh", s.machineHistory))
+	at("POST", "/machines/{name}/restore", s.action("machines:write", s.restoreMachine))
 	at("POST", "/machines/{name}/edit", s.action("machines:write", s.editMachine))
 	at("POST", "/machines/{name}/replace", s.action("machines:write", s.replaceMachine))
 	at("POST", "/machines/{name}/connector", s.action("machines:write", s.connectorMachine))
@@ -140,6 +145,9 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("GET", "/monitors/add/{$}", s.console("config:write", s.monitorForm))
 	at("POST", "/monitors", s.action("config:write", s.addMonitor))
 	at("GET", "/monitors/{service}", s.console("status:read", s.monitor))
+	at("GET", "/monitors/{service}/edit", s.console("config:write", s.editMonitorForm))
+	at("POST", "/monitors/{service}/edit", s.action("config:write", s.addMonitor))
+	at("POST", "/monitors/{service}/remove", s.action("config:write", s.removeMonitor))
 	at("GET", "/status-pages", s.console("status:read", s.pageList))
 	at("GET", "/status-pages/{name}", s.console("status:read", s.pageDetail))
 	at("GET", "/silences", s.console("status:read", s.silencesPage))

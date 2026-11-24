@@ -1,0 +1,19 @@
+{{define "content"}}<div class="ol-stack">
+  {{if .Group}}<div class="ol-split"><p class="ol-hint">{{.L.Group}} <code>{{.Group}}</code></p><a href="{{console "/incident-outcomes"}}">{{.L.Clear}}</a></div>{{end}}
+  {{if .Rows}}
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Incident}}</th><th>{{.L.Severity}}</th><th>{{.L.Resolved}}</th><th>{{.L.Participation}}</th><th>{{.L.Verification}}</th></tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}</td>
+      <td data-label="{{$.L.Severity}}"><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
+      <td data-label="{{$.L.Resolved}}">{{.Resolved}}<span class="ol-cell-sub">{{.Duration}}</span></td>
+      <td data-label="{{$.L.Participation}}">{{if .Participants}}<span class="ol-cluster">{{range .Participants}}<span class="ol-badge">{{.}}</span>{{end}}</span>{{else}}{{$.L.NoParticipants}}{{end}}</td>
+      <td data-label="{{$.L.Verification}}">{{if .Verification}}{{.Verification}}{{else}}{{$.L.NoVerification}}{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{else}}{{template "empty" .L.Empty}}{{end}}
+  {{if or .First .Older}}<nav class="ol-cluster" aria-label="{{.S.Pages}}">
+    {{if .First}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.First}}">{{iconSm "chevron-left"}}{{.L.First}}</a>{{end}}
+    {{if .Older}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Older}}">{{.L.Older}}{{iconSm "chevron-right"}}</a>{{end}}
+  </nav>{{end}}
+</div>{{end}}

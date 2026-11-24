@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-81c68ebe
+sourceHash: sha256-4de40cbe
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -23,20 +23,20 @@ sourceHash: sha256-81c68ebe
 | `viewer` | `status:read`、`sessions:read` | 看发生了什么：告警、证据、会话、控制台 |
 | `oncall` | + `alerts:write`、`machines:ssh` | 处理告警：认领、静默、备注，以及经 SSH 通道上机器 |
 | `operator` | + `maintenance:write`、`incidents:write`、`machines:write` | 改运行的东西：维护窗口、机器和它们的密钥 |
-| `owner` | + `config:write`、`accounts:write` | 部署本身：监控什么，以及上面的人 |
+| `owner` | + `config:write`、`accounts:write`、`secrets:use` | 管理部署配置、成员和团队凭据 |
 
 ## 预设 {#presets}
 
 Agent 能做的永远不超过其所有者的角色。一个 scope，要**预设**或自定义清单给了它、*且*其所有者的角色也给了，Agent 才能用。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
 
-没有预设给 `accounts:write`。Agent 要管人，只能是所有者以自定义 Agent 的方式给了它这个 scope：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。
+只有所有者账号、独立管理令牌和本机命令行可以管理成员账号。即使旧的自定义权限包含 `accounts:write`，Agent 身份也不能用它管理成员账号或 Agent 身份。
 
 | 预设 | 它要的 scope | 谁的 Agent 拿到它 |
 | --- | --- | --- |
 | `readonly` | `status:read`、`sessions:read` | viewer 的 Agent 至多拿到它 |
 | `oncall` | + `alerts:write`、`machines:ssh` | 值班的人的 Agent 至多拿到它 |
 | `operator` | + `maintenance:write`、`incidents:write`、`machines:write` | operator 或 owner 的 Agent 至多拿到它 |
-| `custom` | 自己列一份，从人和 Agent 的九个 scope 里选，至少一个 | 有意选择的：以本人身份登录的所有者在控制台里，持有 `accounts:write` 的人或旧式令牌经 API 和 MCP（绝不是 Agent），`beacon agent add -scopes`，或认领一个 scope 恰好不匹配任何预设的旧式令牌。不超过所有者的角色，也不超过调用者自己能做的。认领绝不会放大令牌的权限 |
+| `custom` | 从人和 Agent 的作用域中选至少一个 | 有意选择的：以本人身份登录的所有者在控制台里，持有 `accounts:write` 的人或旧式令牌经 API 和 MCP（绝不是 Agent），`beacon agent add -scopes`，或认领一个 scope 恰好不匹配任何预设的旧式令牌。不超过所有者的角色，也不超过调用者自己能做的。认领绝不会放大令牌的权限 |
 
 一个人的 Agent 默认拿其所有者角色允许的最强预设，除非特意选低的（`beacon agent add -preset`，或控制台）。所有者被降级后，他的 Agent 立刻按新角色约束，从下一个请求起生效。
 
@@ -44,7 +44,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 
 ## Scope {#scopes}
 
-前九个属于人和 Agent，用在 REST API、MCP 和 SSH 通道。其余属于机器，用在指标网关（[数据来源](sources.md)）。
+前十个属于人和 Agent，用在 REST API、MCP 和 SSH 通道。其余属于机器，用在指标网关（[数据来源](sources.md)）。
 
 | Scope | 谁持有 | 允许什么 |
 | --- | --- | --- |
@@ -56,7 +56,8 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `incidents:write` | operator 及以上 | 为手工写事件预留；还没有路径用它 |
 | `machines:write` | operator 及以上 | 增删改机器、连接器密钥、暂停 Agent 的访问 |
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
-| `accounts:write` | owner；无预设 | 管理人和所有人的 Agent；只有 owner，且只能手工给 |
+| `accounts:write` | 所有者账号或独立管理令牌 | 管理成员账号和所有人的 Agent |
+| `secrets:use` | owner；仅自定义 Agent | 列出和使用明确授权给该 Agent 的团队凭据 |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |
 | `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本 |

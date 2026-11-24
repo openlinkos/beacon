@@ -42,17 +42,37 @@ components:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, upstream,
             ssh.disabled, ssh.paused, ssh.standby, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable]
+            audit.unavailable, incident.not_found, incident.unavailable,
+            credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending]
         docs:
           type: string
           format: uri
           description: "On a 401 (auth.required, auth.invalid): the API's reference, which says how to get a token"
+    TeamCredential:
+      type: object
+      required: [id, name, version, updated]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        endpoint: {type: string, format: uri, description: Visible to owners}
+        version: {type: integer}
+        updated: {type: string, format: date-time}
+        grants:
+          type: array
+          items:
+            type: object
+            properties:
+              agent: {type: string}
+              owner: {type: string}
+              agent_created: {type: string, format: date-time}
+              until: {type: string, format: date-time}
     Ack:
       type: object
       properties:
@@ -334,12 +354,54 @@ components:
                     status: {type: string, enum: [ok, failed, missing]}
                     reason: {type: string}
                     http_status: {type: integer}
+    IncidentOutcome:
+      type: object
+      description: Compact private summary of one resolved episode
+      properties:
+        id: {type: string, description: Stable episode ID used to revisit this outcome}
+        group: {type: string, description: Recurring alert group ID used to filter related audit entries}
+        title: {type: string}
+        severity: {type: string, enum: [critical, warning, info]}
+        services: {type: array, items: {type: string}}
+        started_at: {type: string, format: date-time}
+        resolved_at: {type: string, format: date-time, description: When Beacon recorded the alert as resolved}
+        audit_until:
+          type: string
+          format: date-time
+          description: Upper bound for related audit entries once the rich alert has been archived or reopened
+        related_sessions:
+          type: array
+          items: {type: string}
+          description: Up to eight related session IDs captured at archive time; sessions have their own retention
+        participation:
+          type: array
+          description: Latest recorded alert action for each identified kind of actor
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [person, agent, unattributed]}
+              by: {type: string}
+              via: {type: string}
+              action: {type: string, enum: [ack, silence, note, probe_now]}
+              at: {type: string, format: date-time}
+        verification:
+          type: object
+          description: Counts from the latest on-demand check, one observation per target and expected location
+          properties:
+            id: {type: string}
+            at: {type: string, format: date-time}
+            by: {type: string}
+            via: {type: string}
+            passed: {type: integer}
+            failed: {type: integer}
+            missing: {type: integer}
     Machine:
       type: object
       properties:
         name: {type: string, description: The machine's host name; also the user name agents give the SSH channel}
         address: {type: string, description: "host:port Beacon connects to, or connector for a machine behind NAT that connects out to the channel itself"}
         user: {type: string, description: The account on the machine}
+        metadata_version: {type: integer, description: Current settings version (0 for an unversioned machine)}
         host_key_fingerprint: {type: string, description: "SHA256 fingerprint of the host key pinned when the machine was added; empty for a connector machine whose key is learned when it first connects"}
         critical: {type: boolean}
         note: {type: string}
@@ -349,6 +411,30 @@ components:
         connector: {type: boolean, description: The machine connects out to the channel (ssh -R) rather than being dialled; only on such machines}
         connected: {type: boolean, description: Whether the connector is connected right now; only on connector machines}
         connected_since: {type: string, format: date-time}
+    MachineHistory:
+      type: object
+      required: [version, revisions]
+      properties:
+        version: {type: integer, description: Current metadata version (0 before a legacy registration is first edited)}
+        revisions:
+          type: array
+          items:
+            type: object
+            required: [version, time, actor, via, action, metadata]
+            properties:
+              version: {type: integer}
+              time: {type: string, format: date-time}
+              actor: {type: string}
+              via: {type: string}
+              action: {type: string, enum: [registered, baseline, edited, restored]}
+              restored_version: {type: integer}
+              metadata:
+                type: object
+                required: [user, critical, note]
+                properties:
+                  user: {type: string}
+                  critical: {type: boolean}
+                  note: {type: string}
     Machines:
       type: object
       properties:
@@ -937,6 +1023,40 @@ components:
 security:
   - token: []
 paths:
+  /team-credentials:
+    get:
+      summary: List team credential metadata
+      description: "Scope: secrets:use. Agents see only live grants. Available when credentials.enabled is true."
+      responses:
+        "200":
+          description: Credentials without their values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials: {type: array, items: {$ref: "#/components/schemas/TeamCredential"}}
+        "403": {description: No access}
+        "503": {description: The credential store cannot be verified}
+  /team-credentials/{id}/use:
+    post:
+      summary: Send one authenticated HTTPS request to the credential's fixed endpoint
+      description: "Scope: secrets:use for agents with a live grant. Sends a GET after auditing it."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Upstream HTTP status. No upstream headers or body.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: integer, minimum: 100, maximum: 599}
+        "403": {description: No access}
+        "502": {description: The service could not be reached}
+        "503": {description: The credential store cannot be verified}
   /openapi.yaml:
     get:
       summary: This description
@@ -945,7 +1065,7 @@ paths:
         "200": {description: The OpenAPI document}
   /bridge:
     get:
-      summary: Whether alerts can reach people, alerts firing by severity, Feishu API usage
+      summary: Alerting pipeline health, notification configuration, and alerts firing by severity
       description: "Scope: status:read"
       responses:
         "200":
@@ -955,8 +1075,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  ready: {type: boolean}
+                  ready: {type: boolean, description: The Watchdog and the configured Feishu app pass their health checks}
                   not_ready: {type: array, items: {type: string}}
+                  delivery:
+                    type: object
+                    description: Configuration of human notifications. An actual alert delivery verifies the route.
+                    properties:
+                      critical_to_people: {type: boolean, description: A human notification route for critical alerts is configured}
+                      feishu_app: {type: boolean}
+                      group_bot: {type: boolean}
+                      pushover: {type: boolean}
                   firing: {type: object, additionalProperties: {type: integer}}
                   acknowledged: {type: integer}
                   feishu_api_calls_this_month: {type: integer}
@@ -1074,6 +1202,43 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-outcomes:
+    get:
+      summary: List resolved incident outcomes
+      description: "Scope: status:read. Private history of resolved alert episodes, newest first."
+      parameters:
+        - {name: group, in: query, schema: {type: string}, description: Filter by the recurring alert group ID}
+        - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: Outcomes and an optional cursor for the next page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcomes: {type: array, items: {$ref: "#/components/schemas/IncidentOutcome"}}
+                  before: {type: string}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-outcomes/{id}:
+    get:
+      summary: Get one resolved incident outcome
+      description: "Scope: status:read. Use this summary's group, started_at and audit_until to query related audit records."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}, description: Stable incident outcome ID}
+      responses:
+        "200":
+          description: The retained summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcome: {$ref: "#/components/schemas/IncidentOutcome"}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
         default: {$ref: "#/components/responses/Error"}
   /changes:
     get:
@@ -1289,6 +1454,7 @@ paths:
                 note: {type: string}
                 critical: {type: boolean}
                 user: {type: string, description: The account on the machine}
+                if_version: {type: integer, minimum: 0, description: Refuse the edit if the current metadata version has changed}
       responses:
         "200":
           description: The machine
@@ -1303,6 +1469,45 @@ paths:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         "204": {description: Forgotten}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/history:
+    get:
+      summary: List metadata revisions for the current registration
+      description: "Scope: status:read or machines:ssh. Only the account, critical flag and note are recorded."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+        - {name: before, in: query, schema: {type: integer, minimum: 0}, description: Return versions older than this one}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 30}}
+      responses:
+        "200":
+          description: Current version and snapshots, newest first
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MachineHistory"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/restore:
+    post:
+      summary: Restore earlier machine metadata as a new version
+      description: "Scope: machines:write. The target must belong to the current registration and if_version must match the current metadata version. The address and keys stay."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version, if_version]
+              properties:
+                version: {type: integer, minimum: 1}
+                if_version: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: The machine; the version stays the same if the settings already match
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Machine"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/run:
     post:
@@ -1856,7 +2061,7 @@ paths:
   /users:
     get:
       summary: The people who sign in to Beacon, and the invitations not yet used
-      description: "Scope: accounts:write (an owner's)."
+      description: "Scope: accounts:write, held by a standalone administration token."
       responses:
         "200":
           description: The people and the invitations
@@ -1872,7 +2077,7 @@ paths:
     post:
       summary: Invite a person
       description: >-
-        Scope: accounts:write. A one-time link, valid for 24 hours, with which the person joins with the role,
+        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 24 hours, with which the person joins with the role,
         choosing their username and password. The link is in the answer only; Beacon keeps a hash of its code.
         Audited (user_invite) and echoed to the alert chat, without the link.
       requestBody:
@@ -1896,7 +2101,7 @@ paths:
     patch:
       summary: Change a person's role, display name or contact, or disable or enable them
       description: >-
-        Scope: accounts:write. A lowered role or a disabled account limits the person's sessions and agents
+        Scope: accounts:write, held by a standalone administration token. A lowered role or a disabled account limits the person's sessions and agents
         at once (their SSH sessions that may no longer reach a machine are closed); Beacon always keeps an
         enabled owner (user.last_owner, 409). Audited (user_role, user_disable, user_enable, user_update) and
         echoed to the alert chat.
@@ -1924,7 +2129,7 @@ paths:
     post:
       summary: Make a password reset link for a person
       description: >-
-        Scope: accounts:write. A one-time link, valid for 30 minutes, with which the person chooses a new
+        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 30 minutes, with which the person chooses a new
         password; their sign-ins end then. Not offered over MCP. Audited (user_reset_link) and echoed to the
         alert chat, without the link.
       parameters:

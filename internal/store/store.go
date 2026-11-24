@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -58,32 +58,34 @@ var ErrNotFound = errors.New("not found")
 
 // Group is one alert group and what was done about it.
 type Group struct {
-	ID          string            `json:"id"`
-	Key         string            `json:"key"`
-	Status      string            `json:"status"` // firing or resolved
-	Severity    string            `json:"severity"`
-	Labels      map[string]string `json:"labels"`
-	Common      map[string]string `json:"common"`
-	Annotations map[string]string `json:"annotations"`
-	Alerts      []Alert           `json:"alerts"`
-	StartsAt    time.Time         `json:"starts_at"`
-	ResolvedAt  time.Time         `json:"resolved_at,omitzero"`
-	Channel     string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
-	MessageID   string            `json:"message_id,omitempty"`
-	NotifiedAt  time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
-	CardAt      time.Time         `json:"card_at,omitzero"`
-	CardHash    string            `json:"card_hash,omitempty"`
-	Ack         *Ack              `json:"ack,omitempty"`
-	Silence     *Silence          `json:"silence,omitempty"`
-	Buzzed      time.Time         `json:"buzzed,omitzero"`
-	Pushed      time.Time         `json:"pushed,omitzero"`
-	Receipt     string            `json:"receipt,omitempty"`
-	ReceiptAt   time.Time         `json:"receipt_at,omitzero"`
-	Barked      time.Time         `json:"barked,omitzero"`
-	Notes       []Note            `json:"notes,omitempty"`  // see agents.go
-	Agents      []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
-	ProbeRuns   []ProbeRun        `json:"probe_runs,omitempty"`
-	Updated     time.Time         `json:"updated"`
+	ID            string            `json:"id"`
+	Key           string            `json:"key"`
+	Status        string            `json:"status"` // firing or resolved
+	Severity      string            `json:"severity"`
+	Labels        map[string]string `json:"labels"`
+	Common        map[string]string `json:"common"`
+	Annotations   map[string]string `json:"annotations"`
+	Alerts        []Alert           `json:"alerts"`
+	StartsAt      time.Time         `json:"starts_at"`
+	ResolvedAt    time.Time         `json:"resolved_at,omitzero"`
+	Channel       string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
+	MessageID     string            `json:"message_id,omitempty"`
+	NotifiedAt    time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
+	CardAt        time.Time         `json:"card_at,omitzero"`
+	CardHash      string            `json:"card_hash,omitempty"`
+	Ack           *Ack              `json:"ack,omitempty"`
+	Silence       *Silence          `json:"silence,omitempty"`
+	Buzzed        time.Time         `json:"buzzed,omitzero"`
+	Pushed        time.Time         `json:"pushed,omitzero"`
+	Receipt       string            `json:"receipt,omitempty"`
+	ReceiptAt     time.Time         `json:"receipt_at,omitzero"`
+	Barked        time.Time         `json:"barked,omitzero"`
+	Notes         []Note            `json:"notes,omitempty"`  // see agents.go
+	Agents        []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
+	ProbeRuns     []ProbeRun        `json:"probe_runs,omitempty"`
+	Episode       string            `json:"episode,omitempty"`
+	Participation []Participation   `json:"participation,omitempty"`
+	Updated       time.Time         `json:"updated"`
 }
 
 // Alert is one alert in a group.
@@ -403,12 +405,24 @@ func (s *Store) Group(id string) (Group, bool) {
 
 // PutGroup saves g.
 func (s *Store) PutGroup(g Group) error {
+	return s.PutGroupWithOutcome(g, nil)
+}
+
+// PutGroupWithOutcome updates the alert group and its current or preceding outcome in one transaction.
+func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
 	g.Updated = s.now().UTC()
 	b, err := json.Marshal(g)
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketGroups, []byte(g.ID), b) })
+	return s.db.Update(func(tx kv.Tx) error {
+		if outcome != nil {
+			if err := putOutcome(tx, *outcome); err != nil {
+				return err
+			}
+		}
+		return tx.Put(bucketGroups, []byte(g.ID), b)
+	})
 }
 
 // Groups returns every group, firing ones first, then the newest first.
@@ -461,7 +475,7 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 // Scopes are the token scopes. Public reads need no token. The first nine are for people and agents
 // (the REST API, MCP and the SSH channel: PeopleScopes); the rest are for machines, on the metrics gateway.
 var Scopes = []string{"status:read", "alerts:write", "incidents:write", "maintenance:write",
-	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write",
+	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write", "secrets:use",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send", "changes:write"}
 
 // SubjectScopes need a subject: the gateway labels everything written with it.
@@ -741,6 +755,8 @@ type Machine struct {
 	AddedBy              string    `json:"added_by,omitempty"`
 	ConnectorKey         string    `json:"connector_key,omitempty"`
 	ConnectorFingerprint string    `json:"connector_fingerprint,omitempty"`
+	MetadataVersion      int64     `json:"metadata_version,omitempty"`
+	HistoryStart         int64     `json:"history_start,omitempty"`
 }
 
 // MachineName is what a machine may be called: its host name, as probe locations are.
@@ -748,17 +764,8 @@ var MachineName = subjectRe
 
 // PutMachine adds or replaces a machine.
 func (s *Store) PutMachine(m Machine) error {
-	if !MachineName.MatchString(m.Name) {
-		return fmt.Errorf("machine name %q: use lower case letters, digits and dashes", m.Name)
-	}
-	b, _ := json.Marshal(m)
 	return s.db.Update(func(tx kv.Tx) error {
-		if fp := m.ConnectorFingerprint; m.Connector() && fp != "" {
-			if holder := keyHolder(tx, fp); holder != "" {
-				return fmt.Errorf("%w: the key %s belongs to %s", ErrExists, fp, holder)
-			}
-		}
-		return tx.Put(bucketMachines, []byte(m.Name), b)
+		return s.startMachineHistory(tx, &m, "registered", "")
 	})
 }
 
@@ -930,6 +937,11 @@ func (s *Store) Audit(e AuditEntry) error {
 		Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
 	})
 	return err
+}
+
+// AppendAuditTx appends an audit event in the same write transaction as the recorded change.
+func (s *Store) AppendAuditTx(tx *sql.Tx, e events.Event) error {
+	return s.audit.AppendTx(tx, &e)
 }
 
 // AuditLog returns the latest entries, newest first.

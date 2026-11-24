@@ -50,7 +50,7 @@ Beacon offers the four in the ways agents already work, instead of a new system 
 
 ## Product goals: three pillars
 
-The deployed capabilities cover identity and delegation, SSH access, and service monitoring and alerts. Team credential custody is a fourth capability in development. Its first test is whether a person can keep a shared credential, authorise its use, trace each use and revoke the authorisation for future requests. Traceability applies to all four.
+Beacon covers identity and delegation, SSH access, service monitoring and alerts, and an optional store for team credentials. The first credential workflow covers service tokens used in configured HTTPS requests: an owner stores a token, delegates and revokes use, and traces each request. Full password-manager workflows have separate acceptance criteria. Traceability applies to all four.
 
 | Goal | Done when (figures are targets) |
 | --- | --- |

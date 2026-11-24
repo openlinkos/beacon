@@ -439,6 +439,7 @@ func (s *Store) verifyAccess(secret string) (Principal, bool) {
 		g = gs[0]
 		if p, ok = grantPrincipal(tx, g); ok {
 			p.Expires = a.Expires
+			p.proof = credentialProof{kind: proofAccess, hash: h}
 		}
 		return nil
 	})

@@ -1,0 +1,199 @@
+package bridge
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/store"
+)
+
+var (
+	outcomeID    = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]{9}-[0-9a-f]{12}-([0-9a-f]{16}|legacy)$`)
+	outcomeGroup = regexp.MustCompile(`^[0-9a-f]{12}$`)
+)
+
+func (b *Bridge) outcomeCutoff(now time.Time) time.Time {
+	keep := b.d.Config.Storage.IncidentRetention.D()
+	if keep == 0 {
+		keep = config.DefaultIncidentRetention
+	}
+	return now.Add(-keep)
+}
+
+// recordParticipation keeps the latest recorded alert action per kind of actor. A standalone
+// credential does not identify a human or agent even if it came from the console or MCP.
+func recordParticipation(g *store.Group, who Actor, action string, now time.Time) {
+	kind := "unattributed"
+	prefix, _, _ := strings.Cut(who.Key, ":")
+	switch {
+	case prefix == "agent":
+		kind = "agent"
+	case prefix == "user", who.Via == "feishu", who.Via == "pushover":
+		kind = "person"
+	}
+	p := store.Participation{Kind: kind, By: cleanLine(who.Name), Via: who.Via, Action: action, At: now}
+	i := slices.IndexFunc(g.Participation, func(previous store.Participation) bool { return previous.Kind == kind })
+	if i == -1 {
+		g.Participation = append(g.Participation, p)
+	} else if !p.At.Before(g.Participation[i].At) {
+		g.Participation[i] = p
+	}
+}
+
+func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.IncidentOutcome {
+	if g.Firing() || g.ResolvedAt.IsZero() || g.ResolvedAt.Before(b.outcomeCutoff(now)) {
+		return nil
+	}
+	episode := g.Episode
+	if episode == "" {
+		episode = "legacy"
+	}
+	services := make([]string, 0, maxServices)
+	for _, service := range b.groupServices(&g) {
+		services = append(services, cleanLine(service))
+	}
+	latest := newestProbeRun(g.ProbeRuns)
+	// Older groups do not have typed participation. Report what their records actually identify.
+	if len(g.Participation) == 0 {
+		if g.Ack != nil {
+			recordParticipation(&g, Actor{Name: g.Ack.By, Via: g.Ack.Via}, "ack", g.Ack.At)
+		}
+		if len(g.Notes) > 0 {
+			n := g.Notes[len(g.Notes)-1]
+			recordParticipation(&g, Actor{Name: n.By, Via: n.Via}, "note", n.At)
+		}
+		if latest != nil {
+			recordParticipation(&g, Actor{Name: latest.By, Via: latest.Via}, "probe_now", latest.At)
+		}
+	}
+	participants := append([]store.Participation{}, g.Participation...)
+	slices.SortFunc(participants, func(a, c store.Participation) int { return c.At.Compare(a.At) })
+	o := store.IncidentOutcome{
+		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
+		Severity: g.Severity, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
+		AuditUntil: auditUntil, Participation: participants,
+	}
+	if latest != nil {
+		v := store.Verification{ID: latest.ID, At: latest.At, By: cleanLine(latest.By), Via: latest.Via}
+		for _, p := range latest.Results {
+			switch p.Status {
+			case "ok":
+				v.Passed++
+			case "failed":
+				v.Failed++
+			default:
+				v.Missing++
+			}
+		}
+		o.Verification = &v
+	}
+	return &o
+}
+
+func newestProbeRun(runs []store.ProbeRun) *store.ProbeRun {
+	if len(runs) == 0 {
+		return nil
+	}
+	latest := &runs[0]
+	for i := 1; i < len(runs); i++ {
+		if !runs[i].At.Before(latest.At) {
+			latest = &runs[i]
+		}
+	}
+	return latest
+}
+
+func (b *Bridge) saveGroup(g store.Group) error {
+	return b.d.Store.PutGroupWithOutcome(g, b.outcome(g, b.now(), time.Time{}))
+}
+
+// archiveOutcome keeps a short list of session references when the live evidence goes away.
+// Sessions and recordings remain subject to their own authorisation and retention settings.
+func (b *Bridge) archiveOutcome(g store.Group, now, auditUntil time.Time) *store.IncidentOutcome {
+	o := b.outcome(g, now, auditUntil)
+	if o == nil {
+		return nil
+	}
+	const keepRelatedSessions = 8
+	sessions := b.sessions(&g, b.window(&g, defaultBefore), b.machines(&g))
+	for i := len(sessions) - 1; i >= max(0, len(sessions)-keepRelatedSessions); i-- {
+		o.Sessions = append(o.Sessions, sessions[i].ID)
+	}
+	return o
+}
+
+// initOutcomes backfills recent resolved groups from pre-upgrade state.
+func (b *Bridge) initOutcomes() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	for _, g := range b.d.Store.Groups() {
+		if summary := b.outcome(g, now, time.Time{}); summary != nil {
+			if err := b.d.Store.EnsureIncidentOutcome(*summary); err != nil {
+				b.d.Log.Error("backfill incident outcome", "group", g.ID, "err", err)
+			}
+		}
+	}
+	b.pruneOutcomes()
+}
+
+func (b *Bridge) pruneOutcomes() {
+	if err := b.d.Store.PruneIncidentOutcomes(b.outcomeCutoff(b.now())); err != nil {
+		b.d.Log.Error("prune incident outcomes", "err", err)
+	}
+}
+
+// OutcomePage is the contract shared by the console, REST and MCP. Before is the next page's cursor.
+type OutcomePage struct {
+	Outcomes  []store.IncidentOutcome `json:"outcomes"`
+	Before    string                  `json:"before,omitempty"`
+	Untrusted Untrusted               `json:"untrusted"`
+}
+
+// IncidentOutcomes pages through retained alert episodes that reached rule recovery.
+func (b *Bridge) IncidentOutcomes(group, before string, limit int) (OutcomePage, error) {
+	if limit == 0 {
+		limit = 50
+	}
+	switch {
+	case limit < 1 || limit > 200:
+		return OutcomePage{}, fmt.Errorf("%w: limit is 1 to 200", ErrBadInput)
+	case before != "" && !outcomeID.MatchString(before):
+		return OutcomePage{}, fmt.Errorf("%w: before must be an incident outcome ID", ErrBadInput)
+	case group != "" && !outcomeGroup.MatchString(group):
+		return OutcomePage{}, fmt.Errorf("%w: group must be an alert group ID", ErrBadInput)
+	}
+	out, err := b.d.Store.IncidentOutcomes(store.OutcomeFilter{Since: b.outcomeCutoff(b.now()), Before: before, Group: group, Limit: limit})
+	if err != nil {
+		return OutcomePage{}, err
+	}
+	p := OutcomePage{Outcomes: out, Untrusted: untrusted("outcomes[].title", "outcomes[].services")}
+	if len(out) > limit {
+		p.Outcomes, p.Before = out[:limit], out[limit-1].ID
+	}
+	return p, nil
+}
+
+var ErrOutcomeNotFound = errors.New("no such incident outcome")
+
+// IncidentOutcome reads the bounded, private summary of a resolved episode.
+func (b *Bridge) IncidentOutcome(id string) (OutcomeResult, error) {
+	if !outcomeID.MatchString(id) {
+		return OutcomeResult{}, ErrOutcomeNotFound
+	}
+	o, err := b.d.Store.IncidentOutcome(id, b.outcomeCutoff(b.now()))
+	if errors.Is(err, store.ErrNotFound) {
+		return OutcomeResult{}, ErrOutcomeNotFound
+	}
+	return OutcomeResult{Outcome: o, Untrusted: untrusted("outcome.title", "outcome.services")}, err
+}
+
+type OutcomeResult struct {
+	Outcome   store.IncidentOutcome `json:"outcome"`
+	Untrusted Untrusted             `json:"untrusted"`
+}

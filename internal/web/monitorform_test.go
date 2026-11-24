@@ -88,4 +88,28 @@ func TestAddHTTPMonitor(t *testing.T) {
 		len(e.cdb.Targets().Groups("edge-1-http.second-api.monitor.yaml")) != 1 {
 		t.Fatal("reverting one monitor changed another one")
 	}
+	path := "/console/monitors/second-api"
+	if a := w.get(path + "/edit"); a.code != http.StatusOK || !strings.Contains(a.body, "Edit HTTP monitor") {
+		t.Fatalf("opening editor: %d", a.code)
+	}
+	if a := reader.get(path + "/edit"); a.code != http.StatusForbidden {
+		t.Fatalf("reader opening editor: %d", a.code)
+	}
+	in.Set("version", strconv.FormatInt(e.cdb.Version(), 10))
+	in.Set("url", "https://example.com/status")
+	in.Set("scope", "all") // a forged form must not change the existing probe scope
+	if a := w.post(path+"/edit", in); a.code != http.StatusSeeOther || !strings.Contains(a.header.Get("Location"), "done=saved") {
+		t.Fatalf("editing a monitor: %d", a.code)
+	}
+	groups = e.cdb.Targets().Groups("edge-1-http.second-api.monitor.yaml")
+	if len(groups) != 1 || groups[0].Targets[0] != "https://example.com/status" {
+		t.Fatalf("changed monitor: %+v", groups)
+	}
+	if a := w.post(path+"/remove", in); a.code != http.StatusConflict {
+		t.Fatalf("stale removal: %d", a.code)
+	}
+	in.Set("version", strconv.FormatInt(e.cdb.Version(), 10))
+	if a := w.post(path+"/remove", in); a.code != http.StatusSeeOther || len(e.cdb.Targets().Groups("edge-1-http.second-api.monitor.yaml")) != 0 {
+		t.Fatalf("removing a monitor: %d", a.code)
+	}
 }

@@ -54,7 +54,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
-| `accounts:write` | Managing people: listing them, inviting, changing roles, disabling, password reset links; claiming legacy tokens and managing everyone's agents on the console. An owner's; no agent preset gives it |
+| `accounts:write` | Managing accounts and everyone's agents, for owner accounts and standalone administration tokens |
 | `maintenance:write` | Planning and ending maintenance windows, which the status pages announce and which silence their services' alerts |
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
 | `probe:write` | A probe location: pushing results, fetching its targets, modules and settings, probing on demand. Writes only as its own location |
@@ -74,7 +74,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/bridge` | `status:read` | Whether alerts can reach people now (`ready`, and `not_ready` with the reasons: no Watchdog from the rule engine, the Feishu connection down, a failed Feishu call in the last 10 minutes, the budget used up), groups firing by severity, how many are acknowledged, the Feishu API calls this month against the budget |
+| `GET /api/v1/bridge` | `status:read` | Alerting pipeline health (`ready`, with reasons in `not_ready`), human notification configuration (`delivery`), firing groups by severity, acknowledgement counts and the Feishu API budget |
 | `GET /api/v1/alerts` | `status:read` | Alert groups, firing first, newest first; `?state=all` adds those resolved in the last seven days |
 | `GET /api/v1/alerts/{id}` | `status:read` | One group: labels, runbook and dashboard, acknowledgement, silence, escalation, notes, the agents woken, and `page`, the signed link to its page in the console |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | Acknowledge a firing group, with an optional `note`: escalation to phones stops for `ack_ttl` (4 hours by default) |
@@ -89,6 +89,8 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
+| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
+| `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome, using the incident outcome ID. Includes alert resolution, recorded participation and the latest check's observation counts |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
@@ -102,7 +104,9 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
 | `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
-| `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. The host key and the address stay |
+| `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. Set `if_version` to refuse stale edits. The host key and the address stay |
+| `GET /api/v1/machines/{name}/history` | `status:read` or `machines:ssh` | Read the current settings version and older revisions. Page with `before` (exclusive) and `limit` (default 30, maximum 100) |
+| `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
@@ -165,7 +169,7 @@ The public pages themselves need no token ([below](#other-routes-on-port-17001))
 
 The people who sign in to Beacon, for an owner's credential, and the caller's own SSH keys for the SSH channel ([Invite your team](../guide/people.md)).
 
-No agent preset gives `accounts:write`. An agent manages people only when an owner gave it that scope as a custom agent, in the console, through the API or MCP, or on the command line. An agent cannot grant it, even one that holds it. Password resets have no MCP tool.
+Account and Agent administration requires an owner account, an independent token with `accounts:write`, or the local administrator command line. An Agent credential cannot administer accounts or Agent identities, even when an older custom scope includes `accounts:write`. Agents with SSH access can manage their own SSH keys. Password resets have no MCP tool.
 
 | Route | Scope | What |
 | --- | --- | --- |
@@ -178,6 +182,24 @@ No agent preset gives `accounts:write`. An agent manages people only when an own
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
 | `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machines`, `expires`. Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
 | `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes` or `machines`. A field left out stays. Custom scopes follow the same rule. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed. An unknown name, including a legacy token, is `agent.not_found` |
+
+## Team credentials {#team-credentials}
+
+When the credential store is enabled, these operations let an agent use its [fixed HTTPS credential bindings](../guide/team-credentials.md). The owner's console handles token entry, rotation and granting access.
+
+| Operation | Scope | What it does |
+| --- | --- | --- |
+| `GET /api/v1/team-credentials` | `secrets:use` | List the agent's current grants |
+| `POST /api/v1/team-credentials/{id}/use` | `secrets:use` | Send the configured request without taking a request body, and return `{status}` after recording the use |
+
+### Credential errors
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `credential.denied` | 403 | The current identity cannot use or change the item |
+| `credential.upstream` | 502 | The service could not be reached |
+| `credential.anchor_pending` | 503 | A policy change is awaiting durable verification |
+| `credential.unavailable` | 503 | The store or use record could not be verified |
 
 ## The token
 
@@ -244,16 +266,20 @@ Each sends with a token of its own:
 | `bad_input` | 400, 415 | The request is not what the route takes: not JSON, an unknown field, a value out of range. The message says which |
 | `upstream` | 502, 503 | Something Beacon relies on did not answer (VictoriaMetrics, the store), or this Beacon does not take the request |
 | `audit.unavailable` | 500 | The audit log cannot be read |
+| `incident.not_found` | 404 | No incident outcome with that ID is retained |
+| `incident.unavailable` | 500 | Incident outcomes cannot be read |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
+| `machine.version_not_found` | 404 | That machine settings revision is unavailable |
 | `machine.forbidden` | 403 | The caller may not reach this machine |
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |
 | `machine.disconnected` | 502 | The machine is behind NAT and its connector is not connected |
 | `machine.exists` | 409 | A machine with this name exists; replace it explicitly |
+| `machine.changed` | 409 | The machine settings changed after you opened them. Read the current version and retry |
 | `file.not_found` | 404 | No such file |
 | `file.not_regular` | 400 | The path is not a regular file |
 | `file.binary` | 415 | The file is not text |

@@ -27,6 +27,8 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrPaused, http.StatusConflict, "ssh.paused"},
 		{sshgate.ErrStandby, http.StatusServiceUnavailable, "ssh.standby"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
+		{sshgate.ErrMachineVersion, http.StatusNotFound, "machine.version_not_found"},
+		{sshgate.ErrMachineChanged, http.StatusConflict, "machine.changed"},
 		{sshgate.ErrForbidden, http.StatusForbidden, "machine.forbidden"},
 		{sshgate.ErrUnreachable, http.StatusBadGateway, "machine.unreachable"},
 		{sshgate.ErrExists, http.StatusConflict, "machine.exists"},
@@ -113,6 +115,46 @@ func (s *Server) updateMachine(w http.ResponseWriter, r *http.Request, who bridg
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) machineHistory(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+	q := r.URL.Query()
+	before, limit := int64(0), 0
+	if q.Has("before") {
+		var err error
+		before, err = strconv.ParseInt(q.Get("before"), 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_input", "before must be an integer version")
+			return
+		}
+	}
+	if q.Has("limit") {
+		var err error
+		limit, err = strconv.Atoi(q.Get("limit"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_input", "limit must be an integer")
+			return
+		}
+	}
+	out, err := s.SSH.MachineHistory(r.PathValue("name"), before, limit)
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) restoreMachine(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	var in sshgate.MachineRestore
+	if !readJSON(w, r, &in) {
+		return
+	}
+	out, err := s.SSH.RestoreMachine(r.Context(), gateActor(who), r.PathValue("name"), in)
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request, who bridge.Actor) {

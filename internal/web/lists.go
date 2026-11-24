@@ -21,7 +21,7 @@ import (
 type listLabels struct {
 	Title, Severity, State, Service, Since, Acked, Silenced, Started, Agent, Machine, Kind, Via, Command, Duration, Exit string
 	Hook, Event, Status, Code, Attempts, When, Alert, Actor, Action, Target, Detail, Time, Source, Summary, Yes, No      string
-	Open, Target2, Configured, Calls, Severities, Resolved, NoHooks                                                      string
+	Open, Target2, Configured, Calls, Severities, Resolved, NoHooks, IncidentHistory                                     string
 }
 
 func (s *Server) listLabels() listLabels {
@@ -34,6 +34,7 @@ func (s *Server) listLabels() listLabels {
 		Source: s.t("Source"), Summary: s.t("Summary"), Yes: s.t("Yes"), No: s.t("No"), Open: s.t("Still open"),
 		Target2: s.t("Calls"), Configured: s.t("Hooks configured"), Calls: s.t("Calls made"), Severities: s.t("Severities"),
 		Resolved: s.t("Also when it resolves"), NoHooks: s.t("No agent hooks are configured."),
+		IncidentHistory: s.t("Incident history"),
 	}
 }
 
@@ -291,6 +292,10 @@ type auditRow struct{ Time, Actor, Via, Action, Target, Detail string }
 var auditTmpl = parse("audit.html")
 
 func (s *Server) audit(w http.ResponseWriter, r *http.Request, v *viewer) {
+	if id := r.URL.Query().Get("outcome"); id != "" {
+		s.outcomeAudit(w, r, v, id)
+		return
+	}
 	entries := s.Store.AuditLog(10000)
 	facets := []facet[store.AuditEntry]{
 		{Param: "actor", Title: s.t("Who"), Value: func(e store.AuditEntry) string { return e.Actor }},
@@ -300,11 +305,9 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, v *viewer) {
 	match := func(e store.AuditEntry, q string) bool { return contains(q, e.Actor, e.Action, e.Target, e.Detail) }
 	kept, l := filter(s, consolePath("/audit"), r.URL.Query(), entries, facets, match)
 	l.SearchHint = s.t("Who, what or detail")
-	p := listPage[auditRow]{shell: s.shellFor(r, v, "audit", s.t("Audit log")), L: s.listLabels(), List: l}
+	p := auditPage{listPage: listPage[auditRow]{shell: s.shellFor(r, v, "audit", s.t("Audit log")), L: s.listLabels(), List: l}}
 	p.Count = l.Total
-	for _, e := range kept {
-		p.Rows = append(p.Rows, auditRow{Time: s.clock(e.Time), Actor: e.Actor, Via: s.via(e.Via), Action: e.Action, Target: e.Target, Detail: e.Detail})
-	}
+	p.Rows = s.auditRows(kept)
 	s.render(w, auditTmpl, p)
 }
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7e650d66
+sourceHash: sha256-608f8b24
 ---
 
 # REST API
@@ -58,7 +58,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `machines:write` | 添加、修改和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
-| `accounts:write` | 管理成员：列出、邀请、修改角色、停用、生成重设密码链接；在控制台上归入旧令牌、管理所有人的 Agent。只有所有者有；没有哪个 Agent 预设给它 |
+| `accounts:write` | 管理成员账号和所有人的 Agent，供所有者账号或独立管理令牌使用 |
 | `maintenance:write` | 安排和结束维护窗口：状态页会提前公告，窗口内相关服务的告警会被静默 |
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
 | `probe:write` | 检测点：推送结果，获取它的检测目标、检测模块和设置，按需重测。只能以它自己的检测点身份写入 |
@@ -78,7 +78,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/bridge` | `status:read` | 告警现在能否送到人（`ready`；不能时 `not_ready` 列出原因：没收到规则引擎的 Watchdog、飞书连接断了、最近 10 分钟有飞书调用失败、额度用完），按级别统计的正在触发的告警组，已认领的数量，本月飞书 API 调用次数和额度 |
+| `GET /api/v1/bridge` | `status:read` | 告警链路健康（`ready`，原因见 `not_ready`）、人工通知配置（`delivery`）、各级别告警组数量、已认领数量与飞书 API 额度 |
 | `GET /api/v1/alerts` | `status:read` | 告警组，正在触发的在前，新的在前；`?state=all` 加上最近七天恢复的 |
 | `GET /api/v1/alerts/{id}` | `status:read` | 一个告警组：标签、处理手册和面板、认领、静默、升级、备注、唤醒过的 Agent，以及 `page`，即它在控制台里那一页的签名链接 |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | 认领一个正在触发的告警组，可以带 `note`：升级到手机暂停 `ack_ttl` 这么久（默认 4 小时） |
@@ -93,6 +93,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
+| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
+| `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录和最近一次复测的统计 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
@@ -106,7 +108,9 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器 |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
 | `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置 |
-| `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。主机密钥和地址不变 |
+| `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。可用 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
+| `GET /api/v1/machines/{name}/history` | `status:read` 或 `machines:ssh` | 查看当前设置版本和变更历史。用 `before`（不含该版本）及 `limit`（默认 30，最多 100）翻页 |
+| `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
@@ -169,7 +173,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 登录 Beacon 的成员，供所有者的凭据使用；以及调用者自己用于 SSH 通道的 SSH 密钥（[邀请你的团队](../guide/people.md)）。
 
-没有哪个 Agent 预设给 `accounts:write`。Agent 要管成员，只能是所有者以自定义 Agent 的方式给了它这个作用域：在控制台里、经 API 或 MCP，或在命令行上。Agent 不能授予它，哪怕自己持有。重设密码没有 MCP 工具。
+管理成员账号和 Agent 身份需要所有者账号、持有 `accounts:write` 的独立管理令牌，或本机管理命令行。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理这些身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。重设密码没有 MCP 工具。
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
@@ -182,6 +186,24 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
 | `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
 | `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
+
+## 团队凭据 {#team-credentials}
+
+启用凭据库后，Agent 可通过这些接口使用[固定 HTTPS 端点的凭据](../guide/team-credentials.md)。所有者在控制台录入、替换令牌和管理授权。
+
+| 接口 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `GET /api/v1/team-credentials` | `secrets:use` | 列出该 Agent 的有效授权 |
+| `POST /api/v1/team-credentials/{id}/use` | `secrets:use` | 记录并发出已配置的请求，返回 `{status}`。该接口不接收请求体 |
+
+### 凭据错误 {#credential-errors}
+
+| 错误码 | HTTP | 含义 |
+| --- | --- | --- |
+| `credential.denied` | 403 | 当前身份无权使用或更改凭据 |
+| `credential.upstream` | 502 | 无法连接服务 |
+| `credential.anchor_pending` | 503 | 策略变更等待持久化验证 |
+| `credential.unavailable` | 503 | 无法验证凭据库或写入使用记录 |
 
 ## 令牌 {#the-token}
 
@@ -248,16 +270,20 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `bad_input` | 400、415 | 请求不符合这个接口的要求：不是 JSON、有不认识的字段、值超出范围。消息里写明是哪一处 |
 | `upstream` | 502、503 | Beacon 依赖的东西没有回应（VictoriaMetrics、存储），或者这个 Beacon 不接收这类请求 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
+| `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
+| `incident.unavailable` | 500 | 无法读取故障摘要 |
 | `alert.not_found` | 404 | 没有这个 id 的告警组 |
 | `alert.not_firing` | 409 | 告警组不在触发中，不能认领或静默 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
+| `machine.version_not_found` | 404 | 该机器设置版本无法访问 |
 | `machine.forbidden` | 403 | 调用者不能到达这台机器 |
 | `machine.unreachable` | 502 | Beacon 连不上这台机器 |
 | `machine.disconnected` | 502 | 机器在 NAT 后面，它的连接器没有连上 |
 | `machine.exists` | 409 | 已有同名机器；要替换请明确指定 |
+| `machine.changed` | 409 | 机器设置已有变化。读取当前版本后重试 |
 | `file.not_found` | 404 | 没有这个文件 |
 | `file.not_regular` | 400 | 这个路径不是普通文件 |
 | `file.binary` | 415 | 文件不是文本 |

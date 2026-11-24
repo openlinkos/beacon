@@ -26,6 +26,9 @@ import (
 // Severities are the alert severities the bridge knows, from the most to the least urgent.
 var Severities = []string{"critical", "warning", "info"}
 
+// DefaultIncidentRetention is how long compact incident outcomes stay after recovery.
+const DefaultIncidentRetention = 180 * 24 * time.Hour
+
 // Config is the service configuration.
 type Config struct {
 	Listen         string   `yaml:"listen"`
@@ -65,6 +68,7 @@ type Config struct {
 			CheckpointInterval Duration `yaml:"checkpoint_interval"`
 			Retention          Duration `yaml:"retention"`
 		} `yaml:"audit"`
+		IncidentRetention Duration `yaml:"incident_retention"` // compact internal outcomes, from resolution
 		// SQLite holds the pragmas a deployment may tune. The defaults are what a deployment
 		// should keep: WAL (readers never wait for the writer) and synchronous FULL (every
 		// commit is on the disk before it answers). A WAL database is one file plus its -wal and
@@ -130,6 +134,12 @@ type Config struct {
 		LinkTTL Duration `yaml:"link_ttl"`
 	} `yaml:"pages"`
 	Branding Branding `yaml:"branding"`
+	// Credentials is the opt-in team credentials store and its fixed HTTPS destinations.
+	Credentials struct {
+		Enabled      bool     `yaml:"enabled"`
+		KeyFile      string   `yaml:"key_file"`
+		AllowedHosts []string `yaml:"allowed_hosts"`
+	} `yaml:"credentials"`
 	// OAuth is how MCP clients sign in to Beacon (docs/guide/people.md).
 	OAuth OAuth `yaml:"oauth"`
 
@@ -388,6 +398,9 @@ func (c *Config) defaults() {
 	if c.Storage.Audit.Retention == 0 {
 		c.Storage.Audit.Retention = Duration(365 * 24 * time.Hour)
 	}
+	if c.Storage.IncidentRetention == 0 {
+		c.Storage.IncidentRetention = Duration(DefaultIncidentRetention)
+	}
 	set(&c.Language, "zh")
 	set(&c.Timezone, "Asia/Shanghai")
 	set(&c.Feishu.Domain, "feishu")
@@ -509,6 +522,9 @@ func (c *Config) validate() error {
 	if t := c.Storage.Audit.Retention.D(); t < 24*time.Hour {
 		bad("storage.audit.retention is at least 24h")
 	}
+	if c.Storage.IncidentRetention.D() < 0 {
+		bad("storage.incident_retention cannot be negative")
+	}
 	if c.HA.Enabled {
 		if c.Storage.Driver != "postgres" {
 			bad("ha.enabled needs storage.driver postgres: the lease lives in the PostgreSQL database, and SQLite's file belongs to one process")
@@ -516,6 +532,12 @@ func (c *Config) validate() error {
 		if c.HA.Expire.D() <= c.HA.Renew.D() {
 			bad("ha.expire must outlast ha.renew, or the lease expires between renewals")
 		}
+	}
+	if c.Credentials.Enabled && (c.Credentials.KeyFile == "" || len(c.Credentials.AllowedHosts) == 0) {
+		bad("credentials.enabled requires credentials.key_file and at least one credentials.allowed_hosts entry")
+	}
+	if c.Credentials.Enabled && c.HA.Enabled {
+		bad("credentials.enabled requires a single centre so one durable rollback anchor protects the credential policy")
 	}
 
 	sshRecording := c.SSH.Recordings

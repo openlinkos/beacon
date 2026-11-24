@@ -1,0 +1,22 @@
+{{define "content"}}<section class="ol-section">
+  {{if .CanRestore}}<p class="ol-hint">{{.L.Scope}}</p>{{end}}
+  {{if .Rows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.Version}}</th><th>{{.L.Change}}</th><th>{{.L.Who}}</th><th>{{.L.Time}}</th><th>{{.L.Account}}</th><th>{{.L.Critical}}</th><th>{{.L.Note}}</th>{{if .CanRestore}}<th class="ol-actions"><span class="ol-sr-only">{{.L.Restore}}</span></th>{{end}}</tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><span class="ol-mono">{{.Version}}</span>{{if .Current}} <span class="ol-badge ol-badge-success">{{$.L.Current}}</span>{{end}}</td>
+      <td data-label="{{$.L.Change}}">{{.Change}}</td>
+      <td data-label="{{$.L.Who}}">{{.Who}}</td>
+      <td data-label="{{$.L.Time}}">{{.Time}}</td>
+      <td data-label="{{$.L.Account}}" class="ol-mono">{{.User}}</td>
+      <td data-label="{{$.L.Critical}}">{{.Critical}}</td>
+      <td data-label="{{$.L.Note}}" class="ol-cell-wrap ol-text-pre">{{.Note}}</td>
+      {{if $.CanRestore}}<td class="ol-actions">{{if not .Current}}<form method="post" action="{{$.Post}}">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="version" value="{{.Version}}">
+        <input type="hidden" name="if_version" value="{{$.Current}}">
+        <button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm" aria-label="{{.Restore}}">{{iconSm "rotate-ccw"}}{{$.L.Restore}}</button>
+      </form>{{end}}</td>{{end}}
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}{{template "empty" .L.Empty}}{{end}}
+  {{if .Older}}<div class="ol-section-actions"><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Older}}">{{.L.Older}}</a></div>{{end}}
+</section>{{end}}

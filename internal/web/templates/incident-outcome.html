@@ -1,0 +1,40 @@
+{{define "content"}}<div class="ol-stack">
+  <section class="ol-panel">
+    <div class="ol-panel-body ol-stack">
+      <dl class="ol-dl ol-dl-stack">
+        {{if .Incident.Service}}<dt>{{.L.Service}}</dt><dd>{{.Incident.Service}}</dd>{{end}}
+        <dt>{{.L.Severity}}</dt><dd><span class="ol-badge ol-badge-{{.Incident.SeverityTone}}">{{.Incident.Severity}}</span></dd>
+        <dt>{{.L.Started}}</dt><dd>{{.Incident.Started}}</dd>
+        <dt>{{.L.Resolved}}</dt><dd>{{.Incident.Resolved}} <span class="ol-subtle">({{.Incident.Duration}})</span></dd>
+        <dt>{{.L.Group}}</dt><dd><code>{{.Group}}</code></dd>
+      </dl>
+      <div class="ol-cluster">
+        <a class="ol-btn ol-btn-primary" href="{{.Audit}}">{{iconSm "scroll-text"}}{{.L.Audit}}</a>
+        {{if .Alert}}<a class="ol-btn ol-btn-secondary" href="{{.Alert}}">{{.L.Alert}}</a>{{end}}
+      </div>
+    </div>
+  </section>
+  <div class="ol-layout-supporting">
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Participation}}</h2></div>
+      {{if .Participation}}<ul class="ol-list">{{range .Participation}}<li>
+        <span class="ol-list-row"><strong class="ol-list-title">{{.By}}</strong><span class="ol-badge">{{.Kind}}</span></span>
+        <span class="ol-list-meta"><span>{{.Action}}</span><span>{{.Via}}</span><time datetime="{{.ISO}}">{{.At}}</time></span>
+      </li>{{end}}</ul>{{else}}<div class="ol-panel-body"><p>{{.L.NoParticipants}}</p></div>{{end}}
+      <div class="ol-panel-body"><p class="ol-hint">{{.L.Detail}}</p></div>
+    </section>
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Verification}}</h2></div>
+      <div class="ol-panel-body ol-stack">
+        {{if .Incident.Verification}}<p><strong>{{.Incident.Verification}}</strong></p><p>{{.By}} <span class="ol-subtle">{{.Via}}</span></p><p class="ol-hint">{{.Checked}}</p>
+        {{else}}<p>{{.L.NoVerification}}</p>{{end}}
+      </div>
+    </section>
+  </div>
+  {{if .Sessions}}<section class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Sessions}}</h2></div>
+    <ul class="ol-list">{{range .Sessions}}<li>
+      <span class="ol-list-row"><a class="ol-list-title" href="{{.Href}}">{{.Agent}} <span class="ol-subtle">{{.Via}}</span> {{.Machine}}</a><span class="ol-list-value">{{.Started}}</span></span>
+    </li>{{end}}</ul>
+  </section>{{end}}
+</div>{{end}}

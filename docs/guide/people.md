@@ -219,7 +219,7 @@ The commands for people and agents:
 
 `ROLE` is `viewer`, `oncall`, `operator` or `owner`. A preset is `readonly`, `oncall`, `operator` or `custom`. Every subcommand and flag is in the command-line reference: [Command line](../reference/cli.md).
 
-The same operations are on the REST API under `/api/v1/users` and `/api/v1/agents` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write` for people's accounts, which no preset gives. Changing roles, disabling people and password resets are not offered through MCP.
+The same operations are on the REST API under `/api/v1/users` and `/api/v1/agents` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write` for owner accounts and standalone administration tokens. An Agent credential can manage its own SSH keys within its SSH access. Changing roles, disabling people and password resets are not offered through MCP.
 
 ## Security {#security}
 

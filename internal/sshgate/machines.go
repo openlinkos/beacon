@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -29,6 +28,7 @@ func newKey() (ssh.Signer, error) {
 // MachineView is a machine as the API shows it.
 type MachineView struct {
 	Name     string    `json:"name"`
+	Version  int64     `json:"metadata_version"`
 	Address  string    `json:"address"`
 	User     string    `json:"user"`
 	HostKey  string    `json:"host_key_fingerprint"`
@@ -48,7 +48,7 @@ type MachineView struct {
 
 // view is a machine as the API shows it to t.
 func (g *Gate) view(m store.Machine, t store.Principal) MachineView {
-	v := MachineView{Name: m.Name, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
+	v := MachineView{Name: m.Name, Version: m.MetadataVersion, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
 		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name)}
 	if m.Connector() {
 		v.Connector = true
@@ -138,8 +138,6 @@ type MachineInput struct {
 	HostKey      string `json:"host_key,omitempty"`
 }
 
-var userRe = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
-
 // Added is a machine just added, with what it needs before agents can use it.
 type Added struct {
 	Machine MachineView `json:"machine"`
@@ -160,7 +158,7 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	if in.User == "" {
 		in.User = "beacon"
 	}
-	if !userRe.MatchString(in.User) {
+	if !store.ValidMachineUser(in.User) {
 		return Added{}, fmt.Errorf("%w: user %q is not an account name", ErrBadInput, in.User)
 	}
 	addr := strings.TrimSpace(in.Address)
@@ -176,7 +174,8 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	if h, _, _ := net.SplitHostPort(addr); h == "" {
 		return Added{}, fmt.Errorf("%w: address is a host name or address, optionally with :port", ErrBadInput)
 	}
-	if old, ok := g.d.Store.Machine(in.Name); ok && !in.Replace {
+	old, exists := g.d.Store.Machine(in.Name)
+	if exists && !in.Replace {
 		return Added{}, fmt.Errorf("%w (%s at %s); add it with replace to pin its host key again", ErrExists, old.Name, old.Address)
 	}
 	k, err := g.hostKey(ctx, addr)
@@ -185,7 +184,8 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	}
 	m := store.Machine{Name: in.Name, Address: addr, User: in.User, HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))),
 		Critical: in.Critical, Note: strings.TrimSpace(in.Note), Added: g.now().UTC(), AddedBy: who.Name}
-	if err := g.d.Store.PutMachine(m); err != nil {
+	m, err = g.registerMachine(who, m, old, exists)
+	if err != nil {
 		return Added{}, err
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
@@ -194,47 +194,92 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey()}, nil
 }
 
-// MachineUpdate changes a machine's note, whether it is critical, and the account on it. A nil field
-// stays as it is. The host key and the address are kept.
-type MachineUpdate struct {
-	Note     *string `json:"note,omitempty"`
-	Critical *bool   `json:"critical,omitempty"`
-	User     *string `json:"user,omitempty"`
+// MachineUpdate changes only the restorable metadata. A nil field keeps the current value.
+type MachineUpdate = store.MachineMetadataUpdate
+
+func (g *Gate) registerMachine(who Actor, m, old store.Machine, exists bool) (store.Machine, error) {
+	var previous *store.Machine
+	if exists {
+		previous = &old
+	}
+	m, err := g.d.Store.RegisterMachine(m, previous, who.Via)
+	if errors.Is(err, store.ErrExists) && !exists {
+		return m, fmt.Errorf("%w (%s)", ErrExists, m.Name)
+	}
+	return m, machineVersionError(m.Name, err)
 }
 
-// Update changes a machine's note, whether it is critical, and the account on it. The host key and the
-// address stay. A nil field is left as it is.
+var (
+	ErrMachineChanged = errors.New("machine settings changed; reload the current version and try again")
+	ErrMachineVersion = errors.New("no such version in this machine's current registration")
+)
+
+func machineVersionError(name string, err error) error {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return fmt.Errorf("%w called %q", ErrNoMachine, name)
+	case errors.Is(err, store.ErrConflict):
+		return ErrMachineChanged
+	case errors.Is(err, store.ErrMachineVersion):
+		return ErrMachineVersion
+	case errors.Is(err, store.ErrMachineUser):
+		return fmt.Errorf("%w: %w", ErrBadInput, err)
+	}
+	return err
+}
+
+// Update patches machine metadata and records any resulting revision.
 func (g *Gate) Update(ctx context.Context, who Actor, name string, in MachineUpdate) (MachineView, error) {
+	if in.IfVersion != nil && *in.IfVersion < 0 {
+		return MachineView{}, fmt.Errorf("%w: if_version must be non-negative", ErrBadInput)
+	}
+	return g.applyMachineMetadata(ctx, who, name, in, 0)
+}
+
+// MachineHistory returns the current registration's metadata versions, newest first.
+func (g *Gate) MachineHistory(name string, before int64, limit int) (store.MachineHistory, error) {
+	if g == nil {
+		return store.MachineHistory{}, ErrDisabled
+	}
+	if limit == 0 {
+		limit = 30
+	}
+	if limit < 0 || limit > 100 || before < 0 {
+		return store.MachineHistory{}, fmt.Errorf("%w: limit must be between 1 and 100 and before non-negative", ErrBadInput)
+	}
+	out, err := g.d.Store.MachineMetadataHistory(name, before, limit)
+	return out, machineVersionError(name, err)
+}
+
+type MachineRestore struct {
+	Version   int64 `json:"version" jsonschema:"the earlier metadata version to restore"`
+	IfVersion int64 `json:"if_version" jsonschema:"the current metadata version seen in machine_history"`
+}
+
+// RestoreMachine copies an earlier snapshot into a fresh version without changing identity fields.
+func (g *Gate) RestoreMachine(ctx context.Context, who Actor, name string, in MachineRestore) (MachineView, error) {
+	if in.Version <= 0 || in.IfVersion <= in.Version {
+		return MachineView{}, fmt.Errorf("%w: choose an older version and send the current version as if_version", ErrBadInput)
+	}
+	return g.applyMachineMetadata(ctx, who, name, MachineUpdate{IfVersion: &in.IfVersion}, in.Version)
+}
+
+func (g *Gate) applyMachineMetadata(ctx context.Context, who Actor, name string, in MachineUpdate, restore int64) (MachineView, error) {
 	if g == nil {
 		return MachineView{}, ErrDisabled
 	}
-	m, ok := g.d.Store.Machine(name)
-	if !ok {
-		return MachineView{}, fmt.Errorf("%w called %q", ErrNoMachine, name)
+	before, m, err := g.d.Store.PatchMachineMetadata(name, in, restore, who.Name, who.Via)
+	if err != nil {
+		return MachineView{}, machineVersionError(name, err)
 	}
-	if in.User != nil && !userRe.MatchString(*in.User) {
-		return MachineView{}, fmt.Errorf("%w: user %q is not an account name", ErrBadInput, *in.User)
-	}
-	beforeNote, beforeCritical, beforeUser := m.Note, m.Critical, m.User
-	if in.User != nil {
-		m.User = *in.User
-	}
-	if in.Note != nil {
-		m.Note = strings.TrimSpace(*in.Note)
-	}
-	if in.Critical != nil {
-		m.Critical = *in.Critical
+	if before.MetadataVersion != m.MetadataVersion {
+		if restore > 0 {
+			g.post(ctx, i18n.T(g.d.Lang, "%s restored machine %s to settings from version %d", who.Name, m.Name, restore))
+		} else {
+			g.post(ctx, i18n.T(g.d.Lang, "%s changed machine %s", who.Name, m.Name))
+		}
 	}
 	t, _ := g.principal(who)
-	if m.Note == beforeNote && m.Critical == beforeCritical && m.User == beforeUser {
-		return g.view(m, t), nil
-	}
-	if err := g.d.Store.PutMachine(m); err != nil {
-		return MachineView{}, err
-	}
-	detail := fmt.Sprintf("note %q -> %q; critical %v -> %v; user %s -> %s", beforeNote, m.Note, beforeCritical, m.Critical, beforeUser, m.User)
-	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_update", Target: m.Name, Detail: detail})
-	g.post(ctx, i18n.T(g.d.Lang, "%s changed machine %s", who.Name, m.Name))
 	return g.view(m, t), nil
 }
 

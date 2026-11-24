@@ -29,6 +29,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.dsn_file` | path | — | With `storage.driver: postgres`, a file holding the connection string (for example `postgres://beacon@db.example.com:5432/beacon?sslmode=require`), read once at start; the password, if any, is in the file, never in this YAML |
 | `storage.audit.checkpoint_interval` | duration | `24h` | How often the audit log's hash chain gets a signed checkpoint |
 | `storage.audit.retention` | duration | `8760h` | How long audit entries are kept (365 days); the chain stays verifiable after pruning |
+| `storage.incident_retention` | duration | `4320h` | How long private incident outcomes are kept from resolution (180 days). The full resolved alert group stays for up to seven days |
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite's journal mode. A WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |
@@ -105,6 +106,16 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 | `branding.title` | string | `Beacon` | The deployment's name on the page at `/` when there is no status page. One line, at most 80 characters |
 | `branding.powered_by` | bool | `true` | `false` leaves "Powered by Beacon, open source" out of the public pages' footer |
 | `oauth.client_id_documents` | bool | `true` | Take MCP clients by the metadata document their `client_id` names (Claude Code's and Codex's do), which Beacon fetches from the internet. `false` when Beacon cannot reach the internet: clients then register themselves |
+
+## Team credentials {#team-credentials}
+
+These settings enable the [team credential store](../guide/team-credentials.md).
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `credentials.enabled` | boolean | false | Enable encrypted team credentials on a single centre. HTTPS use is offered to agents through REST and MCP |
+| `credentials.key_file` | path | — | File containing 64 hexadecimal digits for a dedicated 256-bit key |
+| `credentials.allowed_hosts` | list of strings | — | Exact approved HTTPS host names. Include the port when the endpoint writes it explicitly |
 
 ## Feishu
 
