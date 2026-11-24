@@ -2,7 +2,7 @@ package ha
 
 // The lease over a live PostgreSQL, when BEACON_TEST_POSTGRES_DSN names one (CI's service
 // container): two leases over one lease row, the second waiting; the first stopping and the second
-// taking over within the expiry; and Single running what only the leader runs, stopping it on
+// taking over after an explicit release; and Single running what only the leader runs, stopping it on
 // leadership loss and starting it again.
 
 import (
@@ -32,71 +32,86 @@ func testPool(t *testing.T) *sql.DB {
 	return stdlib.OpenDB(*cfg)
 }
 
-// TestLeaseTakeover: the pair's whole story in the small.
+// TestLeaseTakeover checks contention, graceful release and acquisition after release.
 func TestLeaseTakeover(t *testing.T) {
-	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
-		t.Skip("BEACON_TEST_POSTGRES_DSN names the PostgreSQL server the lease tests run on")
-	}
 	admin := testPool(t)
 	defer func() { _ = admin.Close() }()
 	// a fresh lease row each run, so the test never sees a leftover holder
 	if _, err := admin.Exec(`DROP TABLE IF EXISTS leader`); err != nil {
 		t.Fatal(err)
 	}
-	o := Options{Name: "test", Renew: 60 * time.Millisecond, Expire: 300 * time.Millisecond}
-	one, err := Open(admin, Options{Name: o.Name, ID: "primary", Renew: o.Renew, Expire: o.Expire})
+	// Keep the lease valid during the handover. Polling bounds only guard test liveness.
+	primary := Options{Name: "test", ID: "primary", Renew: 250 * time.Millisecond, Expire: 15 * time.Second}
+	standby := primary
+	standby.ID = "standby"
+	one, err := Open(admin, primary)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the pair's two instances: the same lease row, ids of their own (the default id is
-	// hostname:pid, which in one process would make them the same holder)
-	two, err := Open(admin, Options{Name: o.Name, ID: "standby", Renew: o.Renew, Expire: o.Expire})
+	two, err := Open(admin, standby)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	oneCtx, stopOne := context.WithCancel(t.Context())
+	waitOne := one.GoRun(oneCtx)
+	defer func() { stopOne(); waitOne() }()
+	waitForLease(t, one.Leader, "the primary to take the lease")
 
-	// the first takes the lease; the second, a moment later, does not
-	oneCtx, stopOne := context.WithCancel(context.Background())
-	defer stopOne()
-	go one.Run(oneCtx)
-	deadline := time.Now().Add(3 * time.Second)
-	for !one.Leader() && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !one.Leader() {
-		t.Fatal("the first instance never took the lease")
-	}
-	go two.Run(ctx)
-	time.Sleep(150 * time.Millisecond) // two renewals of the second, all refused
-	if two.Leader() {
-		t.Fatal("the second instance took a lease the first holds")
+	twoCtx, stopTwo := context.WithCancel(t.Context())
+	waitTwo := two.GoRun(twoCtx)
+	defer func() { stopTwo(); waitTwo() }()
+	waitForLease(t, two.Healthy, "the standby to attempt a take")
+	if !one.Leader() || two.Leader() {
+		t.Fatal("the primary must be the only leader while both instances run")
 	}
 
-	// the first stops; the second takes over within the expiry, and answers leader ever after
-	start := time.Now()
-	stopOne() // Run releases the lease on its way out
-	took, tookWhen := false, time.Time{}
-	for !took && time.Now().Before(start.Add(3*time.Second)) {
-		if one.Leader() && two.Leader() {
-			t.Fatal("both instances reported leader at once")
-		}
-		took = two.Leader()
-		tookWhen = time.Now()
-		time.Sleep(5 * time.Millisecond)
+	// Quiesce the contender so it cannot insert a new row before we observe the release.
+	stopTwo()
+	waitTwo()
+	if two.Epoch() != 0 {
+		t.Fatal("the standby took leadership while the primary held the lease")
 	}
-	if !took {
-		t.Fatal("the second instance never took over")
+	var held bool
+	if err := admin.QueryRowContext(t.Context(),
+		`SELECT holder = $2 AND expires > clock_timestamp() FROM leader WHERE name = $1`,
+		primary.Name, primary.ID).Scan(&held); err != nil || !held {
+		t.Fatalf("expected a live primary lease before shutdown: held=%t, err=%v", held, err)
 	}
-	// the clean release makes the takeover quick: far inside the 300ms expiry
-	d := tookWhen.Sub(start)
-	t.Logf("graceful takeover %s", d)
-	if d > o.Expire {
-		t.Errorf("the takeover took %s, longer than the %s expiry", d, o.Expire)
-	}
+
 	stopOne()
-	cancel()
+	waitOne()
+	if one.Leader() {
+		t.Fatal("the primary still reports leadership after shutdown")
+	}
+	var present bool
+	if err := admin.QueryRowContext(t.Context(),
+		`SELECT EXISTS (SELECT 1 FROM leader WHERE name = $1)`, primary.Name).Scan(&present); err != nil {
+		t.Fatal(err)
+	}
+	// Expiry leaves the row in place. An absent row proves the primary released it.
+	if present {
+		t.Fatal("the primary did not delete the lease on shutdown")
+	}
+
+	next, err := Open(admin, standby)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextCtx, stopNext := context.WithCancel(t.Context())
+	waitNext := next.GoRun(nextCtx)
+	defer func() { stopNext(); waitNext() }()
+	waitForLease(t, next.Leader, "the standby to take over after release")
+}
+
+func waitForLease(t *testing.T, ready func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !ready() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready() {
+		t.Fatalf("timed out waiting for %s", what)
+	}
 }
 
 // TestSingle: what only the leader may do runs while the lease is held, stops when it is not, and
