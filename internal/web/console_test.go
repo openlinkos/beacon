@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
@@ -582,6 +583,7 @@ func TestOverviewFigures(t *testing.T) {
 		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
 		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
 		`href="/console/hooks"`, "1 delivered, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		"<dt>Critical alert chat</dt><dd>Feishu group bot</dd>", "<dt>Scheduled phone escalation</dt><dd>Off</dd>",
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
 		if !strings.Contains(page, want) {
@@ -592,6 +594,21 @@ func TestOverviewFigures(t *testing.T) {
 	_ = e.srv.SSH.SetPaused(context.Background(), sshActor("root"), true)
 	if page := b.get("/console").body; !strings.Contains(page, "Paused") || !strings.Contains(page, "ol-status-danger") {
 		t.Error("the overview does not say the channel is paused")
+	}
+}
+
+func TestOverviewLinksToMissingDeliverySetup(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	e.srv.Bridge = bridge.New(bridge.Deps{Config: &config.Config{Location: time.UTC}, Store: e.st})
+	page := e.signedIn("root", "status:read").get("/console").body
+	for _, want := range []string{
+		"Critical alerts have no route to people.",
+		`href="https://beacon.openlinkos.com/reference/config#escalation-and-acknowledgements">Set up chat or phone notifications</a>`,
+		"<dt>Critical alert chat</dt><dd>Off</dd>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the overview lacks %q", want)
+		}
 	}
 }
 

@@ -62,6 +62,15 @@ docker exec beacon beacon drill off
 
 The probes succeed on their next round, within a minute. The rule engine, which evaluates every 30 seconds, then reports the alert resolved, and Beacon resolves it at once. The card turns green. The alert stays in the console for 7 days, with its timeline and its sessions.
 
+## Verify phone delivery and handover {#verify-phone-delivery-and-handover}
+
+Use a test instance or approved drill destinations and two separate on-call accounts. Check **Critical alert chat** and **Scheduled phone escalation** on the Overview. These show the configuration. Record receipt from the chat and the phone during the drill.
+
+1. Use a drill-scoped hook whose receiver accepts the alert and does no further work. In a separate run, return a failure from the receiver to check the other takeover path.
+2. Start the drill for long enough to exceed both rule evaluation and the phone delay. With the reference rules and a 15-minute phone delay, use `docker exec beacon beacon drill fail 30m`. Leave it firing and unacknowledged until the expected phone notification is received.
+3. Open the alert from its chat card on the phone. Sign in as the first operator, take ownership in the console and write a handover note. Record which route arrived, the time and what you still need to check.
+4. Open the same alert as the second operator. Check the previous owner's note, the per-location failures and the hook outcome. End the drill with `docker exec beacon beacon drill off` and run **Probe again now**. Check that the probes succeed and that recovery appears on the alert and the chat card.
+
 ## Check it
 
 While it fires and after it recovers:

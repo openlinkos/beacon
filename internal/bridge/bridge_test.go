@@ -354,6 +354,97 @@ func TestReadyAndHumanDeliveryConfiguration(t *testing.T) {
 	}
 }
 
+type routeTestBark struct{ sent int }
+
+func (b *routeTestBark) Send(context.Context, string, string, string) error {
+	b.sent++
+	return nil
+}
+
+func TestCriticalDeliveryWithoutInitialChat(t *testing.T) {
+	e := newEnv(t)
+	bark := &routeTestBark{}
+	e.b.d.Bark = bark
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none"}
+	if d := e.b.Delivery(); d.CriticalToPeople || d.CriticalChat != "none" || len(d.CriticalPhone) != 0 ||
+		!d.FeishuApp || !d.GroupBot || !d.Pushover || !d.Bark {
+		t.Fatalf("available providers changed the record-only policy: %+v", d)
+	}
+
+	ctx := context.Background()
+	recorded := hook("firing", "critical", "recorded")
+	recorded.GroupKey = "recorded-only"
+	if err := e.b.HandleWebhook(ctx, recorded); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(30 * time.Minute)
+	e.b.Tick(ctx)
+	if g, ok := e.st.Group(GroupID(recorded.GroupKey)); !ok || !g.Firing() || g.Channel != "none" {
+		t.Fatalf("recorded alert: %+v, exists=%v", g, ok)
+	}
+	if len(e.fs.sends) != 0 || len(e.bot.texts) != 0 || len(e.push.sent) != 0 || bark.sent != 0 {
+		t.Fatalf("record-only delivery: %d cards, %d bot messages, %d Pushover alerts, %d Bark alerts",
+			len(e.fs.sends), len(e.bot.texts), len(e.push.sent), bark.sent)
+	}
+
+	recorded.Status = "resolved"
+	if err := e.b.HandleWebhook(ctx, recorded); err != nil {
+		t.Fatal(err)
+	}
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none", Bark: config.Duration(time.Minute)}
+	if d := e.b.Delivery(); !d.CriticalToPeople || strings.Join(d.CriticalPhone, ",") != "Bark" {
+		t.Fatalf("Bark-only delivery route: %+v", d)
+	}
+	if err := e.b.HandleWebhook(ctx, hook("firing", "critical", "phone")); err != nil {
+		t.Fatal(err)
+	}
+	if bark.sent != 0 {
+		t.Fatal("Bark was sent before its delay")
+	}
+	e.now = e.now.Add(time.Minute)
+	e.b.Tick(ctx)
+	if bark.sent != 1 || len(e.bot.texts) != 0 || len(e.push.sent) != 0 {
+		t.Fatalf("scheduled Bark-only route: %d Bark alerts, %d bot messages, %d Pushover alerts",
+			bark.sent, len(e.bot.texts), len(e.push.sent))
+	}
+}
+
+type failingInitialPush struct {
+	fakePush
+	attempts int
+}
+
+func (p *failingInitialPush) Send(context.Context, notify.Emergency) (string, error) {
+	p.attempts++
+	return "", errors.New("provider unavailable")
+}
+
+func TestInitialPhoneFallbackMakesOneAttempt(t *testing.T) {
+	e := newEnv(t)
+	e.fs.fail = true
+	e.b.d.Bot = nil
+	push := &failingInitialPush{}
+	e.b.d.Pushover = push
+	if err := e.b.HandleWebhook(context.Background(), hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	if push.attempts != 1 {
+		t.Fatalf("initial phone fallback made %d attempts, want one", push.attempts)
+	}
+}
+
+func TestAutomaticPushoverOnlyRouteRemainsImmediate(t *testing.T) {
+	e := newEnv(t)
+	e.b.d.Feishu, e.b.d.Bot = nil, nil
+	e.b.d.Config.Escalation["critical"] = config.Policy{Channel: "none", InitialPushover: true}
+	if err := e.b.HandleWebhook(context.Background(), hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.push.sent) != 1 || !e.b.Delivery().CriticalToPeople {
+		t.Fatalf("automatically selected Pushover: %d sent, delivery %+v", len(e.push.sent), e.b.Delivery())
+	}
+}
+
 func TestAPIOperations(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

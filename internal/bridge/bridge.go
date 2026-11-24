@@ -294,6 +294,17 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 	g.NotifiedAt = b.now()
 	pol := b.d.Config.Policy(g.Severity)
+	g.Channel = "none"
+	if pol.InitialPushover && b.d.Pushover != nil {
+		b.push(ctx, g)
+		return
+	}
+	if pol.Channel != "app" && pol.Channel != "webhook" {
+		b.d.Log.Info("alert recorded without an initial human notification", "group", g.ID, "summary", b.title(g))
+		return
+	}
+
+	triedPhone := false
 	if pol.Channel == "app" && b.appAllowed(g.Severity) {
 		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.card(ctx, g), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
 		b.feishuResult(err)
@@ -306,6 +317,7 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 		b.d.Log.Error("feishu card failed; falling back", "group", g.ID, "err", err)
 		if g.Severity == "critical" && b.d.Pushover != nil {
 			b.push(ctx, g)
+			triedPhone = true
 		}
 	}
 	if b.d.Bot != nil {
@@ -318,16 +330,11 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 		b.count("feishu-bot", "error")
 		b.d.Log.Error("feishu group bot failed", "group", g.ID, "err", err)
 	}
-	if g.Pushed.IsZero() && b.d.Pushover != nil && g.Severity == "critical" {
+	if !triedPhone && b.d.Pushover != nil && g.Severity == "critical" {
 		b.push(ctx, g)
 	}
-	if g.Channel == "" {
-		g.Channel = "none"
-		if b.d.Feishu == nil && b.d.Bot == nil && b.d.Pushover == nil {
-			b.d.Log.Info("alert recorded; no notification channel is configured", "group", g.ID, "summary", b.title(g))
-			return
-		}
-		b.d.Log.Error("alert could not be delivered by any channel", "group", g.ID, "summary", b.title(g))
+	if g.Pushed.IsZero() {
+		b.d.Log.Error("alert could not be delivered by its initial routes", "group", g.ID, "summary", b.title(g))
 	}
 }
 
@@ -729,16 +736,34 @@ type Summary struct {
 
 // DeliverySetup describes configuration, independently of Watchdog and of any delivery attempt.
 type DeliverySetup struct {
-	CriticalToPeople bool `json:"critical_to_people"`
-	FeishuApp        bool `json:"feishu_app"`
-	GroupBot         bool `json:"group_bot"`
-	Pushover         bool `json:"pushover"`
+	CriticalToPeople bool     `json:"critical_to_people"`
+	FeishuApp        bool     `json:"feishu_app"`
+	GroupBot         bool     `json:"group_bot"`
+	Pushover         bool     `json:"pushover"`
+	Bark             bool     `json:"bark"`
+	CriticalChat     string   `json:"critical_chat"`
+	CriticalPhone    []string `json:"critical_phone_escalation,omitempty"`
 }
 
 // Delivery reports the configured routes for a new critical alert.
 func (b *Bridge) Delivery() DeliverySetup {
-	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil}
-	d.CriticalToPeople = (d.FeishuApp && b.d.Config.Policy("critical").Channel == "app") || d.GroupBot || d.Pushover
+	d := DeliverySetup{FeishuApp: b.d.Feishu != nil, GroupBot: b.d.Bot != nil, Pushover: b.d.Pushover != nil,
+		Bark: b.d.Bark != nil, CriticalChat: "none"}
+	pol := b.d.Config.Policy("critical")
+	chatSelected := pol.Channel == "app" || pol.Channel == "webhook"
+	switch {
+	case pol.Channel == "app" && d.FeishuApp:
+		d.CriticalChat = "app"
+	case chatSelected && d.GroupBot:
+		d.CriticalChat = "webhook"
+	}
+	if pol.Pushover > 0 && d.Pushover {
+		d.CriticalPhone = append(d.CriticalPhone, "Pushover")
+	}
+	if pol.Bark > 0 && d.Bark {
+		d.CriticalPhone = append(d.CriticalPhone, "Bark")
+	}
+	d.CriticalToPeople = d.CriticalChat != "none" || len(d.CriticalPhone) != 0 || (d.Pushover && (chatSelected || pol.InitialPushover))
 	return d
 }
 

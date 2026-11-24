@@ -18,7 +18,7 @@
   <div class="ol-alert-body"><p class="ol-alert-title">{{.Health.Title}}</p><p>{{.Health.Text}}</p></div>
 </div>
 {{if .DeliveryHint}}<div class="ol-alert ol-alert-warning" role="status">
-  {{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.DeliveryHint}}</p></div>
+  {{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.DeliveryHint}} <a href="{{.DeliveryHelp.Href}}">{{.DeliveryHelp.V}}</a></p></div>
 </div>{{end}}
 
 <div class="ol-layout-dashboard">

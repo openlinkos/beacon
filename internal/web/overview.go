@@ -85,6 +85,7 @@ type overviewPage struct {
 	Calls        []callItem
 	CallSummary  string
 	DeliveryHint string
+	DeliveryHelp kvLink
 	Channel      stat
 	Facts        []kvLink
 }
@@ -365,8 +366,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
 	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
-	if !s.Bridge.Delivery().CriticalToPeople {
-		p.DeliveryHint = s.t("Critical alerts have no route to people. Set up chat or phone notifications before relying on escalation.")
+	delivery := s.Bridge.Delivery()
+	if !delivery.CriticalToPeople {
+		p.DeliveryHint = s.t("Critical alerts have no route to people.")
+		p.DeliveryHelp = kvLink{V: s.t("Set up chat or phone notifications"),
+			Href: docsURL(s.Lang) + "reference/config#escalation-and-acknowledgements"}
 	}
 
 	switch {
@@ -413,7 +417,22 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if f.ConfigBy != "" {
 		cv.V = s.t("%d, by %s via %s, %s", f.ConfigVersion, f.ConfigBy, f.ConfigVia, f.ConfigAt)
 	}
-	p.Facts = []kvLink{cv, {K: s.t("Beacon version"), V: s.version()}}
+	chat, phone := s.t("Off"), s.t("Off")
+	switch delivery.CriticalChat {
+	case "app":
+		chat = s.t("Feishu")
+	case "webhook":
+		chat = s.t("Feishu group bot")
+	}
+	if len(delivery.CriticalPhone) != 0 {
+		phone = strings.Join(delivery.CriticalPhone, s.t(", "))
+	}
+	p.Facts = []kvLink{
+		{K: s.t("Critical alert chat"), V: chat},
+		{K: s.t("Scheduled phone escalation"), V: phone},
+		cv,
+		{K: s.t("Beacon version"), V: s.version()},
+	}
 	s.render(w, overviewTmpl, p)
 }
 

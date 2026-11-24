@@ -148,23 +148,25 @@ The self-built app (cards, button callbacks, buzz) and the group's custom bot ([
 | `pushover.expire` | duration | `3h` | And stop repeating after this long. At most `3h` |
 | `pushover.api` | URL | `https://api.pushover.net` | Pushover's API, for a proxy or a test |
 | `bark.url_file` | path | — | An iOS push with a ringing critical level: `https://api.day.app/<key>`, or a self-hosted server |
-| `healthchecks.bridge_url_file` | path | — | Pinged every minute while the bridge can deliver alerts, `/fail` when it cannot: a dead man's switch outside your infrastructure (healthchecks.io) |
+| `healthchecks.bridge_url_file` | path | — | Pinged every minute when the rules pipeline and any configured Feishu app pass their health checks, `/fail` otherwise. Verify actual receipt separately |
 
 ## Escalation and acknowledgements
 
-How alerts of each severity reach people. A zero duration turns a step off.
+How alerts of each severity reach people. A zero duration turns off that scheduled step.
 
 Without the whole `escalation` section, Beacon picks the best channel configured:
 
 1. the Feishu app, when it is set;
 2. else the group bot;
-3. else `none`: alerts are only recorded, and the API and MCP still show them.
+3. else `none`: record the alert without sending it to chat. The console, API and MCP still show it.
 
-Without the section, critical alerts also buzz after 10 minutes with the app, and reach Pushover after 15 minutes when it is configured. Info alerts go to the group bot when there is one beside the app.
+Without the section, critical alerts buzz after 10 minutes with the app, and escalate to Pushover after 15 minutes when it is configured. With only Pushover configured, Beacon sends the initial critical alert there immediately. Info alerts go to the group bot when there is one beside the app.
+
+With `channel: none`, only separately configured phone escalation can send a notification. The Overview shows the critical alert chat route and scheduled phone services. Confirm receipt on the destination device during a drill.
 
 | Key | Default | What it is |
 | --- | --- | --- |
-| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (group bot) or `none` (only recorded) |
+| `escalation.critical.channel` | the best channel configured | `app` (Feishu card), `webhook` (group bot) or `none` (no notification when the alert first fires) |
 | `escalation.critical.buzz` | `10m` with the app, off without it | Buzz the on-call people after this |
 | `escalation.critical.pushover` | `15m` with Pushover, off without it | An emergency push to phones after this |
 | `escalation.critical.bark` | off | A Bark push after this |
