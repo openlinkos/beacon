@@ -80,6 +80,12 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("That maintenance window has ended already.")
 	case "bad_agent":
 		return s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
+	case "machine_access":
+		return s.t("Choose all current and future machines or select specific machines.")
+	case "machine_selection":
+		return s.t("Select at least one machine.")
+	case "machine_unknown":
+		return s.t("A selected machine is no longer registered. Reload and select again.")
 	case "key_taken":
 		return s.t("That key is already registered. Use a separate key for each person, agent, token or machine.")
 	case "bad_key":

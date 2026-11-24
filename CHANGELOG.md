@@ -5,6 +5,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ## Unreleased
 
 - People with SSH access can register personal public keys in **Your account** and use their own SSH client to connect. Sessions record the principal and the credential used. Removing a key or losing the role closes its connections.
+- **Find machines and review Agent permissions in the console.** The fleet opens with search and a compact global SSH control. Machine registration is available when needed. When assigning an Agent machine access, choose all current and future machines or select specific registered machines. The editor previews the selection and the preset permissions.
 
 ## 0.3.0
 

@@ -40,3 +40,22 @@
 {{define "empty"}}<div class="ol-empty"><p class="ol-empty-title">{{.}}</p></div>{{end}}
 
 {{define "csrf"}}<input type="hidden" name="csrf" value="{{.CSRF}}">{{end}}
+
+{{define "agent-machine-access"}}<fieldset class="ol-field bc-machine-access">
+  <legend class="ol-label">{{.L.AccessRange}}</legend>
+  <input type="hidden" name="machine_access_form" value="1">
+  <label class="ol-check"><input class="ol-radio" type="radio" name="machine_access" value="all" required{{if .All}} checked{{end}}{{if not .CanAll}} disabled{{end}}><span>{{.L.AllCurrentAndFuture}}</span></label>
+  <label class="ol-check"><input class="ol-radio" type="radio" name="machine_access" value="selected" required{{if .Selected}} checked{{end}}{{if not .Options}} disabled{{end}}><span>{{.L.SelectedMachines}}</span></label>
+  {{if .Options}}<div class="bc-machine-options">
+    <div class="bc-machine-choices">
+      {{range .Options}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="machine" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-break"><span class="ol-mono">{{.Label}}</span>{{if .Help}} <span class="ol-hint">({{.Help}})</span>{{end}}</span></label>{{end}}
+    </div>
+    <output class="ol-hint" role="status" data-count="{{.L.SelectionCount}}" data-empty="{{.L.PickMachines}}">{{.SelectionSummary}}</output>
+  </div>{{else}}<p class="ol-hint">{{.L.NoMachineOptions}}</p>{{end}}
+</fieldset>{{end}}
+
+{{define "agent-preset"}}<div class="ol-field"><label class="ol-label" for="agent-preset">{{.L.Preset}}</label><select class="ol-select" id="agent-preset" name="preset" aria-describedby="agent-preset-preview">{{range .Presets}}<option value="{{.Value}}"{{if .Selected}} selected{{end}} data-scopes="{{.Help}}">{{.Label}}</option>{{end}}</select><output class="ol-hint ol-break" id="agent-preset-preview" role="status"></output></div>{{end}}
+
+{{define "agent-custom-scopes"}}<fieldset class="ol-field bc-custom-scopes"><legend class="ol-label">{{.L.CustomScopes}}</legend><p class="ol-hint">{{.L.CustomScopesHint}}</p><div class="ol-cluster">{{range .ScopeOptions}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="scopes" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-mono">{{.Label}}</span></label>{{end}}</div></fieldset>{{end}}
+
+{{define "agent-form-script"}}<script defer src="/static/beacon-agent-form.js?v={{.Version}}"></script>{{end}}

@@ -62,14 +62,14 @@ func (s *Server) presetOptions(role, selected string) []option {
 	var out []option
 	for _, p := range store.Presets {
 		if role == "" || store.PresetWithin(p, role) {
-			out = append(out, option{Value: p, Label: s.presetName(p), Help: s.roleHelp(map[string]string{"readonly": "viewer", "oncall": "oncall", "operator": "operator"}[p]), Selected: p == selected})
+			out = append(out, option{Value: p, Label: s.presetName(p), Help: strings.Join(activeAgentScopes(store.PresetScopes(p)), ", "), Selected: p == selected})
 		}
 	}
 	return out
 }
 
-// machineList reads the machines a form names, separated by commas or spaces; none means all.
-func machineList(text string) []string {
+// legacyMachineSelection reads forms issued before the explicit choice of access range.
+func legacyMachineSelection(text string) []string {
 	var out []string
 	for _, m := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' }) {
 		if m != "all" && !slices.Contains(out, m) {
@@ -79,20 +79,89 @@ func machineList(text string) []string {
 	return out
 }
 
+// agentMachines checks the machine choice before passing it to the bridge. An empty selection must
+// never be interpreted as a request for unrestricted access. The bridge still decides who may grant it.
+func (s *Server) agentMachines(f url.Values, existing []string) (machines []string, problem string) {
+	if !f.Has("machine_access_form") && !f.Has("machine_access") && !f.Has("machine") {
+		if f.Has("machines") {
+			return legacyMachineSelection(f.Get("machines")), ""
+		}
+		return existing, ""
+	}
+	if len(f["machine_access"]) != 1 {
+		return nil, "machine_access"
+	}
+	switch f.Get("machine_access") {
+	case "all":
+		return nil, ""
+	case "selected":
+		if len(f["machine"]) == 0 {
+			return nil, "machine_selection"
+		}
+		known := make(map[string]bool)
+		for _, m := range s.Store.Machines() {
+			known[m.Name] = true
+		}
+		for _, name := range f["machine"] {
+			if !known[name] && !slices.Contains(existing, name) {
+				return nil, "machine_unknown"
+			}
+			if !slices.Contains(machines, name) {
+				machines = append(machines, name)
+			}
+		}
+		return machines, ""
+	default:
+		return nil, "machine_access"
+	}
+}
+
+type agentMachineAccess struct {
+	L                agentLabels
+	All, Selected    bool
+	CanAll           bool
+	Options          []option
+	SelectionSummary string
+}
+
+func (s *Server) agentMachineAccess(v *viewer, current []string, editing bool) agentMachineAccess {
+	a := agentMachineAccess{L: s.agentLabels(), All: editing && len(current) == 0, Selected: len(current) > 0,
+		CanAll: len(v.Principal.Machines) == 0 || editing && len(current) == 0, SelectionSummary: s.t("%s machines selected", num(len(current)))}
+	for _, m := range s.Store.Machines() {
+		selected := slices.Contains(current, m.Name)
+		if selected || len(v.Principal.Machines) == 0 || slices.Contains(v.Principal.Machines, m.Name) {
+			a.Options = append(a.Options, option{Value: m.Name, Label: m.Name, Selected: selected})
+		}
+	}
+	for _, name := range current {
+		if !slices.ContainsFunc(a.Options, func(o option) bool { return o.Value == name }) {
+			a.Options = append(a.Options, option{Value: name, Label: name, Selected: true, Help: s.t("Not registered")})
+		}
+	}
+	return a
+}
+
+// Existing grants may carry this reserved permission. Keep it on updates, but do not offer it as an
+// operation a person can grant in the console until it has an operation behind it.
+const reservedAgentScope = "incidents:write"
+
+func activeAgentScopes(scopes []string) []string {
+	return slices.DeleteFunc(slices.Clone(scopes), func(scope string) bool { return scope == reservedAgentScope })
+}
+
 type agentLabels struct {
-	Agent, Owner, Preset, Scopes, Machines, Credentials, Keys, Created, New, Name, NameHint, MachinesHint, Expires, Create, Tokens, Grants,
+	Agent, Owner, Preset, Scopes, Machines, Credentials, Keys, Created, Name, NameHint, Expires, Create, Tokens, Grants,
 	Client, LastUsed, Revoke, NewToken, AddKey, Key, KeyHint, Comment, Remove, Delete, DeleteHint, Save, Settings, SSHConfig, OAuth, OAuthHelp,
 	Headless, HeadlessHelp, Hooks, None, Renewed, All, NoAgents, NoTokens, NoGrants, NoKeys, Fingerprint, Added, Until, Allowed,
-	CustomScopes, CustomScopesHint string
+	CustomScopes, CustomScopesHint, AccessRange, AllCurrentAndFuture, SelectedMachines, NoMachineOptions, PickMachines, SelectionCount string
 }
 
 func (s *Server) agentLabels() agentLabels {
 	return agentLabels{
 		Agent: s.t("Agent"), Owner: s.t("Owner"), Preset: s.t("Preset"), Scopes: s.t("May do now"), Machines: s.t("Machines"),
-		Credentials: s.t("Credentials"), Keys: s.t("SSH keys"), Created: s.t("Created"), New: s.t("New agent"), Name: s.t("Name"),
-		NameHint:     s.t("2 to 40 lower-case letters, digits, dots, dashes and underscores; the audit log names it with you, as you / name."),
-		MachinesHint: s.t("Machines it may reach through the SSH channel, separated by commas; all when empty."),
-		Expires:      s.t("Token expires after"), Create: s.t("Make the agent and its token"), Tokens: s.t("Tokens"), Grants: s.t("OAuth sign-ins"),
+		Credentials: s.t("Credentials"), Keys: s.t("SSH keys"), Created: s.t("Created"), Name: s.t("Name"),
+		NameHint: s.t("2 to 40 lower-case letters, digits, dots, dashes and underscores; the audit log names it with you, as you / name."),
+		Expires:  s.t("Token expires after"), Create: s.t("Make the agent and its token"), Tokens: s.t("Tokens"), Grants: s.t("OAuth sign-ins"),
 		Client: s.t("Client"), LastUsed: s.t("Last used"), Revoke: s.t("Revoke"), NewToken: s.t("New token"), AddKey: s.t("Add an SSH key"),
 		Key: s.t("Public key"), KeyHint: s.t("An authorized_keys line, such as the content of ~/.ssh/id_ed25519.pub; never a private key."),
 		Comment: s.t("Comment"), Remove: s.t("Remove"), Delete: s.t("Delete the agent"),
@@ -105,14 +174,17 @@ func (s *Server) agentLabels() agentLabels {
 		NoAgents: s.t("No agents yet."), NoTokens: s.t("No tokens."), NoGrants: s.t("No OAuth sign-ins."), NoKeys: s.t("No SSH keys."),
 		Fingerprint: s.t("Fingerprint"), Added: s.t("Added"), Until: s.t("Expires"), Allowed: s.t("Allowed"),
 		CustomScopes:     s.t("Custom scopes"),
-		CustomScopesHint: s.t("Tick these only with the Custom preset. They stay within the owner's role, and within what you yourself may do."),
+		CustomScopesHint: s.t("Choose permissions within the owner's role and your own access."),
+		AccessRange:      s.t("Machine access"), AllCurrentAndFuture: s.t("All current and future machines"),
+		SelectedMachines: s.t("Selected machines"), NoMachineOptions: s.t("There are no machines available to select."),
+		PickMachines: s.t("Select at least one machine."), SelectionCount: s.t("%s machines selected", "{count}"),
 	}
 }
 
 // scopeOptions are the people's scopes, the ones in selected ticked.
 func (s *Server) scopeOptions(selected []string) []option {
 	var out []option
-	for _, sc := range store.PeopleScopes {
+	for _, sc := range activeAgentScopes(store.PeopleScopes) {
 		out = append(out, option{Value: sc, Label: sc, Selected: slices.Contains(selected, sc)})
 	}
 	return out
@@ -128,13 +200,19 @@ type agentRow struct {
 	Scopes                                                          []string
 }
 
+type agentOwnerChoice struct {
+	option
+	Scopes string
+}
+
 type agentsPage struct {
 	shell
 	L                    agentLabels
 	Rows                 []agentRow
 	Presets, Expiries    []option
 	ScopeOptions         []option
-	Owners               []option
+	Owners               []agentOwnerChoice
+	MachineAccess        agentMachineAccess
 	CanCreate, ShowOwner bool
 	CanCustom            bool
 	ClaudeCmd, CodexCmd  string
@@ -174,6 +252,9 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 		role = v.Account.Role
 	}
 	p.Presets = s.presetOptions(role, "")
+	if p.CanCreate {
+		p.MachineAccess = s.agentMachineAccess(v, nil, false)
+	}
 	if v.owner() && v.person() {
 		p.CanCustom = true
 		p.Presets = s.withCustom(p.Presets, "")
@@ -182,13 +263,16 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if v.owner() {
 		for _, a := range s.Store.Accounts() {
 			if !a.Disabled {
-				p.Owners = append(p.Owners, option{Value: a.Username, Label: a.DisplayName + " (" + a.Username + ")", Selected: v.person() && a.Username == v.Account.Username})
+				p.Owners = append(p.Owners, agentOwnerChoice{
+					option: option{Value: a.Username, Label: a.DisplayName + " (" + a.Username + ")", Selected: v.person() && a.Username == v.Account.Username},
+					Scopes: strings.Join(activeAgentScopes(store.RoleScopes(a.Role)), ", "),
+				})
 			}
 		}
 	}
 	p.Count = num(len(list))
 	for _, a := range list {
-		row := agentRow{Name: a.Name, Href: consolePath("/agents/") + url.PathEscape(a.Name), Owner: a.Owner, Preset: s.presetName(a.Preset), Scopes: a.Scopes,
+		row := agentRow{Name: a.Name, Href: agentHref(a.Name), Owner: a.Owner, Preset: s.presetName(a.Preset), Scopes: activeAgentScopes(a.Scopes),
 			Machines: s.t("All machines"), Credentials: s.credentials(a), Keys: num(len(a.SSHKeys)), Created: s.clock(a.Created)}
 		if len(a.Machines) > 0 {
 			row.Machines = strings.Join(a.Machines, ", ")
@@ -224,10 +308,15 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, v *viewer) 
 	if v.owner() {
 		owner = f.Get("owner")
 	}
+	machines, problem := s.agentMachines(f, nil)
+	if problem != "" {
+		back(w, r, consolePath("/agents"), "error", problem)
+		return
+	}
 	in := bridge.AgentInput{Name: strings.TrimSpace(f.Get("name")), Owner: owner, Preset: f.Get("preset"),
-		Machines: machineList(f.Get("machines")), TTL: ttl}
+		Machines: machines, TTL: ttl}
 	if in.Preset == store.PresetCustom {
-		in.Scopes = append([]string{}, f["scopes"]...) // none ticked is an empty list, which the bridge refuses
+		in.Scopes = activeAgentScopes(f["scopes"])
 	}
 	out, err := s.Bridge.CreateAgent(r.Context(), v.actor(), in)
 	if err != nil {
@@ -260,7 +349,8 @@ type agentPage struct {
 	Facts                                                     []kvLink
 	Scopes                                                    []string
 	Presets, Expiries                                         []option
-	Machines, SSHConfig                                       string
+	SSHConfig                                                 string
+	MachineAccess                                             agentMachineAccess
 	ScopeOptions                                              []option
 	Custom, CanCustom                                         bool
 	Tokens                                                    []agentTokenRow
@@ -279,7 +369,7 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	path := consolePath("/agents/") + url.PathEscape(a.Name)
 	p := agentPage{shell: s.shellFor(r, v, "agents", a.Name, crumb{Label: s.t("Agents"), Href: consolePath("/agents")}), L: s.agentLabels(),
-		Scopes: a.Scopes, Expiries: s.expiryOptions(), Machines: strings.Join(a.Machines, ", "), Custom: a.Preset == store.PresetCustom,
+		Scopes: activeAgentScopes(a.Scopes), Expiries: s.expiryOptions(), MachineAccess: s.agentMachineAccess(v, a.Machines, true), Custom: a.Preset == store.PresetCustom,
 		SSHConfig: s.Bridge.SSHConfig(a.Name), SettingsAction: path + "/settings", TokenAction: path + "/tokens", KeyAction: path + "/keys",
 		RemoveKey: path + "/keys/remove", Delete: path + "/delete"}
 	role := ""
@@ -294,8 +384,13 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Facts = []kvLink{{K: s.t("In the audit log"), V: a.Actor}, {K: s.t("Owner"), V: a.Owner}, {K: s.t("Preset"), V: s.presetName(a.Preset)},
 		{K: s.t("Created"), V: s.clock(a.Created) + " · " + a.CreatedBy}}
+	access := s.t("All machines")
+	if len(a.Machines) != 0 {
+		access = strings.Join(a.Machines, ", ")
+	}
+	p.Facts = append(p.Facts, kvLink{K: p.L.AccessRange, V: access})
 	if a.Preset == store.PresetCustom {
-		p.Facts = append(p.Facts, kvLink{K: s.t("Asks for"), V: strings.Join(a.Wanted, ", ")})
+		p.Facts = append(p.Facts, kvLink{K: s.t("Asks for"), V: strings.Join(activeAgentScopes(a.Wanted), ", ")})
 	}
 	for _, t := range a.Tokens {
 		row := agentTokenRow{Name: t.Name, Created: s.clock(t.Created), Expires: s.clock(t.Expires), Revoke: path + "/tokens/" + url.PathEscape(t.Name) + "/revoke"}
@@ -335,13 +430,20 @@ func (s *Server) agentSettings(w http.ResponseWriter, r *http.Request, v *viewer
 	}
 	f := r.PostForm
 	preset := f.Get("preset")
-	machines := machineList(f.Get("machines"))
+	machines, problem := s.agentMachines(f, a.Machines)
+	if problem != "" {
+		back(w, r, agentHref(a.Name), "error", problem)
+		return
+	}
 	up := bridge.AgentUpdate{Preset: &preset, Machines: &machines}
 	// A person who is an owner and chooses custom always sends a list, so an unticked form is empty and
 	// refused. Anyone else sets scopes only when the form carries them; a custom agent saved without
 	// that field keeps its scopes. The bridge checks the caller again.
 	if preset == store.PresetCustom && (f.Has("scopes") || (v.owner() && v.person())) {
-		up.Scopes = append([]string{}, f["scopes"]...)
+		up.Scopes = append([]string{}, activeAgentScopes(f["scopes"])...)
+		if a.Preset == store.PresetCustom && slices.Contains(a.Wanted, reservedAgentScope) {
+			up.Scopes = append(up.Scopes, reservedAgentScope)
+		}
 	}
 	if _, err := s.Bridge.UpdateAgent(r.Context(), v.actor(), name, up); err != nil {
 		back(w, r, agentHref(a.Name), "error", agentProblem(err))
