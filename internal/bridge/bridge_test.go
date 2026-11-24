@@ -478,6 +478,10 @@ func TestRoutingAndFallbacks(t *testing.T) {
 	if len(e.push.sent) != 1 || len(e.bot.texts) != 3 {
 		t.Fatalf("fallback: pushover %d, bot %v", len(e.push.sent), e.bot.texts)
 	}
+	if g, ok := e.st.Group(GroupID(hook("firing", "critical", "f1").GroupKey)); !ok ||
+		latestNotification(&g, "app").Result != "failed" || g.Channel != "webhook" {
+		t.Fatalf("the failed initial card and accepted fallback were not recorded: %+v, exists=%v", g, ok)
+	}
 	if ok, why := e.b.Ready(); ok || !strings.Contains(strings.Join(why, ";"), "Feishu API call failed") {
 		t.Errorf("not ready after a Feishu failure: %v", why)
 	}

@@ -317,6 +317,7 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 			b.count("feishu", "ok")
 			return
 		}
+		b.recordNotification(g, "app", err)
 		b.count("feishu", "error")
 		b.d.Log.Error("feishu card failed; falling back", "group", g.ID, "err", err)
 		if g.Severity == "critical" && b.d.Pushover != nil {
@@ -331,6 +332,7 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 			b.count("feishu-bot", "ok")
 			return
 		}
+		b.recordNotification(g, "webhook", err)
 		b.count("feishu-bot", "error")
 		b.d.Log.Error("feishu group bot failed", "group", g.ID, "err", err)
 	}
@@ -846,7 +848,7 @@ func (b *Bridge) Summarize() Summary {
 	for _, g := range b.d.Store.Groups() {
 		if g.Firing() {
 			s.Firing[g.Severity]++
-			if g.Ack != nil {
+			if g.Ack.StopsEscalation() {
 				s.Acknowledged++
 			}
 		}

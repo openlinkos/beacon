@@ -12,6 +12,7 @@ import (
 	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -137,6 +138,16 @@ func TestOverviewAttention(t *testing.T) {
 	// the critical alert first
 	if i, j := strings.Index(page, `href="`+link.AlertPath(e.id)+`"`), strings.Index(page, `href="/console/machines/edge-2"`); i < 0 || j < i {
 		t.Error("the alert is not first")
+	}
+	duty := bridge.ActorOf(store.Principal{User: "alice", Agent: "duty-agent"}, "mcp")
+	if _, err := e.b.Ack(context.Background(), e.id, duty, ""); err != nil {
+		t.Fatal(err)
+	}
+	if page := b.get("/console").body; !strings.Contains(page, "Awaiting a person. Agent acknowledgement from alice / duty-agent via MCP") {
+		t.Error("the Agent acknowledgement hid the need for a person")
+	}
+	if got := e.b.Summarize().Acknowledged; got != 0 {
+		t.Errorf("counted the unclaimed alert as acknowledged: %d", got)
 	}
 	// someone took the alert on: it stays, after what nobody has
 	if _, err := e.b.Ack(context.Background(), e.id, bridge.Actor{Name: "alice", Via: "api"}, ""); err != nil {

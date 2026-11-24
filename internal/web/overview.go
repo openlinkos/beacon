@@ -230,12 +230,15 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
 		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
+		owned := g.Ack.StopsEscalation()
 		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
 			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
-			Acked: g.Ack != nil, Silenced: silenced, Unclaimed: g.Ack == nil && !silenced, kind: "alert"}
+			Acked: owned, Silenced: silenced, Unclaimed: !owned && !silenced, kind: "alert"}
 		switch {
 		case item.Acked:
 			item.Response = s.t("Acknowledged by %s", g.Ack.By)
+		case item.Unclaimed && g.Ack != nil:
+			item.Response = s.t("Awaiting a person. %s", s.t("Agent acknowledgement from %s via %s", g.Ack.By, s.via(g.Ack.Via)))
 		case item.Unclaimed:
 			item.Response = s.t("Awaiting acknowledgement")
 		}
