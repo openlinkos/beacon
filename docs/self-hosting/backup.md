@@ -34,15 +34,16 @@ The stops cost seconds. While the gateway is down, each probe queues its results
    ```bash
    sudo install -d -m 0700 /opt/beacon-backups
    cd /opt/beacon
-   docker compose stop beacon
+   docker compose stop beacon &&
    sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
      sh -c 'cd /var/lib/beacon || exit 1
-       set -- beacon.db* recordings
+       set -- beacon.db*
+       if [ -d recordings ]; then set -- "$@" recordings; fi
        if [ -f team-credentials/epochs ]; then set -- "$@" team-credentials/epochs; fi
        tar -czf /backup/beacon-$(date +%F).tgz "$@"'
    ```
 
-   Keep the newest known-good `team-credentials/epochs` in separate protected storage when the [team credential store](../guide/team-credentials.md) is enabled. Renew this independent copy with your credential policy backups. The key file configured in `credentials.key_file` is a separate backup item.
+   Keep the newest known-good `team-credentials/epochs` in separate protected storage when the [team credential store](../guide/team-credentials.md) is enabled. Update this independent copy after each verified policy change, including revocations, even when the next database backup is later. The key file configured in `credentials.key_file` is a separate backup item.
 
 2. **Back up the metrics** the same way. It takes as long as the copy does: this is the big one.
 
@@ -86,20 +87,33 @@ Onto the same machine with an emptied volume, or onto a fresh one.
 
    `install.sh` makes only the secrets that are missing. So the restored `ssh-host-key` and `ssh-ca-key` stay, and agents' access to machines survives the rebuild. It starts everything on empty volumes; the next step pours the state in.
 
-2. **Pour back the state and recordings:**
-
-   If the vault was enabled, preserve the newest independently verified rollback anchor before extracting. Restore it at `data_dir/team-credentials/epochs` after extracting and before restarting. Use a database backup that matches or is newer than that anchor. The archive's own epoch can be older than revocations made since the archive was created.
+2. **Restore the state and recordings.** If team credentials were enabled, retrieve the newest known-good rollback anchor from its independent storage and choose a database backup that matches it or is newer. The archive can predate later revocations. The extraction step skips any epoch file bundled with the archive.
 
    ```bash
-   docker compose stop beacon
-   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup alpine \
-     tar -C /var/lib/beacon -xzf /backup/beacon-YYYY-MM-DD.tgz
-   docker compose up -d
+   docker compose stop beacon &&
+   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup:ro alpine \
+     tar -C /var/lib/beacon --exclude=team-credentials/epochs -xzf /backup/beacon-YYYY-MM-DD.tgz
    ```
 
-   Over a running Beacon this is impossible: the database is locked while the service runs. `ctl.sock` in the same directory is the service's admin socket. The restore need not carry it.
+   Leave Beacon stopped. The database is locked while the service runs. The restore does not need `ctl.sock`, the service's admin socket.
 
-   If the newest known-good rollback anchor or a matching database is unavailable, keep team credentials disabled and recover the upstream bearer tokens before delegating again. Beacon can continue to serve monitoring and SSH while the credential store is unavailable. PostgreSQL deployments using one Beacon centre must also back up its local anchor and external key alongside their database backup.
+   **If team credentials were enabled**, put the independently retained anchor at `/opt/beacon-backups/team-credential-epochs` with root-only access. Restore it into the volume before starting Beacon. This gives the service's container user access to read and update it.
+
+   ```bash
+   sudo docker run --rm --volumes-from beacon -v /opt/beacon-backups:/backup:ro alpine \
+     sh -ec 'test -s /backup/team-credential-epochs
+       install -d -m 0700 -o 65532 -g 65532 /var/lib/beacon/team-credentials
+       install -m 0600 -o 65532 -g 65532 /backup/team-credential-epochs /var/lib/beacon/team-credentials/epochs
+       sync'
+   ```
+
+   If the latest known-good anchor or a matching database is unavailable, set `enabled: false` under `credentials` in `config.yaml` before starting Beacon. Monitoring and SSH can continue. Recover the upstream bearer tokens before delegating again. PostgreSQL deployments using one Beacon centre also need the independently retained anchor and external key alongside their database backup.
+
+   **Start Beacon** after restoring the independent anchor and its matching state, or with team credentials disabled.
+
+   ```bash
+   docker compose up -d
+   ```
 
 3. **Pour back the metrics** likewise, with `--volumes-from beacon-victoriametrics` and `tar -C /storage -xzf /backup/victoriametrics-YYYY-MM-DD.tgz`.
 
@@ -108,6 +122,7 @@ Onto the same machine with an emptied volume, or onto a fresh one.
    - Sign in to the console with the account you had. The alerts, silences and hooks are as they were.
    - `docker exec beacon beacon config history` lists the versions you remember.
    - A session from before, under the console's **Sessions**, still opens its replay.
+   - If team credentials were restored, open **Team credentials** as an owner and send a test request to an approved service. Confirm the expected grants and verify that an agent whose grant was revoked is still denied.
    - The probe locations need nothing. Their tokens are unchanged, and they queued while the centre was down. The overview counts them reporting again within a minute.
 
 ## The catalogue, as files
