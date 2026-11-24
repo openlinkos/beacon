@@ -27,14 +27,14 @@ func (c *Config) readNotificationWebhookSecrets() error {
 	if !w.configured() {
 		return nil
 	}
-	endpoint, err := readNotificationWebhookFile(w.URLFile)
+	endpoint, err := readWebhookSecretFile(w.URLFile)
 	if err != nil {
 		return fmt.Errorf("notification_webhook.url_file: %w", err)
 	}
 	if !notify.ValidWebhookURL(endpoint) {
 		return errors.New("notification_webhook.url_file: must contain an absolute HTTP(S) URL without userinfo or a fragment")
 	}
-	secret, err := readNotificationWebhookFile(w.SecretFile)
+	secret, err := readWebhookSecretFile(w.SecretFile)
 	if err != nil {
 		return fmt.Errorf("notification_webhook.secret_file: %w", err)
 	}
@@ -43,7 +43,7 @@ func (c *Config) readNotificationWebhookSecrets() error {
 	return nil
 }
 
-func readNotificationWebhookFile(path string) (string, error) {
+func readWebhookSecretFile(path string) (string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the operator names the file
 	if err != nil {
 		return "", errors.New("cannot read file")

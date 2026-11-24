@@ -162,6 +162,10 @@ feishu:
 #   url_file: /etc/beacon/secrets/notification-webhook-url
 #   secret_file: /etc/beacon/secrets/notification-webhook-secret
 
+# Slack app incoming webhook for firing and recovery messages.
+# slack:
+#   webhook_url_file: /etc/beacon/secrets/slack-webhook-url
+
 pushover:
   user_key_file: /etc/beacon/secrets/pushover-user-key
   token_file: /etc/beacon/secrets/pushover-app-token
@@ -176,7 +180,7 @@ healthchecks:
   bridge_url_file: /etc/beacon/secrets/healthchecks-bridge-url
 
 escalation:
-  # Each severity may select notification_webhook for the signed receiver.
+  # Each severity may select notification_webhook for the signed receiver, or slack for Slack.
   critical: {channel: app, buzz: 10m, pushover: 15m}
   warning: {channel: app}
   info: {channel: webhook}

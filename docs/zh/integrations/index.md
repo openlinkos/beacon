@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2ccd5464
+sourceHash: sha256-19e8d23e
 ---
 
 # 接入
@@ -26,5 +26,6 @@ Agent 作为某个人的 Agent，通过 MCP 或 REST API 连到 Beacon。它能�
 3. [部署与 Flux](change-events.md)：来自 CI 和 Flux 的变更事件，让证据说出告警之前刚改了什么。
 4. [配置飞书应用](feishu.md)：告警以卡片发到飞书或 Lark 群里，值班的人用卡片上的按钮处理。
 5. [通过通知 Webhook 发送告警](notification-webhook.md)：把带签名的触发和恢复通知发给你运行的接收端。
+6. [将告警发送到 Slack](slack.md)：发送触发和恢复通知，让值班人员从消息打开同一事件。
 
 钩子什么时候触发、Agent 接着做什么，见[让 Agent 值班](../guide/on-call.md)。钩子发出的每个字段，见 [Webhook 参考](../reference/webhooks.md)。

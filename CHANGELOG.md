@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Send firing and recovery messages to a Slack channel from an incoming webhook. Messages return responders to the same alert after sign-in, and the Overview shows the latest Slack response.
+
 ## 0.3.0
 
 ### rc.30 (2026-11-25)

@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketConsoleTargets}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketConsoleTargets, bucketSlackNotices}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -71,7 +71,7 @@ type Group struct {
 	Channel        string            `json:"channel"` // the initial chat route that accepted the alert
 	MessageID      string            `json:"message_id,omitempty"`
 	NotifiedAt     time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
-	ChannelAt      time.Time         `json:"channel_at,omitzero"`  // acceptance of the first app or bot notification
+	ChannelAt      time.Time         `json:"channel_at,omitzero"`  // acceptance of the first chat notification
 	CardAt         time.Time         `json:"card_at,omitzero"`
 	CardHash       string            `json:"card_hash,omitempty"`
 	Ack            *Ack              `json:"ack,omitempty"`
@@ -85,12 +85,15 @@ type Group struct {
 	Notifications  []Notification    `json:"notifications,omitempty"`
 	NotifyWebhook  bool              `json:"notify_webhook,omitempty"`  // this episode was routed to the notification webhook
 	WebhookNotices []WebhookNotice   `json:"webhook_notices,omitempty"` // queued in incident order, including earlier episodes
-	Notes          []Note            `json:"notes,omitempty"`           // see agents.go
-	Agents         []AgentCall       `json:"agents,omitempty"`          // the hooks called to wake agents
-	ProbeRuns      []ProbeRun        `json:"probe_runs,omitempty"`
-	Episode        string            `json:"episode,omitempty"`
-	Participation  []Participation   `json:"participation,omitempty"`
-	Updated        time.Time         `json:"updated"`
+	NotifySlack    bool              `json:"-"`                         // stored separately from the group JSON
+	SlackNotices   []WebhookNotice   `json:"-"`
+	slackStored    bool
+	Notes          []Note          `json:"notes,omitempty"`  // see agents.go
+	Agents         []AgentCall     `json:"agents,omitempty"` // the hooks called to wake agents
+	ProbeRuns      []ProbeRun      `json:"probe_runs,omitempty"`
+	Episode        string          `json:"episode,omitempty"`
+	Participation  []Participation `json:"participation,omitempty"`
+	Updated        time.Time       `json:"updated"`
 }
 
 // WebhookNotice is a notification that has not yet been accepted by the receiver.
@@ -424,6 +427,9 @@ func (s *Store) Group(id string) (Group, bool) {
 	_ = s.db.View(func(tx kv.Tx) error {
 		if v := tx.Get(bucketGroups, []byte(id)); v != nil {
 			ok = json.Unmarshal(v, &g) == nil
+			if ok {
+				g.readSlackDelivery(tx.Get(bucketSlackNotices, []byte(id)))
+			}
 		}
 		return nil
 	})
@@ -448,6 +454,9 @@ func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
 				return err
 			}
 		}
+		if err := putSlackDelivery(tx, g); err != nil {
+			return err
+		}
 		return tx.Put(bucketGroups, []byte(g.ID), b)
 	})
 }
@@ -456,9 +465,18 @@ func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
 func (s *Store) Groups() []Group {
 	var out []Group
 	_ = s.db.View(func(tx kv.Tx) error {
+		var slack map[string][]byte
+		tx.Range(bucketSlackNotices, kv.Range{}, func(key, raw []byte) bool {
+			if slack == nil {
+				slack = make(map[string][]byte)
+			}
+			slack[string(key)] = bytesClone(raw)
+			return true
+		})
 		tx.Range(bucketGroups, kv.Range{}, func(_, v []byte) bool {
 			var g Group
 			if json.Unmarshal(v, &g) == nil {
+				g.readSlackDelivery(slack[g.ID])
 				out = append(out, g)
 			}
 			return true
@@ -487,6 +505,9 @@ func (s *Store) DeleteGroups(drop func(Group) bool) int {
 			return true
 		})
 		for _, k := range keys {
+			if err := tx.Delete(bucketSlackNotices, k); err != nil {
+				return err
+			}
 			if err := tx.Delete(bucketGroups, k); err != nil {
 				return err
 			}

@@ -3,11 +3,13 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/notify"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -36,15 +38,53 @@ type webhookNotice struct {
 
 // queueWebhook snapshots the notice with the group's transition. Its body and delivery ID stay the
 // same across retries, including when another episode begins before the receiver is reachable.
-func (b *Bridge) queueWebhook(g *store.Group, event string) {
-	notice := webhookNotice{
-		Version: 1, Delivery: newDelivery(), Event: event, At: b.now().UTC(),
-		Alert: webhookAlert{ID: g.ID, Episode: g.Episode, Severity: g.Severity, Title: cleanLine(b.title(g)), URL: b.notificationPage(g)},
+func (b *Bridge) queueWebhook(g *store.Group, channel, event string) {
+	notice := store.WebhookNotice{Delivery: newDelivery(), Event: event, Episode: g.Episode, At: b.now().UTC()}
+	title, target := cleanLine(b.title(g)), b.notificationPage(g)
+	if channel == config.SlackChannel {
+		state := b.t("Firing")
+		if event == "resolved" {
+			state = b.t("Resolved")
+		}
+		notice.Body = notify.SlackMessage(state+" · "+b.severityName(g.Severity)+"\n"+title, target, b.t("Open alert"))
+	} else {
+		notice.Body, _ = json.Marshal(webhookNotice{
+			Version: 1, Delivery: notice.Delivery, Event: event, At: notice.At,
+			Alert: webhookAlert{ID: g.ID, Episode: g.Episode, Severity: g.Severity, Title: title, URL: target},
+		})
 	}
-	body, _ := json.Marshal(notice)
-	g.WebhookNotices = append(g.WebhookNotices, store.WebhookNotice{
-		Delivery: notice.Delivery, Event: notice.Event, Episode: g.Episode, At: notice.At, Body: body,
-	})
+	queue := webhookQueue(g, channel)
+	*queue = append(*queue, notice)
+}
+
+func webhookQueue(g *store.Group, channel string) *[]store.WebhookNotice {
+	if channel == config.SlackChannel {
+		return &g.SlackNotices
+	}
+	return &g.WebhookNotices
+}
+
+func (b *Bridge) webhookSender(channel string) WebhookSender {
+	if channel == config.SlackChannel {
+		return b.d.Slack
+	}
+	return b.d.NotificationWebhook
+}
+
+var webhookChannels = [...]string{config.NotificationWebhookChannel, config.SlackChannel}
+
+func (b *Bridge) readyWebhook(g *store.Group, now time.Time, slackPaused bool) (string, WebhookSender, store.WebhookNotice) {
+	for _, channel := range webhookChannels {
+		if channel == config.SlackChannel && (b.slackActive || slackPaused) {
+			continue
+		}
+		sender := b.webhookSender(channel)
+		queue := webhookQueue(g, channel)
+		if sender != nil && len(*queue) > 0 && b.expireWebhooks(g, channel, now) && len(*queue) > 0 && !(*queue)[0].RetryAt.After(now) {
+			return channel, sender, (*queue)[0]
+		}
+	}
+	return "", nil, store.WebhookNotice{}
 }
 
 // wakeWebhooks prompts the leader's bridge loop after the alert transition has been stored.
@@ -58,7 +98,7 @@ func (b *Bridge) wakeWebhooks() {
 // sendWebhooks starts at most one notice per group. Taking only the head preserves the order of
 // firing and recovery, and sending outside mu leaves the alert and agent paths free to proceed.
 func (b *Bridge) sendWebhooks(ctx context.Context, work *sync.WaitGroup) {
-	if b.d.NotificationWebhook == nil || ctx.Err() != nil {
+	if (b.d.NotificationWebhook == nil && b.d.Slack == nil) || ctx.Err() != nil {
 		return
 	}
 	b.mu.Lock()
@@ -67,23 +107,24 @@ func (b *Bridge) sendWebhooks(ctx context.Context, work *sync.WaitGroup) {
 		return
 	}
 	now := b.now()
+	slackPaused := b.d.Slack != nil && b.d.Store.SlackPausedUntil().After(now)
 	for _, g := range b.d.Store.Groups() {
-		if len(g.WebhookNotices) == 0 || b.webhookActive[g.ID] {
+		if b.webhookActive[g.ID] {
 			continue
 		}
-		if !b.expireWebhooks(&g, now) || len(g.WebhookNotices) == 0 {
-			continue
-		}
-		next := g.WebhookNotices[0]
-		if next.RetryAt.After(now) {
+		channel, sender, next := b.readyWebhook(&g, now, slackPaused)
+		if sender == nil {
 			continue
 		}
 		b.webhookActive[g.ID] = true
+		if channel == config.SlackChannel {
+			b.slackActive = true
+		}
 		work.Add(1)
 		go func() {
 			defer work.Done()
-			err := b.d.NotificationWebhook.Send(ctx, next.Body)
-			b.finishWebhook(ctx, g.ID, next, err)
+			err := sender.Send(ctx, next.Body)
+			b.finishWebhook(ctx, g.ID, channel, next, err)
 		}()
 		if len(b.webhookActive) == webhooksAtOnce {
 			break
@@ -91,52 +132,70 @@ func (b *Bridge) sendWebhooks(ctx context.Context, work *sync.WaitGroup) {
 	}
 }
 
-func (b *Bridge) expireWebhooks(g *store.Group, now time.Time) bool {
+func (b *Bridge) expireWebhooks(g *store.Group, channel string, now time.Time) bool {
+	queue := webhookQueue(g, channel)
+	before := *queue
 	n := 0
-	for n < len(g.WebhookNotices) && !g.WebhookNotices[n].At.Add(keepResolved).After(now) {
+	for n < len(before) && !before[n].At.Add(keepResolved).After(now) {
 		n++
 	}
 	if n == 0 {
 		return true
 	}
-	g.WebhookNotices = g.WebhookNotices[n:]
+	*queue = before[n:]
 	if err := b.d.Store.PutGroup(*g); err != nil {
-		b.d.Log.Error("expire notification webhooks", "group", g.ID, "err", err)
+		*queue = before
+		b.d.Log.Error("expire notification webhooks", "group", g.ID, "channel", channel, "err", err)
 		return false
 	}
-	b.auditExpiredWebhooks(g.ID, n)
+	b.auditExpiredWebhooks(g.ID, channel, n)
 	return true
 }
 
-func (b *Bridge) auditExpiredWebhooks(group string, n int) {
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: "beacon", Via: config.NotificationWebhookChannel,
+func (b *Bridge) auditExpiredWebhooks(group, channel string, n int) {
+	if n == 0 {
+		return
+	}
+	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: "beacon", Via: channel,
 		Action: "notify_people", Target: group, Detail: fmt.Sprintf("%d queued webhook deliveries expired", n)})
 }
 
-func (b *Bridge) finishWebhook(ctx context.Context, id string, notice store.WebhookNotice, sendErr error) {
+func (b *Bridge) finishWebhook(ctx context.Context, id, channel string, notice store.WebhookNotice, sendErr error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.webhookActive, id)
+	now := b.now()
+	var ratePause time.Duration
+	if channel == config.SlackChannel {
+		b.slackActive = false
+		if limited, ok := errors.AsType[notify.SlackRateLimited](sendErr); ok && limited.After > 0 {
+			ratePause = limited.After
+			// A known pause applies to the whole destination even if leadership just ended.
+			if err := b.d.Store.ExtendSlackPause(now.Add(ratePause)); err != nil {
+				b.d.Log.Error("save Slack rate limit", "group", id, "err", err)
+			}
+		}
+	}
 	// The next leader can resume the same delivery after an interrupted request.
 	if ctx.Err() != nil {
 		return
 	}
 	g, ok := b.d.Store.Group(id)
-	if !ok || len(g.WebhookNotices) == 0 || g.WebhookNotices[0].Delivery != notice.Delivery {
+	queue := webhookQueue(&g, channel)
+	if !ok || len(*queue) == 0 || (*queue)[0].Delivery != notice.Delivery {
 		b.wakeWebhooks()
 		return
 	}
-	const channel = config.NotificationWebhookChannel
 	current := g.Episode == notice.Episode
 	result := "ok"
 	if sendErr != nil {
 		result = "error"
-		g.WebhookNotices[0].RetryAt = b.now().Add(notificationRetry)
-		b.d.Log.Warn("notification webhook failed", "group", g.ID, "delivery", notice.Delivery, "err", sendErr)
+		(*queue)[0].RetryAt = now.Add(max(notificationRetry, ratePause))
+		b.d.Log.Warn("notification webhook failed", "group", g.ID, "channel", channel, "delivery", notice.Delivery, "err", sendErr)
 	} else {
-		g.WebhookNotices = g.WebhookNotices[1:]
+		*queue = (*queue)[1:]
 		if current && notice.Event == "firing" {
-			g.Channel, g.ChannelAt = channel, b.now()
+			g.Channel, g.ChannelAt = channel, now
 		}
 	}
 	b.count(channel, result)
@@ -154,14 +213,14 @@ func (b *Bridge) finishWebhook(ctx context.Context, id string, notice store.Webh
 	b.wakeWebhooks()
 }
 
-func (b *Bridge) webhookWaitingOnFailure(now time.Time) bool {
+func (b *Bridge) failedWebhookDeliveries(now time.Time) (webhook, slack bool) {
 	for _, g := range b.d.Store.Groups() {
-		if len(g.WebhookNotices) > 0 {
-			next := g.WebhookNotices[0]
-			if !next.RetryAt.IsZero() && next.At.Add(keepResolved).After(now) {
-				return true
-			}
-		}
+		webhook = webhook || (b.d.NotificationWebhook != nil && failedWebhook(g.WebhookNotices, now))
+		slack = slack || (b.d.Slack != nil && failedWebhook(g.SlackNotices, now))
 	}
-	return false
+	return webhook, slack
+}
+
+func failedWebhook(queue []store.WebhookNotice, now time.Time) bool {
+	return len(queue) > 0 && !queue[0].RetryAt.IsZero() && queue[0].At.Add(keepResolved).After(now)
 }

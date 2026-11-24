@@ -684,6 +684,27 @@ func TestNotificationWebhookNamesInOverviewAndAlert(t *testing.T) {
 	}
 }
 
+func TestSlackNamesInOverviewAndAlert(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	g, ok := e.st.Group(e.id)
+	if !ok {
+		t.Fatal("the fixture alert was missing")
+	}
+	g.Notifications = []store.Notification{{At: e.now, Channel: config.SlackChannel, Result: "ok"}}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	path := link.AlertPath(g.ID)
+	routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: config.SlackChannel, Initial: "primary"}})
+	if len(routes) != 1 || routes[0].Channel != "Slack" || routes[0].Result != "Provider accepted" || routes[0].Href != path+"#timeline" {
+		t.Fatalf("Slack delivery missing from the overview: %+v", routes)
+	}
+	show := e.signedIn("reader", "status:read").get(path)
+	if show.code != http.StatusOK || !strings.Contains(show.body, "Notification accepted by Slack") {
+		t.Fatalf("Slack acceptance missing from the incident timeline, got HTTP %d", show.code)
+	}
+}
+
 func sshActor(name string) sshgate.Actor { return sshgate.Actor{Name: name, Via: "console"} }
 
 func tokenNamed(st *store.Store, name string) store.Token {

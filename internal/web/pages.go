@@ -148,6 +148,8 @@ func (s *Server) channel(ch string) string {
 		return s.t("the group bot")
 	case config.NotificationWebhookChannel:
 		return s.t("Notification webhook")
+	case config.SlackChannel:
+		return "Slack"
 	case "pushover":
 		return "Pushover"
 	case "bark":

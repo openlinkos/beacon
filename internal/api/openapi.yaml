@@ -100,7 +100,7 @@ components:
         alerts: {type: integer, description: Alerts firing in the group}
         starts_at: {type: string, format: date-time}
         resolved_at: {type: string, format: date-time}
-        channel: {type: string, enum: [app, webhook, notification_webhook, none]}
+        channel: {type: string, enum: [app, webhook, notification_webhook, slack, none]}
         ack: {$ref: "#/components/schemas/Ack"}
         silence: {$ref: "#/components/schemas/SilenceRef"}
         buzzed_at: {type: string, format: date-time}
@@ -1091,7 +1091,8 @@ paths:
                       pushover: {type: boolean}
                       bark: {type: boolean}
                       notification_webhook: {type: boolean, description: The general-purpose notification receiver is configured}
-                      critical_chat: {type: string, enum: [app, webhook, notification_webhook, none], description: Configured chat route for critical alerts}
+                      slack: {type: boolean, description: A Slack incoming webhook is configured}
+                      critical_chat: {type: string, enum: [app, webhook, notification_webhook, slack, none], description: Configured chat route for critical alerts}
                       critical_phone_escalation: {type: array, items: {type: string, enum: [Pushover, Bark]}, description: Phone services with a delay configured for unacknowledged critical alerts}
                       critical_routes:
                         type: array
@@ -1100,7 +1101,7 @@ paths:
                           type: object
                           required: [channel]
                           properties:
-                            channel: {type: string, enum: [app, webhook, notification_webhook, feishu-buzz, pushover, bark]}
+                            channel: {type: string, enum: [app, webhook, notification_webhook, slack, feishu-buzz, pushover, bark]}
                             initial: {type: string, enum: [primary, fallback], description: How the route may be used when the alert opens}
                             after: {type: string, description: Delay before attempting the route for an unacknowledged alert}
                   firing: {type: object, additionalProperties: {type: integer}}
