@@ -1,8 +1,10 @@
 package sshgate
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
@@ -22,6 +24,11 @@ func authorized(k ssh.Signer) string {
 // accepts forwarded-tcpip channels), handing every connection Beacon opens to the test machine's sshd.
 func (e *env) connectOut(t *testing.T, machine string, key ssh.Signer) *ssh.Client {
 	t.Helper()
+	return e.connectOutTo(t, machine, key, e.tg.serve)
+}
+
+func (e *env) connectOutTo(t *testing.T, machine string, key ssh.Signer, serve func(net.Conn)) *ssh.Client {
+	t.Helper()
 	cl, err := e.client(t, machine, key)
 	if err != nil {
 		t.Fatalf("connector sign-in: %v", err)
@@ -37,11 +44,61 @@ func (e *env) connectOut(t *testing.T, machine string, key ssh.Signer) *ssh.Clie
 			if err != nil {
 				return
 			}
-			go e.tg.serve(c)
+			go serve(c)
 		}
 	}()
 	t.Cleanup(func() { _ = cl.Close() })
 	return cl
+}
+
+func TestConnectorKeepsFastExecReply(t *testing.T) {
+	e := setup(t)
+	ck := signer(t)
+	e.addConnector(t, "nat-box", ck, authorized(e.tg.hostKey))
+	e.connectOutTo(t, "nat-box", ck, func(nc net.Conn) {
+		sc, chans, reqs, err := ssh.NewServerConn(nc, e.tg.cfg)
+		if err != nil {
+			return
+		}
+		defer sc.Close()
+		go ssh.DiscardRequests(reqs)
+		for incoming := range chans {
+			ch, requests, err := incoming.Accept()
+			if err != nil {
+				continue
+			}
+			go func() {
+				defer ch.Close()
+				if req := <-requests; req != nil {
+					// A short command may send its output, exit status and close immediately after
+					// accepting the exec, before Beacon has forwarded the reply to the agent.
+					_ = req.Reply(req.Type == "exec", nil)
+					_, _ = ch.Write([]byte("output\n"))
+					_, _ = ch.Stderr().Write([]byte("error\n"))
+					_ = ch.CloseWrite()
+					_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{3}))
+				}
+			}()
+		}
+	})
+	agent, err := e.client(t, "nat-box", e.agentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	for run := range 64 {
+		s, err := agent.NewSession()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out, stderr bytes.Buffer
+		s.Stdout, s.Stderr = &out, &stderr
+		err = s.Run("fast command")
+		var exit *ssh.ExitError
+		if !errors.As(err, &exit) || exit.ExitStatus() != 3 || out.String() != "output\n" || stderr.String() != "error\n" {
+			t.Fatalf("command %d: stdout %q, stderr %q, error %v", run, out.String(), stderr.String(), err)
+		}
+	}
 }
 
 // addConnector adds a connector machine called name with key, without a host key unless hostKey is set.
