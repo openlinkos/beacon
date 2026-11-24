@@ -122,6 +122,8 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("GET", "", s.console("", s.overview))
 	at("GET", "/{$}", s.toOverview)
 	at("GET", "/alerts", s.console("", s.alerts))
+	at("GET", "/incident-outcomes", s.console("status:read", s.incidentOutcomes))
+	at("GET", "/incident-outcomes/{id}", s.console("status:read", s.incidentOutcome))
 	at("POST", "/alerts/{id}/ack", s.action("alerts:write", s.ack))
 	at("POST", "/alerts/{id}/silence", s.action("alerts:write", s.silence))
 	at("POST", "/alerts/{id}/notes", s.action("alerts:write", s.note))

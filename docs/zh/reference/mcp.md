@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-20b65dbc
+sourceHash: sha256-2af08625
 ---
 
 # MCP 工具
@@ -70,6 +70,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
+| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
+| `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录和复测统计。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |

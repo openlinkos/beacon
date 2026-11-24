@@ -22,10 +22,12 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -228,6 +230,12 @@ func (s *Server) alert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ev, err := s.Bridge.Evidence(r.Context(), id, "")
 	if err != nil {
+		if a.Viewer != nil && errors.Is(err, bridge.ErrNotFound) {
+			if prior, lookupErr := s.Bridge.IncidentOutcomes(id, "", 1); lookupErr == nil && len(prior.Outcomes) != 0 {
+				http.Redirect(w, r, consolePath("/incident-outcomes")+"?group="+url.QueryEscape(id), http.StatusSeeOther)
+				return
+			}
+		}
 		s.missing(w, r, a.Viewer)
 		return
 	}

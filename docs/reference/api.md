@@ -89,6 +89,8 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
+| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
+| `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome, using the incident outcome ID. Includes alert resolution, recorded participation and the latest check's observation counts |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
@@ -246,6 +248,8 @@ Each sends with a token of its own:
 | `bad_input` | 400, 415 | The request is not what the route takes: not JSON, an unknown field, a value out of range. The message says which |
 | `upstream` | 502, 503 | Something Beacon relies on did not answer (VictoriaMetrics, the store), or this Beacon does not take the request |
 | `audit.unavailable` | 500 | The audit log cannot be read |
+| `incident.not_found` | 404 | No incident outcome with that ID is retained |
+| `incident.unavailable` | 500 | Incident outcomes cannot be read |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
 | `ssh.disabled` | 503 | The SSH channel is not configured |

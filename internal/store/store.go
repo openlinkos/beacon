@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance, bucketMachineRevisions}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -58,32 +58,34 @@ var ErrNotFound = errors.New("not found")
 
 // Group is one alert group and what was done about it.
 type Group struct {
-	ID          string            `json:"id"`
-	Key         string            `json:"key"`
-	Status      string            `json:"status"` // firing or resolved
-	Severity    string            `json:"severity"`
-	Labels      map[string]string `json:"labels"`
-	Common      map[string]string `json:"common"`
-	Annotations map[string]string `json:"annotations"`
-	Alerts      []Alert           `json:"alerts"`
-	StartsAt    time.Time         `json:"starts_at"`
-	ResolvedAt  time.Time         `json:"resolved_at,omitzero"`
-	Channel     string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
-	MessageID   string            `json:"message_id,omitempty"`
-	NotifiedAt  time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
-	CardAt      time.Time         `json:"card_at,omitzero"`
-	CardHash    string            `json:"card_hash,omitempty"`
-	Ack         *Ack              `json:"ack,omitempty"`
-	Silence     *Silence          `json:"silence,omitempty"`
-	Buzzed      time.Time         `json:"buzzed,omitzero"`
-	Pushed      time.Time         `json:"pushed,omitzero"`
-	Receipt     string            `json:"receipt,omitempty"`
-	ReceiptAt   time.Time         `json:"receipt_at,omitzero"`
-	Barked      time.Time         `json:"barked,omitzero"`
-	Notes       []Note            `json:"notes,omitempty"`  // see agents.go
-	Agents      []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
-	ProbeRuns   []ProbeRun        `json:"probe_runs,omitempty"`
-	Updated     time.Time         `json:"updated"`
+	ID            string            `json:"id"`
+	Key           string            `json:"key"`
+	Status        string            `json:"status"` // firing or resolved
+	Severity      string            `json:"severity"`
+	Labels        map[string]string `json:"labels"`
+	Common        map[string]string `json:"common"`
+	Annotations   map[string]string `json:"annotations"`
+	Alerts        []Alert           `json:"alerts"`
+	StartsAt      time.Time         `json:"starts_at"`
+	ResolvedAt    time.Time         `json:"resolved_at,omitzero"`
+	Channel       string            `json:"channel"` // app, webhook or pushover (when the card could not be sent)
+	MessageID     string            `json:"message_id,omitempty"`
+	NotifiedAt    time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
+	CardAt        time.Time         `json:"card_at,omitzero"`
+	CardHash      string            `json:"card_hash,omitempty"`
+	Ack           *Ack              `json:"ack,omitempty"`
+	Silence       *Silence          `json:"silence,omitempty"`
+	Buzzed        time.Time         `json:"buzzed,omitzero"`
+	Pushed        time.Time         `json:"pushed,omitzero"`
+	Receipt       string            `json:"receipt,omitempty"`
+	ReceiptAt     time.Time         `json:"receipt_at,omitzero"`
+	Barked        time.Time         `json:"barked,omitzero"`
+	Notes         []Note            `json:"notes,omitempty"`  // see agents.go
+	Agents        []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
+	ProbeRuns     []ProbeRun        `json:"probe_runs,omitempty"`
+	Episode       string            `json:"episode,omitempty"`
+	Participation []Participation   `json:"participation,omitempty"`
+	Updated       time.Time         `json:"updated"`
 }
 
 // Alert is one alert in a group.
@@ -403,12 +405,24 @@ func (s *Store) Group(id string) (Group, bool) {
 
 // PutGroup saves g.
 func (s *Store) PutGroup(g Group) error {
+	return s.PutGroupWithOutcome(g, nil)
+}
+
+// PutGroupWithOutcome updates the alert group and its current or preceding outcome in one transaction.
+func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
 	g.Updated = s.now().UTC()
 	b, err := json.Marshal(g)
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketGroups, []byte(g.ID), b) })
+	return s.db.Update(func(tx kv.Tx) error {
+		if outcome != nil {
+			if err := putOutcome(tx, *outcome); err != nil {
+				return err
+			}
+		}
+		return tx.Put(bucketGroups, []byte(g.ID), b)
+	})
 }
 
 // Groups returns every group, firing ones first, then the newest first.

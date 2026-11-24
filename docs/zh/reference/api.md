@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a0a52cb6
+sourceHash: sha256-a4c5a7b5
 ---
 
 # REST API
@@ -93,6 +93,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
+| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
+| `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录和最近一次复测的统计 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
@@ -250,6 +252,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `bad_input` | 400、415 | 请求不符合这个接口的要求：不是 JSON、有不认识的字段、值超出范围。消息里写明是哪一处 |
 | `upstream` | 502、503 | Beacon 依赖的东西没有回应（VictoriaMetrics、存储），或者这个 Beacon 不接收这类请求 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
+| `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
+| `incident.unavailable` | 500 | 无法读取故障摘要 |
 | `alert.not_found` | 404 | 没有这个 id 的告警组 |
 | `alert.not_firing` | 409 | 告警组不在触发中，不能认领或静默 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |

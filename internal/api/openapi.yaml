@@ -49,7 +49,7 @@ components:
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable]
+            audit.unavailable, incident.not_found, incident.unavailable]
         docs:
           type: string
           format: uri
@@ -335,6 +335,47 @@ components:
                     status: {type: string, enum: [ok, failed, missing]}
                     reason: {type: string}
                     http_status: {type: integer}
+    IncidentOutcome:
+      type: object
+      description: Compact private summary of one resolved episode
+      properties:
+        id: {type: string, description: Stable episode ID used to revisit this outcome}
+        group: {type: string, description: Recurring alert group ID used to filter related audit entries}
+        title: {type: string}
+        severity: {type: string, enum: [critical, warning, info]}
+        services: {type: array, items: {type: string}}
+        started_at: {type: string, format: date-time}
+        resolved_at: {type: string, format: date-time, description: When Beacon recorded the alert as resolved}
+        audit_until:
+          type: string
+          format: date-time
+          description: Upper bound for related audit entries once the rich alert has been archived or reopened
+        related_sessions:
+          type: array
+          items: {type: string}
+          description: Up to eight related session IDs captured at archive time; sessions have their own retention
+        participation:
+          type: array
+          description: Latest recorded alert action for each identified kind of actor
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [person, agent, unattributed]}
+              by: {type: string}
+              via: {type: string}
+              action: {type: string, enum: [ack, silence, note, probe_now]}
+              at: {type: string, format: date-time}
+        verification:
+          type: object
+          description: Counts from the latest on-demand check, one observation per target and expected location
+          properties:
+            id: {type: string}
+            at: {type: string, format: date-time}
+            by: {type: string}
+            via: {type: string}
+            passed: {type: integer}
+            failed: {type: integer}
+            missing: {type: integer}
     Machine:
       type: object
       properties:
@@ -1108,6 +1149,43 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Alert"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-outcomes:
+    get:
+      summary: List resolved incident outcomes
+      description: "Scope: status:read. Private history of resolved alert episodes, newest first."
+      parameters:
+        - {name: group, in: query, schema: {type: string}, description: Filter by the recurring alert group ID}
+        - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: Outcomes and an optional cursor for the next page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcomes: {type: array, items: {$ref: "#/components/schemas/IncidentOutcome"}}
+                  before: {type: string}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-outcomes/{id}:
+    get:
+      summary: Get one resolved incident outcome
+      description: "Scope: status:read. Use this summary's group, started_at and audit_until to query related audit records."
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}, description: Stable incident outcome ID}
+      responses:
+        "200":
+          description: The retained summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outcome: {$ref: "#/components/schemas/IncidentOutcome"}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
         default: {$ref: "#/components/responses/Error"}
   /changes:
     get:

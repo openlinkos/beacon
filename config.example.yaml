@@ -17,6 +17,7 @@ storage:
   audit:
     checkpoint_interval: 24h                # how often the audit log's hash chain gets a signed checkpoint
     retention: 8760h                        # how long audit entries are kept (365 days)
+  incident_retention: 4320h                 # private incident summaries after resolution (180 days)
   sqlite:
     journal_mode: wal                       # wal (recommended), delete, truncate, persist or memory
     synchronous: full                       # full (recommended: every commit is on the disk first), normal or off

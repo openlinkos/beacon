@@ -152,6 +152,14 @@ The card's **Timeline** button opens it. The response panel shows how long the a
 
 The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
 
+## Incident history {#incident-history}
+
+From **Alerts**, open **Incident history** to revisit each resolved episode, including when the same group fired again. The outcome records when Beacon marked the alert resolved, the latest alert action associated with each known kind of actor, and the latest on-demand check's counts by target and location. Standalone credentials appear as unattributed. A delivered hook alone does not make an agent a participant.
+
+**Related audit entries** opens the existing audit log filtered by the alert group and the episode's time window. The audit log's signed checkpoints cover the audit log. The outcome is a compact summary of observed activity and does not prove who caused recovery.
+
+The full alert evidence stays for seven days after recovery, or until the group fires again. Beacon then retains links to at most eight related sessions with the outcome. The outcome stays for `storage.incident_retention` after recovery, 180 days by default. Audit entries and session recordings follow their own retention settings. History is private to viewers with `status:read` and separate from the public status pages. Previously removed episodes cannot be reconstructed on upgrade.
+
 ## The session's page and its replay {#the-sessions-page-and-its-replay}
 
 The session's page shows:

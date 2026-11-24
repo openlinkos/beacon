@@ -29,6 +29,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | `storage.dsn_file` | path | — | With `storage.driver: postgres`, a file holding the connection string (for example `postgres://beacon@db.example.com:5432/beacon?sslmode=require`), read once at start; the password, if any, is in the file, never in this YAML |
 | `storage.audit.checkpoint_interval` | duration | `24h` | How often the audit log's hash chain gets a signed checkpoint |
 | `storage.audit.retention` | duration | `8760h` | How long audit entries are kept (365 days); the chain stays verifiable after pruning |
+| `storage.incident_retention` | duration | `4320h` | How long private incident outcomes are kept from resolution (180 days). The full resolved alert group stays for up to seven days |
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite's journal mode. A WAL database is one file plus its `-wal` and `-shm` side files and cannot live on a network file system |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite's durability: `full` has every commit on the disk before it answers |
 | `storage.sqlite.busy_timeout` | duration | `15s` | How long a statement waits for a lock held by another connection |

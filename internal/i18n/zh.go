@@ -6,6 +6,28 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Private incident outcome history and its audit link.
+	"Related sessions":            "关联会话",
+	"Incident history":            "故障历史",
+	"Incident":                    "故障",
+	"Latest on-demand check":      "最近一次复测",
+	"Recorded participation":      "已记录的参与",
+	"No participation recorded":   "没有参与记录",
+	"No on-demand check recorded": "没有复测记录",
+	"Newest incidents":            "最新故障",
+	"Older incidents":             "更早的故障",
+	"No incident outcomes match.": "没有符合条件的故障记录。",
+	"Related audit entries":       "相关审计记录",
+	"Open alert details":          "打开告警详情",
+	"All incident outcomes":       "所有故障记录",
+	"Alert group":                 "告警组",
+	"This history records alert activity. Recorded participation alone does not identify what repaired the service.": "这里记录告警的处理活动。仅凭参与记录无法确定是哪一步让服务恢复。",
+	"Unattributed":                           "身份未确认",
+	"Added a note":                           "添加了备注",
+	"Ran an on-demand check":                 "执行了复测",
+	"This incident history link is invalid.": "此故障历史链接无效。",
+	"Incident history could not be loaded.":  "无法加载故障历史。",
+	"No related audit entries are retained.": "没有保留相关审计记录。",
 	// what every page says of Beacon and where the project is
 	"Powered by Beacon, open source": "由开源的 Beacon 驱动",
 	"Beacon is open source.":         "Beacon 是开源软件。",

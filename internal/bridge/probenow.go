@@ -82,7 +82,7 @@ type ProbeNow struct {
 }
 
 // probeWants reads what the input asks for, and the alert episode the result belongs to, if any.
-func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, time.Time, error) {
+func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, error) {
 	given := 0
 	for _, s := range []string{in.AlertID, in.Target, in.Service} {
 		if strings.TrimSpace(s) != "" {
@@ -91,17 +91,17 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, time.Time, error
 	}
 	switch {
 	case given != 1:
-		return nil, time.Time{}, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
+		return nil, probeEpisode{}, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
 	case in.Module != "" && in.Target == "":
-		return nil, time.Time{}, fmt.Errorf("%w: module goes with target", ErrBadInput)
+		return nil, probeEpisode{}, fmt.Errorf("%w: module goes with target", ErrBadInput)
 	case in.Target != "":
-		return []probenow.Want{{Target: strings.TrimSpace(in.Target), Module: strings.TrimSpace(in.Module)}}, time.Time{}, nil
+		return []probenow.Want{{Target: strings.TrimSpace(in.Target), Module: strings.TrimSpace(in.Module)}}, probeEpisode{}, nil
 	case in.Service != "":
-		return []probenow.Want{{Service: strings.TrimSpace(in.Service)}}, time.Time{}, nil
+		return []probenow.Want{{Service: strings.TrimSpace(in.Service)}}, probeEpisode{}, nil
 	}
 	g, ok := b.d.Store.Group(in.AlertID)
 	if !ok {
-		return nil, time.Time{}, ErrNotFound
+		return nil, probeEpisode{}, ErrNotFound
 	}
 	// the alerts' own targets first (instance and module, as probe rules carry them), else their services
 	var wants []probenow.Want
@@ -119,9 +119,14 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, time.Time, error
 		}
 	}
 	if len(wants) == 0 {
-		return nil, time.Time{}, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+		return nil, probeEpisode{}, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
 	}
-	return wants, g.StartsAt, nil
+	return wants, probeEpisode{starts: g.StartsAt, key: g.Episode}, nil
+}
+
+type probeEpisode struct {
+	starts time.Time
+	key    string
 }
 
 // CanProbeNow reports whether this Beacon has a gateway for on-demand checks.
@@ -140,7 +145,7 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	case wait < time.Second || wait > probeWaitMax:
 		return ProbeNow{}, fmt.Errorf("%w: wait is 1 to %d seconds", ErrBadInput, int(probeWaitMax.Seconds()))
 	}
-	wants, starts, err := b.probeWants(in)
+	wants, episode, err := b.probeWants(in)
 	if err != nil {
 		return ProbeNow{}, err
 	}
@@ -164,7 +169,8 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	if in.AlertID != "" {
 		audit.Target = in.AlertID
 		audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
-		b.recordProbeRun(in.AlertID, starts, store.ProbeRun{ID: v.ID, At: b.now(), By: who.Name, Via: who.Via, Results: observations})
+		audit.Time = b.now()
+		b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
 	}
 	_ = b.d.Store.Audit(audit)
 	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), tally.summary(b.lang)))
@@ -196,18 +202,19 @@ func probeObservations(v probenow.View) []store.ProbeObservation {
 }
 
 // recordProbeRun saves the results on the alert episode the caller actually checked.
-func (b *Bridge) recordProbeRun(id string, starts time.Time, run store.ProbeRun) {
+func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
-	if !ok || !g.StartsAt.Equal(starts) {
+	if !ok || !g.StartsAt.Equal(episode.starts) || g.Episode != episode.key {
 		return
 	}
 	g.ProbeRuns = append(g.ProbeRuns, run)
 	if len(g.ProbeRuns) > keepProbeRuns {
 		g.ProbeRuns = g.ProbeRuns[len(g.ProbeRuns)-keepProbeRuns:]
 	}
-	if err := b.d.Store.PutGroup(g); err != nil {
+	recordParticipation(&g, who, "probe_now", run.At)
+	if err := b.saveGroup(g); err != nil {
 		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
 	}
 }

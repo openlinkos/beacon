@@ -35,14 +35,16 @@ func (b *Bridge) AddNote(ctx context.Context, id string, who Actor, text string)
 	if !ok {
 		return GroupView{}, ErrNotFound
 	}
-	g.Notes = append(g.Notes, store.Note{By: who.Name, Via: who.Via, Text: text, At: b.now()})
+	now := b.now()
+	g.Notes = append(g.Notes, store.Note{By: who.Name, Via: who.Via, Text: text, At: now})
+	recordParticipation(&g, who, "note", now)
 	if len(g.Notes) > keepNotes {
 		g.Notes = g.Notes[len(g.Notes)-keepNotes:]
 	}
 	if b.patchAllowed(&g, false) {
 		b.patch(ctx, &g)
 	}
-	if err := b.d.Store.PutGroup(g); err != nil {
+	if err := b.saveGroup(g); err != nil {
 		return GroupView{}, err
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "add_note", Target: g.ID, Detail: clean(text, 500, false)})

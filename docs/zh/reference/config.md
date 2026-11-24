@@ -33,6 +33,7 @@ sourceHash: sha256-04551e31
 | `storage.dsn_file` | 路径 | — | `storage.driver: postgres` 时，存放连接串的文件（如 `postgres://beacon@db.example.com:5432/beacon?sslmode=require`），启动时读一次；密码若有也写在文件里，绝不进本配置文件 |
 | `storage.audit.checkpoint_interval` | 时长 | `24h` | 审计日志的哈希链多久生成一个签名检查点 |
 | `storage.audit.retention` | 时长 | `8760h` | 审计记录保留多久（365 天）；剪除旧记录后链仍可校验 |
+| `storage.incident_retention` | 时长 | `4320h` | 内部故障摘要从恢复起保留多久（180 天）。详细告警组保留最多七天 |
 | `storage.sqlite.journal_mode` | `wal` | `wal` | SQLite 的日志模式。WAL 数据库是一个文件加 `-wal`、`-shm` 两个伴随文件，不能放在网络文件系统上 |
 | `storage.sqlite.synchronous` | `full` | `full` | SQLite 的持久化：`full` 让每次提交落盘后才应答 |
 | `storage.sqlite.busy_timeout` | 时长 | `15s` | 一条语句等待别的连接持有的锁多久 |
