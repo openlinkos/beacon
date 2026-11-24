@@ -12,6 +12,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Keyboard focus follows an alert's acknowledgement, form error or on-demand check result. Alert action confirmations stay visible, and sign-in errors are associated with the form.
 - Open a component's daily status and availability for the last 90 days with a keyboard or by touch.
 - Connect the Feishu test app and publish its callbacks before the first self-hosted drill. The install guide walks through receiving, acknowledging and resolving the same alert in the test group.
+- Preserve command acknowledgements when a relayed SSH session exits immediately.
 
 ### rc.28 (2026-11-25)
 
