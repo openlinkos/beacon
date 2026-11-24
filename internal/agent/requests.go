@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -29,7 +30,7 @@ import (
 var (
 	pollWait    = 25 * time.Second // how long the gateway may hold a poll
 	pollMissing = time.Hour        // a gateway without the route is asked again after this
-	pollRetry   = time.Second      // before the first cycle has fetched the modules
+	pollRetry   = time.Second      // while waiting for modules or already running requests
 	pollBackoff = []time.Duration{2 * time.Second, 5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute}
 	pollAtOnce  = 4 // requests served at once
 )
@@ -52,6 +53,8 @@ func sleep(ctx context.Context, d time.Duration) {
 func (a *Agent) poll(ctx context.Context) {
 	fails, missingLogged := 0, false
 	sem := make(chan struct{}, pollAtOnce)
+	var runningMu sync.Mutex
+	running := make(map[string]bool)
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for ctx.Err() == nil {
@@ -59,6 +62,11 @@ func (a *Agent) poll(ctx context.Context) {
 			sleep(ctx, pollRetry)
 			continue
 		}
+		// The gateway offers a request until it receives an answer. Remember which requests
+		// were running before this poll, even if they finish while its response is in flight.
+		runningMu.Lock()
+		seen := maps.Clone(running)
+		runningMu.Unlock()
 		reqs, err := a.fetchRequests(ctx)
 		var he *httpError
 		switch {
@@ -78,13 +86,34 @@ func (a *Agent) poll(ctx context.Context) {
 			sleep(ctx, pollBackoff[min(fails, len(pollBackoff))-1])
 		default:
 			fails, missingLogged = 0, false
+			started := false
 			for _, r := range reqs {
+				if seen[r.ID] {
+					continue
+				}
+				seen[r.ID], started = true, true
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
+				runningMu.Lock()
+				running[r.ID] = true
+				runningMu.Unlock()
 				wg.Add(1)
-				sem <- struct{}{}
 				go func() {
-					defer func() { <-sem; wg.Done() }()
+					defer wg.Done()
+					defer func() {
+						runningMu.Lock()
+						delete(running, r.ID)
+						runningMu.Unlock()
+						<-sem
+					}()
 					a.serve(ctx, r)
 				}()
+			}
+			if len(reqs) > 0 && !started {
+				sleep(ctx, pollRetry)
 			}
 		}
 	}

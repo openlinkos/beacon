@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,6 +122,70 @@ func TestServesRequestsAndPostsResults(t *testing.T) {
 	if !strings.Contains(logs.String(), "probed on request") || strings.Contains(logs.String(), "level=WARN") {
 		t.Errorf("log:\n%s", logs.String())
 	}
+}
+
+func requestBody(id, target string) string {
+	return fmt.Sprintf(`[{"id":%q,"groups":[{"targets":[%q],"labels":{"module":"http_2xx","service":"web"}}]}]`, id, target)
+}
+
+func TestRedeliveredRequestDoesNotStartAnotherProbe(t *testing.T) {
+	quick(t)
+	a, gw, target := newAgent(t)
+	gw.requests = make(chan string, 3)
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(started)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(slow.Close)
+	_, stop := start(t, a)
+
+	const id, other = "0123456789abcdef", "fedcba9876543210"
+	gw.requests <- requestBody(id, slow.URL)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first on-demand probe did not start")
+	}
+	gw.requests <- requestBody(id, slow.URL)
+	gw.requests <- requestBody(other, target+"/ok")
+	waitFor(t, "another request while the first is still running", func() bool { return gw.answer(other) != "" })
+	close(release)
+	waitFor(t, "the first answer", func() bool { return gw.answer(id) != "" })
+	stop()
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("one on-demand request ran %d HTTP probes", n)
+	}
+}
+
+func TestRequestCanBeRetriedAfterAnswerFails(t *testing.T) {
+	quick(t)
+	a, gw, target := newAgent(t)
+	gw.requests = make(chan string, 2)
+	gw.answerStatus = http.StatusServiceUnavailable
+	logs, _ := start(t, a)
+	const id = "0123456789abcdef"
+	payload := requestBody(id, target+"/ok")
+	gw.requests <- payload
+	waitFor(t, "the attempt with a failed answer", func() bool {
+		return strings.Contains(logs.String(), "cannot post the results of a request") &&
+			strings.Contains(logs.String(), "probed on request")
+	})
+	gw.mu.Lock()
+	gw.answerStatus = 0
+	gw.mu.Unlock()
+	// A poll that began before the previous run ended may still carry its pending request.
+	gw.requests <- payload
+	gw.requests <- payload
+	waitFor(t, "the answer on redelivery", func() bool { return gw.answer(id) != "" })
 }
 
 // Against a gateway without the route (404) the agent says so once and asks again after pollMissing.
