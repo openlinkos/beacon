@@ -50,7 +50,7 @@ tests:
       - eval_time: 7m
         alertname: ServiceDown
         exp_alerts: []
-      - eval_time: 12m
+      - eval_time: 9m
         alertname: ServiceDown
         exp_alerts:
           - exp_labels:

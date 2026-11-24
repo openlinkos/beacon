@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-736481ce
+sourceHash: sha256-da31dc49
 ---
 
 # 演练一次故障
@@ -41,8 +41,8 @@ docker exec beacon beacon drill fail 15m
 以两个检测点为例，接下来是：
 
 1. **一分钟内**两个检测点都看到 503，`probe_success{service="drill"}` 各自变为 0。
-2. **满 3 分钟**后，规则把每个检测点计为失败。两个占两个，既满「至少两个」也满「不少于一半」，于是 **`ServiceDown` 再过 1 分钟触发**，即命令之后大约 4 到 5 分钟。它出现在 `GET /api/v1/alerts` 和 MCP 的 `list_alerts` 里。
-3. **聊天渠道配好的话**，卡片在告警之后约 30 秒（`group_wait`）到达群里。恢复时卡片变绿。配了 Pushover 的，未经确认的 critical 告警 15 分钟后打到手机上。
+2. **满 3 分钟**后，规则把每个检测点计为失败。两个占两个，既满「至少两个」也满「不少于一半」，于是 **`ServiceDown` 在这个比例持续 1 分钟后触发**。
+3. **再过约 30 秒**（`group_wait`），Beacon 记录告警组，并在已配置的聊天渠道发送卡片。从执行命令起算，约五分钟后可以在 `GET /api/v1/alerts` 和 MCP 的 `list_alerts` 里看到它。恢复时卡片变绿。配了 Pushover 的，未经确认的 critical 告警 15 分钟后打到手机上。
 
 只有一个检测点时，什么都不会触发，这是有意的设计。
 

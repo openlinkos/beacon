@@ -37,8 +37,8 @@ Starting a drill and ending it are both change events. So the alert's evidence s
 What happens, with two locations:
 
 1. **Within a minute** both locations see 503, and `probe_success{service="drill"}` is 0 for each.
-2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires 1 minute later**, about 4 to 5 minutes after the command. It appears in `GET /api/v1/alerts` and in the MCP's `list_alerts`.
-3. **With the chat configured**, the card arrives in the group about 30 seconds after the alert (`group_wait`). It turns green on recovery. With Pushover, an unacknowledged critical alert reaches a phone after 15 minutes.
+2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires once that quorum holds for 1 minute**.
+3. **After another 30 seconds** (`group_wait`), Beacon records the group and sends its chat card if configured. Allow about five minutes from the command to see it in `GET /api/v1/alerts` and MCP's `list_alerts`. It turns green on recovery. With Pushover, an unacknowledged critical alert reaches a phone after 15 minutes.
 
 With one location nothing fires, by design.
 

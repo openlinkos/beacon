@@ -237,7 +237,7 @@ On the consent page, choose the **On call** preset and select `edge-1`. In Claud
 In short, Beacon has a service of its own to rehearse on. With two locations:
 
 - `docker exec beacon beacon drill fail 15m` makes both locations fail;
-- `ServiceDown` fires about 4 to 5 minutes later;
+- Beacon shows the `ServiceDown` alert about five minutes later;
 - `docker exec beacon beacon drill off` restores the drill endpoint, then the alert resolves after the probes and rule engine check it again.
 
 ## What next

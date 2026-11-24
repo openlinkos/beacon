@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-95c1f5ba
+sourceHash: sha256-1cdadbca
 ---
 
 # 装在服务器上
@@ -241,7 +241,7 @@ claude mcp login beacon
 简言之：Beacon 自带一个用来演练的服务。有两个检测点时：
 
 - `docker exec beacon beacon drill fail 15m` 让两个检测点都看到失败；
-- 约 4 到 5 分钟后 `ServiceDown` 触发；
+- 约五分钟后可在 Beacon 看到 `ServiceDown` 告警；
 - `docker exec beacon beacon drill off` 恢复演练端点，检测点和规则引擎再次检查后，告警恢复。
 
 ## 接下来 {#what-next}
