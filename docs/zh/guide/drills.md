@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-90abe0b2
+sourceHash: sha256-71f69d39
 ---
 
 # 演练一次故障
@@ -68,7 +68,7 @@ docker exec beacon beacon drill off
 
 ## 验证手机送达和交接 {#verify-phone-delivery-and-handover}
 
-由所有者准备一个独立的 Beacon 测试实例，确保有两个检测点在上报，且测试手机能访问 `public_url`。使用专用的[飞书应用、群和自定义机器人](../integrations/feishu.md)、测试手机接收端及凭据，以及只匹配 `drill` 的钩子。[邀请](people.md#invite-people)两位拥有 `oncall` 角色的值班人。在概览里确认**严重告警聊天渠道**和**定时手机升级通知**与本次验收范围一致，并按 `escalation.critical` 核对各渠道的延时。
+由所有者准备一个独立的 Beacon 测试实例，确保有两个检测点在上报，且测试手机能访问 `public_url`。使用专用的[飞书应用、群和自定义机器人](../integrations/feishu.md)、测试手机接收端及凭据，以及只匹配 `drill` 的钩子。[邀请](people.md#invite-people)两位拥有 `oncall` 角色的值班人。在概览的**严重告警通知**里核对本次要验证的渠道和延时。
 
 1. **接收首条告警。** 先确认演练服务正常，再让测试钩子接收请求（例如返回 HTTP 202），接收后不执行操作。演练时长要覆盖规则评估和最长的手机通知延时。延时为 15 分钟时，运行 `docker exec beacon beacon drill fail 30m`。测试群应在五分钟内收到 `drill` 的严重 `ServiceDown` 卡片。在手机上打开卡片，记录告警 ID、开始时间和群里收到卡片的时间，并在时间线确认钩子已收到请求。
 2. **接收定时推送。** 预期推送全部到达前，让告警保持触发，不静默、不认领。从首条通知起算各渠道的延时，逐个记录 Beacon 中服务商受理的时间和设备上看到通知的时间。对于 Pushover 或 Bark，从推送链接登录并核对告警 ID 和开始时间。发布验收中的测试钩子、模拟服务商响应和服务商受理记录各自只证明对应的一步。目标设备须在配置的延时已到、演练告警仍在触发时实际显示通知，才算定时送达通过验收。

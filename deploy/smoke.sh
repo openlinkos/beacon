@@ -298,7 +298,9 @@ docker run --rm -v "$recovery_volume:/var/lib/beacon" -v "$work/archive:/backup:
     tar -C /var/lib/beacon --exclude=team-credentials/epochs -xzf /backup/beacon.tgz
     test -s /var/lib/beacon/beacon.db
     test -d /var/lib/beacon/recordings
-    test ! -e /var/lib/beacon/team-credentials/epochs'
+    test ! -e /var/lib/beacon/team-credentials/epochs
+    chown 65532:65532 /var/lib/beacon
+    chmod 0700 /var/lib/beacon'
 cat > "$work/recovery.compose.yml" <<YAML
 volumes:
   beacon-data:
