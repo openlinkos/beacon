@@ -4,12 +4,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
-- Opt-in team credentials for fixed HTTPS requests. Owners store and replace a bearer token, test it as themselves, and delegate its use to a named agent with an expiry. Uses are recorded before dispatch. Revocation takes effect for new requests, and responses expose only the upstream status.
-
 ## 0.3.0
 
 ### rc.25 (2026-11-25)
 
+- Opt-in team credentials for fixed HTTPS requests. Owners store and replace a bearer token, test it as themselves, and delegate its use to a named agent with an expiry. Uses are recorded before dispatch. Revocation takes effect for new requests, and responses expose only the upstream status.
 - Account and Agent identity administration now requires an owner account, a standalone administration token or the local command line. A delegated Agent can still manage its own SSH keys within its existing access.
 - The overview flags a missing human notification route for critical alerts. The bridge summary reports notification configuration alongside Watchdog health.
 - Review machine settings revisions and safely restore an earlier account, critical flag and note in the console, REST API or MCP. Version checks prevent stale restores and console edits. Machine identity and keys are outside the settings snapshots.
