@@ -12,7 +12,7 @@ Beacon on one machine with Docker Compose: `beacon`, VictoriaMetrics, vmalert an
 
 ```bash
 git clone https://github.com/openlinkos/beacon.git && sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
-sudo ./install.sh        # asks for the two names and the address; or STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh
+sudo ./install.sh        # asks for the two names and the address; or sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh
 ```
 
 `install.sh` copies `.env.example` to `.env`, generates the secrets (the rules token and the SSH channel's host and CA keys, which never leave the machine), puts your host names into `config.yaml` and the probe targets, validates every file with its own image, pulls, starts, waits until the four containers are healthy and the rule engine's first alert has reached the gateway, and prints what to do next. It is safe to run again: after editing a file, or after changing `BEACON_VERSION` in `.env` to update.

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-faa46629
+sourceHash: sha256-15a40c29
 ---
 
 # 装在服务器上
@@ -67,7 +67,7 @@ grep BEACON_VERSION .env.example
 sudo ./install.sh
 ```
 
-脚本会询问两个域名和邮箱地址。想无人值守地安装，就把它们放在环境变量里：`STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh`。
+脚本会询问两个域名和邮箱地址。想无人值守地安装，就把它们放在环境变量里：`sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh`。
 
 剩下的事脚本自己做：
 

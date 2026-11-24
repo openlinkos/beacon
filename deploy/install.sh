@@ -2,7 +2,7 @@
 # Installs or updates Beacon's reference deployment on this machine (deploy/README.md; docs/self-hosting/install.md walks
 # through the first half hour).
 #   sudo ./install.sh                                              asks for the host names and the ACME address
-#   STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh    unattended
+#   sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh    unattended
 # Idempotent: it makes what is missing (.env, the secrets, the host names in the files), validates, pulls,
 # starts, waits for health and prints the next steps. Run it again after changing a file or BEACON_VERSION.
 set -eu

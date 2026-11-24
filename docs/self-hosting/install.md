@@ -63,7 +63,7 @@ grep BEACON_VERSION .env.example
 sudo ./install.sh
 ```
 
-The script asks for the two host names and the e-mail address. To run it unattended, give them in the environment: `STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… sudo ./install.sh`.
+The script asks for the two host names and the e-mail address. To run it unattended, give them in the environment: `sudo env STATUS_HOST=… METRICS_HOST=… ACME_EMAIL=… ./install.sh`.
 
 Then it does the rest:
 

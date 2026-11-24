@@ -78,7 +78,7 @@ In Claude Code:
 What is alerting on Beacon right now?
 ```
 
-The agent calls `status_summary` and answers with what it returns. Nothing is firing: the demo service is up, the probe location reports, and alerts could reach people.
+The agent calls `status_summary` and answers with what it returns. Nothing is firing: the demo service is up and the probe location is reporting.
 
 This is the agent's normal view. The same question works at 3 a.m., and then the answer is the alert you are about to make.
 
