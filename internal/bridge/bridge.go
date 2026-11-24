@@ -92,8 +92,8 @@ type Deps struct {
 	// shell's prompt with their exit statuses; nil without the SSH channel.
 	ShellCommands func(sessionID string) []ShellCommand
 	// SSHConfig is the ssh configuration (ssh_config blocks and the known_hosts line) for the principal with
-	// this key (store.Principal.Key); nil without the SSH channel.
-	SSHConfig func(key string) string
+	// this key (store.Principal.Key) and optional machine; nil without the SSH channel.
+	SSHConfig func(key, machine string) string
 	// Recheck closes what is open on the SSH channel for whoever may no longer reach it, after a
 	// credential, an agent or an account changed (sshgate.Gate.Recheck); nil without the channel.
 	Recheck func() int
@@ -260,6 +260,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "firing"
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
+			g.ProbeRuns = nil
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
 			g.StartsAt = starts

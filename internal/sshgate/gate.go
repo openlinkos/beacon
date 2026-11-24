@@ -266,7 +266,7 @@ func (g *Gate) still(who Actor, machine string) bool {
 	return who.Cred == "" || g.d.Store.CredentialLive(who.Cred, p)
 }
 
-// Paused reports whether agents' access is paused.
+// Paused reports whether access through the SSH channel is paused.
 func (g *Gate) Paused() bool { return g != nil && !g.d.Store.Time(PauseKey).IsZero() }
 
 // PausedSince is when the pause started; zero while the channel runs.
@@ -277,7 +277,7 @@ func (g *Gate) PausedSince() time.Time {
 	return g.d.Store.Time(PauseKey)
 }
 
-// SetPaused pauses or resumes agents' access. Pausing closes every open connection and tool call.
+// SetPaused pauses or resumes access. Pausing closes every open client connection and tool call.
 func (g *Gate) SetPaused(ctx context.Context, who Actor, paused bool) error {
 	if g == nil {
 		return ErrDisabled
@@ -304,9 +304,9 @@ func (g *Gate) SetPaused(ctx context.Context, who Actor, paused bool) error {
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: action})
 	if paused {
-		g.post(ctx, i18n.T(g.d.Lang, "%s paused agents' access to machines", who.Name))
+		g.post(ctx, i18n.T(g.d.Lang, "%s paused SSH access to machines", who.Name))
 	} else {
-		g.post(ctx, i18n.T(g.d.Lang, "%s resumed agents' access to machines", who.Name))
+		g.post(ctx, i18n.T(g.d.Lang, "%s resumed SSH access to machines", who.Name))
 	}
 	return nil
 }
@@ -351,7 +351,10 @@ func (g *Gate) machineFor(who Actor, name string) (store.Machine, error) {
 	}
 	t, ok := g.principal(who)
 	if !ok || !t.Has("machines:ssh") {
-		return store.Machine{}, fmt.Errorf("%w: the agent lacks the machines:ssh scope", ErrForbidden)
+		return store.Machine{}, fmt.Errorf("%w: access requires the machines:ssh scope", ErrForbidden)
+	}
+	if who.Cred != "" && !g.d.Store.CredentialLive(who.Cred, t) {
+		return store.Machine{}, fmt.Errorf("%w: the SSH credential is no longer valid", ErrForbidden)
 	}
 	m, found := g.d.Store.Machine(name)
 	if !found || !t.Reaches(name) {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5c37a1ca
+sourceHash: sha256-a754fbe1
 ---
 
 # 让 Agent 值班
@@ -63,10 +63,12 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
 4. **弄坏点什么，看它触发。** 再开始一次演练，等卡片出来，在卡片上找关于 Agent 的那一行：
 
    ```
-   10:02 已唤醒 Agent claude-oncall
+   告警已于 10:02 送达钩子 claude-oncall
    ```
 
    每次调用的结果同样记在审计日志（`wake_agent`）、告警群和控制台的 **Hook** 页面里。
+
+   送达表示钩子返回了成功的 HTTP 响应。例如，参考接收端可以在告警入队后立即返回 202。处理进展看备注和时间线，恢复情况看复测结果或告警规则的状态。
 
 ### 钩子什么时候被调用 {#when-a-hook-is-called}
 
@@ -118,7 +120,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-你会看到每个检测点一行，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`。`missing` 列出没有及时回答的检测点。检测点推送的样本和平时每轮相同，所以告警在规则引擎下一次评估时就恢复。
+每个目标在各检测点分别有结果，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`。`missing` 列出至少缺失一项结果的检测点。告警页的**立即复测**会运行同样的检查。按告警 ID 发起的复测会进入该告警的时间线和审计日志。检测点推送的样本和日常检测相同，规则引擎判断满足恢复条件后，告警才恢复。
 
 限制：
 

@@ -59,10 +59,12 @@ A woken agent works the same way. The hook only takes the place of the person wh
 4. **Break something and watch it fire.** Start another drill and wait for the card. Look on it for the line about the agent:
 
    ```
-   Agent claude-oncall woken at 10:02
+   Alert delivered to hook claude-oncall at 10:02
    ```
 
    Each call's outcome is also in the audit log (`wake_agent`), in the alert chat and on the console's **Hooks** page.
+
+   Delivery means the hook returned a successful HTTP response. For example, the reference receiver can return 202 as soon as it queues the alert. Use the notes and timeline for work in progress and probe results or rule status for recovery.
 
 ### When a hook is called
 
@@ -114,7 +116,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-You will see one line per location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`. `missing` names the locations that did not answer in time. The probes push the same samples as in their cycle, so the alert resolves at the rule engine's next evaluation.
+You will see one result per target and location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`. `missing` names locations with at least one expected result missing. Use **Probe again now** on the alert page for the same check. Checks made with an alert ID appear in its timeline and audit log. The probes push the same samples as in their cycle, so the alert resolves when the rule engine finds its recovery conditions met.
 
 The limits:
 

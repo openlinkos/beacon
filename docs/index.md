@@ -1,11 +1,11 @@
 ---
 layout: home
-title: Put your AI agent on call
+title: Run operations with your agents
 ---
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
-  <template #title>Put your AI agent on call</template>
-  <template #lead>Beacon checks your services from where their users are, wakes an agent with the evidence when one breaks, lets it reach the machine without ever holding a key, and records every command it runs.</template>
+  <template #title>Run operations with your agents</template>
+  <template #lead>Monitor services, respond to incidents and connect to machines with your own identity. Delegate work to an agent within its permissions and see what it did, from the first alert to verified recovery.</template>
   <template #actions>
     <a href="/guide/quickstart">Quickstart</a>
     <a class="ghost" href="/guide/concepts">How it works</a>

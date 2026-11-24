@@ -2,7 +2,7 @@
   <img alt="Beacon · 烽火" src="https://openlinkos.com/brand/beacon/github/readme.svg" height="56">
 </h1>
 
-**Self-hosted monitoring and SSH access for the AI agents that run your servers.**
+**Self-hosted monitoring and SSH access for people and their AI agents.**
 
 [![CI](https://github.com/openlinkos/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/openlinkos/beacon/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/openlinkos/beacon?include_prereleases&sort=semver)](https://github.com/openlinkos/beacon/releases)
@@ -11,6 +11,8 @@
 English | [简体中文](README.zh-CN.md) · Documentation: [beacon.openlinkos.com](https://beacon.openlinkos.com)
 
 Beacon checks your websites and services from several places at once, the way your users reach them, and says why a check fails: DNS, connection, TLS, timeout, status code. When a service goes down, it wakes your AI agent (Claude Code, Codex, or anything that speaks MCP or HTTP) and hands it the evidence in one call: what every location sees, what changed just before, what has already been done. The agent logs in to your servers through Beacon with its own `ssh`, or with Beacon's tools for running commands and editing files, fixes what it can, has every location check again, and leaves a note on the alert. It never holds a password or a private key, and every command it runs is recorded and can be replayed in a browser. Your users see a status page; the people on call get a card in Feishu and, when nobody answers, a call on their phone.
+
+People use the same console to take over an alert, set up services, plan maintenance and control agent access. They can connect to a machine in their own terminal, with sessions recorded under their own account. Team credential custody is in development.
 
 > **Status: early (0.3, release candidates).** Probing, alert routing, Feishu cards and phone escalation, the SSH channel with its recordings, waking agents, evidence, probing on demand, the console and public status pages work end to end, and run the makers' own servers. Until 1.0 the configuration may change between minor versions; the [changelog](CHANGELOG.md) says what to do when it does.
 
@@ -22,7 +24,7 @@ AI coding agents are already good at operations work: reading logs, finding the 
 - **To touch a server, it needs your keys.** The usual way is to give the agent your SSH key or a root password. From then on it can reach every machine they open, from anywhere, and nothing records what it ran.
 - **Afterwards, nobody can tell what happened.** The agent's commands scrolled past in a terminal nobody was watching. Reviewing them means asking the agent, which remembers nothing between sessions.
 
-Beacon is built for the agent to do the work and for people to see all of it:
+People and agents share the same operations:
 
 - **Checked from where your users are.** A probe of under 20 MB, on any small machine, checks HTTP, TLS, TCP, container registries, Git and domain expiry, and records why each check failed. A service is down only when several locations agree, so one location's bad network wakes nobody.
 - **The agent is woken with the evidence.** A signed webhook or a GitHub workflow wakes the agent you choose. One call, `get_evidence`, returns each location's result, the other alerts in the same failure domain, the deployments just before, and what people and agents have done so far.

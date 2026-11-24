@@ -1,4 +1,6 @@
-{{define "content"}}<div class="ol-layout-supporting">
+{{define "content"}}
+{{if .Schedule}}<p class="ol-cluster"><a class="ol-btn ol-btn-secondary" href="{{.Schedule}}">{{iconSm "clock"}}{{.L.Schedule}}</a></p>{{end}}
+<div class="ol-layout-supporting">
   <div class="ol-stack">
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "activity"}} {{.LL.Probes}}</h2></div>
@@ -17,7 +19,7 @@
       {{end}}
       <div class="ol-panel-body">
         {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
-        {{if .Problem}}<p class="ol-hint ol-mono">{{.Problem}}</p>{{end}}
+        {{if .ProbeError}}<p class="ol-hint ol-mono">{{.ProbeError}}</p>{{end}}
         <p class="ol-hint">{{.L.Window}}</p>
       </div>
     </section>

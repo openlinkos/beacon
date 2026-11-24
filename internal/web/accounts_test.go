@@ -95,6 +95,40 @@ func (e *env) invite(alice *browser, username, role string) *browser {
 	return b
 }
 
+func TestPersonalKeysOnAccount(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	alice := e.owner()
+	bob := e.invite(alice, "bob", "oncall")
+	charlie := e.invite(alice, "charlie", "viewer")
+	key := keySigner(t).PublicKey()
+	fp := ssh.FingerprintSHA256(key)
+	form := func() url.Values {
+		return url.Values{"key": {strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))}, "comment": {"Work laptop"}}
+	}
+	if page := bob.get("/console/account"); !strings.Contains(page.body, `id="ssh-keys"`) {
+		t.Fatal("the on-call account cannot find personal SSH keys")
+	}
+	post := "/console/account/keys"
+	if a := bob.post(post, form()); !strings.Contains(a.header.Get("Location"), "done=key_added") {
+		t.Fatalf("add personal key: %d %s", a.code, a.header.Get("Location"))
+	}
+	if page := bob.get("/console/account"); !strings.Contains(html.UnescapeString(page.body), fp) || !strings.Contains(page.body, "Work laptop") {
+		t.Fatal("the added key is missing from the account page")
+	}
+	if a := alice.post(post, form()); !strings.Contains(a.header.Get("Location"), "error=key_taken") {
+		t.Fatalf("register another person's key: %d %s", a.code, a.header.Get("Location"))
+	}
+	if a := charlie.post(post, form()); a.code != http.StatusForbidden {
+		t.Fatalf("a viewer can post an SSH key: %d", a.code)
+	}
+	if a := bob.post(post+"/remove", url.Values{"fingerprint": {fp}}); !strings.Contains(a.header.Get("Location"), "done=key_removed") {
+		t.Fatalf("remove personal key: %d %s", a.code, a.header.Get("Location"))
+	}
+	if holder := e.st.KeyHolder(fp); holder != "" {
+		t.Fatalf("removed key still held by %s", holder)
+	}
+}
+
 func TestSetupAndSignInWithPassword(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	b := e.browser()

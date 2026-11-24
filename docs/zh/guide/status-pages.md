@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-82714d3d
+sourceHash: sha256-5c8fd235
 ---
 
 # 发布状态页
@@ -186,6 +186,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 ## 维护 {#maintenance}
 
 维护窗口是对某些服务的计划内工作。页面提前公告，进行期间把相关组件显示为维护中，并把那些天标出来。
+
+打开控制台的**静默与维护**，选择**安排维护**。安排前可以预览公开公告及受影响的服务。预览会列出当前展示这些服务的公开状态页和组件。
 
 | 要做的事 | REST | MCP 工具 |
 | --- | --- | --- |

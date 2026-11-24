@@ -18,18 +18,25 @@ func (m Machine) Connector() bool { return m.Address == ConnectorAddress }
 func (s *Store) MachineByConnectorKey(fingerprint string) (Machine, bool) {
 	var out Machine
 	found := false
+	_ = s.db.View(func(tx kv.Tx) error {
+		out, found = machineByConnectorKey(tx, fingerprint)
+		return nil
+	})
+	return out, found
+}
+
+func machineByConnectorKey(tx kv.Tx, fingerprint string) (Machine, bool) {
+	var out Machine
+	found := false
 	if fingerprint == "" {
 		return out, false
 	}
-	_ = s.db.View(func(tx kv.Tx) error {
-		tx.Range(bucketMachines, kv.Range{}, func(_, v []byte) bool {
-			var m Machine
-			if json.Unmarshal(v, &m) == nil && m.Connector() && m.ConnectorFingerprint == fingerprint {
-				out, found = m, true
-			}
-			return !found
-		})
-		return nil
+	tx.Range(bucketMachines, kv.Range{}, func(_, v []byte) bool {
+		var m Machine
+		if json.Unmarshal(v, &m) == nil && m.Connector() && m.ConnectorFingerprint == fingerprint {
+			out, found = m, true
+		}
+		return !found
 	})
 	return out, found
 }

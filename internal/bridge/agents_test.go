@@ -110,10 +110,10 @@ func TestWakeAgentRetries(t *testing.T) {
 		p.Hook != "claude-oncall" || !strings.Contains(p.Hint, "get_evidence") || len(p.Untrusted.Fields) == 0 || p.Alert.StartsAt.IsZero() {
 		t.Fatalf("payload: %+v", p)
 	}
-	if c := cardText(e.fs.patches[len(e.fs.patches)-1]); !strings.Contains(c, "Agent claude-oncall woken at") {
-		t.Errorf("the card shows the agent was woken: %s", c)
+	if c := cardText(e.fs.patches[len(e.fs.patches)-1]); !strings.Contains(c, "Alert delivered to hook claude-oncall at") {
+		t.Errorf("the card shows the hook delivery: %s", c)
 	}
-	if last := e.bot.texts[len(e.bot.texts)-1]; last != `Woke agent claude-oncall for "git.example.com is down"` {
+	if last := e.bot.texts[len(e.bot.texts)-1]; last != `Delivered alert to hook claude-oncall for "git.example.com is down"` {
 		t.Errorf("echo: %q", last)
 	}
 	if a := e.st.AuditLog(1); a[0].Action != "wake_agent" || a[0].Target != id || !strings.Contains(a[0].Detail, "claude-oncall (webhook, firing): ok, 3 attempts") {
@@ -176,14 +176,14 @@ func TestWakeAgentGivesUp(t *testing.T) {
 	}
 	var failed []string
 	for _, s := range e.bot.texts {
-		if strings.HasPrefix(s, "Could not reach agent") {
+		if strings.HasPrefix(s, "Delivery to hook") {
 			failed = append(failed, s)
 		}
 	}
 	if len(failed) != 2 || strings.Contains(failed[0], "<at") || !strings.Contains(failed[0], "401 Unauthorized") {
 		t.Errorf("failures echoed, without mentions: %q", failed)
 	}
-	if c := cardText(e.fs.patches[len(e.fs.patches)-1]); !strings.Contains(c, "Could not wake agent second") {
+	if c := cardText(e.fs.patches[len(e.fs.patches)-1]); !strings.Contains(c, "Delivery to hook second failed") {
 		t.Errorf("card: %s", c)
 	}
 }
@@ -218,7 +218,7 @@ func TestWhichHooksWake(t *testing.T) {
 		p.FiringCall == nil || !p.FiringCall.Recent || p.FiringCall.Delivery != hs.reqs[0].Header.Get("X-Beacon-Delivery") {
 		t.Fatalf("resolved payload: %+v", p)
 	}
-	if !strings.Contains(e.bot.texts[len(e.bot.texts)-1], `Told agent claude-oncall that "git.example.com is down" resolved`) {
+	if !strings.Contains(e.bot.texts[len(e.bot.texts)-1], `Delivered recovery notice for "git.example.com is down" to hook claude-oncall`) {
 		t.Errorf("echo: %v", e.bot.texts)
 	}
 	// firing again is a new episode: the old calls and notes go, the hook is woken again

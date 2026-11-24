@@ -50,8 +50,7 @@ It finds the alert with `list_alerts` and reads `get_evidence`. That one answer 
 
 Then let it act, one step of the loop at a time:
 
-- **`ack_alert`** with a note, and **`add_note`** for what it finds. Both go on the alert's timeline, which people read on the card and in the console.
-- **`silence_alert`** quiets the alert. On the centre, `beacon silence create -matchers 'alertname=ServiceDown,service=drill' -duration 1h -comment 'drill'` makes one from the command line. The audit log records it as made from the command line, and `beacon silence list` shows it.
+- **`add_note`** records the agent's findings on the timeline and card. The reference agent leaves acknowledgement and silencing to the person on call. Acknowledging stops escalation while the acknowledgement is active. Use the console or the card to test taking charge yourself.
 - **A command on the machine.** If the drill's machine is one the [SSH channel](machines.md) reaches, have the agent run a command on it. The session lands on the alert's page with its replay.
 - **`probe_now`** has every location probe the target again at once. It does not change the drill's answer: the service is still 503. But it exercises the call an agent makes after a real fix.
 

@@ -1,0 +1,53 @@
+{{define "content"}}<div class="ol-layout-supporting">
+  {{if and .Scopes .Modules}}
+  <form method="post" action="{{.Form}}" class="ol-panel">
+    <div class="ol-panel-body ol-stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="version" value="{{.Version}}">
+      <div class="ol-field">
+        <label class="ol-label" for="monitor-service">{{.L.Name}}</label>
+        <input class="ol-input ol-input-mono" id="monitor-service" name="service" required maxlength="64" pattern="[a-z0-9][a-z0-9.\-]{0,63}" value="{{.Input.Service}}" autocapitalize="none" spellcheck="false" aria-describedby="monitor-service-hint">
+        <p class="ol-hint" id="monitor-service-hint">{{.L.NameHint}}</p>
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="monitor-url">{{.L.URL}}</label>
+        <input class="ol-input ol-input-mono" id="monitor-url" name="url" type="url" required maxlength="2048" value="{{.Input.URL}}" placeholder="https://example.com/health" spellcheck="false" aria-describedby="monitor-url-hint">
+        <p class="ol-hint" id="monitor-url-hint">{{.L.URLHint}}</p>
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="monitor-scope">{{.L.Scope}}</label>
+        <select class="ol-select" id="monitor-scope" name="scope">{{range .Scopes}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="monitor-module">{{.L.Module}}</label>
+        <select class="ol-select" id="monitor-module" name="module" aria-describedby="monitor-module-hint">{{range .Modules}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <p class="ol-hint" id="monitor-module-hint">{{.L.ModuleHint}}</p>
+      </div>
+      <div class="ol-field">
+        <label class="ol-label" for="monitor-severity">{{.L.Severity}}</label>
+        <select class="ol-select" id="monitor-severity" name="severity" aria-describedby="monitor-severity-hint">{{range .Severities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <p class="ol-hint" id="monitor-severity-hint">{{.L.SeverityHint}}</p>
+      </div>
+    </div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{.Monitors}}">{{.L.Cancel}}</a>
+      <button class="ol-btn ol-btn-primary" type="submit">{{iconSm "plus"}}{{.L.Add}}</button>
+    </div>
+  </form>
+  {{else}}
+  <section class="ol-panel">
+    <div class="ol-panel-body ol-stack">
+      {{if not .Scopes}}<p>{{.L.NoLocations}}</p>{{end}}
+      {{if not .Modules}}<p>{{.L.NoModules}}</p>{{end}}
+    </div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{.Monitors}}">{{.L.Cancel}}</a>
+      <a class="ol-btn ol-btn-primary" href="{{.Config}}">{{.L.Config}}</a>
+    </div>
+  </section>
+  {{end}}
+  <aside class="ol-panel">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.After}}</h2></div>
+    <div class="ol-panel-body ol-stack"><p>{{.L.AfterHint}}</p><p><a href="{{.Config}}">{{.L.ReviewConfig}}</a></p></div>
+  </aside>
+</div>{{end}}

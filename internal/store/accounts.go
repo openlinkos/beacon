@@ -74,6 +74,7 @@ type Account struct {
 	LastSignIn      time.Time `json:"last_sign_in,omitzero"`
 	PasswordChanged time.Time `json:"password_changed,omitzero"`
 	Disabled        bool      `json:"disabled,omitempty"`
+	SSHKeys         []SSHKey  `json:"ssh_keys,omitempty"`
 }
 
 // Account errors.

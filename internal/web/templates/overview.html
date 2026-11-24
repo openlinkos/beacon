@@ -18,12 +18,7 @@
   <div class="ol-alert-body"><p class="ol-alert-title">{{.Health.Title}}</p><p>{{.Health.Text}}</p></div>
 </div>
 
-<section class="ol-stats" aria-label="{{.Heading}}">
-  {{range .Stats}}{{template "stat" .}}{{end}}
-</section>
-
 <div class="ol-layout-dashboard">
-  <div class="ol-stack">
     <section class="ol-panel" id="attention">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "shield-alert"}} {{.L.Attention}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}</a></div>
       {{if .Attention}}
@@ -31,7 +26,7 @@
         <tbody>
         {{range .Attention}}<tr>
           <td><span class="ol-entity"><span class="ol-tone-{{.Tone}}">{{icon .Icon}}</span><span class="ol-entity-text"><a class="ol-entity-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Sub}}<span class="ol-entity-sub">{{.Sub}}</span>{{end}}</span></span></td>
-          <td><span class="ol-cluster"><span class="ol-badge ol-badge-{{.BadgeTone}}">{{.Badge}}</span>{{if .Acked}}<span class="ol-badge">{{$.L.Acked}}</span>{{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span></td>
+          <td><span class="ol-cluster"><span class="ol-badge ol-badge-{{.BadgeTone}}">{{.Badge}}</span>{{if .Response}}<span class="ol-badge{{if .Unclaimed}} ol-badge-warning{{end}}">{{.Response}}</span>{{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span></td>
           <td class="ol-num">{{.When}}</td>
         </tr>{{end}}
         </tbody>
@@ -42,7 +37,24 @@
         <p class="ol-empty-text">{{.L.CalmText}}</p>
       </div></div>{{end}}
     </section>
+    <section class="ol-panel">
+      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/hooks"}}">{{.L.AllCalls}}</a></div>
+      {{if .Calls}}<div class="ol-panel-body"><p class="ol-hint">{{.CallSummary}}</p></div>{{end}}
+      {{if .Calls}}<ul class="ol-list">
+        {{range .Calls}}<li>
+          <span class="ol-list-row"><a class="ol-list-title" href="{{.AlertHref}}">{{.Alert}}</a><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></span>
+          <span class="ol-list-meta"><span class="ol-mono">{{.Hook}}</span><span>{{.At}}</span></span>
+        </li>{{end}}
+      </ul>{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneWoken}}</p></div>{{end}}
+    </section>
+</div>
 
+<section class="ol-stats" aria-label="{{.Heading}}">
+  {{range .Stats}}{{template "stat" .}}{{end}}
+</section>
+
+<div class="ol-layout-dashboard">
+  <div class="ol-stack">
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Sessions}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/sessions"}}">{{.L.AllSessions}}</a></div>
       {{if .Sessions}}
@@ -83,16 +95,6 @@
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "calendar"}} {{.L.Coming}}</h2></div>
       {{if .Coming}}{{template "feed" .Coming}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoComing}}</p></div>{{end}}
-    </section>
-
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/agents"}}">{{.L.AllCalls}}</a></div>
-      {{if .Calls}}<ul class="ol-list">
-        {{range .Calls}}<li>
-          <span class="ol-list-row"><a class="ol-list-title" href="{{.AlertHref}}">{{.Alert}}</a><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></span>
-          <span class="ol-list-meta"><span class="ol-mono">{{.Hook}}</span><span>{{.At}}</span></span>
-        </li>{{end}}
-      </ul>{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneWoken}}</p></div>{{end}}
     </section>
 
     <section class="ol-panel">

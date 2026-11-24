@@ -129,9 +129,8 @@ func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
 	})
 }
 
-// publicKey authenticates a connection to the channel by its key: an agent's token, or a machine's
-// connector key, which only signs in as that machine. A key a token holds is a token's key, whatever a
-// machine says: a token's key can never register a forward, a connector key can never open a session.
+// publicKey authenticates a person, agent, token or machine by its key. A connector key only signs
+// in as its machine. The other identities can open sessions on allowed machines.
 func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 	fp := ssh.FingerprintSHA256(k)
 	if p, ok := g.d.Store.PrincipalBySSHKey(fp); ok {
@@ -140,7 +139,7 @@ func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions
 		}
 		return &ssh.Permissions{Extensions: map[string]string{"principal": p.Key(), "name": p.Name(), "cred": "key:" + fp}}, nil
 	}
-	if g.d.Store.KeyHolder(fp) != "" { // an agent's or a token's key that does not sign in now: never a connector's
+	if g.d.Store.KeyHolder(fp) != "" { // an inactive principal's key is still theirs
 		return nil, errors.New("unknown key")
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {

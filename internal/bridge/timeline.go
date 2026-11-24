@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // Timeline is an alert group's story in time order: when it started and how people were told, what
@@ -19,26 +21,27 @@ type Timeline struct {
 
 // Event is one entry of a timeline. Kind is started, notified, buzzed, pushover, acknowledged, note,
 // silenced, silence_ended, agent, change, session, command (one run at a shell's prompt), heartbeat (its
-// last success) or resolved; the other fields say what each needs. URL is a change's link, or the signed
+// last success), probe_now or resolved; the other fields say what each needs. URL is a change's link, or the signed
 // link to a session's page, where people replay it. Phase, on changes, sessions, commands and heartbeats,
 // says whether the event came before the group started, while it fired or after it resolved.
 type Event struct {
-	At      time.Time  `json:"at"`
-	Kind    string     `json:"kind"`
-	By      string     `json:"by,omitempty"`   // a person, a token, a hook, a change's source
-	Via     string     `json:"via,omitempty"`  // how: feishu, pushover, api, mcp, ssh; the channel people were told on
-	Text    string     `json:"text,omitempty"` // a note, a comment, a change's summary, a command, why a call failed, a heartbeat's description
-	Type    string     `json:"type,omitempty"` // a change's kind, a session's kind, a hook's kind
-	Machine string     `json:"machine,omitempty"`
-	Service string     `json:"service,omitempty"`
-	ID      string     `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
-	Until   *time.Time `json:"until,omitempty"`
-	Event   string     `json:"event,omitempty"`  // an agent call: for firing or resolved
-	Result  string     `json:"result,omitempty"` // an agent call: ok, failed or pending
-	Exit    *int       `json:"exit,omitempty"`   // a session's or a command's exit status
-	URL     string     `json:"url,omitempty"`
-	Related string     `json:"related,omitempty"` // why a change or session is listed: service, machine or agent
-	Phase   string     `json:"phase,omitempty"`   // before, during or after
+	At      time.Time                `json:"at"`
+	Kind    string                   `json:"kind"`
+	By      string                   `json:"by,omitempty"`   // a person, a token, a hook, a change's source
+	Via     string                   `json:"via,omitempty"`  // how: feishu, pushover, api, mcp, ssh; the channel people were told on
+	Text    string                   `json:"text,omitempty"` // a note, a comment, a change's summary, a command, why a call failed, a heartbeat's description
+	Type    string                   `json:"type,omitempty"` // a change's kind, a session's kind, a hook's kind
+	Machine string                   `json:"machine,omitempty"`
+	Service string                   `json:"service,omitempty"`
+	ID      string                   `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
+	Until   *time.Time               `json:"until,omitempty"`
+	Event   string                   `json:"event,omitempty"`  // an agent call: for firing or resolved
+	Result  string                   `json:"result,omitempty"` // an agent call: ok, failed or pending
+	Exit    *int                     `json:"exit,omitempty"`   // a session's or a command's exit status
+	URL     string                   `json:"url,omitempty"`
+	Related string                   `json:"related,omitempty"` // why a change or session is listed: service, machine or agent
+	Phase   string                   `json:"phase,omitempty"`   // before, during or after
+	Probes  []store.ProbeObservation `json:"probes,omitempty"`  // on-demand observations, including missing results
 }
 
 // Timeline returns the alert group id's timeline, over the window of its evidence.
@@ -75,7 +78,14 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 		}
 	}
 	for _, c := range g.Agents {
-		add(Event{At: c.At, Kind: "agent", By: c.Hook, Type: c.Kind, Event: c.Event, ID: c.Delivery, Result: c.Status, Text: cleanLine(c.Error)})
+		at := c.At
+		if !c.Done.IsZero() {
+			at = c.Done
+		}
+		add(Event{At: at, Kind: "agent", By: c.Hook, Type: c.Kind, Event: c.Event, ID: c.Delivery, Result: c.Status, Text: cleanLine(c.Error)})
+	}
+	for _, run := range g.ProbeRuns {
+		add(Event{At: run.At, Kind: "probe_now", By: run.By, Via: run.Via, ID: run.ID, Probes: run.Results})
 	}
 	machines := b.machines(&g)
 	for _, c := range b.changesAround(&g, w, machines) {
@@ -104,5 +114,6 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 	sort.SliceStable(ev, func(i, j int) bool { return ev[i].At.Before(ev[j].At) })
 	return Timeline{Alert: b.brief(&g), Window: w, Heartbeats: hbs, Events: ev,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
-			"heartbeats[].description", "heartbeats[].error", "events[].text", "events[].service")}, nil
+			"heartbeats[].description", "heartbeats[].error", "events[].text", "events[].service",
+			"events[].probes[].instance", "events[].probes[].module", "events[].probes[].reason")}, nil
 }

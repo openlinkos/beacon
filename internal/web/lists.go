@@ -274,7 +274,7 @@ func (s *Server) hooks(w http.ResponseWriter, r *http.Request, v *viewer) {
 		p.Hooks = append(p.Hooks, row)
 	}
 	for _, c := range kept {
-		row := callRow{Hook: c.Hook, Event: events(c.Event), Status: s.callStatus(c.Status), StatusTone: tone(c.Status), Attempts: strconv.Itoa(c.Attempts),
+		row := callRow{Hook: c.Hook, Event: events(c.Event), Status: s.callStatus(c.Status), StatusTone: callTone(c.Status), Attempts: strconv.Itoa(c.Attempts),
 			When: s.clock(c.At), Alert: c.title, AlertHref: link.AlertPath(c.alert), Error: c.Error}
 		if c.Code > 0 {
 			row.Code = strconv.Itoa(c.Code)

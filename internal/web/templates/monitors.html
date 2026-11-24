@@ -1,7 +1,10 @@
 {{define "content"}}<div class="ol-stack">
 <section class="ol-section" id="services">
-  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Services}}</h2></div>
-  {{if .Problem}}<p class="ol-hint ol-mono">{{.Problem}}</p>{{end}}
+  <div class="ol-section-header">
+    <h2 class="ol-section-title">{{.L.Services}}</h2>
+    {{if .Add}}<a class="ol-btn ol-btn-primary" href="{{.Add}}">{{iconSm "plus"}}{{.L.Add}}</a>{{end}}
+  </div>
+  {{if .ProbeError}}<p class="ol-hint ol-mono">{{.ProbeError}}</p>{{end}}
   {{if .Rows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
     <thead><tr><th>{{.L.Service}}</th><th>{{.L.State}}</th><th>{{.L.Targets}}</th><th>{{.L.Pages}}</th><th>{{.L.Severity}}</th><th>{{.L.Checked}}</th></tr></thead>
     <tbody>{{range .Rows}}<tr>

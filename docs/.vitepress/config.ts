@@ -232,11 +232,11 @@ const site: Omit<OpenLinkOSConfig, 'brand'> = {
   },
   locales: {
     root: {
-      description: 'Self-hosted monitoring and SSH access for the AI agents that run your servers.',
+      description: 'Self-hosted monitoring and SSH access for people and their AI agents.',
       themeConfig: { nav: nav(false), sidebar: sidebar(false) },
     },
     zh: {
-      description: '为管理服务器的 AI Agent 打造的自托管监控与 SSH 接入。',
+      description: '人和 AI Agent 共用的自托管监控与 SSH 接入。',
       themeConfig: { nav: nav(true), sidebar: sidebar(true) },
     },
   },

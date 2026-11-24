@@ -52,10 +52,17 @@ func announceSetup(br *bridge.Bridge, st *store.Store, log *slog.Logger) {
 
 // sshConfig is the ssh configuration for a principal: a block for each machine it reaches and the
 // channel's known_hosts line; empty without the channel's public address.
-func sshConfig(gate *sshgate.Gate, address string) func(string) string {
-	return func(key string) string {
+func sshConfig(gate *sshgate.Gate, address string) func(string, string) string {
+	return func(key, machine string) string {
 		if address == "" {
 			return ""
+		}
+		if machine != "" {
+			cfg, hosts := gate.ConnectionConfig(sshgate.Actor{Key: key}, address, machine)
+			if cfg == "" {
+				return ""
+			}
+			return "# ~/.ssh/config\n" + cfg + "\n\n# ~/.ssh/known_hosts\n" + hosts
 		}
 		l, err := gate.List(sshgate.Actor{Key: key}, address)
 		if err != nil || l.SSHConfig == "" {

@@ -180,7 +180,7 @@ func (s *Server) access(r *http.Request, scopes string) access {
 	}
 	if sig := r.URL.Query().Get(link.Param); sig != "" && s.Pages != nil && s.Pages.Signer != nil {
 		if until, ok := s.Pages.Signer.Verify(http.MethodGet, r.URL.Path, sig); ok {
-			return access{OK: true, Until: until, Viewer: v}
+			return access{OK: true, Until: until}
 		}
 	}
 	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
@@ -289,6 +289,8 @@ var staticFiles = map[string]string{
 	"asciinema-player.min.js":           "text/javascript; charset=utf-8",
 	"asciinema-player.css":              "text/css; charset=utf-8",
 	"beacon-player.js":                  "text/javascript; charset=utf-8",
+	"beacon-agent-form.js":              "text/javascript; charset=utf-8",
+	"beacon-copy.js":                    "text/javascript; charset=utf-8",
 	"beacon.css":                        "text/css; charset=utf-8",
 	"status.css":                        "text/css; charset=utf-8",
 	"ol/ui.css":                         "text/css; charset=utf-8",

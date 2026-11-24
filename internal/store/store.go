@@ -82,6 +82,7 @@ type Group struct {
 	Barked      time.Time         `json:"barked,omitzero"`
 	Notes       []Note            `json:"notes,omitempty"`  // see agents.go
 	Agents      []AgentCall       `json:"agents,omitempty"` // the hooks called to wake agents
+	ProbeRuns   []ProbeRun        `json:"probe_runs,omitempty"`
 	Updated     time.Time         `json:"updated"`
 }
 
@@ -589,6 +590,10 @@ func (s *Store) RevokeToken(name string) error {
 // The token is read from the database inside the write, so a revoke that landed on another instance
 // of a pair is not written back from a stale cache.
 func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, error) {
+	return s.updateToken(name, func(_ kv.Tx, t *Token) error { return change(t) })
+}
+
+func (s *Store) updateToken(name string, change func(kv.Tx, *Token) error) (Token, error) {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var t Token
@@ -604,7 +609,7 @@ func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, erro
 			t.Lifetime = t.Expires.Sub(t.Created)
 		}
 		hash, expires := t.Hash, t.Expires
-		if err := change(&t); err != nil {
+		if err := change(tx, &t); err != nil {
 			return err
 		}
 		t.Name, t.Hash, t.Expires = name, hash, expires
@@ -747,7 +752,14 @@ func (s *Store) PutMachine(m Machine) error {
 		return fmt.Errorf("machine name %q: use lower case letters, digits and dashes", m.Name)
 	}
 	b, _ := json.Marshal(m)
-	return s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketMachines, []byte(m.Name), b) })
+	return s.db.Update(func(tx kv.Tx) error {
+		if fp := m.ConnectorFingerprint; m.Connector() && fp != "" {
+			if holder := keyHolder(tx, fp); holder != "" {
+				return fmt.Errorf("%w: the key %s belongs to %s", ErrExists, fp, holder)
+			}
+		}
+		return tx.Put(bucketMachines, []byte(m.Name), b)
+	})
 }
 
 // Machine returns the machine called name.
@@ -795,19 +807,21 @@ func (s *Store) DeleteMachine(name string) error {
 // port, through the SSH channel or a tool. Its recording and transcript are files; Recording names them
 // relative to the recordings directory, without the extension.
 type SessionRecord struct {
-	ID        string    `json:"id"`
-	Agent     string    `json:"agent"`
-	Via       string    `json:"via"` // ssh, mcp or api
-	Machine   string    `json:"machine"`
-	Kind      string    `json:"kind"` // exec, shell, sftp, forward or file
-	Command   string    `json:"command,omitempty"`
-	Started   time.Time `json:"started"`
-	Ended     time.Time `json:"ended,omitzero"`
-	Exit      *int      `json:"exit,omitempty"`
-	Commands  int       `json:"commands,omitempty"`
-	BytesIn   int64     `json:"bytes_in"`
-	BytesOut  int64     `json:"bytes_out"`
-	Recording string    `json:"recording,omitempty"`
+	ID         string    `json:"id"`
+	Agent      string    `json:"agent"`                // display name of the actor (historical field name)
+	Principal  string    `json:"principal,omitempty"`  // user:NAME, agent:NAME or token:NAME
+	Credential string    `json:"credential,omitempty"` // public key fingerprint, token name or grant ID
+	Via        string    `json:"via"`                  // ssh, mcp or api
+	Machine    string    `json:"machine"`
+	Kind       string    `json:"kind"` // exec, shell, sftp, forward or file
+	Command    string    `json:"command,omitempty"`
+	Started    time.Time `json:"started"`
+	Ended      time.Time `json:"ended,omitzero"`
+	Exit       *int      `json:"exit,omitempty"`
+	Commands   int       `json:"commands,omitempty"`
+	BytesIn    int64     `json:"bytes_in"`
+	BytesOut   int64     `json:"bytes_out"`
+	Recording  string    `json:"recording,omitempty"`
 	// PTY says whether the session had a terminal; nil on sessions recorded before Beacon kept it.
 	PTY *bool `json:"pty,omitempty"`
 }

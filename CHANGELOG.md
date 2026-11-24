@@ -6,6 +6,15 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.24 (2026-11-25)
+
+- Updated the WebSocket dependency used by the Feishu listener to fix [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278).
+- People with SSH access can register personal public keys in **Your account** and copy a connection command and terminal setup from the machine page. Sessions record the principal and the credential used. Removing a key or losing the role closes its connections.
+- **Find machines and review Agent permissions in the console.** The fleet opens with search and a compact global SSH control. Machine registration is available when needed. When assigning an Agent machine access, choose all current and future machines or select specific registered machines. The editor previews the selection and the preset permissions.
+- **The alert page puts response actions first.** A person can acknowledge an alert or repeat its probes from the first panel. Signed visitors return to the same page when they sign in. An on-demand check by alert ID adds per-target results to the alert timeline and a matching audit entry. Cards and the console show whether an alert reached an agent hook separately from acknowledgement and recovery.
+- Add an HTTP monitor from the console with a probe scope and a check profile. Follow its first results on the service page and review or revert the change in configuration history.
+- Schedule maintenance from the console and preview which services will be silenced and which public status pages will announce the window.
+
 ### rc.23 (2026-11-23)
 
 - **Built with Go 1.27.4**, which fixes GO-2026-6859 (CVE-2026-97054) in `net/http`: an HTTP/1 server that limits request bodies with `MaxBytesReader` could crash when a handler read the body while writing the response header. Beacon's API, console, OAuth, gateway and hook receiver all limit request bodies this way, so earlier releases (built with Go 1.27.3) are affected; `beacon`, `beacon-probe` and `beacon-oncall` are all rebuilt. No other change since rc.22, which this release supersedes.

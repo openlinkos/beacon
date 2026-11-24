@@ -66,7 +66,7 @@ func (b *Bridge) notesBlock(g *store.Group) map[string]any {
 	return feishu.Markdown(strings.Join(lines, "\n"))
 }
 
-// agentLines say on the card which agents were woken for the group, and how that went.
+// agentLines say on the card whether the alert reached each hook.
 func (b *Bridge) agentLines(g *store.Group) []string {
 	var out []string
 	for _, c := range g.Agents {
@@ -75,11 +75,11 @@ func (b *Bridge) agentLines(g *store.Group) []string {
 		}
 		switch c.Status {
 		case "ok":
-			out = append(out, b.t("Agent %s woken at %s", c.Hook, b.clock(c.Done)))
+			out = append(out, b.t("Alert delivered to hook %s at %s", c.Hook, b.clock(c.Done)))
 		case "failed":
-			out = append(out, b.t("Could not wake agent %s", c.Hook))
+			out = append(out, b.t("Delivery to hook %s failed", c.Hook))
 		default:
-			out = append(out, b.t("Waking agent %s", c.Hook))
+			out = append(out, b.t("Delivery to hook %s pending", c.Hook))
 		}
 	}
 	return out

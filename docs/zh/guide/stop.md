@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-244dc0d0
+sourceHash: sha256-eaf6026b
 ---
 
 # 停下 Agent，暂停一切
@@ -24,7 +24,8 @@ sourceHash: sha256-244dc0d0
 | 删除 SSH 密钥 | `remove_ssh_key`，或 Agent 的页面 | 用这把密钥登录的连接关闭 |
 | 删除 Agent | `beacon agent remove NAME`，或它的页面 | 它的全部凭据（令牌、登录、密钥），及这些凭据打开的一切。它做过的事留在记录里 |
 | 收窄 Agent | 它的页面，或中心上的 `beacon agent`：从其机器清单里去掉一台，或把预设降到 `machines:ssh` 以下 | 它在不再能到达的机器上打开的东西关闭。其余照常 |
-| 停下所有者 | `beacon user disable NAME`，或 `beacon user role NAME viewer`（[改角色、停用某个成员](people.md#change-a-role-disable-someone)） | 其登录结束、Agent 停下，这些 Agent 在机器上打开的一切关闭 |
+| 停用个人 SSH 密钥 | 在**你的账号 → 个人 SSH 密钥**下点**移除** | 用这把密钥登录的连接关闭 |
+| 停下所有者 | `beacon user disable NAME`，或 `beacon user role NAME viewer`（[改角色、停用某个成员](people.md#change-a-role-disable-someone)） | 本人及其 Agent 的 SSH 连接关闭。停用账号还会结束此人的控制台登录 |
 
 吊销令牌也会结束用它登录的控制台会话。吊销你正用来登录的那个令牌，你会被登出。
 
@@ -34,7 +35,7 @@ Beacon 每分钟还会检查一遍期间过期的凭据。所以过了有效期�
 
 ## 暂停整条通道 {#pause-the-whole-channel}
 
-要一次停下所有 Agent，就暂停 SSH 通道：出了安全事件、要变更冻结、想歇一晚，都可以。它立刻关闭所有进行中的会话，并拒绝新会话，直到恢复。暂停和恢复在三个地方都能做：命令行、控制台的**Machines**页，以及 API 或 MCP。
+暂停 SSH 通道可以同时停止人和 Agent 的访问。通道会关闭正在进行的客户端会话，并拒绝新会话，直到恢复。可以从命令行、控制台的**机器**页、API 或 MCP 暂停和恢复。
 
 ```bash
 docker exec beacon beacon ssh pause     # 恢复是 ssh resume

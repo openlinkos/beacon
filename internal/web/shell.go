@@ -3,6 +3,7 @@ package web
 import (
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -55,7 +56,8 @@ type shell struct {
 	Icons                       template.HTML
 	Bare                        bool // the sign-in page: the form beside the brand panel
 	Statement, Host             string
-	Home, SignOut, AccountHref  string  // the console's overview, where the sign-out form posts, the account page
+	Home, SignOut, AccountHref  string
+	SignInHref                  string  // the sign-in page, returning to the unsigned path for this object
 	Project                     project // Beacon's version and the project's links, at the foot of every page
 }
 
@@ -103,7 +105,7 @@ func (s *Server) shellFor(r *http.Request, v *viewer, nav, title string, crumbs 
 
 // viewOnly is the shell of an alert's or a session's page opened without signing in, with a signed link
 // or a token: the page alone, and a way to sign in for the rest.
-func (s *Server) viewOnly(kind, title string, a access) shell {
+func (s *Server) viewOnly(r *http.Request, kind, title string, a access) shell {
 	sh := s.baseShell(title)
 	sh.Crumbs = []crumb{{Label: kind}}
 	if a.Token != "" {
@@ -112,7 +114,8 @@ func (s *Server) viewOnly(kind, title string, a access) shell {
 		sh.Access = s.t("This link is valid until %s", s.clock(a.Until))
 	}
 	if s.Console() {
-		sh.Nav = []navGroup{{Items: []navItem{{Key: "sign-in", Label: s.t("Sign in"), Href: consolePath("/sign-in"), Icon: "log-in"}}}}
+		sh.SignInHref = consolePath("/sign-in") + "?next=" + url.QueryEscape(local(r.URL.EscapedPath()))
+		sh.Nav = []navGroup{{Items: []navItem{{Key: "sign-in", Label: s.t("Sign in"), Href: sh.SignInHref, Icon: "log-in"}}}}
 	}
 	return sh
 }
@@ -207,6 +210,10 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Note added"), "success"
 	case "unsilenced":
 		return s.t("Silence ended"), "success"
+	case "monitor_added":
+		return s.t("Monitor added"), "success"
+	case "maintenance_scheduled":
+		return s.t("Maintenance scheduled"), "success"
 	case "maintenance_ended":
 		return s.t("Maintenance ended; its services page people again"), "success"
 	case "called_off":

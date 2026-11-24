@@ -11,12 +11,11 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// What Beacon monitors and how it is doing now, read-only: every service the probes check, with what
+// What Beacon monitors and how it is doing now: every service the probes check, with what
 // the locations see of it; the heartbeats with their last success; the resources with when they
 // expire. A service's page lists its targets, what each location saw of them in the last half hour,
-// the status pages that show it and its alerts. What is monitored is the configuration's business,
-// changed through the API, MCP and the command line (the configuration page shows it and its history);
-// these pages show the result.
+// the status pages that show it and its alerts. The configuration page shows the configuration and
+// its history, including the HTTP monitors added from the console.
 
 // monitorWindow is how far back a service's probes are read.
 const monitorWindow = 30 * time.Minute
@@ -27,7 +26,7 @@ const maxMonitorResults = 5000
 type monitorLabels struct {
 	Services, Heartbeats, Resources, Service, State, Targets, Pages, Severity, Checked, Machine, MaxAge string
 	LastSuccess, Expires, Kind, Note, Description, None, NoServices, Target, Module, Set, Domain        string
-	Visibility, Alerts, Started, Window, OnPages, Name                                                  string
+	Visibility, Alerts, Started, Window, OnPages, Name, Add, Schedule, FirstResult                      string
 }
 
 func (s *Server) monitorLabels() monitorLabels {
@@ -36,10 +35,11 @@ func (s *Server) monitorLabels() monitorLabels {
 		State: s.t("State"), Targets: s.t("Probe targets"), Pages: s.t("Status pages"), Severity: s.t("Severity"),
 		Checked: s.t("Last checked"), Machine: s.t("Machine"), MaxAge: s.t("Maximum age"), LastSuccess: s.t("Last success"),
 		Expires: s.t("Expires"), Kind: s.t("Kind"), Note: s.t("Note"), Description: s.t("Description"), None: s.t("None"),
-		NoServices: s.t("No service is probed: the target sets name none."), Target: s.t("Target"), Module: s.t("Module"),
+		NoServices: s.t("No monitored services yet."), Target: s.t("Target"), Module: s.t("Module"),
 		Set: s.t("Target set"), Domain: s.t("Failure domain"), Visibility: s.t("Visibility"), Alerts: s.t("Alerts"),
 		Started: s.t("Started"), Window: s.t("What the probes saw in the last 30 minutes, at each location."),
-		OnPages: s.t("On status pages"), Name: s.t("Name"),
+		OnPages: s.t("On status pages"), Name: s.t("Name"), Add: s.t("Add HTTP monitor"), Schedule: s.t("Schedule maintenance"),
+		FirstResult: s.t("Waiting for the first probe results. Check the probe locations if results do not arrive after a few minutes."),
 	}
 }
 
@@ -193,18 +193,22 @@ type monitorsPage struct {
 	Rows       []monitorRow
 	Heartbeats []heartbeatState
 	Resources  []resourceState
-	Problem    string // why the probes could not be read
+	ProbeError string // why the probes could not be read
+	Add        string
 }
 
 var monitorsTmpl = parse("monitors.html")
 
 func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := monitorsPage{shell: s.shellFor(r, v, "monitors", s.t("Monitors")), L: s.monitorLabels()}
+	if v.has("config:write") {
+		p.Add = consolePath(monitorFormPath)
+	}
 	sc := s.serviceConfig()
 	now := s.now()
 	pe := s.Bridge.Probes(r.Context(), sc.names, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
 	if len(sc.names) > 0 {
-		p.Problem = pe.Error
+		p.ProbeError = pe.Error
 	}
 	only := ""
 	if len(sc.names) == 1 {
@@ -348,13 +352,14 @@ func (s *Server) resourceStates(now time.Time) []resourceState {
 
 type monitorPage struct {
 	shell
-	L                   monitorLabels
-	LL                  labels
-	Probes              []probeRow
-	ProbesNote, Problem string
-	Targets             []targetRef
-	Pages               []pageRef
-	Alerts              []serviceAlert
+	L                      monitorLabels
+	LL                     labels
+	Probes                 []probeRow
+	ProbesNote, ProbeError string
+	Targets                []targetRef
+	Pages                  []pageRef
+	Alerts                 []serviceAlert
+	Schedule               string
 }
 
 // serviceAlert is one of a service's alert groups, firing or resolved.
@@ -374,15 +379,21 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p := monitorPage{shell: s.shellFor(r, v, "monitors", svc, crumb{Label: s.t("Monitors"), Href: consolePath("/monitors")}),
 		L: s.monitorLabels(), LL: s.labels(), Targets: ts, Pages: sc.pages[svc]}
+	if v.has("maintenance:write") {
+		p.Schedule = consolePath("/maintenance/new") + "?service=" + url.QueryEscape(svc)
+	}
 	now := s.now()
 	pe := s.Bridge.Probes(r.Context(), []string{svc}, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
 	state, tn := s.state(probeStates(pe, svc)[svc])
 	p.Badges = []badge{{Text: state, Tone: tn}}
 	p.Probes = s.probes(pe, now.Add(-monitorWindow), p.LL)
-	if len(p.Probes) == 0 {
+	switch {
+	case len(p.Probes) == 0 && r.URL.Query().Get("done") == "monitor_added" && pe.Error == "":
+		p.ProbesNote = p.L.FirstResult
+	case len(p.Probes) == 0:
 		p.ProbesNote = p.LL.NoProbes
 	}
-	p.Problem = pe.Error
+	p.ProbeError = pe.Error
 	for i := range p.Targets {
 		t := &p.Targets[i]
 		t.Severity = s.severity(t.Severity)

@@ -903,46 +903,59 @@ func (b *Bridge) OAuthReplayed(ctx context.Context, agent, client, what string) 
 
 // keyOwner finds whose keys an operation is on: agent (named; the caller's own when ""), checked against
 // who. It returns the agent, or the caller's own token for a token of its own.
-func (b *Bridge) keyOwner(who Actor, agent string) (store.Agent, string, error) {
+type sshKeyOwner struct {
+	agent   store.Agent
+	token   string
+	account *store.Account
+}
+
+func (b *Bridge) keyOwner(who Actor, agent string) (sshKeyOwner, error) {
 	if agent == "" {
 		p, ok := b.caller(who)
 		switch {
 		case !ok:
-			return store.Agent{}, "", ErrForbidden
+			return sshKeyOwner{}, ErrForbidden
 		case p.Agent != "":
 			agent = p.Agent
-		case p.Token != "" && p.User == "":
-			return store.Agent{}, p.Token, nil
+		case p.Person():
+			a, found := b.d.Store.Account(p.User)
+			if !found || a.Disabled {
+				return sshKeyOwner{}, ErrForbidden
+			}
+			return sshKeyOwner{account: &a}, nil
 		default:
-			return store.Agent{}, "", fmt.Errorf("%w: a person reaches machines through an agent; add the key to one", ErrBadInput)
+			return sshKeyOwner{token: p.Token}, nil
 		}
 		a, ok := b.d.Store.Agent(agent)
 		if !ok {
-			return store.Agent{}, "", store.ErrNotFound
+			return sshKeyOwner{}, store.ErrNotFound
 		}
-		return a, "", nil
+		return sshKeyOwner{agent: a}, nil
 	}
 	a, ok := b.d.Store.Agent(agent)
 	if !ok {
-		return store.Agent{}, "", fmt.Errorf("%w: no agent %q", store.ErrNotFound, agent)
+		return sshKeyOwner{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, agent)
 	}
 	if !b.mayManage(who, a.Owner) {
 		if p, ok := b.caller(who); !ok || p.Agent != agent {
-			return store.Agent{}, "", ErrForbidden
+			return sshKeyOwner{}, ErrForbidden
 		}
 	}
-	return a, "", nil
+	return sshKeyOwner{agent: a}, nil
 }
 
-// SSHKeys lists the keys of an agent (the caller's own when ""), or of the caller's own token.
+// SSHKeys lists an agent's keys or those of the caller when agent is empty.
 func (b *Bridge) SSHKeys(who Actor, agent string) ([]SSHKeyView, error) {
-	a, token, err := b.keyOwner(who, agent)
+	owner, err := b.keyOwner(who, agent)
 	if err != nil {
 		return nil, err
 	}
-	keys := a.SSHKeys
-	if token != "" {
-		t, _ := b.token(token)
+	keys := owner.agent.SSHKeys
+	switch {
+	case owner.account != nil:
+		keys = owner.account.SSHKeys
+	case owner.token != "":
+		t, _ := b.token(owner.token)
 		keys = t.SSHKeys
 	}
 	out := []SSHKeyView{}
@@ -952,10 +965,9 @@ func (b *Bridge) SSHKeys(who Actor, agent string) ([]SSHKeyView, error) {
 	return out, nil
 }
 
-// AddSSHKey gives an agent (the caller's own when "") or the caller's own token a public key for the SSH
-// channel. Shown to the agent's owner on the console and echoed to the chat.
+// AddSSHKey gives an agent or the caller a public key for the SSH channel.
 func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment string) (SSHKeyView, error) {
-	a, token, err := b.keyOwner(who, agent)
+	owner, err := b.keyOwner(who, agent)
 	if err != nil {
 		return SSHKeyView{}, err
 	}
@@ -969,15 +981,23 @@ func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment 
 		k.Comment = store.CleanComment(strings.Join(fields[2:], " "))
 	}
 	k.Added = b.now().UTC()
-	if p, ok := b.caller(who); ok && p.Agent != "" && p.Agent == a.Name && who.Cred != "" {
+	if p, ok := b.caller(who); ok && p.Agent != "" && p.Agent == owner.agent.Name && who.Cred != "" {
 		k.Via = who.Cred // an agent's own key lives as long as the credential it added it with
 	}
-	holder := token
-	if token != "" {
-		_, err = b.d.Store.AddTokenSSHKey(token, k)
-	} else {
-		holder = a.Owner + " / " + a.Name
-		_, err = b.d.Store.AddAgentSSHKey(a.Name, k)
+	var holder string
+	switch {
+	case owner.account != nil:
+		holder = owner.account.Username
+		err = b.d.Store.AddAccountSSHKey(holder, k)
+		if errors.Is(err, store.ErrDisabled) {
+			err = ErrForbidden
+		}
+	case owner.token != "":
+		holder = owner.token
+		_, err = b.d.Store.AddTokenSSHKey(holder, k)
+	default:
+		holder = owner.agent.Owner + " / " + owner.agent.Name
+		_, err = b.d.Store.AddAgentSSHKey(owner.agent.Name, k)
 	}
 	if err != nil {
 		return SSHKeyView{}, err
@@ -987,19 +1007,23 @@ func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment 
 	return SSHKeyView(k), nil
 }
 
-// RemoveSSHKey takes a key, by its fingerprint, from an agent (the caller's own when "") or the caller's
-// own token.
+// RemoveSSHKey takes a key, by its fingerprint, from an agent or from the caller.
 func (b *Bridge) RemoveSSHKey(ctx context.Context, who Actor, agent, fp string) error {
-	a, token, err := b.keyOwner(who, agent)
+	owner, err := b.keyOwner(who, agent)
 	if err != nil {
 		return err
 	}
-	holder := token
-	if token != "" {
-		_, err = b.d.Store.RemoveTokenSSHKey(token, fp)
-	} else {
-		holder = a.Owner + " / " + a.Name
-		_, err = b.d.Store.RemoveAgentSSHKey(a.Name, fp)
+	var holder string
+	switch {
+	case owner.account != nil:
+		holder = owner.account.Username
+		err = b.d.Store.RemoveAccountSSHKey(holder, fp)
+	case owner.token != "":
+		holder = owner.token
+		_, err = b.d.Store.RemoveTokenSSHKey(holder, fp)
+	default:
+		holder = owner.agent.Owner + " / " + owner.agent.Name
+		_, err = b.d.Store.RemoveAgentSSHKey(owner.agent.Name, fp)
 	}
 	if err != nil {
 		return err
@@ -1037,5 +1061,17 @@ func (b *Bridge) SSHConfig(agent string) string {
 	if !ok || len(a.SSHKeys) == 0 || b.d.SSHConfig == nil {
 		return ""
 	}
-	return b.d.SSHConfig("agent:" + agent)
+	return b.d.SSHConfig("agent:"+agent, "")
+}
+
+// PersonalSSHConfig gives a signed-in person the connection instructions for a machine.
+func (b *Bridge) PersonalSSHConfig(who Actor, machine string) string {
+	p, ok := b.caller(who)
+	if !ok || !p.Person() || !p.Reaches(machine) || b.d.SSHConfig == nil {
+		return ""
+	}
+	if a, ok := b.d.Store.Account(p.User); !ok || len(a.SSHKeys) == 0 {
+		return ""
+	}
+	return b.d.SSHConfig(p.Key(), machine)
 }

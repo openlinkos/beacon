@@ -46,10 +46,12 @@ type MaintenanceInput struct {
 	Description string    `json:"description,omitempty"`
 }
 
-// ScheduleMaintenance plans a maintenance window: its silences, its record, an audit entry and an echo
-// to the alert chat.
-func (b *Bridge) ScheduleMaintenance(ctx context.Context, who Actor, in MaintenanceInput) (store.Maintenance, error) {
-	now := b.now()
+// PreviewMaintenance checks and normalises the details exactly as scheduling does. It changes nothing.
+func (b *Bridge) PreviewMaintenance(in MaintenanceInput) (MaintenanceInput, error) {
+	return prepareMaintenance(b.now(), in)
+}
+
+func prepareMaintenance(now time.Time, in MaintenanceInput) (MaintenanceInput, error) {
 	title, desc := cleanLine(strings.TrimSpace(in.Title)), clean(strings.TrimSpace(in.Description), maxLong, true)
 	start, end := in.StartsAt, in.EndsAt
 	if start.Before(now) {
@@ -64,45 +66,65 @@ func (b *Bridge) ScheduleMaintenance(ctx context.Context, who Actor, in Maintena
 	slices.Sort(svcs)
 	switch {
 	case title == "":
-		return store.Maintenance{}, fmt.Errorf("%w: give the window a title: what is done, for the status pages", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: give the window a title: what is done, for the status pages", ErrBadInput)
 	case utf8.RuneCountInString(title) > 200:
-		return store.Maintenance{}, fmt.Errorf("%w: the title is at most 200 characters", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: the title is at most 200 characters", ErrBadInput)
 	case len(svcs) == 0 || len(svcs) > maxMaintenanceSvcs:
-		return store.Maintenance{}, fmt.Errorf("%w: name the services the work touches (1 to %d, as their probe targets' service label)", ErrBadInput, maxMaintenanceSvcs)
+		return MaintenanceInput{}, fmt.Errorf("%w: name the services the work touches (1 to %d, as their probe targets' service label)", ErrBadInput, maxMaintenanceSvcs)
 	case slices.ContainsFunc(svcs, func(s string) bool { return !safeValue(s) }):
-		return store.Maintenance{}, fmt.Errorf("%w: a service is a service label's value, without quotes, backslashes or control characters", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: a service is a service label's value, without quotes, backslashes or control characters", ErrBadInput)
 	case end.IsZero() || !end.After(start):
-		return store.Maintenance{}, fmt.Errorf("%w: ends_at must be after starts_at and in the future", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: ends_at must be after starts_at and in the future", ErrBadInput)
 	case end.Sub(start) > maxMaintenance:
-		return store.Maintenance{}, fmt.Errorf("%w: a window lasts at most 7 days", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: a window lasts at most 7 days", ErrBadInput)
 	case start.Sub(now) > maxMaintenanceAhead:
-		return store.Maintenance{}, fmt.Errorf("%w: a window starts within 90 days", ErrBadInput)
+		return MaintenanceInput{}, fmt.Errorf("%w: a window starts within 90 days", ErrBadInput)
+	}
+	return MaintenanceInput{Title: title, Description: desc, Services: svcs, StartsAt: start, EndsAt: end}, nil
+}
+
+// ScheduleMaintenance plans a maintenance window: its silences, its record, an audit entry and an echo
+// to the alert chat.
+func (b *Bridge) ScheduleMaintenance(ctx context.Context, who Actor, in MaintenanceInput) (store.Maintenance, error) {
+	now := b.now()
+	next, err := prepareMaintenance(now, in)
+	if err != nil {
+		return store.Maintenance{}, err
 	}
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
 		return store.Maintenance{}, err
 	}
-	m := store.Maintenance{ID: "m-" + hex.EncodeToString(raw), Title: title, Description: desc, Services: svcs, StartsAt: start, EndsAt: end,
+	m := store.Maintenance{ID: "m-" + hex.EncodeToString(raw), Title: next.Title, Description: next.Description,
+		Services: next.Services, StartsAt: next.StartsAt, EndsAt: next.EndsAt,
 		CreatedBy: who.Name, Via: who.Via, Created: now}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, s := range svcs {
-		id, err := b.d.AM.CreateSilence(ctx, map[string]string{"service": s}, start, end, who.Name, MaintenancePrefix+" "+title)
-		if err != nil {
-			for _, made := range m.Silences {
-				_ = b.d.AM.ExpireSilence(ctx, made)
+	undo := func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		for _, id := range m.Silences {
+			if err := b.d.AM.ExpireSilence(ctx, id); err != nil {
+				b.d.Log.Error("could not undo a maintenance silence", "window", m.ID, "silence", id, "err", err)
 			}
+		}
+	}
+	for _, s := range m.Services {
+		id, err := b.d.AM.CreateSilence(ctx, map[string]string{"service": s}, m.StartsAt, m.EndsAt, who.Name, MaintenancePrefix+" "+m.Title)
+		if err != nil {
+			undo()
 			return store.Maintenance{}, err
 		}
 		m.Silences = append(m.Silences, id)
 	}
 	if err := b.d.Store.PutMaintenance(m, now.Add(-store.KeepStatus)); err != nil {
+		undo()
 		return store.Maintenance{}, err
 	}
-	what := strings.Join(svcs, ", ")
+	what := strings.Join(m.Services, ", ")
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "maintenance", Target: m.ID,
-		Detail: fmt.Sprintf("%s from %s to %s: %s", what, start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), title)})
-	b.echo(ctx, b.t("%s planned maintenance \"%s\" of %s from %s to %s via %s", who.Name, title, what, b.when(start), b.when(end), b.viaName(who.Via)))
+		Detail: fmt.Sprintf("%s from %s to %s: %s", what, m.StartsAt.UTC().Format(time.RFC3339), m.EndsAt.UTC().Format(time.RFC3339), m.Title)})
+	b.echo(ctx, b.t("%s planned maintenance \"%s\" of %s from %s to %s via %s", who.Name, m.Title, what, b.when(m.StartsAt), b.when(m.EndsAt), b.viaName(who.Via)))
 	return m, nil
 }
 

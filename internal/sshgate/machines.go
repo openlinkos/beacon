@@ -94,7 +94,8 @@ func (g *Gate) List(who Actor, address string) (Machines, error) {
 		v := g.view(m, t)
 		out.Machines = append(out.Machines, v)
 		if v.Reachable && host != "" {
-			fmt.Fprintf(&cfg, "Host %s\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias beacon\n\n", m.Name, host, port, m.Name)
+			cfg.WriteString(sshHostConfig(m.Name, m.Name, host, port))
+			cfg.WriteString("\n\n")
 		}
 	}
 	if host != "" {
@@ -102,6 +103,23 @@ func (g *Gate) List(who Actor, address string) (Machines, error) {
 		out.KnownHosts = "beacon " + g.HostKey()
 	}
 	return out, nil
+}
+
+func sshHostConfig(alias, machine, host, port string) string {
+	return fmt.Sprintf("Host %s\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias beacon", alias, host, port, machine)
+}
+
+// ConnectionConfig returns a personal connection's SSH configuration and the channel's public host key.
+func (g *Gate) ConnectionConfig(who Actor, address, machine string) (config, knownHosts string) {
+	host, port, _ := net.SplitHostPort(address)
+	p, ok := g.principal(who)
+	if host == "" || !ok || !p.Person() || !p.Reaches(machine) {
+		return "", ""
+	}
+	if _, ok := g.d.Store.Machine(machine); !ok {
+		return "", ""
+	}
+	return sshHostConfig("beacon-"+machine, machine, host, port), "beacon " + g.HostKey()
 }
 
 // MachineInput adds a machine. Address is host or host:port (22 by default), or "connector" for a

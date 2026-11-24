@@ -88,8 +88,8 @@ func TestResolvedCallWaits(t *testing.T) {
 	for _, ev := range tl.Events {
 		kinds = append(kinds, ev.Kind)
 	}
-	if got := strings.Join(kinds, " "); got != "started notified agent agent resolved note" {
-		t.Errorf("the note is on the timeline: %s", got)
+	if got := strings.Join(kinds, " "); got != "started notified agent resolved note agent" {
+		t.Errorf("the resolved hook delivery follows the agent's note: %s", got)
 	}
 }
 

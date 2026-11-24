@@ -1,0 +1,134 @@
+package web
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/probenow"
+	"github.com/openlinkos/beacon/internal/targets"
+	"github.com/openlinkos/beacon/internal/web/link"
+)
+
+func TestSignedAlertReturnsToAlertAfterSignIn(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	owner := e.owner()
+	e.invite(owner, "operator", "oncall")
+	b := e.browser()
+	path := link.AlertPath(e.id)
+	a := b.get(e.link(path))
+	signIns := hrefs(a.body, "/console/sign-in?")
+	if a.code != http.StatusOK || len(signIns) == 0 || strings.Contains(a.body, `id="alert-ack"`) {
+		t.Fatalf("signed alert: status %d, sign-in links %v", a.code, signIns)
+	}
+	for _, href := range signIns {
+		u, err := url.Parse(href)
+		if err != nil || u.Path != "/console/sign-in" || u.Query().Get("next") != path {
+			t.Fatalf("sign-in destination %q: %v", href, err)
+		}
+	}
+	p := b.get(signIns[0])
+	form := formRe.FindStringSubmatch(p.body)
+	if p.code != http.StatusOK || form == nil || !strings.Contains(p.body, `name="next" value="`+path+`"`) {
+		t.Fatalf("sign-in page did not retain the unsigned alert path (status %d)", p.code)
+	}
+	signedIn := b.do(http.MethodPost, "/console/sign-in", url.Values{
+		"username": {"operator"}, "password": {password}, "form": {form[1]}, "next": {path},
+	})
+	if signedIn.code != http.StatusSeeOther || signedIn.header.Get("Location") != path {
+		t.Fatalf("sign-in returned status %d, location %q", signedIn.code, signedIn.header.Get("Location"))
+	}
+	a = b.get(path)
+	ack := strings.Index(a.body, `id="alert-ack"`)
+	evidence := strings.Index(a.body, `id="timeline"`)
+	if a.code != http.StatusOK || ack < 0 || ack >= evidence || !strings.Contains(a.body, "Acknowledging stops escalation") {
+		t.Fatalf("signed-in on-call controls missing or below evidence (status %d, positions %d/%d)", a.code, ack, evidence)
+	}
+}
+
+func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
+	locations := []catalog.Location{
+		{ID: "edge-1", Name: "Europe West", Region: "overseas"},
+		{ID: "edge-2", Name: "Asia East", Region: "mainland"},
+	}
+	set, err := targets.Build(map[string][]targets.Group{
+		"all-web.yaml": {{Targets: []string{"https://git.example.com/"}, Labels: map[string]string{"module": "http_head", "service": "git-example-com"}}},
+	}, []string{"edge-1", "edge-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := probenow.New(probenow.Deps{
+		Catalog: func() *catalog.Catalog { return &catalog.Catalog{Locations: locations} },
+		Targets: func() *targets.Set { return set },
+	})
+	e := newEnvWithProbe(t, i18n.EN, board)
+	owner := e.owner()
+	b := e.invite(owner, "oncall-user", "oncall")
+	viewer := e.invite(owner, "reader", "viewer")
+	path := link.AlertPath(e.id)
+	post := path + "/probe-now"
+	for _, who := range []*browser{e.browser(), viewer} {
+		view := path
+		if who.cookies[sessionCookie] == nil {
+			view = e.link(path)
+		}
+		a := who.get(view)
+		if a.code != http.StatusOK || strings.Contains(a.body, `action="`+post+`"`) {
+			t.Fatalf("read-only alert returned status %d or offered a check", a.code)
+		}
+	}
+	if a := viewer.post(post, nil); a.code != http.StatusForbidden {
+		t.Fatalf("read-only POST returned %d", a.code)
+	}
+	if a := b.get(path); a.code != http.StatusOK || !strings.Contains(a.body, `action="`+post+`"`) {
+		t.Fatalf("on-call probe control missing (status %d)", a.code)
+	}
+	if a := b.post(post, url.Values{"csrf": {"invalid"}}); a.code != http.StatusForbidden {
+		t.Fatalf("invalid CSRF returned %d", a.code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch := make(chan error, 2)
+	for _, loc := range locations {
+		go func(loc string) {
+			req := board.Wait(ctx, loc, 4*time.Second)
+			if len(req) != 1 {
+				ch <- fmt.Errorf("%s got %d requests", loc, len(req))
+				return
+			}
+			var got []targets.TargetResult
+			if loc == "edge-1" {
+				got = []targets.TargetResult{{Target: "https://git.example.com/", Module: "http_head", HTTPStatus: 502, Reason: "http_status"}}
+			}
+			ch <- board.Answer(req[0].ID, loc, got)
+		}(loc.ID)
+	}
+	a := b.post(post, nil)
+	for range locations {
+		if err := <-ch; err != nil {
+			t.Fatal(err)
+		}
+	}
+	u, err := url.Parse(a.header.Get("Location"))
+	if err != nil || a.code != http.StatusSeeOther || u.Path != path || u.Query().Get("probe") == "" || u.Fragment != "probe-"+u.Query().Get("probe") {
+		t.Fatalf("probe redirected with %d to %q: %v", a.code, a.header.Get("Location"), err)
+	}
+	show := b.get(u.RequestURI())
+	for _, want := range []string{u.Fragment, "oncall-user ran an on-demand check via the console", "0 passed, 1 failed, 1 missing",
+		"HTTP 502", "No result", `class="bc-alert-observations" open`, "Awaiting acknowledgement", "Alert delivered to hook oncall"} {
+		if show.code != http.StatusOK || !strings.Contains(show.body, want) {
+			t.Errorf("alert result lacks %q (status %d)", want, show.code)
+		}
+	}
+	audit := e.st.AuditLog(1)[0]
+	if audit.Action != "probe_now" || audit.Actor != "oncall-user" || audit.Via != "console" || audit.Target != e.id || !strings.Contains(audit.Detail, u.Query().Get("probe")) {
+		t.Errorf("audit event: %+v", audit)
+	}
+}

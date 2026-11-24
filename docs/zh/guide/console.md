@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b9c33ea8
+sourceHash: sha256-fe301b63
 ---
 
 # 复查 Agent 做了什么
@@ -60,9 +60,9 @@ sourceHash: sha256-b9c33ea8
 | `/console/monitors`、`/console/monitors/{service}` | 监控了什么、现在怎么样（[见下](#monitors-and-status-pages)） |
 | `/console/status-pages`、`/console/status-pages/{name}` | 公众现在看到的状态页（[见下](#monitors-and-status-pages)） |
 | `/console/silences` | 让告警不去通知人的东西：维护窗口和静默（[见下](#silences-and-maintenance)） |
-| `/console/machines`、`/console/machines/{name}` | 通道能到达的机器、NAT 后的机器是否连着、最近 24 小时的会话。有 `machines:write` 时：添加机器，修改备注、是否关键和账户，重新固定主机密钥，更换连接器密钥，以及输入机器名之后移除它。单台机器的地址、主机密钥、最近会话和上面执行过的命令。列表上方是整条通道的暂停开关 |
+| `/console/machines`、`/console/machines/{name}` | 通道能到达的机器、NAT 后的机器是否连着、最近 24 小时的会话。有 `machines:write` 时：添加机器，修改备注、是否关键和账户，重新固定主机密钥，更换连接器密钥，以及输入机器名之后移除它。单台机器的地址、主机密钥、最近会话和上面执行过的命令。可按机器名称、地址或备注搜索。需要登记时打开**添加机器**。有 SSH 权限的成员可选择 **SSH** 获取以本人身份连接的命令和终端配置。独立的**暂停全部 SSH 访问**按钮会停止通过 Beacon 的机器操作，监控继续运行 |
 | `/console/sessions`、`/console/sessions/{id}` | 所有会话，可按 Agent、机器、类型、via、退出状态、日期筛选，可搜命令。会话页带回放（[见下](#the-sessions-page-and-its-replay)） |
-| `/console/agents`、`/console/agents/{name}` | 你的 Agent（所有者看到所有人的）：各自现在能做什么、凭据、密钥。OAuth 接入命令、无界面 Agent 的令牌表单。每个 Agent 的页面可改预设和机器，可吊销。以本人身份登录的所有者还可以在那里设置自定义 scope |
+| `/console/agents`、`/console/agents/{name}` | 你的 Agent（所有者看到所有人的）：各自现在能做什么、凭据、密钥。可展开 OAuth 客户端的接入说明和无界面 Agent 的令牌表单。编辑时会显示所选预设的权限，可明确选择授予全部现有及将来登记的机器，或仅指定机器。每个 Agent 的页面可改预设和机器，并可吊销其凭据。以本人身份登录的所有者还可以在那里设置自定义 scope |
 | `/console/tokens` | 所有令牌：scope、机器、密钥、到期、属于谁的 Agent。账号出现之前的标成**Legacy**，旁边是认领表单。永远不会出现密钥本身 |
 | `/console/config`、`/console/config/history/{version}` | 配置只读（检测点、心跳、资源、目标集、模块）及其历史。谁、何时、经什么、为什么；每个版本逐项显示为 diff，可回退 |
 | `/console/hooks` | 已配置的 Agent 钩子和每一次调用：钩子、事件、状态、尝试次数、时间、为哪条告警 |
@@ -106,6 +106,8 @@ sourceHash: sha256-b9c33ea8
 
 单个服务的页面有各检测点最近 30 分钟对它的目标的检测结果和原因。还有它的目标及所属目标集，以及它的告警。
 
+有 `config:write` 时，点击**添加 HTTP 监控**，选择检测地址、方案和位置。保存后立即打开服务页，可以查看首次检测结果。改动会进入**配置**历史。参见[检测一个服务](monitoring.md#add-an-http-monitor)。
+
 `/console/status-pages` 显示公众现在看到的状态页：每个页面的地址、状态、组件、进行中的事件和维护窗口。单个页面的视图有：
 
 - 各组件，及背后的服务、它们的状态和 90 天可用率；
@@ -122,11 +124,11 @@ sourceHash: sha256-b9c33ea8
 
 谁能结束什么：
 
-- 能计划维护的人（`maintenance:write`）可以提前结束窗口，或在开始前取消。
+- 有 `maintenance:write` 的人可以安排维护、提前结束窗口，或在开始前取消。
 - 能静默的人（`alerts:write`）可以结束静默。
 - 维护窗口的静默随窗口一起结束。
 
-维护窗口用 `schedule_maintenance` 或 `POST /api/v1/maintenance` 提前计划，好让状态页事先公告。
+点击**安排维护**，选择服务并预览会公告维护的公开页面和组件。在服务的监控详情里打开表单，会预先选中该服务。Agent 和脚本可以用 `schedule_maintenance` 或 `POST /api/v1/maintenance`。
 
 ### 表单和角色 {#forms-and-roles}
 
@@ -136,17 +138,17 @@ sourceHash: sha256-b9c33ea8
 
 ## 告警页 {#the-alerts-page}
 
-卡片上的**Timeline**按钮打开它。从上到下：
+卡片上的**时间线**按钮打开它。处置区显示告警已触发多久、谁已认领。手机和桌面都可以在这一区域认领、立即复测或跳到备注表单。
 
 - **告警本身**：标题、状态、严重程度、起始时间、标签、runbook。
 - **人们被告知和做过什么**：确认、静默、呼叫。有一个按钮可以结束静默。
 - **Probes**：告警服务在每个检测点的最新结果和原因，与 `get_evidence` 给的一致。
 - 同一故障域里的**相关告警**。
-- **Agents**：能否使用机器、哪些钩子被唤醒过，以及一行「N sessions on M machines, K commands」。
+- **Agent**：能否使用机器、各钩子的通知投递状态，以及一行「N sessions on M machines, K commands」。
 - **Sessions**：告警时间窗内、其标签点名的机器上的每一次会话，各带**Replay**链接。
 - **Notes**、**Changes**和**Timeline**：以上一切按时间排好，与 `get_timeline` 给的一致。
 
-时间窗从告警开始前 30 分钟起，与[证据](on-call.md#the-evidence)相同。
+时间窗从告警开始前 30 分钟起，与[证据](on-call.md#the-evidence)相同。**立即复测**最多等待 45 秒，随即打开时间线上的结果，按检测点和目标显示失败或缺失的结果。
 
 ## 会话页与回放 {#the-sessions-page-and-its-replay}
 
@@ -169,6 +171,8 @@ Beacon 放进告警群里的链接，不用登录就能打开一个页面。这�
 - 签名是方法、路径和过期时间的 base64url HMAC-SHA256，密钥由 Beacon 保存在自己的数据库里。
 
 链接的有效期是 `pages.link_ttl`，默认 30 天。每个链接只授予一个页面，只读：告警页，或带录像的会话页。指向别的路径、被改过过期时间或已过期的链接都会失败。每种失败都是普通的 404，与不存在的页面一样，所以错误的链接不会泄露任何东西。
+
+在该页面点击**登录**，完成后会回到原告警或会话。登录后按账号自身的权限查看和操作。
 
 **拿到链接的任何人都能看那一页，包括录像，不需要在任何地方登录**。所以：
 
@@ -203,13 +207,12 @@ Beacon 放进告警群里的链接，不用登录就能打开一个页面。这�
 - **语言和配色。** 控制台跟随配置的语言（中文或英文），以及系统的深浅色。
 - **不被索引。** 页面带 `noindex`，因为页面链接里带着签名。
 
-它不做的三件事：
+它不做的两件事：
 
 - **不从任何别处登录。** Beacon 自己的账号是唯一的入口。
 - **没有审批流。** 表单就是成员角色经 API 本来就允许的操作，刹车是暂停开关。
-- **除了回退一次改动，不改监控配置；也不计划维护。** 机器和 Agent 的自定义 scope 可以在控制台里改。目录、检测目标和检测模块不行：回退和文件一样过同样的检查。维护由 Agent 和脚本经 MCP 和 API 计划；控制台可以结束维护窗口。
 
-监控什么、状态页显示什么，都在配置所在的地方改：文件、API、MCP 的 `put_config` 和命令行。这样每次改动都经过检查、留有版本、记下是谁。控制台里的监控和状态页显示的是结果。
+高级检测、目录和状态页定义通过文件、API、MCP 的 `put_config` 或命令行配置。所有入口的配置改动都会经过检查、保留版本并记录改动者。
 
 ## 检查一下 {#check-it}
 

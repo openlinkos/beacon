@@ -1,12 +1,12 @@
 ---
-sourceHash: sha256-ffe534cb
+sourceHash: sha256-c20402a6
 layout: home
-title: 让你的 AI Agent 值班
+title: 和你的 Agent 一起做运维
 ---
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
-  <template #title>让你的 AI Agent 值班</template>
-  <template #lead>Beacon 从用户所在的地方检测你的服务，出问题时带着证据叫醒你的 Agent，让它不持有任何密钥就能上机器，并记下它执行的每一条命令。</template>
+  <template #title>和你的 Agent 一起做运维</template>
+  <template #lead>监控服务、处理告警，用自己的身份连接机器。你可以在明确的权限范围内把工作交给 Agent，从首次告警到验证恢复，都能查到它做了什么。</template>
   <template #actions>
     <a href="/zh/guide/quickstart">10 分钟试用</a>
     <a class="ghost" href="/zh/guide/concepts">工作原理</a>

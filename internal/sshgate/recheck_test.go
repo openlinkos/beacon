@@ -2,6 +2,7 @@ package sshgate
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,54 @@ import (
 
 	"github.com/openlinkos/beacon/internal/store"
 )
+
+func TestPersonalSSHIdentity(t *testing.T) {
+	needShell(t)
+	store.PasswordParams = store.Argon2Params{Time: 1, Memory: 64, Threads: 1}
+	e := setup(t)
+	code, _, err := e.st.CreateSetupLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.Join(code, "alice", "", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	key := signer(t)
+	k, err := store.ParseSSHKey(string(ssh.MarshalAuthorizedKey(key.PublicKey())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.AddAccountSSHKey("alice", k); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.AddTokenSSHKey("claude-code", k); !errors.Is(err, store.ErrExists) {
+		t.Fatalf("key reused by token: %v", err)
+	}
+	cfg, known := e.g.ConnectionConfig(Actor{Key: "user:alice"}, "beacon.example.com:17002", "box")
+	if cfg != "Host beacon-box\n  HostName beacon.example.com\n  Port 17002\n  User box\n  HostKeyAlias beacon" ||
+		known != "beacon "+e.g.HostKey() {
+		t.Fatalf("configuration: %q; known hosts: %q", cfg, known)
+	}
+	out, _, status := e.runWith(t, key, "printf personal")
+	if status != 0 || out != "personal" {
+		t.Fatalf("personal login: exit %d, stdout %q", status, out)
+	}
+	records := e.st.Sessions(10, nil)
+	if len(records) != 1 || records[0].Agent != "alice" || records[0].Principal != "user:alice" ||
+		records[0].Credential != "key:"+k.Fingerprint {
+		t.Fatalf("wrong operator in session records: %+v", records)
+	}
+	done := e.open(t, key)
+	if err := e.st.RemoveAccountSSHKey("alice", k.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	e.g.Recheck()
+	ended(t, done, "removing the personal SSH key")
+	if c, err := e.client(t, "box", key); err == nil {
+		_ = c.Close()
+		t.Fatal("removed personal SSH key was accepted")
+	}
+}
 
 // open starts a long command through the channel with key and returns a channel that is closed when the
 // session ends, however it ends.

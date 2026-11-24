@@ -93,6 +93,12 @@ The console does the same for someone with `machines:write`, on **Machines**. **
 
 A machine Beacon cannot reach is added the other way round: [Machines behind NAT](#machines-behind-nat).
 
+## Connect as yourself {#connect-as-yourself}
+
+With the On call role or above, register your device's public key in **Your account → Personal SSH keys**. Keep the private key on your device. Open the machine in **Machines**, add its connection settings to your SSH client, and connect as shown there. The administrator sets `ssh.public_address` to make the connection instructions available.
+
+Beacon records the session under your username. An agent records its sessions as `person / agent`. Each identity uses its own public key. Remove a personal key in **Your account** to close its active connections and stop it from signing in again.
+
 ## Give an agent access {#give-an-agent-access}
 
 An interactive agent such as Claude Code, signed in with OAuth, registers its own key. Ask it to *"register my SSH key ~/.ssh/id_ed25519.pub with Beacon"* and it calls `add_ssh_key`.

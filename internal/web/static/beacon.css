@@ -5,8 +5,138 @@
 .bc-player { margin-block: var(--ol-space-2); }
 .bc-player .ap-player { border-radius: var(--ol-radius-control); }
 
+/* Put taking charge and checking recovery ahead of the timeline at every width. */
+.bc-alert-response {
+  border-inline-start-width: 0.25rem;
+  border-inline-start-color: var(--ol-color-border-strong);
+}
+.bc-alert-response[data-state="danger"] { border-inline-start-color: var(--ol-color-danger-border); }
+.bc-alert-response[data-state="success"] { border-inline-start-color: var(--ol-color-success-border); }
+.bc-alert-response-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--ol-space-4);
+}
+.bc-alert-summary, .bc-alert-controls {
+  display: grid;
+  gap: var(--ol-space-2);
+  min-width: 0;
+}
+.bc-alert-ack-note > summary, .bc-alert-observations > summary {
+  cursor: pointer;
+  padding-block: var(--ol-space-2);
+}
+.bc-alert-ack-note > textarea { max-width: 30rem; }
+.bc-alert-observations > .ol-list { margin-inline-start: var(--ol-space-3); }
+.bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
+.kind-probe_now, #add-note { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+.kind-probe_now > td:last-child { flex: 1 1 100%; }
+.kind-probe_now:target { background: var(--ol-color-info-bg); }
+
+@container ol-content (width < 40rem) {
+  .bc-alert-controls { width: 100%; }
+  .bc-alert-buttons .ol-btn { min-height: 2.75rem; }
+}
+
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
 .bc-diff code { display: block; }
 .bc-diff-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bc-diff-line[data-op="add"] { background: var(--ol-color-success-bg); color: var(--ol-color-success-text-strong); }
 .bc-diff-line[data-op="del"] { background: var(--ol-color-danger-bg); color: var(--ol-color-danger-text-strong); }
+
+/* Keep the channel control in reach while leaving room for the fleet. */
+.bc-channel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ol-space-2) var(--ol-space-3);
+  padding: var(--ol-space-2) var(--ol-space-3);
+  border: 1px solid var(--ol-color-border);
+  border-radius: var(--ol-radius-control);
+  background: var(--ol-color-bg-subtle);
+}
+
+.bc-channel-paused {
+  border-color: var(--ol-color-danger-border);
+  background: var(--ol-color-danger-bg);
+}
+
+.bc-channel > p { flex-basis: 100%; margin: 0; }
+
+.bc-machine-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--ol-space-3);
+}
+
+.bc-machine-tools .ol-search { flex: 1 1 10rem; max-width: 22rem; }
+.bc-machine-add > summary { list-style: none; }
+.bc-machine-add > summary::-webkit-details-marker { display: none; }
+.bc-machine-add[open] { grid-column: 1 / -1; }
+.bc-machine-add[open] > summary { margin-block-end: var(--ol-space-2); }
+.bc-machine-add > form {
+  border: 1px solid var(--ol-color-border);
+  border-radius: var(--ol-radius-container);
+  background: var(--ol-color-surface);
+}
+
+@media (max-width: 37.5rem) {
+  .bc-machine-tools { grid-template-columns: minmax(0, 1fr); }
+}
+
+.bc-machine-access:not(:has([name="machine_access"][value="selected"]:checked)) .bc-machine-options,
+.bc-agent-form:not(:has([name="preset"] option[value="custom"]:checked)) .bc-custom-scopes,
+.bc-register-fields:has([name="reach"][value="dial"]:checked) [data-reach="connector"],
+.bc-register-fields:has([name="reach"][value="connector"]:checked) [data-reach="dial"],
+.bc-agent-form output:empty { display: none; }
+
+.bc-agent-start { align-items: start; }
+
+:is(.bc-register-fields, .bc-agent-form) fieldset.ol-field {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bc-machine-options {
+  display: grid;
+  gap: var(--ol-space-2);
+  margin-block-start: var(--ol-space-1);
+}
+
+.bc-machine-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  max-block-size: 15rem;
+  overflow: auto;
+  padding: var(--ol-space-2) var(--ol-space-3);
+  border: 1px solid var(--ol-color-border);
+  border-radius: var(--ol-radius-control);
+}
+.bc-maintenance-services { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.bc-maintenance-services legend { padding: 0; }
+.bc-maintenance-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--ol-space-1) var(--ol-space-3);
+  max-block-size: 16rem;
+  overflow-y: auto;
+}
+.bc-maintenance-choices .ol-check { min-block-size: 2.5rem; }
+
+.bc-ssh-command {
+  justify-content: space-between;
+  padding: var(--ol-space-2) var(--ol-space-3);
+  border-radius: var(--ol-radius-control);
+  background: var(--ol-color-bg-subtle);
+}
+
+#ssh-connect { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+
+.bc-copy-feedback:empty,
+.bc-ssh-command [hidden] { display: none; }

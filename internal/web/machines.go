@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,16 +25,17 @@ type machineLabels struct {
 	Edit, PinAgain, PinHint, Pin, ChangeKey, ChangeKeyHint                                                       string
 	RemoveMachine, RemoveHint, Confirm, Previous, NewFP                                                          string
 	Note, Save, Remove                                                                                           string
+	Connection, Connect, Search, SearchMachines, SearchHint, NoMatch                                             string
 }
 
 func (s *Server) machineLabels() machineLabels {
 	return machineLabels{
 		Name: s.t("Machine"), Address: s.t("Address"),
 		Critical: s.t("Critical"), Sessions24h: s.t("Sessions in 24 h"), LastSession: s.t("Last session"),
-		User: s.t("Account"), HostKey: s.t("Host key"), Added: s.t("Added"), Reachable: s.t("Your token reaches it"),
-		Yes: s.t("Yes"), No: s.t("No"), Pause: s.t("Pause agents' access"), Resume: s.t("Resume agents' access"),
-		PauseHint:  s.t("Pausing closes every open session and tool call at once, and turns new ones away until someone resumes."),
-		ResumeHint: s.t("Agents reach machines again as soon as access resumes."), Channel: s.t("The SSH channel"),
+		User: s.t("Account"), HostKey: s.t("Host key"), Added: s.t("Added"), Reachable: s.t("SSH access in your permissions"),
+		Yes: s.t("Yes"), No: s.t("No"), Pause: s.t("Pause all SSH access"), Resume: s.t("Resume SSH access"),
+		PauseHint:  s.t("Closes active sessions and blocks new machine operations through Beacon. Monitoring continues."),
+		ResumeHint: s.t("People and agents with access can start new sessions."), Channel: s.t("The SSH channel"),
 		Sessions: s.t("Recent sessions"), Commands: s.t("Commands"), None: s.t("None"), NoMachines: s.t("No machines yet."),
 		Off: s.t("The SSH channel is off: ssh.listen is not set."),
 		Add: s.t("Add a machine"), Dial: s.t("Beacon dials it"), Behind: s.t("Behind NAT, it connects out"),
@@ -49,12 +51,14 @@ func (s *Server) machineLabels() machineLabels {
 		RemoveHint:    s.t("Removing forgets the machine. Its sessions stay on record. An open connection from a machine behind NAT is closed."),
 		Confirm:       s.t("Type the machine's name to confirm"), Previous: s.t("Previous fingerprint"), NewFP: s.t("New fingerprint"),
 		Note: s.t("Note"), Save: s.t("Save"), Remove: s.t("Remove"),
+		Connection: s.t("Connection method"), Search: s.t("Search"), SearchMachines: s.t("Search machines"),
+		SearchHint: s.t("Name, address or note"), NoMatch: s.t("Nothing matches."), Connect: s.t("Connect over SSH"),
 	}
 }
 
 type machineRow struct {
-	Name, Href, Address, Connector, ConnectorTone, Sessions, Last, LastHref string
-	Critical                                                                bool
+	Name, Href, Address, ConnectorTone, Sessions, Last, LastHref, ConnectLabel string
+	Critical                                                                   bool
 }
 
 type channelSwitch struct {
@@ -107,8 +111,26 @@ func (s *Server) connector(m sshgate.MachineView) (string, string) {
 	return s.t("Behind NAT, not connected"), "warning"
 }
 
+func disconnected(m sshgate.MachineView) bool {
+	return m.Connector && (m.Connected == nil || !*m.Connected)
+}
+
 func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 	ms := s.machineList(v)
+	q := r.URL.Query()
+	search := strings.TrimSpace(q.Get("q"))
+	p := machinesPage{shell: s.shellFor(r, v, "machines", s.t("Machines")), L: s.machineLabels(), Channel: s.channelSwitch(v), List: list{Query: search}}
+	if search != "" {
+		needle := strings.ToLower(search)
+		ms = slices.DeleteFunc(ms, func(m sshgate.MachineView) bool { return !contains(needle, m.Name, m.Address, m.Note) })
+	}
+	p.Count = num(len(ms))
+	_, from, to := s.page(len(ms), q, consolePath("/machines"), &p.List)
+	ms = ms[from:to]
+	if len(ms) == 0 {
+		s.render(w, machinesTmpl, p)
+		return
+	}
 	since := s.now().Add(-24 * time.Hour)
 	counts, last := map[string]int{}, map[string]store.SessionRecord{}
 	listed := map[string]bool{}
@@ -118,20 +140,22 @@ func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 	walked := 0
 	s.Store.EachSession(func(rec store.SessionRecord) bool { // newest first: until every machine has its last session and the day is past
 		walked++
-		if !rec.Started.Before(since) {
-			counts[rec.Machine]++
-		}
-		if _, ok := last[rec.Machine]; !ok && listed[rec.Machine] {
-			last[rec.Machine] = rec
+		if listed[rec.Machine] {
+			if !rec.Started.Before(since) {
+				counts[rec.Machine]++
+			}
+			if _, ok := last[rec.Machine]; !ok {
+				last[rec.Machine] = rec
+			}
 		}
 		return walked < maxScan && (len(last) < len(listed) || !rec.Started.Before(since))
 	})
-	p := machinesPage{shell: s.shellFor(r, v, "machines", s.t("Machines")), L: s.machineLabels(), Channel: s.channelSwitch(v)}
-	p.Count = num(len(ms))
-	_, from, to := s.page(len(ms), r.URL.Query(), consolePath("/machines"), &p.List)
-	for _, m := range ms[from:to] {
-		row := machineRow{Name: m.Name, Href: consolePath("/machines/") + url.PathEscape(m.Name), Critical: m.Critical, Sessions: num(counts[m.Name])}
+	for _, m := range ms {
+		row := machineRow{Name: m.Name, Href: machinePath(m.Name), Critical: m.Critical, Sessions: num(counts[m.Name])}
 		row.Address, row.ConnectorTone = s.connector(m)
+		if v.person() && m.Reachable && !p.Channel.Paused && !disconnected(m) {
+			row.ConnectLabel = s.t("Connect to %s over SSH", m.Name)
+		}
 		if rec, ok := last[m.Name]; ok {
 			row.Last, row.LastHref = s.t("%s by %s", s.ago(rec.Started), rec.Agent), link.SessionPath(rec.ID)
 		}
@@ -145,6 +169,11 @@ func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 type commandItem struct {
 	At, Agent, Command, Exit, Took, Href string
 	Failed                               bool
+}
+
+type personalConnection struct {
+	Title, Hint, Href, Link, Command, Config, Setup, SetupHint string
+	Copy, Copied, CopyError                                    string
 }
 
 type machinePage struct {
@@ -165,11 +194,48 @@ type machinePage struct {
 	ConnectorAction string
 	RemoveAction    string
 	OldFP, NewFP    string
+	Connection      *personalConnection
 }
 
 var machineTmpl = parse("machine.html")
 
 func (p machinePage) Table() sessionTable { return sessionTable{L: p.LL, Rows: p.Sessions} }
+
+// machineConnection is the terminal hand-off for a person who may reach this machine. The gateway
+// still reads that person's role when they authenticate and throughout their session.
+func (s *Server) machineConnection(v *viewer, m sshgate.MachineView) *personalConnection {
+	if !v.person() || !m.Reachable {
+		return nil
+	}
+	c := &personalConnection{Title: s.t("Connect over SSH")}
+	switch {
+	case s.SSH.Paused():
+		c.Hint = s.t("SSH access is paused for all machines.")
+		c.Href, c.Link = consolePath("/machines"), s.t("View the SSH channel")
+	case disconnected(m):
+		c.Hint = s.t("This machine is not connected to the SSH channel yet.")
+	case len(v.Account.SSHKeys) == 0:
+		c.Hint = s.t("Register this device's public key in your account to connect as yourself.")
+		c.Href, c.Link = consolePath("/account")+"#ssh-keys", s.t("Add an SSH key")
+	default:
+		c.Config = s.Bridge.PersonalSSHConfig(v.actor(), m.Name)
+		if c.Config == "" {
+			c.Hint = s.t("Ask the owner to set the public address of the SSH channel.")
+			if v.owner() {
+				c.Hint = s.t("Set ssh.public_address in Beacon's configuration to show the connection command.")
+			}
+			return c
+		}
+		c.Command = "ssh beacon-" + m.Name
+		c.Hint = s.t("Beacon records the session as %s.", v.name())
+		c.Setup = s.t("First-time terminal setup")
+		c.SetupHint = s.t("Add each block to the file named above it, then run the SSH command in your terminal.")
+		c.Copy = s.t("Copy command")
+		c.Copied = s.t("Command copied")
+		c.CopyError = s.t("Could not copy the command. Select it and copy it from the page.")
+	}
+	return c
+}
 
 func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 	name := r.PathValue("name")
@@ -186,7 +252,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	l := s.machineLabels()
 	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: consolePath("/machines")}), L: l, LL: s.listLabels(), Note: m.Note,
-		User: m.User, Critical: m.Critical, Connector: m.Connector}
+		User: m.User, Critical: m.Critical, Connector: m.Connector, Connection: s.machineConnection(v, *m)}
 	if v.has("machines:write") {
 		p.Can = true
 		base := machinePath(name)

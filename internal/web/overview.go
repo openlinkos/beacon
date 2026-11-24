@@ -55,9 +55,9 @@ type health struct{ Title, Text, Tone, Icon string }
 
 // attentionItem is one thing that needs someone: an alert, or what Beacon sees that no alert names.
 type attentionItem struct {
-	Icon, Tone, Title, Href, Sub, Badge, BadgeTone, When string
-	Acked, Silenced                                      bool
-	kind                                                 string // alert, service, channel, location, machine or hook
+	Icon, Tone, Title, Href, Sub, Badge, BadgeTone, When, Response string
+	Acked, Silenced, Unclaimed                                     bool
+	kind                                                           string // alert, service, channel, location, machine or hook
 }
 
 // feedItem is a line of a short list beside the rest: a session, a change, a page, a coming event.
@@ -69,22 +69,23 @@ type feedItem struct {
 
 type overviewLabels struct {
 	Attention, AllAlerts, Calm, CalmText, Sessions, AllSessions, NoSessions, Changes, AllChanges, NoChanges string
-	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Acked, Silenced         string
+	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Silenced                string
 }
 
 type overviewPage struct {
 	shell
-	L         overviewLabels
-	Health    health
-	Stats     []stat
-	Attention []attentionItem
-	Sessions  []feedItem
-	Changes   []feedItem
-	Pages     []feedItem
-	Coming    []feedItem
-	Calls     []callItem
-	Channel   stat
-	Facts     []kvLink
+	L           overviewLabels
+	Health      health
+	Stats       []stat
+	Attention   []attentionItem
+	Sessions    []feedItem
+	Changes     []feedItem
+	Pages       []feedItem
+	Coming      []feedItem
+	Calls       []callItem
+	CallSummary string
+	Channel     stat
+	Facts       []kvLink
 }
 
 type kvLink struct{ K, V, Href string }
@@ -227,8 +228,16 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
 		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
-		out = append(out, attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
-			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt), Acked: g.Ack != nil, Silenced: silenced, kind: "alert"})
+		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
+			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
+			Acked: g.Ack != nil, Silenced: silenced, Unclaimed: g.Ack == nil && !silenced, kind: "alert"}
+		switch {
+		case item.Acked:
+			item.Response = s.t("Acknowledged by %s", g.Ack.By)
+		case item.Unclaimed:
+			item.Response = s.t("Awaiting acknowledgement")
+		}
+		out = append(out, item)
 	}
 	for _, it := range sh.Trouble {
 		if !alerting[it.Title] {
@@ -278,7 +287,7 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 			break
 		}
 		if c.Status == "failed" {
-			out = append(out, attentionItem{Icon: "bot", Tone: "danger", Title: s.t("Hook %s failed to wake an agent", c.Hook), Href: c.item.AlertHref,
+			out = append(out, attentionItem{Icon: "bot", Tone: "danger", Title: s.t("Delivery to hook %s failed", c.Hook), Href: c.item.AlertHref,
 				Sub: c.title, Badge: s.t("Agent call"), BadgeTone: "danger", When: s.ago(c.At), kind: "hook"})
 		}
 	}
@@ -323,7 +332,7 @@ func (s *Server) healthOf(items []attentionItem, sh serviceHealth) health {
 	var parts []string
 	for _, k := range []struct{ kind, name string }{
 		{"alert", s.t("Firing alerts")}, {"service", s.t("Services in trouble")}, {"channel", s.t("The SSH channel")},
-		{"location", s.t("Probe locations not reporting")}, {"machine", s.t("Machines not connected")}, {"hook", s.t("Agents not woken")},
+		{"location", s.t("Probe locations not reporting")}, {"machine", s.t("Machines not connected")}, {"hook", s.t("Hook deliveries failed")},
 	} {
 		switch n := kinds[k.kind]; {
 		case n == 0:
@@ -343,17 +352,18 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := overviewPage{shell: s.shellFor(r, v, "overview", s.t("Overview")), L: overviewLabels{
 		Attention: s.t("Needs attention"), AllAlerts: s.t("All alerts"), Calm: s.t("Nothing needs attention"),
 		CalmText: s.t("No alert is firing, and the services, probe locations, machines and hooks are as they should be."),
-		Sessions: s.t("Latest sessions"), AllSessions: s.t("All sessions"), NoSessions: s.t("No agent has worked on a machine yet."),
+		Sessions: s.t("Latest sessions"), AllSessions: s.t("All sessions"), NoSessions: s.t("No machine sessions recorded yet."),
 		Changes: s.t("Latest changes"), AllChanges: s.t("All changes"), NoChanges: s.t("No deployment or other change was reported yet."),
 		Pages: s.t("Status pages"), AllPages: s.t("All status pages"), NoPages: s.t("No status pages."),
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
-		Woken: s.t("Agents woken today"), AllCalls: s.t("All agent calls"), NoneWoken: s.t("No agent was woken today."),
-		Beacon: s.t("Beacon"), Acked: s.t("Acknowledged"), Silenced: s.t("Silenced"),
+		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
+		Beacon: s.t("Beacon"), Silenced: s.t("Silenced"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
 	p.Attention = s.attention(v, f, sh)
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
+	p.CallSummary = s.t("%d delivered, %d failed, %d waiting", f.WokenOK, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)
 
 	switch {
 	case !f.ChannelOn:
@@ -441,12 +451,9 @@ func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) []stat {
 	if f.Connected < f.Connectors {
 		mach.Tone = "warning"
 	}
-	work := stat{Label: s.t("Agent sessions today"), Value: num(f.SessionsToday), Icon: "bot",
+	work := stat{Label: s.t("Machine sessions today"), Value: num(f.SessionsToday), Icon: "terminal",
 		Href: consolePath("/sessions?day=") + url.QueryEscape(s.day(s.now())),
-		Meta: s.t("%d woken by alerts, %d failed, %d waiting", f.Woken, f.WokenFailed, f.Woken-f.WokenOK-f.WokenFailed)}
-	if f.WokenFailed > 0 {
-		work.Tone = "danger"
-	}
+		Meta: s.t("Command records and replays")}
 	return []stat{firing, svc, loc, mach, work}
 }
 
@@ -520,7 +527,7 @@ func (s *Server) calls() []call {
 	for _, g := range s.Bridge.Groups(false) {
 		for _, c := range g.Agents {
 			x := call{AgentCall: c, alert: g.ID, title: g.Title}
-			x.item = callItem{Hook: c.Hook, Alert: g.Title, AlertHref: link.AlertPath(g.ID), Status: s.callStatus(c.Status), StatusTone: tone(c.Status), At: s.clock(c.At)}
+			x.item = callItem{Hook: c.Hook, Alert: g.Title, AlertHref: link.AlertPath(g.ID), Status: s.callStatus(c.Status), StatusTone: callTone(c.Status), At: s.clock(c.At)}
 			out = append(out, x)
 		}
 	}
@@ -531,9 +538,16 @@ func (s *Server) calls() []call {
 func (s *Server) callStatus(status string) string {
 	switch status {
 	case "ok":
-		return s.t("Done")
+		return s.t("Delivered")
 	case "failed":
 		return s.t("Failed")
 	}
 	return s.t("Pending")
+}
+
+func callTone(status string) string {
+	if status == "ok" {
+		return "info"
+	}
+	return tone(status)
 }

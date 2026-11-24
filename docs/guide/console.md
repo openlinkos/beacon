@@ -56,9 +56,9 @@ The sidebar has the overview on its own, then three parts:
 | `/console/monitors`, `/console/monitors/{service}` | What is monitored and how it is doing now ([below](#monitors-and-status-pages)) |
 | `/console/status-pages`, `/console/status-pages/{name}` | The status pages as the public sees them now ([below](#monitors-and-status-pages)) |
 | `/console/silences` | What keeps alerts from paging people: the maintenance windows and the silences ([below](#silences-and-maintenance)) |
-| `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, and sessions in the last 24 hours. With `machines:write`: add a machine, edit its note, whether it is critical and its account, pin the host key again, change a connector's key, and remove a machine after typing its name. One machine's address, host key, recent sessions and the commands run on it. Above them, the pause switch for the whole channel |
+| `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, and sessions in the last 24 hours. With `machines:write`: add a machine, edit its note, whether it is critical and its account, pin the host key again, change a connector's key, and remove a machine after typing its name. One machine's address, host key, recent sessions and the commands run on it. Search by machine name, address or note. Open **Add a machine** when you need the registration form. Members with SSH access can select **SSH** to get the command and terminal settings for their own account. The separate **Pause all SSH access** control stops machine operations through Beacon while monitoring continues |
 | `/console/sessions`, `/console/sessions/{id}` | Every session, with facets for agent, machine, kind, via, exit status and day, and search over commands. The session's page has its replay ([below](#the-sessions-page-and-its-replay)) |
-| `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys. The commands to connect a client by OAuth, and the form for a headless agent's token. Each agent's page changes its preset and machines, and revokes it. An owner who signs in as a person also sets custom scopes there |
+| `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys. Open the connection instructions for an OAuth client or the form for a headless agent's token. The editor shows the chosen preset's permissions. Choose all current and future machines, or select the specific machines it may reach. Each agent's page changes its preset and machines, and revokes its credentials. An owner who signs in as a person also sets custom scopes there |
 | `/console/tokens` | Every token: scopes, machines, keys, expiry, whose agent it is. **Legacy** marks those from before accounts, with the form to claim one. Never a secret |
 | `/console/config`, `/console/config/history/{version}` | The configuration, read-only (locations, heartbeats, resources, target sets, modules), and its history. Who, when, through what and why; each version item by item as a diff, with the form to revert it |
 | `/console/hooks` | The agent hooks configured, and every call made: hook, event, status, attempts, when, for which alert |
@@ -74,21 +74,21 @@ The sidebar has the overview on its own, then three parts:
 - services answering at every location;
 - probe locations reporting;
 - machines, and those behind NAT connected;
-- agent sessions today, with the agents woken by alerts.
+- agent sessions today, with the status of today's alert deliveries to agent hooks.
 
 **Needs attention** lists the alerts firing, the worst first. Those someone acknowledged or silenced come after the rest. Then it lists what Beacon sees going wrong that no firing alert names:
 
 - a service failing;
 - a probe location gone quiet;
 - a machine behind NAT not connected;
-- a hook that failed to wake an agent;
+- a failed delivery to an agent hook;
 - the channel paused.
 
 Beside it are:
 
 - the status pages, as the public sees them;
 - what is coming up: maintenance in progress or planned, and resources expiring within 30 days;
-- the agents woken today;
+- today's agent hook deliveries;
 - the latest sessions and changes;
 - the channel's state and the configuration's version.
 
@@ -101,6 +101,8 @@ Beside it are:
 - **every resource**, with when it expires.
 
 A service's page has what each location saw of its targets in the last 30 minutes, with the reasons. It also lists its targets with their target sets, and its alerts.
+
+With `config:write`, use **Add HTTP monitor** to select an endpoint, its check profile and its probe locations. The new service opens immediately so you can see when its first results arrive. The change appears in **Configuration** history. See [Monitor a service](monitoring.md#add-an-http-monitor).
 
 `/console/status-pages` shows the status pages as the public sees them now: each page's address, state, components, active incidents and maintenance windows. One page's view has:
 
@@ -116,13 +118,13 @@ A service's page has what each location saw of its targets in the last 30 minute
 - **The maintenance windows.** Those in progress and planned come first, then the last 20 that ended. Each shows its services, its times and who planned it.
 - **The silences** in force or to come, as Alertmanager holds them. Each shows what it matches, its comment, who made it, when it ends and the alert it silences.
 
-Who ends what:
+What each role may do:
 
-- Whoever may plan a window (`maintenance:write`) can end it early, or call it off before it starts.
+- With `maintenance:write`, schedule a window, end it early, or call it off before it starts.
 - Whoever may silence (`alerts:write`) can end a silence.
 - A window's silences end with the window.
 
-Windows are planned ahead of time with `schedule_maintenance` or `POST /api/v1/maintenance`, so that the status pages announce them.
+**Schedule maintenance** lets you select services and preview which public pages and components will announce the window. A service's monitor page opens the same form with that service selected. Agents and scripts use `schedule_maintenance` or `POST /api/v1/maintenance`.
 
 ### Forms and roles {#forms-and-roles}
 
@@ -132,17 +134,17 @@ A form the person's role does not allow is not offered, and is refused if sent a
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. From top to bottom:
+The card's **Timeline** button opens it. The response panel shows how long the alert has been firing and who acknowledged it. On a phone or desktop, you can acknowledge it, probe again or jump to the note form from the same panel.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.
 - **What people were told and did**: acknowledged, silenced, paged. A button ends the silence.
 - **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it.
 - **Related alerts** in the same failure domain.
-- **Agents**: whether they reach machines, which hooks were woken, and one line "N sessions on M machines, K commands".
+- **Agents**: whether they reach machines, delivery to each hook, and one line "N sessions on M machines, K commands".
 - **Sessions**: every session in the alert's window on the machines its labels name, each with a **Replay** link.
 - **Notes**, **Changes** and the **Timeline**: everything in time order, as `get_timeline` returns it.
 
-The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence).
+The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
 
 ## The session's page and its replay {#the-sessions-page-and-its-replay}
 
@@ -165,6 +167,8 @@ The links Beacon puts in the chat open one page without signing in. Such a link 
 - the signature is the base64url HMAC-SHA256 of the method, the path and the expiry, under a key Beacon keeps in its database.
 
 Links are valid for `pages.link_ttl`, 30 days by default. Each grants exactly one page, view-only: the alert's page, or the session's page with its recording. A link for another path, with a changed expiry, or expired, fails. Every failure is a plain 404, the same as for a page that does not exist, so a wrong link reveals nothing.
+
+**Sign in** on that page returns to the same alert or session. After sign-in, the page uses the account's own permissions.
 
 **Anyone holding a link can see that page, recording included, without signing in anywhere.** So:
 
@@ -199,13 +203,12 @@ The console is on the OpenLinkOS design system ([`@openlinkos/ui`](https://githu
 - **Language and scheme.** The console is in the configured language, English or Chinese, and follows the system's light or dark scheme.
 - **Not indexed.** Its pages are marked `noindex`, since their links carry signatures.
 
-Three things it does not do:
+Two things it does not do:
 
 - **No sign-in from anywhere else.** Beacon's own accounts are the only way in.
 - **No approval workflow.** The forms are what the person's role already allows through the API, and the pause switch is the brake.
-- **No editing what is monitored, beyond reverting a change, and no planning maintenance.** Machines, and an agent's custom scopes, are changed in the console. The catalogue, probe targets and modules are not: a revert goes through the same checks as the files. Agents and scripts plan maintenance through MCP and the API; the console ends a window.
 
-What is monitored and what the status pages show are changed where the configuration is: the files, the API, MCP's `put_config` and the command line. That way every change is checked, versioned and attributed. The monitors and status pages in the console show the result.
+Use the files, the API, MCP's `put_config` or the command line for advanced checks, catalogue and status page definitions. Configuration changes from every entry point are checked, versioned and attributed.
 
 ## Check it
 

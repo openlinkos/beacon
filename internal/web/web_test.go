@@ -31,6 +31,7 @@ import (
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/version"
@@ -133,6 +134,11 @@ type env struct {
 
 func newEnv(t *testing.T, lang i18n.Lang) *env {
 	t.Helper()
+	return newEnvWithProbe(t, lang, nil)
+}
+
+func newEnvWithProbe(t *testing.T, lang i18n.Lang, board *probenow.Board) *env {
+	t.Helper()
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	e := &env{t: t, now: now, bot: &fakeBot{}, am: &fakeAM{}}
 	cfg := &config.Config{Language: string(lang), Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),
@@ -154,7 +160,7 @@ func newEnv(t *testing.T, lang i18n.Lang) *env {
 		t.Fatal(err)
 	}
 	pages := &link.Pages{Signer: e.signer, PublicURL: publicURL}
-	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: e.am, Bot: e.bot, Pages: pages, Now: func() time.Time { return e.now }})
+	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: e.am, Bot: e.bot, Pages: pages, ProbeNow: board, Now: func() time.Time { return e.now }})
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: groupKey, Status: "firing",
 		GroupLabels:       map[string]string{"alertname": "ServiceDown", "service": "git-example-com"},
 		CommonLabels:      map[string]string{"alertname": "ServiceDown", "service": "git-example-com", "severity": "critical", "host": "edge-1", "note": hostile},
