@@ -161,7 +161,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-You will see one result per target and location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`. `missing` names locations with at least one expected result missing. Use **Probe again now** on the alert page for the same check. Checks made with an alert ID appear in its timeline and audit log. The probes push the same samples as in their cycle, so the alert resolves when the rule engine finds its recovery conditions met.
+You will see one result per target and location, failing first, and a `summary` such as `7 OK, 2 failing (dns)`. `missing` names locations with at least one expected result missing. Use **Probe again now** on the alert page for the same check. Checks made with an alert ID appear in its timeline and audit log. Beacon uses the alert members’ instance, module, service and failure-domain labels when available. If any member with a known scope has no eligible configured targets, Beacon reports that the check cannot run for the full incident. The probes push the same samples as in their cycle, so the alert resolves when the rule engine finds its recovery conditions met.
 
 The limits:
 

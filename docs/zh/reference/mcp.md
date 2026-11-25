@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7afdcde2
+sourceHash: sha256-6bc5dec4
 ---
 
 # MCP 工具
@@ -77,7 +77,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
-用 `probe_now` 验证某次故障时，传入 `alert_id`，并将 `expected_episode` 设为 `list_alerts` 返回的 `episode`，或 `get_evidence`、`get_timeline`、签名唤醒消息中的 `alert.episode`。故障被下一轮替代时，工具返回以 `incident.changed` 开头的错误。请先读取当前故障证据，再决定是否重测。省略 `expected_episode` 时，仍选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障验证。
+用 `probe_now` 验证某次故障时，传入 `alert_id`，并将 `expected_episode` 设为 `list_alerts` 返回的 `episode`，或 `get_evidence`、`get_timeline`、签名唤醒消息中的 `alert.episode`。故障被下一轮替代时，工具返回以 `incident.changed` 开头的错误。请先读取当前故障证据，再决定是否重测。省略 `expected_episode` 时，仍选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障验证。故障复测按每个告警条目的已知标签（含故障域）匹配目标。任何条目在有效检测点都没有匹配目标时，工具会返回错误。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 

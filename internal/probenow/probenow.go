@@ -201,6 +201,7 @@ func (b *Board) resolve(wants []Want) ([]Target, error) {
 		}
 	}
 	var out []Target
+	selected := make(map[*Target]bool)
 	for _, w := range wants {
 		found := false
 		for _, t := range all {
@@ -208,11 +209,12 @@ func (b *Board) resolve(wants []Want) ([]Target, error) {
 				continue
 			}
 			found = true
-			if !slices.ContainsFunc(out, func(o Target) bool { return o.Instance == t.Instance && labelsKey(o.labels) == labelsKey(t.labels) }) {
+			if !selected[t] {
 				c := *t
 				c.Locations = slices.Clone(t.Locations)
 				slices.Sort(c.Locations)
 				out = append(out, c)
+				selected[t] = true
 			}
 		}
 		if !found {

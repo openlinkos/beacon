@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-eeecd98c
+sourceHash: sha256-cc9aeeb8
 ---
 
 # REST API
@@ -101,7 +101,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
 
-验证一次故障时，将 `alert_id` 与 `expected_episode` 一起传入。使用该次告警的 `episode`，或证据、时间线、签名唤醒消息中的 `alert.episode`。如果检查写入前该告警组已进入新一轮故障，Beacon 返回 `409 incident.changed`。请先读取当前故障证据，再决定是否重测。省略此字段时，仍按告警组 ID 选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障时间线。
+验证一次故障时，将 `alert_id` 与 `expected_episode` 一起传入。使用该次告警的 `episode`，或证据、时间线、签名唤醒消息中的 `alert.episode`。如果检查写入前该告警组已进入新一轮故障，Beacon 返回 `409 incident.changed`。请先读取当前故障证据，再决定是否重测。省略此字段时，仍按告警组 ID 选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障时间线。故障复测按每个告警条目的已知标签匹配当前目标，包括故障域。有条目没有匹配的有效目标时，返回 `probe.no_targets`。
 
 故障摘要中的 `verification` 显示最近记录的一次按需复测。可选字段 `passing_check` 显示在 `resolved_at` 时刻或之前完成的最后一次全通过复测。如果此前没有全通过的复测，则保留规则恢复后第一次全通过的复测。复测至少需要一项预期观测，每项预期的目标与检测点组合都需要收到通过结果。`at` 记录 Beacon 收集完结果的时间。Beacon 记录了发起方类型时会提供 `actor_kind`。如果旧故障的详细结果已被清理，摘要可能没有全通过记录。
 
