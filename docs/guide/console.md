@@ -151,6 +151,8 @@ The Feishu app card updates in place when sessions in the alert's evidence close
 
 After signing in, **Linked machines** takes you to an enrolled machine named by the rule's explicit `machine` label or by the catalogue entry for a heartbeat. If your account can use SSH, the link opens the instructions for connecting with your own key. Otherwise it opens the machine details. Open the recorded session from the alert's **Sessions**, then add the handover in **Notes**.
 
+For your first connection from an incident, choose **Add an SSH key**, save your public key, then use **Back to SSH setup** for that machine. **Back to incident** returns to the same episode for rechecking and handover.
+
 **Designated service machines** shows the machine chosen for a routine [HTTP monitor](monitoring.md#add-an-http-monitor) when a new service outage began. Open the machine to connect and review sessions available to your account.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.

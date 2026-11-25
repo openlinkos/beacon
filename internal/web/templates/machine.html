@@ -2,11 +2,14 @@
 {{define "actions"}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.HistoryHref}}">{{iconSm "history"}}{{.History}}</a>{{end}}
 
 {{define "content"}}<div class="ol-stack">
-  {{with .Connection}}<section class="ol-panel" id="ssh-connect" aria-labelledby="ssh-connect-title">
+  {{with .Connection}}<section class="ol-panel" id="ssh-connect" tabindex="-1" aria-labelledby="ssh-connect-title">
     <div class="ol-panel-header"><h2 class="ol-panel-title" id="ssh-connect-title">{{icon "terminal"}} {{.Title}}</h2></div>
     <div class="ol-panel-body ol-stack">
       <p class="ol-hint">{{.Hint}}</p>
-      {{if .Href}}<div><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Href}}">{{.Link}}</a></div>{{end}}
+      {{if or .Href .IncidentHref}}<div class="ol-cluster bc-incident-ssh-controls">
+        {{if .Href}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Href}}">{{.Link}}</a>{{end}}
+        {{if .IncidentHref}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.IncidentHref}}">{{iconSm "chevron-left"}}{{.IncidentLabel}}</a>{{end}}
+      </div>{{end}}
       {{if .Command}}
       <div class="bc-ssh-command ol-cluster">
         <code class="ol-mono ol-break" id="ssh-command">{{.Command}}</code>

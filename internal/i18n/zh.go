@@ -6,6 +6,10 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Incident SSH setup.
+	"Back to incident":         "返回事件",
+	"Back to SSH setup for %s": "返回 %s 的 SSH 设置",
+
 	// Pushover incident response.
 	"Refresh status": "刷新状态",
 	"Pushover cancellation pending. The earlier page may still repeat.": "正在取消 Pushover 紧急通知。此前发出的通知可能仍会重复响铃。",

@@ -310,12 +310,16 @@ type alertPage struct {
 func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
 	now := s.now()
 	al := ev.Alert
+	ref := al.ID + "." + g.Episode
+	if sshIncidentPath(ref) == "" {
+		ref = ""
+	}
 	p := alertPage{shell: s.pageShell(r, a, "alerts", s.t("Alert"), al.Title, crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
 		L: s.labels(), ID: al.ID, Heading: al.Title, Description: al.Description,
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
-		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
+		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines, ref)}
 	if a.Viewer.person() && a.Viewer.owner() {
 		p.ShareLinks = shareLinksPath("alerts", al.ID)
 	} else if a.Grant != nil {
@@ -465,7 +469,7 @@ func currentHandover(tl bridge.Timeline, ack *store.Ack) handoverNote {
 	return handoverNote{}
 }
 
-func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine) *alertMachineLinks {
+func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine, ref string) *alertMachineLinks {
 	if v == nil || !v.hasAny("status:read|machines:ssh") {
 		return nil
 	}
@@ -485,7 +489,11 @@ func (s *Server) alertMachines(v *viewer, names []string, designated []store.Mon
 		}
 		href := machinePath(m.Name)
 		if v.person() && v.Principal.Reaches(m.Name) {
-			href += "#ssh-connect"
+			if ref == "" {
+				href += "#ssh-connect"
+			} else {
+				href = incidentMachinePath(m.Name, m.Registration(), ref)
+			}
 		}
 		out.Items = append(out.Items, kvLink{V: m.Name, K: s.t("Open machine %s", m.Name), Href: href})
 	}
@@ -498,7 +506,11 @@ func (s *Server) alertMachines(v *viewer, names []string, designated []store.Mon
 			}
 			href := machinePath(m.Name) + "?registration=" + url.QueryEscape(binding.Registration)
 			if v.person() && v.Principal.Reaches(m.Name) {
-				href += "#ssh-connect"
+				if ref == "" {
+					href += "#ssh-connect"
+				} else {
+					href = incidentMachinePath(m.Name, binding.Registration, ref)
+				}
 			}
 			out.Items = append(out.Items, kvLink{V: m.Name + " (" + binding.Service + ")",
 				K: s.t("Open designated machine %s for %s", m.Name, binding.Service), Href: href})

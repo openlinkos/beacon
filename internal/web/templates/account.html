@@ -4,9 +4,14 @@
   <div class="ol-panel-body"><dl class="ol-dl ol-dl-stack">{{range .Facts}}<dt>{{.K}}</dt><dd class="ol-break">{{if .Href}}<a href="{{.Href}}">{{.V}}</a>{{else}}{{.V}}{{end}}</dd>{{end}}</dl></div>
 </section>
 {{if .Person}}
-{{with .SSH}}<section id="ssh-keys" class="ol-panel">
-  <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "key-round"}} {{.Heading}}</h2></div>
+{{with .SSH}}<section id="ssh-keys" class="ol-panel" tabindex="-1" aria-labelledby="ssh-keys-title">
+  <div class="ol-panel-header"><h2 class="ol-panel-title" id="ssh-keys-title">{{icon "key-round"}} {{.Heading}}</h2></div>
   <div class="ol-panel-body ol-stack">
+    {{if .Result}}<div class="ol-alert ol-alert-{{.ResultTone}}" role="{{if eq .ResultTone "danger"}}alert{{else}}status{{end}}">
+      {{if eq .ResultTone "danger"}}{{icon "circle-alert"}}{{else}}{{icon "circle-check"}}{{end}}
+      <div class="ol-alert-body"><p>{{.Result}}</p></div>
+    </div>{{end}}
+    {{if .ReturnHref}}<div class="bc-incident-ssh-controls"><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ReturnHref}}">{{iconSm "chevron-left"}}{{.ReturnLabel}}</a></div>{{end}}
     <p class="ol-hint">{{.Help}}</p>
     {{if .Keys}}<ul class="ol-list">{{range .Keys}}
       <li class="ol-list-item">
@@ -21,6 +26,8 @@
     {{if .CanAdd}}
     <form class="ol-stack" method="post" action="{{console "/account/keys"}}">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      {{if .Return.Ref}}<input type="hidden" name="incident" value="{{.Return.Ref}}">{{end}}
+      {{if .Return.Machine}}<input type="hidden" name="ssh_machine" value="{{.Return.Machine}}"><input type="hidden" name="registration" value="{{.Return.Registration}}">{{end}}
       <div class="ol-field"><label for="personal-key" class="ol-label">{{.PublicKey}}</label>
         <textarea id="personal-key" name="key" class="ol-textarea ol-input-mono" rows="2" required maxlength="8000" aria-describedby="personal-key-help" spellcheck="false"></textarea>
         <p id="personal-key-help" class="ol-hint">{{.PublicKeyHint}}</p>

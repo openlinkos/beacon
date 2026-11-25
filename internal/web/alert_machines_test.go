@@ -3,18 +3,112 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
+
+func TestIncidentFirstKeySetupKeepsMachineAndEpisode(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	owner := e.owner()
+	oncall := e.invite(owner, "first-duty", "oncall")
+	reader := e.invite(owner, "incident-reader", "viewer")
+	g, _ := e.st.Group(e.id)
+	g.Alerts[0].Labels = map[string]string{"machine": "edge-1"}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := e.st.Machine("edge-1")
+	episode := link.IncidentPath(g.ID, g.Episode)
+	ref := g.ID + "." + g.Episode
+	registration := m.Registration()
+	ssh := incidentMachinePath(m.Name, registration, ref)
+	account := incidentKeyReturn{Ref: ref, Machine: m.Name, Registration: registration}.accountPath()
+	assertLink := func(r answer, path string) {
+		t.Helper()
+		if r.code != http.StatusOK || !slices.Contains(hrefs(r.body, path), path) {
+			t.Fatalf("missing contextual link to %q (status %d)", path, r.code)
+		}
+	}
+	request := func(path string) string {
+		path, _, _ = strings.Cut(path, "#")
+		return path
+	}
+	assertLink(oncall.get(episode), ssh)
+	assertLink(oncall.get(request(ssh)), account)
+	assertLink(oncall.get(request(ssh)), episode)
+	if result := reader.get(request(ssh)); result.code != http.StatusOK || strings.Contains(result.body, `id="ssh-connect"`) || strings.Contains(result.body, "Back to incident") {
+		t.Fatalf("viewer received the personal SSH hand-off: %d", result.code)
+	}
+	if code, body, _ := e.get(e.link(episode), ""); code != http.StatusOK || strings.Contains(body, "ssh-connect") {
+		t.Fatalf("anonymous alert received the personal SSH hand-off: %d", code)
+	}
+	assertLink(oncall.get(request(account)), ssh)
+	fields := url.Values{"incident": {ref}, "ssh_machine": {m.Name}, "registration": {registration}, "key": {"invalid"}}
+	retry := oncall.post("/console/account/keys", fields)
+	u, err := url.Parse(retry.header.Get("Location"))
+	if err != nil || retry.code != http.StatusSeeOther || u.Query().Get("error") != "bad_key" || u.Query().Get("registration") != registration ||
+		u.Query().Get("incident") != ref || u.Fragment != "ssh-keys" {
+		t.Fatalf("retry lost its context: %d, %q", retry.code, retry.header.Get("Location"))
+	}
+	assertLink(oncall.get(u.RequestURI()), ssh)
+	fields.Set("key", lockPubKey(t))
+	added := oncall.post("/console/account/keys", fields)
+	u, err = url.Parse(added.header.Get("Location"))
+	if err != nil || added.code != http.StatusSeeOther || u.Query().Get("done") != "key_added" || u.Query().Get("registration") != registration ||
+		u.Query().Get("incident") != ref || u.Fragment != "ssh-keys" {
+		t.Fatalf("adding a key lost its context: %d, %q", added.code, added.header.Get("Location"))
+	}
+	assertLink(oncall.get(u.RequestURI()), ssh)
+
+	hook := alertmanager.Webhook{GroupKey: groupKey, Status: "resolved", CommonLabels: g.Labels}
+	e.now = e.now.Add(time.Minute)
+	if err := e.b.HandleWebhook(context.Background(), hook); err != nil {
+		t.Fatal(err)
+	}
+	e.now, hook.Status = e.now.Add(time.Minute), "firing"
+	if err := e.b.HandleWebhook(context.Background(), hook); err != nil {
+		t.Fatal(err)
+	}
+	if next, _ := e.st.Group(e.id); next.Episode == g.Episode {
+		t.Fatal("fixture did not refire")
+	}
+	assertLink(oncall.get(request(ssh)), episode)
+	if archived := oncall.get(episode); archived.code != http.StatusSeeOther || !strings.Contains(archived.header.Get("Location"), "/incident-outcomes/") {
+		t.Fatalf("old episode does not return the archived outcome: %d", archived.code)
+	}
+	if err := e.st.DeleteMachine(m.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.PutMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	assertLink(oncall.get(request(account)), episode)
+	if page := oncall.get(request(account)); strings.Contains(page.body, "Back to SSH setup for") ||
+		strings.Contains(page.body, "ssh_machine") {
+		t.Fatal("key setup offered to connect to a replacement machine")
+	}
+	if page := oncall.get(request(ssh)); page.code != http.StatusNotFound {
+		t.Fatalf("pinned machine link opened a new registration: %d", page.code)
+	}
+	for _, ref := range []string{"https://other.example/ssh", "//other.example", g.ID + ".invalid"} {
+		failed := oncall.post("/console/account/keys", url.Values{"incident": {ref}, "ssh_machine": {m.Name}, "key": {"invalid"}})
+		if failed.code != http.StatusSeeOther || failed.header.Get("Location") != "/console/account?error=bad_key" {
+			t.Fatalf("the key form accepted an invalid return reference %q", ref)
+		}
+	}
+}
 
 func TestAlertLinksOnlyExplicitEnrolledMachines(t *testing.T) {
 	e := newEnv(t, i18n.EN)
@@ -35,7 +129,9 @@ func TestAlertLinksOnlyExplicitEnrolledMachines(t *testing.T) {
 	if err := e.st.PutGroup(g); err != nil {
 		t.Fatal(err)
 	}
-	if a := oncall.get(path); a.code != http.StatusOK || !strings.Contains(a.body, `href="`+machine+`#ssh-connect"`) ||
+	m, _ := e.st.Machine("edge-1")
+	ssh := incidentMachinePath(m.Name, m.Registration(), g.ID+"."+g.Episode)
+	if a := oncall.get(path); a.code != http.StatusOK || !strings.Contains(a.body, `href="`+html.EscapeString(ssh)+`"`) ||
 		strings.Contains(a.body, `href="/console/machines/edge-2`) || strings.Contains(a.body, `href="/console/machines/not-enrolled`) {
 		t.Fatalf("on-call should have the SSH hand-off only for the enrolled declared machine: %d", a.code)
 	}
@@ -73,7 +169,9 @@ func TestAlertLinksCatalogueHeartbeatMachine(t *testing.T) {
 	if err := e.st.PutGroup(g); err != nil {
 		t.Fatal(err)
 	}
-	if a := oncall.get(path); a.code != http.StatusOK || !strings.Contains(a.body, `href="/console/machines/edge-2#ssh-connect"`) ||
+	m, _ := e.st.Machine("edge-2")
+	ssh := incidentMachinePath(m.Name, m.Registration(), g.ID+"."+g.Episode)
+	if a := oncall.get(path); a.code != http.StatusOK || !strings.Contains(a.body, `href="`+html.EscapeString(ssh)+`"`) ||
 		strings.Contains(a.body, `href="/console/machines/edge-1`) {
 		t.Fatalf("the heartbeat should link its configured machine: %d", a.code)
 	}

@@ -96,14 +96,15 @@ func TestServiceOutageDesignatedMachine(t *testing.T) {
 	post(labels, start, start.Add(10*time.Minute))
 	g := current()
 	path := link.AlertPath(g.ID)
-	linkRe := regexp.MustCompile(`href="(/console/machines/app-1\?registration=[^"#]+)#ssh-connect"`)
+	linkRe := regexp.MustCompile(`href="(/console/machines/app-1\?incident=[^"#]+&amp;registration=[^"#]+)#ssh-connect"`)
 	a = oncall.get(path)
 	sshLink := linkRe.FindStringSubmatch(a.body)
 	if a.code != http.StatusOK || !strings.Contains(a.body, "Designated service machines") || len(sshLink) != 2 {
 		t.Fatalf("signed-in on-call member did not get the personal SSH link: %d", a.code)
 	}
 	machinePath := html.UnescapeString(sshLink[1])
-	if a = oncall.get(machinePath); a.code != http.StatusOK || !strings.Contains(a.body, "/console/account#ssh-keys") {
+	if a = oncall.get(machinePath); a.code != http.StatusOK || !strings.Contains(a.body, "#ssh-keys") ||
+		!strings.Contains(a.body, "ssh_machine=app-1") {
 		t.Fatalf("following the machine link did not continue personal SSH setup: %d", a.code)
 	}
 	if a = viewer.get(path); a.code != http.StatusOK || linkRe.MatchString(a.body) {
