@@ -10,7 +10,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 - Add, edit and remove components of an existing public status page from the console. Preview which services visitors will see and publish with the normal configuration history and version check.
 - Enforce the expected configuration version in the storage transaction, including when a separate Beacon instance commits a newer change.
-- Walk through the first monitor, public status changes and test notification delivery in the installation guide. The reference deployment checks preview, publication and removal on the signed-out public page and its JSON.
+- Ship a header-free GET profile for the first monitor in the console. The installation guide walks through public status changes and test notification delivery. The reference deployment checks the new monitor at both locations, then verifies preview, publication and removal on the signed-out public page and its JSON.
 
 ### rc.33 (2026-11-25)
 
