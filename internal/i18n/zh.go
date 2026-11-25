@@ -24,7 +24,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Pushover reported a device acknowledgement at %s":                  "Pushover 已于 %s 报告设备回应",
 
 	// Console session scope.
-	"Agent or machine": "Agent 或机器",
+	"Name or machine": "名称或机器",
 	"Sessions shown here are limited to the machines available to this sign-in.":  "这里仅显示本次登录可访问机器的会话。",
 	"No sessions are available for your machine access.":                          "在当前可访问的机器范围内暂无会话。",
 	"Command text and recordings require permission to read SSH session details.": "查看命令文本和录像需要 SSH 会话详情读取权限。",
@@ -471,7 +471,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Pending":                                    "等待中",
 	// the lists
 	"Title, service or label":     "标题、服务或标签",
-	"Command, agent or machine":   "命令、Agent 或机器",
+	"Command, name or machine":    "命令、名称或机器",
 	"Hook or alert":               "Hook 或告警",
 	"Who, what or detail":         "操作者、操作或详情",
 	"Summary, revision or object": "摘要、版本或对象",

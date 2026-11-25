@@ -19,16 +19,16 @@ import (
 
 // listLabels are the column headings and the words of the lists.
 type listLabels struct {
-	Title, Severity, State, Service, Since, Acked, Silenced, Started, Agent, Machine, Kind, Via, Command, Duration, Exit string
-	Hook, Event, Status, Code, Attempts, When, Alert, Actor, Action, Target, Detail, Time, Source, Summary, Yes, No      string
-	Open, Target2, Configured, Calls, Severities, Resolved, NoHooks, IncidentHistory                                     string
-	Evidence, Replay, Transcript, NoEnd                                                                                  string
+	Title, Severity, State, Service, Since, Acked, Silenced, Started, Machine, Kind, Via, Command, Duration, Exit   string
+	Hook, Event, Status, Code, Attempts, When, Alert, Actor, Action, Target, Detail, Time, Source, Summary, Yes, No string
+	Open, Target2, Configured, Calls, Severities, Resolved, NoHooks, IncidentHistory                                string
+	Evidence, Replay, Transcript, NoEnd                                                                             string
 }
 
 func (s *Server) listLabels() listLabels {
 	return listLabels{
 		Title: s.t("Alert"), Severity: s.t("Severity"), State: s.t("State"), Service: s.t("Service"), Since: s.t("Since"),
-		Acked: s.t("Acknowledged"), Silenced: s.t("Silenced"), Started: s.t("Started"), Agent: s.t("Agent"), Machine: s.t("Machine"),
+		Acked: s.t("Acknowledged"), Silenced: s.t("Silenced"), Started: s.t("Started"), Machine: s.t("Machine"),
 		Kind: s.t("Kind"), Via: s.t("Via"), Command: s.t("Command"), Duration: s.t("Duration"), Exit: s.t("Exit status"),
 		Hook: s.t("Hook"), Event: s.t("Event"), Status: s.t("Status"), Code: s.t("HTTP status"), Attempts: s.t("Attempts"), When: s.t("When"),
 		Alert: s.t("Alert"), Actor: s.t("Who"), Action: s.t("Action"), Target: s.t("Target"), Detail: s.t("Detail"), Time: s.t("Time"),
@@ -130,6 +130,12 @@ func (s *Server) sessionItem(r store.SessionRecord, details bool) sessionItem {
 	it := sessionItem{ID: r.ID, Agent: r.Agent, Via: s.via(r.Via), Machine: r.Machine,
 		MachineHref: consolePath("/machines/") + url.PathEscape(r.Machine), Kind: s.kind(r.Kind),
 		Started: s.clock(r.Started), Exit: s.exit(r.Exit), Failed: r.Exit != nil && *r.Exit != 0, Open: r.Ended.IsZero()}
+	if kind := s.sessionActorKind(r.Principal); kind != "" {
+		if it.Via != "" {
+			kind += " · " + it.Via
+		}
+		it.Via = kind
+	}
 	if details {
 		it.Href, it.Command = link.SessionPath(r.ID), shorten(r.Command, 160)
 		recording, transcript := sessionEvidence(r)
@@ -191,7 +197,7 @@ func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer)
 	details := permit.Details()
 	exits := map[string]string{"ok": s.t("Succeeded"), "failed": s.t("Failed"), "open": s.t("No end recorded"), "none": s.t("No exit status")}
 	facets := []facet[store.SessionRecord]{
-		{Param: "agent", Title: s.t("Agent"), Value: func(r store.SessionRecord) string { return r.Agent }},
+		{Param: "agent", Title: s.t("Who"), Value: func(r store.SessionRecord) string { return r.Agent }},
 		{Param: "machine", Title: s.t("Machine"), Value: func(r store.SessionRecord) string { return r.Machine }},
 		{Param: "kind", Title: s.t("Kind"), Value: func(r store.SessionRecord) string { return r.Kind }, Label: s.kind},
 		{Param: "via", Title: s.t("Via"), Value: func(r store.SessionRecord) string { return r.Via }, Label: s.via},
@@ -205,9 +211,9 @@ func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer)
 	}
 	kept, l := filter(s, consolePath("/sessions"), r.URL.Query(), recs, facets, match)
 	if details {
-		l.SearchHint = s.t("Command, agent or machine")
+		l.SearchHint = s.t("Command, name or machine")
 	} else {
-		l.SearchHint = s.t("Agent or machine")
+		l.SearchHint = s.t("Name or machine")
 	}
 	p := sessionsPage{listPage: listPage[sessionItem]{shell: s.shellFor(r, v, "sessions", s.t("Sessions")), L: s.listLabels(), List: l}, Details: details}
 	if machineScoped(v.Principal) {

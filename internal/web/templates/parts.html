@@ -23,7 +23,7 @@
 </span></nav>{{end}}{{end}}
 
 {{define "sessionrows"}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-  <thead><tr><th scope="col">{{.L.Started}}</th><th scope="col">{{.L.Agent}}</th><th scope="col">{{.L.Machine}}</th><th scope="col">{{.L.Kind}}</th>{{if .Details}}<th scope="col">{{.L.Command}}</th>{{end}}<th class="ol-num" scope="col">{{.L.Duration}}</th><th scope="col">{{.L.Exit}}</th>{{if .Details}}<th scope="col">{{.L.Evidence}}</th>{{end}}</tr></thead>
+  <thead><tr><th scope="col">{{.L.Started}}</th><th scope="col">{{.L.Actor}}</th><th scope="col">{{.L.Machine}}</th><th scope="col">{{.L.Kind}}</th>{{if .Details}}<th scope="col">{{.L.Command}}</th>{{end}}<th class="ol-num" scope="col">{{.L.Duration}}</th><th scope="col">{{.L.Exit}}</th>{{if .Details}}<th scope="col">{{.L.Evidence}}</th>{{end}}</tr></thead>
   <tbody>
   {{range .Rows}}<tr>
     <td>{{if .Href}}<a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Started}}</a>{{else}}<span class="ol-cell-title">{{.Started}}</span>{{end}}</td>

@@ -22,7 +22,7 @@ import (
 // labels are the texts of the alert's and the session's pages that take no arguments.
 type labels struct {
 	Alert, Session, Service, Services, Labels, Probes, Related, Changes, Agents, Notes, Sessions, Commands, Output, Timeline string
-	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
+	Recording, Replay, Download, Machine, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason           string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, RecordingError                                             string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
@@ -36,7 +36,7 @@ func (s *Server) labels() labels {
 		Alert: s.t("Alert"), Session: s.t("Session"), Service: s.t("Service"), Services: s.t("Services"), Labels: s.t("Labels"),
 		Probes: s.t("Probes"), Related: s.t("Related alerts"), Changes: s.t("Changes"), Agents: s.t("Agents"), Notes: s.t("Notes"), Timeline: s.t("Timeline"),
 		Sessions: s.t("Sessions"), Commands: s.t("Commands"), Output: s.t("Output"), Recording: s.t("Recording"), Replay: s.t("Replay"),
-		Download: s.t("Download the recording"), Machine: s.t("Machine"), Agent: s.t("Agent"), Via: s.t("Via"), Started: s.t("Started"),
+		Download: s.t("Download the recording"), Machine: s.t("Machine"), Via: s.t("Via"), Started: s.t("Started"),
 		Duration: s.t("Duration"), Exit: s.t("Exit status"), Location: s.t("Location"), Instance: s.t("Target"), Module: s.t("Module"),
 		Result: s.t("Result"), Reason: s.t("Reason"), OK: s.t("OK"), Failing: s.t("Failing"), Stale: s.t("Stale"), Open: s.t("Still open"),
 		None: s.t("None"), Runbook: s.t("Runbook"), Dashboard: s.t("Dashboard"), NoProbes: s.t("No probe results in the window"),
@@ -915,6 +915,23 @@ type sessionPage struct {
 	ShareLinks, SharedViewHint                                               string
 }
 
+func (s *Server) sessionActorKind(principal string) string {
+	kind, _, ok := strings.Cut(principal, ":")
+	if !ok {
+		return ""
+	}
+	switch kind {
+	case "agent":
+		return s.t("Agent")
+	case "user":
+		return s.t("Person")
+	case "token":
+		return s.t("Token")
+	default:
+		return ""
+	}
+}
+
 func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
 	rec := tr.SessionRecord
 	heading := s.t("%s on %s", rec.Agent, rec.Machine)
@@ -927,13 +944,9 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	} else if a.Grant != nil {
 		p.SharedViewHint = s.t("This link opens this session and any available recording. Sign in to open other sessions or machines you can access.")
 	}
-	p.ActorLabel = s.t("Actor")
-	if strings.HasPrefix(rec.Principal, "agent:") {
-		p.ActorLabel = p.L.Agent
-	} else if strings.HasPrefix(rec.Principal, "user:") {
-		p.ActorLabel = s.t("Person")
-	} else if strings.HasPrefix(rec.Principal, "token:") {
-		p.ActorLabel = s.t("Token")
+	p.ActorLabel = s.sessionActorKind(rec.Principal)
+	if p.ActorLabel == "" {
+		p.ActorLabel = s.t("Actor")
 	}
 	p.Badges = []badge{{Text: p.Kind}}
 	switch {

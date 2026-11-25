@@ -9,6 +9,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ### rc.44 (2026-11-25)
 
 - Preserve the incident and machine enrolment while a responder registers their first personal SSH key. Return to the same machine and incident, with a connection command that uses a dedicated personal SSH configuration.
+- Identify people, agents and standalone tokens in session lists, and use the same identity label when searching or filtering sessions.
 - Check first-drill Agent and reporter credentials, effective machine access and SSH channel state with `beacon-oncall check`.
 - Search regular text files for literal matches in an authorised machine's project directory through REST and MCP. Return excerpts and the recorded session, with an explicit limit or timeout indication.
 

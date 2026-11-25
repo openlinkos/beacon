@@ -61,6 +61,17 @@ func TestPersonalMachineConnection(t *testing.T) {
 	if a := owner.get(one); !strings.Contains(a.body, command) || !strings.Contains(a.body, "HostName beacon.example.com") || !strings.Contains(a.body, "records the session as alice") {
 		t.Error("an eligible account should see the command, client setup and audit identity")
 	}
+	personal, _ := e.st.Session(sessionID)
+	personal.Agent, personal.Principal, personal.Via = "alice", "user:alice", "ssh"
+	if err := e.st.PutSession(personal); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{one, "/console/sessions?agent=alice"} {
+		page := owner.get(path)
+		if page.code != http.StatusOK || !strings.Contains(page.body, `<th scope="col">Who</th>`) || !strings.Contains(page.body, `>Person · SSH</span>`) {
+			t.Errorf("%s did not present alice as a person in the session table", path)
+		}
+	}
 	if a := owner.post("/console/machines/pause", nil); !strings.Contains(a.header.Get("Location"), "done=paused") {
 		t.Fatalf("pause SSH access: %d %s", a.code, a.header.Get("Location"))
 	}
