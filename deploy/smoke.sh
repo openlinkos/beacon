@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 # shellcheck source=smoke-failed-agent.sh
 source ./smoke-failed-agent.sh
+# shellcheck source=smoke-status-publication.sh
+source ./smoke-status-publication.sh
 if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
   id beacon >/dev/null 2>&1; then
   echo 'Use a clean checkout on a disposable Linux runner.' >&2
@@ -200,6 +202,7 @@ test "$(curl -fsS -b "$work/cookies" -c "$work/cookies" -o /dev/null -w '%{http_
   --data-urlencode "again=$password" "$status_url/console/setup")" = 303
 curl -fsS -b "$work/cookies" "$status_url/console" > "$work/console.html"
 grep -q 'Test Operator' "$work/console.html"
+smoke_status_publication
 
 # A real OpenSSH server trusts the reference install's CA and hosts the restricted account.
 if [[ ! -x /usr/sbin/sshd ]]; then

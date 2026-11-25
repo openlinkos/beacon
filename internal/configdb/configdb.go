@@ -145,6 +145,10 @@ func Open(d Deps) *Service {
 func (s *Service) Reload() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
+}
+
+func (s *Service) reloadLocked() {
 	entries, console, version, err := s.d.Store.ConfigWithConsoleTargets()
 	if err != nil {
 		s.d.Log.Error("the configuration could not be reloaded from the database; keeping the catalogue in memory", "err", err)
@@ -258,6 +262,12 @@ func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, actio
 	}
 	ch, err := s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
 	if errors.Is(err, store.ErrConflict) {
+		if expectVersion > 0 {
+			s.reloadLocked()
+			if err := expect(s.state.Load(), expectVersion); err != nil {
+				return store.ConfigChange{}, err
+			}
+		}
 		return store.ConfigChange{}, fmt.Errorf("%w meanwhile; read it again and retry", ErrConflict)
 	}
 	if err != nil {

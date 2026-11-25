@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-63190390
+sourceHash: sha256-56f1f4f7
 ---
 
 # 装在服务器上
@@ -8,6 +8,7 @@ sourceHash: sha256-63190390
 
 - 中心跑在一台机器上，你是它的所有者；
 - 两个检测点在检测你的服务；
+- 已预览并发布了要向用户展示的服务；
 - 已登记一台机器，你能回放个人 SSH 会话和 Agent 会话；
 - 演练告警送达你的测试群，你能打开并认领同一条告警。
 
@@ -21,7 +22,7 @@ sourceHash: sha256-63190390
 | [1. 安装中心](#1-install-the-centre) | 3 分钟，其中脚本运行 1 到 2 分钟 |
 | [2. 第一个检测点](#2-the-first-probe) | 两个检测点共 5 分钟 |
 | [3. 第一台机器](#3-the-first-machine) | 4 分钟 |
-| [4. 首个账号、个人 SSH 和 Agent](#4-the-first-agent) | 客户端已安装时约 5 分钟 |
+| [4. 首个账号、公开状态和 Agent](#4-the-first-agent) | 接入客户端约 5 分钟，首个监控需再等一个检测周期 |
 | [5. 测试群、唤醒 Agent 和恢复](#5-the-first-drill) | 预留接收端和钩子配置时间，之后演练约 10 分钟 |
 
 验收 30 分钟接入目标时，记录从开始按本指南操作到测试接收端显示恢复的总耗时，单独记录等待 DNS 生效及应用审批的时间。
@@ -59,7 +60,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 grep BEACON_VERSION .env.example
 ```
 
-`BEACON_VERSION` 就是 Beacon 要运行的版本。如果它不是[最新发布的版本](https://github.com/openlinkos/beacon/releases)，现在就在 `.env.example` 里改掉。安装脚本第一次运行时，会把 `.env.example` 复制为 `.env`。以后要升级，改 `.env` 里的版本，再运行一次安装脚本；脚本随时可以重复运行。
+初次安装请保留 `BEACON_VERSION` 指定的版本。这个版本与随附的规则和检测点安装脚本配套。安装脚本首次运行时会把 `.env.example` 复制为 `.env`。之后要更换版本，请按[升级指南](upgrade.md)操作。
 
 **运行安装脚本：**
 
@@ -84,7 +85,7 @@ sudo ./install.sh
 
 ```
 configuration OK: Feishu app false, Pushover false, Bark false; gateway ":17006"; SSH channel :17002; 0 agent hooks
-files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 5 modules, 1 status pages
+files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 6 modules, 1 status pages
 database: none yet at /var/lib/beacon/beacon.db; the service imports the files when it first starts
 Waiting for the containers to be healthy …
 
@@ -138,7 +139,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 大约 10 秒后，最后输出：
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.23 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 
@@ -146,7 +147,7 @@ the gateway at https://metrics.example.com accepted the first push; the location
 
 从此这个检测点每分钟检测一次网关交给它的目标。以后改检测内容，都不用再动检测点。
 
-**添加第二个检测点**。可以就用中心（几乎不花钱），也可以是另一台小机器。在中心上编辑目录文件 `/opt/beacon/catalog/locations.yaml`，在 `edge-1` 下面加上：
+**添加第二个检测点**。可以使用中心或另一台小机器。systemd 安装脚本在每台主机上安装一个检测程序。在中心运行 `sudoedit /opt/beacon/catalog/locations.yaml`，在 `edge-1` 下添加：
 
 ```yaml
   - id: edge-2
@@ -166,7 +167,7 @@ docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 
 预演应该在 `would change 1 items (nothing changed):` 下面列出一行 `+ location edge-2`。正式导入则在 `version 2: import of 1 items` 下面列出同样一行。
 
-**安装第二个检测程序**。照前面的步骤使用 `$edge_2_token` 指向的令牌。如果装在中心本机，就在同一个终端中使用回环地址安装。
+**安装第二个检测程序**。如果使用另一台机器，将 `probe/` 目录传过去，并把第二个令牌存为 `edge-2.token`。使用前面的 HTTPS 安装命令，令牌参数换成该文件。如果装在中心本机，就在同一个终端用回环地址安装。
 
 ```bash
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_token"
@@ -174,14 +175,12 @@ sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_to
 
 确认第二个检测点推送成功后，删除临时令牌文件和传过去的副本。
 
-导入会让这些文件成为全部配置。通过 API 或 MCP 改过、而文件里没有的内容会被删掉。所以要先用 `-dry-run` 预演。
+导入会用文件替换目录、目标集和检测模块。请先完成这次导入，再添加下文的监控和公开组件。以后导入前，先用 `-dry-run` 检查是否会覆盖文件中没有的控制台、API 或 MCP 修改。
 
 - 两种修改配置的方式，以及怎样让它们保持一致，见[检测一个服务](../guide/monitoring.md)。
 - 检测点放在哪里、机器需要什么、安装不顺利时怎么办，见[检测点位置](probes.md)。
 
 **看看数据到了没有**。VictoriaMetrics 自带的界面在中心的 `http://127.0.0.1:8428/vmui`。在工作站上，用 `ssh -N -L 8428:127.0.0.1:8428 centre` 打开。`probe_success` 每个检测点、每个目标各有一条序列，成功为 1。`https://status.example.com/` 上的公开页面现在也显示出各组件的状态了。
-
-**检测你自己的服务**。随附的检测目标有三个：Beacon 自己的状态域名、演练服务（第 5 步）和 `https://example.com/`。把最后一个换成你自己的服务，改的是 `/opt/beacon/targets/all-web.yaml`，改完再导入一次。
 
 ## 3. 第一台机器 {#3-the-first-machine}
 
@@ -218,7 +217,15 @@ On the machine, as root, if not done yet:
 
 ## 4. 第一个 Agent {#4-the-first-agent}
 
-连接 Agent 约需 5 分钟。先在中心运行 `docker exec beacon beacon setup`，在工作站上打开它打印的一次性链接，创建所有者账号。如果中心已有所有者，请打开 `https://status.example.com/console`，用该账号登录。
+先在中心运行 `docker exec beacon beacon setup`，在工作站上打开它打印的一次性链接，创建所有者账号。如果中心已有所有者，请打开 `https://status.example.com/console`，用该账号登录。
+
+### 选择对用户公开的服务 {#choose-what-users-see}
+
+1. 在**监控**中点**添加 HTTP 监控**。填写服务名和两个检测点均可访问的正常 HTTP 或 HTTPS 端点。选择**所有检测点**和 `http_2xx` 检测模板，再保存。新增监控默认为私有。等一个检测周期后点**刷新结果**，核对两个检测点都有结果。端点和检查选项见[添加 HTTP 监控](../guide/monitoring.md#add-an-http-monitor)。
+2. 在**状态页**中打开现有的 `status` 页面，点**添加组件**。填写组件 ID（如 `api`）和公开标题，然后选中刚添加的服务。点**预览变更**，检查公开服务列表，以及页面上可能出现的告警备注公开提示。另开一个未登录的浏览器窗口访问 `https://status.example.com/status`，确认公开页仍是原来的内容。
+3. 点**发布变更**，刷新未登录的页面，核对新组件。使用**编辑服务**更改组件展示的服务，或用**移除组件**移除示例组件。每次修改或移除都先预览，再确认。至少保留一个组件，别将 `drill` 加入页面。这些操作会更新[公开状态页](../guide/status-pages.md)，检测点仍会继续检测服务。
+
+### 接入个人账号和 Agent {#connect-yourself-and-the-agent}
 
 **验证个人 SSH。** 按[以自己的身份连接](../guide/machines.md#connect-as-yourself)登记个人公钥，再到 `edge-1` 执行 `hostname`。在**会话**中回放，确认操作人是你的用户名。
 
@@ -229,18 +236,18 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 claude mcp login beacon
 ```
 
-在授权页选择**值班**预设，并选定 `edge-1`。在 Claude Code 中请 Agent 调用 Beacon 的 `whoami`，然后通过 `run_command` 在 `edge-1` 上执行 `hostname`。在**会话**中打开回放，确认操作人显示为 `人 / Agent`。这项检查会用到 Beacon 的 SSH 通道，MCP 客户端无需登记 SSH 密钥。要让 Agent 直接使用 `ssh` 和 `scp`，请[登记独立的 Agent 密钥](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
+也可以在 Claude Code 里通过 `/mcp` 选择 `beacon` 完成登录。在授权页选择**值班**预设，并选定 `edge-1`。在 Claude Code 中请 Agent 调用 Beacon 的 `whoami`，然后通过 `run_command` 在 `edge-1` 上执行 `hostname`。在**会话**中打开回放，确认操作人显示为 `人 / Agent`。这项检查会用到 Beacon 的 SSH 通道，MCP 客户端无需登记 SSH 密钥。要让 Agent 直接使用 `ssh` 和 `scp`，请[登记独立的 Agent 密钥](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
 
 - 角色和邀请成员，见[邀请你的团队](../guide/people.md)。
 - Codex、其他客户端和用令牌的无头 Agent，见[接入](../integrations/index.md)。
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
-**接入自己的测试群。** 使用 Slack 时，为测试频道[授权传入 Webhook](../integrations/slack.md)。自己运行接收端时，按[配置通知 Webhook](../integrations/notification-webhook.md)操作，由它转发到测试群。需要飞书或 Lark 卡片时，按[配置飞书应用](../integrations/feishu.md)完成卡片回调发布。飞书群由 `feishu.chat_id` 指定。在控制台概览的**严重告警通知**中核对所选渠道。
+**接入一个测试接收端。** 使用本指南新建的实例或独立测试实例。在 `/opt/beacon/config.yaml` 中为 `escalation.critical.channel` 选择要验收的渠道。使用 `slack` 时配置 [Slack 传入 Webhook](../integrations/slack.md)，使用 `notification_webhook` 时[配置接收端](../integrations/notification-webhook.md)转发到测试群，使用 `app` 时[配置飞书或 Lark 应用](../integrations/feishu.md)及测试群的 `feishu.chat_id`。将凭据保存在 `/opt/beacon/secrets/` 下的文件中，确保测试者能访问 `public_url`。运行 `sudo ./install.sh`，设置文件权限、校验配置并重新加载 Beacon。演练前，在**概览 → 严重告警通知**中核对所选渠道。
 
 **准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。初次测试时，把钩子的服务范围限定为 `service: '^drill$'`。使用参考部署时，新增钩子密钥文件后运行 `sudo ./install.sh`，让 Beacon 能读取它。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
 
-**跑通演练。** 两个检测点都在上报后，[运行演练](../guide/drills.md)。确认测试群收到通知、打开链接是同一条告警。认领并备注，然后核对时间线。确认钩子启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认探测恢复且同一个渠道收到恢复消息。手机推送和备用送达按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
+**跑通演练。** 两个检测点都在上报后，[运行演练](../guide/drills.md)。从测试接收端打开通知链接，登录后核对是同一条 `drill` 告警。认领并备注，然后核对时间线。确认钩子启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认检测恢复，渠道收到恢复消息或飞书卡片已更新。手机推送和备用通知按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
 
 ## 接下来 {#what-next}
 

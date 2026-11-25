@@ -7,15 +7,22 @@
   <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Logo}}">{{.L.Badge}}</a>
 </div>
 
-<section class="ol-section" id="components">
-  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Components}}</h2></div>
+<section class="ol-section bc-status-components" id="components">
+  <div class="ol-section-header">
+    <h2 class="ol-section-title">{{.L.Components}}</h2>
+    {{if .AddComponent}}<a class="ol-btn ol-btn-primary" href="{{.AddComponent}}">{{iconSm "plus"}}{{.L.AddComponent}}</a>{{end}}
+  </div>
   {{if .Components}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-    <thead><tr><th>{{.L.Component}}</th><th>{{.L.State}}</th><th>{{.L.Services}}</th><th class="ol-num">{{.L.Availability}}</th></tr></thead>
+    <thead><tr><th>{{.L.Component}}</th><th>{{.L.State}}</th><th>{{.L.Services}}</th><th class="ol-num">{{.L.Availability}}</th>{{if .AddComponent}}<th>{{.L.Manage}}</th>{{end}}</tr></thead>
     <tbody>{{range .Components}}<tr>
       <td><span class="ol-cell-title">{{.Title}}</span><span class="ol-cell-sub">{{if .Group}}{{.Group}} · {{end}}<span class="ol-mono">{{.Name}}</span></span></td>
       <td data-label="{{$.L.State}}"><span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.State}}</span></td>
       <td data-label="{{$.L.Services}}">{{range .Services}}<a class="ol-cell-sub ol-mono" href="{{.Href}}">{{.Label}}</a>{{else}}{{$.L.None}}{{end}}</td>
       <td class="ol-num" data-label="{{$.L.Availability}}">{{.Availability}}</td>
+      {{if .Edit}}<td><span class="ol-cluster">
+        <a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Edit}}" aria-label="{{.EditText}}">{{$.L.EditServices}}</a>
+        {{if .Remove}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Remove}}" aria-label="{{.RemoveText}}">{{$.L.RemoveComponent}}</a>{{end}}
+      </span></td>{{end}}
     </tr>{{end}}</tbody>
   </table></div>{{else}}<p class="ol-hint">{{.L.None}}</p>{{end}}
 </section>

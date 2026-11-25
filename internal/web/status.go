@@ -630,7 +630,9 @@ func (v *statusView) componentGroups(p *status.Page) []componentGroup {
 				cg.Items = append(cg.Items, view(c))
 			}
 		}
-		out = append(out, cg)
+		if len(cg.Items) > 0 {
+			out = append(out, cg)
+		}
 	}
 	return out
 }

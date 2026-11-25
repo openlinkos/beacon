@@ -41,7 +41,13 @@ From top to bottom, a page shows:
 
 The pages are on the family's site design (`@openlinkos/ui`), in English, Chinese or both. They are readable on a phone, light or dark as the reader's system is, and need no script.
 
-Replace the two example components with your own services, or remove the file for no public page.
+## Manage components {#manage-components}
+
+In the console, open **Status pages** and choose the public page. Use **Add component** to give a monitored service its own public title, or **Edit services** to change what an existing component includes. A new component's title is shown in each of the page's languages. Any configured label selector continues to supply its automatically included services. **Remove component** removes a row from the page.
+
+Choose **Preview changes** before publishing. It shows which services become visible, which leave the page and which remain visible through any component. The public page can show the status, incidents and maintenance of those services, including notes allowed by the page's policy. Review **Publish changes** or **Remove component** with that audience in mind.
+
+After publishing, open the public link in a signed-out browser to check what visitors see. Browser caches can take up to 30 seconds to refresh. The change has its own entry in **Configuration** history and can be reverted there.
 
 ## Define your own page
 
@@ -140,7 +146,7 @@ The probes' agreement works like this:
 - It is **partly down** when at least two fail, but fewer than half.
 - One location's hiccup is never shown.
 
-So a page never says a service works while an alert about it fires. It shows a failure the probes agree on a minute or two before the alert does, since the alert waits a minute to be sure. A component of several services takes the worst of them.
+So a page never says a service works while an alert about it fires. The probes' agreement can show an outage before the alert fires. The reference rule confirms the sustained quorum for 40 seconds. A component of several services takes the worst of them.
 
 Nothing reporting is **no data**: no probe has sent a result for the component's services in the last minutes. The causes and what to do are in [A status page shows no data](../self-hosting/troubleshooting.md#a-status-page-shows-no-data).
 

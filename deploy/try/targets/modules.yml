@@ -1,7 +1,16 @@
-# The one probe module the try environment needs, in the Blackbox Exporter's format (the reference
+# The probe modules the try environment uses, in the Blackbox Exporter's format (the reference
 # deployment's modules are in ../../targets/modules.yml). Plain http is allowed here: the demo service
 # has no TLS, being a container on the same compose network.
 modules:
+  # A header-free profile for checks created in the console.
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
   http_get_200:
     prober: http
     timeout: 5s

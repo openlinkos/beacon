@@ -54,7 +54,7 @@ func (s *Server) maintenanceConfig() *configdb.State {
 	return s.Config.State()
 }
 
-func maintenanceServices(st *configdb.State) []string {
+func configuredServices(st *configdb.State) []string {
 	if st == nil || st.Targets == nil {
 		return nil
 	}
@@ -95,7 +95,7 @@ func (s *Server) renderMaintenance(w http.ResponseWriter, r *http.Request, v *vi
 	}
 	if st != nil {
 		p.Version = st.Version
-		for _, svc := range maintenanceServices(st) {
+		for _, svc := range configuredServices(st) {
 			p.Services = append(p.Services, option{Value: svc, Label: svc, Selected: slices.Contains(in.Services, svc)})
 		}
 	}
@@ -125,7 +125,7 @@ func (s *Server) planMaintenance(w http.ResponseWriter, r *http.Request, v *view
 		return
 	}
 
-	names := maintenanceServices(st)
+	names := configuredServices(st)
 	if len(in.Services) == 0 || slices.ContainsFunc(in.Services, func(s string) bool { return !slices.Contains(names, s) }) {
 		show(nil, s.t("Select one or more of the monitored services."), http.StatusBadRequest)
 		return

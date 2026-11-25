@@ -247,6 +247,8 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Invitation withdrawn"), "success"
 	case "saved":
 		return s.t("Saved"), "success"
+	case "status_page_updated":
+		return s.t("Status page updated"), "success"
 	case "removed":
 		return s.t("Machine removed"), "success"
 	case "replaced":

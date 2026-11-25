@@ -3,6 +3,15 @@
 # of the probes. IPv4 only: not every location has IPv6, and mixing the two gives one service different results
 # from different locations.
 modules:
+  # Header-free GET for routine monitors created in the console: HTTP or HTTPS, any successful 2xx response.
+  http_2xx:
+    prober: http
+    timeout: 20s
+    http:
+      method: GET
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
   # HEAD, 200, no redirects: the cheapest check of a page or a health endpoint behind TLS
   http_head:
     prober: http

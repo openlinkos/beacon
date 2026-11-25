@@ -150,6 +150,15 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/monitors/{service}/remove", s.action("config:write", s.removeMonitor))
 	at("GET", "/status-pages", s.console("status:read", s.pageList))
 	at("GET", "/status-pages/{name}", s.console("status:read", s.pageDetail))
+	for _, mode := range []string{"add", "edit", "remove"} {
+		path := "/status-pages/{name}/components/" + mode
+		if mode != "add" {
+			path = "/status-pages/{name}/components/{component}/" + mode
+		}
+		form := s.statusComponentForm(mode)
+		at("GET", path, s.console("config:write", form))
+		at("POST", path, s.action("config:write", form))
+	}
 	at("GET", "/silences", s.console("status:read", s.silencesPage))
 	at("POST", "/silences/{id}/expire", s.action("alerts:write", s.expireSilence))
 	at("GET", "/maintenance/new", s.console("maintenance:write", s.maintenanceForm))

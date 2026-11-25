@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.34 (2026-11-25)
+
+- Add, edit and remove components of an existing public status page from the console. Preview which services visitors will see and publish with the normal configuration history and version check.
+- Enforce the expected configuration version in the storage transaction, including when a separate Beacon instance commits a newer change.
+- Ship a header-free GET profile for the first monitor in the console. The installation guide walks through public status changes and test notification delivery. The reference deployment checks the new monitor at both locations, then verifies preview, publication and removal on the signed-out public page and its JSON.
+
 ### rc.33 (2026-11-25)
 
 - Show current probe coverage, waiting checks and stale results in the console. The monitoring views only use samples that match the active target, check profile and location.
