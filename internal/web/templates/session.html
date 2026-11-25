@@ -3,10 +3,21 @@
 <script src="/static/beacon-player.js?v={{.Version}}"></script>{{end}}{{end}}
 {{define "content"}}<div class="ol-layout-supporting">
 <div class="ol-stack">
+  {{if .SharedViewHint}}<div class="ol-panel">
+    <div class="ol-panel-body ol-stack">
+      <p class="ol-hint" id="session-share-view">{{.SharedViewHint}}</p>
+      {{if .SignInHref}}<div><a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.SignInHref}}" aria-describedby="session-share-view">{{iconSm "log-in"}}{{.L.SignIn}}</a></div>{{end}}
+    </div>
+  </div>{{end}}
   {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
 
   <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Recording}}</h2>{{if .Recording}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Recording}}" download="{{.ID}}.cast">{{iconSm "download"}}{{.L.Download}}</a>{{end}}</div>
+    <div class="ol-panel-header bc-sharing-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Recording}}</h2>
+      {{if or .Recording .ShareLinks}}<div class="ol-cluster">
+        {{if .Recording}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Recording}}" download="{{.ID}}.cast">{{iconSm "download"}}{{.L.Download}}</a>{{end}}
+        {{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}
+      </div>{{end}}
+    </div>
     <div class="ol-panel-body">
     {{if .Recording}}
       <div id="player" class="bc-player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>

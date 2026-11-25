@@ -4,7 +4,10 @@
 <section class="ol-panel bc-alert-response" data-state="{{.StatusClass}}" aria-labelledby="alert-response">
   <div class="ol-panel-body bc-alert-response-body">
     <div class="bc-alert-summary">
-      <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
+      <div class="ol-cluster bc-sharing-header">
+        <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
+        {{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}
+      </div>
       {{if .Feedback}}<div class="ol-alert ol-alert-{{.FeedbackTone}}" id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message" role="{{if eq .FeedbackTone "danger"}}alert{{else}}status{{end}}">
         {{if eq .FeedbackTone "danger"}}{{icon "circle-alert"}}{{else}}{{icon "circle-check"}}{{end}}
         <div class="ol-alert-body"><p id="alert-action-message">{{.Feedback}}</p></div>
@@ -15,7 +18,10 @@
       {{if .Service}}<p class="ol-hint">{{.L.Service}} <strong>{{.Service}}</strong></p>
       {{else if .Services}}<p class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</p>{{end}}
     </div>
-    {{if .SignInHref}}<div class="ol-cluster"><a class="ol-btn ol-btn-primary" href="{{.SignInHref}}">{{iconSm "log-in"}}{{.L.SignIn}}</a></div>{{end}}
+    {{if .SignInHref}}<div class="ol-stack">
+      {{if .SharedViewHint}}<p class="ol-hint" id="alert-share-view">{{.SharedViewHint}}</p>{{end}}
+      <div><a class="ol-btn ol-btn-primary" href="{{.SignInHref}}"{{if .SharedViewHint}} aria-describedby="alert-share-view"{{end}}>{{iconSm "log-in"}}{{.L.SignIn}}</a></div>
+    </div>{{end}}
     {{with .Actions}}<div class="bc-alert-controls">
       <div class="ol-cluster bc-alert-buttons">
         {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="expected_ack" value="{{.AckVersion}}">{{template "incident-action" .}}<button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{if .TakeOver}}{{$.L.TakeOver}}{{else}}{{$.L.Acknowledge}}{{end}}</button></form>{{end}}

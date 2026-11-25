@@ -28,6 +28,7 @@ type labels struct {
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 	HandoverNote, FullHandoverNote                                                                                           string
+	ShareLinks                                                                                                               string
 }
 
 func (s *Server) labels() labels {
@@ -51,6 +52,7 @@ func (s *Server) labels() labels {
 		ProbeResults: s.t("On-demand check results."),
 		SignIn:       s.t("Sign in"), TakeOver: s.t("Take over"),
 		HandoverNote: s.t("Handover note"), FullHandoverNote: s.t("Read full handover note"),
+		ShareLinks: s.t("Manage share links"),
 	}
 }
 
@@ -297,6 +299,7 @@ type alertPage struct {
 	Paused                                                                       bool
 	Actions                                                                      *alertActions
 	Machines                                                                     *alertMachineLinks
+	ShareLinks, SharedViewHint                                                   string
 }
 
 func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
@@ -308,6 +311,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
 		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
+	if a.Viewer == nil && a.Token == "" && !a.Until.IsZero() {
+		p.SharedViewHint = s.t("This link opens this alert. Sign in to respond or open related alerts and SSH replays.")
+	}
 	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
 	if p.Problem != "" {
 		p.Feedback, p.FeedbackTone = p.Problem, "danger"
@@ -824,6 +830,7 @@ type sessionPage struct {
 	Commands                                                               []commandRow
 	Outputs                                                                []kv // stdout and stderr of a command
 	Recording, RecordingNote, MachineHref                                  string
+	ShareLinks, SharedViewHint                                             string
 }
 
 func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
@@ -833,6 +840,9 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
 		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
 		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
+	if a.Viewer == nil && a.Token == "" && !a.Until.IsZero() {
+		p.SharedViewHint = s.t("This link opens this session and its recording. Sign in to open other sessions or machines you can access.")
+	}
 	p.ActorLabel = s.t("Actor")
 	if strings.HasPrefix(rec.Principal, "agent:") {
 		p.ActorLabel = p.L.Agent
