@@ -101,6 +101,8 @@ In an incident outcome, `verification` shows the latest recorded on-demand check
 
 The caller's machine selection also limits session records in the alert evidence, the timeline and the related sessions of retained outcomes. A command preview in an SSH audit entry requires unrestricted machine selection and a session-detail scope, because those audit entries carry a machine name without an enrolment identifier.
 
+`agent_deliveries` in an outcome keeps each hook's delivery status and any reported programme status, start and exit code for the same episode. `status: ok` names hook acceptance. The optional `run` describes what the runner reported. Older archived episodes may omit these records.
+
 ## Machines and sessions
 
 | Route | Scope | What |

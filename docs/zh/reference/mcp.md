@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-715efa2d
+sourceHash: sha256-cef32bb7
 ---
 
 # MCP 工具
@@ -78,6 +78,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
 调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
+
+故障记录中的 `agent_deliveries` 给出该次告警的钩子状态及程序回报。`status: ok` 表示钩子受理。可选的 `run` 是执行器观测到的程序状态和已知的退出码。较早已归档的记录可能没有投递数据。
 
 ## 机器 {#machines}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -99,7 +100,7 @@ func (b *Bridge) saveAgentRun(id, delivery string, who Actor, in AgentRunInput) 
 		detail += fmt.Sprintf(" (exit %d)", *run.ExitCode)
 	}
 	entry := store.AuditEntry{Time: run.At, Actor: who.Name, Via: who.Via, Action: "report_agent_run", Target: g.ID, Detail: detail}
-	if err := b.d.Store.PutGroupAndAudit(g, entry); err != nil {
+	if err := b.d.Store.PutGroupAndAudit(g, b.outcome(g, run.At, time.Time{}), entry); err != nil {
 		b.d.Log.Error("record agent run", "group", g.ID, "delivery", delivery, "err", err)
 		return store.AgentRun{}, "", errors.New("agent run report could not be recorded")
 	}

@@ -454,13 +454,17 @@ func (s *Store) PutGroup(g Group) error {
 // PutGroupWithOutcome updates the alert group and its current or preceding outcome in one transaction.
 func (s *Store) PutGroupWithOutcome(g Group, outcome *IncidentOutcome) error {
 	return s.db.Update(func(tx kv.Tx) error {
-		if outcome != nil {
-			if err := putOutcome(tx, *outcome); err != nil {
-				return err
-			}
-		}
-		return s.putGroup(tx, g)
+		return s.putGroupWithOutcome(tx, g, outcome)
 	})
+}
+
+func (s *Store) putGroupWithOutcome(tx kv.Tx, g Group, outcome *IncidentOutcome) error {
+	if outcome != nil {
+		if err := putOutcome(tx, *outcome); err != nil {
+			return err
+		}
+	}
+	return s.putGroup(tx, g)
 }
 
 func (s *Store) putGroup(tx kv.Tx, g Group) error {
@@ -475,10 +479,10 @@ func (s *Store) putGroup(tx kv.Tx, g Group) error {
 	return tx.Put(bucketGroups, []byte(g.ID), b)
 }
 
-// PutGroupAndAudit saves a group change with its audit entry in one transaction.
-func (s *Store) PutGroupAndAudit(g Group, e AuditEntry) error {
+// PutGroupAndAudit saves a group change, its resolved outcome if present, and its audit entry.
+func (s *Store) PutGroupAndAudit(g Group, outcome *IncidentOutcome, e AuditEntry) error {
 	return s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
-		if err := s.putGroup(tx, g); err != nil {
+		if err := s.putGroupWithOutcome(tx, g, outcome); err != nil {
 			return err
 		}
 		return s.AppendAuditTx(raw, events.Event{

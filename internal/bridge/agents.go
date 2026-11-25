@@ -332,7 +332,7 @@ func (b *Bridge) recordCall(ctx context.Context, groupID string, c store.AgentCa
 		if c.Status != "pending" && c.Event == "firing" && g.Firing() && b.patchAllowed(&g, false) {
 			b.patch(ctx, &g)
 		}
-		if err := b.d.Store.PutGroup(g); err != nil {
+		if err := b.saveGroup(g); err != nil {
 			b.d.Log.Error("save group", "err", err)
 		}
 	}
@@ -404,7 +404,7 @@ func (b *Bridge) resumeWakes(ctx context.Context) {
 			b.called(ctx, &g, c, true)
 		}
 		if changed {
-			if err := b.d.Store.PutGroup(g); err != nil {
+			if err := b.saveGroup(g); err != nil {
 				b.d.Log.Error("save group", "err", err)
 			}
 		}

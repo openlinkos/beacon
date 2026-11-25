@@ -31,6 +31,34 @@
       <div class="ol-panel-body ol-stack">{{template "outcome-check" .PassingCheck}}</div>
     </section>{{end}}
   </div>
+  {{if .Deliveries}}<section class="ol-panel" aria-labelledby="incident-agent-deliveries">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="incident-agent-deliveries">{{.L.Deliveries}}</h2></div>
+    <ul class="ol-list">
+      {{range .Deliveries}}<li class="ol-stack">
+        <div class="ol-list-row"><strong class="ol-list-title">{{.Hook}}</strong>{{if .Event}}<span class="ol-subtle">{{.Event}}</span>{{end}}</div>
+        <div class="ol-grid ol-grid-2">
+          <div>
+            <p class="ol-hint">{{$.L.Delivery}}</p>
+            <div class="ol-cluster">
+              {{if .Status}}<span class="ol-badge ol-badge-{{.Tone}}">{{.Status}}</span>{{end}}
+              {{if .Delivery.Text}}<time datetime="{{.Delivery.ISO}}" class="ol-subtle">{{.Delivery.Text}}</time>{{end}}
+            </div>
+          </div>
+          <div>
+            <p class="ol-hint">{{$.L.Programme}}</p>
+            {{if .Run}}
+            {{if .Started.Text}}<p class="ol-hint">{{$.L.ProgrammeStart}} <time datetime="{{.Started.ISO}}">{{.Started.Text}}</time></p>{{end}}
+            <div class="ol-cluster">
+              <span class="ol-badge{{if .Run.Tone}} ol-badge-{{.Run.Tone}}{{end}}">{{.Run.Status}}</span>
+              {{if .Run.Exit}}<span>{{.Run.Exit}}</span>{{end}}
+              {{if .Report.Text}}<span class="ol-subtle">{{$.L.ProgrammeReport}} <time datetime="{{.Report.ISO}}">{{.Report.Text}}</time></span>{{end}}
+            </div>
+            {{else}}<p class="ol-subtle">{{$.L.NoProgramme}}</p>{{end}}
+          </div>
+        </div>
+      </li>{{end}}
+    </ul>
+  </section>{{end}}
   <section class="ol-panel">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{.L.Participation}}</h2></div>
     {{if .Participation}}<ul class="ol-list">{{range .Participation}}<li>

@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/config"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 func TestAgentRunReportSurvivesTheHookResponse(t *testing.T) {
@@ -85,5 +87,82 @@ func TestAgentRunReportSurvivesTheHookResponse(t *testing.T) {
 	}
 	if audit != 2 {
 		t.Fatalf("expected one audit entry per changed phase, got %d", audit)
+	}
+}
+
+func TestIncidentOutcomeRetainsReportsAfterResolution(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	const reporter = "token:runner"
+	const episode = "0123456789abcdef"
+	h := webhookAgent("https://example.com", false)
+	h.Reporter = reporter
+	e.b.d.Config.Agents = []config.Agent{h}
+	resolved := hook("resolved", "critical", "f1")
+	id := GroupID(resolved.GroupKey)
+	c := store.AgentCall{
+		Hook: h.Name, Kind: "webhook", Event: "firing", Delivery: "1111222233334444", Status: "pending",
+		Reporter: reporter, At: e.now.Add(-2 * time.Minute),
+	}
+	if err := e.st.PutGroup(store.Group{ID: id, Key: resolved.GroupKey, Status: "firing", Severity: "critical",
+		StartsAt: e.now.Add(-3 * time.Minute), Episode: episode, Agents: []store.AgentCall{c}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.b.HandleWebhook(ctx, resolved); err != nil {
+		t.Fatal(err)
+	}
+	outcomeID := store.OutcomeID(e.now, id, episode)
+	delivery := func() store.OutcomeAgentDelivery {
+		t.Helper()
+		page, err := e.b.IncidentOutcomes(id, "", 1)
+		got, detailErr := e.b.IncidentOutcome(outcomeID)
+		if err != nil || detailErr != nil || len(page.Outcomes) != 1 || len(page.Outcomes[0].AgentDeliveries) != 1 ||
+			len(got.Outcome.AgentDeliveries) != 1 || page.Outcomes[0].AgentDeliveries[0].ID != c.Delivery {
+			t.Fatalf("retained delivery: %+v %+v (%v, %v)", page, got, err, detailErr)
+		}
+		return got.Outcome.AgentDeliveries[0]
+	}
+	if got := delivery(); got.Status != "pending" || got.Run != nil || got.Hook != h.Name {
+		t.Fatalf("initial recovery evidence: %+v", got)
+	}
+	who := Actor{Key: reporter, Name: "runner", Via: "api"}
+	e.now = e.now.Add(5 * time.Second)
+	start := e.now
+	if _, err := e.b.ReportAgentRun(ctx, id, c.Delivery, who, AgentRunInput{Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := delivery(); got.Status != "pending" || got.Run == nil || got.Run.Status != "running" || !got.StartedAt.Equal(start) {
+		t.Fatalf("late start report: %+v", got)
+	}
+	e.now = e.now.Add(5 * time.Second)
+	c.Status, c.Done, c.Attempts = "ok", e.now, 2
+	e.b.recordCall(ctx, id, c)
+	if got := delivery(); got.Status != "ok" || !got.DoneAt.Equal(c.Done) || got.Attempts != 2 ||
+		got.Run == nil || got.Run.Status != "running" {
+		t.Fatalf("late acknowledgement replaced the programme report: %+v", got)
+	}
+	e.now = e.now.Add(time.Minute)
+	code := 79
+	if _, err := e.b.ReportAgentRun(ctx, id, c.Delivery, who, AgentRunInput{Status: "failed", ExitCode: &code}); err != nil {
+		t.Fatal(err)
+	}
+	assertTerminal := func() {
+		t.Helper()
+		d := delivery()
+		if d.Status != "ok" || d.Run == nil || d.Run.Status != "failed" || runExit(d.Run.ExitCode) != code ||
+			d.Run.By != who.Name || !d.StartedAt.Equal(start) {
+			t.Fatalf("archive lost transport or execution evidence: %+v", d)
+		}
+	}
+	assertTerminal()
+	e.b.d.Config.Agents = nil
+	e.now = e.now.Add(time.Minute)
+	if err := e.b.HandleWebhook(ctx, hook("firing", "critical", "f1")); err != nil {
+		t.Fatal(err)
+	}
+	assertTerminal()
+	g, _ := e.st.Group(id)
+	if g.Episode == episode || len(g.Agents) != 0 {
+		t.Fatalf("new episode inherited deliveries: %+v", g)
 	}
 }

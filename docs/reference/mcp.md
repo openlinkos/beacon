@@ -75,6 +75,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 The caller's machine selection also limits session records in the alert evidence, the timeline and retained outcomes. SSH audit entries carry a machine name without an enrolment identifier. Their command previews require unrestricted machine selection and a session-detail scope.
 
+An outcome's `agent_deliveries` gives the hook status and any programme report for that exact alert episode. `status: ok` records hook acceptance. An optional `run` records the runner's observed programme state and exit code when available. Older archived outcomes may have no delivery records.
+
 ## Machines
 
 | Tool | Scope | What it does |

@@ -324,5 +324,16 @@ PY
         .passed == 2 and .failed == 0 and .missing == 0))' "$work/handover-history.json" >/dev/null
     printf 'The resolved incident retains the same complete passing check and its signed-in operator.\n'
   fi
+  if [[ "$version" != v0.3.0-rc.39 && "${smoke_agent_reports:-false}" == true ]]; then
+    local saved_outcome
+    saved_outcome=$(jq -er --arg episode "$episode" --arg delivery "$delivery" '
+      .outcomes[] | select(.started_at == $episode and any(.agent_deliveries[];
+        .id == $delivery and .event == "firing" and .status == "ok" and .started_at != null and
+        .run.status == "failed" and .run.exit_code == 79)) | .id' "$work/handover-history.json")
+    curl -fsS -b "$work/$second.cookies" "$status_url/console/incident-outcomes/$saved_outcome" > "$work/agent-outcome.html"
+    grep -Fq 'Accepted by hook' "$work/agent-outcome.html"
+    grep -Fq 'exit 79' "$work/agent-outcome.html"
+    printf 'The retained outcome separates hook acceptance and exit 79 for the same firing delivery.\n'
+  fi
   printf 'The failed-Agent drill preserved human handover and verified recovery in history (%ss).\n' "$((SECONDS - drill_start))"
 }

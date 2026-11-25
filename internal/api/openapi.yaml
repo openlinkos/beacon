@@ -387,6 +387,21 @@ components:
           type: array
           items: {type: string}
           description: Up to eight related session IDs captured at archive time; sessions have their own retention
+        agent_deliveries:
+          type: array
+          description: Hook delivery and reported execution retained for this episode. Older archived outcomes may omit this evidence.
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              hook: {type: string}
+              event: {type: string, enum: [firing, resolved]}
+              status: {type: string, enum: [pending, ok, failed]}
+              attempts: {type: integer}
+              queued_at: {type: string, format: date-time}
+              done_at: {type: string, format: date-time, description: When Beacon recorded a terminal delivery status}
+              started_at: {type: string, format: date-time, description: When Beacon recorded a programme start report}
+              run: {$ref: "#/components/schemas/AgentRun"}
         participation:
           type: array
           description: Latest recorded alert action for each identified kind of actor

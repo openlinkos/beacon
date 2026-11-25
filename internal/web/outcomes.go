@@ -24,6 +24,7 @@ func outcomePath(id string) string {
 
 type outcomeLabels struct {
 	Sessions, PassingCheck                                                                                      string
+	Deliveries, Delivery, Programme, NoProgramme, ProgrammeStart, ProgrammeReport                               string
 	Incident, Service, Severity, Started, Resolved, Verification, Participation, NoParticipants, NoVerification string
 	First, Older, Empty, Audit, Alert, Clear, Group, Detail                                                     string
 }
@@ -37,7 +38,10 @@ func (s *Server) outcomeLabels() outcomeLabels {
 		Empty: s.t("No incident outcomes match."), Audit: s.t("Related audit entries"), Alert: s.t("Open alert details"),
 		Clear: s.t("All incident outcomes"), Group: s.t("Alert group"),
 		Detail:   s.t("This history records alert activity. Recorded participation alone does not identify what repaired the service."),
-		Sessions: s.t("Related sessions"),
+		Sessions: s.t("Related sessions"), Deliveries: s.t("Agent deliveries"),
+		Delivery: s.t("Hook delivery"), Programme: s.t("Programme report"),
+		NoProgramme: s.t("No Agent program report recorded."), ProgrammeStart: s.t("Started"),
+		ProgrammeReport: s.t("Reported"),
 	}
 }
 
@@ -114,11 +118,57 @@ type outcomePage struct {
 	Latest, PassingCheck *outcomeCheck
 	Participation        []participantRow
 	Sessions             []sessionItem
+	Deliveries           []outcomeDeliveryRow
 }
 
 type participantRow struct{ By, Via, Kind, Action, At, ISO string }
 
 type outcomeCheck struct{ Summary, By, Via, Kind, At, ISO, Phase string }
+type outcomeTime struct{ Text, ISO string }
+type outcomeDeliveryRow struct {
+	Hook, Event, Status, Tone string
+	Delivery, Started, Report outcomeTime
+	Run                       *alertAgentRun
+}
+
+func (s *Server) outcomeTime(t time.Time) outcomeTime {
+	if t.IsZero() {
+		return outcomeTime{}
+	}
+	return outcomeTime{Text: s.clock(t), ISO: iso(t)}
+}
+
+func (s *Server) outcomeDelivery(d store.OutcomeAgentDelivery, archived bool) outcomeDeliveryRow {
+	row := outcomeDeliveryRow{Hook: d.Hook, Delivery: s.outcomeTime(d.DoneAt)}
+	switch d.Event {
+	case "firing":
+		row.Event = s.t("Alert trigger")
+	case "resolved":
+		row.Event = s.t("Recovery notice")
+	}
+	switch d.Status {
+	case "ok":
+		row.Status, row.Tone = s.t("Accepted by hook"), "success"
+	case "failed":
+		row.Status, row.Tone = s.t("Failed"), "danger"
+	case "pending":
+		row.Status, row.Tone = s.t("Pending"), "warning"
+		if archived {
+			row.Status = s.t("Pending at archive")
+		}
+		row.Delivery = s.outcomeTime(d.QueuedAt)
+	}
+	if d.Run != nil {
+		run := s.agentRun(bridge.Event{By: d.Hook, Event: d.Event, Result: d.Run.Status, Exit: d.Run.ExitCode})
+		row.Run, row.Report = &run, s.outcomeTime(d.Run.At)
+		if d.Run.Status != "running" {
+			row.Started = s.outcomeTime(d.StartedAt)
+		} else if archived {
+			run.Status = s.t("Last reported running")
+		}
+	}
+	return row
+}
 
 func (s *Server) outcomeCheck(v *store.Verification, resolved time.Time) *outcomeCheck {
 	if v == nil {
@@ -173,6 +223,9 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 			At: s.clock(a.At), ISO: iso(a.At), By: a.By, Via: s.via(a.Via),
 			Kind: s.participantKind(a.Kind), Action: s.participationAction(a.Action),
 		})
+	}
+	for _, d := range o.AgentDeliveries {
+		p.Deliveries = append(p.Deliveries, s.outcomeDelivery(d, !o.AuditUntil.IsZero()))
 	}
 	permit := s.Store.SessionAccess(v.Principal)
 	if s.SSH != nil && permit.Details() {
