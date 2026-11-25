@@ -1,17 +1,16 @@
-# Review what agents did
+# The operations console
 
-The console shows in one place what Beacon and the agents are doing. It also holds the switch that stops agents' access to machines. By the end of this page you can find:
+Use the console to handle alerts, connect to machines by SSH and hand incidents over to the next shift. The overview shows what needs your attention. From the console, you can also:
 
-- whether anything needs attention;
-- the alerts firing, and what has been done about each;
-- what is silenced, and what maintenance is planned;
-- every session an agent opened on a machine, with its replay;
-- the people and their agents, with their credentials;
-- the configuration and its history.
+- review alerts, ownership and verification checks;
+- schedule maintenance and see what is silenced;
+- find recordings of sessions opened by people and agents;
+- manage people, agents and their access, or pause agents' access to machines;
+- configure routine HTTP monitors and review configuration history.
 
-The console is for whoever is on call or answers for the machines. The agents themselves use the [REST API](../reference/api.md) and the [MCP tools](../reference/mcp.md). A link on an alert's card opens that alert's page without signing in. Signing in shows the rest.
+Agents use the same incident records through the [REST API](../reference/api.md) and the [MCP tools](../reference/mcp.md). A valid signed card link opens the incident for reading. Sign in to see the actions and pages your role permits.
 
-You need an account ([Invite your team](people.md)). A viewer sees everything; acting on what you see takes the role for it.
+To give colleagues their own accounts, [invite your team](people.md).
 
 Beacon serves the console itself, at `/console` on port 17001, beside the API and MCP, under `public_url`. The site's root `/` is public ([Publish a status page](status-pages.md)).
 
@@ -151,6 +150,8 @@ A new notification opens the incident it describes, even when the same service h
 The Feishu app card updates in place when sessions in the alert's evidence close. **Finished SSH sessions** shows session, machine and command counts and the most recent finish time. Open **Timeline** to find the replays. Beacon batches session updates and spaces them at least five minutes apart per card. It reserves the last 10% of the Feishu budget for urgent delivery.
 
 After signing in, **Linked machines** takes you to an enrolled machine named by the rule's explicit `machine` label or by the catalogue entry for a heartbeat. If your account can use SSH, the link opens the instructions for connecting with your own key. Otherwise it opens the machine details. Open the recorded session from the alert's **Sessions**, then add the handover in **Notes**.
+
+**Designated service machines** shows the machine chosen for a routine [HTTP monitor](monitoring.md#add-an-http-monitor) when a new service outage began. Open the machine to connect and review sessions available to your account.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.
 - **Notifications and response**: provider acceptances, failed submissions, acknowledgement history and silences. A provider acceptance records receipt by its API. A Pushover acknowledgement records a response from the device. A button ends the silence.
