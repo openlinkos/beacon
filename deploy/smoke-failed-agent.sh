@@ -319,6 +319,15 @@ PY
   [[ "$location" == "$page?probe="* ]]
   wait_for 'Both probes measured HTTP recovery after handover' 120 probes 1
   wait_for 'The handed-off alert resolved' 150 resolved
+  if [[ "$version" != v0.3.0-rc.44 ]]; then
+    curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/latest-incident-check.html"
+    awk '/aria-labelledby="alert-latest-check"/ { remaining = 8 } remaining > 0 { print; remaining-- }' "$work/latest-incident-check.html" > "$work/latest-incident-check-panel.html"
+    grep -Fq 'Latest on-demand check' "$work/latest-incident-check-panel.html"
+    grep -Fq "Requested by $second" "$work/latest-incident-check-panel.html"
+    grep -Fq "href=\"$location\"" "$work/latest-incident-check-panel.html"
+    grep -Fq '2 passed, 0 failed, 0 missing' "$work/latest-incident-check-panel.html"
+    printf 'The incident response panel showed the latest on-demand check and its requesting operator.\n'
+  fi
   if [[ "${smoke_agent_reports:-false}" == true ]]; then
     smoke_failed_run_report
     local delivery

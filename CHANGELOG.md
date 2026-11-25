@@ -4,9 +4,14 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
-- Find resolved incidents with a retained complete passing check requested by an identified Agent, through the console, REST and MCP.
-
 ## 0.3.0
+
+### rc.45 (2026-11-25)
+
+- Show the latest recorded on-demand check, its requester and a link to per-location results in the incident response panel.
+- Verify the registered SSH route, host pin and certificate login from the console, REST or MCP without running a remote command.
+- Filter incident history by a complete passing check requested by an identified Agent, and by verified exercise evidence from the rule's initial quorum.
+- Keep active session captures safe while cleaning empty recording directories on startup.
 
 ### rc.44 (2026-11-25)
 

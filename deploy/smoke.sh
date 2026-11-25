@@ -297,6 +297,16 @@ rpc() {
 rpc '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"reference-smoke","version":"1"}}}' |
   jq -e '.result.serverInfo.name != null' >/dev/null
 
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  curl -fsS -X POST -H "Authorization: Bearer $token" "$status_url/api/v1/machines/target/check" |
+    jq -e '.machine == "target" and .route == "direct" and .status == "ready" and (.check_id | length > 0)' >/dev/null
+  rpc '{"jsonrpc":"2.0","id":63,"method":"tools/call","params":{"name":"check_machine_ssh","arguments":{"machine":"target"}}}' |
+    jq -e '.result.structuredContent | .machine == "target" and .route == "direct" and .status == "ready" and (.check_id | length > 0)' >/dev/null
+  curl -fsS -H "Authorization: Bearer $token" "$status_url/api/v1/sessions?machine=target" |
+    jq -e '.sessions | length == 0' >/dev/null
+  printf 'The signed release verified the enrolled SSH route and certificate through REST and MCP before any recorded command.\n'
+fi
+
 drill_started=$SECONDS
 drill_output=$(beacon drill fail 15m)
 printf '%s\n' "$drill_output"
