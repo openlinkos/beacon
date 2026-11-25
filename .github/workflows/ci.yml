@@ -189,7 +189,8 @@ jobs:
           container="$(docker run -d --rm -p 127.0.0.1::17001 -v "$config:/config:ro" "$ref" serve -config /config/beacon.yaml)"
           trap 'docker stop "$container" >/dev/null; rm -rf "$config"' EXIT
           port="$(docker port "$container" 17001/tcp)"
-          html="$(curl --retry 12 --retry-connrefused --retry-delay 1 -fsS "http://$port/workspace/")"
+          curl --retry 12 --retry-all-errors --retry-delay 1 --max-time 2 -fsS "http://$port/livez" >/dev/null
+          html="$(curl -fsSL "http://$port/console")"
           asset="$(printf '%s\n' "$html" | sed -n 's/.*src="\(\/workspace\/assets\/[^"]*\.js\)".*/\1/p')"
           test -n "$asset"
           curl -fsS "http://$port$asset" >/dev/null
