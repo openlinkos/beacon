@@ -4,6 +4,7 @@ This guide takes you from a bare Linux machine to the parts of Beacon that live 
 
 - the centre runs on one machine, with you as its owner;
 - two probe locations check your services;
+- you have previewed and published the service you want users to see;
 - one server is enrolled and you can replay a personal SSH session and an agent’s session;
 - a drill sends an alert to your test chat and you can open and acknowledge the same incident.
 
@@ -17,7 +18,7 @@ Run the centre’s commands from `/opt/beacon`. Use `sudo` with `docker` if your
 | [1. Install the centre](#1-install-the-centre) | 3 minutes, of which the script runs for 1 to 2 |
 | [2. The first probe](#2-the-first-probe) | 5 minutes for two locations |
 | [3. The first machine](#3-the-first-machine) | 4 minutes |
-| [4. First account, personal SSH and agent](#4-the-first-agent) | About 5 minutes with the client installed |
+| [4. First account, public status and agent](#4-the-first-agent) | About 5 minutes for the client, plus a probe cycle for your first monitor |
 | [5. Test chat, agent wake and recovery](#5-the-first-drill) | Allow for destination and hook setup, then about 10 minutes for the drill |
 
 For the 30-minute onboarding target, record the time from starting this guide to seeing the recovery in your test destination. Record DNS and any app approval waits separately.
@@ -55,7 +56,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 grep BEACON_VERSION .env.example
 ```
 
-`BEACON_VERSION` is the release Beacon will run. If it is not the [latest release](https://github.com/openlinkos/beacon/releases), change it in `.env.example` now. The installer copies `.env.example` to `.env` on its first run. Later, to update, change it in `.env` and run the installer again, which is safe at any time.
+Keep the release pinned by `BEACON_VERSION` for this walkthrough. That pin matches the shipped rules and probe installer. The installer copies `.env.example` to `.env` on its first run. See [Upgrades](upgrade.md) when you are ready to change versions.
 
 **Run the installer:**
 
@@ -134,7 +135,7 @@ sh probe/install.sh -gateway https://metrics.example.com -token-file edge-1.toke
 About 10 seconds later it ends with:
 
 ```
-edge-1: beacon-probe beacon 0.3.0-rc.23 …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
+edge-1: beacon-probe beacon …; installed: token agent.env beacon-probe beacon-probe.service beacon-heartbeat; 13 MB resident
 the gateway at https://metrics.example.com accepted the first push; the location's results arrive every minute
 ```
 
@@ -142,7 +143,7 @@ Once the first push succeeds, remove the temporary file on the centre and its tr
 
 From then on the location probes every minute whatever the gateway hands it. Changing what is checked never means touching the probe again.
 
-**Add the second location.** It can be the centre itself (nearly free) or another small machine. Add it to the catalogue file, `/opt/beacon/catalog/locations.yaml` on the centre, below `edge-1`:
+**Add the second location.** Use the centre itself or another small machine. The systemd installer sets up one probe per host. On the centre, use `sudoedit /opt/beacon/catalog/locations.yaml` to add the following below `edge-1`:
 
 ```yaml
   - id: edge-2
@@ -162,7 +163,7 @@ docker exec beacon beacon enroll probe edge-2 > "$edge_2_token"
 
 The dry run should list one line, `+ location edge-2`, under `would change 1 items (nothing changed):`. The import lists the same under `version 2: import of 1 items`.
 
-**Install the second probe** as above using the token at `$edge_2_token`. If the second probe runs on the centre itself, install it in the same terminal using the loopback gateway instead.
+**Install the second probe.** For another machine, transfer the `probe/` directory and save the second token there as `edge-2.token`. Run the same HTTPS install command with that file. On the centre itself, use the loopback gateway from the same terminal.
 
 ```bash
 sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_token"
@@ -170,14 +171,12 @@ sudo sh probe/install.sh -gateway http://127.0.0.1:17006 -token-file "$edge_2_to
 
 Once the second push succeeds, remove the temporary token file and any transferred copy.
 
-An import makes the files the whole configuration. Anything changed through the API or MCP that the files do not hold is removed. That is why `-dry-run` comes first.
+An import replaces the catalogue, target sets and modules with the files. Complete this import before you add the monitor and public component below. On later imports, use `-dry-run` to catch console, API or MCP changes that the files would remove.
 
 - [Monitor a service](../guide/monitoring.md) explains the two ways of changing the configuration, and how to keep them in step.
 - [Probe locations](probes.md) has where to put them, what the machine needs, and what to do when the install does not end like the above.
 
 **Check what arrives.** VictoriaMetrics' own UI is on the centre at `http://127.0.0.1:8428/vmui`. From your workstation, reach it through `ssh -N -L 8428:127.0.0.1:8428 centre`. `probe_success` has one series per location and target, 1 for success. The public page at `https://status.example.com/` now shows its components' state.
-
-**Probe a service of yours.** The targets shipped are Beacon's own status host, the drill (step 5) and `https://example.com/`. Replace the last with a service of yours in `/opt/beacon/targets/all-web.yaml`, and import again.
 
 ## 3. The first machine
 
@@ -214,7 +213,15 @@ Two more settings are worth making now rather than later:
 
 ## 4. The first agent
 
-5 minutes to connect the agent. Make the first account on the centre with the link printed by `docker exec beacon beacon setup`. Open the link on your workstation and create the owner account. If the centre already has an owner, sign in at `https://status.example.com/console` and use that account instead.
+Create the first account from the link printed by `docker exec beacon beacon setup` on the centre. Open the link on your workstation and create the owner account. If the centre already has an owner, sign in at `https://status.example.com/console` and use that account instead.
+
+### Choose what users see {#choose-what-users-see}
+
+1. In **Monitors**, choose **Add HTTP monitor**. Name the service and enter a healthy HTTP or HTTPS endpoint that both probes can reach. Select **All probe locations** and save. The new monitor starts off the public page. After a probe cycle, select **Refresh results** and check for a result from each location. See [Add an HTTP monitor](../guide/monitoring.md#add-an-http-monitor) for the endpoint and check options.
+2. In **Status pages**, open the existing `status` page and choose **Add component**. Choose a public title and explicitly select the service you just added. Select **Preview changes** and check the resulting public service list and any notice about incident notes. Open `https://status.example.com/status` in a signed-out browser window and confirm the preview has kept the live page as it was.
+3. Select **Publish changes**, then reload the signed-out page and check the new component. Use **Edit services** to change which monitored services a component shows, or **Remove component** to take the example components off the page. Leave at least one component on the page and keep `drill` out of it. Changes here affect the [public status page](../guide/status-pages.md) while the probes keep checking the service.
+
+### Connect yourself and the agent {#connect-yourself-and-the-agent}
 
 **Check personal SSH.** Follow [Connect as yourself](../guide/machines.md#connect-as-yourself) to register your personal key and run `hostname` on `edge-1`. Replay the session in **Sessions** and check that it shows your username.
 
@@ -225,18 +232,18 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 claude mcp login beacon
 ```
 
-On the consent page, choose the **On call** preset and select `edge-1`. In Claude Code, ask the agent to call Beacon's `whoami` and then `run_command` on `edge-1` with the command `hostname`. Open its replay in **Sessions** and check that the actor is `person / agent`. This check uses Beacon's SSH channel without registering a key for the MCP client. For the agent's own `ssh` and `scp`, set up a [separate agent key](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
+You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On the consent page, choose the **On call** preset and select `edge-1`. In Claude Code, ask the agent to call Beacon's `whoami` and then `run_command` on `edge-1` with the command `hostname`. Open its replay in **Sessions** and check that the actor is `person / agent`. This check uses Beacon's SSH channel without registering a key for the MCP client. For the agent's own `ssh` and `scp`, set up a [separate agent key](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 
 - Roles and invitations are in [Invite your team](../guide/people.md).
 - Codex, other clients and headless agents with tokens are in [Integrations](../integrations/index.md).
 
 ## 5. The first drill
 
-**Connect your own test group.** For Slack, [authorise an incoming webhook](../integrations/slack.md) for your test channel. For a receiver you run, [set up a notification webhook](../integrations/notification-webhook.md) and have the receiver relay to your test group. For Feishu or Lark cards, follow [Set up the Feishu app](../integrations/feishu.md) through publishing the card callback. The Feishu group is set by `feishu.chat_id`. On the console’s Overview, confirm the route you chose appears under **Critical notifications**.
+**Connect one test destination.** Use the fresh instance from this guide or a separate test instance. In `/opt/beacon/config.yaml`, set `escalation.critical.channel` to match your test route. Use `slack` with a [Slack incoming webhook](../integrations/slack.md), `notification_webhook` with [a receiver you run](../integrations/notification-webhook.md) that relays to your test group, or `app` with the [Feishu or Lark app](../integrations/feishu.md) and its test `feishu.chat_id`. Keep the credentials in files under `/opt/beacon/secrets/` and keep `public_url` reachable by the testers. Run `sudo ./install.sh` to set the file permissions, validate the configuration and reload Beacon. In **Overview → Critical notifications**, confirm the selected route before starting the drill.
 
 **Prepare automatic wake.** Follow [Wake an agent](../guide/on-call.md#wake-an-agent) and start its receiver before the drill. For the first test, scope the hook to `service: '^drill$'`. In the reference deployment, run `sudo ./install.sh` after adding the hook secret so Beacon can read it. Use the machine and read-only command from step 4 for the test run, and have the agent leave a note on `drill`.
 
-**Exercise the loop.** With both locations reporting, [run the drill](../guide/drills.md). Check that the notification reached your test group and its link opens the same alert. Acknowledge with a note and check the timeline. Confirm the hook started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check the recovery reached the same destination. For phone and fallback delivery, use the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
+**Exercise the loop.** With both locations reporting, [run the drill](../guide/drills.md). In the test destination, follow the notification link, sign in, and check that it opens the same `drill` alert. Acknowledge with a note and check the timeline. Confirm the hook started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check for a recovery message or an updated Feishu card. For phone and fallback delivery, use the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
 
 ## What next
 

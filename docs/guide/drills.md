@@ -3,7 +3,7 @@
 By the end of this page you have watched the whole on-call loop happen on purpose, without touching a real service:
 
 - the probes see a failure, and the rules fire;
-- the card arrives;
+- the test destination receives a notification;
 - your agent reads the evidence, works a machine, has its fix checked and leaves a note;
 - the alert resolves on what the probes then see.
 
@@ -12,14 +12,14 @@ A drill is how you find out that a phone is not reachable or a hook is misconfig
 You need:
 
 - Beacon running, with at least two probe locations reporting. One location's word is never an outage.
-- An agent connected ([Put an agent on call](on-call.md)).
-- For the card, the chat ([Feishu](../integrations/feishu.md)).
+- An agent connected for the agent steps ([Put an agent on call](on-call.md)). For automatic wake, start its hook receiver before the drill.
+- For delivery checks, a test [Slack channel](../integrations/slack.md), [notification receiver](../integrations/notification-webhook.md) or [Feishu group](../integrations/feishu.md). With no destination configured, follow the incident in the console.
 
 From nothing, follow [On a server](../self-hosting/install.md), steps 1 to 4. Or use [Try it on your laptop](quickstart.md) for the whole loop on one machine. The commands run on the centre, as `docker exec beacon beacon …` in the reference deployment.
 
 ## The drill service {#the-drill-service}
 
-Beacon has a service of its own to rehearse on. `/drill/healthz` answers 200 until you say otherwise. Every location probes it as the critical service `drill` (`targets/all-drill.yaml`). It is not on the shipped status page, so the public never sees a drill.
+Beacon has a service of its own to rehearse on. `/drill/healthz` answers 200 until you say otherwise. Every location probes it as the critical service `drill` (`targets/all-drill.yaml`). Keep `drill` out of the components on any page users can see.
 
 ## Break it {#break-it}
 
@@ -38,7 +38,7 @@ What happens, with two locations:
 
 1. **Within a minute** both locations see 503, and `probe_success{service="drill"}` is 0 for each.
 2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires once that quorum holds for 40 seconds**.
-3. **After the route's group wait** (5 seconds for critical `ServiceDown` in the reference deployment), Beacon records the group, wakes matching agent hooks and sends its chat card if configured. Allow about five minutes from the command to see it in `GET /api/v1/alerts` and MCP's `list_alerts`. The card turns green on recovery. The phone escalation delay depends on your notification policy.
+3. **After the route's group wait** (5 seconds for critical `ServiceDown` in the reference deployment), Beacon records the group, wakes matching agent hooks and submits notifications to the configured channel. Allow about five minutes from the command to see the incident in **Alerts**, `GET /api/v1/alerts` or MCP's `list_alerts`. Phone escalation follows your configured delay.
 
 With one location nothing fires, by design.
 
@@ -60,16 +60,26 @@ Then let it act, one step of the loop at a time:
 docker exec beacon beacon drill off
 ```
 
-The probes succeed on their next round, usually within a minute. After the rule engine sees those results, Beacon records the recovery and the card turns green. The alert stays in the console for 7 days, with its timeline and its sessions.
+The probes succeed on their next round, usually within a minute. After the rule engine sees those results, Beacon records recovery. Slack and the signed notification webhook send a separate recovery message. A Feishu app card updates in place. The alert stays in the console for 7 days, with its timeline and its sessions.
 
 ## Verify phone delivery and handover {#verify-phone-delivery-and-handover}
 
-An owner prepares a separate Beacon test instance with two reporting locations and a `public_url` reachable from the test phone. Use a dedicated [Feishu app, group and custom bot](../integrations/feishu.md), test phone destinations and credentials, and a hook scoped to `drill`. [Invite](people.md#invite-people) two people with the `oncall` role. On the Overview, check the intended routes and their delays in **Critical notifications**.
+An owner prepares a separate Beacon test instance with two reporting locations and a `public_url` reachable from the test phone. Use only test destinations and credentials, [invite](people.md#invite-people) two people with the `oncall` role, and scope the test hook with `service: '^drill$'`. For a phone-only drill, set `escalation.critical.channel: none` in `config.yaml` and configure the phone route and its delay. For example, with a test [Bark endpoint](../reference/config.md#pushover-bark-and-healthchecksio) in `bark.url_file`:
 
-1. **Receive the initial alert.** Start with a healthy drill and a test hook that accepts the request (for example, HTTP 202) without acting. Allow enough time for rule evaluation and the longest phone delay. With a 15-minute delay, run `docker exec beacon beacon drill fail 30m`. The critical `ServiceDown` card for `drill` should appear in the test group within five minutes. Open it on the phone and record the alert ID, start time and chat receipt time. Check the timeline for the hook acceptance.
-2. **Receive the scheduled push.** Leave the alert firing, without silencing or acknowledging it, until all expected pushes arrive. Measure each route's delay from the initial notification. Record both the provider acceptance time in Beacon and the receipt time observed on the device. For Pushover or Bark, sign in from the push link and compare the alert ID and start time. The release's test hook, mock provider responses and provider acceptance entries each prove their own step. Count scheduled delivery when the intended device shows the notification at or after the configured delay and while the drill is still firing.
-3. **Hand over and verify recovery.** In the console, the first person uses **Acknowledge with note** and writes what they saw and what still needs checking. The second person signs in separately, opens the same alert, checks the first person's note and the location failures, then uses **Take over with note**. Both names and notes should appear in the timeline. Run `docker exec beacon beacon drill off`, use **Probe again now**, and check that the probes succeed and the alert and chat card show recovery.
-4. **Exercise fallback in a fresh drill.** After recovery, remove only the test app from the test Feishu group and leave its custom bot configured. With critical chat still set to the app, repeat the drill. The timeline should show the failed app submission and the group should actually receive the fallback message. If Pushover is configured, an immediate push from this failure is fallback, so record it separately from step 2. Follow the bot's link, sign in and check the alert's start time against this run. End the drill and restore the test app. After recovery, check the failed-hook path in a separate run with the app in place and the test hook returning HTTP 503. Verify the failed attempt in the timeline and actual human delivery as above.
+```yaml
+escalation:
+  critical: {channel: none, bark: 20s}
+```
+
+If the file already has an `escalation` block, update its `critical` entry. Run `sudo ./install.sh` from `/opt/beacon` to apply the settings. In **Overview → Critical notifications**, confirm the expected initial route and phone delay.
+
+1. **Find the initial incident.** Start with a healthy drill and a test hook that accepts the request (for example, HTTP 202) without acting. Allow enough time for the rules and the longest phone delay. For a 15-minute delay, run `docker exec beacon beacon drill fail 30m`. Within about five minutes, look for the critical `ServiceDown` for `drill` in **Alerts**, or open the notification if a test chat is also configured. Record the alert ID and start time, and check the timeline for hook acceptance. For the accepted-hook failure path, use a harness [with execution reporting](../integrations/headless.md#report-programme-execution) and a test program that exits with a nonzero code. Check for both hook acceptance and the failed program result.
+2. **Wait for the scheduled push.** Leave the incident firing and unacknowledged until the expected pushes arrive. Record the provider acceptance in the timeline and, when testing with a phone, the time the notification appeared on the device. Sign in from the Pushover or Bark link and compare the alert ID and start time. A test receiver returning `2xx` verifies Beacon's submission and the incident link. A phone delivery passes when the intended device displays the notification while the incident is still firing.
+3. **Hand over and verify recovery.** The first person uses **Acknowledge with note** and writes what they saw and what still needs checking. The second person signs in separately, opens the same alert, checks the first person's note and the location failures, then uses **Take over with note**. Both names and notes should appear in the timeline. Run `docker exec beacon beacon drill off`, use **Probe again now**, and check that the probes and incident show recovery. If you configured a chat route, check recovery there as well.
+
+### Verify Feishu fallback {#verify-feishu-fallback}
+
+Use a separate run with the test [Feishu app and custom group bot](../integrations/feishu.md) configured. After recovery, remove the test app from the test group and keep its custom bot. Confirm the critical route is still `app` and repeat the drill. Check for the failed app submission in the timeline and the fallback message in the group. An immediate Pushover submission from this failure is fallback and has its own timeline entry. Follow the bot's link, sign in, and check that the alert's start time belongs to this run. End the drill and restore the test app. To check a hook rejecting the wake itself, run a separate drill with the test app in place and the test hook returning HTTP 503. Check the failed attempt and human delivery.
 
 ## Check it
 
@@ -84,4 +94,4 @@ While it fires and after it recovers:
 
 - [Put an agent on call](on-call.md): a hook wakes the agent for real, without a person asking.
 - [Monitor a service](monitoring.md): the targets and rules a drill borrows, for your own services.
-- [Publish a status page](status-pages.md): add the drill's service to a page and watch it tell your users.
+- [Publish a status page](status-pages.md): choose which monitored services your users see.
