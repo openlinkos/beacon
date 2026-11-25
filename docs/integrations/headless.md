@@ -49,6 +49,41 @@ A webhook needs something at the other end that runs the agent. `beacon-oncall` 
 
 It decides nothing, and it is that thin on purpose. Claude Code, Codex or any program that reads its environment runs behind it. `contrib/oncall` has wrappers for the first two, the prompt for the woken agent and a systemd unit.
 
+### Install the matching Linux release {#install-the-matching-linux-release}
+
+For the reference deployment, run this from `/opt/beacon` after installing the centre. It uses the installed release pin and installs the harness and wrappers from the same archive. On a separate receiver host, set `BEACON_VERSION` to the centre's release tag.
+
+```sh
+(
+  set -eu
+  tag=${BEACON_VERSION:-$(sed -n 's/^BEACON_VERSION=//p' .env | tail -n 1)}
+  test -n "$tag"
+  case $(uname -m) in
+    x86_64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) echo 'Use an x86-64 or ARM64 Linux receiver.' >&2; exit 1 ;;
+  esac
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  archive="beacon-oncall_${tag#v}_linux_${arch}.tar.gz"
+  release="https://github.com/openlinkos/beacon/releases/download/$tag"
+  curl -fsSL --retry 3 "$release/$archive" -o "$work/$archive"
+  curl -fsSL --retry 3 "$release/SHA256SUMS" -o "$work/SHA256SUMS"
+  (cd "$work" && awk -v file="$archive" '$2 == file' SHA256SUMS | sha256sum -c -)
+  tar -xzf "$work/$archive" -C "$work" beacon-oncall \
+    contrib/oncall/claude-code.sh contrib/oncall/codex.sh contrib/oncall/prompt.md
+  "$work/beacon-oncall" version | grep -F "beacon-oncall ${tag#v} ("
+  sudo install -m 0755 "$work/beacon-oncall" /usr/local/bin/beacon-oncall
+  sudo install -d -m 0755 /usr/local/lib/beacon-oncall
+  sudo install -m 0755 "$work/contrib/oncall/claude-code.sh" "$work/contrib/oncall/codex.sh" /usr/local/lib/beacon-oncall/
+  sudo install -m 0644 "$work/contrib/oncall/prompt.md" /usr/local/lib/beacon-oncall/
+)
+```
+
+The release's **Verify** section gives the Sigstore command for verifying the signed `SHA256SUMS` file. For the first drill, leave the harness in the foreground as shown in the install guide. The [system service setup](#as-a-service) is for keeping it running afterwards.
+
+### Run the harness {#run-the-harness}
+
 ```bash
 beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
   -run /usr/local/lib/beacon-oncall/claude-code.sh -log-dir /var/lib/beacon-oncall/logs

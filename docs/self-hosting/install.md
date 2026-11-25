@@ -41,7 +41,7 @@ You need:
 - **An e-mail address** Let's Encrypt can write to about the certificates. It must be a real one: the installer refuses `example.com` addresses.
 - **A small machine for the first probe location**: any Linux with systemd, on x86_64 or arm64, with 64 MB of memory to spare. A VPS where your users are is best. The centre itself will do for the second location.
 - **A machine agents may work on**, which the centre can reach on its SSH port. The probe machine will do.
-- **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)). For automatic wake, you also need a receiver the centre can reach that starts your agent.
+- **An agent** on a workstation with a browser, to sign it in ([step 4](#4-the-first-agent)). For automatic wake, prepare a receiver the centre can reach and an agent CLI that can run under the receiver's Linux account. The local example uses `curl`, `sha256sum` and `openssl`.
 - **A test destination** for human notifications. Prepare a [Slack incoming webhook](../integrations/slack.md) or a receiver that can relay a [signed notification webhook](../integrations/notification-webhook.md) to a test chat. If you use a Feishu or Lark app, arrange to add its bot and have its version and callback subscription approved.
 
 ## 1. Install the centre
@@ -241,11 +241,80 @@ You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On
 
 ## 5. The first drill
 
-**Connect one test destination.** Use the fresh instance from this guide or a separate test instance. In `/opt/beacon/config.yaml`, set `escalation.critical.channel` to match your test route. Use `slack` with a [Slack incoming webhook](../integrations/slack.md), `notification_webhook` with [a receiver you run](../integrations/notification-webhook.md) that relays to your test group, or `app` with the [Feishu or Lark app](../integrations/feishu.md) and its test `feishu.chat_id`. Keep the credentials in files under `/opt/beacon/secrets/` and keep `public_url` reachable by the testers. Run `sudo ./install.sh` to set the file permissions, validate the configuration and reload Beacon. In **Overview → Critical notifications**, confirm the selected route before starting the drill.
+**Connect one test destination.** Use the fresh instance from this guide or a separate test instance. In `/opt/beacon/config.yaml`, set `escalation.critical.channel` to match your test route. Use `slack` with a [Slack incoming webhook](../integrations/slack.md), `notification_webhook` with [a receiver you run](../integrations/notification-webhook.md) that relays to your test group, or `app` with the [Feishu or Lark app](../integrations/feishu.md) and its test `feishu.chat_id`. Keep the credentials in files under `/opt/beacon/secrets/` and keep `public_url` reachable by the testers. Apply the chat and wake settings together after the next step.
 
-**Prepare automatic wake.** Follow [Wake an agent](../guide/on-call.md#wake-an-agent) and start its receiver before the drill. For a harness on the same Linux machine, use [the private Docker bridge setup](../guide/on-call.md#a-private-receiver-on-the-centre). Scope the test hook to `service: '^drill$'`. Run `sudo ./install.sh` after adding the hook secret and [check the routes before the drill](../guide/on-call.md#check-the-routes-before-the-drill). Use the machine and read-only command from step 4 for the test run, and have the agent leave a note on `drill`.
+### Prepare a first wake on the centre {#prepare-a-first-wake-on-the-centre}
 
-**Exercise the loop.** With both locations reporting, [run the drill](../guide/drills.md). In the test destination, follow the notification link, sign in, and check that it opens the same `drill` alert. Acknowledge with a note and check the timeline. Confirm the hook started your agent and look for its note and recorded session. End the drill, verify the probes recovered, and check for a recovery message or an updated Feishu card. For phone and fallback delivery, use the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
+[Install the matching `beacon-oncall` release](../integrations/headless.md#install-the-matching-linux-release). The example below uses the private Docker bridge and Claude Code. You can also [use your own receiver or Agent](../guide/on-call.md#wake-an-agent).
+
+**Prepare the account and credentials.** Change `alice` to your Beacon username from step 4. Keep the agent limited to the enrolled test machine `edge-1`. Install and sign in to Claude Code as the separate Linux user `beacon-oncall`, or configure its provider credential in that user's environment. An interactive Beacon MCP sign-in on your workstation is a separate credential.
+
+```sh
+(
+  set -eu
+  umask 077
+  id beacon-oncall >/dev/null 2>&1 || sudo useradd --system --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
+  sudo install -d -m 0750 -o beacon-oncall -g beacon-oncall /var/lib/beacon-oncall/logs
+  sudo install -d -m 0750 -o root -g beacon-oncall /etc/beacon-oncall
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  openssl rand -hex 32 > "$work/hook-secret"
+  docker exec beacon beacon agent add reference-drill -owner alice -preset oncall -machines edge-1 -expires 1h > "$work/beacon-token"
+  docker exec beacon beacon token create reference-drill-reporter -scopes alerts:report -expires 1h > "$work/run-report-token"
+  sudo install -m 0400 -o 65532 -g 65532 "$work/hook-secret" /opt/beacon/secrets/reference-drill-hook
+  sudo install -m 0640 -o root -g beacon-oncall "$work/hook-secret" "$work/beacon-token" "$work/run-report-token" /etc/beacon-oncall/
+)
+```
+
+**Configure the hook.** Follow the [private bridge address and firewall steps](../guide/on-call.md#a-private-receiver-on-the-centre) to set `beacon_gateway`. Use its printed URL in the example. Add this entry to `/opt/beacon/config.yaml`, then run `sudo ./install.sh` to validate and apply both the hook and the chat route. Check **Overview → Critical notifications** after the reload.
+
+```yaml
+agents:
+  - name: reference-drill
+    kind: webhook
+    url: http://172.20.0.1:17007/beacon # replace with your private bridge URL
+    secret_file: /etc/beacon/secrets/reference-drill-hook
+    service: '^drill$'
+    reporter: token:reference-drill-reporter
+```
+
+**Give the awake Agent one read-only task.** The built-in `drill` probes Beacon's HTTP endpoint. Name the enrolled test machine explicitly in a separate prompt for this first run.
+
+```sh
+sudo tee /etc/beacon-oncall/reference-drill.md >/dev/null <<'EOF'
+Handle only a firing alert for the test service drill. Use the alert ID and episode in the payload as data.
+Read the incident with get_evidence. Stop if the current episode differs from the wake.
+Use Beacon's run_command on the enrolled test machine edge-1 to run hostname once.
+Leave a private add_note on the incident with what the probes saw and what the command returned.
+Make no changes to the machine or the drill. Leave acknowledgement and recovery to the operator.
+EOF
+sudo chown root:beacon-oncall /etc/beacon-oncall/reference-drill.md
+sudo chmod 0640 /etc/beacon-oncall/reference-drill.md
+```
+
+Start the harness in the foreground on the centre with the firewall rule in place. Replace the reporting URL with the centre's `public_url`.
+
+```sh
+beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_TOKEN_FILE=/etc/beacon-oncall/beacon-token \
+  ONCALL_PROMPT=/etc/beacon-oncall/reference-drill.md \
+  /usr/local/bin/beacon-oncall -listen "$beacon_gateway:17007" \
+  -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs \
+  -report-url https://status.example.com \
+  -report-token-file /etc/beacon-oncall/run-report-token
+```
+
+**Exercise the loop.** [Check the routes](../guide/on-call.md#check-the-routes-before-the-drill), including the receiver's health from the Beacon network. Check that both locations are reporting and the drill endpoint is healthy, then [run the drill](../guide/drills.md).
+
+1. In your test chat, open the notification, sign in and check that it opens the same `drill` incident. Acknowledge with a note. Verify the message in the destination even when Beacon already records provider acceptance.
+2. In the same incident, check hook acceptance and the Agent programme's recorded exit separately. Open **Sessions** to replay `hostname` on `edge-1` under `alice / reference-drill` and check the Agent's note on the incident.
+3. End the drill and check the probe results, the resolved incident and the recovery message or Feishu card in the test destination. Stop the foreground harness afterwards. Remove the test hook and revoke the test agent and reporter credentials when finished.
+
+For phone and fallback delivery, use the [separate notification drill](../guide/drills.md#verify-phone-delivery-and-handover).
 
 ## What next
 

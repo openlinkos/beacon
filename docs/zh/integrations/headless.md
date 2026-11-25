@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d62f7c92
+sourceHash: sha256-60eccc47
 ---
 
 # 无头 Agent 与 CI
@@ -52,6 +52,41 @@ curl -H "Authorization: Bearer lbt_…" https://status.example.com/api/v1/token
 webhook 的另一头需要有程序来运行 Agent。`beacon-oncall` 是参考实现的接收程序，和 `beacon`、`beacon-probe` 一起发布。它接收 webhook、校验签名，然后启动你指定的程序。载荷从标准输入传给程序，告警信息放在环境变量里。
 
 它不做任何决定，这么薄是有意的。Claude Code、Codex 或任何读环境变量的程序都可以跑在它后面。`contrib/oncall` 里有前两者的包装脚本、给被叫醒的 Agent 用的提示词，以及一个 systemd 单元。
+
+### 安装与中心匹配的 Linux 版本 {#install-the-matching-linux-release}
+
+参考部署完成中心安装后，在 `/opt/beacon` 执行下面的命令。它使用中心固定的发布版本，并从同一个发布归档中安装接收程序和包装脚本。若在另一台机器上运行接收器，将 `BEACON_VERSION` 设为中心的发布标签。
+
+```sh
+(
+  set -eu
+  tag=${BEACON_VERSION:-$(sed -n 's/^BEACON_VERSION=//p' .env | tail -n 1)}
+  test -n "$tag"
+  case $(uname -m) in
+    x86_64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) echo 'Use an x86-64 or ARM64 Linux receiver.' >&2; exit 1 ;;
+  esac
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  archive="beacon-oncall_${tag#v}_linux_${arch}.tar.gz"
+  release="https://github.com/openlinkos/beacon/releases/download/$tag"
+  curl -fsSL --retry 3 "$release/$archive" -o "$work/$archive"
+  curl -fsSL --retry 3 "$release/SHA256SUMS" -o "$work/SHA256SUMS"
+  (cd "$work" && awk -v file="$archive" '$2 == file' SHA256SUMS | sha256sum -c -)
+  tar -xzf "$work/$archive" -C "$work" beacon-oncall \
+    contrib/oncall/claude-code.sh contrib/oncall/codex.sh contrib/oncall/prompt.md
+  "$work/beacon-oncall" version | grep -F "beacon-oncall ${tag#v} ("
+  sudo install -m 0755 "$work/beacon-oncall" /usr/local/bin/beacon-oncall
+  sudo install -d -m 0755 /usr/local/lib/beacon-oncall
+  sudo install -m 0755 "$work/contrib/oncall/claude-code.sh" "$work/contrib/oncall/codex.sh" /usr/local/lib/beacon-oncall/
+  sudo install -m 0644 "$work/contrib/oncall/prompt.md" /usr/local/lib/beacon-oncall/
+)
+```
+
+发布页的 **Verify** 小节提供了用 Sigstore 检查 `SHA256SUMS` 签名的命令。第一次演练时，按安装指南在前台运行接收程序。之后需要持续运行时，再按[系统服务配置](#as-a-service)操作。
+
+### 启动接收程序 {#run-the-harness}
 
 ```bash
 beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
