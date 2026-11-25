@@ -53,11 +53,12 @@ func TestExerciseOriginRequiresTheRawFirstQuorum(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			labels := map[string]string{"service": "drill", "severity": "critical", "failure_domain": "monitoring", "module": "http_get_200"}
+			labels := map[string]string{"service": "drill", "severity": "critical", "failure_domain": "monitoring", "module": "http_get_200", "page": ""}
 			target := exercise.Target{URL: configured, Module: labels["module"], Assignment: exercise.Assignment(labels)}
 			results := &exerciseVM{}
 			for _, id := range []string{"edge-1", "edge-2"} {
 				seriesLabels := maps.Clone(labels)
+				delete(seriesLabels, "page") // VictoriaMetrics omits empty labels from the raw series.
 				seriesLabels["host"], seriesLabels["location"], seriesLabels["region"] = id, id, "overseas"
 				seriesLabels["job"], seriesLabels["instance"], seriesLabels["__name__"] = "probe", configured, "probe_success"
 				sample := at.Add(-30 * time.Second)

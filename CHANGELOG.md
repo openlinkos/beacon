@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Match exercise receipts when the metrics store omits an empty label from the raw probe sample.
+
 ## 0.3.0
 
 ### rc.45 (2026-11-25)

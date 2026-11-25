@@ -76,9 +76,16 @@ type Authority struct{ key []byte }
 
 func New(key []byte) *Authority { return &Authority{key: key} }
 
-// Assignment identifies the exact configured label set of an observation.
+// Assignment identifies the observation's label set as stored by Prometheus-compatible metrics.
+// Empty label values and absent labels identify the same series.
 func Assignment(labels map[string]string) string {
-	b, _ := json.Marshal(labels)
+	stored := make(map[string]string, len(labels))
+	for name, value := range labels {
+		if value != "" {
+			stored[name] = value
+		}
+	}
+	b, _ := json.Marshal(stored)
 	digest := sha256.Sum256(b)
 	return hex.EncodeToString(digest[:])
 }
