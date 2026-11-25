@@ -24,21 +24,22 @@ var (
 type monitorFormLabels struct {
 	Name, NameHint, URL, URLHint, Scope, Module, ModuleHint, Severity, SeverityHint string
 	Add, Cancel, After, AfterHint, ReviewConfig, NoModules, NoLocations, Config     string
-	Remove, RemoveHint                                                              string
+	Remove, RemoveHint, Machine, MachineHint                                        string
 }
 
 type monitorInput struct {
 	Service, URL, Scope, Module, Severity string
+	Machine                               *targets.MachineBinding
 }
 
 type monitorFormPage struct {
 	shell
-	L                           monitorFormLabels
-	Input                       monitorInput
-	Version                     int64
-	Form, Monitors, Config      string
-	Scopes, Modules, Severities []option
-	Remove                      string
+	L                                     monitorFormLabels
+	Input                                 monitorInput
+	Version                               int64
+	Form, Monitors, Config                string
+	Scopes, Modules, Severities, Machines []option
+	Remove                                string
 }
 
 func (s *Server) monitorForm(w http.ResponseWriter, r *http.Request, v *viewer) {
@@ -56,20 +57,12 @@ func simpleMonitor(state *configdb.State, service string) (monitorInput, bool) {
 			continue
 		}
 		g := state.Targets.Groups(file)
-		if len(g) == 1 && len(g[0].Targets) == 1 && len(g[0].Labels) == 4 &&
-			g[0].Labels["service"] == service && g[0].Labels["visibility"] == "internal" &&
-			g[0].Labels["module"] != "" && g[0].Labels["severity"] != "" && httpMonitorURL(g[0].Targets[0]) {
-			return monitorInput{Service: service, Scope: scope, URL: g[0].Targets[0], Module: g[0].Labels["module"], Severity: g[0].Labels["severity"]}, true
+		if len(g) == 1 && configdb.RoutineMonitorGroup(g[0]) && g[0].Labels["service"] == service {
+			return monitorInput{Service: service, Scope: scope, URL: g[0].Targets[0], Module: g[0].Labels["module"],
+				Severity: g[0].Labels["severity"], Machine: g[0].Machine}, true
 		}
 	}
 	return monitorInput{}, false
-}
-
-func httpMonitorURL(raw string) bool {
-	u, err := url.Parse(raw)
-	return err == nil && u.User == nil && u.RawQuery == "" && !u.ForceQuery &&
-		(u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
-		len(raw) <= 2048 && !strings.Contains(raw, "#")
 }
 
 func (in monitorInput) set() string { return configdb.ConsoleTargetName(in.Scope, in.Service) }
@@ -132,6 +125,31 @@ func (s *Server) monitorDraft() monitorDraft {
 	return d
 }
 
+func monitorMachineValue(binding *targets.MachineBinding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.Name + "/" + binding.Registration
+}
+
+func (s *Server) monitorMachineOptions(v *viewer, current *targets.MachineBinding) []option {
+	if !v.person() || !v.has("machines:write") {
+		return nil
+	}
+	selected := monitorMachineValue(current)
+	out := []option{{Label: s.t("No designated machine"), Selected: selected == ""}}
+	for _, m := range s.Store.Machines() {
+		if v.Principal.Reaches(m.Name) {
+			value := m.Name + "/" + m.Registration()
+			out = append(out, option{Value: value, Label: m.Name, Selected: value == selected})
+		}
+	}
+	if current != nil && !slices.ContainsFunc(out, func(o option) bool { return o.Selected }) {
+		out = append(out, option{Value: selected, Label: s.t("%s (registration unavailable)", current.Name), Selected: true})
+	}
+	return out
+}
+
 func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *viewer, draft monitorDraft, in monitorInput, problem string, code int) {
 	heading := s.t("Add HTTP monitor")
 	if r.PathValue("service") != "" {
@@ -144,14 +162,16 @@ func (s *Server) showMonitorForm(w http.ResponseWriter, r *http.Request, v *view
 			URL: s.t("Endpoint URL"), URLHint: s.t("Use the full HTTP or HTTPS URL, without a query, fragment or credentials."),
 			Scope: s.t("Probe from"), Module: s.t("Check profile"), ModuleHint: s.t("Choose an existing HTTP check that uses GET or HEAD without custom headers."),
 			Severity: s.t("Severity"), SeverityHint: s.t("Existing alert rules use this severity. Saving a monitor does not install alert rules."),
-			Add: s.t("Add monitor"), Cancel: s.t("Cancel"), After: s.t("After you save"),
+			Machine:     s.t("Designated machine (optional)"),
+			MachineHint: s.t("Choose where operators should connect when this service is down."),
+			Add:         s.t("Add monitor"), Cancel: s.t("Cancel"), After: s.t("After you save"),
 			AfterHint:    s.t("The selected probes pick up the new target and report their first results on its service page. A status page must be configured to show the service."),
 			ReviewConfig: s.t("See probe configuration"), Config: s.t("Configuration"),
 			NoModules:   s.t("Import a GET or HEAD HTTP check profile without custom headers before adding a monitor here."),
 			NoLocations: s.t("Register a probe location before adding a monitor here."),
 		},
 		Input: in, Form: consolePath("/monitors"), Monitors: consolePath("/monitors"), Config: consolePath("/config"),
-		Scopes: draft.scopes,
+		Scopes: draft.scopes, Machines: s.monitorMachineOptions(v, in.Machine),
 	}
 	if svc := r.PathValue("service"); svc != "" {
 		p.L.Add = s.t("Save")
@@ -195,13 +215,14 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		previous = cur.set()
 		in.Service = cur.Service
+		in.Machine = cur.Machine
 		if in.Scope == "" {
 			in.Scope = cur.Scope // edit forms opened before the upgrade did not submit a scope
 		}
 	}
 	bad := func(message string, code int) { s.showMonitorForm(w, r, v, draft, in, message, code) }
 	version, err := strconv.ParseInt(value("version"), 10, 64)
-	if !httpMonitorURL(in.URL) {
+	if !configdb.RoutineMonitorURL(in.URL) {
 		in.URL = "" // do not redisplay a URL that could contain submitted credentials
 	}
 
@@ -226,7 +247,24 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 
-	group := targets.Group{Targets: []string{in.URL}, Labels: map[string]string{
+	if choice := value("machine"); r.PostForm.Has("machine") && choice != monitorMachineValue(in.Machine) {
+		if !v.person() || !v.has("machines:write") {
+			bad(s.t("You do not have permission to change the designated machine."), http.StatusForbidden)
+			return
+		}
+		in.Machine = nil
+		if choice != "" {
+			name, registration, valid := strings.Cut(choice, "/")
+			m, enrolled := s.Store.Machine(name)
+			if !valid || !enrolled || m.Registration() != registration || !v.Principal.Reaches(name) {
+				bad(s.t("Choose an enrolled machine from the current list."), http.StatusBadRequest)
+				return
+			}
+			in.Machine = &targets.MachineBinding{Name: name, Registration: registration}
+		}
+	}
+
+	group := targets.Group{Targets: []string{in.URL}, Machine: in.Machine, Labels: map[string]string{
 		"service": in.Service, "module": in.Module, "severity": in.Severity, "visibility": "internal",
 	}}
 	note, done := "Add HTTP monitor ", "monitor_added"

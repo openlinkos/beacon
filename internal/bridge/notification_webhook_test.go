@@ -106,7 +106,8 @@ func TestNotificationWebhookRetainsOrderedTransitions(t *testing.T) {
 		t.Fatalf("delivery order or identities: %+v, %+v, %+v", fired, resolved, firedAgain)
 	}
 	wantURL := "https://beacon.example.com/console/sign-in?next=%2Fconsole%2Falerts%2F" + id
-	if fired.Alert.ID != id || fired.Alert.URL != wantURL || fired.Alert.Severity != "critical" {
+	if fired.Alert.ID != id || fired.Alert.URL != wantURL+"%2Fepisodes%2F"+fired.Alert.Episode ||
+		resolved.Alert.URL != fired.Alert.URL || firedAgain.Alert.URL != wantURL+"%2Fepisodes%2F"+firedAgain.Alert.Episode || fired.Alert.Severity != "critical" {
 		t.Fatalf("notification alert: %+v", fired.Alert)
 	}
 	g, _ = e.st.Group(id)

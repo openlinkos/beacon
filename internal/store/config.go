@@ -182,6 +182,16 @@ func versionKey(v int64) []byte {
 	return k
 }
 
+// ConfigVersion returns the configuration version currently committed to the store.
+func (s *Store) ConfigVersion() (int64, error) {
+	var version int64
+	err := s.db.View(func(tx kv.Tx) error {
+		version = int64(tx.Sequence(bucketConfigChanges))
+		return nil
+	})
+	return version, err
+}
+
 // ConfigChanges returns up to limit changes older than version before (0: from the newest) for which
 // keep returns true (nil keeps all), the newest first.
 func (s *Store) ConfigChanges(before int64, limit int, keep func(ConfigChange) bool) []ConfigChange {

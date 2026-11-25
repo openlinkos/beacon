@@ -52,6 +52,7 @@ class Receiver(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         supplied = self.headers.get("X-Beacon-Signature", "")
         if not supplied.isascii() or not hmac.compare_digest(signature(self.server.secret, body), supplied):
+            self.server.rejected_signatures.put(401)
             self.send_error(401)
             return
         try:
@@ -138,7 +139,7 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def exercise(binary, work, receiver, rules_token):
+def exercise(binary, work, receiver, rules_token, episode_links, mismatched_secret=False):
     with port_reservation() as console_socket, port_reservation() as gateway_socket:
         console = f"127.0.0.1:{console_socket.getsockname()[1]}"
         gateway = f"127.0.0.1:{gateway_socket.getsockname()[1]}"
@@ -151,7 +152,8 @@ def exercise(binary, work, receiver, rules_token):
     rules = work / "rules-token"
     url_file = work / "notification-url"
     secret_file = work / "notification-secret"
-    for path, value in ((rules, rules_token.encode()), (url_file, endpoint.encode()), (secret_file, receiver.secret)):
+    signing_secret = receiver.secret + b"-mismatch" if mismatched_secret else receiver.secret
+    for path, value in ((rules, rules_token.encode()), (url_file, endpoint.encode()), (secret_file, signing_secret)):
         path.touch(0o600)
         path.write_bytes(value + b"\n")
     config.write_text(
@@ -170,6 +172,7 @@ def exercise(binary, work, receiver, rules_token):
     )
     require(checked.returncode == 0, f"Invalid test configuration: {checked.stderr.strip()}")
     require("notification webhook configured" in checked.stdout, "check-config did not report the channel")
+    require(receiver.rejected_signatures.empty() and receiver.attempts.empty(), "check-config sent a notification")
     start = datetime.now(timezone.utc) - timedelta(seconds=1)
 
     def report(ends_at):
@@ -193,6 +196,26 @@ def exercise(binary, work, receiver, rules_token):
             capture_output=True, check=True, text=True, timeout=10,
         ).stdout.strip()
         report(start + timedelta(minutes=10))
+        if mismatched_secret:
+            try:
+                rejected = receiver.rejected_signatures.get(timeout=20)
+            except Empty as err:
+                raise RuntimeError("The receiver did not observe the rejected signature") from err
+            require(rejected == 401, "The receiver accepted the wrong signing secret")
+
+            def rejection_recorded():
+                headers = {"Authorization": "Bearer " + read_token}
+                alerts = json.loads(request(base + "/api/v1/alerts", headers=headers))["alerts"]
+                for alert in alerts:
+                    events = json.loads(request(base + f"/api/v1/alerts/{alert['id']}/timeline", headers=headers))["events"]
+                    if any(e.get("via") == "notification_webhook" and e.get("result") == "failed" for e in events):
+                        return True
+                return False
+
+            wait_for("the rejected delivery on the incident timeline", rejection_recorded)
+            require(receiver.attempts.empty(), "A delivery was accepted with the wrong signing secret")
+            print("A mismatched signing secret passed configuration validation, then the receiver rejected delivery with HTTP 401.", flush=True)
+            return
         code, duplicate, first, first_body = attempt(receiver, "the first signed firing", 30)
         refused_at = time.monotonic()
         require(code == 503 and not duplicate and first["event"] == "firing", "Expected the first firing to be refused")
@@ -225,6 +248,9 @@ def exercise(binary, work, receiver, rules_token):
         group = first["alert"]["id"]
         episode = first["alert"]["episode"]
         require(group and episode, "Missing incident or episode ID")
+        incident_path = f"/console/alerts/{group}"
+        if episode_links:
+            incident_path += f"/episodes/{episode}"
         for event in (first, retry, resolved):
             incident = event["alert"]
             require(incident["id"] == group and incident["episode"] == episode, "Delivery changed incident or episode")
@@ -232,7 +258,7 @@ def exercise(binary, work, receiver, rules_token):
             target = urlsplit(incident["url"])
             require(
                 (target.scheme, target.netloc, target.path) == ("http", console, "/console/sign-in")
-                and parse_qs(target.query).get("next") == [f"/console/alerts/{group}"],
+                and parse_qs(target.query).get("next") == [incident_path],
                 "Notification must link to the incident through sign-in",
             )
         headers = {"Content-Type": "application/json", "X-Beacon-Signature": signature(receiver.secret, raw)}
@@ -249,22 +275,28 @@ def exercise(binary, work, receiver, rules_token):
 
 
 def main(binary):
+    version = subprocess.check_output([binary, "version"], text=True, timeout=10).split()
+    episode_links = version[:2] != ["beacon", "0.3.0-rc.34"]
     with TemporaryDirectory(prefix="beacon-notifications-") as tmp, HTTPServer(("127.0.0.1", 0), Receiver) as receiver:
         work = Path(tmp)
         receiver.secret = secrets.token_hex(32).encode()
         receiver.attempts = Queue()
+        receiver.rejected_signatures = Queue()
         receiver.accepted = {}
         receiver.rejected_first = False
         rules_token = secrets.token_hex(32)
         thread = Thread(target=receiver.serve_forever, daemon=True)
         thread.start()
         try:
-            exercise(binary, work, receiver, rules_token)
+            mismatch = work / "mismatch"
+            mismatch.mkdir()
+            exercise(binary, mismatch, receiver, rules_token, episode_links, mismatched_secret=True)
+            exercise(binary, work, receiver, rules_token, episode_links)
         except Exception:
-            log = work / "beacon.log"
-            if log.exists():
-                output = log.read_text(errors="replace").replace(rules_token, "[rules token]")
-                print(output.replace(receiver.secret.decode(), "[webhook secret]")[-6000:], file=sys.stderr)
+            for log in (work / "beacon.log", work / "mismatch/beacon.log"):
+                if log.exists():
+                    output = log.read_text(errors="replace").replace(rules_token, "[rules token]")
+                    print(output.replace(receiver.secret.decode(), "[webhook secret]")[-6000:], file=sys.stderr)
             raise
         finally:
             receiver.shutdown()

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
@@ -115,6 +116,27 @@ type OutcomeFilter struct {
 	Before string
 	Group  string
 	Limit  int
+}
+
+// IncidentOutcomeForEpisode finds a retained summary from an exact group and episode reference.
+func (s *Store) IncidentOutcomeForEpisode(group, episode string, since time.Time) (IncidentOutcome, error) {
+	suffix, lower := []byte("-"+group+"-"+episode), []byte(outcomeTime(since))
+	var found IncidentOutcome
+	err := s.db.View(func(tx kv.Tx) error {
+		result := ErrNotFound
+		tx.Range(bucketOutcomes, kv.Range{Reverse: true}, func(k, v []byte) bool {
+			if bytes.Compare(k, lower) < 0 {
+				return false
+			}
+			if !bytes.HasSuffix(k, suffix) {
+				return true
+			}
+			result = json.Unmarshal(v, &found)
+			return false
+		})
+		return result
+	})
+	return found, err
 }
 
 // IncidentOutcomes returns up to Limit+1 rows. The extra row tells callers whether to offer another page.

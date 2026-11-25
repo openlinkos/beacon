@@ -92,6 +92,9 @@ type Group struct {
 	Participation  []Participation   `json:"participation,omitempty"`
 	Updated        time.Time         `json:"updated"`
 
+	// MonitorMachines pin the designated enrolments at the start of this episode.
+	MonitorMachines []MonitorMachine `json:"monitor_machines,omitempty"`
+
 	// These track the session summary delivered on the current Feishu card and back off failed refreshes.
 	CardSessionHash      string    `json:"card_session_hash,omitempty"`
 	CardSessionAttemptAt time.Time `json:"card_session_attempt_at,omitzero"`
@@ -825,6 +828,7 @@ type Machine struct {
 	ConnectorFingerprint string    `json:"connector_fingerprint,omitempty"`
 	MetadataVersion      int64     `json:"metadata_version,omitempty"`
 	HistoryStart         int64     `json:"history_start,omitempty"`
+	LegacyHistory        bool      `json:"legacy_history,omitempty"` // history began after the enrolment
 }
 
 // MachineName is what a machine may be called: its host name, as probe locations are.
@@ -899,6 +903,8 @@ type SessionRecord struct {
 	Recording  string    `json:"recording,omitempty"`
 	// PTY says whether the session had a terminal; nil on sessions recorded before Beacon kept it.
 	PTY *bool `json:"pty,omitempty"`
+	// Registration is the machine's enrolment at capture. It is absent on older recordings.
+	MachineRegistration string `json:"machine_registration,omitempty"`
 }
 
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.

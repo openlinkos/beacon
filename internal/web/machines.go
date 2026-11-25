@@ -249,7 +249,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 			break
 		}
 	}
-	if m == nil {
+	if registration := r.URL.Query().Get("registration"); m == nil || registration != "" && m.Registration != registration {
 		s.missing(w, r, v)
 		return
 	}

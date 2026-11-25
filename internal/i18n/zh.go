@@ -39,6 +39,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Only the people on call can act on alerts":              "只有值班的人可以处理告警",
 	"Unknown alert; it may have been cleaned up":             "找不到这条告警，可能已经清理掉了",
 	"This alert has already resolved":                        "这条告警已经恢复",
+	"Open the current alert card to act.":                    "请打开当前的告警卡片再操作。",
 	"Acknowledged":                                           "已认领",
 	"Unknown action":                                         "不支持的操作",
 	"Could not silence: %s":                                  "静默失败：%s",
@@ -139,6 +140,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Take over":                                       "接手",
 	"Take over with note":                             "接手并备注",
 	"The acknowledgement changed. Review who is responding and try again.": "认领状态已变化。请查看当前处置人后重试。",
+	"This incident has changed. Review the alert before taking action.":    "事件已变化。请核对告警后再操作。",
 	"Acknowledging stops escalation while the alert is acknowledged.":      "告警被认领期间，暂停向人升级通知。",
 	"Escalation is paused while this alert is acknowledged.":               "告警处于已认领状态时，通知升级暂停。",
 	"Probe again now":                                          "立即复测",
@@ -1010,6 +1012,17 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"The credential has changed. Check its current details and try again.":            "凭据已有改动。请检查当前详情后重试。",
 	"The configured service could not be reached.":                                    "无法连接已配置的服务。",
 	"%s performed %s on team credential %s via %s":                                    "%[1]s 经%[4]s对团队凭据 %[3]s 执行了 %[2]s",
+
+	// Designated machines in the monitor editor and in service outages.
+	"Designated machine (optional)":                                    "指定机器（可选）",
+	"No designated machine":                                            "不指定机器",
+	"Choose where operators should connect when this service is down.": "选择服务中断时值班人员应连接的机器。",
+	"%s (registration unavailable)":                                    "%s（登记已失效）",
+	"You do not have permission to change the designated machine.":     "你没有更改指定机器的权限。",
+	"Choose an enrolled machine from the current list.":                "请从当前列表选择已登记的机器。",
+	"Designated service machines":                                      "服务指定机器",
+	"Open designated machine %s for %s":                                "打开机器 %s（为服务 %s 指定）",
+	"A designated machine registration is no longer available.":        "有一项指定机器的登记已失效。",
 
 	// Machine navigation from the alert response.
 	"Linked machines":                                     "关联机器",

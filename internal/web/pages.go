@@ -255,6 +255,7 @@ type alertActions struct {
 	Durations                       []kv   // the silence's choices: value, label
 	Unsilence, Back                 string // where the form that ends the group's silence posts, and the page to come back to
 	AckVersion                      string
+	Episode, ReturnEpisode          string
 	TakeOver                        bool
 }
 
@@ -306,7 +307,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
-		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines)}
+		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
 	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
 	if p.Problem != "" {
 		p.Feedback, p.FeedbackTone = p.Problem, "danger"
@@ -384,22 +385,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Notes = append(p.Notes, noteRow{By: n.By, Via: s.via(n.Via), At: s.clock(n.At), Text: n.Text})
 	}
 	slices.Reverse(p.Notes) // the latest first
-	p.Sessions = s.sessions(ev.Done.Sessions, a)
-	if n := len(p.Sessions); n > 0 {
-		machines, commands := map[string]bool{}, 0
-		for _, v := range ev.Done.Sessions {
-			machines[v.Machine] = true
-		}
-		for i, v := range ev.Done.Sessions {
-			switch v.Kind {
-			case "shell":
-				commands += max(v.Commands, len(p.Sessions[len(p.Sessions)-1-i].Commands))
-			case "exec", "file":
-				commands++
-			}
-		}
-		p.SessionsLine = s.t("%d sessions on %d machines, %d commands", n, len(machines), commands)
-	}
+	p.Sessions, p.SessionsLine = s.incidentSessions(ev, a)
 	for _, c := range ev.Changes {
 		about := c.Service
 		if c.Machine != "" {
@@ -416,12 +402,12 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	}
 	if v := a.Viewer; v != nil && v.has("alerts:write") {
 		base := link.AlertPath(al.ID)
-		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
+		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes", Episode: g.Episode, ReturnEpisode: r.PathValue("episode")}
 		if s.Bridge.CanProbeNow() {
 			p.Actions.Probe = base + "/probe-now"
 		}
 		if silenced {
-			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", base
+			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", link.IncidentPath(al.ID, p.Actions.ReturnEpisode)
 		}
 		if al.Status == "firing" {
 			p.Actions.Silence = base + "/silence"
@@ -451,12 +437,12 @@ func currentHandover(tl bridge.Timeline, ack *store.Ack) handoverNote {
 	return handoverNote{}
 }
 
-func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
+func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine) *alertMachineLinks {
 	if v == nil || !v.hasAny("status:read|machines:ssh") {
 		return nil
 	}
 	out := &alertMachineLinks{Title: s.t("Linked machines")}
-	if len(names) == 0 {
+	if len(names) == 0 && len(designated) == 0 {
 		out.Hint = s.t("No machine is linked to this alert.")
 		return out
 	}
@@ -475,7 +461,24 @@ func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
 		}
 		out.Items = append(out.Items, kvLink{V: m.Name, K: s.t("Open machine %s", m.Name), Href: href})
 	}
-	if len(out.Items) == 0 {
+	if len(designated) > 0 {
+		out.Title = s.t("Designated service machines")
+		for _, binding := range designated {
+			m, ok := s.Store.Machine(binding.Name)
+			if !ok || m.Registration() != binding.Registration {
+				continue
+			}
+			href := machinePath(m.Name) + "?registration=" + url.QueryEscape(binding.Registration)
+			if v.person() && v.Principal.Reaches(m.Name) {
+				href += "#ssh-connect"
+			}
+			out.Items = append(out.Items, kvLink{V: m.Name + " (" + binding.Service + ")",
+				K: s.t("Open designated machine %s for %s", m.Name, binding.Service), Href: href})
+		}
+		if len(out.Items) < len(designated) {
+			out.Hint = s.t("A designated machine registration is no longer available.")
+		}
+	} else if len(out.Items) == 0 {
 		out.Hint = s.t("This alert links to machines that are not enrolled.")
 	}
 	return out
@@ -779,12 +782,15 @@ func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeE
 }
 
 // sessions renders the sessions on the alert's machines, each with the commands of its transcript.
-func (s *Server) sessions(views []bridge.SessionView, a access) []sessionRow {
+func (s *Server) sessions(views []bridge.SessionView, a access, private map[string]bool) []sessionRow {
 	out := make([]sessionRow, 0, len(views))
 	for _, v := range views {
 		row := sessionRow{ID: v.ID, Agent: v.Agent, Via: s.via(v.Via), Machine: v.Machine, Kind: s.kind(v.Kind), Command: v.Command,
 			Started: s.clock(v.Started), Exit: s.exit(v.Exit), Failed: v.Exit != nil && *v.Exit != 0, Open: v.Ended == nil,
-			Href: s.signed(link.SessionPath(v.ID), a.Until)}
+			Href: link.SessionPath(v.ID)}
+		if !private[v.ID] {
+			row.Href = s.signed(row.Href, a.Until)
+		}
 		if v.Ended != nil {
 			row.Duration = s.dur(v.Ended.Sub(v.Started))
 		}

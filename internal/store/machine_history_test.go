@@ -19,7 +19,7 @@ func TestMachineHistoryLegacyAndIdentity(t *testing.T) {
 	}
 	newUser, critical := "ops", true
 	_, after, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{User: &newUser, Critical: &critical}, 0, "alice", "console")
-	if err != nil || after.MetadataVersion <= 1 {
+	if err != nil || after.MetadataVersion <= 1 || after.Registration() != original.Registration() {
 		t.Fatalf("first edit: %+v %v", after, err)
 	}
 	h, err = s.MachineMetadataHistory(original.Name, after.MetadataVersion, 1)
@@ -49,7 +49,7 @@ func TestMachineHistoryLegacyAndIdentity(t *testing.T) {
 		t.Fatalf("restore on a deleted registration: %v", err)
 	}
 	fresh, err := s.RegisterMachine(original, nil, "api")
-	if err != nil || fresh.MetadataVersion <= restored.MetadataVersion {
+	if err != nil || fresh.MetadataVersion <= restored.MetadataVersion || fresh.Registration() == original.Registration() {
 		t.Fatalf("re-enrolment: %+v %v", fresh, err)
 	}
 	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &fresh.MetadataVersion}, baseline, "alice", "console"); !errors.Is(err, ErrMachineVersion) {

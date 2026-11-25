@@ -450,7 +450,7 @@ func TestPeopleAndRoles(t *testing.T) {
 		t.Error("bob's nav has the people page")
 	}
 	// on call acknowledges alerts; a viewer does not
-	if a := bob.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"looking"}}); a.code != http.StatusSeeOther {
+	if a := bob.post("/console/alerts/"+e.id+"/notes", incidentForm(t, bob.get("/console/alerts/"+e.id), url.Values{"text": {"looking"}})); a.code != http.StatusSeeOther {
 		t.Errorf("bob's note: %d %s", a.code, a.body)
 	}
 	if n := e.st.AuditLog(1)[0]; n.Actor != "bob" || n.Via != "console" {
@@ -632,7 +632,7 @@ func TestLegacyTokens(t *testing.T) {
 		t.Fatalf("a legacy token signs in: %d", a.code)
 	}
 	tb.get("/console")
-	tb.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"legacy"}})
+	tb.post("/console/alerts/"+e.id+"/notes", incidentForm(t, tb.get("/console/alerts/"+e.id), url.Values{"text": {"legacy"}}))
 	if n := e.st.AuditLog(1)[0]; n.Actor != "claude-code" {
 		t.Errorf("a legacy token's actor: %+v", n)
 	}
@@ -653,7 +653,7 @@ func TestLegacyTokens(t *testing.T) {
 		t.Errorf("chat: %v", e.bot.sent)
 	}
 	// its console sign-in now acts as bob's agent
-	tb.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"claimed"}})
+	tb.post("/console/alerts/"+e.id+"/notes", incidentForm(t, tb.get("/console/alerts/"+e.id), url.Values{"text": {"claimed"}}))
 	if n := e.st.AuditLog(1)[0]; n.Actor != "bob / claude-code" {
 		t.Errorf("after the claim: %+v", n)
 	}

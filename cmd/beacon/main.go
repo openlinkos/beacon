@@ -339,7 +339,7 @@ func serve(args []string, stderr io.Writer) int {
 	pages := &link.Pages{Signer: signer, PublicURL: cfg.PublicURL}
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
-		Catalog: cdb.Catalog, Metrics: m, Log: log, Pages: pages,
+		Catalog: cdb.Catalog, MonitorMachine: cdb.MonitorMachine, Metrics: m, Log: log, Pages: pages,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
 		deps.VM = vm.New(cfg.VictoriaMetrics.URL, nil)

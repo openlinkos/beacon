@@ -112,6 +112,7 @@ type Server struct {
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("GET "+link.AlertPath("{id}"), s.alert)
+	mux.HandleFunc("GET "+link.IncidentPath("{id}", "{episode}"), s.alert)
 	mux.HandleFunc("GET "+link.SessionPath("{id}"), s.session)
 	mux.HandleFunc("GET "+link.RecordingPath("{id}"), s.recording)
 	mux.HandleFunc("GET /static/{file}", s.static)
@@ -222,7 +223,7 @@ func (s *Server) renderStatus(w http.ResponseWriter, status int, t *template.Tem
 	_, _ = w.Write(buf.Bytes())
 }
 
-// alert is the alert group's page.
+// alert opens the current group or an exact incident named by the notification link.
 func (s *Server) alert(w http.ResponseWriter, r *http.Request) {
 	headers(w)
 	a := s.access(r, "status:read")
@@ -230,29 +231,48 @@ func (s *Server) alert(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	id := r.PathValue("id")
-	ev, err := s.Bridge.Evidence(r.Context(), id, "")
+	id, episode := r.PathValue("id"), r.PathValue("episode")
+	if episode != "" && !link.ValidEpisode(episode) {
+		s.missing(w, r, a.Viewer)
+		return
+	}
+	g, ev, tl, err := s.Bridge.IncidentPage(r.Context(), id, episode)
 	if err != nil {
-		if a.Viewer != nil && errors.Is(err, bridge.ErrNotFound) {
-			if prior, lookupErr := s.Bridge.IncidentOutcomes(id, "", 1); lookupErr == nil && len(prior.Outcomes) != 0 {
-				http.Redirect(w, r, consolePath("/incident-outcomes")+"?group="+url.QueryEscape(id), http.StatusSeeOther)
-				return
-			}
+		if errors.Is(err, bridge.ErrNotFound) && s.redirectAlertHistory(w, r, a.Viewer, id, episode) {
+			return
 		}
 		s.missing(w, r, a.Viewer)
 		return
 	}
-	tl, err := s.Bridge.Timeline(r.Context(), id, "")
-	if err != nil {
-		s.missing(w, r, a.Viewer)
-		return
-	}
-	g, err := s.Bridge.Group(id)
-	if err != nil {
-		s.missing(w, r, a.Viewer)
-		return
-	}
 	s.render(w, alertTmpl, s.alertPage(r, ev, tl, g, a))
+}
+
+func (s *Server) redirectAlertHistory(w http.ResponseWriter, r *http.Request, v *viewer, id, episode string) bool {
+	target := ""
+	if episode != "" {
+		outcome, err := s.Bridge.ArchivedIncidentID(id, episode)
+		if err != nil {
+			return false
+		}
+		if v != nil {
+			target = outcomePath(outcome)
+			if problem := r.URL.Query().Get("error"); problem == "incident_changed" || problem == "ack_changed" {
+				target += "?error=" + problem
+			}
+		} else if s.Console() {
+			target = link.SignInPath(link.IncidentPath(id, episode))
+		}
+	} else if v != nil {
+		if prior, err := s.Bridge.IncidentOutcomes(id, "", 1); err == nil && len(prior.Outcomes) != 0 {
+			target = consolePath("/incident-outcomes") + "?group=" + url.QueryEscape(id)
+		}
+	}
+	if target == "" {
+		return false
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.Redirect(w, r, target, http.StatusSeeOther) //nolint:gosec // G710: only local console routes
+	return true
 }
 
 // session is the session's page, with its replay.

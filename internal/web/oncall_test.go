@@ -20,6 +20,21 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
+var expectedEpisode = regexp.MustCompile(`name="expected_episode" value="([0-9a-f]*)"`)
+var returnEpisode = regexp.MustCompile(`name="return_episode" value="([0-9a-f]*)"`)
+
+func incidentForm(t *testing.T, page answer, form url.Values) url.Values {
+	t.Helper()
+	for key, field := range map[string]*regexp.Regexp{"expected_episode": expectedEpisode, "return_episode": returnEpisode} {
+		match := field.FindStringSubmatch(page.body)
+		if page.code != http.StatusOK || len(match) != 2 {
+			t.Fatalf("incident field %s missing on page with status %d", key, page.code)
+		}
+		form.Set(key, match[1])
+	}
+	return form
+}
+
 var expectedAck = regexp.MustCompile(`name="expected_ack" value="([0-9a-f]+)"`)
 var ackNoteSubmit = regexp.MustCompile(`id="ack-note"[^>]*></textarea>\s*<button type="submit" form="alert-ack"[^>]*>([^<]+)</button>`)
 
@@ -29,7 +44,7 @@ func ackForm(t *testing.T, page answer, note string) url.Values {
 	if page.code != http.StatusOK || len(field) != 2 {
 		t.Fatalf("acknowledgement form missing on page with status %d", page.code)
 	}
-	return url.Values{"expected_ack": {field[1]}, "note": {note}}
+	return incidentForm(t, page, url.Values{"expected_ack": {field[1]}, "note": {note}})
 }
 
 func alertResponse(t *testing.T, a answer) string {
@@ -363,7 +378,7 @@ func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
 			ch <- board.Answer(req[0].ID, loc, got)
 		}(loc.ID)
 	}
-	a := b.post(post, nil)
+	a := b.post(post, incidentForm(t, b.get(path), url.Values{}))
 	for range locations {
 		if err := <-ch; err != nil {
 			t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,22 @@ var (
 )
 
 func ValidMachineUser(user string) bool { return machineUser.MatchString(user) }
+
+// Registration identifies the machine enrolment independently of its editable settings.
+func (m Machine) Registration() string {
+	at := m.Added.UTC().Format(time.RFC3339Nano)
+	if m.LegacyHistory {
+		return "0-" + at
+	}
+	return strconv.FormatInt(m.HistoryStart, 10) + "-" + at
+}
+
+// MonitorMachine records the enrolment designated for a service when an incident opened.
+type MonitorMachine struct {
+	Service      string `json:"service"`
+	Name         string `json:"name"`
+	Registration string `json:"registration"`
+}
 
 // MachineMetadata is the restorable part of a registration.
 type MachineMetadata struct {
@@ -90,7 +107,7 @@ func machineRevisionKey(m Machine, v int64) []byte {
 }
 
 func (s *Store) startMachineHistory(tx kv.Tx, m *Machine, action, via string) error {
-	m.HistoryStart = 0
+	m.HistoryStart, m.LegacyHistory = 0, false
 	at := m.Added
 	if at.IsZero() {
 		at = s.now().UTC()
@@ -223,7 +240,7 @@ func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, r
 			if err := recordMachineRevision(tx, &base, MachineRevision{At: rev.At, Action: "baseline"}); err != nil {
 				return err
 			}
-			after.HistoryStart = base.HistoryStart
+			after.HistoryStart, after.LegacyHistory = base.HistoryStart, true
 		}
 		if err := recordMachineRevision(tx, &after, rev); err != nil {
 			return err

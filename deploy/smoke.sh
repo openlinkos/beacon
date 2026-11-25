@@ -36,6 +36,7 @@ start=$SECONDS
 second_probe=
 oncall_pid=
 phone_pid=
+private_hook_rule=false
 token=
 recovery_volume=
 cleanup() {
@@ -69,6 +70,9 @@ cleanup() {
   fi
   sudo systemctl stop beacon-probe 2>/dev/null || true
   docker compose down -v >/dev/null 2>&1 || true
+  if [[ "$private_hook_rule" == true ]]; then
+    sudo iptables -D INPUT ! -i "$bridge" -d "$host/32" -p tcp --dport 22301 -j DROP 2>/dev/null || true
+  fi
   if [[ -n "$recovery_volume" ]]; then
     docker volume rm "$recovery_volume" >/dev/null 2>&1 || true
   fi
@@ -133,6 +137,10 @@ wait_for 'Both installed probes reported a healthy drill' 120 probes 1
 
 # Receive a real signed wake in the released harness. The fixture program only accepts the ServiceDown episode.
 host=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+bridge=$(ip -o -4 address show | awk -v gateway="$host" '{split($4, address, "/"); if (address[1] == gateway) print $2}')
+test -n "$bridge"
+sudo iptables -I INPUT 1 ! -i "$bridge" -d "$host/32" -p tcp --dport 22301 -j DROP
+private_hook_rule=true
 oncall_archive="beacon-oncall_${version#v}_linux_amd64.tar.gz"
 release="https://github.com/openlinkos/beacon/releases/download/$version"
 curl -fsSL --retry 3 "$release/SHA256SUMS" -o "$work/SHA256SUMS"
@@ -181,8 +189,20 @@ fi
   -run "jq -ce 'select(.event == \"firing\" and .alert.labels.alertname == \"ServiceDown\")' > '$work/hook.tmp' && mv '$work/hook.tmp' '$work/hook.json' && if test -f '$work/fail-agent'; then exit 79; fi" \
   > "$work/oncall.log" 2>&1 &
 oncall_pid=$!
-hook_health() { curl -fsS "http://$host:22301/healthz" >/dev/null; }
-wait_for 'Released on-call harness is listening' 15 hook_health
+hook_health() { docker compose exec -T caddy wget -q -O /dev/null "http://$host:22301/healthz"; }
+wait_for 'Beacon network can reach the private on-call harness' 15 hook_health
+if curl -fsS --noproxy '*' --max-time 2 "http://$host:22301/healthz" >/dev/null 2>&1; then
+  echo 'The private hook accepted a connection outside the Beacon bridge.' >&2
+  exit 1
+fi
+hook_rejection=$(docker compose exec -T caddy wget -S -O /dev/null \
+  --header 'X-Beacon-Signature: sha256=00' --post-data '{}' "http://$host:22301/beacon" 2>&1 || true)
+if [[ $(sed -n 's/^ *HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<< "$hook_rejection" | tail -1) != 401 ]]; then
+  printf 'Expected the private on-call harness to reject a bad signature with HTTP 401.\n%s\n' "$hook_rejection" >&2
+  exit 1
+fi
+test ! -e "$work/hook.json"
+printf 'Private on-call harness rejected a bad signature from the Beacon network (HTTP 401).\n'
 beacon check-config -config /etc/beacon/config.yaml
 docker compose restart beacon
 centre_health() { curl -fsS "$status_url/healthz" >/dev/null; }

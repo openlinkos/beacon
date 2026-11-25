@@ -118,7 +118,8 @@ type Evidence struct {
 	Links      AlertLinks      `json:"links"`
 	// LinkedMachines are named by an explicit machine label or a catalogue heartbeat. The console
 	// uses these for navigation, independently of the broader correlations in Done.
-	LinkedMachines []string `json:"-"`
+	LinkedMachines  []string               `json:"-"`
+	MonitorMachines []store.MonitorMachine `json:"-"`
 }
 
 // ProbeEvidence is what the probes of the group's services saw, one result per location, target and
@@ -255,7 +256,7 @@ func (b *Bridge) links(g *store.Group) AlertLinks {
 	base := "/api/v1/alerts/" + g.ID
 	return AlertLinks{Alert: b.apiURL(base), Evidence: b.apiURL(base + "/evidence"), Timeline: b.apiURL(base + "/timeline"),
 		MCP: b.apiURL("/mcp"), Runbook: cleanURL(b.link(b.d.Config.Links.Runbook, g)), Dashboard: cleanURL(b.link(b.d.Config.Links.GrafanaService, g)),
-		Page: b.AlertPage(g.ID)}
+		Page: b.incidentPage(g)}
 }
 
 // groupServices are the group's service, or the services of its alerts (at most five).
@@ -317,12 +318,20 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 	if !ok {
 		return Evidence{}, ErrNotFound
 	}
-	w := b.window(&g, d)
-	machines := b.machines(&g)
-	done := b.done(&g, w, machines)
+	return b.evidence(ctx, &g, b.window(&g, d)), nil
+}
+
+func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window) Evidence {
+	machines := b.machines(g)
+	done := b.done(g, w, machines)
 	b.withCommands(done.Sessions)
+	explicit := b.linkedMachines(g)
+	designated := g.MonitorMachines
+	if len(explicit) > 0 || len(labelValues(g, "machine")) > 0 {
+		designated = nil
+	}
 	return Evidence{
-		Alert: b.brief(&g), Window: w,
+		Alert: b.brief(g), Window: w,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
 			"probes.services", "probes.failing", "probes.results[].location", "probes.results[].service", "probes.results[].instance",
 			"probes.results[].module", "probes.results[].reason", "probes.results[].reasons", "probes.error",
@@ -330,10 +339,10 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 			"related[].title", "related[].service", "related[].why", "changes[].summary", "changes[].service", "changes[].object",
 			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),
-		Probes: b.probeEvidence(ctx, &g, w), Heartbeats: b.heartbeats(ctx, &g, w), Related: b.related(&g),
-		Changes: b.changesAround(&g, w, machines), Done: done, Links: b.links(&g),
-		LinkedMachines: b.linkedMachines(&g),
-	}, nil
+		Probes: b.probeEvidence(ctx, g, w), Heartbeats: b.heartbeats(ctx, g, w), Related: b.related(g),
+		Changes: b.changesAround(g, w, machines), Done: done, Links: b.links(g),
+		LinkedMachines: explicit, MonitorMachines: designated,
+	}
 }
 
 // ---- probes

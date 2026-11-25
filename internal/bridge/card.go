@@ -241,7 +241,7 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	}
 	els = append(els, b.agentBlock(g), b.sessionsBlock(sessions), b.notesBlock(g))
 	var links []map[string]any
-	if u := b.AlertPage(g.ID); u != "" {
+	if u := b.incidentPage(g); u != "" {
 		links = append(links, feishu.LinkButton(b.t("Timeline"), u))
 	}
 	if u := b.link(b.d.Config.Links.Runbook, g); u != "" {
@@ -253,6 +253,9 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	if firing {
 		val := func(a string, extra ...string) map[string]any {
 			v := map[string]any{"a": a, "g": g.ID}
+			if g.Episode != "" {
+				v["e"] = g.Episode
+			}
 			if len(extra) == 2 {
 				v[extra[0]] = extra[1]
 			}
@@ -276,6 +279,19 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 		els = append(els, feishu.Hr(), feishu.Row(links...))
 	}
 	return feishu.NewCard(feishu.Header(b.title(g), subtitle, colour, tags...), els...)
+}
+
+// currentCardAction binds an action to an episode, or to its message for cards sent before episode
+// binding. An SDK message ID, when present, must always name the current card.
+func currentCardAction(g *store.Group, a feishu.Action) bool {
+	if a.MessageID != "" && a.MessageID != g.MessageID {
+		return false
+	}
+	if raw, ok := a.Value["e"]; ok {
+		episode, _ := raw.(string)
+		return episode != "" && episode == g.Episode
+	}
+	return a.MessageID != ""
 }
 
 // plainBody is the alert in a few lines of text (Pushover, Bark, the group bot).
@@ -315,7 +331,7 @@ func (b *Bridge) notificationPage(g *store.Group) string {
 		return ""
 	}
 	base.User, base.RawQuery, base.Fragment, base.ForceQuery = nil, "", "", false
-	return cleanURL(strings.TrimSuffix(base.String(), "/") + link.SignInPath(link.AlertPath(g.ID)))
+	return cleanURL(strings.TrimSuffix(base.String(), "/") + link.SignInPath(link.IncidentPath(g.ID, g.Episode)))
 }
 
 func (b *Bridge) phoneLink(g *store.Group) (string, string) {

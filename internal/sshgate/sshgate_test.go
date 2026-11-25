@@ -335,6 +335,9 @@ func TestExec(t *testing.T) {
 	if r.Kind != "exec" || r.Agent != "claude-code" || r.Via != "ssh" || r.Machine != "box" || r.Exit == nil || *r.Exit != 3 {
 		t.Errorf("record: %+v", r)
 	}
+	if machine, ok := e.st.Machine("box"); !ok || r.MachineRegistration != machine.Registration() {
+		t.Errorf("record did not retain the machine's enrolment: %q", r.MachineRegistration)
+	}
 	tr, err := e.g.Session(r.ID)
 	if err != nil || tr.Stdout != "hello\n" || tr.Stderr != "oops\n" {
 		t.Errorf("transcript: %+v %v", tr, err)

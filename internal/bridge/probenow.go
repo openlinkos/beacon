@@ -42,6 +42,7 @@ type ProbeNowInput struct {
 	Module  string
 	Service string
 	Wait    int
+	Episode *string // when set by the console, only probe this alert episode
 }
 
 // ProbeTarget is one target of a request and the locations expected to probe it.
@@ -102,6 +103,9 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, er
 	g, ok := b.d.Store.Group(in.AlertID)
 	if !ok {
 		return nil, probeEpisode{}, ErrNotFound
+	}
+	if in.Episode != nil && *in.Episode != g.Episode {
+		return nil, probeEpisode{}, ErrEpisodeChanged
 	}
 	// the alerts' own targets first (instance and module, as probe rules carry them), else their services
 	var wants []probenow.Want

@@ -58,7 +58,7 @@ type session struct {
 
 func (g *Gate) newSession(who Actor, m store.Machine, id string) *session {
 	return &session{g: g, rec: store.SessionRecord{ID: id, Agent: who.Name, Principal: who.Key, Credential: who.Cred,
-		Via: who.Via, Machine: m.Name, Started: g.now().UTC()}}
+		Via: who.Via, Machine: m.Name, MachineRegistration: m.Registration(), Started: g.now().UTC()}}
 }
 
 // start opens the recording once the session says what it is: exec, shell, sftp, forward or file.

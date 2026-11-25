@@ -72,7 +72,8 @@ func TestPageLinksAndCardBlock(t *testing.T) {
 			t.Errorf("the card lacks %q: %s", want, c)
 		}
 	}
-	if !strings.Contains(c, `"default_url":"https://beacon.example.com/console/alerts/`+id+`?s=`) || !strings.Contains(c, `"content":"Timeline"`) {
+	incident := link.IncidentPath(id, g.Episode)
+	if !strings.Contains(c, `"default_url":"https://beacon.example.com`+incident+`?s=`) || !strings.Contains(c, `"content":"Timeline"`) {
 		t.Errorf("the card lacks the Timeline button: %s", c)
 	}
 
@@ -81,12 +82,12 @@ func TestPageLinksAndCardBlock(t *testing.T) {
 	if err != nil || view.Page == "" {
 		t.Fatalf("group view: %+v %v", view, err)
 	}
-	verifies(t, s, view.Page, link.AlertPath(id))
+	verifies(t, s, view.Page, incident)
 	ev, err := e.b.Evidence(ctx, id, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifies(t, s, ev.Links.Page, link.AlertPath(id))
+	verifies(t, s, ev.Links.Page, incident)
 	if len(ev.Done.Sessions) != 2 {
 		t.Fatalf("sessions: %+v", ev.Done.Sessions)
 	}

@@ -81,6 +81,7 @@ type Deps struct {
 	Slack               WebhookSender
 	VM                  Querier
 	Catalog             func() *catalog.Catalog
+	MonitorMachine      func(service, severity string, started time.Time) (store.MonitorMachine, bool)
 	Metrics             *metrics.Metrics
 	Log                 *slog.Logger
 	Now                 func() time.Time
@@ -281,6 +282,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
+			g.MonitorMachines = b.incidentMonitorMachines(&g)
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
@@ -455,6 +457,9 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	g, ok := b.d.Store.Group(id)
 	if !ok {
 		return feishu.Response{Toast: b.t("Unknown alert; it may have been cleaned up"), ToastKind: "warning"}
+	}
+	if !currentCardAction(&g, a) {
+		return feishu.Response{Toast: b.t("Open the current alert card to act."), ToastKind: "warning"}
 	}
 	if !g.Firing() {
 		return feishu.Response{Toast: b.t("This alert has already resolved"), ToastKind: "info", Card: b.card(ctx, &g)}
@@ -813,10 +818,11 @@ func (b *Bridge) runHealthchecks(ctx context.Context, ping func(context.Context,
 
 // ErrNotFound and ErrNotFiring are returned for unknown or finished alert groups.
 var (
-	ErrNotFound   = errors.New("no such alert group")
-	ErrNotFiring  = errors.New("the alert group is not firing")
-	ErrBadInput   = errors.New("bad input")
-	ErrAckChanged = errors.New("the alert acknowledgement changed")
+	ErrNotFound       = errors.New("no such alert group")
+	ErrNotFiring      = errors.New("the alert group is not firing")
+	ErrBadInput       = errors.New("bad input")
+	ErrAckChanged     = errors.New("the alert acknowledgement changed")
+	ErrEpisodeChanged = errors.New("the alert incident changed")
 )
 
 // Actor is who performs an operation: Name as the audit log and the chat name it (a person, "person /
@@ -849,6 +855,7 @@ type GroupView struct {
 	Channel     string            `json:"channel"`
 	Ack         *store.Ack        `json:"ack,omitempty"`
 	AckVersion  string            `json:"-"` // the console form's view of the current acknowledgement
+	Episode     string            `json:"-"` // the incident open in the console
 	Silence     *store.Silence    `json:"silence,omitempty"`
 	Buzzed      *time.Time        `json:"buzzed_at,omitempty"`
 	Pushed      *time.Time        `json:"pushover_at,omitempty"`
@@ -876,9 +883,9 @@ func (b *Bridge) view(g *store.Group) GroupView {
 	return GroupView{
 		ID: g.ID, Status: g.Status, Severity: g.Severity, Title: b.title(g), Description: g.Annotations["description"],
 		Service: b.service(g), Labels: g.Labels, Alerts: firing, StartsAt: g.StartsAt, ResolvedAt: tp(g.ResolvedAt),
-		Channel: g.Channel, Ack: g.Ack, AckVersion: ackVersion(g), Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
+		Channel: g.Channel, Ack: g.Ack, AckVersion: ackVersion(g), Episode: g.Episode, Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
 		Runbook: b.link(b.d.Config.Links.Runbook, g), Dashboard: b.link(b.d.Config.Links.GrafanaService, g),
-		Notes: g.Notes, Agents: g.Agents, Page: b.AlertPage(g.ID),
+		Notes: g.Notes, Agents: g.Agents, Page: b.incidentPage(g),
 	}
 }
 
@@ -1079,6 +1086,15 @@ func noteSuffix(b *Bridge, note string) string {
 
 // Silence silences a firing group for d (at most 24 hours) with a comment.
 func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Actor, comment string) (GroupView, error) {
+	return b.silenceAlert(ctx, id, d, who, comment, nil)
+}
+
+// SilenceIncident silences a group only if the console form still names its current episode.
+func (b *Bridge) SilenceIncident(ctx context.Context, id, episode string, d time.Duration, who Actor, comment string) (GroupView, error) {
+	return b.silenceAlert(ctx, id, d, who, comment, &episode)
+}
+
+func (b *Bridge) silenceAlert(ctx context.Context, id string, d time.Duration, who Actor, comment string, episode *string) (GroupView, error) {
 	comment = strings.TrimSpace(comment)
 	if d <= 0 || d > maxSilence {
 		return GroupView{}, fmt.Errorf("%w: a silence lasts between 1 second and 24 hours", ErrBadInput)
@@ -1091,6 +1107,9 @@ func (b *Bridge) Silence(ctx context.Context, id string, d time.Duration, who Ac
 	g, ok := b.d.Store.Group(id)
 	if !ok {
 		return GroupView{}, ErrNotFound
+	}
+	if episode != nil && g.Episode != *episode {
+		return GroupView{}, ErrEpisodeChanged
 	}
 	if !g.Firing() {
 		return b.view(&g), ErrNotFiring

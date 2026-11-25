@@ -128,8 +128,11 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 		L:     s.outcomeLabels(), Incident: s.outcomeRow(o), Group: o.Group,
 		Audit: consolePath("/audit") + "?outcome=" + url.QueryEscape(o.ID),
 	}
+	if problem := r.URL.Query().Get("error"); problem == "incident_changed" || problem == "ack_changed" {
+		p.Problem = s.t("This incident has changed. Review the alert before taking action.")
+	}
 	if g, err := s.Bridge.Group(o.Group); err == nil && g.ResolvedAt != nil && g.ResolvedAt.Equal(o.Resolved) && g.StartsAt.Equal(o.Started) && o.AuditUntil.IsZero() {
-		p.Alert = link.AlertPath(o.Group)
+		p.Alert = link.IncidentPath(o.Group, g.Episode)
 	}
 	if check := o.Verification; check != nil {
 		p.By, p.Via, p.Checked = check.By, s.via(check.Via), s.clock(check.At)

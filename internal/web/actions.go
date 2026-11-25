@@ -31,6 +31,8 @@ func problemCode(err error) string {
 		return "not_firing"
 	case errors.Is(err, bridge.ErrAckChanged):
 		return "ack_changed"
+	case errors.Is(err, bridge.ErrEpisodeChanged):
+		return "incident_changed"
 	case errors.Is(err, bridge.ErrBadInput):
 		return "bad_input"
 	case errors.Is(err, configdb.ErrConflict):
@@ -56,6 +58,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("The alert is not firing any more.")
 	case "ack_changed":
 		return s.t("The acknowledgement changed. Review who is responding and try again.")
+	case "incident_changed":
+		return s.t("This incident has changed. Review the alert before taking action.")
 	case "bad_input":
 		return s.t("That did not work: say why in the text, and keep it under 2,000 characters.")
 	case "credential_denied":
@@ -151,9 +155,17 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, path, what strin
 	back(w, r, path, "error", code)
 }
 
+func alertActionPage(r *http.Request) string {
+	episode := r.PostForm.Get("return_episode")
+	if episode != r.PostForm.Get("expected_episode") || !link.ValidEpisode(episode) {
+		episode = ""
+	}
+	return link.IncidentPath(r.PathValue("id"), episode)
+}
+
 func (s *Server) ack(w http.ResponseWriter, r *http.Request, v *viewer) {
 	id := r.PathValue("id")
-	page := link.AlertPath(id)
+	page := alertActionPage(r)
 	if _, err := s.Bridge.AckIfUnchanged(r.Context(), id, v.actor(), r.PostForm.Get("note"), r.PostForm.Get("expected_ack")); err != nil {
 		if errors.Is(err, bridge.ErrNotFound) {
 			s.missing(w, r, v)
@@ -170,13 +182,13 @@ var silences = map[string]time.Duration{"1h": time.Hour, "4h": 4 * time.Hour, "2
 
 func (s *Server) silence(w http.ResponseWriter, r *http.Request, v *viewer) {
 	id := r.PathValue("id")
-	page := link.AlertPath(id)
+	page := alertActionPage(r)
 	d, ok := silences[r.PostForm.Get("duration")]
 	if !ok {
 		back(w, r, page, "error", "bad_input")
 		return
 	}
-	if _, err := s.Bridge.Silence(r.Context(), id, d, v.actor(), r.PostForm.Get("comment")); err != nil {
+	if _, err := s.Bridge.SilenceIncident(r.Context(), id, r.PostForm.Get("expected_episode"), d, v.actor(), r.PostForm.Get("comment")); err != nil {
 		if errors.Is(err, bridge.ErrNotFound) {
 			s.missing(w, r, v)
 			return
@@ -189,8 +201,8 @@ func (s *Server) silence(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 func (s *Server) note(w http.ResponseWriter, r *http.Request, v *viewer) {
 	id := r.PathValue("id")
-	page := link.AlertPath(id)
-	if _, err := s.Bridge.AddNote(r.Context(), id, v.actor(), r.PostForm.Get("text")); err != nil {
+	page := alertActionPage(r)
+	if _, err := s.Bridge.AddIncidentNote(r.Context(), id, r.PostForm.Get("expected_episode"), v.actor(), r.PostForm.Get("text")); err != nil {
 		if errors.Is(err, bridge.ErrNotFound) {
 			s.missing(w, r, v)
 			return
@@ -203,8 +215,9 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
 	id := r.PathValue("id")
-	page := link.AlertPath(id)
-	result, err := s.Bridge.ProbeNow(r.Context(), v.actor(), bridge.ProbeNowInput{AlertID: id})
+	page := alertActionPage(r)
+	episode := r.PostForm.Get("expected_episode")
+	result, err := s.Bridge.ProbeNow(r.Context(), v.actor(), bridge.ProbeNowInput{AlertID: id, Episode: &episode})
 	switch {
 	case errors.Is(err, bridge.ErrNotFound):
 		s.missing(w, r, v)
