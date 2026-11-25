@@ -80,6 +80,7 @@ Filter by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or
 - `agent_report` matches a programme report for a firing delivery, including `not_started`. A report for a recovery delivery does not qualify.
 - `human_ack` matches an identified person's explicit acknowledgement. The outcome's `human_acknowledgement` keeps the person's name, source and time. Device receipts, silences and notes are recorded separately.
 - `passing_check` matches a retained complete passing check, even when the latest check has missing results.
+- `agent_passing_check` matches a retained complete pass requested by an identified Agent. It filters by who requested verification.
 
 The corresponding `no_agent_report`, `no_human_ack` and `no_passing_check` mean the retained episode has no such evidence. Older records may be incomplete. These fields are insufficient to establish who repaired the incident.
 

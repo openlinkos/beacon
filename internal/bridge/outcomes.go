@@ -241,7 +241,7 @@ func (b *Bridge) incidentOutcomes(q OutcomeQuery) (OutcomePage, error) {
 	case q.Severity != "" && !slices.Contains(config.Severities, q.Severity):
 		return OutcomePage{}, fmt.Errorf("%w: severity is critical, warning or info", ErrBadInput)
 	case !store.ValidOutcomeEvidence(q.Evidence):
-		return OutcomePage{}, fmt.Errorf("%w: evidence is agent_report, no_agent_report, human_ack, no_human_ack, passing_check or no_passing_check", ErrBadInput)
+		return OutcomePage{}, fmt.Errorf("%w: evidence is agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check or no_passing_check", ErrBadInput)
 	}
 	since := b.outcomeCutoff(b.now())
 	if strings.TrimSpace(q.Since) != "" {

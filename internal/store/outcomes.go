@@ -85,10 +85,16 @@ func (o IncidentOutcome) AgentReportRecorded() bool {
 func (o IncidentOutcome) HasHumanAcknowledgement() bool { return o.HumanAcknowledgement != nil }
 func (o IncidentOutcome) HasPassingCheck() bool         { return o.PassingCheck != nil }
 
+// HasAgentPassingCheck identifies the requester of the retained complete check.
+func (o IncidentOutcome) HasAgentPassingCheck() bool {
+	check := o.PassingCheck
+	return check != nil && check.ActorKind == "agent" && check.By != "" && check.Passed > 0 && check.Failed == 0 && check.Missing == 0
+}
+
 // ValidOutcomeEvidence reports which presence filters may be used in a history query.
 func ValidOutcomeEvidence(v string) bool {
 	switch v {
-	case "", "agent_report", "no_agent_report", "human_ack", "no_human_ack", "passing_check", "no_passing_check":
+	case "", "agent_report", "no_agent_report", "human_ack", "no_human_ack", "passing_check", "agent_passing_check", "no_passing_check":
 		return true
 	}
 	return false
@@ -108,6 +114,8 @@ func (o IncidentOutcome) matchesEvidence(v string) bool {
 		return !o.HasHumanAcknowledgement()
 	case "passing_check":
 		return o.HasPassingCheck()
+	case "agent_passing_check":
+		return o.HasAgentPassingCheck()
 	case "no_passing_check":
 		return !o.HasPassingCheck()
 	}

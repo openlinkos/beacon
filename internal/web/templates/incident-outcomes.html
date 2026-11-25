@@ -27,7 +27,7 @@
       <td data-label="{{$.L.Evidence}}" class="bc-outcome-evidence-cell"><div class="bc-outcome-evidence">
         {{if .AgentReport}}<span>{{$.L.AgentReport}}</span>{{else}}<span class="ol-subtle">{{$.L.NoAgentReport}}</span>{{end}}
         {{if .HumanAck}}<span>{{$.L.HumanAck}}</span>{{else}}<span class="ol-subtle">{{$.L.NoHumanAck}}</span>{{end}}
-        {{if .PassingCheck}}<span>{{$.L.CheckRecorded}}</span>{{else}}<span class="ol-subtle">{{$.L.NoPassingCheck}}</span>{{end}}
+        {{if .AgentPassingCheck}}<span>{{$.L.AgentPassingCheck}}</span>{{else if .PassingCheck}}<span>{{$.L.CheckRecorded}}</span>{{else}}<span class="ol-subtle">{{$.L.NoPassingCheck}}</span>{{end}}
       </div></td>
       <td data-label="{{$.L.Verification}}" class="bc-outcome-latest">{{if .Verification}}{{.Verification}}{{else}}{{$.L.NoVerification}}{{end}}</td>
     </tr>{{end}}</tbody>

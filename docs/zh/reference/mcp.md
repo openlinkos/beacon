@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c0a3248c
+sourceHash: sha256-31d86c2a
 ---
 
 # MCP 工具
@@ -84,6 +84,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 - `agent_report` 查找告警触发时的程序回报。包含 `not_started`，即使程序没有启动。仅为告警恢复发送的回报不计入。
 - `human_ack` 查找由可识别人员主动做出的确认。归档中的 `human_acknowledgement` 保留姓名、来源和时间。手机设备回执、静默和备注各自有独立记录。
 - `passing_check` 查找保留的完整通过复测。即使最近一次复测缺少结果，仍可以查到已保留的完整结果。
+- `agent_passing_check` 查找由身份已确认的 Agent 发起并保留的完整通过复测。筛选依据是复测发起方。
 
 对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
 

@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Find resolved incidents with a retained complete passing check requested by an identified Agent, through the console, REST and MCP.
+
 ## 0.3.0
 
 ### rc.44 (2026-11-25)

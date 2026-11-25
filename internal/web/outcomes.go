@@ -29,7 +29,7 @@ type outcomeLabels struct {
 	Incident, Service, Severity, Started, Resolved, Verification, Participation, NoParticipants, NoVerification string
 	First, Older, Empty, Audit, Alert, Group, Detail                                                            string
 	Evidence, Apply, Reset, AllGroups, Acknowledgement                                                          string
-	AgentReport, NoAgentReport, HumanAck, NoHumanAck, CheckRecorded, NoPassingCheck                             string
+	AgentReport, NoAgentReport, HumanAck, NoHumanAck, CheckRecorded, AgentPassingCheck, NoPassingCheck          string
 }
 
 func (s *Server) outcomeLabels() outcomeLabels {
@@ -50,6 +50,7 @@ func (s *Server) outcomeLabels() outcomeLabels {
 		AgentReport:     s.t("Agent trigger report recorded"), NoAgentReport: s.t("No Agent trigger report recorded"),
 		HumanAck: s.t("Human acknowledgement recorded"), NoHumanAck: s.t("No human acknowledgement recorded"),
 		CheckRecorded: s.t("Passing check recorded"), NoPassingCheck: s.t("No passing check recorded"),
+		AgentPassingCheck: s.t("Passing check requested by an Agent"),
 	}
 }
 
@@ -93,7 +94,7 @@ type outcomesPage struct {
 
 type outcomeHistoryRow struct {
 	outcomeRow
-	AgentReport, HumanAck, PassingCheck bool
+	AgentReport, HumanAck, PassingCheck, AgentPassingCheck bool
 }
 
 type outcomeFacet struct {
@@ -133,6 +134,7 @@ func (s *Server) outcomeFilters(l outcomeLabels, q bridge.OutcomeQuery) []outcom
 			option{Value: "human_ack", Label: l.HumanAck},
 			option{Value: "no_human_ack", Label: l.NoHumanAck},
 			option{Value: "passing_check", Label: l.CheckRecorded},
+			option{Value: "agent_passing_check", Label: l.AgentPassingCheck},
 			option{Value: "no_passing_check", Label: l.NoPassingCheck})},
 	}
 }
@@ -181,6 +183,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 		p.Rows = append(p.Rows, outcomeHistoryRow{
 			outcomeRow: s.outcomeRow(o), AgentReport: o.AgentReportRecorded(),
 			HumanAck: o.HasHumanAcknowledgement(), PassingCheck: o.HasPassingCheck(),
+			AgentPassingCheck: o.HasAgentPassingCheck(),
 		})
 	}
 	s.render(w, outcomesTmpl, p)

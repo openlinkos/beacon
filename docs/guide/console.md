@@ -173,6 +173,8 @@ Use **Severity**, **Resolved within** and **Evidence** to narrow the retained hi
 
 An Agent trigger report comes from the programme path for the firing alert, including a report that the programme could not start. A human acknowledgement comes from an identified person. Older records can lack either kind of evidence. Open an episode to see the recorded acknowledgement and the underlying Agent and check results.
 
+Choose **Passing check requested by an Agent** to find retained complete passes requested by an identified Agent. Open an episode to review the check time, requester and related activity together.
+
 **Agent deliveries** keeps the hook's delivery status and any programme report for the same episode. You can see when a hook accepted the alert and whether the programme reported a start, a failure or completion. A programme report records what the runner observed. Older archived episodes may lack this evidence.
 
 Beacon also keeps one complete passing check near rule recovery. It keeps the last complete pass finished at or before rule recovery, or the first one finished afterwards if no earlier check passed. A complete pass requires at least one requested target-location observation and successful results for all of them. The check time records when Beacon finished collecting the results. You can compare this result with a later check that failed or missed observations, and see who requested each check where the record identifies them.

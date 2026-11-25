@@ -36,7 +36,7 @@ type (
 		Before   string `json:"before,omitempty" jsonschema:"cursor from the preceding page with the same filters"`
 		Severity string `json:"severity,omitempty" jsonschema:"critical, warning or info"`
 		Since    string `json:"since,omitempty" jsonschema:"resolution time at or after a duration such as 7d or an RFC 3339 time"`
-		Evidence string `json:"evidence,omitempty" jsonschema:"agent_report, no_agent_report, human_ack, no_human_ack, passing_check or no_passing_check"`
+		Evidence string `json:"evidence,omitempty" jsonschema:"agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check or no_passing_check"`
 		Limit    int    `json:"limit,omitempty" jsonschema:"page size (default 50, maximum 200)"`
 	}
 	outcomeIn struct {
