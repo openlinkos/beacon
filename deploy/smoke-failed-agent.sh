@@ -361,6 +361,18 @@ PY
     grep -Fq 'Accepted by hook' "$work/agent-outcome.html"
     grep -Fq 'exit 79' "$work/agent-outcome.html"
     printf 'The retained outcome separates hook acceptance and exit 79 for the same firing delivery.\n'
+    if [[ "$version" != v0.3.0-rc.40 && "$version" != v0.3.0-rc.41 ]]; then
+      curl -fsS "$status_url/api/v1/incident-outcomes?group=$alert&severity=critical&since=7d&evidence=passing_check" \
+        -H "Authorization: Bearer $token" > "$work/filtered-history.json"
+      jq -e --arg outcome "$saved_outcome" --arg second "$second" '
+        any(.outcomes[]; .id == $outcome and
+          (.human_acknowledgement | .by == $second and .via == "console" and .at != null) and
+          (.passing_check | .passed == 2 and .failed == 0 and .missing == 0))' "$work/filtered-history.json" >/dev/null
+      curl -fsS -b "$work/$second.cookies" \
+        "$status_url/console/incident-outcomes?group=$alert&severity=critical&since=7d&evidence=human_ack" > "$work/filtered-history.html"
+      grep -Fq "href=\"/console/incident-outcomes/$saved_outcome\"" "$work/filtered-history.html"
+      printf 'The retained incident was reachable through evidence filters with its named acknowledgement.\n'
+    fi
   fi
   printf 'The failed-Agent drill preserved human handover and verified recovery in history (%ss).\n' "$((SECONDS - drill_start))"
 }

@@ -90,7 +90,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
-| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
+| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome by ID, including alert resolution, recorded participation, the latest check and a retained passing check near rule recovery when available |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time |
@@ -100,6 +100,14 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 For incident verification, pair `alert_id` with `expected_episode`. Copy the `episode` from the alert or `alert.episode` from the evidence, timeline or signed wake for the incident you are verifying. If another episode replaces it before the check is recorded, Beacon returns `409 incident.changed`. Read the current evidence before deciding whether to run another check. Omit the field to continue selecting the current episode by group ID. A check by `target` or `service` is independent of the incident timeline. An alert-bound check uses the current targets matching each alert member’s known labels, including its failure domain. A member with no matching active targets returns `probe.no_targets`.
 
 In an incident outcome, `verification` shows the latest recorded on-demand check. The optional `passing_check` shows the last complete pass at or before `resolved_at`, or the first complete pass after it if none came before. A complete pass requires at least one expected target-location observation and a successful result for each. The `at` timestamp records when Beacon finished collecting results, and `actor_kind` is available when Beacon recorded the caller's kind. Older incidents may lack a passing check if their detailed results have already been removed.
+
+Filter by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or an RFC 3339 time), and `evidence` before paging. The time filter uses rule recovery, within the configured retention period.
+
+- `agent_report` matches a programme report for a firing delivery, including `not_started`. A report for a recovery delivery does not qualify.
+- `human_ack` matches an identified person's explicit acknowledgement. The outcome's `human_acknowledgement` keeps the person's name, source and time. Device receipts, silences and notes are recorded separately.
+- `passing_check` matches a retained complete passing check, even when the latest check has missing results.
+
+The corresponding `no_agent_report`, `no_human_ack` and `no_passing_check` mean the retained episode has no such evidence. Older records may be incomplete. These fields are insufficient to establish who repaired the incident.
 
 The caller's machine selection also limits session records in the alert evidence, the timeline and the related sessions of retained outcomes. A command preview in an SSH audit entry requires unrestricted machine selection and a session-detail scope, because those audit entries carry a machine name without an enrolment identifier.
 

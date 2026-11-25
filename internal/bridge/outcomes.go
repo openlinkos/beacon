@@ -19,8 +19,8 @@ var (
 )
 
 // IncidentOutcomesFor returns retained outcomes with related sessions within the machine selection.
-func (b *Bridge) IncidentOutcomesFor(p store.Principal, group, before string, limit int) (OutcomePage, error) {
-	page, err := b.IncidentOutcomes(group, before, limit)
+func (b *Bridge) IncidentOutcomesFor(p store.Principal, query OutcomeQuery) (OutcomePage, error) {
+	page, err := b.incidentOutcomes(query)
 	if err == nil && (len(p.Machines) != 0 || p.MachineScopeEmpty()) {
 		access := b.d.Store.SessionAccess(p)
 		for i := range page.Outcomes {
@@ -70,6 +70,9 @@ func actorKind(who Actor) string {
 func recordParticipation(g *store.Group, who Actor, action string, now time.Time) {
 	kind := actorKind(who)
 	p := store.Participation{Kind: kind, By: cleanLine(who.Name), Via: who.Via, Action: action, At: now}
+	if p.NamedAcknowledgement() && (g.HumanAcknowledgement == nil || !p.At.Before(g.HumanAcknowledgement.At)) {
+		g.HumanAcknowledgement = &store.OutcomeHumanAcknowledgement{By: p.By, Via: p.Via, At: p.At}
+	}
 	i := slices.IndexFunc(g.Participation, func(previous store.Participation) bool { return previous.Kind == kind })
 	if i == -1 {
 		g.Participation = append(g.Participation, p)
@@ -91,6 +94,17 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 		services = append(services, cleanLine(service))
 	}
 	latest := newestProbeRun(g.ProbeRuns)
+	human := g.HumanAcknowledgement
+	if human == nil {
+		// Older live groups may still have an explicit acknowledgement in participation. The
+		// acknowledgement object itself can also be created by a silence, so keep it out of this test.
+		for _, p := range g.Participation {
+			if p.NamedAcknowledgement() {
+				human = &store.OutcomeHumanAcknowledgement{By: p.By, Via: p.Via, At: p.At}
+				break
+			}
+		}
+	}
 	// Older groups do not have typed participation. Report what their records actually identify.
 	if len(g.Participation) == 0 {
 		if g.Ack != nil {
@@ -110,7 +124,7 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
 		Severity: g.Severity, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
 		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
-		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents),
+		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents), HumanAcknowledgement: human,
 	}
 	return &o
 }
@@ -203,25 +217,50 @@ type OutcomePage struct {
 
 // IncidentOutcomes pages through retained alert episodes that reached rule recovery.
 func (b *Bridge) IncidentOutcomes(group, before string, limit int) (OutcomePage, error) {
-	if limit == 0 {
-		limit = 50
+	return b.incidentOutcomes(OutcomeQuery{Group: group, Before: before, Limit: limit})
+}
+
+// OutcomeQuery filters retained incidents before applying the result limit and cursor.
+type OutcomeQuery struct {
+	Group, Before, Severity, Since, Evidence string
+	Limit                                    int
+}
+
+func (b *Bridge) incidentOutcomes(q OutcomeQuery) (OutcomePage, error) {
+	if q.Limit == 0 {
+		q.Limit = 50
 	}
 	switch {
-	case limit < 1 || limit > 200:
+	case q.Limit < 1 || q.Limit > 200:
 		return OutcomePage{}, fmt.Errorf("%w: limit is 1 to 200", ErrBadInput)
-	case before != "" && !outcomeID.MatchString(before):
+	case q.Before != "" && !outcomeID.MatchString(q.Before):
 		return OutcomePage{}, fmt.Errorf("%w: before must be an incident outcome ID", ErrBadInput)
-	case group != "" && !outcomeGroup.MatchString(group):
+	case q.Group != "" && !outcomeGroup.MatchString(q.Group):
 		return OutcomePage{}, fmt.Errorf("%w: group must be an alert group ID", ErrBadInput)
+	case q.Severity != "" && !slices.Contains(config.Severities, q.Severity):
+		return OutcomePage{}, fmt.Errorf("%w: severity is critical, warning or info", ErrBadInput)
+	case !store.ValidOutcomeEvidence(q.Evidence):
+		return OutcomePage{}, fmt.Errorf("%w: evidence is agent_report, no_agent_report, human_ack, no_human_ack, passing_check or no_passing_check", ErrBadInput)
 	}
-	out, err := b.d.Store.IncidentOutcomes(store.OutcomeFilter{Since: b.outcomeCutoff(b.now()), Before: before, Group: group, Limit: limit})
+	since := b.outcomeCutoff(b.now())
+	if strings.TrimSpace(q.Since) != "" {
+		from, err := b.since(q.Since, 0)
+		if err != nil {
+			return OutcomePage{}, err
+		}
+		if from.After(since) {
+			since = from
+		}
+	}
+	out, err := b.d.Store.IncidentOutcomes(store.OutcomeFilter{Since: since, Before: q.Before,
+		Group: q.Group, Severity: q.Severity, Evidence: q.Evidence, Limit: q.Limit})
 	if err != nil {
 		return OutcomePage{}, err
 	}
 	p := OutcomePage{Outcomes: out, Untrusted: untrusted("outcomes[].title", "outcomes[].services",
-		"outcomes[].agent_deliveries[].hook", "outcomes[].agent_deliveries[].run.by")}
-	if len(out) > limit {
-		p.Outcomes, p.Before = out[:limit], out[limit-1].ID
+		"outcomes[].agent_deliveries[].hook", "outcomes[].agent_deliveries[].run.by", "outcomes[].human_acknowledgement.by")}
+	if len(out) > q.Limit {
+		p.Outcomes, p.Before = out[:q.Limit], out[q.Limit-1].ID
 	}
 	return p, nil
 }
@@ -250,7 +289,7 @@ func (b *Bridge) IncidentOutcome(id string) (OutcomeResult, error) {
 		return OutcomeResult{}, ErrOutcomeNotFound
 	}
 	return OutcomeResult{Outcome: o, Untrusted: untrusted("outcome.title", "outcome.services",
-		"outcome.agent_deliveries[].hook", "outcome.agent_deliveries[].run.by")}, err
+		"outcome.agent_deliveries[].hook", "outcome.agent_deliveries[].run.by", "outcome.human_acknowledgement.by")}, err
 }
 
 type OutcomeResult struct {

@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.42 (2026-11-25)
+
+- Filter private incident history by severity, resolution time and recorded evidence in the console, REST and MCP. Keep named human acknowledgements distinct from later participation, and show the latest check alongside a retained complete pass.
+- Keep late hook results and programme reports on their original retained episode when the same alert fires again. Verify the assigned reporter before accepting a late report.
+- Check the on-call service account's model login and effective Beacon access before the first self-hosted drill.
+
 ### rc.41 (2026-11-25)
 
 - Retry a failed request to stop a Pushover emergency after acknowledgement, silence or recovery. The persisted request is tied to its original receipt and route, and the incident records Pushover's response.

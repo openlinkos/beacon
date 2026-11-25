@@ -31,6 +31,22 @@ func TestIncidentOutcomeRoutes(t *testing.T) {
 		t.Fatalf("list: %d %+v", code, out)
 	}
 	id, _ := outcomes[0].(map[string]any)["id"].(string)
+	for _, tc := range []struct {
+		query string
+		count int
+	}{
+		{"severity=critical&since=7d&evidence=no_passing_check", 1},
+		{"severity=critical&since=7d&evidence=passing_check", 0},
+		{"severity=warning&since=7d&evidence=no_passing_check", 0},
+	} {
+		code, out := c.do(http.MethodGet, path+"?group="+group+"&"+tc.query, read, "")
+		if page, _ := out["outcomes"].([]any); code != http.StatusOK || len(page) != tc.count {
+			t.Errorf("%s: %d %+v", tc.query, code, out)
+		}
+	}
+	if code, out := c.do(http.MethodGet, path+"?evidence=successful_repair", read, ""); code != http.StatusBadRequest || out["code"] != "bad_input" {
+		t.Errorf("invalid evidence: %d %+v", code, out)
+	}
 	if code, out := c.do(http.MethodGet, path+"/"+id, read, ""); code != http.StatusOK ||
 		out["outcome"].(map[string]any)["group"] != group || out["untrusted"] == nil {
 		t.Fatalf("detail: %d %+v", code, out)

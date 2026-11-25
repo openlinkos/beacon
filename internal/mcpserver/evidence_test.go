@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
@@ -78,5 +79,42 @@ func TestEvidenceTools(t *testing.T) {
 	}
 	if res, text := call(t, read, "get_timeline", map[string]any{"id": id, "before": "3d"}); !res.IsError || !strings.Contains(text, "at most 24h") {
 		t.Errorf("a bad before: %s", text)
+	}
+}
+
+func TestIncidentOutcomeEvidenceTool(t *testing.T) {
+	e := testutil.New(t)
+	group := testutil.GroupID()
+	resolved := time.Now().Add(-time.Hour)
+	id := store.OutcomeID(resolved, group, "legacy")
+	if err := e.Store.EnsureIncidentOutcome(store.IncidentOutcome{ID: id, Group: group, Severity: "critical", Resolved: resolved,
+		PassingCheck: &store.Verification{ID: "complete", Passed: 2},
+		Verification: &store.Verification{ID: "latest", Passed: 1, Missing: 1},
+		AgentDeliveries: []store.OutcomeAgentDelivery{
+			{Event: "firing", Run: &store.AgentRun{Status: "not_started"}},
+			{Event: "resolved", Run: &store.AgentRun{Status: "succeeded"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
+	defer srv.Close()
+	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
+	input := map[string]any{"group": group, "severity": "critical", "since": "7d", "evidence": "passing_check"}
+	if res, body := call(t, read, "list_incident_outcomes", input); res.IsError || !strings.Contains(body, id) ||
+		!strings.Contains(body, `"missing":1`) || !strings.Contains(body, `"id":"complete"`) {
+		t.Fatalf("retained passing result alongside latest check: %s", body)
+	}
+	input["evidence"] = "agent_report"
+	if res, body := call(t, read, "list_incident_outcomes", input); res.IsError || !strings.Contains(body, id) {
+		t.Fatalf("the firing programme report was not returned: %s", body)
+	}
+	input["before"] = id
+	if res, body := call(t, read, "list_incident_outcomes", input); res.IsError || !strings.Contains(body, `"outcomes":[]`) {
+		t.Fatalf("filtered cursor is not exclusive: %s", body)
+	}
+	input["since"] = "soon"
+	if res, body := call(t, read, "list_incident_outcomes", input); !res.IsError || !strings.Contains(body, "since is a duration") {
+		t.Fatalf("invalid time: %s", body)
 	}
 }

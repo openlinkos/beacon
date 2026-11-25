@@ -286,6 +286,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.ProbeRuns, g.PassingCheck, g.PriorAcks, g.Notifications = nil, nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
+			g.HumanAcknowledgement = nil
 			g.MonitorMachines = b.incidentMonitorMachines(&g)
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
