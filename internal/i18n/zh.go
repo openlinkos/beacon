@@ -6,6 +6,16 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Incident starts and resolved outcomes.
+	"Started episodes":                    "按开始时间查看故障",
+	"Started at or after (UTC)":           "起始时间（UTC，含）",
+	"Started before (UTC)":                "截止时间（UTC，不含）",
+	"Resolved outcomes":                   "已恢复故障",
+	"Resolved outcomes retained from %s.": "已恢复故障保留至 %s 起。",
+	"No episodes started in this period.": "这个时段内没有故障开始。",
+	"Hook acceptance unknown":             "钩子是否接收未知",
+	"Opening severity unknown":            "初始严重级别未知",
+
 	// Incident handover checks.
 	"View check results":       "查看复测结果",
 	"Completed at %s":          "于 %s 完成",

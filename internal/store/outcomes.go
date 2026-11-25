@@ -20,6 +20,7 @@ type IncidentOutcome struct {
 	Group                string                       `json:"group"`
 	Title                string                       `json:"title"`
 	Severity             string                       `json:"severity"`
+	OpeningSeverity      string                       `json:"opening_severity,omitempty"`
 	Origin               string                       `json:"origin,omitempty"`
 	ExerciseRun          string                       `json:"exercise_run,omitempty"`
 	Services             []string                     `json:"services"`

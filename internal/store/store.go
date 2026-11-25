@@ -62,6 +62,7 @@ type Group struct {
 	Key                  string                       `json:"key"`
 	Status               string                       `json:"status"` // firing or resolved
 	Severity             string                       `json:"severity"`
+	OpeningSeverity      string                       `json:"opening_severity,omitempty"`
 	Origin               string                       `json:"origin,omitempty"`
 	ExerciseRun          string                       `json:"exercise_run,omitempty"`
 	Labels               map[string]string            `json:"labels"`

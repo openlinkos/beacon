@@ -1,0 +1,39 @@
+{{define "actions"}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.History}}">{{.HistoryLabel}}</a>{{end}}
+{{define "content"}}<div class="ol-stack">
+  <form method="get" action="{{console "/incident-episodes"}}" aria-label="{{.S.Filters}}" class="ol-panel">
+    <div class="ol-panel-body ol-stack">
+      {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
+      <div class="ol-cluster">
+        <div class="ol-field"><label class="ol-label" for="episodes-since">{{.SinceLabel}}</label><input class="ol-input" type="datetime-local" step="1" id="episodes-since" name="since" required value="{{.Since}}"></div>
+        <div class="ol-field"><label class="ol-label" for="episodes-until">{{.UntilLabel}}</label><input class="ol-input" type="datetime-local" step="1" id="episodes-until" name="until" required value="{{.Until}}"></div>
+        {{range .Filters}}<div class="ol-field">
+          <label class="ol-label" for="episodes-{{.Name}}">{{.Label}}</label>
+          <select class="ol-select" id="episodes-{{.Name}}" name="{{.Name}}">{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        </div>{{end}}
+        <button type="submit" class="ol-btn ol-btn-primary">{{.L.Apply}}</button>
+      </div>
+      <p class="ol-hint">{{.Coverage}}</p>
+    </div>
+  </form>
+  {{if .Rows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th scope="col">{{.L.Incident}}</th><th scope="col">{{.L.Started}}</th><th scope="col">{{.Status}}</th><th scope="col">{{.L.Evidence}}</th></tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>
+        {{if .Services}}<span class="ol-cell-sub">{{.Services}}</span>{{end}}
+        <span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span>
+        <span class="ol-cell-sub">{{.Origin}}{{if .OpeningUnknown}} · {{.OpeningUnknown}}{{end}}</span>
+      </td>
+      <td data-label="{{$.L.Started}}">{{.Started}}</td>
+      <td data-label="{{$.Status}}"><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span>{{if .Resolved}}<span class="ol-cell-sub">{{.Resolved}}</span>{{end}}</td>
+      <td data-label="{{$.L.Evidence}}"><div class="bc-outcome-evidence">
+        <span>{{.Wake}}</span>
+        {{range .Programmes}}<span>{{.Title}} · {{.Status}}{{if .Exit}} · {{.Exit}}{{end}}</span>{{else}}<span>{{$.L.NoProgramme}}</span>{{end}}
+        <span>{{.Human}}</span><span>{{.Passing}}</span>
+        {{if .Participants}}<span>{{$.L.Participation}} {{range .Participants}}<span class="ol-badge">{{.}}</span> {{end}}</span>{{end}}
+      </div></td>
+    </tr>{{end}}</tbody>
+  </table></div>{{else}}{{template "empty" .Empty}}{{end}}
+  {{if .Before}}<nav class="ol-cluster" aria-label="{{.S.Pages}}">
+    <a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Before}}">{{.L.Older}}{{iconSm "chevron-right"}}</a>
+  </nav>{{end}}
+</div>{{end}}

@@ -390,6 +390,7 @@ components:
         group: {type: string, description: Recurring alert group ID used to filter related audit entries}
         title: {type: string}
         severity: {type: string, enum: [critical, warning, info]}
+        opening_severity: {type: string, enum: [critical, warning, info], description: Severity recorded when this episode opened. Absent for older episodes.}
         origin: {type: string, enum: [exercise], description: Present when Beacon verified an exercise quorum at the rule's initial evaluation}
         exercise_run: {type: string, description: The verified built-in exercise run when origin is exercise}
         services: {type: array, items: {type: string}}
@@ -1383,6 +1384,55 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/DrillHookCheck"}
         "404": {$ref: "#/components/responses/Error"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-episodes:
+    get:
+      summary: List incidents by start time
+      description: "Scope: status:read. Retained open and resolved alert episodes ordered by start time. No combination of recorded observations proves unattended repair."
+      parameters:
+        - {name: group, in: query, schema: {type: string}, description: Filter by recurring alert group ID}
+        - {name: severity, in: query, schema: {type: string, enum: [critical, warning, info]}, description: Opening severity when recorded. Older rows use their last recorded severity and mark opening severity unknown.}
+        - {name: origin, in: query, schema: {type: string, enum: [exercise, unknown]}, description: Filter by a verified exercise quorum or unclassified origin}
+        - {name: since, in: query, schema: {type: string, format: date-time}, description: Inclusive start-time bound. Defaults to 24 hours before until.}
+        - {name: until, in: query, schema: {type: string, format: date-time}, description: Exclusive start-time bound. Defaults to now. Set a window of up to 31 days.}
+        - {name: before, in: query, schema: {type: string}, description: Cursor from the preceding page with its returned since and until and the same filters}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: A page of episodes with the fixed query and archive retention bounds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        group: {type: string}
+                        episode: {type: string}
+                        outcome_id: {type: string, description: The detail ID when a resolved outcome is retained}
+                        state: {type: string, enum: [open, resolved]}
+                        title: {type: string}
+                        services: {type: array, items: {type: string}}
+                        severity: {type: string, enum: [critical, warning, info]}
+                        opening_severity: {type: string, enum: [critical, warning, info, unknown]}
+                        origin: {type: string, enum: [exercise, unknown]}
+                        exercise_run: {type: string}
+                        started_at: {type: string, format: date-time}
+                        resolved_at: {type: string, format: date-time}
+                        wake: {type: string, enum: [accepted, unknown], description: Recorded acceptance of a firing delivery. Programme status is separate.}
+                        agent_deliveries: {$ref: "#/components/schemas/IncidentOutcome/properties/agent_deliveries"}
+                        human_acknowledgement: {$ref: "#/components/schemas/IncidentOutcome/properties/human_acknowledgement"}
+                        participation: {$ref: "#/components/schemas/IncidentOutcome/properties/participation"}
+                        verification: {$ref: "#/components/schemas/IncidentOutcome/properties/verification"}
+                        passing_check: {$ref: "#/components/schemas/IncidentOutcome/properties/passing_check"}
+                  since: {type: string, format: date-time}
+                  until: {type: string, format: date-time}
+                  retained_from: {type: string, format: date-time, description: Resolved outcomes older than this recovery time may have been pruned.}
+                  before: {type: string}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
         default: {$ref: "#/components/responses/Error"}
   /incident-outcomes:
     get:

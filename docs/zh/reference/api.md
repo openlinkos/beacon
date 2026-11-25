@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ffaff773
+sourceHash: sha256-b8d11d72
 ---
 
 # REST API
@@ -94,6 +94,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
+| `GET /api/v1/incident-episodes` | `status:read` | 按开始时间列出仍在告警和已恢复的故障。可用 `since`、`until`、`group`、`severity` 和 `origin` 筛选 |
 | `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录、最近一次复测，以及可用时规则恢复前后保留的通过复测 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
@@ -106,7 +107,11 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 
 故障摘要中的 `verification` 显示最近记录的一次按需复测。可选字段 `passing_check` 显示在 `resolved_at` 时刻或之前完成的最后一次全通过复测。如果此前没有全通过的复测，则保留规则恢复后第一次全通过的复测。复测至少需要一项预期观测，每项预期的目标与检测点组合都需要收到通过结果。`at` 记录 Beacon 收集完结果的时间。Beacon 记录了发起方类型时会提供 `actor_kind`。如果旧故障的详细结果已被清理，摘要可能没有全通过记录。
 
-历史查询以规则恢复时间为准。用 `severity`（`critical`、`warning` 或 `info`）、`since`（如 `7d` 或 RFC 3339 时间）和 `evidence` 筛选，再用游标翻页。最早只能查到仍在保留期内的故障。
+按故障开始时间复盘时，使用 `incident-episodes`，传入 RFC 3339 格式的起始时间 `since`（含）和截止时间 `until`（不含）。默认最近 24 小时，单次查询的时间范围最多 31 天。翻页时传回响应中的 `since`、`until` 和 `before`，并沿用筛选条件。故障从 `open` 变为 `resolved` 时，`group` 和 `episode` 保持不变。恢复时间早于 `retained_from` 的历史可能已清理。已记录初始级别时，按 `opening_severity` 筛选。旧故障的 `opening_severity` 显示为 `unknown`，筛选使用最后记录的级别。
+
+在这个视图中，`wake: accepted` 表示已记录钩子接收触发告警。程序回报、人工操作与通过复测分别对应各自的观测结果。来源未分类或没有钩子接收记录时，相应字段显示 `unknown`。
+
+已恢复故障按规则恢复时间查询。用 `severity`（`critical`、`warning` 或 `info`）、`since`（如 `7d` 或 RFC 3339 时间）和 `evidence` 筛选，再用游标翻页。最早只能查到仍在保留期内的故障。
 
 - `agent_report` 查找告警触发时的程序回报。包含 `not_started`，即使程序没有启动。仅为告警恢复发送的回报不计入。
 - `human_ack` 查找由可识别人员主动做出的确认。归档中的 `human_acknowledgement` 保留姓名、来源和时间。手机设备回执、静默和备注各自有独立记录。

@@ -241,6 +241,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/alerts/{id}/timeline", s.withPrincipal("status:read", s.timeline))
 	mux.Handle("GET /api/v1/incident-outcomes", s.withPrincipal("status:read", s.incidentOutcomes))
 	mux.Handle("GET /api/v1/incident-outcomes/{id}", s.withPrincipal("status:read", s.incidentOutcome))
+	mux.Handle("GET /api/v1/incident-episodes", s.with("status:read", s.incidentEpisodes))
 	mux.Handle("POST /api/v1/alerts/{id}/notes", s.with("alerts:write", s.addNote))
 	mux.Handle("PUT /api/v1/alerts/{id}/agent-runs/{delivery}", s.with(bridge.AgentRunScope, s.reportAgentRun))
 	mux.Handle("GET /api/v1/agent-hooks/{name}/first-drill", s.with(bridge.AgentRunScope, s.checkDrillHook))
@@ -289,6 +290,7 @@ var Routes = []string{
 	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",
 	"PUT /api/v1/alerts/{id}/agent-runs/{delivery}", "GET /api/v1/agent-hooks/{name}/first-drill",
 	"GET /api/v1/incident-outcomes", "GET /api/v1/incident-outcomes/{id}",
+	"GET /api/v1/incident-episodes",
 	"PUT /api/v1/machines/{name}/connector",
 	"POST /api/v1/probe-now",
 	"POST /api/v1/share-links/{kind}/{id}", "POST /api/v1/share-links/{kind}/{id}/revoke",

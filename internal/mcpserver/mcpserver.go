@@ -427,6 +427,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 			return nil, okOut{OK: true}, nil
 		})
 	addEvidenceTools(s, b)
+	addIncidentEpisodeTool(s, b)
 	addTokenTools(s, b)
 	addRevokeTool(s, b)
 	addPeopleTools(s, b)

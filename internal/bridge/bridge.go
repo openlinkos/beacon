@@ -286,6 +286,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	case "firing":
 		g.Status = "firing"
 		if !wasFiring {
+			g.OpeningSeverity = sev
 			g.Origin, g.ExerciseRun = "", exerciseRun
 			if exerciseRun != "" {
 				g.Origin = store.ExerciseOrigin
