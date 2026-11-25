@@ -70,7 +70,9 @@ type DrillRequest struct {
 
 // DrillState says until when the drill check fails.
 type DrillState struct {
-	Until time.Time `json:"until,omitzero"`
+	Until    time.Time `json:"until,omitzero"`
+	Run      string    `json:"run,omitempty"`
+	Observed []string  `json:"observed_locations,omitempty"`
 }
 
 // Service is what the socket serves.

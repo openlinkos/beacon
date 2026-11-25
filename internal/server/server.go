@@ -13,7 +13,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
-	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/exercise"
 	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/web"
 )
@@ -21,14 +21,15 @@ import (
 // Deps are what the routes need. Feishu is nil unless callbacks come over HTTP; Web nil serves only
 // the public page at / (without status pages, the console or the pages people open from the chat).
 type Deps struct {
-	Bridge  *bridge.Bridge
-	API     *api.Server
-	MCP     http.Handler
-	Metrics http.Handler
-	Feishu  http.Handler
-	Drill   func() time.Time
-	Log     *slog.Logger
-	Web     *web.Server
+	Bridge   *bridge.Bridge
+	API      *api.Server
+	MCP      http.Handler
+	Metrics  http.Handler
+	Feishu   http.Handler
+	DrillRun func() exercise.Run
+	Exercise *exercise.Authority
+	Log      *slog.Logger
+	Web      *web.Server
 	// Standby, when set (a primary/standby pair's lease was not held at the last attempt), turns
 	// /healthz to 503: the load balancer or the VIP in front sends its traffic to the primary.
 	Standby func() bool
@@ -84,10 +85,20 @@ func Handler(d Deps) http.Handler {
 	if d.Feishu != nil {
 		mux.Handle("POST /hooks/feishu", d.Feishu)
 	}
-	mux.HandleFunc("GET /drill/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+exercise.Path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		if d.Drill != nil && time.Now().Before(d.Drill()) {
+		now := time.Now()
+		var run exercise.Run
+		if d.DrillRun != nil {
+			run = d.DrillRun()
+		}
+		if run.Active(now) {
+			if r.Method == http.MethodGet && d.Exercise != nil {
+				if receipt := d.Exercise.Respond(run, r.Header.Get(exercise.ChallengeHeader), r.Host, r.Header.Get(exercise.SampleHeader), now); receipt != "" {
+					w.Header().Set(exercise.ReceiptHeader, receipt)
+				}
+			}
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("drill\n"))
 			return
@@ -128,9 +139,4 @@ func headers(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-// DrillFrom reads the drill's end from the store.
-func DrillFrom(get func(string) time.Time) func() time.Time {
-	return func() time.Time { return get(ctl.DrillKey) }
 }

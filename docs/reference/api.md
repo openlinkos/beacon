@@ -90,7 +90,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
-| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
+| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome by ID, including alert resolution, recorded participation, the latest check and a retained passing check near rule recovery when available |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time. A report after the group fires again can update the retained delivery in its original incident, with that outcome's ID as the audit target |
@@ -106,8 +106,11 @@ Filter by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or
 - `agent_report` matches a programme report for a firing delivery, including `not_started`. A report for a recovery delivery does not qualify.
 - `human_ack` matches an identified person's explicit acknowledgement. The outcome's `human_acknowledgement` keeps the person's name, source and time. Device receipts, silences and notes are recorded separately.
 - `passing_check` matches a retained complete passing check, even when the latest check has missing results.
+- `agent_passing_check` requires that the retained complete pass was requested by an identified Agent.
 
 The corresponding `no_agent_report`, `no_human_ack` and `no_passing_check` mean the retained episode has no such evidence. Older records may be incomplete. These fields are insufficient to establish who repaired the incident.
+
+Filter with `origin=exercise` for outcomes whose first failing rule quorum is supported by verified exercise observations. The outcome includes `exercise_run`. `origin=unknown` selects older or unclassified outcomes, where `origin` and `exercise_run` are absent.
 
 The caller's machine selection also limits session records in the alert evidence, the timeline and the related sessions of retained outcomes. A command preview in an SSH audit entry requires unrestricted machine selection and a session-detail scope, because those audit entries carry a machine name without an enrolment identifier.
 
@@ -127,6 +130,7 @@ The caller's machine selection also limits session records in the alert evidence
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
+| `POST /api/v1/machines/{name}/check` | `machines:ssh` | Check the registered route, host key and certificate authentication for one permitted machine. No request body or remote session |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
 | `POST /api/v1/machines/{name}/search` | `machines:ssh` | Search one physical project directory for literal, case-sensitive text. Returns paths, line numbers, excerpts, completeness and the session ID |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
@@ -137,6 +141,8 @@ The caller's machine selection also limits session records in the alert evidence
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` or `machines:ssh` | The recording, asciicast v3, to replay with asciinema |
 
 Machine-restricted credentials see sessions from the current enrolments they are allowed to access. Beacon applies those restrictions before `limit`. A transcript or recording outside the caller's access returns the same `404 session.not_found` as an unknown session. The `page` field sends people to sign in to the console.
+
+The SSH check returns `200` with `check_id`, `machine`, `route` (`direct` or `connector`), `status` and `checked_at`. Only `ready` confirms both a host key match and acceptance of Beacon's certificate. A timed-out check or a failed handshake is an observation in `status`. Authorisation, pause, standby, a changed machine or an unavailable audit produce HTTP errors. The result describes Beacon's connection to the machine. A workstation's key or network requires its own test. Search the audit log for `machine_ssh_check` and the returned ID.
 
 Each session reports `recording_state` and `transcript_state` independently. `complete` means the evidence was kept, `truncated` means it reached its own size limit, and `unavailable` means it could not be kept or read. `capturing` means Beacon has yet to record the end of capture. `metadata_only` describes activity with no replay or structured transcript for that artifact. Older records may omit the states. Forwarded ports and SFTP record session metadata. Interactive command indexing needs a supported Bash shell with terminal integration.
 
@@ -271,6 +277,7 @@ Each sends with a token of its own:
 | `GET /api/v1/agent` | `probe:write` | The location's settings: its id, probe timeout and retries |
 | `GET /api/v1/agent/requests` | `probe:write` | Probing on demand: a long-poll (`?wait=25s`, at most 55 seconds) for targets to probe now |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | What the probe found for a request |
+| `POST /api/v1/agent/exercise-observations` | `probe:write` | The enrolled probe submits the receipt from a deliberate response at its assigned built-in drill target |
 | `POST /api/v2/alerts` | the rules token, or `alerts:send` | Alerts, in Alertmanager's API v2 form |
 | `POST /api/v1/changes` | `changes:write` | A change event: a deployment, a configuration change. At most 60 a minute per token |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux's notification-controller events, from its `generic` provider |
@@ -318,6 +325,7 @@ Each sends with a token of its own:
 | `agent_run.not_found` | 404 | No matching reportable hook delivery is available for this alert |
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
+| `ssh.check_unavailable` | 503 | Beacon could not prepare or audit the machine SSH check |
 | `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
 | `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
@@ -360,4 +368,6 @@ Each sends with a token of its own:
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |
+| `exercise.invalid_receipt` | 400 | Gateway: the drill receipt is invalid or expired for this probe and target |
+| `exercise.not_current` | 409 | Gateway: the drill changed while recording the observation or reached its observation limit |
 | `not_found` | 404 | Gateway: no such route |

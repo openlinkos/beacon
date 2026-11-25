@@ -225,6 +225,8 @@ For a separate page or an installation with no status pages, follow [Create a pu
 
 ### Connect yourself and the agent {#connect-yourself-and-the-agent}
 
+**Check the machine from Beacon.** On a release with [Check machine SSH](../guide/machines.md#check-machine-ssh), open **Machines → edge-1 → Connect over SSH** and run the check. A ready result confirms that the pinned host key matched and the machine accepted Beacon's certificate.
+
 **Check personal SSH.** Follow [Connect as yourself](../guide/machines.md#connect-as-yourself) to register your personal key and run `hostname` on `edge-1`. Replay the session in **Sessions** and check that it shows your username.
 
 **Connect the agent's MCP client.** On the workstation, add the server and sign in through the browser.

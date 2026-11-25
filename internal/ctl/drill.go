@@ -7,14 +7,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/exercise"
 )
 
 // DrillStore keeps the drill's end and the audit log.
 type DrillStore interface {
-	SetTime(key string, t time.Time) error
-	Time(key string) time.Time
-	Audit(e store.AuditEntry) error
+	SetDrill(now, until time.Time, by, detail string) (exercise.Run, bool, error)
+	DrillRun() exercise.Run
+	DrillObservedLocations(run string) []string
 }
 
 // DrillHandler serves /v1/drill, beside Handler. record, when not nil, records a drill starting (until is
@@ -23,7 +23,12 @@ type DrillStore interface {
 func DrillHandler(s DrillStore, record func(ctx context.Context, until time.Time, by string) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/drill", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, DrillState{Until: s.Time(DrillKey)})
+		run := s.DrillRun()
+		out := DrillState{Run: run.ID, Observed: s.DrillObservedLocations(run.ID)}
+		if run.Ended.IsZero() {
+			out.Until = run.Until
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("POST /v1/drill", func(w http.ResponseWriter, r *http.Request) {
 		var in DrillRequest
@@ -43,17 +48,16 @@ func DrillHandler(s DrillStore, record func(ctx context.Context, until time.Time
 			}
 			until = now.Add(d)
 		}
-		running := s.Time(DrillKey).After(now)
-		if err := s.SetTime(DrillKey, until); err != nil {
+		by := cliActor(r)
+		run, running, err := s.SetDrill(now, until, by, in.Duration)
+		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
-		by := cliActor(r)
-		_ = s.Audit(store.AuditEntry{Actor: by, Via: "cli", Action: "drill", Detail: in.Duration})
 		if record != nil && (!until.IsZero() || running) {
 			_ = record(r.Context(), until, by)
 		}
-		writeJSON(w, http.StatusOK, DrillState{Until: until})
+		writeJSON(w, http.StatusOK, DrillState{Until: until, Run: run.ID})
 	})
 	return mux
 }

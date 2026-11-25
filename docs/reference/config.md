@@ -76,6 +76,7 @@ The machines' door ([REST API](api.md#the-gateway)):
 | `gateway.listen` | address | `:17006` | Where machines connect. Empty turns the gateway off |
 | `gateway.targets_dir` | path | `/etc/beacon/targets` | The probe target files (`all-*.yaml`, `<location>-*.yaml`), imported into the database at the first start and on SIGHUP |
 | `gateway.modules_file` | path | `modules.yml` in `gateway.targets_dir` | The probe modules, imported the same way |
+| `gateway.exercise_target` | HTTPS URL | empty | Collect verified responses from the built-in `/drill/healthz` target at `public_url`, when that exact target is assigned to a location. The centre and probe must both support the observation protocol. `beacon drill status` lists the locations whose deliberate responses were verified |
 | `victoriametrics.url` | URL | required with the gateway | Where the probes' results are: the gateway writes there, and cards show each location's result from it |
 
 ## The SSH channel

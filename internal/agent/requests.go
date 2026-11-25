@@ -142,7 +142,7 @@ func (a *Agent) fetchRequests(ctx context.Context) ([]targets.Request, error) {
 // serve probes a request's targets, posts the results and pushes the samples.
 func (a *Agent) serve(ctx context.Context, req targets.Request) {
 	at := a.cfg.Now()
-	jobs, results, attempts := a.probeGroups(ctx, req.Groups)
+	jobs, results, attempts := a.probeGroups(ctx, req.Groups, time.Time{})
 	ans := targets.Answer{Results: make([]targets.TargetResult, 0, len(jobs))}
 	for i, j := range jobs {
 		ans.Results = append(ans.Results, toResult(j, results[i], attempts[i]))

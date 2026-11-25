@@ -100,6 +100,9 @@ printf '127.0.0.1 %s %s\n' "$status_host" "$metrics_host" | sudo tee -a /etc/hos
 sed -i '/^{$\(STATUS_HOST\|METRICS_HOST\)} {/a\	tls internal' Caddyfile
 # Keep the probes entirely on the runner and keep the other shipped probe targets.
 sed -i 's#https://example.com/#https://status.example.com/healthz#' targets/all-web.yaml
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  sed -i '/^gateway:$/a\  exercise_target: https://status.example.com/drill/healthz' config.yaml
+fi
 sudo env STATUS_HOST="$status_host" METRICS_HOST="$metrics_host" ACME_EMAIL=ops@ci.invalid ./install.sh
 docker exec beacon beacon version | grep -F "beacon ${version#v} ("
 docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$work/caddy.crt"
@@ -294,8 +297,20 @@ rpc() {
 rpc '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"reference-smoke","version":"1"}}}' |
   jq -e '.result.serverInfo.name != null' >/dev/null
 
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  curl -fsS -X POST -H "Authorization: Bearer $token" "$status_url/api/v1/machines/target/check" |
+    jq -e '.machine == "target" and .route == "direct" and .status == "ready" and (.check_id | length > 0)' >/dev/null
+  rpc '{"jsonrpc":"2.0","id":63,"method":"tools/call","params":{"name":"check_machine_ssh","arguments":{"machine":"target"}}}' |
+    jq -e '.result.structuredContent | .machine == "target" and .route == "direct" and .status == "ready" and (.check_id | length > 0)' >/dev/null
+  curl -fsS -H "Authorization: Bearer $token" "$status_url/api/v1/sessions?machine=target" |
+    jq -e '.sessions | length == 0' >/dev/null
+  printf 'The signed release verified the enrolled SSH route and certificate through REST and MCP before any recorded command.\n'
+fi
+
 drill_started=$SECONDS
-beacon drill fail 15m
+drill_output=$(beacon drill fail 15m)
+printf '%s\n' "$drill_output"
+drill_run=$(sed -n 's/^drill run //p' <<< "$drill_output")
 test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 503
 wait_for 'Both probes saw the failed drill' 120 probes 0
 firing() {
@@ -322,13 +337,42 @@ note=$(jq -nc --arg alert "$alert" --arg text "$note_text" '{"jsonrpc":"2.0","id
 rpc "$note" | jq -e '.result != null and .result.isError != true' >/dev/null
 beacon drill off
 probe=$(jq -nc --arg alert "$alert" '{jsonrpc:"2.0",id:4,method:"tools/call",params:{name:"probe_now",arguments:{alert_id:$alert,wait:45}}}')
-rpc "$probe" | jq -e '.result.structuredContent | .complete and (.results | length == 2 and all(.[]; .ok) and (map(.location) | unique | sort == ["edge-1", "edge-2"]))' >/dev/null
+probe_result=$(rpc "$probe")
+jq -e '.result.structuredContent | .complete and (.results | length == 2 and all(.[]; .ok) and (map(.location) | unique | sort == ["edge-1", "edge-2"]))' <<< "$probe_result" >/dev/null
 wait_for 'Both probes saw recovery' 120 probes 1
 resolved() {
   curl -fsS "$status_url/api/v1/alerts/$alert" -H "Authorization: Bearer $token" |
     jq -e '.status == "resolved"' >/dev/null
 }
 wait_for 'The same alert resolved' 150 resolved
+retained_agent_check() {
+  local check_id request
+  check_id=$(jq -er '.result.structuredContent.id' <<< "$probe_result")
+  # $id is a jq argument shared by the REST and MCP assertions.
+  # shellcheck disable=SC2016
+  local match='any(.outcomes[]; .passing_check.id == $id and .passing_check.actor_kind == "agent" and
+    .passing_check.by == "duty-person / recovery" and .passing_check.passed == 2 and
+    .passing_check.failed == 0 and .passing_check.missing == 0)'
+  curl -fsSG "$status_url/api/v1/incident-outcomes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode evidence=agent_passing_check |
+    jq -e --arg id "$check_id" "$match" >/dev/null
+  request=$(jq -nc --arg alert "$alert" '{jsonrpc:"2.0",id:62,method:"tools/call",
+    params:{name:"list_incident_outcomes",arguments:{group:$alert,evidence:"agent_passing_check"}}}')
+  rpc "$request" | jq -e --arg id "$check_id" ".result.structuredContent | $match" >/dev/null
+}
+retained_exercise_origin() {
+  test -n "$drill_run"
+  curl -fsSG "$status_url/api/v1/incident-outcomes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode origin=exercise |
+    jq -e --arg run "$drill_run" '.outcomes | any(.origin == "exercise" and .exercise_run == $run)' >/dev/null
+  curl -fsSG "$status_url/api/v1/incident-outcomes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode origin=unknown |
+    jq -e --arg run "$drill_run" '.outcomes | all(.exercise_run != $run)' >/dev/null
+}
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  retained_agent_check
+  retained_exercise_origin
+fi
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
 if [[ "$version" == v0.3.0-rc.38 ]]; then
   printf 'The pinned release %s predates machine-scoped session reads.\n' "$version"
@@ -449,6 +493,12 @@ test "$(curl -sS -X POST -H "Authorization: Bearer $credential_token" -o "$work/
 jq -e '.code == "credential.denied"' "$work/credential-error.json" >/dev/null
 
 resolved
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  retained_agent_check
+  retained_exercise_origin
+  printf 'REST and MCP retained the identified Agent passing check before and after cold restore.\n'
+  printf 'The signed reference matched the recorded exercise run to the first rule quorum and preserved it after cold restore.\n'
+fi
 curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
   jq -e --arg note "$note_text" 'any(.events[]; .kind == "note" and .text == $note)' >/dev/null
 curl -fsS "$status_url/api/v1/sessions/$session/recording" -H "Authorization: Bearer $token" > "$work/restored-recording"

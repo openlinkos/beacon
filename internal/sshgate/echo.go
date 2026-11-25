@@ -79,13 +79,20 @@ func (e *echoer) add(r store.SessionRecord) {
 			line += " " + i18n.T(e.g.d.Lang, "Session") + " " + u
 		}
 	}
+	e.queue(r.Agent, r.Machine, line)
+}
+
+func (e *echoer) queue(actor, machine, line string) {
+	if e.g.d.Bot == nil {
+		return
+	}
 	now := e.g.now()
-	key := r.Agent + "\x00" + r.Machine
+	key := actor + "\x00" + machine
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	b := e.pending[key]
 	if b == nil {
-		b = &batch{agent: r.Agent, machine: r.Machine, first: now}
+		b = &batch{agent: actor, machine: machine, first: now}
 		e.pending[key] = b
 	}
 	if len(b.lines) < echoLines {

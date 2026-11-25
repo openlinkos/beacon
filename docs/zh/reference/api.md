@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f3c5dab1
+sourceHash: sha256-b23992e8
 ---
 
 # REST API
@@ -94,7 +94,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
-| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
+| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录、最近一次复测，以及可用时规则恢复前后保留的通过复测 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间。告警组再次触发后，新的回报仍可更新原故障中保留的投递记录，审计目标为该故障摘要的 ID |
@@ -110,8 +110,11 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 - `agent_report` 查找告警触发时的程序回报。包含 `not_started`，即使程序没有启动。仅为告警恢复发送的回报不计入。
 - `human_ack` 查找由可识别人员主动做出的确认。归档中的 `human_acknowledgement` 保留姓名、来源和时间。手机设备回执、静默和备注各自有独立记录。
 - `passing_check` 查找保留的完整通过复测。即使最近一次复测缺少结果，仍可以查到已保留的完整结果。
+- `agent_passing_check` 查找由身份已确认的 Agent 发起并保留的完整通过复测。
 
 对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
+
+用 `origin=exercise` 查找首次故障判定有演练观测证据的记录。结果包含 `exercise_run`。用 `origin=unknown` 查找较早或来源未确认的记录，其结果中省略 `origin` 和 `exercise_run`。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障所关联的会话。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 
@@ -131,6 +134,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
+| `POST /api/v1/machines/{name}/check` | `machines:ssh` | 检查有权访问的机器的登记路径、主机密钥和证书验证。无需请求正文，也无需打开远程会话 |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
 | `POST /api/v1/machines/{name}/search` | `machines:ssh` | 在指定的物理项目目录按字面、区分大小写搜索文本。返回路径、行号、摘录、完整性和会话 ID |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | 文本文件的若干行，带行号（`path`、`offset`、`limit`：默认 2000 行） |
@@ -141,6 +145,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` 或 `machines:ssh` | 录像文件，asciicast v3，可以用 asciinema 回放 |
 
 设有机器范围的凭据只能看到其有权访问的机器在本次注册期间产生的会话。Beacon 先按机器范围筛选，再应用 `limit`。请求无权读取的文字记录或录像时，与请求不存在的会话一样，返回 `404 session.not_found`。`page` 字段指向控制台的登录入口。
+
+SSH 检查返回 `200`，包含 `check_id`、`machine`、`route`（`direct` 或 `connector`）、`status` 和 `checked_at`。仅 `ready` 表示固定主机密钥匹配且 Beacon 的证书已被接受。检查超时或握手失败在 `status` 中说明。授权失败、暂停、备实例、机器变更和审计不可用仍返回 HTTP 错误。结果描述 Beacon 到机器的连接；工作站的密钥或网络需另行验证。可用 `machine_ssh_check` 和返回的 ID 查找审计记录。
 
 会话分别用 `recording_state` 和 `transcript_state` 表示录像与文字记录。 `complete` 表示证据已保留，`truncated` 表示已达到该项证据自身的大小上限，`unavailable` 表示无法保留或读取，`capturing` 表示 Beacon 尚未记录采集结束，`metadata_only` 表示该项只保留会话元数据。旧记录可能省略这些字段。端口转发和 SFTP 保留会话元数据。交互式命令索引需要受支持的 Bash 终端集成。
 
@@ -275,6 +281,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/agent` | `probe:write` | 检测点的设置：它的 id、检测超时和重试次数 |
 | `GET /api/v1/agent/requests` | `probe:write` | 按需重测：长轮询（`?wait=25s`，最长 55 秒），等待要立刻检测的目标 |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | 检测点交回某个请求的检测结果 |
+| `POST /api/v1/agent/exercise-observations` | `probe:write` | 已登记的检测点交回被分配的内置目标所返回的演练响应凭据 |
 | `POST /api/v2/alerts` | 规则令牌，或 `alerts:send` | 告警，Alertmanager API v2 的格式 |
 | `POST /api/v1/changes` | `changes:write` | 一个变更事件：一次部署、一次配置修改。每个令牌每分钟最多 60 个 |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux notification-controller 的事件，来自它的 `generic` provider |
@@ -322,6 +329,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `agent_run.not_found` | 404 | 该告警没有匹配且可回报的钩子投递 |
 | `agent_run.conflict` | 409 | 本次回报和之前记录的执行状态冲突 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
+| `ssh.check_unavailable` | 503 | Beacon 无法准备或审计机器 SSH 检查 |
 | `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录 |
 | `ssh.search_unavailable` | 503 | 登记机器缺少文件搜索所需的标准 shell 工具 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
@@ -364,4 +372,6 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `location.inactive` | 403 | 网关：检测点不在目录里，或者它的机器已经到期 |
 | `changes.too_many` | 429 | 网关：这个令牌这一分钟发了超过 60 个变更事件 |
 | `request.not_found` | 404 | 网关：没有这个检测请求，或者它已经过期 |
+| `exercise.invalid_receipt` | 400 | 网关：演练响应凭据对此检测点或目标无效，或已经过期 |
+| `exercise.not_current` | 409 | 网关：记录观测结果时演练已切换，或已达到观测记录上限 |
 | `not_found` | 404 | 网关：没有这个接口 |

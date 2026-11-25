@@ -41,7 +41,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
@@ -382,6 +382,8 @@ components:
         group: {type: string, description: Recurring alert group ID used to filter related audit entries}
         title: {type: string}
         severity: {type: string, enum: [critical, warning, info]}
+        origin: {type: string, enum: [exercise], description: Present when Beacon verified an exercise quorum at the rule's initial evaluation}
+        exercise_run: {type: string, description: The verified built-in exercise run when origin is exercise}
         services: {type: array, items: {type: string}}
         started_at: {type: string, format: date-time}
         resolved_at: {type: string, format: date-time, description: When Beacon recorded the alert as resolved}
@@ -515,6 +517,18 @@ components:
         session: {type: string}
         recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+    SSHCheck:
+      type: object
+      required: [check_id, machine, route, status, checked_at]
+      properties:
+        check_id: {type: string, description: Identifier recorded in the machine_ssh_check audit entries.}
+        machine: {type: string}
+        route: {type: string, enum: [direct, connector]}
+        status:
+          type: string
+          enum: [ready, connector_disconnected, connector_busy, connector_forward_failed, unreachable, host_key_unavailable, host_key_mismatch, handshake_failed, authentication_incomplete, authentication_skipped, timed_out]
+          description: Only ready means the machine presented its pinned host key and accepted Beacon's certificate.
+        checked_at: {type: string, format: date-time}
     SearchResult:
       type: object
       required: [machine, directory, matches, limited, session]
@@ -1354,7 +1368,8 @@ paths:
         - {name: group, in: query, schema: {type: string}, description: Filter by the recurring alert group ID}
         - {name: severity, in: query, schema: {type: string, enum: [critical, warning, info]}}
         - {name: since, in: query, schema: {type: string}, description: "Include episodes resolved since this duration (such as 7d) or RFC 3339 time"}
-        - {name: evidence, in: query, schema: {type: string, enum: [agent_report, no_agent_report, human_ack, no_human_ack, passing_check, no_passing_check]}, description: Filter by recorded evidence}
+        - {name: origin, in: query, schema: {type: string, enum: [exercise, unknown]}, description: Filter by a verified exercise quorum or an unclassified origin}
+        - {name: evidence, in: query, schema: {type: string, enum: [agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check, no_passing_check]}, description: Filter by recorded evidence. agent_passing_check requires a retained passing check requested by a recorded Agent identity.}
         - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor with the same filters}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
       responses:
@@ -1680,6 +1695,19 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/RunResult"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/check:
+    post:
+      summary: Check an enrolled machine's SSH handshake
+      description: "Scope: machines:ssh, with access to this machine. Uses the registered route and pinned host key. Attempts certificate authentication without opening a machine session."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The handshake observation, including when it fails to verify readiness
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SSHCheck"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/search:
     post:

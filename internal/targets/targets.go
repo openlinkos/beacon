@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/openlinkos/beacon/internal/exercise"
 )
 
 // Group is a list of targets with the labels they share. Every group needs the labels module (how
@@ -46,7 +48,8 @@ type Settings struct {
 	// ProbeTimeoutSeconds is the least time any probe gets (0: the modules' own timeouts).
 	ProbeTimeoutSeconds float64 `json:"probe_timeout_seconds,omitempty"`
 	// ProbeRetries is how many more times a probe that failed without an answer is tried at once.
-	ProbeRetries int `json:"probe_retries,omitempty"`
+	ProbeRetries int                 `json:"probe_retries,omitempty"`
+	Exercise     *exercise.Challenge `json:"exercise,omitempty"` // optional request for the active built-in drill
 }
 
 // Set is the loaded target files, by file name.

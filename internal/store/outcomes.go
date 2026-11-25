@@ -11,6 +11,8 @@ import (
 
 var bucketOutcomes = []byte("incident_outcomes")
 
+const ExerciseOrigin = "exercise"
+
 // IncidentOutcome is the bounded internal record of one resolved alert episode.
 // Its ID starts with the UTC resolution timestamp so the bucket is ordered newest-first.
 type IncidentOutcome struct {
@@ -18,6 +20,8 @@ type IncidentOutcome struct {
 	Group                string                       `json:"group"`
 	Title                string                       `json:"title"`
 	Severity             string                       `json:"severity"`
+	Origin               string                       `json:"origin,omitempty"`
+	ExerciseRun          string                       `json:"exercise_run,omitempty"`
 	Services             []string                     `json:"services"`
 	Started              time.Time                    `json:"started_at"`
 	Resolved             time.Time                    `json:"resolved_at"`
@@ -85,10 +89,16 @@ func (o IncidentOutcome) AgentReportRecorded() bool {
 func (o IncidentOutcome) HasHumanAcknowledgement() bool { return o.HumanAcknowledgement != nil }
 func (o IncidentOutcome) HasPassingCheck() bool         { return o.PassingCheck != nil }
 
+// HasAgentPassingCheck identifies the requester of the retained complete check.
+func (o IncidentOutcome) HasAgentPassingCheck() bool {
+	check := o.PassingCheck
+	return check != nil && check.ActorKind == "agent" && check.By != "" && check.Passed > 0 && check.Failed == 0 && check.Missing == 0
+}
+
 // ValidOutcomeEvidence reports which presence filters may be used in a history query.
 func ValidOutcomeEvidence(v string) bool {
 	switch v {
-	case "", "agent_report", "no_agent_report", "human_ack", "no_human_ack", "passing_check", "no_passing_check":
+	case "", "agent_report", "no_agent_report", "human_ack", "no_human_ack", "passing_check", "agent_passing_check", "no_passing_check":
 		return true
 	}
 	return false
@@ -108,10 +118,21 @@ func (o IncidentOutcome) matchesEvidence(v string) bool {
 		return !o.HasHumanAcknowledgement()
 	case "passing_check":
 		return o.HasPassingCheck()
+	case "agent_passing_check":
+		return o.HasAgentPassingCheck()
 	case "no_passing_check":
 		return !o.HasPassingCheck()
 	}
 	return false
+}
+
+// ValidOutcomeOrigin checks the history filter. An absent origin remains unclassified.
+func ValidOutcomeOrigin(v string) bool {
+	return v == "" || v == ExerciseOrigin || v == "unknown"
+}
+
+func (o IncidentOutcome) matchesOrigin(v string) bool {
+	return v == "" || v == o.Origin || v == "unknown" && o.Origin == ""
 }
 
 // Verification counts the target-location observations collected by an on-demand check.
@@ -221,6 +242,7 @@ type OutcomeFilter struct {
 	Before   string
 	Group    string
 	Severity string
+	Origin   string
 	Evidence string
 	Limit    int
 }
@@ -256,7 +278,8 @@ func (s *Store) IncidentOutcomes(q OutcomeFilter) ([]IncidentOutcome, error) {
 			if decodeErr = json.Unmarshal(value, &item); decodeErr != nil || item.Resolved.Before(q.Since) {
 				return false
 			}
-			if (q.Group == "" || q.Group == item.Group) && (q.Severity == "" || q.Severity == item.Severity) && item.matchesEvidence(q.Evidence) {
+			if (q.Group == "" || q.Group == item.Group) && (q.Severity == "" || q.Severity == item.Severity) &&
+				item.matchesOrigin(q.Origin) && item.matchesEvidence(q.Evidence) {
 				out = append(out, item)
 			}
 			return len(out) <= q.Limit

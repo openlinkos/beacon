@@ -3,7 +3,7 @@
   <form method="get" action="{{console "/incident-outcomes"}}" aria-label="{{.S.Filters}}" class="ol-panel">
     <div class="ol-panel-body bc-outcome-filters">
       {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
-      {{range .Filters}}<div class="ol-field{{if eq .Name "evidence"}} bc-outcome-evidence-filter{{end}}">
+      {{range .Filters}}<div class="ol-field{{if or (eq .Name "evidence") (eq .Name "origin")}} bc-outcome-wide-filter{{end}}">
         <label class="ol-label" for="outcome-{{.Name}}">{{.Label}}</label>
         <select class="ol-select" id="outcome-{{.Name}}" name="{{.Name}}">{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
       </div>{{end}}
@@ -20,6 +20,7 @@
       <td>
         <a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>
         {{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}
+        {{if .Exercise}}<span class="ol-badge ol-badge-info">{{$.L.Exercise}}</span>{{end}}
         {{if .Participants}}<span class="ol-cell-sub">{{$.L.Participation}} {{range .Participants}}<span class="ol-badge">{{.}}</span> {{end}}</span>{{end}}
       </td>
       <td data-label="{{$.L.Severity}}"><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
@@ -27,7 +28,7 @@
       <td data-label="{{$.L.Evidence}}" class="bc-outcome-evidence-cell"><div class="bc-outcome-evidence">
         {{if .AgentReport}}<span>{{$.L.AgentReport}}</span>{{else}}<span class="ol-subtle">{{$.L.NoAgentReport}}</span>{{end}}
         {{if .HumanAck}}<span>{{$.L.HumanAck}}</span>{{else}}<span class="ol-subtle">{{$.L.NoHumanAck}}</span>{{end}}
-        {{if .PassingCheck}}<span>{{$.L.CheckRecorded}}</span>{{else}}<span class="ol-subtle">{{$.L.NoPassingCheck}}</span>{{end}}
+        {{if .AgentPassingCheck}}<span>{{$.L.AgentPassingCheck}}</span>{{else if .PassingCheck}}<span>{{$.L.CheckRecorded}}</span>{{else}}<span class="ol-subtle">{{$.L.NoPassingCheck}}</span>{{end}}
       </div></td>
       <td data-label="{{$.L.Verification}}" class="bc-outcome-latest">{{if .Verification}}{{.Verification}}{{else}}{{$.L.NoVerification}}{{end}}</td>
     </tr>{{end}}</tbody>

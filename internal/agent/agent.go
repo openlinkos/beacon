@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/exercise"
 	"github.com/openlinkos/beacon/internal/hostmetrics"
 	"github.com/openlinkos/beacon/internal/probe"
 	"github.com/openlinkos/beacon/internal/targets"
@@ -120,10 +121,16 @@ func (a *Agent) Cycle(ctx context.Context) error {
 	a.refresh(ctx)
 	at := a.cfg.Now()
 	var b bytes.Buffer
-	a.probeAll(ctx, &b, at)
+	receipt := a.probeAll(ctx, &b, at)
 	a.host(&b, at)
 	a.self(&b, at)
-	return a.push(ctx, b.Bytes())
+	if err := a.push(ctx, b.Bytes()); err != nil {
+		return err
+	}
+	if receipt != "" {
+		a.reportExercise(ctx, receipt)
+	}
+	return nil
 }
 
 // ---- What to check
@@ -233,14 +240,20 @@ type job struct {
 }
 
 // probeAll probes the cycle's targets and writes their samples.
-func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) {
-	jobs, results, attempts := a.probeGroups(ctx, a.groups)
+func (a *Agent) probeAll(ctx context.Context, w *bytes.Buffer, at time.Time) string {
+	jobs, results, attempts := a.probeGroups(ctx, a.groups, at)
 	a.writeResults(w, jobs, results, attempts, at)
+	for _, r := range results {
+		if r.ExerciseReceipt != "" {
+			return r.ExerciseReceipt
+		}
+	}
+	return ""
 }
 
 // probeGroups probes every target of the groups, up to Parallel at once, and returns the jobs with each
 // one's result and attempts. The cycle and requests to probe on demand share it.
-func (a *Agent) probeGroups(ctx context.Context, groups []targets.Group) ([]job, []probe.Result, []int) {
+func (a *Agent) probeGroups(ctx context.Context, groups []targets.Group, at time.Time) ([]job, []probe.Result, []int) {
 	var jobs []job
 	for _, g := range groups {
 		for _, t := range g.Targets {
@@ -251,6 +264,9 @@ func (a *Agent) probeGroups(ctx context.Context, groups []targets.Group) ([]job,
 	attempts := make([]int, len(jobs))
 	sem := make(chan struct{}, a.cfg.Parallel)
 	var wg sync.WaitGroup
+	a.mu.RLock()
+	exerciseCheck := a.settings.Exercise
+	a.mu.RUnlock()
 	for i, j := range jobs {
 		m := a.module(j.labels["module"])
 		if m == nil {
@@ -261,7 +277,11 @@ func (a *Agent) probeGroups(ctx context.Context, groups []targets.Group) ([]job,
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem; wg.Done() }()
-			results[i], attempts[i] = a.run(ctx, m, j.target)
+			var challenge *exercise.Challenge
+			if exerciseCheck != nil && j.labels["module"] == exerciseCheck.Module {
+				challenge = exerciseCheck
+			}
+			results[i], attempts[i] = a.run(ctx, m, j.target, challenge, at)
 		}()
 	}
 	wg.Wait()
@@ -323,12 +343,12 @@ func (a *Agent) retries() int {
 
 // run probes target with m, trying again at once, up to the location's retries, while it fails without
 // an answer: a dropped connection on a lossy path, not a service that answered wrongly.
-func (a *Agent) run(ctx context.Context, m *probe.Module, target string) (probe.Result, int) {
-	r := a.cfg.Prober.Run(ctx, m, target)
+func (a *Agent) run(ctx context.Context, m *probe.Module, target string, challenge *exercise.Challenge, at time.Time) (probe.Result, int) {
+	r := a.cfg.Prober.RunExercise(ctx, m, target, challenge, at)
 	n, retries := 1, a.retries()
 	for n <= retries && !r.Success && ctx.Err() == nil &&
 		(r.Reason == probe.ReasonDNS || r.Reason == probe.ReasonConnect || r.Reason == probe.ReasonTimeout) {
-		r = a.cfg.Prober.Run(ctx, m, target)
+		r = a.cfg.Prober.RunExercise(ctx, m, target, challenge, at)
 		n++
 	}
 	return r, n

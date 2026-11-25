@@ -19,6 +19,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -56,7 +57,8 @@ type connector struct {
 	addr      string // the address the machine asked Beacon to bind, echoed in every forwarded-tcpip open
 	port      uint32 // the port Beacon told it
 	forwarded bool
-	learnMu   sync.Mutex // one host key probe at a time
+	learnMu   sync.Mutex  // one host key probe at a time
+	checking  atomic.Bool // one pending machine SSH check per connector
 }
 
 func (c *connector) setForward(addr string, port uint32) {

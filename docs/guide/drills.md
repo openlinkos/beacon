@@ -34,6 +34,12 @@ You will see `drill until …: /drill/healthz answers 503`.
 
 Starting a drill and ending it are both change events. So the alert's evidence says a drill is running, and when it ends by itself. An agent working the alert cannot end it, but can check after that time with `probe_now`.
 
+### Recognise a verified exercise {#recognise-a-verified-exercise}
+
+To record an exercise in incident history, set `gateway.exercise_target` to the HTTPS URL of Beacon's own `/drill/healthz` used by the `drill` monitor. Use a Beacon release with exercise receipts on each location that checks it, and the reference `ServiceDown` rule with its `beacon_rule_active_at` annotation. Beacon verifies the deliberately failed responses at the rule's first failing quorum, using observations submitted by the enrolled locations and the raw samples in the rule window. The incident history shows **Verified exercise** and the exercise run when that evidence agrees.
+
+Ordinary endpoint failures, older probe versions, mismatched samples and missing evidence can leave the origin unknown. The origin describes the recorded first quorum. Use the episode timeline to review later failures and what restored the service.
+
 What happens, with two locations:
 
 1. **Within a minute** both locations see 503, and `probe_success{service="drill"}` is 0 for each.

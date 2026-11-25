@@ -258,15 +258,19 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	if !slices.Contains(config.Severities, sev) {
 		sev = "warning"
 	}
+	id := GroupID(w.GroupKey)
+	exerciseRun := b.exerciseOrigin(ctx, id, w)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	id := GroupID(w.GroupKey)
 	g, exists := b.d.Store.Group(id)
 	wasFiring := exists && g.Firing()
 	var previous *store.IncidentOutcome
 	if w.Status == "firing" && exists && !wasFiring {
 		now := b.now()
 		previous = b.archiveOutcome(g, now, now.Add(-time.Nanosecond))
+	}
+	if wasFiring && w.Status == "firing" && g.Origin == store.ExerciseOrigin && !sameExerciseAlert(g, w) {
+		g.Origin, g.ExerciseRun = "", ""
 	}
 	g.ID, g.Key, g.Severity = id, w.GroupKey, sev
 	g.Labels, g.Common, g.Annotations = w.GroupLabels, w.CommonLabels, w.CommonAnnotations
@@ -282,6 +286,10 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	case "firing":
 		g.Status = "firing"
 		if !wasFiring {
+			g.Origin, g.ExerciseRun = "", exerciseRun
+			if exerciseRun != "" {
+				g.Origin = store.ExerciseOrigin
+			}
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
 			g.ProbeRuns, g.PassingCheck, g.PriorAcks, g.Notifications = nil, nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false

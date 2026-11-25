@@ -326,3 +326,25 @@ func TestSpoolStartupSkipsExpiredSealedEvidence(t *testing.T) {
 		t.Fatal("expired evidence remained queued after startup")
 	}
 }
+
+func TestSpoolTidyKeepsDirectoriesReservedForANewCapture(t *testing.T) {
+	st := &Store{dir: t.TempDir()}
+	// Hold the same reservation as CreateStaged when the parent directories exist and the
+	// capture file is about to be opened.
+	if !st.claim(sample) {
+		t.Fatal("could not reserve the capture name")
+	}
+	dir := filepath.Dir(st.spoolPath(sample))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st.TidyLocal(time.Hour)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("retention removed the new capture's parent directory: %v", err)
+	}
+	st.unmarkBusy(sample)
+	st.TidyLocal(time.Hour)
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the idle spool did not clear the empty directory: %v", err)
+	}
+}

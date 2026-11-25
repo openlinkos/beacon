@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-302a616d
+sourceHash: sha256-b24dda9c
 ---
 
 # 演练一次故障
@@ -37,6 +37,12 @@ docker exec beacon beacon drill fail 15m
 - `beacon drill off` 结束演练。
 
 开始和结束演练都记为变更事件。所以告警的证据里能看到正在演练，以及演练到点自己结束的时间。处理告警的 Agent 结束不了演练，但可以过了那个时间用 `probe_now` 确认。
+
+### 查看已验证的演练 {#recognise-a-verified-exercise}
+
+要在故障历史中标记演练，将 `gateway.exercise_target` 设置为 `drill` 监控所用的 Beacon 自身 `/drill/healthz` HTTPS 地址。检查该目标的检测点需运行支持演练凭据的版本，并使用含 `beacon_rule_active_at` 注释的参考 `ServiceDown` 规则。Beacon 会用已登记检测点提交的观测凭据与规则窗口中的原始样本，核对规则首次达到故障判定时的故障响应。证据匹配时，故障历史会显示**已验证的演练**及演练编号。
+
+普通的端点故障、旧版探针、样本不匹配或证据缺失，都可能使来源未确认。来源对应已记录的首次故障判定。后续故障与恢复经过可查看同一事件的时间线。
 
 以两个检测点为例，接下来是：
 

@@ -68,6 +68,8 @@
 }
 .bc-alert-note-preview p { max-inline-size: 75ch; }
 .bc-alert-note-preview > .ol-cluster:first-child { justify-content: space-between; }
+.bc-alert-check-preview { flex-basis: 100%; }
+.bc-alert-check-preview > .ol-cluster:first-child { max-inline-size: 42rem; }
 .bc-alert-observations > :is(.ol-list, .ol-hint) { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations > .ol-hint { margin-block: var(--ol-space-1) var(--ol-space-2); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
@@ -80,6 +82,7 @@
 @container ol-content (width < 40rem) {
   .bc-alert-controls { width: 100%; }
   .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn, .bc-alert-ack-note .ol-btn { min-height: 2.75rem; }
+  .bc-alert-check-preview .ol-btn { min-block-size: 2.75rem; }
   .bc-overview-maintenance-action { min-block-size: 2.75rem; }
 }
 @container ol-content (width >= 40rem) {
@@ -92,7 +95,7 @@
   align-items: end;
   gap: var(--ol-space-3);
 }
-.bc-outcome-evidence-filter, .bc-outcome-filter-actions { grid-column: 1 / -1; }
+.bc-outcome-wide-filter, .bc-outcome-filter-actions { grid-column: 1 / -1; }
 .bc-outcome-evidence { display: grid; gap: var(--ol-space-1); }
 @container ol-table (max-width: 40rem) {
   .bc-outcome-evidence-cell, .bc-outcome-latest { flex: 1 0 100%; }
@@ -100,9 +103,9 @@
 @container ol-content (width < 40rem) {
   .bc-outcome-filters :is(.ol-select, .ol-btn) { min-block-size: 2.75rem; }
 }
-@container ol-content (width >= 44rem) {
-  .bc-outcome-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(12rem, 1.6fr) auto; }
-  .bc-outcome-evidence-filter, .bc-outcome-filter-actions { grid-column: auto; }
+@container ol-content (width >= 52rem) {
+  .bc-outcome-filters { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(12rem, 1.6fr) auto; }
+  .bc-outcome-wide-filter, .bc-outcome-filter-actions { grid-column: auto; }
 }
 
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
@@ -232,7 +235,8 @@
 
 #ssh-connect, #ssh-keys { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
 @container ol-content (width < 40rem) {
-  .bc-incident-ssh-controls .ol-btn { min-block-size: 2.75rem; }
+  .bc-incident-ssh-controls .ol-btn,
+  .bc-machine-ssh-check .ol-btn { min-block-size: 2.75rem; }
 }
 
 .bc-copy-feedback:empty,

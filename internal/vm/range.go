@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,7 +30,7 @@ type Series struct {
 func unix(t time.Time) string { return strconv.FormatFloat(float64(t.UnixMilli())/1000, 'f', 3, 64) }
 
 // get asks path with the query parameters and returns the result of the expected type.
-func (c *Client) get(ctx context.Context, path string, q url.Values, resultType string) (json.RawMessage, error) {
+func (c *Client) get(ctx context.Context, path string, q url.Values, resultType string, requireComplete bool) (json.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path+"?"+q.Encode(), nil)
 	if err != nil {
 		return nil, err
@@ -45,8 +46,9 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, resultType 
 		return nil, fmt.Errorf("query: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	var out struct {
-		Status string `json:"status"`
-		Data   struct {
+		Status    string `json:"status"`
+		IsPartial bool   `json:"isPartial"`
+		Data      struct {
 			ResultType string          `json:"resultType"`
 			Result     json.RawMessage `json:"result"`
 		} `json:"data"`
@@ -56,6 +58,9 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, resultType 
 	}
 	if out.Status != "success" || out.Data.ResultType != resultType {
 		return nil, fmt.Errorf("query: status %q, result type %q", out.Status, out.Data.ResultType)
+	}
+	if requireComplete && out.IsPartial {
+		return nil, fmt.Errorf("query: VictoriaMetrics returned a partial result")
 	}
 	return out.Data.Result, nil
 }
@@ -68,7 +73,7 @@ func point(p [2]any) (Point, bool) {
 	if !ok1 || !ok2 || err != nil {
 		return Point{}, false
 	}
-	return Point{T: time.UnixMilli(int64(ts * 1000)).UTC(), V: v}, true
+	return Point{T: time.UnixMilli(int64(math.Round(ts * 1000))).UTC(), V: v}, true
 }
 
 // QueryAt evaluates an instant query at t; the zero t is the server's now.
@@ -80,7 +85,7 @@ func (c *Client) QueryAt(ctx context.Context, query string, t time.Time) ([]Samp
 	if !t.IsZero() {
 		q.Set("time", unix(t))
 	}
-	raw, err := c.get(ctx, "/api/v1/query", q, "vector")
+	raw, err := c.get(ctx, "/api/v1/query", q, "vector", false)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +111,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 		return nil, nil
 	}
 	q := url.Values{"query": {query}, "start": {unix(start)}, "end": {unix(end)}, "step": {strconv.FormatFloat(step.Seconds(), 'f', -1, 64)}}
-	raw, err := c.get(ctx, "/api/v1/query_range", q, "matrix")
+	raw, err := c.get(ctx, "/api/v1/query_range", q, "matrix", false)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +129,39 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 			if p, ok := point(v); ok {
 				s.Points = append(s.Points, p)
 			}
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+// QuerySamplesAt evaluates a range selector once and returns the original samples rather than
+// one calculated value per step. Incomplete or malformed data cannot support an evidence check.
+func (c *Client) QuerySamplesAt(ctx context.Context, selector string, end time.Time) ([]Series, error) {
+	if c == nil || c.base == "" {
+		return nil, nil
+	}
+	q := url.Values{"query": {selector}, "time": {unix(end)}}
+	raw, err := c.get(ctx, "/api/v1/query", q, "matrix", true)
+	if err != nil {
+		return nil, err
+	}
+	var result []struct {
+		Metric map[string]string `json:"metric"`
+		Values [][2]any          `json:"values"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	out := make([]Series, 0, len(result))
+	for _, r := range result {
+		s := Series{Labels: r.Metric}
+		for _, v := range r.Values {
+			p, ok := point(v)
+			if !ok {
+				return nil, fmt.Errorf("query: unreadable raw sample")
+			}
+			s.Points = append(s.Points, p)
 		}
 		out = append(out, s)
 	}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/exercise"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/router"
@@ -36,18 +37,20 @@ import (
 // Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the
 // rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope.
 type Deps struct {
-	Auth       *api.Auth
-	Catalog    func() *catalog.Catalog
-	Targets    func() *targets.Set
-	Modules    func() []byte // the probe module file, handed to probes as is
-	VM         *url.URL
-	Alerts     func([]router.Postable) error
-	Changes    ChangeSink // takes change events (changes.go); nil refuses them
-	RulesToken string
-	Metrics    *metrics.Metrics
-	Log        *slog.Logger
-	Now        func() time.Time
-	Requests   *probenow.Board // probing on demand (requests.go); nil answers 404 as an older gateway
+	Auth           *api.Auth
+	Catalog        func() *catalog.Catalog
+	Targets        func() *targets.Set
+	Modules        func() []byte // the probe module file, handed to probes as is
+	VM             *url.URL
+	Alerts         func([]router.Postable) error
+	Changes        ChangeSink // takes change events (changes.go); nil refuses them
+	RulesToken     string
+	Metrics        *metrics.Metrics
+	Log            *slog.Logger
+	Now            func() time.Time
+	Requests       *probenow.Board     // probing on demand (requests.go); nil answers 404 as an older gateway
+	Exercise       *exercise.Authority // nil leaves drill observation disabled
+	ExerciseTarget string
 	// Leader, when set, is whether this instance holds the HA lease. Writes are refused on a
 	// standby; reads of targets and modules still answer.
 	Leader func() bool
@@ -97,6 +100,9 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /api/v1/changes/flux", g.with("changes", []string{"changes:write"}, g.fluxChange))
 	mux.Handle("GET /api/v1/agent/requests", g.with("requests", []string{"probe:write"}, g.requests))
 	mux.Handle("POST /api/v1/agent/requests/{id}", g.with("answers", []string{"probe:write"}, g.answer))
+	if d.Exercise != nil {
+		mux.Handle("POST "+exercise.ObservationPath, g.with("exercise_observations", []string{"probe:write"}, g.observeExercise))
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		fail(w, http.StatusNotFound, "not_found", "no such endpoint on the metrics gateway")
 	})
@@ -223,14 +229,21 @@ func (g *gateway) active(w http.ResponseWriter, t store.Token) (*catalog.Catalog
 
 // agent tells a probe agent its settings from the catalogue.
 func (g *gateway) agent(w http.ResponseWriter, _ *http.Request, t store.Token) {
-	_, l, ok := g.active(w, t)
+	cat, l, ok := g.active(w, t)
 	if !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(targets.Settings{Location: l.ID, ProbeTimeoutSeconds: l.Probe.Timeout.D().Seconds(),
-		ProbeRetries: l.Probe.Retries})
+	settings := targets.Settings{Location: l.ID, ProbeTimeoutSeconds: l.Probe.Timeout.D().Seconds(), ProbeRetries: l.Probe.Retries}
+	if g.Exercise != nil {
+		now := g.Now()
+		run := g.Auth.Store.DrillRun()
+		if run.ID != "" && run.Active(now) {
+			settings.Exercise = g.Exercise.Issue(run, g.exerciseAssignment(cat, l), l.ID, t.Hash, now)
+		}
+	}
+	_ = json.NewEncoder(w).Encode(settings)
 }
 
 func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token) {
@@ -294,13 +307,17 @@ func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
 	if g.RulesToken != "" && secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(g.RulesToken)) == 1 {
 		rec, done := g.counted("alerts", w)
 		defer done()
-		g.alerts(rec, r, store.Token{Name: "rules"})
+		g.ingestAlerts(rec, r, g.Exercise != nil)
 		return
 	}
 	g.with("alerts", []string{"alerts:send"}, g.alerts).ServeHTTP(w, r)
 }
 
 func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
+	g.ingestAlerts(w, r, false)
+}
+
+func (g *gateway) ingestAlerts(w http.ResponseWriter, r *http.Request, trustedExerciseRule bool) {
 	if g.refuseStandby(w) {
 		return
 	}
@@ -312,6 +329,11 @@ func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) 
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", "the body must be a JSON array of alerts")
 		return
+	}
+	if !trustedExerciseRule {
+		for _, alert := range in {
+			delete(alert.Annotations, exercise.ActiveAtAnnotation)
+		}
 	}
 	if err := g.Alerts(in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", err.Error())

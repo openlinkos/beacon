@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c0a3248c
+sourceHash: sha256-07209df7
 ---
 
 # MCP 工具
@@ -70,7 +70,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
-| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
+| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
 | `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录、最近一次复测，以及可用时规则恢复前后保留的完整通过复测。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
@@ -84,8 +84,11 @@ bearer_token_env_var = "BEACON_TOKEN"
 - `agent_report` 查找告警触发时的程序回报。包含 `not_started`，即使程序没有启动。仅为告警恢复发送的回报不计入。
 - `human_ack` 查找由可识别人员主动做出的确认。归档中的 `human_acknowledgement` 保留姓名、来源和时间。手机设备回执、静默和备注各自有独立记录。
 - `passing_check` 查找保留的完整通过复测。即使最近一次复测缺少结果，仍可以查到已保留的完整结果。
+- `agent_passing_check` 查找由身份已确认的 Agent 发起并保留的完整通过复测。筛选依据是复测发起方。
 
 对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
+
+对 `origin` 使用 `exercise`，可查找首次故障判定有演练观测证据的记录。使用 `unknown` 可查找来源未确认的记录。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 
@@ -96,6 +99,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
+| `check_machine_ssh` | `machines:ssh` | 检查有权访问的已登记机器 `machine` 的连接路径、固定主机密钥和证书验证，返回观察结果与审计 ID |
 | `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
 | `search_files` | `machines:ssh` | 在一台已登记的 `machine` 上，从明确指定的绝对路径 `directory` 搜索字面文本 `query`，区分大小写，`limit` 可选。返回路径、行号、摘录和会话 ID |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
@@ -111,6 +115,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
+
+`check_machine_ssh` 不会打开远程会话。仅 `status: ready` 表示主机密钥匹配且机器接受了 Beacon 的证书。[API 的机器一节](api.md#machines-and-sessions)说明了这些检查结果。首次设置 Agent 时，检查后用 `run_command` 执行 `hostname`，确认命令执行成功并查看该会话。
 
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。只有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 

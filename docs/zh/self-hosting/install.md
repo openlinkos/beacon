@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-59007287
+sourceHash: sha256-7c8a6f56
 ---
 
 # 装在服务器上
@@ -228,6 +228,8 @@ On the machine, as root, if not done yet:
 如果需要新增一个单独的页面，或你的部署还没有状态页，请在包含**创建状态页**功能的版本中按[创建公开状态页](../guide/status-pages.md#create-a-public-page)操作。在本指南的参考部署中，新页面使用自己的专属地址，示例页继续作为默认页。
 
 ### 接入个人账号和 Agent {#connect-yourself-and-the-agent}
+
+**从 Beacon 检查机器 SSH。** 在提供[检查机器 SSH](../guide/machines.md#check-machine-ssh)的版本中，打开**机器 → edge-1 → 通过 SSH 连接**并运行检查。就绪表示固定主机密钥匹配，且机器接受了 Beacon 的证书。
 
 **验证个人 SSH。** 按[以自己的身份连接](../guide/machines.md#connect-as-yourself)登记个人公钥，再到 `edge-1` 执行 `hostname`。在**会话**中回放，确认操作人是你的用户名。
 

@@ -29,6 +29,7 @@ type labels struct {
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 	AcknowledgementNote, FullAcknowledgementNote, LatestNote, AllNotes                                                       string
 	ShareLinks, RefreshStatus, Transcript, NoEnd                                                                             string
+	LatestCheck, ViewCheck                                                                                                   string
 }
 
 func (s *Server) labels() labels {
@@ -54,6 +55,7 @@ func (s *Server) labels() labels {
 		LatestNote: s.t("Latest note"), AllNotes: s.t("All notes"),
 		ShareLinks: s.t("Manage share links"), RefreshStatus: s.t("Refresh status"),
 		Transcript: s.t("Command transcript"), NoEnd: s.t("No end recorded"),
+		LatestCheck: s.t("Latest on-demand check"), ViewCheck: s.t("View check results"),
 	}
 }
 
@@ -230,9 +232,9 @@ type eventRow struct {
 	Probe                                       *probeEvent
 }
 type probeEvent struct {
-	Summary, RecoveryHint string
-	Open                  bool
-	Rows                  []probeRow
+	ID, Summary, RecoveryHint, Requested, Completed, ISO string
+	Open                                                 bool
+	Rows                                                 []probeRow
 }
 
 type noteRow struct{ By, Via, At, ISO, Text string }
@@ -287,6 +289,8 @@ type alertPage struct {
 	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
 	LatestNote                                                                   *noteRow
+	LatestProbe                                                                  *probeEvent
+	LatestProbeHref                                                              string
 	Services                                                                     []string
 	Labels                                                                       []kv
 	Runbook, Dashboard, Window                                                   string
@@ -392,6 +396,16 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 			Acked: r.Acked, Href: s.relatedLink(link.AlertPath(r.ID), a, "status:read")})
 	}
 	p.Events = s.events(tl, a, p.L, r.URL.Query().Get("probe"), g.Status == "firing")
+	if a.Viewer != nil {
+		// The timeline is ordered by completion. Opening an older result leaves the latest one visible.
+		for _, row := range slices.Backward(p.Events) {
+			if row.Probe != nil && row.Probe.ID != "" {
+				p.LatestProbe = row.Probe
+				p.LatestProbeHref = probeResultPath(link.IncidentPath(al.ID, g.Episode), row.Probe.ID)
+				break
+			}
+		}
+	}
 	for _, c := range ev.Done.Agents {
 		if c.Event != "firing" {
 			continue
@@ -840,8 +854,15 @@ func (s *Server) agentEvent(e bridge.Event) (text, detail string) {
 	return s.t("Delivery to hook %s pending", e.By), ""
 }
 
+func probeResultPath(page, id string) string {
+	return href(page, url.Values{"probe": {id}}) + "#probe-" + url.PathEscape(id)
+}
+
 func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeEvent {
-	p := &probeEvent{Open: open}
+	p := &probeEvent{ID: e.ID, Open: open, ISO: iso(e.At), Completed: s.t("Completed at %s", s.clock(e.At))}
+	if e.By != "" {
+		p.Requested = s.t("Requested by %s", e.By)
+	}
 	var passed, failed, missing int
 	for _, o := range e.Probes {
 		r := probeRow{Location: o.Location, Instance: o.Instance, Module: o.Module, Reason: o.Reason}
@@ -861,7 +882,11 @@ func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeE
 		}
 		p.Rows = append(p.Rows, r)
 	}
-	p.Summary = s.t("%d passed, %d failed, %d missing", passed, failed, missing)
+	if len(e.Probes) == 0 {
+		p.Summary = s.t("No observations recorded")
+	} else {
+		p.Summary = s.t("%d passed, %d failed, %d missing", passed, failed, missing)
+	}
 	if open && firing && passed > 0 && passed == len(e.Probes) {
 		p.RecoveryHint = s.t("The monitoring rule still reports this alert as firing.")
 	}

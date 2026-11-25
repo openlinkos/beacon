@@ -455,6 +455,54 @@ func TestAlertProbeNowShowsResultOnTimeline(t *testing.T) {
 	}
 }
 
+func TestAlertHandoverKeepsLatestCompletedCheckDistinct(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	reader := e.signedIn("handover-reader", "status:read")
+	g, _ := e.st.Group(e.id)
+	path := link.IncidentPath(g.ID, g.Episode)
+	initial := reader.get(path)
+	if initial.code != http.StatusOK || strings.Contains(initial.body, `id="alert-latest-check"`) {
+		t.Fatal("an empty incident displayed a latest check")
+	}
+	g.ProbeRuns = []store.ProbeRun{
+		{ID: "newer", At: e.now.Add(-time.Minute), By: "night-duty", Results: []store.ProbeObservation{
+			{Location: "edge-1", Status: "failed", HTTPCode: 503}, {Location: "edge-2", Status: "missing"},
+		}},
+		{ID: "older", At: e.now.Add(-2 * time.Minute), By: "day-duty", Results: []store.ProbeObservation{
+			{Location: "edge-1", Status: "ok"}, {Location: "edge-2", Status: "ok"},
+		}},
+	}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"", "?probe=older"} {
+		page := reader.get(path + query)
+		response, _, _ := strings.Cut(page.body, `id="timeline"`)
+		if page.code != http.StatusOK || !strings.Contains(response, `id="alert-latest-check"`) ||
+			!strings.Contains(response, "0 passed, 1 failed, 1 missing") || strings.Contains(response, "2 passed, 0 failed, 0 missing") ||
+			!strings.Contains(response, "Requested by night-duty") || !strings.Contains(response, "Completed at "+e.srv.clock(g.ProbeRuns[0].At)) ||
+			!strings.Contains(response, path+"?probe=newer#probe-newer") {
+			t.Fatalf("latest recorded check is missing or changed by %q: %d", query, page.code)
+		}
+		if query != "" && !strings.Contains(page.body, `class="bc-alert-observations" open><summary id="probe-older"`) {
+			t.Fatal("a deep link did not open its original older check")
+		}
+	}
+	g.ProbeRuns = append(g.ProbeRuns, store.ProbeRun{ID: "empty", At: e.now})
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	page := reader.get(path)
+	response, _, _ := strings.Cut(page.body, `id="timeline"`)
+	if page.code != http.StatusOK || !strings.Contains(response, "No observations recorded") ||
+		strings.Contains(response, "0 passed, 0 failed, 0 missing") {
+		t.Fatal("a recorded check with zero observations looked like a result with no issues")
+	}
+	if code, body, _ := e.get(e.link(path), ""); code != http.StatusOK || strings.Contains(body, `id="alert-latest-check"`) {
+		t.Fatal("a signed-out reader got the console handover summary")
+	}
+}
+
 func TestAlertSeparatesPassingOnDemandCheckFromRuleRecovery(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	viewer := e.signedIn("reader", "status:read")

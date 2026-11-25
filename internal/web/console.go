@@ -139,6 +139,7 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/machines", s.action("machines:write", s.addMachine))
 	at("GET", "/machines/{name}", s.console("status:read|machines:ssh", s.machine))
 	at("GET", "/machines/{name}/history", s.console("status:read|machines:ssh", s.machineHistory))
+	at("POST", "/machines/{name}/check", s.action("machines:ssh", s.checkMachineSSH))
 	at("POST", "/machines/{name}/restore", s.action("machines:write", s.restoreMachine))
 	at("POST", "/machines/{name}/edit", s.action("machines:write", s.editMachine))
 	at("POST", "/machines/{name}/replace", s.action("machines:write", s.replaceMachine))

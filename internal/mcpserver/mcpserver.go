@@ -468,6 +468,22 @@ func addMachineTools(s *mcp.Server, g SSH) {
 			return nil, l, err
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "check_machine_ssh", Title: "Check machine SSH", Annotations: read,
+		Description: "Check the registered connection route, pinned host key and Beacon's certificate authentication for one enrolled machine you can reach. Does not run a command or test the caller's workstation. Only ready means the handshake passed.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		Machine string `json:"machine" jsonschema:"the enrolled machine's name"`
+	}) (*mcp.CallToolResult, sshgate.SSHCheck, error) {
+		who, err := gate(ctx, "machines:ssh")
+		if err != nil {
+			return nil, sshgate.SSHCheck{}, err
+		}
+		out, err := g.Gate.CheckSSH(ctx, who, in.Machine, "")
+		if errors.Is(err, sshgate.ErrSSHCheckUnavailable) {
+			err = fmt.Errorf("ssh.check_unavailable: %w", err)
+		}
+		return nil, out, err
+	})
+
 	mcp.AddTool(s, &mcp.Tool{Name: "run_command", Title: "Run a command on a machine", Annotations: acts,
 		Description: "Run a shell command on a machine, as its user, without a terminal, and get its exit code, stdout and stderr as plain text. Long output keeps its start and end. Use get_session for retained evidence. The result reports the state of the recording and transcript."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, sshgate.RunResult, error) {

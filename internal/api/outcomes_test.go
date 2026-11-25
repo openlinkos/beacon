@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/alertmanager"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
 
@@ -38,6 +40,7 @@ func TestIncidentOutcomeRoutes(t *testing.T) {
 		{"severity=critical&since=7d&evidence=no_passing_check", 1},
 		{"severity=critical&since=7d&evidence=passing_check", 0},
 		{"severity=warning&since=7d&evidence=no_passing_check", 0},
+		{"evidence=agent_passing_check", 0},
 	} {
 		code, out := c.do(http.MethodGet, path+"?group="+group+"&"+tc.query, read, "")
 		if page, _ := out["outcomes"].([]any); code != http.StatusOK || len(page) != tc.count {
@@ -53,5 +56,37 @@ func TestIncidentOutcomeRoutes(t *testing.T) {
 	}
 	if code, out := c.do(http.MethodGet, path+"/nope", read, ""); code != http.StatusNotFound || out["code"] != "incident.not_found" {
 		t.Fatalf("unknown incident: %d %+v", code, out)
+	}
+	resolved := time.Now().Add(-time.Minute)
+	agentOutcome := store.OutcomeID(resolved, group, "aaaaaaaaaaaaaaaa")
+	for _, fixture := range []struct {
+		id, actorKind string
+		missing       int
+	}{
+		{agentOutcome, "agent", 0},
+		{store.OutcomeID(resolved, group, "bbbbbbbbbbbbbbbb"), "person", 0},
+		{store.OutcomeID(resolved, group, "cccccccccccccccc"), "", 0},
+		{store.OutcomeID(resolved, group, "dddddddddddddddd"), "agent", 1},
+	} {
+		outcome := store.IncidentOutcome{ID: fixture.id, Group: group, Severity: "critical", Resolved: resolved,
+			PassingCheck: &store.Verification{ID: "complete", At: resolved, By: "named-checker", ActorKind: fixture.actorKind, Passed: 2, Missing: fixture.missing},
+		}
+		if fixture.id == agentOutcome {
+			outcome.Origin, outcome.ExerciseRun = store.ExerciseOrigin, "exercise-run-fixture"
+		}
+		if err := e.Store.EnsureIncidentOutcome(outcome); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out = c.do(http.MethodGet, path+"?group="+group+"&evidence=agent_passing_check&origin=exercise", read, "")
+	outcomes, _ = out["outcomes"].([]any)
+	if code != http.StatusOK || len(outcomes) != 1 || outcomes[0].(map[string]any)["id"] != agentOutcome ||
+		outcomes[0].(map[string]any)["exercise_run"] != "exercise-run-fixture" {
+		t.Fatalf("Agent passing check filter accepted another kind of evidence: %d %+v", code, out)
+	}
+	code, out = c.do(http.MethodGet, path+"?group="+group+"&evidence=agent_passing_check&origin=unknown", read, "")
+	outcomes, _ = out["outcomes"].([]any)
+	if code != http.StatusOK || len(outcomes) != 0 {
+		t.Fatalf("unclassified or incomplete check matched the filter: %d %+v", code, out)
 	}
 }
