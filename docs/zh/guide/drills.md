@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d2669dc6
+sourceHash: sha256-7fb906de
 ---
 
 # 演练一次故障
@@ -68,7 +68,7 @@ docker exec beacon beacon drill off
 
 ## 验证手机送达和交接 {#verify-phone-delivery-and-handover}
 
-由所有者准备一个独立的 Beacon 测试实例，确保有两个检测点在上报，且测试手机能访问 `public_url`。只使用测试接收端和凭据，[邀请](people.md#invite-people)两位拥有 `oncall` 角色的值班人，并设置 `service: '^drill$'` 来限定测试钩子。若只验收手机推送，请在 `config.yaml` 中设置 `escalation.critical.channel: none`，再配置手机渠道和延时。下例假设 `bark.url_file` 指向测试 [Bark 接收端](../reference/config.md#pushover-bark-and-healthchecksio)：
+由所有者准备一个独立的 Beacon 测试实例，确保有两个检测点在上报，且测试手机能访问 `public_url`。只使用测试接收端和凭据，[邀请](people.md#invite-people)两位拥有 `oncall` 角色的值班人，并设置 `service: '^drill$'` 来限定测试钩子。若只验收手机推送，请在 `config.yaml` 中设置 `escalation.critical.channel: none`，再配置手机渠道和延时。下例的 `bark.url_file` 指向测试 [Bark 接收端](../reference/config.md#pushover-bark-and-healthchecksio)。
 
 ```yaml
 escalation:
