@@ -16,7 +16,8 @@ func TestReplayLinks(t *testing.T) {
 	e := setup(t)
 	zero := 0
 	rec := store.SessionRecord{ID: "20261102-100000-abcdef-1", Agent: "claude-code", Via: "ssh", Machine: "box", Kind: "exec", Command: "uptime",
-		Started: time.Now().Add(-time.Minute), Ended: time.Now(), Exit: &zero}
+		Started: time.Now().Add(-time.Minute), Ended: time.Now(), Exit: &zero,
+		Recording: "2026/11/02/20261102-100000-abcdef-1", RecordingState: store.EvidenceComplete}
 	if err := e.st.PutSession(rec); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +42,15 @@ func TestReplayLinks(t *testing.T) {
 	signIn := "https://beacon.example.com" + link.SignInPath(link.SessionPath(rec.ID))
 	if got := e.bot.all(); !strings.Contains(got, "Replay: "+signIn) || strings.Contains(got, "?s=") {
 		t.Errorf("the echo must open the replay through sign-in: %q", got)
+	}
+	missing := rec
+	missing.ID += "0"
+	missing.RecordingState = store.EvidenceUnavailable
+	e.g.echo.add(missing)
+	e.g.echo.flush(context.Background(), true)
+	missingLink := "https://beacon.example.com" + link.SignInPath(link.SessionPath(missing.ID))
+	if got := e.bot.all(); !strings.Contains(got, "Session "+missingLink) || strings.Contains(got, "Replay: "+missingLink) {
+		t.Errorf("unavailable evidence must link to the record without claiming replay: %q", got)
 	}
 	ss, err = e.g.Sessions(SessionFilter{Machine: "box"})
 	if err != nil || len(ss) != 1 || !strings.HasPrefix(ss[0].Page, want) || ss[0].ID != rec.ID {

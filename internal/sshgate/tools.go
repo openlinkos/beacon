@@ -64,7 +64,10 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		return Transcript{}, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	s := g.newSession(who, m, conn+"-1")
-	s.start(kind, label)
+	if err := s.start(kind, label); err != nil {
+		_ = sess.Close()
+		return Transcript{}, false, err
+	}
 	sess.Stdout = writerFunc(func(p []byte) { s.output(p, false) })
 	sess.Stderr = writerFunc(func(p []byte) { s.output(p, true) })
 	if stdin != nil {
@@ -92,7 +95,7 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		n := ee.ExitStatus()
 		exit = &n
 	}
-	t := s.finish(exit)
+	t := s.finish(exit, true)
 	if !timedOut && exit == nil {
 		return t, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
@@ -100,14 +103,17 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 }
 
 // cut shortens a tool's output, keeping its start and its end.
-func cut(s, session string) (string, bool) {
+func cut(s string, t Transcript) (string, bool) {
 	r := []rune(s)
 	if len(r) <= maxToolText {
 		return s, false
 	}
 	head, tail := maxToolText/3, maxToolText-maxToolText/3
-	return string(r[:head]) + fmt.Sprintf("\n[... %d characters cut; get_session %s has the whole output ...]\n", len(r)-head-tail, session) +
-		string(r[len(r)-tail:]), true
+	note := fmt.Sprintf("%d characters cut from this reply", len(r)-head-tail)
+	if t.TranscriptState == store.EvidenceComplete || t.TranscriptState == store.EvidenceTruncated {
+		note += "; get_session " + t.ID + " reads the retained transcript"
+	}
+	return string(r[:head]) + "\n[... " + note + " ...]\n" + string(r[len(r)-tail:]), true
 }
 
 // RunInput runs a command. Timeout is in seconds (default 120, at most 600).
@@ -128,6 +134,9 @@ type RunResult struct {
 	Truncated bool   `json:"truncated,omitempty"`
 	Ms        int64  `json:"duration_ms"`
 	Session   string `json:"session"`
+
+	RecordingState  store.EvidenceState `json:"recording_state,omitempty"`
+	TranscriptState store.EvidenceState `json:"transcript_state,omitempty"`
 }
 
 // Run runs a command on a machine, as the machine's user, in a shell without a terminal.
@@ -155,13 +164,14 @@ func (g *Gate) Run(ctx context.Context, who Actor, machine string, in RunInput) 
 	if err != nil {
 		return RunResult{}, err
 	}
-	out := RunResult{Machine: m.Name, ExitCode: -1, TimedOut: timedOut, Truncated: t.Truncated, Ms: t.Ended.Sub(t.Started).Milliseconds(), Session: t.ID}
+	out := RunResult{Machine: m.Name, ExitCode: -1, TimedOut: timedOut, Truncated: t.textTruncated, Ms: t.Ended.Sub(t.Started).Milliseconds(), Session: t.ID,
+		RecordingState: t.RecordingState, TranscriptState: t.TranscriptState}
 	if t.Exit != nil {
 		out.ExitCode = *t.Exit
 	}
 	var c1, c2 bool
-	out.Stdout, c1 = cut(t.Stdout, t.ID)
-	out.Stderr, c2 = cut(t.Stderr, t.ID)
+	out.Stdout, c1 = cut(t.Stdout, t)
+	out.Stderr, c2 = cut(t.Stderr, t)
 	out.Truncated = out.Truncated || c1 || c2
 	return out, nil
 }
@@ -204,6 +214,9 @@ type FileView struct {
 	TotalLines int    `json:"total_lines"`
 	More       bool   `json:"more,omitempty"` // lines follow the last one shown
 	Session    string `json:"session"`
+
+	RecordingState  store.EvidenceState `json:"recording_state,omitempty"`
+	TranscriptState store.EvidenceState `json:"transcript_state,omitempty"`
 }
 
 // ReadFile reads lines of a text file, from line offset (1 is the first), at most limit (default 2000).
@@ -232,10 +245,10 @@ func (g *Gate) ReadFile(ctx context.Context, who Actor, machine, path string, of
 		return FileView{}, err
 	}
 	total, _ := strconv.Atoi(strings.TrimSpace(lastLine(t.Stderr)))
-	content, _ := cut(t.Stdout, t.ID)
+	content, _ := cut(t.Stdout, t)
 	shown := strings.Count(t.Stdout, "\n")
 	return FileView{Machine: m.Name, Path: path, Content: content, Offset: offset, Lines: shown, TotalLines: total,
-		More: offset+shown-1 < total, Session: t.ID}, nil
+		More: offset+shown-1 < total, Session: t.ID, RecordingState: t.RecordingState, TranscriptState: t.TranscriptState}, nil
 }
 
 func lastLine(s string) string {
@@ -253,6 +266,9 @@ type Written struct {
 	Bytes        int    `json:"bytes"`
 	Replacements int    `json:"replacements,omitempty"`
 	Session      string `json:"session"`
+
+	RecordingState  store.EvidenceState `json:"recording_state,omitempty"`
+	TranscriptState store.EvidenceState `json:"transcript_state,omitempty"`
 }
 
 // WriteFile writes content to a file, making its directory if needed. An existing file keeps its owner
@@ -279,7 +295,8 @@ cat > "$f" || exit 74`
 	if err := fileError(t, path); err != nil {
 		return Written{}, err
 	}
-	return Written{Machine: m.Name, Path: path, Bytes: len(content), Session: t.ID}, nil
+	return Written{Machine: m.Name, Path: path, Bytes: len(content), Session: t.ID,
+		RecordingState: t.RecordingState, TranscriptState: t.TranscriptState}, nil
 }
 
 // EditInput replaces OldString with NewString in a file: exactly one occurrence, or every one with
@@ -342,13 +359,14 @@ cat > "$f" || exit 74`
 	if !in.ReplaceAll {
 		n = 1
 	}
-	return Written{Machine: m.Name, Path: in.Path, Bytes: len(next), Replacements: n, Session: w.ID}, nil
+	return Written{Machine: m.Name, Path: in.Path, Bytes: len(next), Replacements: n, Session: w.ID,
+		RecordingState: w.RecordingState, TranscriptState: w.TranscriptState}, nil
 }
 
 // rawStdout is a file tool's output exactly as the machine sent it (the transcript's is cleaned for
 // reading, which an edit must not do).
 func (g *Gate) rawStdout(t Transcript) (string, bool) {
-	if t.Truncated {
+	if t.textTruncated {
 		return "", false
 	}
 	return t.raw, true

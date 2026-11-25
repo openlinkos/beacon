@@ -48,7 +48,12 @@ func (w *Writer) Write(p []byte) (int, error) {
 	if w.file == nil {
 		return 0, fs.ErrClosed
 	}
-	return w.file.Write(p)
+	if w.result != nil {
+		return 0, w.result
+	}
+	n, err := w.file.Write(p)
+	w.result = err
+	return n, err
 }
 
 // Sync makes the evidence written so far durable before the remote operation starts.
@@ -60,11 +65,17 @@ func (w *Writer) Sync() error {
 		return err
 	}
 	// Persist directories that may have been created with the capture, including the root's entry.
-	for dir := filepath.Dir(w.active); ; dir = filepath.Dir(dir) {
+	return SyncParents(w.root, w.active)
+}
+
+// SyncParents persists path's directory and the directory entries up to and including root.
+func SyncParents(root, path string) error {
+	parent := filepath.Dir(filepath.Clean(root))
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
 		if err := SyncDir(dir); err != nil {
 			return err
 		}
-		if dir == filepath.Dir(w.root) || dir == filepath.Dir(dir) {
+		if dir == parent || dir == filepath.Dir(dir) {
 			return nil
 		}
 	}
@@ -75,7 +86,11 @@ func (w *Writer) Close() error {
 	if w.file == nil {
 		return w.result
 	}
-	w.result = w.seal()
+	if w.result == nil {
+		w.result = w.seal()
+	} else {
+		w.result = errors.Join(w.result, w.file.Close())
+	}
 	w.file = nil
 	if w.result != nil {
 		_ = os.Remove(w.active)

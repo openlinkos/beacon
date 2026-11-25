@@ -918,6 +918,18 @@ func (s *Store) DeleteMachine(name string) error {
 
 // ---- SSH sessions
 
+// EvidenceState describes the evidence Beacon captured for a session. A missing value means the
+// session predates evidence tracking.
+type EvidenceState string
+
+const (
+	EvidenceCapturing    EvidenceState = "capturing"
+	EvidenceComplete     EvidenceState = "complete"
+	EvidenceTruncated    EvidenceState = "truncated"
+	EvidenceUnavailable  EvidenceState = "unavailable"
+	EvidenceMetadataOnly EvidenceState = "metadata_only"
+)
+
 // SessionRecord indexes one session on a machine: a command, a shell, a file transfer or a forwarded
 // port, through the SSH channel or a tool. Its recording and transcript are files; Recording names them
 // relative to the recordings directory, without the extension.
@@ -941,6 +953,9 @@ type SessionRecord struct {
 	PTY *bool `json:"pty,omitempty"`
 	// Registration is the machine's enrolment at capture. It is absent on older recordings.
 	MachineRegistration string `json:"machine_registration,omitempty"`
+
+	RecordingState  EvidenceState `json:"recording_state,omitempty"`
+	TranscriptState EvidenceState `json:"transcript_state,omitempty"`
 }
 
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.

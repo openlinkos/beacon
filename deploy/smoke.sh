@@ -325,6 +325,10 @@ else
   smoke_page_link_revocation "$alert" "$session"
 fi
 
+if [[ "$version" != v0.3.0-rc.42 ]]; then
+  smoke_session_evidence "$session"
+fi
+
 # Add and revoke a fixture grant before the backup. The endpoint is inside the Beacon container and
 # is unused by the test. The REST list verifies delegation without sending any upstream request.
 credential_agent=credential-recovery

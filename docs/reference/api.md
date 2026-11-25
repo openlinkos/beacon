@@ -137,6 +137,12 @@ The caller's machine selection also limits session records in the alert evidence
 
 Machine-restricted credentials see sessions from the current enrolments they are allowed to access. Beacon applies those restrictions before `limit`. A transcript or recording outside the caller's access returns the same `404 session.not_found` as an unknown session. The `page` field sends people to sign in to the console.
 
+Each session reports `recording_state` and `transcript_state` independently. `complete` means the evidence was kept, `truncated` means it reached its own size limit, and `unavailable` means it could not be kept or read. `capturing` means Beacon has yet to record the end of capture. `metadata_only` describes activity with no replay or structured transcript for that artifact. Older records may omit the states. Forwarded ports and SFTP record session metadata. Interactive command indexing needs a supported Bash shell with terminal integration.
+
+On detail reads, `recording_available` says whether this instance could open the recording. It can be false even when capture finished successfully. The optional `recording_publication` and `transcript_publication` separately report known shared-storage publication, such as `pending` while a sealed artifact is still on its original centre. An omitted publication state means the response has no local publication evidence. The replay endpoint returns `404 session.recording_unavailable` for an authorised session whose recording cannot be opened.
+
+Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
+
 Alert evidence and timeline include command text and links to the signed-in session page only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the permitted session metadata there.
 
 ## Manage share links
@@ -309,6 +315,7 @@ Each sends with a token of its own:
 | `agent_run.not_found` | 404 | No matching reportable hook delivery is available for this alert |
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
+| `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
@@ -325,7 +332,8 @@ Each sends with a token of its own:
 | `file.changed` | 409 | The file changed since it was read; read it again |
 | `edit.no_match` | 422 | `old_string` does not occur in the file |
 | `edit.ambiguous` | 422 | `old_string` occurs more than once; give more context, or set `replace_all` |
-| `session.not_found` | 404 | No session with this id |
+| `session.not_found` | 404 | No visible session with this ID |
+| `session.recording_unavailable` | 404 | The visible session’s recording cannot be opened |
 | `config.not_found` | 404 | No such configuration item or change |
 | `config.invalid` | 422 | The change would not pass the checks; the message says why, and nothing changed |
 | `config.conflict` | 409 | A later version is in force, or a later change touched the same item; read again and decide afresh |

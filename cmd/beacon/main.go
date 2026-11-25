@@ -434,22 +434,7 @@ func serve(args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go reloadOnHUP(ctx, hup, cfg, cdb, log)
-	if gate != nil {
-		go func() {
-			gate.RetryPending(ctx)
-			t := time.NewTicker(time.Hour)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					gate.RetryPending(ctx)
-					gate.TidyLocal(cfg.SSH.Keep.D())
-				}
-			}
-		}()
-	}
+	go gate.RunPending(ctx)
 
 	// The leader lease of a primary/standby pair (PostgreSQL): one instance holds the Feishu long
 	// connection, the alert routing, the escalation loops and the SSH channel, and answers /healthz

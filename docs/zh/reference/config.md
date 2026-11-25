@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cdc697db
+sourceHash: sha256-7164e12a
 ---
 
 # config.yaml
@@ -94,7 +94,7 @@ sourceHash: sha256-cdc697db
 | `ssh.ca_key_file` | 路径 | — | 为每次连机器签短期证书的钥匙；设置它即开启通道。必须与 host key 是不同的钥匙 |
 | `ssh.source_addresses` | CIDR 段列表 | — | 设置后，证书只从这些地址可用 |
 | `ssh.keep` | 时长 | `4320h`（180 天） | 会话及其录像保留多久。至少 `24h` |
-| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存哪里：`data_dir` 下的录像目录，或 S3 兼容的桶（`ssh.recordings_s3` 指定）。主备两台共用一个桶，一台录的会话另一台能回放。`s3` 时先写本地，会话结束时再上传，失败会重试。请给桶设生命周期规则，这样清理失败留下的对象到期也会被删 |
+| `ssh.recordings` | `dir` 或 `s3` | `dir` | 会话录像存放位置，可以是 `data_dir` 下的录像目录，也可以是 S3 兼容存储桶（由 `ssh.recordings_s3` 指定）。主备共享同一存储桶。Beacon 先在本地封存录像，再在后台上传并重试失败的上传。上传完成前，原实例可以读取已封存的证据。未完成的采集不会自动上传。可给存储桶配置生命周期规则，清理常规清理失败后留下的对象 |
 | `ssh.recordings_s3.endpoint` | URL | — | 桶的地址，如 `https://s3.example.com`，内网 MinIO 用 `http://10.0.0.5:9000`。一律路径风格寻址 |
 | `ssh.recordings_s3.region` | 字符串 | `us-east-1` | 签名用的区域 |
 | `ssh.recordings_s3.bucket` | 字符串 | — | 桶名 |

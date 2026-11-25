@@ -25,6 +25,7 @@ type recorder struct {
 	last    time.Time
 	written int64
 	full    bool
+	err     error
 	now     func() time.Time
 }
 
@@ -35,29 +36,53 @@ func newRecorder(w io.WriteCloser, cols, rows int, command, title string, now fu
 		"timestamp": now().Unix(), "command": command, "title": title})
 	r := &recorder{f: w, last: now(), now: now}
 	r.write(append(hdr, '\n'))
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.full {
+		return nil, io.ErrShortWrite
+	}
 	return r, nil
 }
 
-// close finishes the recording: for a file it closes it, for an upload it sends it.
+// close seals complete lines only. A failed local capture is never published as a replay.
 func (r *recorder) close() error {
-	if r == nil || r.f == nil {
+	if r == nil {
 		return nil
 	}
-	err := r.f.Close()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.f == nil {
+		return r.err
+	}
+	f := r.f
 	r.f = nil
-	return err
+	if r.err != nil {
+		if a, ok := f.(interface{ Abandon() error }); ok {
+			_ = a.Abandon()
+		} else {
+			_ = f.Close()
+		}
+		return r.err
+	}
+	r.err = f.Close()
+	return r.err
 }
 
 func (r *recorder) write(b []byte) {
-	if r.full {
+	if r.full || r.err != nil || r.f == nil {
 		return
 	}
 	if r.written+int64(len(b)) > maxRecording {
 		r.full = true
 		return
 	}
-	n, _ := r.f.Write(b)
+	n, err := r.f.Write(b)
 	r.written += int64(n)
+	if err == nil && n != len(b) {
+		err = io.ErrShortWrite
+	}
+	r.err = err
 }
 
 func (r *recorder) event(code, data string) {
@@ -66,6 +91,9 @@ func (r *recorder) event(code, data string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.full || r.err != nil || r.f == nil {
+		return
+	}
 	now := r.now()
 	b, _ := json.Marshal([]any{math.Round(now.Sub(r.last).Seconds()*1e6) / 1e6, code, data})
 	r.last = now
@@ -106,6 +134,7 @@ type shellLog struct {
 	typed    strings.Builder
 	line     strings.Builder
 	cur      *Command
+	full     bool
 	carry    []byte
 	rec      *recorder
 	now      func() time.Time
@@ -159,8 +188,12 @@ func (l *shellLog) output(p []byte) []byte {
 }
 
 func (l *shellLog) plain(b []byte) []byte {
-	if l.state == 'C' && l.cur != nil && len(l.cur.Output) < maxText {
-		l.cur.Output += string(b)
+	if l.state == 'C' && l.cur != nil {
+		room := maxText - len(l.cur.Output)
+		if len(b) > room {
+			l.full = true
+		}
+		l.cur.Output += string(b[:min(len(b), room)])
 	}
 	return b
 }
@@ -201,9 +234,11 @@ func (l *shellLog) input(p []byte) {
 	defer l.mu.Unlock()
 	switch l.state {
 	case 'B':
-		if l.typed.Len() < maxText {
-			l.typed.Write(p)
+		room := maxText - l.typed.Len()
+		if len(p) > room {
+			l.full = true
 		}
+		l.typed.Write(p[:min(len(p), room)])
 	case 'C':
 		if l.cur == nil {
 			return
@@ -222,7 +257,7 @@ func (l *shellLog) input(p []byte) {
 }
 
 // done returns the commands, with the one still running (when the shell ended inside it).
-func (l *shellLog) done() []Command {
+func (l *shellLog) done() ([]Command, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	out := append([]Command(nil), l.commands...)
@@ -232,7 +267,7 @@ func (l *shellLog) done() []Command {
 		c.Ms = l.now().Sub(c.Started).Milliseconds()
 		out = append(out, c)
 	}
-	return out
+	return out, l.full
 }
 
 var escapes = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\^_=>]`)

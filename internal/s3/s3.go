@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -75,6 +76,33 @@ func (c *Client) Put(ctx context.Context, key string, body []byte) error {
 	if err != nil {
 		return err
 	}
+	return c.status(req, key, http.StatusOK)
+}
+
+// putFile publishes one immutable spool file without copying it into a session-sized allocation.
+func (c *Client) putFile(ctx context.Context, key, path string) error {
+	f, err := os.Open(path) //nolint:gosec // inside the recordings spool
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	digest := sha256.New()
+	size, err := io.Copy(digest, f)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	var body io.Reader = f
+	if size == 0 {
+		body = http.NoBody
+	}
+	req, err := c.signedRequest(ctx, http.MethodPut, key, nil, body, hex.EncodeToString(digest.Sum(nil)))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = size
 	return c.status(req, key, http.StatusOK)
 }
 
@@ -145,6 +173,11 @@ func (c *Client) Remove(ctx context.Context, key string) error {
 // request builds the signed request for one object. body is the payload for PUT (nil elsewhere,
 // which is the empty payload's hash).
 func (c *Client) request(ctx context.Context, method, key string, query url.Values, body []byte) (*http.Request, error) {
+	payload := sha256.Sum256(body)
+	return c.signedRequest(ctx, method, key, query, bytes.NewReader(body), hex.EncodeToString(payload[:]))
+}
+
+func (c *Client) signedRequest(ctx context.Context, method, key string, query url.Values, body io.Reader, hash string) (*http.Request, error) {
 	if key == "" || strings.Contains(key, "..") || strings.HasPrefix(key, "/") {
 		return nil, fmt.Errorf("s3: the object key %q is not a plain relative path", key)
 	}
@@ -153,10 +186,8 @@ func (c *Client) request(ctx context.Context, method, key string, query url.Valu
 	if query != nil {
 		u.RawQuery = query.Encode()
 	}
-	payload := sha256.Sum256(body)
-	hash := hex.EncodeToString(payload[:])
 	now := time.Now().UTC()
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return nil, err
 	}

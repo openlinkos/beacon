@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,13 +43,14 @@ func signer(t *testing.T) ssh.Signer {
 // target is a machine for the tests: an SSH server that trusts only the CA and runs what it is asked with
 // sh, as sshd does. With a terminal requested it merges stderr into stdout, as a terminal would.
 type target struct {
-	addr    string
-	hostKey ssh.Signer
-	cfg     *ssh.ServerConfig
-	home    string
-	mu      sync.Mutex
-	keyIDs  []string
-	sources []string // the source-address option of each certificate accepted
+	addr            string
+	hostKey         ssh.Signer
+	cfg             *ssh.ServerConfig
+	home            string
+	mu              sync.Mutex
+	keyIDs          []string
+	sources         []string // the source-address option of each certificate accepted
+	forwardRequests atomic.Int64
 }
 
 func newTarget(t *testing.T, ca ssh.PublicKey) *target {
@@ -93,6 +95,9 @@ func (tg *target) serve(nc net.Conn) {
 	}
 	go ssh.DiscardRequests(reqs)
 	for nch := range chans {
+		if nch.ChannelType() == "direct-tcpip" {
+			tg.forwardRequests.Add(1)
+		}
 		if nch.ChannelType() != "session" {
 			_ = nch.Reject(ssh.Prohibited, "sessions only")
 			continue
@@ -230,15 +235,16 @@ func setup(t *testing.T, scopes ...string) *env {
 	return e
 }
 
-// quiesce waits for the recordings to stop changing: two snapshots of every file's size and mod time,
-// alike, a quiet interval apart.
+// quiesce waits until started sessions have closed their index, then checks the files stopped
+// changing. A private capture can sit unchanged while the session shuts down.
 func (e *env) quiesce(t *testing.T) {
 	t.Helper()
 	seen := ""
 	deadline := time.Now().Add(testWait)
 	for {
 		state := e.recordings()
-		if state == seen {
+		open := e.st.Sessions(1, func(r store.SessionRecord) bool { return r.Ended.IsZero() })
+		if state == seen && len(open) == 0 {
 			return
 		}
 		seen = state
@@ -647,7 +653,7 @@ func TestShellLog(t *testing.T) {
 	if strings.Contains(seen, "\x1b]133") {
 		t.Errorf("marks leaked: %q", seen)
 	}
-	cs := l.done()
+	cs, _ := l.done()
 	if len(cs) != 2 || cs[0].Command != "ls /x" || *cs[0].Exit != 2 || cs[0].Output != "file\n" ||
 		cs[1].Command != "psql" || len(cs[1].Inputs) != 1 || cs[1].Inputs[0] != "select 1;" {
 		t.Errorf("commands %+v", cs)

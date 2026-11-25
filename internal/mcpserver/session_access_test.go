@@ -140,14 +140,16 @@ func TestSessionAccessKeepsCredentialMachineCeilings(t *testing.T) {
 			checkList(t, string(wire), true)
 			status, body = get(t, tc.secret, path+"/"+allowed)
 			var restTranscript sshgate.Transcript
-			if err := json.Unmarshal([]byte(body), &restTranscript); status != http.StatusOK || err != nil || restTranscript.Stdout != "fixture output" {
+			if err := json.Unmarshal([]byte(body), &restTranscript); status != http.StatusOK || err != nil || restTranscript.Stdout != "fixture output" ||
+				restTranscript.RecordingAvailable == nil || !*restTranscript.RecordingAvailable {
 				t.Fatalf("REST detail: %d %s", status, body)
 			}
 			assertSessionSignInPage(t, restTranscript.Page, allowed)
 			mcpDetail, mcpText := call(t, c, "get_session", map[string]any{"id": allowed})
 			wire, err = json.Marshal(mcpDetail.StructuredContent)
 			var tr sshgate.Transcript
-			if err != nil || json.Unmarshal(wire, &tr) != nil || mcpDetail.IsError || tr.Stdout != "fixture output" {
+			if err != nil || json.Unmarshal(wire, &tr) != nil || mcpDetail.IsError || tr.Stdout != "fixture output" ||
+				tr.RecordingAvailable == nil || !*tr.RecordingAvailable {
 				t.Fatalf("MCP detail: %s", mcpText)
 			}
 			assertSessionSignInPage(t, tr.Page, allowed)
@@ -202,6 +204,37 @@ func TestSessionAccessKeepsCredentialMachineCeilings(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &scope); status != http.StatusOK || err != nil || scope.MachineScope != "none" {
 		t.Fatal("the REST credential view should distinguish a disjoint grant from all machines")
 	}
+
+	// A valid capture can coexist with a corrupt transcript. Lookups still use
+	// the original credential's effective machine scope.
+	saved, _ := e.Store.Session(allowed)
+	saved.RecordingState, saved.TranscriptState = store.EvidenceComplete, store.EvidenceComplete
+	if err := e.Store.PutSession(saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, allowed+".json"), []byte(`{"stdout":"discard partial data", "commands":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c = connect(t, srv.URL+"/mcp", static)
+	result, body := call(t, c, "get_session", map[string]any{"id": allowed})
+	if result.IsError || !strings.Contains(body, `"transcript_state":"unavailable"`) || !strings.Contains(body, `"recording_available":true`) ||
+		strings.Contains(body, "discard partial data") {
+		t.Fatalf("MCP unreadable transcript: %s", body)
+	}
+	if err := os.Remove(filepath.Join(dir, allowed+".cast")); err != nil {
+		t.Fatal(err)
+	}
+	status, body = get(t, static, path+"/"+allowed)
+	var restEvidence sshgate.Transcript
+	if err := json.Unmarshal([]byte(body), &restEvidence); status != http.StatusOK || err != nil ||
+		restEvidence.RecordingAvailable == nil || *restEvidence.RecordingAvailable || restEvidence.RecordingState != store.EvidenceComplete {
+		t.Fatalf("REST missing replay does not change the capture result: %d %s", status, body)
+	}
+	if status, body = get(t, static, path+"/"+allowed+"/recording"); status != http.StatusNotFound ||
+		!strings.Contains(body, `"session.recording_unavailable"`) {
+		t.Fatalf("REST authorised missing recording: %d %s", status, body)
+	}
+
 }
 
 func assertSessionSignInPage(t *testing.T, address, id string) {

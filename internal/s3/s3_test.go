@@ -255,7 +255,7 @@ func TestStoreKeepsTheLocalFileWhenUploadFails(t *testing.T) {
 	}
 }
 
-func TestStoreRetriesLeftoverLocalFiles(t *testing.T) {
+func TestStorePreservesLegacyLocalFilesWithoutPublishing(t *testing.T) {
 	objects := map[string]string{}
 	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,11 +301,14 @@ func TestStoreRetriesLeftoverLocalFiles(t *testing.T) {
 	mu.Lock()
 	got := objects["2026/11/04/left.cast"]
 	mu.Unlock()
-	if got != "leftover" {
-		t.Fatalf("object: %q", got)
+	if got != "" {
+		t.Fatalf("ambiguous legacy evidence was published: %q", got)
 	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("local file still there: %v", err)
+	if b, err := st.ReadFile("2026/11/04/left.cast"); string(b) != "leftover" || err != nil {
+		t.Fatalf("legacy local evidence is unreadable: %q %v", b, err)
+	}
+	if got := st.Publication("2026/11/04/left.cast"); got != "" {
+		t.Fatalf("legacy local evidence got a false publication receipt: %s", got)
 	}
 }
 

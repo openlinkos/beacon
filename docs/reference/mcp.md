@@ -92,12 +92,12 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
-| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` has all of it |
+| `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` reads what was retained |
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
 | `edit_file` | `machines:ssh` | Replace an exact string in a text file (`machine`, `path`, `old_string`, `new_string`, `replace_all`). `old_string` must occur once unless `replace_all` is set; refused, rather than overwrite, if the file changed meanwhile |
 | `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default). Beacon applies the credential's machine restrictions before the limit. Readers with `status:read` alone receive metadata |
-| `get_session` | `sessions:read` or `machines:ssh` | A visible session's transcript (`id`), with the full output of a command or the output and exit status of each interactive shell command. The `page` field leads to console sign-in |
+| `get_session` | `sessions:read` or `machines:ssh` | A visible session’s evidence (`id`): retained command output, indexed commands and exit status when available, or session metadata. The `page` field leads to console sign-in |
 | `add_machine` | `machines:write` | Add a machine, pinning its host key (`name`, `address`, `user`, `critical`, `note`, `replace`); `address: connector` for one behind NAT, with `connector_key` and optionally `host_key`. The result says what the machine needs |
 | `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The optional `if_version` guards against concurrent edits. The host key and the address stay |
 | `machine_history` | `status:read` or `machines:ssh` | Read the settings history for `name`. Use `before` (exclusive) and `limit` to page |
@@ -108,6 +108,12 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
 
 Alert evidence and timeline contain command text and links to the signed-in session page only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read permitted session metadata there.
+
+Each session reports `recording_state` and `transcript_state` independently. `complete` means the evidence was kept, `truncated` means it reached its own size limit, and `unavailable` means it could not be kept or read. `capturing` means Beacon has yet to record the end of capture. `metadata_only` describes activity with no replay or structured transcript for that artifact. Older records may omit the states. Forwarded ports and SFTP record session metadata. Interactive command indexing needs a supported Bash shell with terminal integration.
+
+On detail reads, `recording_available` says whether this instance could open the recording. It can be false even when capture finished successfully. The optional `recording_publication` and `transcript_publication` separately report known shared-storage publication, such as `pending` while a sealed artifact is still on its original centre. An omitted publication state means the response has no local publication evidence. The replay endpoint returns `404 session.recording_unavailable` for an authorised session whose recording cannot be opened.
+
+Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
 
 ## Manage share links
 

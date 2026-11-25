@@ -16,6 +16,8 @@ The examples assume the reference deployment from [On a server](install.md), run
 | The deployment | `/opt/beacon`: `.env`, `config.yaml`, `secrets/`, `catalog/`, `targets/`, `rules/` | Your configuration, and the SSH channel's keys |
 | Team credential policy | The encrypted rows in the state database and `team-credentials/epochs` in Beacon's data directory | The rollback anchor needed to verify the current policy. Keep a protected, independently retained copy of its newest epoch |
 
+When `ssh.recordings` is `s3`, back up the shared bucket as well as the local state of each centre. Locally sealed evidence waiting for upload is under that centre’s `recordings/` directory. Beacon resumes publication for sealed files after a restart. A pending file from an older release without a seal can still be read on its original centre, within the normal session retention.
+
 Two things about the secrets, which `install.sh` makes on the machine and which never leave it:
 
 - **A backup that holds them must itself be protected**: restricted to root, or encrypted off the machine.
