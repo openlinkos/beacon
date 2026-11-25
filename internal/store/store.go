@@ -68,7 +68,9 @@ type Group struct {
 	Alerts         []Alert           `json:"alerts"`
 	StartsAt       time.Time         `json:"starts_at"`
 	ResolvedAt     time.Time         `json:"resolved_at,omitzero"`
-	Channel        string            `json:"channel"` // the initial chat route that accepted the alert
+	Channel        string            `json:"channel"`                 // the initial chat route that accepted the alert
+	ChatRouteID    string            `json:"chat_route_id,omitempty"` // the destination that accepted the initial chat notification
+	ChatRecoveries []ChatRecovery    `json:"chat_recoveries,omitempty"`
 	MessageID      string            `json:"message_id,omitempty"`
 	NotifiedAt     time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
 	ChannelAt      time.Time         `json:"channel_at,omitzero"`  // acceptance of the first chat notification
@@ -103,6 +105,18 @@ type Group struct {
 	NotifySlack  bool            `json:"-"` // stored separately from the group JSON
 	SlackNotices []WebhookNotice `json:"-"`
 	slackStored  bool
+}
+
+// ChatRecovery holds the original Feishu destination and content for a resolved episode.
+type ChatRecovery struct {
+	At        time.Time       `json:"at"`
+	RetryAt   time.Time       `json:"retry_at,omitzero"`
+	Episode   string          `json:"episode,omitempty"`
+	Channel   string          `json:"channel"`
+	RouteID   string          `json:"route_id"`
+	MessageID string          `json:"message_id,omitempty"`
+	Card      json.RawMessage `json:"card,omitempty"`
+	Text      string          `json:"text,omitempty"`
 }
 
 // WebhookNotice is a notification that has not yet been accepted by the receiver.
@@ -142,6 +156,7 @@ func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
 type Notification struct {
 	At      time.Time `json:"at"`
 	Channel string    `json:"channel"`
+	Event   string    `json:"event,omitempty"`    // resolved for a recovery update
 	Result  string    `json:"result"`             // ok or failed
 	RouteID string    `json:"route_id,omitempty"` // keyed identity of the configuration used for this attempt
 }

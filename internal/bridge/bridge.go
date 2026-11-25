@@ -117,7 +117,8 @@ type Bridge struct {
 	slackActive    bool              // one request at a time to the Slack channel, protected by mu
 	deliveryRoutes map[string]string // keyed identities of the configured notification destinations
 
-	sessionCardCursor int // next group to check for session changes, protected by mu
+	chatRecoveryCursor int // next group to check for a pending Feishu recovery, protected by mu
+	sessionCardCursor  int // next group to check for session changes, protected by mu
 }
 
 const (
@@ -227,7 +228,7 @@ func (b *Bridge) patchAllowed(g *store.Group, resolving bool) bool {
 	if resolving {
 		return q < 1
 	}
-	return q < 0.9
+	return q < 0.9 && !hasCurrentChatRecovery(g)
 }
 
 func (b *Bridge) feishuResult(err error) {
@@ -287,7 +288,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.MonitorMachines = b.incidentMonitorMachines(&g)
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
-			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""
+			g.Receipt, g.MessageID, g.CardHash, g.Channel, g.ChatRouteID = "", "", "", "", ""
 			g.CardSessionHash, g.CardSessionAttemptAt = "", time.Time{}
 			g.StartsAt = starts
 			if g.StartsAt.IsZero() {
@@ -304,7 +305,10 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		}
 		g.Status = "resolved"
 		g.ResolvedAt = b.now()
-		b.resolve(ctx, &g)
+		if pushoverAccepted(&g) && b.d.Pushover != nil && !g.Ack.StopsEscalation() {
+			b.cancelPushover(ctx, &g)
+		}
+		queuedRecovery := b.queueChatRecovery(ctx, &g)
 		if g.NotifyWebhook {
 			b.queueWebhook(&g, config.NotificationWebhookChannel, "resolved")
 		}
@@ -312,11 +316,20 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			b.queueWebhook(&g, config.SlackChannel, "resolved")
 		}
 		b.wake(&g, "resolved")
-		err := b.saveGroup(g)
-		if err == nil && (len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0) {
+		if err := b.saveGroup(g); err != nil {
+			return err
+		}
+		if len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0 {
 			b.wakeWebhooks()
 		}
-		return err
+		if queuedRecovery {
+			b.sendChatRecovery(ctx, &g, len(g.ChatRecoveries)-1, b.now())
+		} else if g.Channel == "app" && chatRoute(&g) == "" && b.patchAllowed(&g, true) {
+			// An older card has a concrete message ID but no verified route for durable retry.
+			b.patch(ctx, &g)
+			return b.d.Store.PutGroup(g)
+		}
+		return nil
 	}
 	err := b.d.Store.PutGroupWithOutcome(g, previous)
 	if err == nil && (len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0) {
@@ -375,7 +388,7 @@ func (b *Bridge) tryChat(ctx context.Context, g *store.Group, pol config.Policy)
 		b.recordNotification(g, "app", err)
 		if err == nil {
 			g.Channel, g.MessageID, g.CardAt, g.CardHash = "app", id, b.now(), cardHash(g)
-			g.ChannelAt = g.CardAt
+			g.ChannelAt, g.ChatRouteID = g.CardAt, b.deliveryRoutes["app"]
 			g.CardSessionHash = sessions.fingerprint()
 			b.count("feishu", "ok")
 			return true
@@ -389,7 +402,7 @@ func (b *Bridge) tryChat(ctx context.Context, g *store.Group, pol config.Policy)
 		err := b.d.Bot.Send(ctx, b.plainFiring(g))
 		b.recordNotification(g, "webhook", err)
 		if err == nil {
-			g.Channel, g.ChannelAt = "webhook", b.now()
+			g.Channel, g.ChannelAt, g.ChatRouteID = "webhook", b.now(), b.deliveryRoutes["webhook"]
 			b.count("feishu-bot", "ok")
 			return true
 		}
@@ -433,20 +446,6 @@ func (b *Bridge) patchWithSessions(ctx context.Context, g *store.Group, sessions
 	b.count("feishu-patch", "ok")
 	g.CardAt, g.CardHash = b.now(), cardHash(g)
 	g.CardSessionHash = sessions.fingerprint()
-}
-
-func (b *Bridge) resolve(ctx context.Context, g *store.Group) {
-	if pushoverAccepted(g) && b.d.Pushover != nil && !g.Ack.StopsEscalation() {
-		b.cancelPushover(ctx, g)
-	}
-	switch {
-	case b.patchAllowed(g, true):
-		b.patch(ctx, g)
-	case g.Channel == "webhook" && b.d.Bot != nil:
-		if err := b.d.Bot.Send(ctx, b.plainResolved(g)); err != nil {
-			b.d.Log.Warn("feishu group bot failed", "group", g.ID, "err", err)
-		}
-	}
 }
 
 func (b *Bridge) push(ctx context.Context, g *store.Group) {
@@ -736,7 +735,7 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 			}
 		}
 	}
-	if upkeep {
+	if upkeep && !b.retryChatRecovery(ctx, groups, b.now()) {
 		b.refreshSessionCards(ctx, groups, b.now())
 	}
 }

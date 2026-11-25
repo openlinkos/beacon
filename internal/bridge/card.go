@@ -163,6 +163,11 @@ func (b *Bridge) card(ctx context.Context, g *store.Group) feishu.Card {
 }
 
 func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions cardSessions) feishu.Card {
+	// A resolved card points to the retained incident without minting another share link.
+	timelineURL := b.notificationPage(g)
+	if g.Firing() {
+		timelineURL = b.incidentPage(g)
+	}
 	now := b.now()
 	firing := g.Firing()
 	colour := feishu.Orange
@@ -241,8 +246,8 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	}
 	els = append(els, b.agentBlock(g), b.sessionsBlock(sessions), b.notesBlock(g))
 	var links []map[string]any
-	if u := b.incidentPage(g); u != "" {
-		links = append(links, feishu.LinkButton(b.t("Timeline"), u))
+	if timelineURL != "" {
+		links = append(links, feishu.LinkButton(b.t("Timeline"), timelineURL))
 	}
 	if u := b.link(b.d.Config.Links.Runbook, g); u != "" {
 		links = append(links, feishu.LinkButton(b.t("Runbook"), u))

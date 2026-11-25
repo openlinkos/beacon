@@ -396,7 +396,7 @@ func TestTimeline(t *testing.T) {
 			t.Errorf("out of order at %d: %+v", i, tl.Events)
 		}
 	}
-	want := "change started notified session buzzed acknowledged note silenced resolved"
+	want := "change started notified session buzzed acknowledged note silenced resolved notification"
 	if strings.Join(kinds, " ") != want {
 		t.Errorf("kinds:\n %s\nwant\n %s", strings.Join(kinds, " "), want)
 	}

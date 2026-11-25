@@ -18,6 +18,8 @@ feishu:
 
 A card says what is wrong and since when, which locations fail and why, and what agents have noted. It changes in place as the alert does, and turns green when it resolves.
 
+Beacon retries a recovery update for up to seven days against the destination that accepted the firing alert. For an app card, the update turns the original card green and counts against the app budget. For a custom bot, the update is a separate message in the original group. If the original destination cannot be verified, Beacon keeps legacy direct card updates by message ID. A bot recovery needs a verified destination. The recovery link opens the incident after sign-in. The incident timeline distinguishes submission failure from acceptance by Feishu.
+
 - The people on call acknowledge and silence it with its buttons.
 - A critical alert nobody acknowledges buzzes them in the app after 10 minutes.
 - A custom bot in the same group carries plain messages that cost no API quota.

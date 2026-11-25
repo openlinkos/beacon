@@ -5,6 +5,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ## Unreleased
 
 - Show the latest incident note with its author and time beside the response controls, separately from the acknowledgement note.
+- Retry failed Feishu recovery updates after restart against the original app card or group bot destination. Show submission failure and provider acceptance in the live incident timeline.
 
 ## 0.3.0
 

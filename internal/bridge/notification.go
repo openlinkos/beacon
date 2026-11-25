@@ -37,7 +37,11 @@ func (b *Bridge) recordNotification(g *store.Group, channel string, err error) {
 	if !chatAccepted && (prev.Result != result || prev.At.Before(g.NotifiedAt)) {
 		_ = b.d.Store.Audit(store.AuditEntry{Time: now, Actor: "beacon", Via: channel, Action: "notify_people", Target: g.ID, Detail: result})
 	}
-	g.Notifications = append(g.Notifications, store.Notification{At: now, Channel: channel, Result: result, RouteID: b.deliveryRoutes[channel]})
+	appendNotification(g, store.Notification{At: now, Channel: channel, Result: result, RouteID: b.deliveryRoutes[channel]})
+}
+
+func appendNotification(g *store.Group, n store.Notification) {
+	g.Notifications = append(g.Notifications, n)
 	if len(g.Notifications) > keepNotifications {
 		g.Notifications = g.Notifications[len(g.Notifications)-keepNotifications:]
 	}
@@ -116,7 +120,7 @@ type notificationEvent struct {
 func notificationEvents(g *store.Group) []notificationEvent {
 	var events []notificationEvent
 	chatRecorded := slices.ContainsFunc(g.Notifications, func(n store.Notification) bool {
-		return n.Channel == g.Channel && n.Result == "ok"
+		return n.Channel == g.Channel && n.Result == "ok" && n.Event == ""
 	})
 	if (g.Channel == "app" || g.Channel == "webhook") && !chatRecorded {
 		at := g.ChannelAt
@@ -128,7 +132,7 @@ func notificationEvents(g *store.Group) []notificationEvent {
 	seen := map[string]bool{}
 	for _, n := range g.Notifications {
 		kind, via := "notification", n.Channel
-		if n.Result == "ok" {
+		if n.Result == "ok" && n.Event == "" {
 			switch n.Channel {
 			case "app", "webhook":
 				kind = "notified"
@@ -138,7 +142,7 @@ func notificationEvents(g *store.Group) []notificationEvent {
 				kind = "pushover"
 			}
 		}
-		events = append(events, notificationEvent{Event: Event{At: n.At, Kind: kind, Via: via, Result: n.Result}, routeID: n.RouteID})
+		events = append(events, notificationEvent{Event: Event{At: n.At, Kind: kind, Via: via, Result: n.Result, Event: n.Event}, routeID: n.RouteID})
 		seen[n.Channel] = true
 	}
 	if !seen["feishu-buzz"] {
@@ -182,7 +186,7 @@ func (b *Bridge) LatestCriticalDeliveries() map[string]DeliveryAttempt {
 			continue
 		}
 		for _, e := range notificationEvents(&g) {
-			if e.At.IsZero() || (e.Result != "ok" && e.Result != "failed") {
+			if e.Event.Event == "resolved" || e.At.IsZero() || (e.Result != "ok" && e.Result != "failed") {
 				continue
 			}
 			channel := e.Via

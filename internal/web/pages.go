@@ -567,6 +567,14 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		case "pushover":
 			row.Text = s.t("Pushover accepted the page")
 		case "notification":
+			if e.Event == "resolved" {
+				if e.Result == "ok" {
+					row.Text = s.t("Recovery update accepted by %s", s.channel(e.Via))
+				} else {
+					row.Text = s.t("Recovery update submission to %s failed", s.channel(e.Via))
+				}
+				break
+			}
 			switch e.Result {
 			case "ok":
 				row.Text = s.t("Notification accepted by %s", s.channel(e.Via))

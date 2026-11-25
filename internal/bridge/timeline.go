@@ -35,7 +35,7 @@ type Event struct {
 	Service string                   `json:"service,omitempty"`
 	ID      string                   `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
 	Until   *time.Time               `json:"until,omitempty"`
-	Event   string                   `json:"event,omitempty"`  // an agent call: for firing or resolved
+	Event   string                   `json:"event,omitempty"`  // notification or agent call: for firing or resolved
 	Result  string                   `json:"result,omitempty"` // provider result or reported execution phase
 	Exit    *int                     `json:"exit,omitempty"`   // a session, command or programme exit status
 	URL     string                   `json:"url,omitempty"`
@@ -74,8 +74,11 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access 
 			ev = append(ev, e)
 		}
 	}
-	for _, e := range notificationEvents(g) {
-		add(e.Event)
+	notifications := notificationEvents(g)
+	for _, e := range notifications {
+		if e.Event.Event != "resolved" {
+			add(e.Event)
+		}
 	}
 	for _, a := range g.PriorAcks {
 		add(Event{At: a.At, Kind: "acknowledged", By: a.By, Via: a.Via, Type: a.Kind, Text: clean(a.Note, maxLong, true)})
@@ -134,6 +137,11 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access 
 	}
 	if !g.Firing() {
 		add(Event{At: g.ResolvedAt, Kind: "resolved"})
+	}
+	for _, e := range notifications {
+		if e.Event.Event == "resolved" {
+			add(e.Event)
+		}
 	}
 	sort.SliceStable(ev, func(i, j int) bool { return ev[i].At.Before(ev[j].At) })
 	return Timeline{Alert: b.brief(g), Window: w, Heartbeats: hbs, Events: ev,
