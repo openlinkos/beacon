@@ -236,7 +236,8 @@ test "$(curl -fsS -b "$work/cookies" -c "$work/cookies" -o /dev/null -w '%{http_
   --data-urlencode "again=$password" "$status_url/console/setup")" = 303
 curl -fsS -b "$work/cookies" -D "$work/console.headers" "$status_url/console" > "$work/console.html"
 if grep -qi '^location: /workspace/' "$work/console.headers"; then
-  curl -fsS -b "$work/cookies" "$status_url/console/api/v1/session" | jq -e '.name == "Test Operator"' >/dev/null
+  curl -fsS -b "$work/cookies" "$status_url/console/api/v1/session" > "$work/console-session.json"
+  jq -e '.name == "Test Operator"' "$work/console-session.json" >/dev/null
 else
   grep -q 'Test Operator' "$work/console.html"
 fi
