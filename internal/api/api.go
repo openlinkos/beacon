@@ -259,6 +259,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/machines/{name}/restore", s.with("machines:write", s.restoreMachine))
 	mux.Handle("DELETE /api/v1/machines/{name}", s.with("machines:write", s.removeMachine))
 	mux.Handle("POST /api/v1/machines/{name}/run", s.with("machines:ssh", s.runCommand))
+	mux.Handle("POST /api/v1/machines/{name}/search", s.with("machines:ssh", s.searchFiles))
 	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
 	mux.Handle("PUT /api/v1/machines/{name}/file", s.with("machines:ssh", s.writeFile))
 	mux.Handle("PATCH /api/v1/machines/{name}/file", s.with("machines:ssh", s.editFile))
@@ -281,7 +282,7 @@ var Routes = []string{
 	"GET /api/v1/ssh", "POST /api/v1/ssh/pause", "POST /api/v1/ssh/resume",
 	"GET /api/v1/machines", "POST /api/v1/machines", "PATCH /api/v1/machines/{name}", "DELETE /api/v1/machines/{name}", "POST /api/v1/machines/{name}/run",
 	"GET /api/v1/machines/{name}/history", "POST /api/v1/machines/{name}/restore",
-	"GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
+	"POST /api/v1/machines/{name}/search", "GET /api/v1/machines/{name}/file", "PUT /api/v1/machines/{name}/file", "PATCH /api/v1/machines/{name}/file",
 	"GET /api/v1/sessions", "GET /api/v1/sessions/{id}", "GET /api/v1/sessions/{id}/recording",
 	"GET /api/v1/alerts/{id}/evidence", "GET /api/v1/alerts/{id}/timeline", "POST /api/v1/alerts/{id}/notes", "GET /api/v1/changes",
 	"PUT /api/v1/alerts/{id}/agent-runs/{delivery}",

@@ -41,7 +41,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
@@ -512,6 +512,28 @@ components:
         timed_out: {type: boolean}
         truncated: {type: boolean, description: Output in this response was cut; consult transcript_state for the stored result}
         duration_ms: {type: integer}
+        session: {type: string}
+        recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+    SearchResult:
+      type: object
+      required: [machine, directory, matches, limited, session]
+      properties:
+        machine: {type: string}
+        directory: {type: string, description: Physical project directory on the enrolled machine}
+        matches:
+          type: array
+          items:
+            type: object
+            required: [path, line, text]
+            properties:
+              path: {type: string, description: Absolute path for read_file}
+              line: {type: integer, minimum: 1}
+              text: {type: string, description: Retained excerpt without terminal control codes}
+              truncated: {type: boolean, description: The matching line is longer than its excerpt}
+        scanned_files: {type: integer, description: Number of files examined when the remote search reports its final count}
+        limited: {type: boolean, description: The result is partial because of an execution or search limit or unreadable location}
+        timed_out: {type: boolean, description: The operation did not finish before its deadline}
         session: {type: string}
         recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
@@ -1658,6 +1680,31 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/RunResult"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/search:
+    post:
+      summary: Search a project directory for literal text
+      description: "Scope: machines:ssh. Searches one reachable enrolled machine as its operating-system user, within fixed traversal, byte, result and time limits. Each call is recorded as a session."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [directory, query]
+              properties:
+                directory: {type: string, description: Explicit absolute physical directory. The filesystem root is excluded.}
+                query: {type: string, description: Literal case-sensitive text on one line. At most 128 bytes.}
+                limit: {type: integer, minimum: 1, maximum: 50, default: 25}
+      responses:
+        "200":
+          description: Observed matches, completeness and retained session evidence
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SearchResult"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/file:
     get:
