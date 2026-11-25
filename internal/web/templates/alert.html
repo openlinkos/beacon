@@ -1,13 +1,11 @@
 {{define "scripts"}}{{range .Events}}{{if and .Probe .Probe.Open}}<script src="/static/beacon-probe-result.js?v={{$.Version}}" defer></script>{{end}}{{end}}{{end}}
+{{define "actions"}}{{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}{{end}}
 {{define "incident-action"}}<input type="hidden" name="expected_episode" value="{{.Episode}}"><input type="hidden" name="return_episode" value="{{.ReturnEpisode}}">{{end}}
-{{define "content"}}<div class="ol-stack">
+{{define "content"}}<div class="bc-incident-layout">
 <section class="ol-panel bc-alert-response" data-state="{{.StatusClass}}" aria-labelledby="alert-response">
   <div class="ol-panel-body bc-alert-response-body">
     <div class="bc-alert-summary">
-      <div class="ol-cluster bc-sharing-header">
-        <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
-        {{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}
-      </div>
+      <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
       {{if .Feedback}}<div class="ol-alert ol-alert-{{.FeedbackTone}}" id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message"{{if .PhoneCancellation}} aria-describedby="pushover-cancellation"{{end}} role="{{if eq .FeedbackTone "danger"}}alert{{else}}status{{end}}">
         {{if eq .FeedbackTone "danger"}}{{icon "circle-alert"}}{{else}}{{icon "circle-check"}}{{end}}
         <div class="ol-alert-body"><p id="alert-action-message">{{.Feedback}}</p></div>
@@ -43,6 +41,13 @@
         </details>
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
+    </div>{{end}}
+    {{with .Machines}}<div class="bc-alert-machines">
+      {{if .Items}}<div class="ol-cluster">
+        <h3 class="ol-label">{{.Title}}</h3>
+        {{range .Items}}<a class="ol-btn ol-btn-secondary" href="{{.Href}}" aria-label="{{.K}}">{{iconSm "server"}}{{.V}}</a>{{end}}
+      </div>{{end}}
+      {{if .Hint}}<p class="ol-hint">{{.Hint}}</p>{{end}}
     </div>{{end}}
     {{with .LatestProbe}}<div class="bc-alert-note-preview bc-alert-check-preview" role="group" aria-labelledby="alert-latest-check">
       <div class="ol-cluster">
@@ -82,58 +87,17 @@
       {{end}}
     </div>{{end}}
   </div>
-  {{with .Machines}}<div class="bc-alert-machines">
-    {{if .Items}}<div class="ol-cluster">
-      <h3 class="ol-label">{{.Title}}</h3>
-      {{range .Items}}<a class="ol-btn ol-btn-secondary" href="{{.Href}}" aria-label="{{.K}}">{{iconSm "server"}}{{.V}}</a>{{end}}
-    </div>{{end}}
-    {{if .Hint}}<p class="ol-hint">{{.Hint}}</p>{{end}}
-  </div>{{end}}
 </section>
-<div class="ol-layout-supporting">
-<div class="ol-stack">
+<div class="bc-incident-evidence">
+<nav class="bc-section-links" aria-label="{{.L.Details}}">
+  <a href="#timeline">{{iconSm "clock"}}{{.L.Timeline}}</a>
+  <a href="#alert-evidence">{{iconSm "activity"}}{{.L.Probes}}</a>
+  {{if not .SharedViewHint}}<a href="#alert-sessions">{{iconSm "terminal"}}{{.L.Sessions}}</a>{{end}}
+  <a href="#alert-notes">{{iconSm "pencil"}}{{.L.Notes}}</a>
+</nav>
   {{if .Description}}<p class="ol-text-prose">{{.Description}}</p>{{end}}
 
-  <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "activity"}} {{.L.Probes}}</h2></div>
-    {{if .Probes}}
-    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-      <thead><tr><th>{{.L.Location}}</th><th>{{.L.Result}}</th><th>{{.L.Reason}}</th><th>{{.L.Instance}}</th></tr></thead>
-      <tbody>
-      {{range .Probes}}<tr>
-        <td><span class="ol-cell-title">{{.Location}}</span>{{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}</td>
-        <td data-label="{{$.L.Result}}"><span class="ol-badge ol-badge-{{if .OK}}success{{else}}danger{{end}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}</td>
-        <td data-label="{{$.L.Reason}}">{{.Reason}}{{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}</td>
-        <td data-label="{{$.L.Instance}}"><span class="ol-mono ol-break">{{.Instance}}</span>{{if .Module}}<span class="ol-cell-sub">{{.Module}}</span>{{end}}</td>
-      </tr>{{end}}
-      </tbody>
-    </table></div>
-    {{end}}
-    <div class="ol-panel-body">
-      {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
-      {{if .ProbesError}}<p class="ol-hint ol-mono">{{.ProbesError}}</p>{{end}}
-      <p class="ol-hint">{{.Window}}</p>
-    </div>
-  </section>
-
-  {{if not .SharedViewHint}}<section class="ol-panel">
-    <div class="ol-panel-header bc-alert-sessions-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
-    {{if .SessionsHint}}<div class="ol-panel-body"><p class="ol-hint">{{.SessionsHint}}</p></div>{{end}}
-    {{if .Sessions}}
-    <ul class="ol-list">
-    {{range .Sessions}}<li>
-      <span class="ol-list-row"><span class="ol-list-title">{{.Agent}} <span class="ol-subtle">{{.Via}}</span> {{.Machine}}</span><a class="ol-btn ol-btn-secondary ol-btn-xs" href="{{.Href}}">{{iconSm "history"}}{{$.L.Replay}}</a></span>
-      <span class="ol-list-meta"><span>{{.Kind}}</span><span>{{.Started}}</span>{{if .Open}}<span class="ol-badge ol-badge-info">{{$.L.Open}}</span>{{else if .Duration}}<span>{{.Duration}}</span>{{end}}{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</span>
-      {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
-      {{if .Commands}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact">
-        <tbody>{{range .Commands}}<tr><td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td><td><span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span></td><td class="ol-num">{{.Took}}</td></tr>{{end}}</tbody>
-      </table></div>{{end}}
-    </li>{{end}}
-    </ul>
-    {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
-  </section>{{end}}
-
-  <section class="ol-panel" id="timeline" tabindex="-1" aria-labelledby="alert-timeline">
+  <section class="ol-panel bc-incident-timeline" id="timeline" tabindex="-1" aria-labelledby="alert-timeline">
     <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-timeline">{{icon "clock"}} {{.L.Timeline}}</h2></div>
     <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
       <thead><tr><th>{{.L.Time}}</th><th>{{.L.What}}</th></tr></thead>
@@ -157,9 +121,66 @@
       </tbody>
     </table></div>
   </section>
-</div>
 
-<div class="ol-stack">
+  <section class="ol-panel" id="alert-evidence" tabindex="-1">
+    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "activity"}} {{.L.Probes}}</h2></div>
+    {{if .Probes}}
+    <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th>{{.L.Location}}</th><th>{{.L.Result}}</th><th>{{.L.Reason}}</th><th>{{.L.Instance}}</th></tr></thead>
+      <tbody>
+      {{range .Probes}}<tr>
+        <td><span class="ol-cell-title">{{.Location}}</span>{{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}</td>
+        <td data-label="{{$.L.Result}}"><span class="ol-badge ol-badge-{{if .OK}}success{{else}}danger{{end}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}</td>
+        <td data-label="{{$.L.Reason}}">{{.Reason}}{{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}</td>
+        <td data-label="{{$.L.Instance}}"><span class="ol-mono ol-break">{{.Instance}}</span>{{if .Module}}<span class="ol-cell-sub">{{.Module}}</span>{{end}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table></div>
+    {{end}}
+    <div class="ol-panel-body">
+      {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
+      {{if .ProbesError}}<p class="ol-hint ol-mono">{{.ProbesError}}</p>{{end}}
+      <p class="ol-hint">{{.Window}}</p>
+    </div>
+  </section>
+
+  {{if not .SharedViewHint}}<section class="ol-panel" id="alert-sessions" tabindex="-1">
+    <div class="ol-panel-header bc-alert-sessions-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
+    {{if .SessionsHint}}<div class="ol-panel-body"><p class="ol-hint">{{.SessionsHint}}</p></div>{{end}}
+    {{if .Sessions}}
+    <ul class="ol-list">
+    {{range .Sessions}}<li>
+      <span class="ol-list-row"><span class="ol-list-title">{{.Agent}} <span class="ol-subtle">{{.Via}}</span> {{.Machine}}</span><a class="ol-btn ol-btn-secondary ol-btn-xs" href="{{.Href}}">{{iconSm "history"}}{{$.L.Replay}}</a></span>
+      <span class="ol-list-meta"><span>{{.Kind}}</span><span>{{.Started}}</span>{{if .Open}}<span class="ol-badge ol-badge-info">{{$.L.Open}}</span>{{else if .Duration}}<span>{{.Duration}}</span>{{end}}{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</span>
+      {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
+      {{if .Commands}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact">
+        <tbody>{{range .Commands}}<tr><td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td><td><span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span></td><td class="ol-num">{{.Took}}</td></tr>{{end}}</tbody>
+      </table></div>{{end}}
+    </li>{{end}}
+    </ul>
+    {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+  </section>{{end}}
+
+
+  {{with .Actions}}
+  {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}" tabindex="-1" aria-labelledby="alert-add-note">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-add-note">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
+    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "incident-action" .}}
+      <div class="ol-field"><label class="ol-label" for="note-text">{{$.L.Note}}</label><textarea class="ol-textarea" id="note-text" name="text" rows="3" required maxlength="2000"></textarea></div></div>
+    <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "pencil"}}{{$.L.AddNote}}</button></div>
+  </form>{{end}}
+  {{end}}
+
+  <section class="ol-panel" id="alert-notes" tabindex="-1" aria-labelledby="alert-notes-heading">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-notes-heading">{{icon "message-square"}} {{.L.Notes}}</h2></div>
+    {{if .Notes}}<ul class="ol-list">{{range .Notes}}<li>
+      <span class="ol-list-row"><span class="ol-list-title">{{.By}}</span><time class="ol-list-value" datetime="{{.ISO}}">{{.At}}</time></span>
+      <span class="ol-list-meta"><span>{{.Via}}</span></span>
+      <p class="ol-text-pre">{{.Text}}</p>
+    </li>{{end}}</ul>
+    {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+  </section>
+
   {{if or .Runbook .Dashboard (and .Actions .Actions.Unsilence)}}<section class="ol-panel">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "triangle-alert"}} {{.L.Details}}</h2></div>
     <div class="ol-panel-body">
@@ -178,12 +199,7 @@
       <div class="ol-field"><label class="ol-label" for="silence-why">{{$.L.SilenceWhy}}</label><input class="ol-input" id="silence-why" name="comment" required maxlength="500"></div></div>
     <div class="ol-panel-footer"><span></span><span class="ol-btn-group">{{range .Durations}}<button type="submit" name="duration" value="{{.K}}" class="ol-btn ol-btn-secondary ol-btn-sm">{{.V}}</button>{{end}}</span></div>
   </form>{{end}}
-  {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}" tabindex="-1" aria-labelledby="alert-add-note">
-    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-add-note">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
-    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "incident-action" .}}
-      <div class="ol-field"><label class="ol-label" for="note-text">{{$.L.Note}}</label><textarea class="ol-textarea" id="note-text" name="text" rows="3" required maxlength="2000"></textarea></div></div>
-    <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "pencil"}}{{$.L.AddNote}}</button></div>
-  </form>{{end}}
+
   {{end}}
 
   <section class="ol-panel">
@@ -196,15 +212,7 @@
     </div>
   </section>
 
-  <section class="ol-panel" id="alert-notes" tabindex="-1" aria-labelledby="alert-notes-heading">
-    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-notes-heading">{{icon "message-square"}} {{.L.Notes}}</h2></div>
-    {{if .Notes}}<ul class="ol-list">{{range .Notes}}<li>
-      <span class="ol-list-row"><span class="ol-list-title">{{.By}}</span><time class="ol-list-value" datetime="{{.ISO}}">{{.At}}</time></span>
-      <span class="ol-list-meta"><span>{{.Via}}</span></span>
-      <p class="ol-text-pre">{{.Text}}</p>
-    </li>{{end}}</ul>
-    {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
-  </section>
+
 
   {{if .Related}}<section class="ol-panel">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "shield-alert"}} {{.L.Related}}</h2></div>
@@ -227,6 +235,5 @@
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "list-filter"}} {{.L.Labels}}</h2></div>
     <div class="ol-panel-body"><dl class="ol-dl ol-dl-stack">{{range .Labels}}<dt>{{.K}}</dt><dd class="ol-mono ol-break">{{.V}}</dd>{{end}}</dl></div>
   </section>
-</div>
 </div>
 </div>{{end}}

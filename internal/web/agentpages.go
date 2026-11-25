@@ -209,7 +209,7 @@ type agentOwnerChoice struct {
 }
 
 type agentsPage struct {
-	shell
+	shell                `json:"-"`
 	L                    agentLabels
 	Rows                 []agentRow
 	Presets, Expiries    []option
@@ -347,7 +347,7 @@ type grantRow struct{ Client, Allowed, Created, LastUsed, Expires, Revoke string
 type keyRow struct{ Fingerprint, Comment, Added string }
 
 type agentPage struct {
-	shell
+	shell                                                     `json:"-"`
 	L                                                         agentLabels
 	Facts                                                     []kvLink
 	Scopes                                                    []string

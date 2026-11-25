@@ -1,26 +1,22 @@
 ---
-sourceHash: sha256-c20402a6
+sourceHash: sha256-ad7e3253
 layout: home
 title: 和你的 Agent 一起做运维
 ---
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
   <template #title>和你的 Agent 一起做运维</template>
-  <template #lead>监控服务、处理告警，用自己的身份连接机器。你可以在明确的权限范围内把工作交给 Agent，从首次告警到验证恢复，都能查到它做了什么。</template>
   <template #actions>
     <a href="/zh/guide/quickstart">10 分钟试用</a>
     <a class="ghost" href="/zh/guide/concepts">工作原理</a>
     <a class="ghost" href="https://github.com/openlinkos/beacon">GitHub</a>
   </template>
-  <template #meta>十分钟、一条命令、本机的 Docker——不需要域名、证书，也不需要云账号。</template>
   <template #media>
-    <OlCast src="/media/agent-repairs-demo-web.cast" player="/landing/asciinema-player.min.js" player-css="/landing/asciinema-player.css" poster="/landing/cast-poster.svg" alt="终端里 Agent 修复演示网页服务：健康检查先是连接被拒，Agent 执行 start-web，健康检查返回 ok" caption="在试用环境里录下的：一个 Agent 经 SSH 通道，用自己已有的工具修好演示服务。" />
+    <OlCast src="/media/agent-repairs-demo-web.cast" player="/landing/asciinema-player.min.js" player-css="/landing/asciinema-player.css" poster="/landing/cast-poster.svg" alt="终端里 Agent 修复演示网页服务：健康检查先是连接被拒，Agent 执行 start-web，健康检查返回 ok" />
   </template>
 </OlHero>
 
 ## 一次故障，从头到尾 {#one-outage}
-
-上面的录像就是试用环境在你机器上跑的那个闭环。你弄坏演示服务，告警、修复、复测和回放随之而来。下面是它的五步，每步旁边是那一步返回的东西。凌晨三点，它们在没人盯着的时候照常运转。
 
 <OlSteps :steps="[
   { title: '多个检测点同时看到故障', text: '一个不到 20 MB 的检测程序装在任何小机器上，按用户访问的路径检测每个服务，并记下每次失败的原因。多个检测点都说坏了才算故障，单个检测点网络不好不会吵醒任何人。', media: '/landing/step-probes.svg', alt: '一项服务出故障时产生的证据：服务、目标、检测点和原因' },

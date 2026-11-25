@@ -5,21 +5,17 @@ title: Run operations with your agents
 
 <OlHero command="git clone https://github.com/openlinkos/beacon.git && cd beacon/deploy/try && sh up.sh">
   <template #title>Run operations with your agents</template>
-  <template #lead>Monitor services, respond to incidents and connect to machines with your own identity. Delegate work to an agent within its permissions and see what it did, from the first alert to verified recovery.</template>
   <template #actions>
     <a href="/guide/quickstart">Quickstart</a>
     <a class="ghost" href="/guide/concepts">How it works</a>
     <a class="ghost" href="https://github.com/openlinkos/beacon">GitHub</a>
   </template>
-  <template #meta>Ten minutes, one command, Docker on this machine — no domain or certificate, and no cloud account.</template>
   <template #media>
-    <OlCast src="/media/agent-repairs-demo-web.cast" player="/landing/asciinema-player.min.js" player-css="/landing/asciinema-player.css" poster="/landing/cast-poster.svg" alt="A terminal where an agent repairs the demo web server: the health check is refused, the agent runs start-web, and the health check answers ok" caption="Recorded in the try environment: an agent repairs the demo service through the SSH channel, with the tools it already knows." />
+    <OlCast src="/media/agent-repairs-demo-web.cast" player="/landing/asciinema-player.min.js" player-css="/landing/asciinema-player.css" poster="/landing/cast-poster.svg" alt="A terminal where an agent repairs the demo web server: the health check is refused, the agent runs start-web, and the health check answers ok" />
   </template>
 </OlHero>
 
 ## One outage, end to end {#one-outage}
-
-The recording above is the loop the try environment runs on your machine. You break the demo service; the alert, the repair, the check and the replay follow. Here are its five steps, each beside what it returns. At 3 a.m. they run with nobody watching.
 
 <OlSteps :steps="[
   { title: 'Several locations see it fail', text: 'A probe of under 20 MB runs on any small machine and checks each service the way its users reach it, recording why a check fails. A service is down only when several locations agree, so one flaky location wakes nobody.', media: '/landing/step-probes.svg', alt: 'The evidence a failing service produces: the service, the target, the location and the reason' },

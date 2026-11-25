@@ -16,8 +16,8 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// The overview pairs urgent alerts and other problems with planned maintenance and due resources.
-// Notification readiness stays beside them, followed by the figures, recent activity and status pages.
+// The overview leads with the current state and response queue. Coverage, maintenance and
+// notification readiness sit nearby, ahead of recent work.
 
 // reportingWindow is how recently a probe location must have written to count as reporting.
 const reportingWindow = 5 * time.Minute
@@ -40,7 +40,14 @@ func ReportingFrom(m *metrics.Metrics) func() map[string]time.Time {
 }
 
 type stat struct {
-	Label, Value, Meta, Href, Icon, Tone string
+	Label, Value, Meta, Href, Tone string
+	Coverage                       *probeCoverage
+}
+
+type probeCoverage struct{ Reporting, Expected int }
+
+type overviewMetrics struct {
+	Firing, Services, Locations, Machines, Sessions stat
 }
 
 type callItem struct {
@@ -72,21 +79,24 @@ type feedItem struct {
 
 type overviewLabels struct {
 	Attention, AllAlerts, Calm, CalmText, Sessions, AllSessions, NoSessions, Changes, AllChanges, NoChanges string
-	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Silenced                string
+	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, System, Silenced                string
 	Notifications, OpenAlert, GuideNewTab                                                                   string
+	Activity, Item, State, Since                                                                            string
 }
 
 type overviewPage struct {
 	shell
 	L              overviewLabels
 	Health         health
-	Stats          []stat
+	Stats          overviewMetrics
 	Attention      []attentionItem
 	Sessions       []feedItem
 	Changes        []feedItem
 	Pages          []feedItem
 	Coming         []feedItem
 	Maintenance    kvLink
+	AddMonitor     kvLink
+	Workspace      kvLink
 	Calls          []callItem
 	CallSummary    string
 	DeliveryHint   string
@@ -421,6 +431,10 @@ func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
+	s.render(w, overviewTmpl, s.overviewData(r, v))
+}
+
+func (s *Server) overviewData(r *http.Request, v *viewer) overviewPage {
 	f := s.figures(v)
 	sh := s.serviceHealth(r.Context())
 	p := overviewPage{shell: s.shellFor(r, v, "overview", s.t("Overview")), L: overviewLabels{
@@ -431,10 +445,17 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Pages: s.t("Status pages"), AllPages: s.t("All status pages"), NoPages: s.t("No status pages."),
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
 		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
-		Beacon: s.t("Beacon"), Silenced: s.t("Silenced"),
+		System: s.t("System details"), Silenced: s.t("Silenced"),
 		Notifications: s.t("Critical notifications"), OpenAlert: s.t("Open alert"), GuideNewTab: s.t("(opens in a new tab)"),
+		Activity: s.t("Recent activity"), Item: s.t("Item"), State: s.t("State"), Since: s.t("Since"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
+	if workspaceBuilt(static) {
+		p.Workspace = kvLink{V: s.t("Open workspace"), Href: "/workspace/"}
+	}
+	if s.Config != nil && v.has("config:write") {
+		p.AddMonitor = kvLink{V: s.t("Add HTTP monitor"), Href: consolePath(monitorFormPath)}
+	}
 	p.Attention = s.attention(v, f, sh)
 	p.Health = s.healthOf(p.Attention, sh)
 	p.Stats = s.overviewStats(f, sh)
@@ -513,19 +534,19 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		cv,
 		{K: s.t("Beacon version"), V: s.version()},
 	}
-	s.render(w, overviewTmpl, p)
+	return p
 }
 
 // overviewStats are the figures that answer "is everything all right?", each linking to its list.
-func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) []stat {
-	firing := stat{Label: s.t("Firing alerts"), Value: num(f.FiringTotal), Icon: "triangle-alert", Href: consolePath("/alerts?state=firing"),
+func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) overviewMetrics {
+	firing := stat{Label: s.t("Firing alerts"), Value: num(f.FiringTotal), Href: consolePath("/alerts?state=firing"),
 		Meta: s.t("%d critical, %d warning, %d info", f.Firing["critical"], f.Firing["warning"], f.Firing["info"])}
 	if f.Firing["critical"] > 0 {
 		firing.Tone = "danger"
 	} else if f.FiringTotal > 0 {
 		firing.Tone = "warning"
 	}
-	svc := stat{Label: s.t("Services"), Icon: "activity", Href: consolePath("/monitors")}
+	svc := stat{Label: s.t("Services"), Href: consolePath("/monitors")}
 	switch {
 	case sh.Total == 0:
 		svc.Value, svc.Meta = "0", s.t("none probed yet")
@@ -539,25 +560,28 @@ func (s *Server) overviewStats(f overviewFigures, sh serviceHealth) []stat {
 			}
 		}
 	}
-	loc := stat{Label: s.t("Probe locations"), Icon: "signal", Href: consolePath("/config#locations")}
+	loc := stat{Label: s.t("Probe locations"), Href: consolePath("/config#locations")}
 	if f.ReportingKnown {
 		loc.Value = s.t("%d of %d", f.Reporting, f.Expected)
 		loc.Meta = s.t("reporting in the last 5 minutes")
+		if f.Expected > 0 {
+			loc.Coverage = &probeCoverage{Reporting: f.Reporting, Expected: f.Expected}
+		}
 		if f.Reporting < f.Expected {
 			loc.Tone = "warning"
 		}
 	} else {
 		loc.Value, loc.Meta = num(f.Expected), s.t("expected; the gateway is off here")
 	}
-	mach := stat{Label: s.t("Machines"), Value: num(f.Machines), Icon: "server", Href: consolePath("/machines"),
+	mach := stat{Label: s.t("Machines"), Value: num(f.Machines), Href: consolePath("/machines"),
 		Meta: s.t("%d critical, %d of %d behind NAT connected", f.Critical, f.Connected, f.Connectors)}
 	if f.Connected < f.Connectors {
 		mach.Tone = "warning"
 	}
-	work := stat{Label: s.t("Machine sessions today"), Value: num(f.SessionsToday), Icon: "terminal",
+	work := stat{Label: s.t("Machine sessions today"), Value: num(f.SessionsToday),
 		Href: consolePath("/sessions?day=") + url.QueryEscape(s.day(s.now())),
 		Meta: s.t("Command records and replays")}
-	return []stat{firing, svc, loc, mach, work}
+	return overviewMetrics{Firing: firing, Services: svc, Locations: loc, Machines: mach, Sessions: work}
 }
 
 // pageFeed is each status page as the public sees it now.

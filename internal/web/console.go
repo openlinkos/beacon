@@ -113,10 +113,23 @@ func (s *Server) viewer(r *http.Request) *viewer {
 func (s *Server) registerConsole(mux *http.ServeMux) {
 	// Every route of the console is under /console; the alert's and the session's pages, which signed
 	// links open too, are registered in Register. The cookies stay on / (__Host- asks for it).
-	at := func(method, path string, h http.HandlerFunc) { mux.HandleFunc(method+" "+consolePath(path), h) }
+	at := func(method, path string, h http.HandlerFunc) {
+		entry := h
+		if method == "GET" && (workspacePageRoute(path) || path == "/alerts") {
+			entry = s.workspaceEntry(h)
+		}
+		mux.HandleFunc(method+" "+consolePath(path), entry)
+		if workspacePageRoute(path) {
+			mux.HandleFunc(method+" "+workspacePageRoot+path, workspacePage(h))
+			if method == "GET" && workspaceBuilt(static) {
+				registerWorkspacePageEntry(mux, path)
+			}
+		}
+	}
 	at("GET", "/sign-in", s.signInPage)
 	at("POST", "/sign-in", s.signIn)
 	at("POST", "/sign-out", s.action("", s.signOut))
+	s.registerWorkspaceAPI(at)
 	s.registerAccounts(at)
 	s.registerCredentials(at)
 	alertShares := s.shareLinksForm("alerts", "alert")
@@ -126,7 +139,18 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("GET", "/sessions/{id}/share-links", s.console(bridge.ShareScope, sessionShares))
 	at("POST", "/sessions/{id}/share-links", s.action(bridge.ShareScope, sessionShares))
 
-	at("GET", "", s.console("", s.overview))
+	if s.DefaultWorkspace && workspaceBuilt(static) {
+		at("GET", "", func(w http.ResponseWriter, r *http.Request) {
+			headers(w)
+			to := "/workspace/"
+			if r.URL.RawQuery != "" {
+				to += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, local(to), http.StatusFound) //nolint:gosec // G710: the local workspace with the request's query
+		})
+	} else {
+		at("GET", "", s.console("", s.overview))
+	}
 	at("GET", "/{$}", s.toOverview)
 	at("GET", "/alerts", s.console("", s.alerts))
 	at("GET", "/incident-outcomes", s.console("status:read", s.incidentOutcomes))
@@ -294,7 +318,7 @@ type signInLabels struct {
 }
 
 type signInPage struct {
-	shell
+	shell             `json:"-"`
 	L                 signInLabels
 	Next, Form, Error string
 	WithToken         bool   // the token form rather than the password form

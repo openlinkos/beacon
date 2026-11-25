@@ -14,9 +14,11 @@ To give colleagues their own accounts, [invite your team](people.md).
 
 Beacon serves the console itself, at `/console` on port 17001, beside the API and MCP, under `public_url`. The site's root `/` is public ([Publish a status page](status-pages.md)).
 
+In a release build, `/console` opens the React console at `/workspace/`. The overview, alerts, people, agents, machines, monitoring, configuration and replay use one navigation layout and the same account permissions. Beacon serves the built frontend and its session API in one container.
+
 ## Sign in {#signing-in}
 
-Open `https://status.example.com/console`. You are sent to `/console/sign-in` and asked for your username and password. Then you are sent back to the page you asked for.
+Open `https://status.example.com/console`. When asked, enter your username and password. Beacon then opens the page you requested.
 
 - **A sign-in lasts 12 hours.**
 - **The browser holds only the session's id**, in a cookie that is `HttpOnly`, `Secure` and `SameSite=Strict`. Beacon keeps only its SHA-256.
@@ -36,17 +38,19 @@ When the sign-in fails, the form says why. [Signing in to the console fails](../
 
 Every page has the same frame:
 
-- the sections in a narrow sidebar, with counts;
-- the filters (facets) on the left of lists;
+- a task-based sidebar, opened with the menu button on a phone;
+- breadcrumbs above the page title and its main actions, with an on-demand filter sheet on **Alerts**;
 - at the foot, Beacon's version, with links to the documentation, the code and where to report an issue.
 
 Lists show the newest first, 50 to a page. Every filter is a link, so every view has a URL you can share.
 
-The sidebar has the overview on its own, then three parts:
+Use the **Overview** to check what needs attention. The sidebar groups the rest by task:
 
-- **Monitoring**: what Beacon watches and what it does about it. Alerts, monitors, status pages, silences and maintenance, and the changes reported by CI and Flux.
-- **Agents and machines**: the agents, the machines they reach through the SSH channel, their sessions, and the hooks that wake them.
-- **Administration**: the configuration and its history, the people (for an owner), the tokens and the audit log.
+- **Incident response** opens live alerts, the history of individual incidents, Agent deliveries, and the changes reported by CI and Flux.
+- **Monitoring** opens service checks, maintenance and silences, and public status pages. The **Monitors** page links directly to services, heartbeats and resources.
+- **SSH access** opens machine registration and connection instructions, and the sessions and replays available to your identity.
+- **People and agents** opens members and roles, and the agents and delegated access you manage.
+- **Administration** opens configuration and its history, access tokens, the audit log, and team credentials when enabled.
 
 | Page | What it shows |
 | --- | --- |
@@ -67,15 +71,11 @@ The sidebar has the overview on its own, then three parts:
 
 ### The overview {#the-overview}
 
-`/console` opens with a sentence that says whether anything needs attention. Five figures follow, each linking to its list:
+`/console` opens with the current health summary and flags when critical alerts have no route to people. The summary links to firing alerts, monitored services and reporting probe locations. The coverage bar uses the count of locations reporting in the last five minutes.
 
-- firing alerts, by severity;
-- services answering at every location;
-- probe locations reporting;
-- machines, and those behind NAT connected;
-- agent sessions today, with the status of today's alert deliveries to agent hooks.
+The response queue follows the summary on every screen. Expand **System details** for machine connectivity, today's SSH sessions, the channel state and the configuration version.
 
-**Needs attention** lists the alerts firing, the worst first. Those someone acknowledged or silenced come after the rest. A Pushover device acknowledgement can pause new escalations. The alert still needs a person to take over and appears under **Acknowledged → No** in **Alerts** until someone does. Next, **Needs attention** lists what Beacon sees going wrong that no firing alert names:
+**Needs attention** lists the alerts firing, the worst first. Those someone acknowledged or silenced come after the rest. A Pushover device acknowledgement can pause new escalations. The active, unsilenced alert stays in **Alerts → Needs a responder** until someone takes over. Next, **Needs attention** lists what Beacon sees going wrong that no firing alert names:
 
 - a service failing;
 - a probe location gone quiet;
@@ -83,13 +83,12 @@ The sidebar has the overview on its own, then three parts:
 - a failed delivery to an agent hook;
 - the channel paused.
 
-Beside it are:
+The overview also shows:
 
 - the status pages, as the public sees them;
 - what is coming up: maintenance in progress or planned, and resources expiring within 30 days;
 - today's agent hook deliveries;
-- the latest sessions and changes;
-- the channel's state and the configuration's version.
+- the latest sessions and changes.
 
 **Critical notifications** shows the scheduled routes and each recent provider response. For Pushover, it shows a reported device acknowledgement when Beacon can link it to the accepted submission for the current destination. Use **Verify chat delivery** or **Verify phone delivery** for the drill that checks your intended recipient. These links open the guide in a new tab.
 
@@ -147,7 +146,7 @@ On installations with the credential store enabled, owners can store and replace
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. **Latest note** shows the latest update with its author and time. **Acknowledgement note** shows what was recorded at the current acknowledgement. Open **All notes** for the full text and earlier updates. A failed agent hook has its own status. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
+The card's **Timeline** button opens it. The response panel sits beside the evidence on desktop and above it on a phone. It shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. **Latest note** shows the latest update with its author and time. **Acknowledgement note** shows what was recorded at the current acknowledgement. Open **All notes** for the full text and earlier updates. A failed agent hook has its own status. You can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
 
 A new notification opens the incident it describes, even when the same service has fired again. Once the complete evidence is replaced or expires, sign in to open that incident's retained history. Links issued before incident-specific links were added still open the alert group. If an incident changed while a response form was open, review the alert before taking action again.
 

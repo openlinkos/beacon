@@ -1,8 +1,14 @@
+{{define "actions"}}{{if .Add}}<a class="ol-btn ol-btn-primary" href="{{.Add}}">{{iconSm "plus"}}{{.L.Add}}</a>{{end}}{{end}}
+
 {{define "content"}}<div class="ol-stack">
+<nav class="bc-section-links" aria-label="{{.Heading}}">
+  <a href="#services">{{iconSm "activity"}}{{.L.Services}}</a>
+  <a href="#heartbeats">{{iconSm "clock"}}{{.L.Heartbeats}}</a>
+  <a href="#resources">{{iconSm "calendar"}}{{.L.Resources}}</a>
+</nav>
 <section class="ol-section" id="services">
   <div class="ol-section-header">
     <h2 class="ol-section-title">{{.L.Services}}</h2>
-    {{if .Add}}<a class="ol-btn ol-btn-primary" href="{{.Add}}">{{iconSm "plus"}}{{.L.Add}}</a>{{end}}
   </div>
   {{if .ProbeError}}<details>
     <summary class="ol-hint">{{.L.LimitedResults}}</summary>
@@ -22,7 +28,9 @@
 </section>
 
 <section class="ol-section" id="heartbeats">
-  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Heartbeats}}</h2></div>
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Heartbeats}}</h2>
+    {{if .Config}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{console "/config"}}#heartbeats">{{iconSm "file-cog"}}{{.Config}}</a>{{end}}
+  </div>
   {{if .Heartbeats}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
     <thead><tr><th>{{.L.Name}}</th><th>{{.L.State}}</th><th>{{.L.LastSuccess}}</th><th>{{.L.MaxAge}}</th><th>{{.L.Machine}}</th><th>{{.L.Description}}</th></tr></thead>
     <tbody>{{range .Heartbeats}}<tr>
@@ -37,7 +45,9 @@
 </section>
 
 <section class="ol-section" id="resources">
-  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Resources}}</h2></div>
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.Resources}}</h2>
+    {{if .Config}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{console "/config"}}#resources">{{iconSm "file-cog"}}{{.Config}}</a>{{end}}
+  </div>
   {{if .Resources}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
     <thead><tr><th>{{.L.Name}}</th><th>{{.L.Kind}}</th><th>{{.L.Expires}}</th><th>{{.L.Note}}</th></tr></thead>
     <tbody>{{range .Resources}}<tr>

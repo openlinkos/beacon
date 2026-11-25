@@ -128,7 +128,7 @@ func TestOverviewAttention(t *testing.T) {
 	b := e.signedIn("root", "status:read")
 	page := b.get("/console").body
 	for _, want := range []string{
-		"3 things need attention", "Firing alerts: 1; Probe locations not reporting: 1; Machines not connected: 1.", "ol-alert-danger",
+		"3 things need attention", "Firing alerts: 1; Probe locations not reporting: 1; Machines not connected: 1.", `class="bc-health" data-tone="danger"`,
 		`href="` + link.AlertPath(e.id) + `"`, "No probe results in the last 5 minutes", `href="/console/machines/edge-2"`, "Behind NAT, not connected",
 	} {
 		if !strings.Contains(page, want) {
@@ -209,8 +209,8 @@ func TestOverviewMaintenanceEntryForEachRole(t *testing.T) {
 			}
 			nav := hrefs(page.body, "/console/")
 			alert, maintenance := slices.Index(nav, "/console/alerts"), slices.Index(nav, "/console/silences")
-			if alert < 0 || maintenance != alert+1 {
-				t.Fatal("the monitoring navigation omits alerts or maintenance")
+			if alert < 0 || maintenance <= alert || !slices.Contains(nav, "/console/incident-outcomes") {
+				t.Fatal("the navigation omits alerts, incident history or maintenance")
 			}
 		})
 	}

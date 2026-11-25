@@ -275,13 +275,14 @@ type resourceState struct {
 }
 
 type monitorsPage struct {
-	shell
+	shell      `json:"-"`
 	L          monitorLabels
 	Rows       []monitorRow
 	Heartbeats []heartbeatState
 	Resources  []resourceState
 	ProbeError string // why the probes could not be read
 	Add        string
+	Config     string
 }
 
 var monitorsTmpl = parse("monitors.html")
@@ -290,6 +291,9 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := monitorsPage{shell: s.shellFor(r, v, "monitors", s.t("Monitors")), L: s.monitorLabels()}
 	if v.has("config:write") {
 		p.Add = consolePath(monitorFormPath)
+	}
+	if s.Config != nil {
+		p.Config = s.t("Configuration")
 	}
 	sc := s.serviceConfig()
 	now := s.now()
@@ -335,6 +339,9 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 	slices.SortStableFunc(rows, func(a, b monitorRow) int { return toneRank(b.Tone) - toneRank(a.Tone) })
 	p.Rows = rows
 	p.Count = s.t("%d services, %d in trouble", len(rows), failing)
+	if len(rows) == 1 {
+		p.Count = s.t("1 service, %d in trouble", failing)
+	}
 	p.Heartbeats = s.heartbeatStates(r, now)
 	p.Resources = s.resourceStates(now)
 	s.render(w, monitorsTmpl, p)
@@ -435,7 +442,7 @@ func (s *Server) resourceStates(now time.Time) []resourceState {
 // ---- one service
 
 type monitorPage struct {
-	shell
+	shell                  `json:"-"`
 	L                      monitorLabels
 	LL                     labels
 	Probes                 []probeRow

@@ -1,11 +1,14 @@
-{{define "stat"}}<a class="ol-stat" href="{{.Href}}">
-  <span class="ol-stat-label"><span class="ol-stat-icon{{if .Tone}} ol-tone-{{.Tone}}{{end}}">{{iconSm .Icon}}</span>{{.Label}}</span>
-  <span class="ol-stat-value">{{.Value}}</span>
-  <span class="ol-stat-meta">{{.Meta}}</span>
+{{define "actions"}}{{if .Workspace.Href}}<a class="ol-btn ol-btn-primary" href="{{.Workspace.Href}}">{{.Workspace.V}}</a>{{end}}{{if .AddMonitor.Href}}<a class="ol-btn ol-btn-secondary" href="{{.AddMonitor.Href}}">{{iconSm "plus"}}{{.AddMonitor.V}}</a>{{end}}{{end}}
+
+{{define "stat"}}<a class="bc-stat" href="{{.Href}}">
+  <span class="bc-stat-label">{{.Label}}</span>
+  <span class="bc-stat-value"{{if .Tone}} data-tone="{{.Tone}}"{{end}}>{{.Value}}</span>
+  <span class="bc-stat-detail">{{.Meta}}</span>
+  {{with .Coverage}}<meter class="bc-coverage" min="0" max="{{.Expected}}" value="{{.Reporting}}" aria-hidden="true"></meter>{{end}}
 </a>{{end}}
 
-{{/* A short list in a side panel: a title (a link) with a badge, over a line of facts. */}}
-{{define "feed"}}<ul class="ol-list">
+{{/* Planned work and public pages share the same compact row pattern. */}}
+{{define "feed"}}<ul class="ol-list bc-feed">
   {{range .}}<li>
     <span class="ol-list-row">{{if .Href}}<a class="ol-list-title" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="ol-list-title">{{.Title}}</span>{{end}}{{if .Badge}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Badge}}</span>{{end}}</span>
     {{if or .Sub .When}}<span class="ol-list-meta">{{if .Sub}}<span{{if .Mono}} class="ol-mono"{{end}}>{{.Sub}}</span>{{end}}{{if .When}}<span>{{.When}}</span>{{end}}</span>{{end}}
@@ -13,55 +16,90 @@
 </ul>{{end}}
 
 {{define "content"}}
-<div class="ol-alert ol-alert-{{.Health.Tone}}" role="status">
-  {{icon .Health.Icon}}
-  <div class="ol-alert-body"><p class="ol-alert-title">{{.Health.Title}}</p><p>{{.Health.Text}}</p></div>
-</div>
-{{if .DeliveryHint}}<div class="ol-alert ol-alert-warning" role="status">
-  {{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.DeliveryHint}} <a href="{{.DeliveryHelp.Href}}">{{.DeliveryHelp.V}}</a></p></div>
+<section class="bc-health" data-tone="{{.Health.Tone}}" aria-labelledby="current-health">
+  <div class="bc-health-state" role="status">
+    <span class="bc-health-icon" aria-hidden="true">{{icon .Health.Icon}}</span>
+    <div><h2 id="current-health">{{.Health.Title}}</h2><p>{{.Health.Text}}</p></div>
+  </div>
+  <div class="bc-health-metrics">
+    {{template "stat" .Stats.Firing}}
+    {{template "stat" .Stats.Services}}
+    {{template "stat" .Stats.Locations}}
+  </div>
+</section>
+{{if .DeliveryHint}}<div class="bc-delivery-banner" role="status">
+  <span class="ol-tone-warning">{{iconSm "triangle-alert"}}</span>
+  <span>{{.DeliveryHint}}</span><a href="{{.DeliveryHelp.Href}}">{{.DeliveryHelp.V}}</a>
 </div>{{end}}
 
-<div class="ol-layout-dashboard">
-    <section class="ol-panel" id="attention" aria-labelledby="needs-attention">
-      <div class="ol-panel-header"><h2 class="ol-panel-title" id="needs-attention">{{icon "shield-alert"}} {{.L.Attention}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}</a></div>
+<div class="bc-overview-grid">
+  <div class="bc-overview-main">
+    <section class="bc-queue" id="attention" aria-labelledby="needs-attention">
+      <div class="bc-section-heading">
+        <h2 id="needs-attention">{{.L.Attention}}</h2>
+        <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}{{iconSm "chevron-right"}}</a>
+      </div>
       {{if .Attention}}
-      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <div class="ol-table-wrap"><table class="ol-table ol-table-stack">
+        <thead><tr><th scope="col">{{.L.Item}}</th><th scope="col">{{.L.State}}</th><th scope="col" class="ol-num">{{.L.Since}}</th></tr></thead>
         <tbody>
         {{range .Attention}}<tr>
-          <td><span class="ol-entity"><span class="ol-tone-{{.Tone}}">{{icon .Icon}}</span><span class="ol-entity-text"><a class="ol-entity-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Sub}}<span class="ol-entity-sub">{{.Sub}}</span>{{end}}</span></span></td>
-          <td><span class="ol-cluster"><span class="ol-badge ol-badge-{{.BadgeTone}}">{{.Badge}}</span>{{if .Response}}<span class="ol-badge{{if .Unclaimed}} ol-badge-warning{{end}}">{{.Response}}</span>{{end}}{{if .DeviceResponse}}<span class="ol-badge">{{.DeviceResponse}}</span>{{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span></td>
-          <td class="ol-num">{{.When}}</td>
+          <td><span class="ol-entity bc-queue-entity"><span class="bc-queue-icon ol-tone-{{.Tone}}">{{icon .Icon}}</span><span class="ol-entity-text"><a class="ol-entity-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Sub}}<span class="ol-entity-sub">{{.Sub}}</span>{{end}}</span></span></td>
+          <td>
+            <div class="bc-queue-state">
+              <span class="ol-status{{if .BadgeTone}} ol-status-{{.BadgeTone}}{{end}}"><span class="ol-dot" aria-hidden="true"></span>{{.Badge}}</span>
+              {{if .Response}}<span class="bc-queue-owner{{if .Unclaimed}} ol-badge-warning{{end}}">{{.Response}}</span>{{end}}
+              {{if .DeviceResponse}}<span class="bc-queue-receipt">{{.DeviceResponse}}</span>{{end}}
+              {{if .Silenced}}<span>{{$.L.Silenced}}</span>{{end}}
+            </div>
+          </td>
+          <td class="ol-num bc-queue-age">{{.When}}</td>
         </tr>{{end}}
         </tbody>
       </table></div>
-      {{else}}<div class="ol-panel-body"><div class="ol-empty">
-        <span class="ol-empty-icon">{{icon "circle-check"}}</span>
-        <p class="ol-empty-title">{{.L.Calm}}</p>
-        <p class="ol-empty-text">{{.L.CalmText}}</p>
-      </div></div>{{end}}
-    </section>
-  <div class="ol-stack">
-    <section class="ol-panel" aria-labelledby="coming-up">
-      <div class="ol-panel-header">
-        <h2 class="ol-panel-title" id="coming-up">{{icon "calendar"}} {{.L.Coming}}</h2>
-        <a class="ol-btn ol-btn-secondary ol-btn-sm bc-overview-maintenance-action" href="{{.Maintenance.Href}}">{{.Maintenance.V}}</a>
-      </div>
-      {{if .Coming}}{{template "feed" .Coming}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoComing}}</p></div>{{end}}
+      {{else}}<div class="bc-queue-empty">
+        <span class="ol-tone-success">{{icon "circle-check"}}</span>
+        <div><p><strong>{{.L.Calm}}</strong></p><p class="ol-hint">{{.L.CalmText}}</p></div>
+      </div>{{end}}
     </section>
 
-    {{if .Notifications}}
-    <section class="ol-panel" aria-labelledby="critical-notifications">
-      <div class="ol-panel-header bc-sharing-header">
-        <h2 class="ol-panel-title" id="critical-notifications">{{icon "message-square"}} {{.L.Notifications}}</h2>
-        <div class="ol-cluster bc-delivery-drills">{{range .DeliveryDrills}}
-          <a class="ol-btn ol-btn-ghost ol-btn-sm" target="_blank" rel="noopener noreferrer" href="{{.Href}}">{{.V}} <span class="ol-sr-only">{{$.L.GuideNewTab}}</span></a>
-        {{end}}</div>
+    <section class="bc-activity" aria-labelledby="recent-activity">
+      <h2 id="recent-activity">{{.L.Activity}}</h2>
+      <div class="bc-activity-columns">
+        <section aria-labelledby="recent-sessions">
+          <div class="bc-section-heading">
+            <h3 id="recent-sessions">{{.L.Sessions}}</h3>
+            <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/sessions"}}">{{.L.AllSessions}}</a>
+          </div>
+          {{if .Sessions}}{{template "feed" .Sessions}}{{else}}<p class="ol-hint bc-empty-line">{{.L.NoSessions}}</p>{{end}}
+        </section>
+        <section aria-labelledby="recent-changes">
+          <div class="bc-section-heading">
+            <h3 id="recent-changes">{{.L.Changes}}</h3>
+            <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/changes"}}">{{.L.AllChanges}}</a>
+          </div>
+          {{if .Changes}}{{template "feed" .Changes}}{{else}}<p class="ol-hint bc-empty-line">{{.L.NoChanges}}</p>{{end}}
+        </section>
       </div>
-      <ul class="ol-list">
+    </section>
+  </div>
+
+  <aside class="bc-overview-rail">
+    <section aria-labelledby="coming-up">
+      <div class="bc-section-heading">
+        <h2 id="coming-up">{{.L.Coming}}</h2>
+        <a class="ol-btn ol-btn-ghost ol-btn-sm bc-overview-maintenance-action" href="{{.Maintenance.Href}}">{{.Maintenance.V}}</a>
+      </div>
+      {{if .Coming}}{{template "feed" .Coming}}{{else}}<p class="ol-hint bc-empty-line">{{.L.NoComing}}</p>{{end}}
+    </section>
+
+    {{if .Notifications}}<section aria-labelledby="critical-notifications">
+      <div class="bc-section-heading"><h2 id="critical-notifications">{{.L.Notifications}}</h2></div>
+      <ul class="ol-list bc-feed">
         {{range .Notifications}}<li>
           <span class="ol-list-row">
             <span class="ol-list-title">{{.Channel}}</span>
-            <span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Result}}</span>
+            <span class="ol-status{{if .Tone}} ol-status-{{.Tone}}{{end}}"><span class="ol-dot" aria-hidden="true"></span>{{.Result}}</span>
           </span>
           <span class="ol-list-meta">
             <span>{{.Schedule}}</span>
@@ -70,74 +108,33 @@
           {{if .DeviceAcknowledgement}}<p class="ol-hint">{{.DeviceAcknowledgement}}</p>{{end}}
         </li>{{end}}
       </ul>
-    </section>
-    {{end}}
-  </div>
-</div>
+      <div class="ol-cluster bc-delivery-drills">{{range .DeliveryDrills}}
+        <a target="_blank" rel="noopener noreferrer" href="{{.Href}}">{{.V}} <span class="ol-sr-only">{{$.L.GuideNewTab}}</span></a>
+      {{end}}</div>
+    </section>{{end}}
 
-<section class="ol-stats" aria-label="{{.Heading}}">
-  {{range .Stats}}{{template "stat" .}}{{end}}
-</section>
-
-<div class="ol-layout-dashboard">
-  <div class="ol-stack">
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Sessions}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/sessions"}}">{{.L.AllSessions}}</a></div>
-      {{if .Sessions}}
-      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-        <tbody>
-        {{range .Sessions}}<tr>
-          <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a><span class="ol-cell-sub{{if .Mono}} ol-mono{{end}}">{{.Sub}}</span></td>
-          <td>{{if .Badge}}<span class="ol-badge ol-badge-{{.Tone}}">{{.Badge}}</span>{{end}}</td>
-          <td class="ol-num">{{.When}}</td>
-        </tr>{{end}}
-        </tbody>
-      </table></div>
-      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoSessions}}</p></div>{{end}}
+    <section aria-labelledby="hook-deliveries">
+      <div class="bc-section-heading"><h2 id="hook-deliveries">{{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/hooks"}}">{{.L.AllCalls}}</a></div>
+      {{if .Calls}}<p class="ol-hint bc-empty-line">{{.CallSummary}}</p>
+      <ul class="ol-list bc-feed">{{range .Calls}}<li>
+        <span class="ol-list-row"><a class="ol-list-title" href="{{.AlertHref}}">{{.Alert}}</a><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></span>
+        <span class="ol-list-meta"><span class="ol-mono">{{.Hook}}</span><span>{{.At}}</span></span>
+      </li>{{end}}</ul>{{else}}<p class="ol-hint bc-empty-line">{{.L.NoneWoken}}</p>{{end}}
     </section>
 
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Changes}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/changes"}}">{{.L.AllChanges}}</a></div>
-      {{if .Changes}}
-      <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-        <tbody>
-        {{range .Changes}}<tr>
-          <td><span class="ol-cell-title">{{.Title}}</span>{{if .Sub}}<span class="ol-cell-sub">{{.Sub}}</span>{{end}}</td>
-          <td><span class="ol-badge ol-badge-mono">{{.Badge}}</span></td>
-          <td class="ol-num">{{.When}}</td>
-        </tr>{{end}}
-        </tbody>
-      </table></div>
-      {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoChanges}}</p></div>{{end}}
-    </section>
-  </div>
-
-  <div class="ol-stack">
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "bot"}} {{.L.Woken}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/hooks"}}">{{.L.AllCalls}}</a></div>
-      {{if .Calls}}<div class="ol-panel-body"><p class="ol-hint">{{.CallSummary}}</p></div>{{end}}
-      {{if .Calls}}<ul class="ol-list">
-        {{range .Calls}}<li>
-          <span class="ol-list-row"><a class="ol-list-title" href="{{.AlertHref}}">{{.Alert}}</a><span class="ol-badge ol-badge-{{.StatusTone}}">{{.Status}}</span></span>
-          <span class="ol-list-meta"><span class="ol-mono">{{.Hook}}</span><span>{{.At}}</span></span>
-        </li>{{end}}
-      </ul>{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoneWoken}}</p></div>{{end}}
+    <section aria-labelledby="overview-status-pages">
+      <div class="bc-section-heading"><h2 id="overview-status-pages">{{.L.Pages}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/status-pages"}}">{{.L.AllPages}}</a></div>
+      {{if .Pages}}{{template "feed" .Pages}}{{else}}<p class="ol-hint bc-empty-line">{{.L.NoPages}}</p>{{end}}
     </section>
 
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "globe"}} {{.L.Pages}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/status-pages"}}">{{.L.AllPages}}</a></div>
-      {{if .Pages}}{{template "feed" .Pages}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoPages}}</p></div>{{end}}
-    </section>
-
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "settings"}} {{.L.Beacon}}</h2></div>
-      <div class="ol-panel-body">
-        <dl class="ol-dl ol-dl-stack">
-          <dt>{{.Channel.Label}}</dt><dd><a class="ol-status{{if .Channel.Tone}} ol-status-{{.Channel.Tone}}{{end}}" href="{{.Channel.Href}}"><span class="ol-dot"></span>{{.Channel.Value}}</a><p class="ol-hint">{{.Channel.Meta}}</p></dd>
-          {{range .Facts}}<dt>{{.K}}</dt><dd>{{if .Href}}<a href="{{.Href}}">{{.V}}</a>{{else}}{{.V}}{{end}}</dd>{{end}}
-        </dl>
-      </div>
-    </section>
-  </div>
+    <details class="bc-overview-system">
+      <summary>{{.L.System}}</summary>
+      <div class="bc-system-metrics">{{template "stat" .Stats.Machines}}{{template "stat" .Stats.Sessions}}</div>
+      <dl class="ol-dl ol-dl-stack">
+        <dt>{{.Channel.Label}}</dt><dd><a class="ol-status{{if .Channel.Tone}} ol-status-{{.Channel.Tone}}{{end}}" href="{{.Channel.Href}}"><span class="ol-dot"></span>{{.Channel.Value}}</a><p class="ol-hint">{{.Channel.Meta}}</p></dd>
+        {{range .Facts}}<dt>{{.K}}</dt><dd>{{if .Href}}<a href="{{.Href}}">{{.V}}</a>{{else}}{{.V}}{{end}}</dd>{{end}}
+      </dl>
+    </details>
+  </aside>
 </div>
 {{end}}

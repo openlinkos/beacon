@@ -276,7 +276,7 @@ type alertAgentRun struct {
 }
 
 type alertPage struct {
-	shell
+	shell                                                                        `json:"-"`
 	L                                                                            labels
 	ID, Heading, Status, StatusClass, Severity, SeverityClass, When, Description string
 	Service                                                                      string
@@ -941,7 +941,7 @@ func (s *Server) commands(cs []sshgate.Command) []commandRow {
 // ---- the session page
 
 type sessionPage struct {
-	shell
+	shell                                                                    `json:"-"`
 	L                                                                        labels
 	ActorLabel                                                               string
 	ID, Agent, Via, Machine, Kind, Command, Started, Ended, Duration, Exit   string

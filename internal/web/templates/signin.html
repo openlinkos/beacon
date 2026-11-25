@@ -1,5 +1,4 @@
 {{define "content"}}<h1 class="ol-auth-title">{{.L.Title}}</h1>
-      <p>{{.L.Help}}</p>
       {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert" id="sign-in-error">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
       {{if .NoAccounts}}<div class="ol-alert ol-alert-info" role="status">{{icon "users"}}<div class="ol-alert-body"><p>{{.L.NoAccounts}}</p></div></div>{{end}}
       {{if .WithToken}}

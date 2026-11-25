@@ -149,6 +149,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
@@ -164,4 +170,26 @@ jobs:
             [ -n "$ref" ] || { echo "No image for $arch"; exit 1; }
             docker image inspect "$ref" --format "$arch {{.Os}}/{{.Architecture}}{{with .Variant}}/{{.}}{{end}} user={{.Config.User}}"
           done
-          docker run --rm "$(docker images ghcr.io/openlinkos/beacon --format '{{.Repository}}:{{.Tag}}' | grep -- '-amd64$' | head -n 1)" version
+          ref="$(docker images ghcr.io/openlinkos/beacon --format '{{.Repository}}:{{.Tag}}' | grep -- '-amd64$' | head -n 1)"
+          docker run --rm "$ref" version
+          config="$(mktemp -d)"
+          chmod 0755 "$config"
+          openssl rand -hex 24 >"$config/rules-token"
+          cat >"$config/beacon.yaml" <<'EOF'
+          listen: ":17001"
+          data_dir: /var/lib/beacon
+          catalog_dir: /etc/beacon/catalog
+          rules:
+            token_file: /config/rules-token
+          victoriametrics:
+            url: http://127.0.0.1:1
+          EOF
+          chmod 0644 "$config/beacon.yaml" "$config/rules-token"
+          container="$(docker run -d --rm -p 127.0.0.1::17001 -v "$config:/config:ro" "$ref" serve -config /config/beacon.yaml)"
+          trap 'docker stop "$container" >/dev/null; rm -rf "$config"' EXIT
+          port="$(docker port "$container" 17001/tcp)"
+          html="$(curl --retry 12 --retry-connrefused --retry-delay 1 -fsS "http://$port/workspace/")"
+          asset="$(printf '%s\n' "$html" | sed -n 's/.*src="\(\/workspace\/assets\/[^"]*\.js\)".*/\1/p')"
+          test -n "$asset"
+          curl -fsS "http://$port$asset" >/dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://$port/console/api/v1/session")" = 401

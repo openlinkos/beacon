@@ -237,7 +237,7 @@ func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
 	case err != nil:
 		s.failed(w, r, page, "probe on demand", err)
 	default:
-		http.Redirect(w, r, probeResultPath(page, result.ID), http.StatusSeeOther) //nolint:gosec // G710: local alert page and anchor
+		http.Redirect(w, r, probeResultPath(page, result.ID), http.StatusSeeOther)
 	}
 }
 

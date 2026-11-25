@@ -2,12 +2,10 @@
 
 {{define "content"}}
 <section class="ol-hero bc-status-hero" aria-labelledby="hero-title">
-  <div class="ol-hero-rings" aria-hidden="true">{{.MarkHero}}</div>
   <div class="ol-hero-body">
-    <a class="ol-status{{if .Tone}} ol-status-{{.Tone}}{{end}}" href="#components"><span class="ol-dot ol-dot-live"></span>{{.P.Summary}}</a>
     <h1 class="ol-hero-title" id="hero-title">{{.P.Title}}</h1>
-    {{if .P.Description}}<p class="ol-hero-lead">{{.P.Description}}</p>{{end}}
-    <p class="ol-hero-meta"><time datetime="{{.P.Updated.Format "2006-01-02T15:04:05Z07:00"}}">{{.Updated}}</time>{{if .Locations}} · {{.L.Checked .Locations}}{{end}}</p>
+    <a class="ol-status{{if .Tone}} ol-status-{{.Tone}}{{end}}" href="#components"><span class="ol-dot"></span>{{.P.Summary}}</a>
+    <p class="ol-hero-meta"><time datetime="{{.P.Updated.Format "2006-01-02T15:04:05Z07:00"}}">{{.Updated}}</time></p>
   </div>
 </section>
 
@@ -19,7 +17,6 @@
     <div class="ol-panel-body">
       <p class="ol-muted ol-text-sm">{{$.L.Started}} <time datetime="{{.StartedISO}}">{{.Started}}</time> · {{$.L.Affected}}: {{.Components}}</p>
       {{template "updates" .Updates}}
-      <p class="ol-text-sm"><a href="{{.Href}}">{{$.L.AllUpdates}}</a></p>
     </div>
   </article>{{end}}
   </div>
@@ -48,15 +45,13 @@
 <section class="ol-site-section" id="components" aria-labelledby="components-title">
   <div class="ol-site-section-header">
     <h2 class="ol-site-section-title" id="components-title">{{.L.Components}}</h2>
-    <p class="ol-site-section-description">{{.L.HistoryIn .P.Timezone}}</p>
   </div>
   <div class="ol-stack">
   {{range .Groups}}<div class="ol-panel">
-    {{if .Title}}<div class="ol-panel-header"><h3 class="ol-panel-title">{{.Title}}</h3>{{if .Description}}<span class="ol-hint">{{.Description}}</span>{{end}}</div>{{end}}
+    {{if .Title}}<div class="ol-panel-header"><h3 class="ol-panel-title">{{.Title}}</h3></div>{{end}}
     <ul class="ol-list">
     {{range .Items}}<li id="component-{{.Name}}">
       <span class="ol-list-row"><span class="ol-list-title">{{.Title}}</span>{{template "state" .}}</span>
-      {{if .Description}}<span class="ol-list-meta">{{.Description}}</span>{{end}}
       <div class="ol-uptime ol-uptime-lg bc-uptime" role="img" aria-label="{{.Strip}}">{{range .Cells}}<span{{if .Class}} class="{{.Class}}"{{end}} title="{{.Title}}"></span>{{end}}</div>
       <span class="ol-list-meta bc-uptime-axis"><span class="bc-axis-90">{{$.L.DaysAgo 90}}</span><span class="bc-axis-30">{{$.L.DaysAgo 30}}</span><span>{{if .Avail}}{{$.L.Available .Avail}}{{else}}{{$.L.NoData}}{{end}}</span><span>{{$.L.Today}}</span></span>
       {{if .Cells}}<details class="ol-details bc-history">

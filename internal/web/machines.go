@@ -69,7 +69,7 @@ type channelSwitch struct {
 }
 
 type machinesPage struct {
-	shell
+	shell   `json:"-"`
 	L       machineLabels
 	Channel channelSwitch
 	List    list
@@ -190,7 +190,7 @@ type machineCheck struct {
 }
 
 type machinePage struct {
-	shell
+	shell                `json:"-"`
 	L                    machineLabels
 	LL                   listLabels
 	Facts                []kv
@@ -546,7 +546,7 @@ func (s *Server) replaceMachine(w http.ResponseWriter, r *http.Request, v *viewe
 		return
 	}
 	q := url.Values{"done": {"replaced"}, "old": {cur.HostKey}, "new": {a.Machine.HostKey}}
-	http.Redirect(w, r, local(page)+"?"+q.Encode(), http.StatusSeeOther) //nolint:gosec // G710: local keeps the redirect on this site
+	http.Redirect(w, r, local(page)+"?"+q.Encode(), http.StatusSeeOther)
 }
 
 func (s *Server) connectorMachine(w http.ResponseWriter, r *http.Request, v *viewer) {

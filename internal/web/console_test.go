@@ -581,9 +581,10 @@ func TestOverviewFigures(t *testing.T) {
 	}
 	page := b.get("/console").body
 	for _, want := range []string{
-		`href="/console/alerts?state=firing"`, `<span class="ol-stat-value">1</span>`, "1 critical, 0 warning, 0 info",
-		`href="/console/config#locations"`, "1 of 2", `href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
-		`href="/console/hooks"`, "1 delivered, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="ol-stat-value">2</span>`,
+		`href="/console/alerts?state=firing"`, `<span class="bc-stat-value" data-tone="danger">1</span>`, "1 critical, 0 warning, 0 info",
+		`href="/console/config#locations"`, "1 of 2", `class="bc-coverage" min="0" max="2" value="1"`,
+		`href="/console/machines"`, "1 critical, 0 of 1 behind NAT connected",
+		`href="/console/hooks"`, "1 delivered, 0 failed, 0 waiting", `href="/console/sessions?day=2026-11-02"`, `<span class="bc-stat-value">2</span>`,
 		"Critical notifications", "Feishu group bot", "When the alert opens",
 		"Running", ">" + strconv.FormatInt(e.cdb.Version(), 10) + ", by alice via API",
 	} {
@@ -612,6 +613,26 @@ func TestOverviewLinksToMissingDeliverySetup(t *testing.T) {
 	}
 	if strings.Contains(page, `id="critical-notifications"`) {
 		t.Error("overview shows a delivery panel with no configured routes")
+	}
+}
+
+func TestOverviewMonitorActionMatchesConfigurationScope(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	for _, tc := range []struct {
+		name   string
+		scopes []string
+		canAdd bool
+	}{
+		{name: "reader", scopes: []string{"status:read"}},
+		{name: "operator", scopes: []string{"status:read", "config:write"}, canAdd: true},
+	} {
+		page := e.signedIn(tc.name, tc.scopes...).get("/console")
+		if page.code != http.StatusOK || strings.Contains(page.body, `href="/console/monitors/add/"`) != tc.canAdd {
+			t.Errorf("%s: overview status %d, want monitor action visible: %t", tc.name, page.code, tc.canAdd)
+		}
+		if strings.Contains(page.body, `class="ol-btn ol-btn-primary" href=""`) {
+			t.Errorf("%s: overview displays an action without a destination", tc.name)
+		}
 	}
 }
 

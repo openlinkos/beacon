@@ -78,7 +78,7 @@ func TestRootWithThePageOnItsOwnHost(t *testing.T) {
 	if p := e.get("/status/public"); p.code != http.StatusOK || !strings.Contains(p.body, `<link rel="canonical" href="https://uptime.example.com/">`) {
 		t.Errorf("/status/public: %d", p.code)
 	}
-	if h := e.do(http.MethodGet, "uptime.example.com", "/", nil); h.code != http.StatusOK || !strings.Contains(h.body, "Pull through the mirror") {
+	if h := e.do(http.MethodGet, "uptime.example.com", "/", nil); h.code != http.StatusOK || !strings.Contains(h.body, "Example Status") {
 		t.Errorf("the page on its own host: %d", h.code)
 	}
 }
@@ -303,10 +303,13 @@ func TestConsoleFooter(t *testing.T) {
 		if a := e.browser().get(e.link(link.SessionPath(sessionID))); !strings.Contains(a.body, footer) {
 			t.Errorf("%s: the page opened with a link has no footer", c.lang)
 		}
-		// the sign-in page: under the form, Beacon is open source, and where to read and see it
+		// The sign-in page gives the project links without an introductory statement.
 		in := e.browser().get("/console/sign-in")
+		if strings.Contains(in.body, "ol-auth-statement") {
+			t.Errorf("%s: the sign-in page has an introductory statement", c.lang)
+		}
 		for _, want := range []string{
-			`<p class="ol-auth-statement">` + i18n.T(c.lang, "Sign in to see your services, alerts and servers, and everything your agents did on them.") + `</p>`,
+			`class="bc-auth-brand"`,
 			`<div class="ol-auth-foot"><span>Beacon v0.3.0-test</span><span>` + i18n.T(c.lang, "Beacon is open source.") + `</span>`,
 			`<a href="` + c.docs + `">` + i18n.T(c.lang, "Documentation") + `</a><a href="https://github.com/openlinkos/beacon">GitHub</a></div>`,
 		} {

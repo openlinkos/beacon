@@ -17,7 +17,7 @@ var incidentEpisodesTmpl = parse("incident-episodes.html")
 const episodeInputTime = "2006-01-02T15:04:05"
 
 type incidentEpisodesPage struct {
-	shell
+	shell                                                                                 `json:"-"`
 	L                                                                                     outcomeLabels
 	Rows                                                                                  []incidentEpisodeRow
 	Filters                                                                               []outcomeFacet
@@ -50,7 +50,7 @@ func (s *Server) incidentEpisodes(w http.ResponseWriter, r *http.Request, v *vie
 	}
 	selection := url.Values{"group": {q.Group}, "severity": {q.Severity}, "origin": {q.Origin}}
 	p := incidentEpisodesPage{
-		shell: s.shellFor(r, v, "alerts", s.t("Started episodes"),
+		shell: s.shellFor(r, v, "incident-outcomes", s.t("Started episodes"),
 			crumb{Label: s.t("Incident history"), Href: consolePath("/incident-outcomes")}),
 		L: s.outcomeLabels(), Group: q.Group, Status: s.t("Status"),
 		Since: result.Since.UTC().Format(episodeInputTime), Until: result.Until.UTC().Format(episodeInputTime),

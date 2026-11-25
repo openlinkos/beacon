@@ -2,7 +2,8 @@
 #
 # The binaries are compiled outside the image and placed at <platform>/beacon and <platform>/beacon-probe
 # in the build context (GoReleaser does this when releasing). beacon-probe is the probe agent; the image carries
-# it so that the monitoring host can run its own probe from the same image. This file only copies files, and the
+# it so that the monitoring host can run its own probe from the same image. The workspace is already embedded
+# in beacon, so the image needs no Node runtime or separate web server. This file only copies files, and the
 # final stage has no RUN, so building the arm64 image needs no QEMU. The base images are pinned by digest and
 # updated by Dependabot.
 

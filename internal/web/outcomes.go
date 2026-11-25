@@ -90,7 +90,7 @@ func (s *Server) participantKind(kind string) string {
 }
 
 type outcomesPage struct {
-	shell
+	shell                                 `json:"-"`
 	L                                     outcomeLabels
 	Rows                                  []outcomeHistoryRow
 	Filters                               []outcomeFacet
@@ -158,7 +158,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 		s.outcomeProblem(w, r, v, err)
 		return
 	}
-	p := outcomesPage{shell: s.shellFor(r, v, "alerts", s.t("Incident history"), crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
+	p := outcomesPage{shell: s.shellFor(r, v, "incident-outcomes", s.t("Incident history"), crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
 		L: s.outcomeLabels(), Group: q.Group}
 	p.Filters = s.outcomeFilters(p.L, q)
 	base := consolePath("/incident-outcomes")
@@ -200,7 +200,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 }
 
 type outcomePage struct {
-	shell
+	shell                `json:"-"`
 	L                    outcomeLabels
 	Incident             outcomeRow
 	Audit, Alert, Group  string
@@ -294,7 +294,7 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 	}
 	o := result.Outcome
 	p := outcomePage{
-		shell: s.shellFor(r, v, "alerts", o.Title, crumb{Label: s.t("Incident history"), Href: consolePath("/incident-outcomes")}),
+		shell: s.shellFor(r, v, "incident-outcomes", o.Title, crumb{Label: s.t("Incident history"), Href: consolePath("/incident-outcomes")}),
 		L:     s.outcomeLabels(), Incident: s.outcomeRow(o), Group: o.Group,
 		Audit: consolePath("/audit") + "?outcome=" + url.QueryEscape(o.ID),
 	}
