@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-182f3a0b
+sourceHash: sha256-0183ad3d
 ---
 
 # 装在服务器上
@@ -269,6 +269,24 @@ claude mcp login beacon
   sudo install -m 0640 -o root -g beacon-oncall "$work/hook-secret" "$work/beacon-token" "$work/run-report-token" /etc/beacon-oncall/
 )
 ```
+
+**演练前检查 Agent 账号。** 在中心上将地址替换为 Beacon 的 `public_url`。这项检查使用与下方接收程序相同的 Linux 用户、主目录和 `PATH`。如果通过服务环境提供模型凭据，检查和启动接收程序时使用同一套环境。
+
+```sh
+beacon_url=https://status.example.com
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_URL="$beacon_url" sh -eu -c '
+    claude --version
+    claude auth status --text
+    token=$(tr -d "\r\n" </etc/beacon-oncall/beacon-token)
+    test -n "$token"
+    printf "Authorization: Bearer %s\n" "$token" |
+      curl -q -fsS --max-time 10 --proto "=https" -H @- "$BEACON_URL/api/v1/token"
+  '
+```
+
+确认 Claude Code 显示账号已登录。Beacon 的响应中，`actor` 应为你的用户名加上 `/ reference-drill`，例如 `alice / reference-drill`，`machine_scope` 应为 `listed`，`machines` 应只包含 `edge-1`，`scopes` 应包含 `status:read`、`alerts:write` 和 `machines:ssh`。如果找不到程序或登录失败，先在 `beacon-oncall` 用户下处理。如果 Beacon 返回 `401`，检查令牌是否无效或过期。如果身份或权限不符，先核对令牌文件及 Agent 的所有者和机器授权。接下来的演练再检验模型实际运行和测试群收件。
 
 **配置钩子。** 按[私有网桥地址和防火墙步骤](../guide/on-call.md#a-private-receiver-on-the-centre)设置 `beacon_gateway`，并在示例中使用打印出的 URL。将此条目加入 `/opt/beacon/config.yaml`，然后运行 `sudo ./install.sh`，一并校验并应用钩子和群聊渠道设置。重载后，在**概览 → 严重告警通知**中核对渠道。
 

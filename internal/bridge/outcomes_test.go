@@ -34,6 +34,7 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 	if _, err := e.b.Ack(ctx, id, person, "the investigation starts"); err != nil {
 		t.Fatal(err)
 	}
+	ackAt := e.now
 	if _, err := e.b.AddNote(ctx, id, agent, "reported findings"); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +42,9 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 	e.b.Tick(ctx) // the acknowledgement has lapsed, but the participation remains evidence
 	if g, _ := e.st.Group(id); g.Ack != nil {
 		t.Fatal("the fixture must lapse acknowledgement before recovery")
+	}
+	if _, err := e.b.AddNote(ctx, id, person, "I handed over the investigation"); err != nil {
+		t.Fatal(err)
 	}
 	send("resolved")
 	e.now = e.now.Add(time.Minute)
@@ -54,8 +58,11 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 		t.Fatalf("first outcome: %+v %v", out, err)
 	}
 	first := out.Outcomes[0]
-	if p := first.Participation; len(p) != 2 || p[0].Kind != "agent" || p[0].By != "bob / duty" || p[0].Action != "probe_now" || p[1].Kind != "person" || p[1].By != "alice" {
+	if p := first.Participation; len(p) != 2 || p[0].Kind != "agent" || p[0].By != "bob / duty" || p[0].Action != "probe_now" || p[1].Kind != "person" || p[1].By != "alice" || p[1].Action != "note" {
 		t.Fatalf("participation %+v", p)
+	}
+	if ack := first.HumanAcknowledgement; ack == nil || !ack.At.Equal(ackAt) || ack.By != "alice" || ack.Via != "console" {
+		t.Fatalf("the note replaced the named acknowledgement: %+v", ack)
 	}
 	if v := first.Verification; v == nil || v.Passed != 1 || v.Failed != 1 || v.Missing != 1 {
 		t.Fatalf("verification %+v", v)
@@ -67,7 +74,7 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 	send("resolved")
 	newest, err := e.b.IncidentOutcomes(id, "", 1)
 	if err != nil || len(newest.Outcomes) != 1 || newest.Before != newest.Outcomes[0].ID || newest.Outcomes[0].ID == first.ID ||
-		len(newest.Outcomes[0].Participation) != 0 || newest.Outcomes[0].Verification != nil {
+		len(newest.Outcomes[0].Participation) != 0 || newest.Outcomes[0].Verification != nil || newest.Outcomes[0].HasHumanAcknowledgement() {
 		t.Fatalf("new episode and cursor: %+v %v", newest, err)
 	}
 	older, err := e.b.IncidentOutcomes(id, newest.Before, 1)
@@ -91,6 +98,56 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 	got, err := e.st.IncidentOutcomes(store.OutcomeFilter{Limit: 50})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("physical prune: %+v %v", got, err)
+	}
+}
+
+func TestHistoryNamedAcknowledgementExcludesImplicitAndDeviceResponses(t *testing.T) {
+	e := newEnv(t)
+	g := store.Group{ID: "0123456789ab", Status: "resolved", Severity: "critical"}
+	g.StartsAt, g.ResolvedAt = e.now.Add(-time.Hour), e.now
+	// Older groups can hold an acknowledgement implicitly created by applying a silence.
+	g.Ack = &store.Ack{By: "alice", Kind: "person", Via: "feishu", At: g.StartsAt}
+	if o := e.b.outcome(g, e.now, time.Time{}); o == nil || o.HasHumanAcknowledgement() {
+		t.Fatalf("an old acknowledgement without action provenance counted as explicit: %+v", o)
+	}
+	recordParticipation(&g, Actor{Name: "alice", Via: "feishu"}, "silence", g.StartsAt)
+	recordParticipation(&g, Actor{Name: "Pushover", Via: "pushover"}, "ack", g.StartsAt.Add(time.Second))
+	recordParticipation(&g, Actor{Name: "token-a", Via: "api"}, "ack", g.StartsAt.Add(2*time.Second))
+	if o := e.b.outcome(g, e.now, time.Time{}); o == nil || o.HasHumanAcknowledgement() {
+		t.Fatalf("silence, device or unattributed action counted as explicit: %+v", o)
+	}
+	recordParticipation(&g, Actor{Name: "alice", Via: "feishu"}, "ack", g.StartsAt.Add(3*time.Second))
+	if o := e.b.outcome(g, e.now, time.Time{}); o == nil || !o.HasHumanAcknowledgement() || o.HumanAcknowledgement.By != "alice" {
+		t.Fatalf("explicit acknowledgement missing: %+v", o)
+	}
+}
+
+func TestHistoryFiltersBeforeLimit(t *testing.T) {
+	e := newEnv(t)
+	const group = "0123456789ab"
+	observed := func(hours int) store.IncidentOutcome {
+		at := e.now.Add(-time.Duration(hours) * time.Hour)
+		return store.IncidentOutcome{ID: store.OutcomeID(at, group, "legacy"), Group: group, Resolved: at,
+			Severity: "critical", HumanAcknowledgement: &store.OutcomeHumanAcknowledgement{By: "alice", Via: "console", At: at}}
+	}
+	tooOld, older, newest := observed(8*24), observed(30), observed(10)
+	glitch, otherSeverity := observed(9), observed(1)
+	glitch.HumanAcknowledgement, otherSeverity.Severity = nil, "warning"
+	for _, row := range []store.IncidentOutcome{tooOld, older, newest, glitch, otherSeverity} {
+		if err := e.st.EnsureIncidentOutcome(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := OutcomeQuery{Group: group, Severity: "critical", Since: "7d", Evidence: "human_ack", Limit: 1}
+	p := store.Principal{Scopes: []string{"status:read"}}
+	first, err := e.b.IncidentOutcomesFor(p, q)
+	if err != nil || len(first.Outcomes) != 1 || first.Outcomes[0].ID != newest.ID || first.Before != newest.ID {
+		t.Fatalf("filtered first page: %+v %v", first, err)
+	}
+	q.Before = first.Before
+	next, err := e.b.IncidentOutcomesFor(p, q)
+	if err != nil || len(next.Outcomes) != 1 || next.Outcomes[0].ID != older.ID || next.Before != "" {
+		t.Fatalf("filtered second page: %+v %v", next, err)
 	}
 }
 

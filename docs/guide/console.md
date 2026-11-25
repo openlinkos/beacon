@@ -167,6 +167,10 @@ The window opens 30 minutes before the alert started, as for the [evidence](on-c
 
 From **Alerts**, open **Incident history** to revisit each resolved episode, including when the same group fired again. The outcome records when Beacon marked the alert resolved, the latest alert action associated with each known kind of actor, and the latest on-demand check's counts by target and location. Standalone credentials appear as unattributed. A delivered hook alone does not make an agent a participant.
 
+Use **Severity**, **Resolved within** and **Evidence** to narrow the retained history. For a shift review, select **Critical** and **No passing check recorded** to find incidents with no complete pass retained near rule recovery. Each row shows which evidence is recorded and keeps the latest on-demand result separate. A passing check can be retained even when a later check failed or missed observations.
+
+An Agent trigger report comes from the programme path for the firing alert, including a report that the programme could not start. A human acknowledgement comes from an identified person. Older records can lack either kind of evidence. Open an episode to see the recorded acknowledgement and the underlying Agent and check results.
+
 **Agent deliveries** keeps the hook's delivery status and any programme report for the same episode. You can see when a hook accepted the alert and whether the programme reported a start, a failure or completion. A programme report records what the runner observed. Older archived episodes may lack this evidence.
 
 Beacon also keeps one complete passing check near rule recovery. It keeps the last complete pass finished at or before rule recovery, or the first one finished afterwards if no earlier check passed. A complete pass requires at least one requested target-location observation and successful results for all of them. The check time records when Beacon finished collecting the results. You can compare this result with a later check that failed or missed observations, and see who requested each check where the record identifies them.

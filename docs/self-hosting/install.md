@@ -266,6 +266,24 @@ You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On
 )
 ```
 
+**Check the Agent account before the drill.** On the centre, set the URL to your Beacon `public_url`. Run these checks with the same Linux user, home and `PATH` as the receiver below. If you use a provider credential in the service environment, use the same environment for this check and the receiver.
+
+```sh
+beacon_url=https://status.example.com
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_URL="$beacon_url" sh -eu -c '
+    claude --version
+    claude auth status --text
+    token=$(tr -d "\r\n" </etc/beacon-oncall/beacon-token)
+    test -n "$token"
+    printf "Authorization: Bearer %s\n" "$token" |
+      curl -q -fsS --max-time 10 --proto "=https" -H @- "$BEACON_URL/api/v1/token"
+  '
+```
+
+Check that Claude Code reports an authenticated account. The Beacon response should show `actor` as `alice / reference-drill` with your username, `machine_scope` as `listed`, `machines` containing only `edge-1`, and `scopes` including `status:read`, `alerts:write` and `machines:ssh`. Fix an unavailable executable or failed sign-in under `beacon-oncall` first. A Beacon `401` points to an invalid or expired token. If the identity or permissions differ, check the token file and the Agent's owner and machine assignment before continuing. The drill below verifies an actual model run and receipt in the test chat.
+
 **Configure the hook.** Follow the [private bridge address and firewall steps](../guide/on-call.md#a-private-receiver-on-the-centre) to set `beacon_gateway`. Use its printed URL in the example. Add this entry to `/opt/beacon/config.yaml`, then run `sudo ./install.sh` to validate and apply both the hook and the chat route. Check **Overview → Critical notifications** after the reload.
 
 ```yaml

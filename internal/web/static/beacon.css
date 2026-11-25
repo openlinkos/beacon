@@ -82,6 +82,25 @@
   .bc-alert-note-previews:has(> :nth-child(2)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+.bc-outcome-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--ol-space-3);
+}
+.bc-outcome-evidence-filter, .bc-outcome-filter-actions { grid-column: 1 / -1; }
+.bc-outcome-evidence { display: grid; gap: var(--ol-space-1); }
+@container ol-table (max-width: 40rem) {
+  .bc-outcome-evidence-cell, .bc-outcome-latest { flex: 1 0 100%; }
+}
+@container ol-content (width < 40rem) {
+  .bc-outcome-filters :is(.ol-select, .ol-btn) { min-block-size: 2.75rem; }
+}
+@container ol-content (width >= 44rem) {
+  .bc-outcome-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(12rem, 1.6fr) auto; }
+  .bc-outcome-evidence-filter, .bc-outcome-filter-actions { grid-column: auto; }
+}
+
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
 .bc-diff code { display: block; }
 .bc-diff-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }

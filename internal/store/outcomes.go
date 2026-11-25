@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/kv"
@@ -13,23 +14,34 @@ var bucketOutcomes = []byte("incident_outcomes")
 // IncidentOutcome is the bounded internal record of one resolved alert episode.
 // Its ID starts with the UTC resolution timestamp so the bucket is ordered newest-first.
 type IncidentOutcome struct {
-	ID              string                 `json:"id"`
-	Group           string                 `json:"group"`
-	Title           string                 `json:"title"`
-	Severity        string                 `json:"severity"`
-	Services        []string               `json:"services"`
-	Started         time.Time              `json:"started_at"`
-	Resolved        time.Time              `json:"resolved_at"`
-	AuditUntil      time.Time              `json:"audit_until,omitzero"`
-	Participation   []Participation        `json:"participation"`
-	Verification    *Verification          `json:"verification,omitempty"`
-	PassingCheck    *Verification          `json:"passing_check,omitempty"`
-	Sessions        []string               `json:"related_sessions,omitempty"`
-	AgentDeliveries []OutcomeAgentDelivery `json:"agent_deliveries,omitempty"`
+	ID                   string                       `json:"id"`
+	Group                string                       `json:"group"`
+	Title                string                       `json:"title"`
+	Severity             string                       `json:"severity"`
+	Services             []string                     `json:"services"`
+	Started              time.Time                    `json:"started_at"`
+	Resolved             time.Time                    `json:"resolved_at"`
+	AuditUntil           time.Time                    `json:"audit_until,omitzero"`
+	Participation        []Participation              `json:"participation"`
+	Verification         *Verification                `json:"verification,omitempty"`
+	PassingCheck         *Verification                `json:"passing_check,omitempty"`
+	Sessions             []string                     `json:"related_sessions,omitempty"`
+	AgentDeliveries      []OutcomeAgentDelivery       `json:"agent_deliveries,omitempty"`
+	HumanAcknowledgement *OutcomeHumanAcknowledgement `json:"human_acknowledgement,omitempty"`
+
+	deliveryReporters map[string]string
 }
 
-// OutcomeAgentDelivery preserves the observable handoff to one configured hook. Transport
-// diagnostics and reporter credentials stay on the live alert.
+// OutcomeHumanAcknowledgement retains the latest explicit acknowledgement by an identified person.
+// The person's later notes or checks do not replace this evidence.
+type OutcomeHumanAcknowledgement struct {
+	By  string    `json:"by"`
+	Via string    `json:"via"`
+	At  time.Time `json:"at"`
+}
+
+// OutcomeAgentDelivery preserves the observable handoff to one configured hook. Transport diagnostics stay on the
+// live alert, and reporter bindings stay in the private delivery index.
 type OutcomeAgentDelivery struct {
 	ID        string    `json:"id,omitempty"`
 	Hook      string    `json:"hook"`
@@ -51,6 +63,57 @@ type Participation struct {
 	At     time.Time `json:"at"`
 }
 
+// NamedAcknowledgement reports whether this is an explicit acknowledgement by a known person.
+func (p Participation) NamedAcknowledgement() bool {
+	if p.Kind != "person" || p.Action != "ack" || p.By == "" || p.At.IsZero() {
+		return false
+	}
+	switch p.Via {
+	case "console", "api", "mcp", "feishu":
+		return true
+	}
+	return false
+}
+
+// AgentReportRecorded reports evidence of a programme report for the alert trigger.
+func (o IncidentOutcome) AgentReportRecorded() bool {
+	return slices.ContainsFunc(o.AgentDeliveries, func(d OutcomeAgentDelivery) bool {
+		return d.Event == "firing" && d.Run != nil
+	})
+}
+
+func (o IncidentOutcome) HasHumanAcknowledgement() bool { return o.HumanAcknowledgement != nil }
+func (o IncidentOutcome) HasPassingCheck() bool         { return o.PassingCheck != nil }
+
+// ValidOutcomeEvidence reports which presence filters may be used in a history query.
+func ValidOutcomeEvidence(v string) bool {
+	switch v {
+	case "", "agent_report", "no_agent_report", "human_ack", "no_human_ack", "passing_check", "no_passing_check":
+		return true
+	}
+	return false
+}
+
+func (o IncidentOutcome) matchesEvidence(v string) bool {
+	switch v {
+	case "":
+		return true
+	case "agent_report":
+		return o.AgentReportRecorded()
+	case "no_agent_report":
+		return !o.AgentReportRecorded()
+	case "human_ack":
+		return o.HasHumanAcknowledgement()
+	case "no_human_ack":
+		return !o.HasHumanAcknowledgement()
+	case "passing_check":
+		return o.HasPassingCheck()
+	case "no_passing_check":
+		return !o.HasPassingCheck()
+	}
+	return false
+}
+
 // Verification counts the target-location observations collected by an on-demand check.
 type Verification struct {
 	ID        string    `json:"id"`
@@ -68,7 +131,10 @@ func putOutcome(tx kv.Tx, outcome IncidentOutcome) error {
 	if err != nil {
 		return err
 	}
-	return tx.Put(bucketOutcomes, []byte(outcome.ID), raw)
+	if err := tx.Put(bucketOutcomes, []byte(outcome.ID), raw); err != nil {
+		return err
+	}
+	return linkOutcomeDeliveries(tx, outcome)
 }
 
 // EnsureIncidentOutcome backfills a missing summary or evidence from a retained group.
@@ -78,7 +144,7 @@ func (s *Store) EnsureIncidentOutcome(outcome IncidentOutcome) error {
 		if raw == nil {
 			return putOutcome(tx, outcome)
 		}
-		if outcome.PassingCheck == nil && len(outcome.AgentDeliveries) == 0 {
+		if outcome.PassingCheck == nil && len(outcome.AgentDeliveries) == 0 && !outcome.HasHumanAcknowledgement() {
 			return nil
 		}
 		var saved IncidentOutcome
@@ -92,8 +158,12 @@ func (s *Store) EnsureIncidentOutcome(outcome IncidentOutcome) error {
 		if len(saved.AgentDeliveries) == 0 && len(outcome.AgentDeliveries) > 0 {
 			saved.AgentDeliveries, changed = outcome.AgentDeliveries, true
 		}
+		if !saved.HasHumanAcknowledgement() && outcome.HasHumanAcknowledgement() {
+			saved.HumanAcknowledgement, changed = outcome.HumanAcknowledgement, true
+		}
+		saved.deliveryReporters = outcome.deliveryReporters
 		if !changed {
-			return nil
+			return linkOutcomeDeliveries(tx, saved)
 		}
 		return putOutcome(tx, saved)
 	})
@@ -145,12 +215,14 @@ func (s *Store) IncidentOutcome(id string, since time.Time) (IncidentOutcome, er
 	return got, err
 }
 
-// OutcomeFilter pages backwards in resolution time, optionally matching one recurring alert group.
+// OutcomeFilter pages backwards in resolution time, optionally matching an alert group, severity or evidence.
 type OutcomeFilter struct {
-	Since  time.Time
-	Before string
-	Group  string
-	Limit  int
+	Since    time.Time
+	Before   string
+	Group    string
+	Severity string
+	Evidence string
+	Limit    int
 }
 
 // IncidentOutcomeForEpisode finds a retained summary from an exact group and episode reference.
@@ -184,7 +256,7 @@ func (s *Store) IncidentOutcomes(q OutcomeFilter) ([]IncidentOutcome, error) {
 			if decodeErr = json.Unmarshal(value, &item); decodeErr != nil || item.Resolved.Before(q.Since) {
 				return false
 			}
-			if q.Group == "" || q.Group == item.Group {
+			if (q.Group == "" || q.Group == item.Group) && (q.Severity == "" || q.Severity == item.Severity) && item.matchesEvidence(q.Evidence) {
 				out = append(out, item)
 			}
 			return len(out) <= q.Limit
@@ -207,6 +279,13 @@ func (s *Store) PruneIncidentOutcomes(since time.Time) error {
 			return true
 		})
 		for _, k := range keys {
+			var outcome IncidentOutcome
+			if err := json.Unmarshal(tx.Get(bucketOutcomes, k), &outcome); err != nil {
+				return err
+			}
+			if err := unlinkOutcomeDeliveries(tx, outcome); err != nil {
+				return err
+			}
 			if err := tx.Delete(bucketOutcomes, k); err != nil {
 				return err
 			}

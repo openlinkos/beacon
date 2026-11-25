@@ -32,9 +32,12 @@ type (
 		Changes []store.Change `json:"changes"`
 	}
 	outcomesIn struct {
-		Group  string `json:"group,omitempty" jsonschema:"only this alert group ID"`
-		Before string `json:"before,omitempty" jsonschema:"cursor from the preceding page"`
-		Limit  int    `json:"limit,omitempty" jsonschema:"page size (default 50, maximum 200)"`
+		Group    string `json:"group,omitempty" jsonschema:"only this alert group ID"`
+		Before   string `json:"before,omitempty" jsonschema:"cursor from the preceding page with the same filters"`
+		Severity string `json:"severity,omitempty" jsonschema:"critical, warning or info"`
+		Since    string `json:"since,omitempty" jsonschema:"resolution time at or after a duration such as 7d or an RFC 3339 time"`
+		Evidence string `json:"evidence,omitempty" jsonschema:"agent_report, no_agent_report, human_ack, no_human_ack, passing_check or no_passing_check"`
+		Limit    int    `json:"limit,omitempty" jsonschema:"page size (default 50, maximum 200)"`
 	}
 	outcomeIn struct {
 		ID string `json:"id" jsonschema:"incident outcome ID from list_incident_outcomes"`
@@ -44,13 +47,14 @@ type (
 func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 	mcp.AddTool(s, &mcp.Tool{Name: "list_incident_outcomes", Title: "List resolved incident outcomes", Annotations: read,
-		Description: "Private, retained summaries of resolved alert episodes, newest first. An observed participant, the alert's resolved state and a successful probe describe separate facts."},
+		Description: "Private, retained summaries of resolved alert episodes, newest first. Filter by severity, resolution time and recorded evidence. A programme report, a named acknowledgement and a complete check describe separate facts."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in outcomesIn) (*mcp.CallToolResult, bridge.OutcomePage, error) {
 			if _, err := need(ctx, "status:read"); err != nil {
 				return nil, bridge.OutcomePage{}, err
 			}
 			p, _ := principal(ctx)
-			page, err := b.IncidentOutcomesFor(p, in.Group, in.Before, in.Limit)
+			page, err := b.IncidentOutcomesFor(p, bridge.OutcomeQuery{Group: in.Group, Before: in.Before,
+				Severity: in.Severity, Since: in.Since, Evidence: in.Evidence, Limit: in.Limit})
 			return nil, page, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_incident_outcome", Title: "Get a resolved incident outcome", Annotations: read,
@@ -129,6 +133,7 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 	mcp.AddTool(s, &mcp.Tool{Name: "report_agent_run", Title: "Report an on-call programme's execution",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Report the start or outcome of the programme for a hook delivery where this credential is the configured reporter. " +
+			"A retained delivery stays with its original incident and reporter after the group fires again. " +
 			"Requires alerts:report. Record the actual observed status and exit code only. This leaves ownership, escalation and recovery to their existing controls."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in agentRunIn) (*mcp.CallToolResult, store.AgentRun, error) {
 			who, err := need(ctx, bridge.AgentRunScope)

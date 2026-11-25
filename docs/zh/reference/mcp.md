@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-6bc5dec4
+sourceHash: sha256-ee94884e
 ---
 
 # MCP 工具
@@ -70,14 +70,22 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
-| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
+| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
 | `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录、最近一次复测，以及可用时规则恢复前后保留的完整通过复测。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
-| `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。钩子须把该凭据的身份配置为回报方 |
+| `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
 用 `probe_now` 验证某次故障时，传入 `alert_id`，并将 `expected_episode` 设为 `list_alerts` 返回的 `episode`，或 `get_evidence`、`get_timeline`、签名唤醒消息中的 `alert.episode`。故障被下一轮替代时，工具返回以 `incident.changed` 开头的错误。请先读取当前故障证据，再决定是否重测。省略 `expected_episode` 时，仍选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障验证。故障复测按每个告警条目的已知标签（含故障域）匹配目标。任何条目在有效检测点都没有匹配目标时，工具会返回错误。
+
+历史查询以规则恢复时间为准。用 `severity`（`critical`、`warning` 或 `info`）、`since`（如 `7d` 或 RFC 3339 时间）和 `evidence` 筛选，再用游标翻页。最早只能查到仍在保留期内的故障。
+
+- `agent_report` 查找告警触发时的程序回报。包含 `not_started`，即使程序没有启动。仅为告警恢复发送的回报不计入。
+- `human_ack` 查找由可识别人员主动做出的确认。归档中的 `human_acknowledgement` 保留姓名、来源和时间。手机设备回执、静默和备注各自有独立记录。
+- `passing_check` 查找保留的完整通过复测。即使最近一次复测缺少结果，仍可以查到已保留的完整结果。
+
+对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 

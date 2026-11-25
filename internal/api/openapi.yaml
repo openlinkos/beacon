@@ -419,6 +419,13 @@ components:
               via: {type: string}
               action: {type: string, enum: [ack, silence, note, probe_now]}
               at: {type: string, format: date-time}
+        human_acknowledgement:
+          type: object
+          description: Latest explicit acknowledgement by an identified person. Older outcomes may lack this observation.
+          properties:
+            by: {type: string}
+            via: {type: string, enum: [console, api, mcp, feishu]}
+            at: {type: string, format: date-time}
         verification:
           $ref: "#/components/schemas/IncidentVerification"
           description: Counts from the latest on-demand check, one observation per target and expected location
@@ -1278,7 +1285,9 @@ paths:
       description: >-
         Scope: alerts:report. The credential's principal must be the reporter bound to the hook delivery and still
         configured on that hook. Repeated reports are idempotent. A late start leaves a terminal result intact.
-        Reporting does not change ownership, escalation, or the alert state.
+        Reports for an archived delivery update its original incident while the outcome and its reporter binding are
+        retained. The audit target is the archived outcome ID. Reporting does not change ownership, escalation, or
+        the alert state.
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
         - {name: delivery, in: path, required: true, schema: {type: string}}
@@ -1306,7 +1315,10 @@ paths:
       description: "Scope: status:read. Private history of resolved alert episodes, newest first."
       parameters:
         - {name: group, in: query, schema: {type: string}, description: Filter by the recurring alert group ID}
-        - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor}
+        - {name: severity, in: query, schema: {type: string, enum: [critical, warning, info]}}
+        - {name: since, in: query, schema: {type: string}, description: "Include episodes resolved since this duration (such as 7d) or RFC 3339 time"}
+        - {name: evidence, in: query, schema: {type: string, enum: [agent_report, no_agent_report, human_ack, no_human_ack, passing_check, no_passing_check]}, description: Filter by recorded evidence}
+        - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor with the same filters}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
       responses:
         "200":

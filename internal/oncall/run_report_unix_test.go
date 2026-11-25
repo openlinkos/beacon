@@ -105,7 +105,9 @@ echo $$ > "`+dir+`/shell.pid"
 echo $! > "`+dir+`/child.pid"
 wait
 `)
-	s, _ := newServer(t, Options{Run: agent, Timeout: timeout, ReportURL: receiver.URL, ReportToken: fixtureReportToken})
+	// Source the fixture in Beacon's shell so the one-second deadline tests the report path
+	// without depending on the cost of launching another executable from a temporary directory.
+	s, _ := newServer(t, Options{Run: `. "` + agent + `"`, Timeout: timeout, ReportURL: receiver.URL, ReportToken: fixtureReportToken})
 	fire(t, s, "d1", http.StatusAccepted)
 	select {
 	case <-started:

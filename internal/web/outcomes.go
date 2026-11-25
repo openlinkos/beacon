@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -26,7 +27,9 @@ type outcomeLabels struct {
 	Sessions, PassingCheck                                                                                      string
 	Deliveries, Delivery, Programme, NoProgramme, ProgrammeStart, ProgrammeReport                               string
 	Incident, Service, Severity, Started, Resolved, Verification, Participation, NoParticipants, NoVerification string
-	First, Older, Empty, Audit, Alert, Clear, Group, Detail                                                     string
+	First, Older, Empty, Audit, Alert, Group, Detail                                                            string
+	Evidence, Apply, Reset, AllGroups, Acknowledgement                                                          string
+	AgentReport, NoAgentReport, HumanAck, NoHumanAck, CheckRecorded, NoPassingCheck                             string
 }
 
 func (s *Server) outcomeLabels() outcomeLabels {
@@ -36,12 +39,17 @@ func (s *Server) outcomeLabels() outcomeLabels {
 		PassingCheck:   s.t("Passing check near rule recovery"),
 		NoVerification: s.t("No on-demand check recorded"), First: s.t("Newest incidents"), Older: s.t("Older incidents"),
 		Empty: s.t("No incident outcomes match."), Audit: s.t("Related audit entries"), Alert: s.t("Open alert details"),
-		Clear: s.t("All incident outcomes"), Group: s.t("Alert group"),
+		Group:    s.t("Alert group"),
 		Detail:   s.t("This history records alert activity. Recorded participation alone does not identify what repaired the service."),
 		Sessions: s.t("Related sessions"), Deliveries: s.t("Agent deliveries"),
 		Delivery: s.t("Hook delivery"), Programme: s.t("Programme report"),
 		NoProgramme: s.t("No Agent program report recorded."), ProgrammeStart: s.t("Started"),
 		ProgrammeReport: s.t("Reported"),
+		Evidence:        s.t("Evidence"), Apply: s.t("Apply filters"), Reset: s.t("Clear filters"), AllGroups: s.t("All alert groups"),
+		Acknowledgement: s.t("Human acknowledgement"),
+		AgentReport:     s.t("Agent trigger report recorded"), NoAgentReport: s.t("No Agent trigger report recorded"),
+		HumanAck: s.t("Human acknowledgement recorded"), NoHumanAck: s.t("No human acknowledgement recorded"),
+		CheckRecorded: s.t("Passing check recorded"), NoPassingCheck: s.t("No passing check recorded"),
 	}
 }
 
@@ -77,27 +85,92 @@ func (s *Server) participantKind(kind string) string {
 
 type outcomesPage struct {
 	shell
-	L                   outcomeLabels
-	Rows                []outcomeRow
-	Group, First, Older string
+	L                                     outcomeLabels
+	Rows                                  []outcomeHistoryRow
+	Filters                               []outcomeFacet
+	Group, AllGroups, Reset, First, Older string
+}
+
+type outcomeHistoryRow struct {
+	outcomeRow
+	AgentReport, HumanAck, PassingCheck bool
+}
+
+type outcomeFacet struct {
+	Name, Label string
+	Options     []option
+}
+
+func outcomeOptions(selected string, options ...option) []option {
+	for i := range options {
+		options[i].Selected = options[i].Value == selected
+	}
+	return options
+}
+
+func (s *Server) outcomeFilters(l outcomeLabels, q bridge.OutcomeQuery) []outcomeFacet {
+	severities := []option{{Label: s.t("All severities")}}
+	for _, value := range config.Severities {
+		severities = append(severities, option{Value: value, Label: s.severity(value)})
+	}
+	dates := []option{
+		{Label: s.t("All retained incidents")},
+		{Value: "7d", Label: s.t("Last 7 days")},
+		{Value: "30d", Label: s.t("Last 30 days")},
+	}
+	if start, err := time.Parse(time.RFC3339, q.Since); err == nil {
+		dates = append(dates, option{Value: q.Since, Label: s.t("Resolved since %s", s.clock(start))})
+	} else if q.Since != "" && q.Since != "7d" && q.Since != "30d" {
+		dates = append(dates, option{Value: q.Since, Label: q.Since})
+	}
+	return []outcomeFacet{
+		{Name: "severity", Label: l.Severity, Options: outcomeOptions(q.Severity, severities...)},
+		{Name: "since", Label: s.t("Resolved within"), Options: outcomeOptions(q.Since, dates...)},
+		{Name: "evidence", Label: l.Evidence, Options: outcomeOptions(q.Evidence,
+			option{Label: s.t("Any evidence state")},
+			option{Value: "agent_report", Label: l.AgentReport},
+			option{Value: "no_agent_report", Label: l.NoAgentReport},
+			option{Value: "human_ack", Label: l.HumanAck},
+			option{Value: "no_human_ack", Label: l.NoHumanAck},
+			option{Value: "passing_check", Label: l.CheckRecorded},
+			option{Value: "no_passing_check", Label: l.NoPassingCheck})},
+	}
 }
 
 func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *viewer) {
-	q := r.URL.Query()
-	group, before := q.Get("group"), q.Get("before")
-	result, err := s.Bridge.IncidentOutcomes(group, before, perPage)
+	values := r.URL.Query()
+	q := bridge.OutcomeQuery{
+		Group: values.Get("group"), Before: values.Get("before"), Severity: values.Get("severity"),
+		Since: strings.TrimSpace(values.Get("since")), Evidence: values.Get("evidence"), Limit: perPage,
+	}
+	result, err := s.Bridge.IncidentOutcomesFor(v.Principal, q)
 	if err != nil {
 		s.outcomeProblem(w, r, v, err)
 		return
 	}
 	p := outcomesPage{shell: s.shellFor(r, v, "alerts", s.t("Incident history"), crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
-		L: s.outcomeLabels(), Group: group}
+		L: s.outcomeLabels(), Group: q.Group}
+	p.Filters = s.outcomeFilters(p.L, q)
 	base := consolePath("/incident-outcomes")
 	params := url.Values{}
-	if group != "" {
-		params.Set("group", group)
+	for name, value := range map[string]string{"severity": q.Severity, "since": q.Since, "evidence": q.Evidence} {
+		if value != "" {
+			params.Set(name, value)
+		}
 	}
-	if before != "" {
+	if q.Group != "" {
+		p.AllGroups = href(base, params)
+		p.Reset = href(base, url.Values{"group": {q.Group}})
+	} else {
+		p.Reset = base
+	}
+	if len(params) == 0 {
+		p.Reset = ""
+	}
+	if q.Group != "" {
+		params.Set("group", q.Group)
+	}
+	if q.Before != "" {
 		p.First = href(base, params)
 	}
 	if result.Before != "" {
@@ -105,7 +178,10 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 		p.Older = href(base, params)
 	}
 	for _, o := range result.Outcomes {
-		p.Rows = append(p.Rows, s.outcomeRow(o))
+		p.Rows = append(p.Rows, outcomeHistoryRow{
+			outcomeRow: s.outcomeRow(o), AgentReport: o.AgentReportRecorded(),
+			HumanAck: o.HasHumanAcknowledgement(), PassingCheck: o.HasPassingCheck(),
+		})
 	}
 	s.render(w, outcomesTmpl, p)
 }
@@ -116,6 +192,7 @@ type outcomePage struct {
 	Incident             outcomeRow
 	Audit, Alert, Group  string
 	Latest, PassingCheck *outcomeCheck
+	HumanAck             *participantRow
 	Participation        []participantRow
 	Sessions             []sessionItem
 	Deliveries           []outcomeDeliveryRow
@@ -218,6 +295,9 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 	if o.Verification == nil || (o.PassingCheck != nil && o.Verification.ID != o.PassingCheck.ID) {
 		p.PassingCheck = s.outcomeCheck(o.PassingCheck, o.Resolved)
 	}
+	if ack := o.HumanAcknowledgement; ack != nil {
+		p.HumanAck = &participantRow{By: ack.By, Via: s.via(ack.Via), At: s.clock(ack.At), ISO: iso(ack.At)}
+	}
 	for _, a := range o.Participation {
 		p.Participation = append(p.Participation, participantRow{
 			At: s.clock(a.At), ISO: iso(a.At), By: a.By, Via: s.via(a.Via),
@@ -288,7 +368,7 @@ func (s *Server) outcomeAudit(w http.ResponseWriter, r *http.Request, v *viewer,
 		return
 	}
 	o := result.Outcome
-	f := store.AuditFilter{Target: o.Group, From: o.Started, To: o.AuditUntil, Limit: perPage}
+	f := store.AuditFilter{Target: o.Group, ExactRelatedTarget: o.ID, From: o.Started, To: o.AuditUntil, Limit: perPage}
 	if f.To.IsZero() {
 		f.To = s.now()
 	}

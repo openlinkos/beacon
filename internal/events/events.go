@@ -124,6 +124,7 @@ type PruneMark struct {
 // 1000 and defaults to 100; Offset pages through. Records come back newest first.
 type Filter struct {
 	Actor, OnBehalf, Action, Object string
+	ExactRelatedObject              string // when Object is set, include this exact object regardless of From and To
 	From, To                        time.Time
 	Limit, Offset                   int
 }
@@ -588,14 +589,21 @@ func (l *Log) Query(f Filter) ([]Event, int, error) {
 	if f.Action != "" {
 		where, args = append(where, "action = ?"), append(args, f.Action)
 	}
+	var selection []string
 	if f.Object != "" {
-		where, args = append(where, "object = ?"), append(args, f.Object)
+		selection, args = append(selection, "object = ?"), append(args, f.Object)
 	}
 	if !f.From.IsZero() {
-		where, args = append(where, "time >= ?"), append(args, f.From.UnixNano())
+		selection, args = append(selection, "time >= ?"), append(args, f.From.UnixNano())
 	}
 	if !f.To.IsZero() {
-		where, args = append(where, "time <= ?"), append(args, f.To.UnixNano())
+		selection, args = append(selection, "time <= ?"), append(args, f.To.UnixNano())
+	}
+	if f.Object != "" && f.ExactRelatedObject != "" {
+		where = append(where, "(("+strings.Join(selection, " AND ")+") OR object = ?)")
+		args = append(args, f.ExactRelatedObject)
+	} else {
+		where = append(where, selection...)
 	}
 	cond := ""
 	for i, w := range where {

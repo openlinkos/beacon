@@ -96,7 +96,7 @@ func TestAlertViewsHonourSessionMachineSelection(t *testing.T) {
 	if err != nil || len(result.Outcome.Sessions) != 1 || result.Outcome.Sessions[0] != allowed.ID {
 		t.Fatalf("archived incident exposed unrelated sessions: %d rows, %v", len(result.Outcome.Sessions), err)
 	}
-	page, err := e.b.IncidentOutcomesFor(p, id, "", 1)
+	page, err := e.b.IncidentOutcomesFor(p, OutcomeQuery{Group: id, Limit: 1})
 	if err != nil || len(page.Outcomes) != 1 || len(page.Outcomes[0].Sessions) != 1 || page.Outcomes[0].Sessions[0] != allowed.ID {
 		t.Fatalf("archived incident list ignored the session scope: %v", err)
 	}

@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketOutcomeDeliveries, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -58,42 +58,43 @@ var ErrNotFound = errors.New("not found")
 
 // Group is one alert group and what was done about it.
 type Group struct {
-	ID             string            `json:"id"`
-	Key            string            `json:"key"`
-	Status         string            `json:"status"` // firing or resolved
-	Severity       string            `json:"severity"`
-	Labels         map[string]string `json:"labels"`
-	Common         map[string]string `json:"common"`
-	Annotations    map[string]string `json:"annotations"`
-	Alerts         []Alert           `json:"alerts"`
-	StartsAt       time.Time         `json:"starts_at"`
-	ResolvedAt     time.Time         `json:"resolved_at,omitzero"`
-	Channel        string            `json:"channel"`                 // the initial chat route that accepted the alert
-	ChatRouteID    string            `json:"chat_route_id,omitempty"` // the destination that accepted the initial chat notification
-	ChatRecoveries []ChatRecovery    `json:"chat_recoveries,omitempty"`
-	MessageID      string            `json:"message_id,omitempty"`
-	NotifiedAt     time.Time         `json:"notified_at,omitzero"` // the escalation clock starts here
-	ChannelAt      time.Time         `json:"channel_at,omitzero"`  // acceptance of the first chat notification
-	CardAt         time.Time         `json:"card_at,omitzero"`
-	CardHash       string            `json:"card_hash,omitempty"`
-	Ack            *Ack              `json:"ack,omitempty"`
-	PriorAcks      []Ack             `json:"prior_acks,omitempty"`
-	Silence        *Silence          `json:"silence,omitempty"`
-	Buzzed         time.Time         `json:"buzzed,omitzero"`
-	Pushed         time.Time         `json:"pushed,omitzero"`
-	Receipt        string            `json:"receipt,omitempty"`
-	ReceiptAt      time.Time         `json:"receipt_at,omitzero"`
-	Barked         time.Time         `json:"barked,omitzero"`
-	Notifications  []Notification    `json:"notifications,omitempty"`
-	NotifyWebhook  bool              `json:"notify_webhook,omitempty"`  // this episode was routed to the notification webhook
-	WebhookNotices []WebhookNotice   `json:"webhook_notices,omitempty"` // queued in incident order, including earlier episodes
-	Notes          []Note            `json:"notes,omitempty"`           // see agents.go
-	Agents         []AgentCall       `json:"agents,omitempty"`          // the hooks called to wake agents
-	ProbeRuns      []ProbeRun        `json:"probe_runs,omitempty"`
-	PassingCheck   *Verification     `json:"passing_check,omitempty"` // retained independently of the recent probe runs
-	Episode        string            `json:"episode,omitempty"`
-	Participation  []Participation   `json:"participation,omitempty"`
-	Updated        time.Time         `json:"updated"`
+	ID                   string                       `json:"id"`
+	Key                  string                       `json:"key"`
+	Status               string                       `json:"status"` // firing or resolved
+	Severity             string                       `json:"severity"`
+	Labels               map[string]string            `json:"labels"`
+	Common               map[string]string            `json:"common"`
+	Annotations          map[string]string            `json:"annotations"`
+	Alerts               []Alert                      `json:"alerts"`
+	StartsAt             time.Time                    `json:"starts_at"`
+	ResolvedAt           time.Time                    `json:"resolved_at,omitzero"`
+	Channel              string                       `json:"channel"`                 // the initial chat route that accepted the alert
+	ChatRouteID          string                       `json:"chat_route_id,omitempty"` // the destination that accepted the initial chat notification
+	ChatRecoveries       []ChatRecovery               `json:"chat_recoveries,omitempty"`
+	MessageID            string                       `json:"message_id,omitempty"`
+	NotifiedAt           time.Time                    `json:"notified_at,omitzero"` // the escalation clock starts here
+	ChannelAt            time.Time                    `json:"channel_at,omitzero"`  // acceptance of the first chat notification
+	CardAt               time.Time                    `json:"card_at,omitzero"`
+	CardHash             string                       `json:"card_hash,omitempty"`
+	Ack                  *Ack                         `json:"ack,omitempty"`
+	PriorAcks            []Ack                        `json:"prior_acks,omitempty"`
+	Silence              *Silence                     `json:"silence,omitempty"`
+	Buzzed               time.Time                    `json:"buzzed,omitzero"`
+	Pushed               time.Time                    `json:"pushed,omitzero"`
+	Receipt              string                       `json:"receipt,omitempty"`
+	ReceiptAt            time.Time                    `json:"receipt_at,omitzero"`
+	Barked               time.Time                    `json:"barked,omitzero"`
+	Notifications        []Notification               `json:"notifications,omitempty"`
+	NotifyWebhook        bool                         `json:"notify_webhook,omitempty"`  // this episode was routed to the notification webhook
+	WebhookNotices       []WebhookNotice              `json:"webhook_notices,omitempty"` // queued in incident order, including earlier episodes
+	Notes                []Note                       `json:"notes,omitempty"`           // see agents.go
+	Agents               []AgentCall                  `json:"agents,omitempty"`          // the hooks called to wake agents
+	ProbeRuns            []ProbeRun                   `json:"probe_runs,omitempty"`
+	PassingCheck         *Verification                `json:"passing_check,omitempty"` // retained independently of the recent probe runs
+	Episode              string                       `json:"episode,omitempty"`
+	Participation        []Participation              `json:"participation,omitempty"`
+	HumanAcknowledgement *OutcomeHumanAcknowledgement `json:"human_acknowledgement,omitempty"`
+	Updated              time.Time                    `json:"updated"`
 
 	// MonitorMachines pin the designated enrolments at the start of this episode.
 	MonitorMachines []MonitorMachine `json:"monitor_machines,omitempty"`
@@ -1065,6 +1066,7 @@ func (s *Store) AuditLog(limit int) []AuditEntry {
 // AuditFilter narrows an AuditQuery: empty strings and zero times leave that part open.
 type AuditFilter struct {
 	Actor, Action, Target string
+	ExactRelatedTarget    string // include this exact target even outside the time window
 	From, To              time.Time
 	Limit, Offset         int
 }
@@ -1072,7 +1074,7 @@ type AuditFilter struct {
 // AuditQuery returns the entries matching f, newest first, and how many match in all.
 func (s *Store) AuditQuery(f AuditFilter) ([]AuditEntry, int, error) {
 	got, total, err := s.audit.Query(events.Filter{
-		Actor: f.Actor, Action: f.Action, Object: f.Target, From: f.From, To: f.To,
+		Actor: f.Actor, Action: f.Action, Object: f.Target, ExactRelatedObject: f.ExactRelatedTarget, From: f.From, To: f.To,
 		Limit: f.Limit, Offset: f.Offset,
 	})
 	if err != nil {

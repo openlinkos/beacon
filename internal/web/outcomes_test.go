@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,84 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
+
+func TestIncidentHistoryKeepsReviewFiltersThroughPagination(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	viewer := e.invite(e.owner(), "review-shift", "viewer")
+	// A page of newer warnings precedes the critical incidents in the unfiltered log.
+	for i := range 2*perPage + 1 {
+		at := e.now.Add(-time.Duration(i+1) * time.Hour)
+		episode := fmt.Sprintf("%016x", i+1)
+		o := store.IncidentOutcome{
+			ID: store.OutcomeID(at, e.id, episode), Group: e.id, Title: fmt.Sprintf("Archived outage %d", i),
+			Severity: "warning", Started: at.Add(-time.Minute), Resolved: at,
+		}
+		if i >= perPage {
+			o.Severity = "critical"
+		}
+		if err := e.st.EnsureIncidentOutcome(o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := e.now.Add(-time.Second)
+	pass := store.IncidentOutcome{
+		ID: store.OutcomeID(at, e.id, "1234567890abcdef"), Group: e.id, Title: "Incident with retained pass",
+		Severity: "critical", Started: at.Add(-time.Minute), Resolved: at,
+		PassingCheck:         &store.Verification{ID: "pass", At: at, Passed: 2},
+		Verification:         &store.Verification{ID: "latest", At: e.now, Passed: 1, Missing: 1},
+		HumanAcknowledgement: &store.OutcomeHumanAcknowledgement{By: "day-shift", Via: "console", At: at},
+	}
+	if err := e.st.EnsureIncidentOutcome(pass); err != nil {
+		t.Fatal(err)
+	}
+
+	base := consolePath("/incident-outcomes")
+	filters := url.Values{"group": {e.id}, "severity": {"critical"}, "since": {"7d"}, "evidence": {"no_passing_check"}}
+	first := viewer.get(href(base, filters))
+	if first.code != http.StatusOK || strings.Count(first.body, "Archived outage ") != perPage || !strings.Contains(first.body, "Archived outage 50") ||
+		strings.Contains(first.body, "Incident with retained pass") || strings.Contains(first.body, "Archived outage 100") {
+		t.Fatalf("first filtered archive page: %d", first.code)
+	}
+	var older string
+	for _, link := range hrefs(first.body, base+"?") {
+		u, err := url.Parse(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query := u.Query()
+		if query.Get("before") != "" {
+			older = link
+			query.Del("before")
+			if query.Encode() != filters.Encode() {
+				t.Fatalf("older page dropped review state: %q", link)
+			}
+		}
+	}
+	if older == "" {
+		t.Fatal("first filtered page has no older incidents link")
+	}
+	last := viewer.get(older)
+	if last.code != http.StatusOK || strings.Count(last.body, "Archived outage ") != 1 || !strings.Contains(last.body, "Archived outage 100") {
+		t.Fatalf("older filtered archive page: %d", last.code)
+	}
+
+	filters.Set("evidence", "passing_check")
+	passing := viewer.get(href(base, filters))
+	if passing.code != http.StatusOK || !strings.Contains(passing.body, "Incident with retained pass") ||
+		!strings.Contains(passing.body, "1 passed, 0 failed, 1 missing") || strings.Contains(passing.body, "Archived outage ") {
+		t.Fatalf("passing evidence with incomplete latest result: %d", passing.code)
+	}
+	filters.Set("since", "24h")
+	shared := viewer.get(href(base, filters))
+	if shared.code != http.StatusOK || !strings.Contains(shared.body, `<option value="24h" selected>24h</option>`) ||
+		!strings.Contains(shared.body, "Incident with retained pass") {
+		t.Fatalf("shared link lost the active custom duration: %d", shared.code)
+	}
+	detail := viewer.get(outcomePath(pass.ID))
+	if detail.code != http.StatusOK || !strings.Contains(detail.body, "Human acknowledgement") || !strings.Contains(detail.body, "day-shift") {
+		t.Fatalf("retained acknowledgement detail: %d", detail.code)
+	}
+}
 
 func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	e := newEnv(t, i18n.EN)
@@ -108,8 +187,13 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	if a := e.signedIn("read-only", "status:read").get(path); a.code != http.StatusOK || strings.Contains(a.body, link.SessionPath(sessionID)) {
 		t.Fatalf("status:read alone should not show a recording link: %d", a.code)
 	}
+	if err := e.st.Audit(store.AuditEntry{Time: e.now.Add(time.Minute), Actor: "runner", Via: "api", Action: "report_agent_run",
+		Target: retained.Outcomes[0].ID, Detail: "terminal result after the incident was archived"}); err != nil {
+		t.Fatal(err)
+	}
 	filtered := b.get(consolePath("/audit") + "?outcome=" + url.QueryEscape(retained.Outcomes[0].ID))
-	if filtered.code != http.StatusOK || !strings.Contains(filtered.body, "first episode notes") || strings.Contains(filtered.body, "later episode notes") {
+	if filtered.code != http.StatusOK || !strings.Contains(filtered.body, "first episode notes") ||
+		!strings.Contains(filtered.body, "terminal result after the incident was archived") || strings.Contains(filtered.body, "later episode notes") {
 		t.Fatalf("filtered audit: %d", filtered.code)
 	}
 	if a := b.get(link.AlertPath(e.id)); a.code != http.StatusSeeOther || a.header.Get("Location") != consolePath("/incident-outcomes")+"?group="+e.id {
