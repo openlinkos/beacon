@@ -21,7 +21,7 @@ import (
 type statusComponentLabels struct {
 	Name, NameHint, Title, Services, ServiceHint, Automatic, Preview, Publish, Edit, Cancel string
 	PublicEffect, Added, Removed, Visible, NoChange, AllNotes, Remove, Destination          string
-	NoServices, PublicHint, RemoveHint, Maintenance, Starts, Ends                           string
+	NoServices, PublicHint, RemoveHint                                                      string
 }
 
 type statusComponentPreview struct {
@@ -29,12 +29,20 @@ type statusComponentPreview struct {
 	Added, Removed, Visible []string
 	AllNotes                bool
 	Announcements           []maintenanceAnnouncement
+	Notes                   []statusPublicationNote
+	MaintenanceHeading      string
+	NotesHeading            string
+	Starts, Ends            string
 	Confirmation            string
 	Revision                *uint64
 }
 
 type maintenanceAnnouncement struct {
 	Title, Description, Starts, Ends, Status string
+}
+
+type statusPublicationNote struct {
+	Title, Text, Time string
 }
 
 type statusComponentFormPage struct {
@@ -118,8 +126,8 @@ func (s *Server) statusComponentForm(mode string) func(http.ResponseWriter, *htt
 		}
 		preview, err := s.statusComponentPreview(state, page, next, title)
 		if err != nil {
-			s.log().Error("console: reading maintenance for a public preview", "err", err)
-			show(nil, s.t("The public maintenance announcements could not be checked. Try again."), http.StatusServiceUnavailable)
+			s.log().Error("console: reading content for a public preview", "err", err)
+			show(nil, s.t("The public content could not be checked. Try again."), http.StatusServiceUnavailable)
 			return
 		}
 		if intent == "preview" {
@@ -127,8 +135,8 @@ func (s *Server) statusComponentForm(mode string) func(http.ResponseWriter, *htt
 			return
 		}
 		confirmation := r.PostForm.Get("confirmation")
-		if (len(preview.Announcements) > 0 || confirmation != "") && confirmation != preview.Confirmation {
-			show(&preview, s.t("Review the maintenance announcements below before publishing."), http.StatusConflict)
+		if (len(preview.Announcements) > 0 || len(preview.Notes) > 0 || confirmation != "") && confirmation != preview.Confirmation {
+			show(&preview, s.t("Review which incident updates and maintenance announcements will become public."), http.StatusConflict)
 			return
 		}
 		err = s.saveStatusComponent(r, v, next, draft.Component, version, preview.Revision)
@@ -137,10 +145,10 @@ func (s *Server) statusComponentForm(mode string) func(http.ResponseWriter, *htt
 			// Do not reuse a previous result when a source changed as the transaction began.
 			refreshed, err := s.statusComponentPreview(state, page, next, title)
 			if err != nil {
-				show(nil, s.t("The public maintenance announcements could not be checked. Try again."), http.StatusServiceUnavailable)
+				show(nil, s.t("The public content could not be checked. Try again."), http.StatusServiceUnavailable)
 				return
 			}
-			show(&refreshed, s.t("Review the maintenance announcements below before publishing."), http.StatusConflict)
+			show(&refreshed, s.t("Review which incident updates and maintenance announcements will become public."), http.StatusConflict)
 		case errors.Is(err, configdb.ErrConflict):
 			title := s.t("Configuration changed")
 			s.message(w, r, v, http.StatusConflict, title, s.t("Open the status page again and preview the change using the latest services."))
@@ -158,7 +166,7 @@ func (s *Server) statusComponentPreview(state *configdb.State, before, after cat
 	if len(preview.Added) == 0 {
 		return preview, nil
 	}
-	windows, revision, err := s.Status.MaintenancePublication(state, before, after)
+	publication, err := s.Status.ReviewPublication(state, before, after, s.Lang)
 	if err != nil {
 		return preview, err
 	}
@@ -166,18 +174,25 @@ func (s *Server) statusComponentPreview(state *configdb.State, before, after cat
 		Version int64
 		Page    catalog.StatusPage
 		Windows []status.Window
-	}{state.Version, after, windows}
+		Notes   []status.PublicationNote
+	}{state.Version, after, publication.Windows, publication.Notes}
 	data, err := json.Marshal(review)
 	if err != nil {
 		return preview, err
 	}
 	fingerprint := sha256.Sum256(data)
-	preview.Confirmation, preview.Revision = hex.EncodeToString(fingerprint[:]), &revision
-	for _, window := range windows {
+	preview.Confirmation, preview.Revision = hex.EncodeToString(fingerprint[:]), &publication.Revision
+	preview.MaintenanceHeading = s.t("Maintenance announcements that will become public")
+	preview.Starts, preview.Ends = s.t("Starts"), s.t("Ends")
+	for _, window := range publication.Windows {
 		preview.Announcements = append(preview.Announcements, maintenanceAnnouncement{
 			Title: window.Title, Description: window.Description, Starts: s.clock(window.Starts),
 			Ends: s.clock(window.Ends), Status: s.windowStatus(window.Status),
 		})
+	}
+	preview.NotesHeading = s.t("Incident updates that will become public")
+	for _, note := range publication.Notes {
+		preview.Notes = append(preview.Notes, statusPublicationNote{Title: note.Title, Text: note.Update.Text, Time: s.clock(note.Update.At)})
 	}
 	return preview, nil
 }
@@ -260,9 +275,8 @@ func (s *Server) renderStatusComponent(w http.ResponseWriter, r *http.Request, v
 			NoChange: s.t("The services visible on the public page stay the same."),
 			AllNotes: s.t("This page publishes all incident notes for its visible services. Review notes on newly visible services for private information."),
 			Remove:   s.t("Remove component"), Destination: s.t("Public status page"), NoServices: s.t("No services"),
-			PublicHint:  s.t("Anyone can view this status page. Changes you publish appear there."),
-			RemoveHint:  s.t("Preview which services would stay visible after removing this component."),
-			Maintenance: s.t("Maintenance announcements that will become public"), Starts: s.t("Starts"), Ends: s.t("Ends"),
+			PublicHint: s.t("Anyone can view this status page. Changes you publish appear there."),
+			RemoveHint: s.t("Preview which services would stay visible after removing this component."),
 		},
 		Form: statusComponentPath(page.Name, component.Name, mode), Page: pagePath, PublicURL: s.Status.URL(page, ""),
 		ComponentTitle: component.Title.In(string(s.Lang)), Name: draft.Component, Mode: mode, Version: state.Version,

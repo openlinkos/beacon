@@ -59,10 +59,14 @@ func (s *Service) incidents(def catalog.StatusPage, p *Page, l i18n.Lang, now ti
 	if s.d.Store == nil {
 		return []Incident{}
 	}
+	return s.incidentsFrom(def, p, l, now, s.d.Store.Incidents())
+}
+
+func (s *Service) incidentsFrom(def catalog.StatusPage, p *Page, l i18n.Lang, now time.Time, records []store.Incident) []Incident {
 	oldest := dayStart(now, s.d.Location, Days-1)
 	alerts := def.IncidentAlerts()
 	out := []Incident{}
-	for _, rec := range s.d.Store.Incidents() {
+	for _, rec := range records {
 		if !slices.Contains(alerts, rec.AlertName) {
 			continue
 		}
@@ -95,6 +99,9 @@ func (s *Service) incidents(def catalog.StatusPage, p *Page, l i18n.Lang, now ti
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].Status == "active") != (out[j].Status == "active") {
 			return out[i].Status == "active"
+		}
+		if out[i].Started.Equal(out[j].Started) {
+			return out[i].ID < out[j].ID
 		}
 		return out[i].Started.After(out[j].Started)
 	})

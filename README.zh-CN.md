@@ -43,7 +43,7 @@ AI 编程 Agent 已经很会做运维活：读日志、找出配置里错的那�
 - **飞书卡片**原地更新：什么坏了、从什么时候、哪些检测点失败及原因、Agent 的备注；卡片上的按钮可以认领和静默；没人响应时升级到飞书加急和 Pushover 紧急通知。
 - **唤醒 Agent**：新告警组触发签名 webhook 或 GitHub workflow；还有 `beacon-oncall`，一个小的接收程序，验证 webhook 后启动你指定的 Agent 程序（附 Claude Code 和 Codex 的包装脚本）。
 - **公开状态页**由 Beacon 自己提供：组件来自检测目标，90 天历史，事件来自告警，维护窗口，JSON、Atom 订阅和徽章。
-- **控制台**（`/console`；站点根路径是公开状态页）：告警及其证据和时间线、机器、每次会话及回放、成员和他们的 Agent（连同令牌、OAuth 登录和密钥）、配置及历史、审计日志。
+- **控制台**（`/console`）：告警及其证据和时间线、机器、每次会话及回放、成员和他们的 Agent（连同令牌、OAuth 登录和密钥）、配置及历史、审计日志。站点根路径对外公开。
 - **在 Beacon 里配置**：检测点、检测目标、模块和状态页存在它的数据库里，经 API、MCP 或命令行修改，每次修改都是一个能撤销的版本；文件只用于导入导出，所以仍然可以放在 git 里。
 
 ## 支持哪些 Agent
@@ -97,7 +97,7 @@ claude mcp add --scope user --transport http beacon https://status.example.com/m
 - [让 Agent 值班](docs/zh/guide/on-call.md)：叫醒 Agent、证据、备注、时间线、按需重测、`beacon-oncall`
 - [SSH 通道](docs/zh/guide/machines.md)：Agent 不拿密钥怎么上机器、录像、NAT 后面的机器
 - [目录、检测目标和模块](docs/zh/guide/monitoring.md)：检测什么、从哪里检测、怎么配置
-- [状态页](docs/zh/guide/status-pages.md)：公开页、事件、维护、徽章
+- [状态页](docs/zh/guide/status-pages.md#create-a-public-page)：预览和发布用户可见的服务，以及相关事件、维护公告和徽章
 - [控制台](docs/zh/guide/console.md)：人看到什么，以及卡片打开的链接
 - [飞书](docs/zh/integrations/feishu.md)：应用、卡片、群机器人
 - [API](docs/zh/reference/api.md) 和 [MCP 工具](docs/zh/reference/mcp.md)：每个接口和工具，以及作用域和错误码

@@ -78,3 +78,34 @@ func TestMaintenanceRevisionSerialisesWithPublication(t *testing.T) {
 		t.Fatalf("configuration changed after a rejected publication: version %d, error %v", got, err)
 	}
 }
+
+func TestIncidentChangesInvalidateTheReviewedStatusPublication(t *testing.T) {
+	s, _ := open(t)
+	now := time.Date(2026, time.November, 1, 1, 0, 0, 0, time.UTC)
+	incident := Incident{ID: "a1", Status: "firing", StartsAt: now}
+	if _, err := s.PutIncidents([]Incident{incident}, now); err != nil {
+		t.Fatal(err)
+	}
+	read := func() MaintenanceSnapshot {
+		t.Helper()
+		snapshot, _, err := s.StatusPublicationSnapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot
+	}
+	previous := read()
+	if changed, err := s.PutIncidents([]Incident{incident}, now); err != nil || changed || read().Revision != previous.Revision {
+		t.Fatalf("repeating an unchanged incident advanced the reviewed content: %v, %v", changed, err)
+	}
+	incident.Notes = []IncidentNote{{At: now, Text: "The service is recovering."}}
+	if _, err := s.PutIncidents([]Incident{incident}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitConfigWithMaintenance(ConfigChange{Action: "put"}, nil, 0, previous.Revision); !errors.Is(err, ErrMaintenanceChanged) {
+		t.Fatalf("a stale incident snapshot permitted publication: %v", err)
+	}
+	if _, err := s.CommitConfigWithMaintenance(ConfigChange{Action: "put"}, nil, 0, read().Revision); err != nil {
+		t.Fatalf("the current incident snapshot could not be published: %v", err)
+	}
+}

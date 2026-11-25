@@ -11,16 +11,24 @@ The page says:
 
 It draws on the probes' results, the alert groups and the maintenance windows. When the probes agree a service is down, the page says so. When the alert resolves, the incident does too.
 
-Beacon serves the pages itself, and readers do not sign in:
+Beacon serves the pages itself, and readers do not sign in.
 
-- the default page at `/` and `/status`;
-- every page at `/status/<name>`;
-- a page at `/` on a host name of its own, if you give it one.
+- Every page is available at `/status/<name>` on Beacon's main host.
+- `/status` shows the default page. The main host's `/` shows that page when it shares the host. Otherwise `/` is a landing page with links to the status pages and the console.
+- A page with [a host of its own](#a-host-of-its-own) also appears at `/` on that host.
 
 **You need:**
 
 - Beacon running with at least two probe locations reporting ([Monitor a service](monitoring.md)). A page shows what the probes agree on.
-- A credential with `config:write`.
+- An owner account for publishing in the console, or a credential with `config:write` for [editing the configuration](#define-your-own-page).
+
+## Create a public page {#create-a-public-page}
+
+1. Sign in at `/console` on Beacon's main host. Open **Status pages** and choose **Create status page**. Enter a unique **Page ID** such as `customer-status` for the URL and a **Public page title** your users will recognise. Select the monitored services you want to show. The new page puts them in one component.
+2. Choose **Preview changes** and check the public address and services. Review the incident updates and the maintenance titles, descriptions and dates that will become visible. The page can show availability incidents for the selected services, with updates from notes that begin with `public:`. The preview stays in the signed-in console. Open the named public address in a signed-out browser to confirm it still returns 404.
+3. Choose **Publish status page**, then open `/status/customer-status` in a signed-out browser and check its title, services, incidents and maintenance. A browser may cache the earlier response for up to 30 seconds. If the configuration or the content to be published changes, Beacon asks you to review a fresh preview. You can revert the publication in **Configuration** history, which records a new version.
+
+On an installation with no status pages, publication also makes this the default page at `/` and `/status`. An additional page has its own `/status/<name>` address and keeps the existing default in place. If your current default was picked by name because no page has `default: true`, first set that flag on the page you want to keep as the default [in the configuration](#define-your-own-page). A separate host also uses the configuration.
 
 ## The page you already have
 
@@ -45,7 +53,7 @@ The pages are on the family's site design (`@openlinkos/ui`), in English, Chines
 
 In the console, open **Status pages** and choose the public page. Use **Add component** to give a monitored service its own public title, or **Edit services** to change what an existing component includes. A new component's title is shown in each of the page's languages. Any configured label selector continues to supply its automatically included services. **Remove component** removes a row from the page.
 
-Choose **Preview changes** before publishing. It shows which services become visible, which leave the page and which remain visible through any component. The preview lists the existing maintenance titles, descriptions and dates that will become public with the change. If those announcements change before you publish, review the updated preview. The public page can also show incidents and notes allowed by its policy. Review **Publish changes** or **Remove component** with that audience in mind.
+Choose **Preview changes** before publishing. It shows which services become visible, which leave the page and which remain visible through any component. Review the existing maintenance titles, descriptions and dates, and the incident updates that the page's policy will make public. If the content to be published changes, Beacon asks for a fresh confirmation. Choose **Publish changes** or **Remove component** after reviewing the effect.
 
 After publishing, open the public link in a signed-out browser to check what visitors see. Browser caches can take up to 30 seconds to refresh. The change has its own entry in **Configuration** history and can be reverted there.
 
@@ -213,7 +221,7 @@ A silence made another way (`POST /api/v1/silences`, `beacon silence create`) is
 
 ## A host of its own
 
-A page with `host` is also served at `/` on that host name. Its JSON is at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`.
+A page with `host` is also served at `/` on that host name. Use a host name distinct from the one in `public_url`. Its JSON is at `/status.json`, its feed at `/feed.atom` and its badges at `/badge.svg`.
 
 Nothing else of Beacon answers on that host: not the console, the API or MCP. So the page has no **Sign in** there.
 

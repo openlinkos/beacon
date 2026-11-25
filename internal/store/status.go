@@ -87,6 +87,10 @@ func (s *Store) PutIncidents(in []Incident, forget time.Time) (bool, error) {
 			}
 			wrote = true
 		}
+		if wrote {
+			_, err := tx.NextSequence(bucketMaintenanceRevision)
+			return err
+		}
 		return nil
 	})
 	return wrote, err
@@ -141,7 +145,7 @@ func (m Maintenance) End() time.Time {
 	return m.EndsAt
 }
 
-// MaintenanceSnapshot holds one durable view of both sources of public maintenance.
+// MaintenanceSnapshot holds both sources of public maintenance and the shared publication revision.
 type MaintenanceSnapshot struct {
 	Revision uint64
 	Windows  []Maintenance
@@ -151,12 +155,30 @@ type MaintenanceSnapshot struct {
 func (s *Store) MaintenanceSnapshot() (MaintenanceSnapshot, error) {
 	var out MaintenanceSnapshot
 	err := s.db.View(func(tx kv.Tx) error {
-		out.Revision = tx.Sequence(bucketMaintenanceRevision)
-		out.Windows = statusRecords[Maintenance](tx, bucketMaintenance)
-		out.Silences = statusRecords[SilenceRecord](tx, bucketSilences)
+		out = maintenanceSnapshot(tx)
 		return nil
 	})
 	return out, err
+}
+
+// StatusPublicationSnapshot reads the retained content a status-page change might expose.
+func (s *Store) StatusPublicationSnapshot() (MaintenanceSnapshot, []Incident, error) {
+	var maintenance MaintenanceSnapshot
+	var incidents []Incident
+	err := s.db.View(func(tx kv.Tx) error {
+		maintenance = maintenanceSnapshot(tx)
+		incidents = statusRecords[Incident](tx, bucketIncidents)
+		return nil
+	})
+	return maintenance, incidents, err
+}
+
+func maintenanceSnapshot(tx kv.Tx) MaintenanceSnapshot {
+	return MaintenanceSnapshot{
+		Revision: tx.Sequence(bucketMaintenanceRevision),
+		Windows:  statusRecords[Maintenance](tx, bucketMaintenance),
+		Silences: statusRecords[SilenceRecord](tx, bucketSilences),
+	}
 }
 
 func statusRecords[T any](tx kv.Tx, bucket []byte) []T {

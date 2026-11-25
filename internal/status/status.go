@@ -165,12 +165,17 @@ func (s *Service) Run(ctx context.Context) {
 
 // sync keeps a snapshot of every alert group that may be an incident, so that it outlives the group.
 func (s *Service) sync() {
-	if s.d.Bridge == nil || s.d.Store == nil {
-		return
-	}
-	if _, err := s.d.Store.PutIncidents(s.d.Bridge.Incidents(), s.d.Now().Add(-store.KeepStatus)); err != nil {
+	if err := s.syncIncidents(); err != nil {
 		s.d.Log.Warn("status pages: keeping the incidents failed", "err", err)
 	}
+}
+
+func (s *Service) syncIncidents() error {
+	if s.d.Bridge == nil || s.d.Store == nil {
+		return nil
+	}
+	_, err := s.d.Store.PutIncidents(s.d.Bridge.Incidents(), s.d.Now().Add(-store.KeepStatus))
+	return err
 }
 
 // services are the services of every page, as the configuration in force names them.
