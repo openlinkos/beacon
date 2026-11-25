@@ -1,10 +1,10 @@
 # vmalert-tool unittest --disableAlertgroupLabel --files 'deploy/rules/tests/*.yml'
 # Four probe locations: edge-1, edge-2, edge-3 (overseas) and cn-1 (mainland). Every scenario is fine for the
-# first 6 minutes and then fails as described. A location counts as failing after three results in a row (from
-# minute 8); ServiceDown waits 1 more minute, the warnings 5.
+# first 6 samples in the minute-cadence cases and then fails as described. A location counts as failing
+# when its last success leaves the 3-minute window. ServiceDown waits another 40 seconds, the warnings 5 minutes.
 rule_files:
   - ../probes.yml
-evaluation_interval: 30s
+evaluation_interval: 10s
 
 tests:
   - name: one location failing is not an outage
@@ -35,13 +35,13 @@ tests:
           - labels: '{__name__="beacon:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
             value: 1
 
-  - name: half of the locations failing is an outage, at the target's severity
+  - name: half of the locations failing for 40 seconds raises an outage that clears when quorum breaks
     interval: 1m
     input_series:
       - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-1",region="overseas"}'
         values: '1x5 0x20'
       - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="cn-1",region="mainland"}'
-        values: '1x5 0x20'
+        values: '1x5 0x3 1x15'
       - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-2",region="overseas"}'
         values: '1x25'
       - series: 'probe_success{job="probe",service="example.com",severity="warning",failure_domain="origin-1",location="edge-3",region="overseas"}'
@@ -53,7 +53,7 @@ tests:
       - eval_time: 8m30s
         alertname: ServiceDown
         exp_alerts: []
-      - eval_time: 9m
+      - eval_time: 8m40s
         alertname: ServiceDown
         exp_alerts:
           - exp_labels:
@@ -64,6 +64,9 @@ tests:
               summary: example.com is down
               description: example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts: []
       - eval_time: 16m
         alertname: ServiceDegraded
         exp_alerts: []
@@ -72,9 +75,32 @@ tests:
         exp_alerts: []
     metricsql_expr_test:
       - expr: beacon:service_up
-        eval_time: 12m
+        eval_time: 9m30s
         exp_samples:
           - labels: '{__name__="beacon:service_up",service="example.com",severity="warning",failure_domain="origin-1"}'
+            value: 0
+
+  - name: two locations recovering while the rule is pending never raise an outage
+    interval: 10s
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",location="edge-1",region="overseas"}'
+        values: '1 0x19 1x12'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",location="edge-2",region="overseas"}'
+        values: '1 0x19 1x12'
+    alert_rule_test:
+      - eval_time: 3m20s
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 3m50s
+        alertname: ServiceDown
+        exp_alerts: []
+    metricsql_expr_test:
+      - expr: 'max_over_time(probe_success[3m])'
+        eval_time: 3m20s
+        exp_samples:
+          - labels: '{__name__="probe_success",job="probe",service="example.com",severity="critical",location="edge-1",region="overseas"}'
+            value: 0
+          - labels: '{__name__="probe_success",job="probe",service="example.com",severity="critical",location="edge-2",region="overseas"}'
             value: 0
 
   - name: a target without a severity label is critical when down
