@@ -120,6 +120,8 @@ func (s *Server) outcomeFilters(l outcomeLabels, q bridge.OutcomeQuery) []outcom
 	}
 	if start, err := time.Parse(time.RFC3339, q.Since); err == nil {
 		dates = append(dates, option{Value: q.Since, Label: s.t("Resolved since %s", s.clock(start))})
+	} else if q.Since != "" && q.Since != "7d" && q.Since != "30d" {
+		dates = append(dates, option{Value: q.Since, Label: q.Since})
 	}
 	return []outcomeFacet{
 		{Name: "severity", Label: l.Severity, Options: outcomeOptions(q.Severity, severities...)},
@@ -139,7 +141,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 	values := r.URL.Query()
 	q := bridge.OutcomeQuery{
 		Group: values.Get("group"), Before: values.Get("before"), Severity: values.Get("severity"),
-		Since: values.Get("since"), Evidence: values.Get("evidence"), Limit: perPage,
+		Since: strings.TrimSpace(values.Get("since")), Evidence: values.Get("evidence"), Limit: perPage,
 	}
 	result, err := s.Bridge.IncidentOutcomesFor(v.Principal, q)
 	if err != nil {
@@ -366,7 +368,7 @@ func (s *Server) outcomeAudit(w http.ResponseWriter, r *http.Request, v *viewer,
 		return
 	}
 	o := result.Outcome
-	f := store.AuditFilter{Target: o.Group, From: o.Started, To: o.AuditUntil, Limit: perPage}
+	f := store.AuditFilter{Target: o.Group, ExactRelatedTarget: o.ID, From: o.Started, To: o.AuditUntil, Limit: perPage}
 	if f.To.IsZero() {
 		f.To = s.now()
 	}

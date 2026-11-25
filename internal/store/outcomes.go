@@ -28,6 +28,8 @@ type IncidentOutcome struct {
 	Sessions             []string                     `json:"related_sessions,omitempty"`
 	AgentDeliveries      []OutcomeAgentDelivery       `json:"agent_deliveries,omitempty"`
 	HumanAcknowledgement *OutcomeHumanAcknowledgement `json:"human_acknowledgement,omitempty"`
+
+	deliveryReporters map[string]string
 }
 
 // OutcomeHumanAcknowledgement retains the latest explicit acknowledgement by an identified person.
@@ -38,8 +40,8 @@ type OutcomeHumanAcknowledgement struct {
 	At  time.Time `json:"at"`
 }
 
-// OutcomeAgentDelivery preserves the observable handoff to one configured hook. Transport
-// diagnostics and reporter credentials stay on the live alert.
+// OutcomeAgentDelivery preserves the observable handoff to one configured hook. Transport diagnostics stay on the
+// live alert, and reporter bindings stay in the private delivery index.
 type OutcomeAgentDelivery struct {
 	ID        string    `json:"id,omitempty"`
 	Hook      string    `json:"hook"`
@@ -129,7 +131,10 @@ func putOutcome(tx kv.Tx, outcome IncidentOutcome) error {
 	if err != nil {
 		return err
 	}
-	return tx.Put(bucketOutcomes, []byte(outcome.ID), raw)
+	if err := tx.Put(bucketOutcomes, []byte(outcome.ID), raw); err != nil {
+		return err
+	}
+	return linkOutcomeDeliveries(tx, outcome)
 }
 
 // EnsureIncidentOutcome backfills a missing summary or evidence from a retained group.
@@ -156,8 +161,9 @@ func (s *Store) EnsureIncidentOutcome(outcome IncidentOutcome) error {
 		if !saved.HasHumanAcknowledgement() && outcome.HasHumanAcknowledgement() {
 			saved.HumanAcknowledgement, changed = outcome.HumanAcknowledgement, true
 		}
+		saved.deliveryReporters = outcome.deliveryReporters
 		if !changed {
-			return nil
+			return linkOutcomeDeliveries(tx, saved)
 		}
 		return putOutcome(tx, saved)
 	})
@@ -273,6 +279,13 @@ func (s *Store) PruneIncidentOutcomes(since time.Time) error {
 			return true
 		})
 		for _, k := range keys {
+			var outcome IncidentOutcome
+			if err := json.Unmarshal(tx.Get(bucketOutcomes, k), &outcome); err != nil {
+				return err
+			}
+			if err := unlinkOutcomeDeliveries(tx, outcome); err != nil {
+				return err
+			}
 			if err := tx.Delete(bucketOutcomes, k); err != nil {
 				return err
 			}

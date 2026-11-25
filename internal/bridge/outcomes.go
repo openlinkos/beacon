@@ -126,6 +126,7 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
 		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents), HumanAcknowledgement: human,
 	}
+	o.BindDeliveryReporters(g.Agents)
 	return &o
 }
 

@@ -82,6 +82,12 @@ func TestIncidentHistoryKeepsReviewFiltersThroughPagination(t *testing.T) {
 		!strings.Contains(passing.body, "1 passed, 0 failed, 1 missing") || strings.Contains(passing.body, "Archived outage ") {
 		t.Fatalf("passing evidence with incomplete latest result: %d", passing.code)
 	}
+	filters.Set("since", "24h")
+	shared := viewer.get(href(base, filters))
+	if shared.code != http.StatusOK || !strings.Contains(shared.body, `<option value="24h" selected>24h</option>`) ||
+		!strings.Contains(shared.body, "Incident with retained pass") {
+		t.Fatalf("shared link lost the active custom duration: %d", shared.code)
+	}
 	detail := viewer.get(outcomePath(pass.ID))
 	if detail.code != http.StatusOK || !strings.Contains(detail.body, "Human acknowledgement") || !strings.Contains(detail.body, "day-shift") {
 		t.Fatalf("retained acknowledgement detail: %d", detail.code)
@@ -181,8 +187,13 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	if a := e.signedIn("read-only", "status:read").get(path); a.code != http.StatusOK || strings.Contains(a.body, link.SessionPath(sessionID)) {
 		t.Fatalf("status:read alone should not show a recording link: %d", a.code)
 	}
+	if err := e.st.Audit(store.AuditEntry{Time: e.now.Add(time.Minute), Actor: "runner", Via: "api", Action: "report_agent_run",
+		Target: retained.Outcomes[0].ID, Detail: "terminal result after the incident was archived"}); err != nil {
+		t.Fatal(err)
+	}
 	filtered := b.get(consolePath("/audit") + "?outcome=" + url.QueryEscape(retained.Outcomes[0].ID))
-	if filtered.code != http.StatusOK || !strings.Contains(filtered.body, "first episode notes") || strings.Contains(filtered.body, "later episode notes") {
+	if filtered.code != http.StatusOK || !strings.Contains(filtered.body, "first episode notes") ||
+		!strings.Contains(filtered.body, "terminal result after the incident was archived") || strings.Contains(filtered.body, "later episode notes") {
 		t.Fatalf("filtered audit: %d", filtered.code)
 	}
 	if a := b.get(link.AlertPath(e.id)); a.code != http.StatusSeeOther || a.header.Get("Location") != consolePath("/incident-outcomes")+"?group="+e.id {

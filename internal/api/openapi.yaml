@@ -1285,7 +1285,9 @@ paths:
       description: >-
         Scope: alerts:report. The credential's principal must be the reporter bound to the hook delivery and still
         configured on that hook. Repeated reports are idempotent. A late start leaves a terminal result intact.
-        Reporting does not change ownership, escalation, or the alert state.
+        Reports for an archived delivery update its original incident while the outcome and its reporter binding are
+        retained. The audit target is the archived outcome ID. Reporting does not change ownership, escalation, or
+        the alert state.
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
         - {name: delivery, in: path, required: true, schema: {type: string}}

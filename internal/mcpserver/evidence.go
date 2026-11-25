@@ -133,6 +133,7 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 	mcp.AddTool(s, &mcp.Tool{Name: "report_agent_run", Title: "Report an on-call programme's execution",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Report the start or outcome of the programme for a hook delivery where this credential is the configured reporter. " +
+			"A retained delivery stays with its original incident and reporter after the group fires again. " +
 			"Requires alerts:report. Record the actual observed status and exit code only. This leaves ownership, escalation and recovery to their existing controls."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in agentRunIn) (*mcp.CallToolResult, store.AgentRun, error) {
 			who, err := need(ctx, bridge.AgentRunScope)

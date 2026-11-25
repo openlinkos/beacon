@@ -225,8 +225,8 @@ func (b *Bridge) whenDue(h config.Agent, groupID string, c store.AgentCall, wait
 	}
 	if i < 0 || g.Firing() {
 		b.d.Log.Info("agent call not made: its alert group fired again or is gone", "group", groupID, "hook", c.Hook, "delivery", c.Delivery)
-		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: "beacon", Via: "hook", Action: "wake_agent", Target: groupID,
-			Detail: fmt.Sprintf("%s (%s, %s): not made, the alert group fired again or is gone before it was due", c.Hook, c.Kind, c.Event)})
+		c.Status, c.Done = "failed", b.now()
+		b.recordArchivedCall(groupID, c, "not made, the alert group fired again or is gone before it was due")
 		return nil, false
 	}
 	return b.hookBody(&g, h, g.Agents[i]), true
@@ -325,24 +325,44 @@ func (b *Bridge) recordCall(ctx context.Context, groupID string, c store.AgentCa
 	if ok {
 		i = slices.IndexFunc(g.Agents, func(x store.AgentCall) bool { return x.Delivery == c.Delivery })
 	}
-	if i >= 0 {
-		// A runner can report before the webhook response is recorded, or during a transport retry.
-		c.Run, c.RunStart = g.Agents[i].Run, g.Agents[i].RunStart
-		g.Agents[i] = c
-		if c.Status != "pending" && c.Event == "firing" && g.Firing() && b.patchAllowed(&g, false) {
-			b.patch(ctx, &g)
-		}
-		if err := b.saveGroup(g); err != nil {
-			b.d.Log.Error("save group", "err", err)
-		}
-	}
-	if c.Status == "pending" {
+	if i < 0 {
+		b.recordArchivedCall(groupID, c, c.Status)
 		return
 	}
-	if !ok {
-		g = store.Group{ID: groupID}
+	// A runner can report before the webhook response is recorded, or during a transport retry.
+	c.Run, c.RunStart = g.Agents[i].Run, g.Agents[i].RunStart
+	g.Agents[i] = c
+	if c.Status != "pending" && c.Event == "firing" && g.Firing() && b.patchAllowed(&g, false) {
+		b.patch(ctx, &g)
 	}
-	b.called(ctx, &g, c, ok)
+	if err := b.saveGroup(g); err != nil {
+		b.d.Log.Error("save group", "err", err)
+	}
+	if c.Status != "pending" {
+		b.called(ctx, &g, c, true)
+	}
+}
+
+// recordArchivedCall stores a late transport outcome on the originating incident. Only the
+// existing worker for that delivery calls this, under the same bridge lock as the live update.
+func (b *Bridge) recordArchivedCall(group string, call store.AgentCall, detail string) {
+	err := b.d.Store.UpdateOutcomeDelivery(group, call.Delivery, b.outcomeCutoff(b.now()),
+		func(o store.IncidentOutcome, d *store.OutcomeAgentDelivery, _ string) (bool, *store.AuditEntry, error) {
+			if d.Status != "pending" || call.Attempts < d.Attempts ||
+				call.Status == "pending" && call.Attempts == d.Attempts {
+				return false, nil, nil
+			}
+			d.Status, d.Attempts, d.DoneAt = call.Status, call.Attempts, call.Done
+			if call.Status == "pending" {
+				return true, nil, nil
+			}
+			entry := store.AuditEntry{Time: b.now(), Actor: "beacon", Via: "hook", Action: "wake_agent", Target: o.ID,
+				Detail: fmt.Sprintf("%s (%s, %s): %s, %d attempts (delivery %s)", d.Hook, call.Kind, d.Event, detail, d.Attempts, d.ID)}
+			return true, &entry, nil
+		})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		b.d.Log.Error("record archived hook delivery", "group", group, "delivery", call.Delivery, "err", err)
+	}
 }
 
 // called audits a finished call and, when its group is still known, tells the chat.

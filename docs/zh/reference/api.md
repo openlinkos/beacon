@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cc9aeeb8
+sourceHash: sha256-77b86927
 ---
 
 # REST API
@@ -97,7 +97,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录、最近一次复测，以及可用时规则恢复前后保留的通过复测 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
-| `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间 |
+| `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间。告警组再次触发后，新的回报仍可更新原故障中保留的投递记录，审计目标为该故障摘要的 ID |
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
 
@@ -310,7 +310,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `incident.changed` | 409 | 正在验证的这次故障已被同一告警组的新一轮故障替代 |
 | `alert.not_found` | 404 | 没有这个 id 的告警组 |
 | `alert.not_firing` | 409 | 告警组不在触发中，不能认领或静默 |
-| `agent_run.not_found` | 404 | 当前告警周期找不到这次钩子投递 |
+| `agent_run.not_found` | 404 | 该告警没有匹配且可回报的钩子投递 |
 | `agent_run.conflict` | 409 | 本次回报和之前记录的执行状态冲突 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |

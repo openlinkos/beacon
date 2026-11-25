@@ -48,7 +48,7 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketOutcomeDeliveries, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -1066,6 +1066,7 @@ func (s *Store) AuditLog(limit int) []AuditEntry {
 // AuditFilter narrows an AuditQuery: empty strings and zero times leave that part open.
 type AuditFilter struct {
 	Actor, Action, Target string
+	ExactRelatedTarget    string // include this exact target even outside the time window
 	From, To              time.Time
 	Limit, Offset         int
 }
@@ -1073,7 +1074,7 @@ type AuditFilter struct {
 // AuditQuery returns the entries matching f, newest first, and how many match in all.
 func (s *Store) AuditQuery(f AuditFilter) ([]AuditEntry, int, error) {
 	got, total, err := s.audit.Query(events.Filter{
-		Actor: f.Actor, Action: f.Action, Object: f.Target, From: f.From, To: f.To,
+		Actor: f.Actor, Action: f.Action, Object: f.Target, ExactRelatedObject: f.ExactRelatedTarget, From: f.From, To: f.To,
 		Limit: f.Limit, Offset: f.Offset,
 	})
 	if err != nil {

@@ -14,7 +14,7 @@ import (
 const AgentRunScope = "alerts:report"
 
 var (
-	ErrAgentRunNotFound = errors.New("no hook delivery with this id on the current alert episode")
+	ErrAgentRunNotFound = errors.New("no reportable hook delivery with this id on the alert")
 	ErrAgentRunConflict = errors.New("the delivery already has a different terminal report")
 )
 
@@ -71,40 +71,88 @@ func (b *Bridge) ReportAgentRun(ctx context.Context, id, delivery string, who Ac
 func (b *Bridge) saveAgentRun(id, delivery string, who Actor, in AgentRunInput) (store.AgentRun, string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	g, ok := b.d.Store.Group(id)
-	if !ok {
-		return store.AgentRun{}, "", ErrNotFound
-	}
+	g, live := b.d.Store.Group(id)
 	i := slices.IndexFunc(g.Agents, func(c store.AgentCall) bool { return c.Delivery == delivery })
 	if i < 0 {
-		return store.AgentRun{}, "", ErrAgentRunNotFound
+		run, err := b.saveArchivedAgentRun(id, delivery, who, in)
+		if !live && errors.Is(err, ErrAgentRunNotFound) {
+			err = ErrNotFound
+		}
+		return run, "", err
 	}
 	c := &g.Agents[i]
-	hook, ok := b.hook(c.Hook)
-	if !ok || c.Reporter == "" || c.Reporter != who.Key || hook.Reporter != who.Key {
+	if !b.agentReporter(c.Hook, c.Reporter, who) {
 		return store.AgentRun{}, "", fmt.Errorf("%w: this principal cannot report execution for this hook delivery", ErrForbidden)
 	}
-	if previous := c.Run; previous != nil {
-		if (previous.Status == in.Status && runExit(previous.ExitCode) == runExit(in.ExitCode)) || in.Status == "running" {
-			return *previous, "", nil // duplicate or a delayed start after the terminal report
-		}
-		if previous.Status != "running" || in.Status == "not_started" {
-			return store.AgentRun{}, "", ErrAgentRunConflict
-		}
-		c.RunStart = previous
+	run, changed, err := b.nextAgentRun(c.Run, who, in)
+	if err != nil || !changed {
+		return run, "", err
 	}
-	run := store.AgentRun{Status: in.Status, ExitCode: in.ExitCode, At: b.now().UTC(), By: who.Name, Via: who.Via}
+	if c.Run != nil {
+		c.RunStart = c.Run
+	}
 	c.Run = &run
-	detail := fmt.Sprintf("%s (%s, %s) %s", c.Hook, c.Event, c.Delivery, run.Status)
-	if run.ExitCode != nil {
-		detail += fmt.Sprintf(" (exit %d)", *run.ExitCode)
-	}
-	entry := store.AuditEntry{Time: run.At, Actor: who.Name, Via: who.Via, Action: "report_agent_run", Target: g.ID, Detail: detail}
+	entry := agentRunAudit(g.ID, c.Hook, c.Event, c.Delivery, run)
 	if err := b.d.Store.PutGroupAndAudit(g, b.outcome(g, run.At, time.Time{}), entry); err != nil {
 		b.d.Log.Error("record agent run", "group", g.ID, "delivery", delivery, "err", err)
 		return store.AgentRun{}, "", errors.New("agent run report could not be recorded")
 	}
 	return run, b.agentRunNotice(&g, c), nil
+}
+
+func (b *Bridge) agentReporter(name, original string, who Actor) bool {
+	hook, ok := b.hook(name)
+	return ok && original != "" && original == who.Key && hook.Reporter == who.Key
+}
+
+func (b *Bridge) nextAgentRun(previous *store.AgentRun, who Actor, in AgentRunInput) (store.AgentRun, bool, error) {
+	if previous != nil {
+		if (previous.Status == in.Status && runExit(previous.ExitCode) == runExit(in.ExitCode)) || in.Status == "running" {
+			return *previous, false, nil // duplicate or a delayed start after the terminal report
+		}
+		if previous.Status != "running" || in.Status == "not_started" {
+			return store.AgentRun{}, false, ErrAgentRunConflict
+		}
+	}
+	return store.AgentRun{Status: in.Status, ExitCode: in.ExitCode, At: b.now().UTC(), By: who.Name, Via: who.Via}, true, nil
+}
+
+func agentRunAudit(target, hook, event, delivery string, run store.AgentRun) store.AuditEntry {
+	detail := fmt.Sprintf("%s (%s, %s) %s", hook, event, delivery, run.Status)
+	if run.ExitCode != nil {
+		detail += fmt.Sprintf(" (exit %d)", *run.ExitCode)
+	}
+	return store.AuditEntry{Time: run.At, Actor: run.By, Via: run.Via, Action: "report_agent_run", Target: target, Detail: detail}
+}
+
+func (b *Bridge) saveArchivedAgentRun(group, delivery string, who Actor, in AgentRunInput) (store.AgentRun, error) {
+	var run store.AgentRun
+	err := b.d.Store.UpdateOutcomeDelivery(group, delivery, b.outcomeCutoff(b.now()),
+		func(o store.IncidentOutcome, d *store.OutcomeAgentDelivery, reporter string) (bool, *store.AuditEntry, error) {
+			if !b.agentReporter(d.Hook, reporter, who) {
+				return false, nil, ErrAgentRunNotFound
+			}
+			next, changed, err := b.nextAgentRun(d.Run, who, in)
+			run = next
+			if err != nil || !changed {
+				return false, nil, err
+			}
+			if run.Status == "running" {
+				d.StartedAt = run.At
+			}
+			d.Run = &run
+			entry := agentRunAudit(o.ID, d.Hook, d.Event, d.ID, run)
+			return true, &entry, nil
+		})
+	switch {
+	case err == nil, errors.Is(err, ErrAgentRunConflict), errors.Is(err, ErrAgentRunNotFound):
+		return run, err
+	case errors.Is(err, store.ErrNotFound):
+		return store.AgentRun{}, ErrAgentRunNotFound
+	default:
+		b.d.Log.Error("record archived agent run", "group", group, "delivery", delivery, "err", err)
+		return store.AgentRun{}, errors.New("agent run report could not be recorded")
+	}
 }
 
 func (b *Bridge) agentRunNotice(g *store.Group, c *store.AgentCall) string {
