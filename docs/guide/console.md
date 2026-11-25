@@ -190,7 +190,7 @@ A session still open shows its record. The recording plays once the session ends
 
 Beacon's signed links let anyone who holds the link open the shared page without signing in. The signature is part of the `s` query parameter, and Beacon keeps the signing key in its database. Links last for `pages.link_ttl`, 30 days by default. A signed-out request with an expired, revoked or invalid link gets a plain 404.
 
-An alert link opens one alert episode for viewing. Sign in with your own account to respond or browse related alerts and SSH replays, subject to that account's permissions. A session link opens that session and lets the recipient play or download its recording when one is available. **Sign in** returns you to the same page and uses the account's permissions.
+An alert link opens one alert episode for viewing. Sign in with your own account to respond or browse related alerts and SSH replays, subject to that account's permissions. Command text from related SSH sessions follows the same access rules as replays. A session link opens that session and lets the recipient play or download its recording when one is available. **Sign in** returns you to the same page and uses the account's permissions.
 
 To share from the console, sign in as an owner and open the alert or session. Choose **Manage share links**, then **Create share link**. Copy the displayed link and check its expiry. An alert share opens the current episode while its detail is retained. Send links only to people who should see the alert or recording, and set `link_ttl` to fit how long recipients need access.
 

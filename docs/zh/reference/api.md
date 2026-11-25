@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d6048b5b
+sourceHash: sha256-a90834d8
 ---
 
 # REST API
@@ -124,6 +124,17 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/sessions` | `status:read` 或 `machines:ssh` | 机器上的会话，新的在前，可以按 `machine` 和 `agent` 筛选（`limit`，默认 50，最多 1000）：谁、在哪里、做了什么、什么时候、退出码 |
 | `GET /api/v1/sessions/{id}` | `sessions:read` 或 `machines:ssh` | 会话的文字记录：命令的输出，或者交互 shell 的每条命令及其输出和退出码 |
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` 或 `machines:ssh` | 录像文件，asciicast v3，可以用 asciinema 回放 |
+
+调用方拥有 `sessions:read` 或 `machines:ssh` 时，会话列表、告警证据和时间线才包含命令正文和签名回放链接。其他拥有 `status:read` 的调用方仍可在这些位置读取会话元数据。
+
+## 管理分享链接 {#manage-share-links}
+
+两个接口均需要具有 `accounts:write` 的独立凭据。`kind` 为 `alert` 或 `session`，`id` 为告警组 ID 或 SSH 会话 ID。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
+
+| 接口 | 做什么 |
+| --- | --- |
+| `POST /api/v1/share-links/{kind}/{id}` | 生成只读链接，返回 `url` 和 `expires_at`。告警链接打开当前故障，会话链接打开会话及其录像。 |
+| `POST /api/v1/share-links/{kind}/{id}/revoke` | 撤销该告警组所有故障的现有链接，或该 SSH 会话及其录像的现有链接。返回 `{"ok":true}`。 |
 
 ## 配置 {#configuration}
 
@@ -273,6 +284,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `auth.too_many_failures` | 429 | 这个地址失败次数太多；消息里写明还要等多久，响应带 `Retry-After` |
 | `bad_input` | 400、415 | 请求不符合这个接口的要求：不是 JSON、有不认识的字段、值超出范围。消息里写明是哪一处 |
 | `upstream` | 502、503 | Beacon 依赖的东西没有回应（VictoriaMetrics、存储），或者这个 Beacon 不接收这类请求 |
+| `share.not_found` | 404 | 找不到该告警组或 SSH 会话 |
+| `share.unavailable` | 503 | Beacon 暂时无法创建或撤销签名链接 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
 | `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
 | `incident.unavailable` | 500 | 无法读取故障摘要 |

@@ -93,6 +93,17 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
 
+The session list, alert evidence and timeline contain command text and signed replay links only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read session metadata there.
+
+## Manage share links
+
+Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. The returned URL is a credential. The audit log and alert chat record the action and its target.
+
+| Tool | What it does |
+| --- | --- |
+| `create_share_link` | Return `url` and `expires_at` for the current incident, or for a session and its recording. |
+| `revoke_share_links` | Revoke every outstanding link for the alert group's incidents, or for the session and its recording. |
+
 ## Configuration
 
 What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/monitoring.md)). `kind` is `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` ([Status pages](../guide/status-pages.md)). `key` names one item.

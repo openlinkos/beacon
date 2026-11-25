@@ -311,7 +311,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
 		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
-	if a.Viewer == nil && a.Token == "" && !a.Until.IsZero() {
+	if a.Viewer.person() && a.Viewer.owner() {
+		p.ShareLinks = shareLinksPath("alerts", al.ID)
+	} else if a.Grant != nil {
 		p.SharedViewHint = s.t("This link opens this alert. Sign in to respond or open related alerts and SSH replays.")
 	}
 	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
@@ -371,7 +373,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	p.ProbesError = ev.Probes.Error
 	for _, r := range ev.Related {
 		p.Related = append(p.Related, relatedRow{Title: r.Title, Severity: s.severity(r.Severity), SeverityClass: tone(r.Severity), Why: r.Why,
-			Acked: r.Acked, Href: s.signed(link.AlertPath(r.ID), a.Until)})
+			Acked: r.Acked, Href: s.relatedLink(link.AlertPath(r.ID), a, "status:read")})
 	}
 	p.Events = s.events(tl, a, p.L, r.URL.Query().Get("probe"), g.Status == "firing")
 	for _, c := range ev.Done.Agents {
@@ -604,22 +606,25 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		case "session":
 			row.Text = s.t("%s on %s", e.By, e.Machine)
 			row.Detail = s.kind(e.Type)
-			if e.Text != "" {
+			if a.SessionDetail && e.Text != "" {
 				row.Detail = s.t("%s: %s", row.Detail, e.Text)
 			}
 			if x := s.exit(e.Exit); x != "" {
 				row.Detail += " (" + x + ")"
 			}
 			if e.ID != "" {
-				row.Href, row.HrefText = s.signed(link.SessionPath(e.ID), a.Until), l.Replay
+				row.Href, row.HrefText = s.relatedLink(link.SessionPath(e.ID), a, "sessions:read|machines:ssh"), l.Replay
 			}
 		case "command": // one run at a shell's prompt, within its session
-			row.Text, row.Detail = s.t("%s ran a command on %s", e.By, e.Machine), e.Text
+			row.Text = s.t("%s ran a command on %s", e.By, e.Machine)
+			if a.SessionDetail {
+				row.Detail = e.Text
+			}
 			if x := s.exit(e.Exit); x != "" {
-				row.Detail += " (" + x + ")"
+				row.Detail = strings.TrimSpace(row.Detail + " (" + x + ")")
 			}
 			if e.ID != "" {
-				row.Href, row.HrefText = s.signed(link.SessionPath(e.ID), a.Until), l.Replay
+				row.Href, row.HrefText = s.relatedLink(link.SessionPath(e.ID), a, "sessions:read|machines:ssh"), l.Replay
 			}
 		case "heartbeat": // its last success, when the story began
 			row.Text, row.Detail = s.t("Heartbeat %s last succeeded", e.ID), e.Text
@@ -788,21 +793,21 @@ func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeE
 }
 
 // sessions renders the sessions on the alert's machines, each with the commands of its transcript.
-func (s *Server) sessions(views []bridge.SessionView, a access, private map[string]bool) []sessionRow {
+func (s *Server) sessions(views []bridge.SessionView, a access) []sessionRow {
 	out := make([]sessionRow, 0, len(views))
 	for _, v := range views {
-		row := sessionRow{ID: v.ID, Agent: v.Agent, Via: s.via(v.Via), Machine: v.Machine, Kind: s.kind(v.Kind), Command: v.Command,
+		row := sessionRow{ID: v.ID, Agent: v.Agent, Via: s.via(v.Via), Machine: v.Machine, Kind: s.kind(v.Kind),
 			Started: s.clock(v.Started), Exit: s.exit(v.Exit), Failed: v.Exit != nil && *v.Exit != 0, Open: v.Ended == nil,
-			Href: link.SessionPath(v.ID)}
-		if !private[v.ID] {
-			row.Href = s.signed(row.Href, a.Until)
-		}
+			Href: s.relatedLink(link.SessionPath(v.ID), a, "sessions:read|machines:ssh")}
 		if v.Ended != nil {
 			row.Duration = s.dur(v.Ended.Sub(v.Started))
 		}
-		if v.Kind == "shell" && s.SSH != nil {
-			if tr, err := s.SSH.Session(v.ID); err == nil {
-				row.Commands = s.commands(tr.Commands)
+		if a.SessionDetail {
+			row.Command = v.Command
+			if v.Kind == "shell" && s.SSH != nil {
+				if tr, err := s.SSH.Session(v.ID); err == nil {
+					row.Commands = s.commands(tr.Commands)
+				}
 			}
 		}
 		out = append(out, row)
@@ -840,7 +845,9 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
 		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
 		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
-	if a.Viewer == nil && a.Token == "" && !a.Until.IsZero() {
+	if a.Viewer.person() && a.Viewer.owner() {
+		p.ShareLinks = shareLinksPath("sessions", rec.ID)
+	} else if a.Grant != nil {
 		p.SharedViewHint = s.t("This link opens this session and its recording. Sign in to open other sessions or machines you can access.")
 	}
 	p.ActorLabel = s.t("Actor")
@@ -878,7 +885,7 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	case p.Open:
 		p.RecordingNote = p.L.RecordingOpen
 	default:
-		p.Recording = s.signed(link.RecordingPath(rec.ID), a.Until)
+		p.Recording = s.recordingLink(link.RecordingPath(rec.ID), a)
 	}
 	return p
 }

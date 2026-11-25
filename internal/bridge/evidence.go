@@ -321,6 +321,19 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 	return b.evidence(ctx, &g, b.window(&g, d)), nil
 }
 
+// EvidenceFor keeps replay grants within the caller's session-detail scopes.
+func (b *Bridge) EvidenceFor(ctx context.Context, who Actor, id, before string) (Evidence, error) {
+	ev, err := b.Evidence(ctx, id, before)
+	if err == nil && !b.MayReadSession(who) {
+		for i := range ev.Done.Sessions {
+			ev.Done.Sessions[i].Page = ""
+			ev.Done.Sessions[i].Command = ""
+			ev.Done.Sessions[i].ShellCommands = nil
+		}
+	}
+	return ev, err
+}
+
 func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window) Evidence {
 	machines := b.machines(g)
 	done := b.done(g, w, machines)

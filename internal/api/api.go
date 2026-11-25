@@ -268,6 +268,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	s.registerToken(mux)
 	s.registerPeople(mux)
 	s.registerAgents(mux)
+	s.registerShareLinks(mux)
 	mux.Handle("PUT /api/v1/machines/{name}/connector", s.with("machines:write", s.setConnector))
 	mux.Handle("POST /api/v1/probe-now", s.with("alerts:write", s.probeNow))
 	s.registerStatus(mux)
@@ -287,6 +288,7 @@ var Routes = []string{
 	"GET /api/v1/incident-outcomes", "GET /api/v1/incident-outcomes/{id}",
 	"PUT /api/v1/machines/{name}/connector",
 	"POST /api/v1/probe-now",
+	"POST /api/v1/share-links/{kind}/{id}", "POST /api/v1/share-links/{kind}/{id}/revoke",
 	"GET /api/v1/team-credentials", "POST /api/v1/team-credentials/{id}/use",
 }
 

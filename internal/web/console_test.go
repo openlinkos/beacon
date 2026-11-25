@@ -798,8 +798,8 @@ func TestTimelineKinds(t *testing.T) {
 		{At: e.now, Kind: "command", By: "claude-code", Machine: "edge-1", Text: "systemctl restart relay", ID: sessionID, Exit: &one},
 		{At: e.now, Kind: "heartbeat", ID: "backup", Text: "the nightly backup"},
 	}}
-	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour)}, e.srv.labels(), "", false)
-	if rows[0].Text != "claude-code ran a command on edge-1" || rows[0].Detail != "systemctl restart relay (exit 1)" || !strings.HasPrefix(rows[0].Href, link.SessionPath(sessionID)+"?s=") {
+	rows := e.srv.events(tl, access{Until: e.now.Add(time.Hour), SessionDetail: true}, e.srv.labels(), "", false)
+	if rows[0].Text != "claude-code ran a command on edge-1" || rows[0].Detail != "systemctl restart relay (exit 1)" || rows[0].Href != link.SignInPath(link.SessionPath(sessionID)) {
 		t.Errorf("a command: %+v", rows[0])
 	}
 	if rows[1].Text != "Heartbeat backup last succeeded" || rows[1].Detail != "the nightly backup" {

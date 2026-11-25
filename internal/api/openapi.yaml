@@ -50,7 +50,8 @@ components:
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
             audit.unavailable, incident.not_found, incident.unavailable,
-            credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending]
+            credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
+            share.not_found, share.unavailable]
         docs:
           type: string
           format: uri
@@ -1714,6 +1715,43 @@ paths:
           description: asciicast v3
           content:
             application/x-asciicast: {}
+        default: {$ref: "#/components/responses/Error"}
+  /share-links/{kind}/{id}:
+    post:
+      summary: Create a signed alert or session link
+      description: "Scope: accounts:write from a standalone credential. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string, enum: [alert, session]}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "201":
+          description: A read-only link for the requested resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expires_at]
+                properties:
+                  url: {type: string, format: uri}
+                  expires_at: {type: string, format: date-time}
+        default: {$ref: "#/components/responses/Error"}
+  /share-links/{kind}/{id}/revoke:
+    post:
+      summary: Revoke all outstanding links for one resource
+      description: "Scope: accounts:write from a standalone credential. This invalidates all signed links for the alert group's incidents or for the session and its recording."
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string, enum: [alert, session]}}
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Links revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: {type: boolean}
         default: {$ref: "#/components/responses/Error"}
   /config:
     get:

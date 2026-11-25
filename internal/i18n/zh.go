@@ -1098,6 +1098,11 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Services that will no longer be visible":                                                      "将停止公开的服务",
 	"Services visible after publishing":                                                            "发布后可见的服务",
 	"Status page updated":                                                                          "已更新状态页",
+	"%s created a share link for %s via %s":                                                        "%s 为 %s 创建了分享链接，来源为 %s。",
+	"%s revoked share links for %s via %s":                                                         "%s 撤销了 %s 的分享链接，来源为 %s。",
+	"Choose to create a share link or revoke existing links.":                                      "请选择生成分享链接或撤销现有链接。",
+	"Share links are unavailable. Try again.":                                                      "暂时无法管理分享链接。请重试。",
+	"Share links revoked.":                                                                         "已撤销分享链接。",
 
 	"Create status page":  "创建状态页",
 	"Page ID":             "状态页标识",

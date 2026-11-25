@@ -355,7 +355,6 @@ func TestAlertPage(t *testing.T) {
 	for _, want := range []string{
 		`<html lang="en">`, "git.example.com is down &lt;script&gt;", "Firing", "Critical", "Since 2026-11-02 09:50:00 (10 min)",
 		"No answer from 2 locations", "edge-1", "claude-code", "restarting the relay &lt;script&gt;", // the note
-		"systemctl restart relay", "false &lt;script&gt;", "exit 1", // the shell's commands, with exit statuses
 		"1 sessions on 1 machines, 2 commands", "Timeline", "Alert started", "left a note via MCP", "Replay",
 		"Agents reach machines", "This link is valid until 2026-11-02 11:00:00", `data-brand="beacon"`,
 		"No probe results in the window", `<dt>note</dt><dd class="ol-mono ol-break">&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
@@ -367,16 +366,19 @@ func TestAlertPage(t *testing.T) {
 	if strings.Contains(body, "codex") || strings.Contains(body, "edge-2") {
 		t.Error("another machine's session is on the page")
 	}
-	replays := hrefs(body, link.SessionPath(sessionID))
+	if strings.Contains(body, "systemctl restart relay") || strings.Contains(body, "false &lt;script&gt;") {
+		t.Error("the signed alert exposed session command text")
+	}
+	replays := hrefs(body, link.SignInPath(link.SessionPath(sessionID)))
 	if len(replays) < 2 { // the sessions block and the timeline
 		t.Fatalf("replay links: %v", replays)
 	}
-	u, _ := url.Parse(replays[0])
-	if until, ok := e.signer.Verify(http.MethodGet, u.Path, u.Query().Get(link.Param)); !ok || !until.Equal(e.now.Add(time.Hour)) {
-		t.Errorf("the replay link %q does not verify, or lasts %v rather than as long as the page's link", replays[0], until)
+	owner := e.owner()
+	if page := owner.get(path); !strings.Contains(page.body, "systemctl restart relay") || len(hrefs(page.body, link.SessionPath(sessionID))) == 0 {
+		t.Error("the signed-in owner should see the original command text and a direct replay link")
 	}
-	if code, body, _ := e.get(replays[0], ""); code != 200 || !strings.Contains(body, sessionID) {
-		t.Errorf("following the replay link: %d", code)
+	if replay := owner.get(link.SessionPath(sessionID)); replay.code != http.StatusOK {
+		t.Errorf("the signed-in owner's replay: %d", replay.code)
 	}
 }
 

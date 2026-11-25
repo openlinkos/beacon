@@ -170,10 +170,12 @@ func notFound(w http.ResponseWriter) {
 // token (Token names it). Until is how long the links inside the page last: as long as the sign-in or
 // the link that opened it, or tokenTTL.
 type access struct {
-	OK     bool
-	Until  time.Time
-	Token  string
-	Viewer *viewer
+	OK            bool
+	Until         time.Time
+	Token         string
+	Viewer        *viewer
+	Grant         *link.Grant
+	SessionDetail bool
 }
 
 // access checks the request against the console's sign-in, then the signed link it carries, then a
@@ -182,28 +184,50 @@ type access struct {
 func (s *Server) access(r *http.Request, scopes string) access {
 	v := s.viewer(r)
 	if v != nil && v.hasAny(scopes) {
-		return access{OK: true, Until: v.Session.Expires, Viewer: v}
+		return access{OK: true, Until: v.Session.Expires, Viewer: v, SessionDetail: v.hasAny("sessions:read|machines:ssh")}
 	}
 	if sig := r.URL.Query().Get(link.Param); sig != "" && s.Pages != nil && s.Pages.Signer != nil {
-		if until, ok := s.Pages.Signer.Verify(http.MethodGet, r.URL.Path, sig); ok {
-			return access{OK: true, Until: until}
+		if grant, ok := s.Pages.Signer.VerifyGrant(http.MethodGet, r.URL.Path, sig); ok {
+			return access{OK: true, Until: grant.Until, Grant: &grant}
 		}
 	}
 	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
 		if p, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), p.Has) {
-			return access{OK: true, Token: p.Name(), Until: s.now().Add(tokenTTL)}
+			return access{OK: true, Token: p.Name(), Until: s.now().Add(tokenTTL), SessionDetail: p.Has("sessions:read") || p.Has("machines:ssh")}
 		}
 	}
 	return access{Viewer: v}
 }
 
-// signed returns path with a signature that lasts until the given time; without a signer, the path alone
-// (then only a token or a sign-in opens it).
-func (s *Server) signed(path string, until time.Time) string {
-	if s.Pages == nil || s.Pages.Signer == nil {
+// relatedLink grants no access to another incident or session from the page's share link.
+func (s *Server) relatedLink(path string, a access, scope string) string {
+	if a.Viewer != nil && a.Viewer.hasAny(scope) {
 		return path
 	}
-	return path + "?" + link.Param + "=" + s.Pages.Signer.SignUntil(http.MethodGet, path, until)
+	if s.Console() {
+		return link.SignInPath(path)
+	}
+	return ""
+}
+
+// recordingLink keeps anonymous playback within its session's original share grant.
+func (s *Server) recordingLink(path string, a access) string {
+	if a.Viewer != nil {
+		return path
+	}
+	if s.Pages == nil || s.Pages.Signer == nil {
+		return ""
+	}
+	var signature string
+	if a.Grant != nil {
+		signature = s.Pages.Signer.Derive(http.MethodGet, path, *a.Grant)
+	} else {
+		signature = s.Pages.Signer.SignUntil(http.MethodGet, path, a.Until)
+	}
+	if signature == "" {
+		return ""
+	}
+	return path + "?" + link.Param + "=" + signature
 }
 
 func (s *Server) render(w http.ResponseWriter, t *template.Template, data any) {

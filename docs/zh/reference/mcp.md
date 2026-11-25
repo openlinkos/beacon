@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-69c0285a
+sourceHash: sha256-f063b9b4
 ---
 
 # MCP 工具
@@ -96,6 +96,17 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
+
+调用方拥有 `sessions:read` 或 `machines:ssh` 时，会话列表、告警证据和时间线才包含命令正文和签名回放链接。只有 `status:read` 的调用方仍可在这些位置读取会话元数据。
+
+## 管理分享链接 {#manage-share-links}
+
+两个工具均接受 `kind`（`alert` 或 `session`）和 `id`（告警组 ID 或 SSH 会话 ID）。它们需要具有 `accounts:write` 的独立凭据。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
+
+| 工具 | 做什么 |
+| --- | --- |
+| `create_share_link` | 为当前故障，或为一个会话及其录像生成 `url` 和 `expires_at`。 |
+| `revoke_share_links` | 撤销告警组所有故障的现有链接，或该会话及其录像的现有链接。 |
 
 ## 配置 {#configuration}
 

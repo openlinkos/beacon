@@ -11,22 +11,21 @@ import (
 // incidentSessions adds recordings on designated machines only to the signed-in session view.
 func (s *Server) incidentSessions(ev bridge.Evidence, a access) ([]sessionRow, string) {
 	views := slices.Clone(ev.Done.Sessions)
-	private := map[string]bool{}
 	if v := a.Viewer; v != nil && v.person() && v.hasAny("sessions:read|machines:ssh") && s.SSH != nil {
-		for _, r := range s.designatedSessionRecords(ev) {
+		designated := s.designatedSessionRecords(ev)
+		for _, r := range designated {
 			var ended *time.Time
 			if !r.Ended.IsZero() {
 				ended = &r.Ended
 			}
 			views = append(views, bridge.SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via,
 				Machine: r.Machine, Kind: r.Kind, Started: r.Started, Ended: ended, Exit: r.Exit, Commands: r.Commands})
-			private[r.ID] = true
 		}
-		if len(private) > 0 {
+		if len(designated) > 0 {
 			slices.SortStableFunc(views, func(a, b bridge.SessionView) int { return a.Started.Compare(b.Started) })
 		}
 	}
-	rows := s.sessions(views, a, private)
+	rows := s.sessions(views, a)
 	if len(rows) == 0 {
 		return rows, ""
 	}

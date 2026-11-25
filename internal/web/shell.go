@@ -249,6 +249,8 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Saved"), "success"
 	case "status_page_created":
 		return s.t("Status page created"), "success"
+	case "shared_links_revoked":
+		return s.t("Share links revoked."), "success"
 	case "status_page_updated":
 		return s.t("Status page updated"), "success"
 	case "removed":

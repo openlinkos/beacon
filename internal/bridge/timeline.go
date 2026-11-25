@@ -44,6 +44,20 @@ type Event struct {
 	Probes  []store.ProbeObservation `json:"probes,omitempty"`  // on-demand observations, including missing results
 }
 
+// TimelineFor limits session replay links and command text to callers with a session-detail scope.
+func (b *Bridge) TimelineFor(ctx context.Context, who Actor, id, before string) (Timeline, error) {
+	timeline, err := b.Timeline(ctx, id, before)
+	if err == nil && !b.MayReadSession(who) {
+		for i := range timeline.Events {
+			e := &timeline.Events[i]
+			if e.Kind == "session" || e.Kind == "command" {
+				e.URL, e.Text = "", ""
+			}
+		}
+	}
+	return timeline, err
+}
+
 // Timeline returns the alert group id's timeline, over the window of its evidence.
 func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, error) {
 	d, err := parseBefore(before)

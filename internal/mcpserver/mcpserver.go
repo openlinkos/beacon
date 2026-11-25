@@ -415,6 +415,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 	addTokenTools(s, b)
 	addRevokeTool(s, b)
 	addPeopleTools(s, b)
+	addShareLinkTools(s, b)
 	addProbeNowTools(s, b)
 	addStatusTools(s, b, o.status)
 	addMachineTools(s, g)
@@ -494,6 +495,12 @@ func addMachineTools(s *mcp.Server, g SSH) {
 				return nil, sessionsOut{}, err
 			}
 			ss, err := g.Gate.Sessions(sshgate.SessionFilter{Machine: in.Machine, Agent: in.Agent, Limit: in.Limit})
+			p, _ := principal(ctx)
+			if !p.Has("sessions:read") && !p.Has("machines:ssh") {
+				for i := range ss {
+					ss[i].Page, ss[i].Command = "", ""
+				}
+			}
 			return nil, sessionsOut{Sessions: ss}, err
 		})
 

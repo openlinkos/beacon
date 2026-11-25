@@ -119,6 +119,12 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/sign-out", s.action("", s.signOut))
 	s.registerAccounts(at)
 	s.registerCredentials(at)
+	alertShares := s.shareLinksForm("alerts", "alert")
+	sessionShares := s.shareLinksForm("sessions", "session")
+	at("GET", "/alerts/{id}/share-links", s.console(bridge.ShareScope, alertShares))
+	at("POST", "/alerts/{id}/share-links", s.action(bridge.ShareScope, alertShares))
+	at("GET", "/sessions/{id}/share-links", s.console(bridge.ShareScope, sessionShares))
+	at("POST", "/sessions/{id}/share-links", s.action(bridge.ShareScope, sessionShares))
 
 	at("GET", "", s.console("", s.overview))
 	at("GET", "/{$}", s.toOverview)
