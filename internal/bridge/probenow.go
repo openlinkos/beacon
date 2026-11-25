@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -113,25 +114,34 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, er
 	if in.Episode != nil && *in.Episode != g.Episode {
 		return nil, probeEpisode{}, ErrEpisodeChanged
 	}
-	// the alerts' own targets first (instance and module, as probe rules carry them), else their services
-	var wants []probenow.Want
-	for _, a := range g.Alerts {
-		if inst := a.Labels["instance"]; inst != "" {
-			w := probenow.Want{Target: inst, Module: a.Labels["module"]}
-			if !slices.Contains(wants, w) {
-				wants = append(wants, w)
-			}
-		}
-	}
-	if len(wants) == 0 {
-		for _, s := range b.groupServices(&g) {
-			wants = append(wants, probenow.Want{Service: s})
-		}
-	}
-	if len(wants) == 0 {
-		return nil, probeEpisode{}, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+	wants, err := incidentProbeWants(g)
+	if err != nil {
+		return nil, probeEpisode{}, err
 	}
 	return wants, probeEpisode{starts: g.StartsAt, key: g.Episode}, nil
+}
+
+// incidentProbeWants preserves each alert member's selection, including aggregated rules which
+// name a service and domain without an instance. Matching one member cannot substitute for another.
+func incidentProbeWants(g store.Group) ([]probenow.Want, error) {
+	members := g.Alerts
+	if len(members) == 0 {
+		members = []store.Alert{{}} // older group records may only have common labels
+	}
+	wants := make([]probenow.Want, 0, len(members))
+	seen := make(map[probenow.Want]bool)
+	for _, member := range members {
+		label := func(name string) string { return cmp.Or(member.Labels[name], g.Common[name], g.Labels[name]) }
+		want := probenow.Want{Target: label("instance"), Module: label("module"), Service: label("service"), FailureDomain: label("failure_domain")}
+		if want.Target == "" && want.Service == "" {
+			return nil, fmt.Errorf("%w: an alert member has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+		}
+		if !seen[want] {
+			seen[want] = true
+			wants = append(wants, want)
+		}
+	}
+	return wants, nil
 }
 
 type probeEpisode struct {

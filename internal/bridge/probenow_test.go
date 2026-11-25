@@ -3,6 +3,8 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +219,113 @@ func TestProbeNowByAlertInstance(t *testing.T) {
 	}
 	if len(out.Targets) != 1 || out.Targets[0].Instance != "https://git.example.com/api/healthz" || !out.Complete || out.Summary != "2 OK" {
 		t.Fatalf("by instance: %+v", out)
+	}
+}
+
+func TestIncidentProbeKeepsMemberFailureDomains(t *testing.T) {
+	const (
+		service = "git-example-com"
+		green   = "https://green.example.com/healthz"
+		blue    = "https://blue.example.com/healthz"
+	)
+	target := func(instance, domain, svc, module string) targets.Group {
+		return targets.Group{Targets: []string{instance}, Labels: map[string]string{"service": svc, "failure_domain": domain, "module": module}}
+	}
+	greenTarget, blueTarget := target(green, "green", service, "http_head"), target(blue, "blue", service, "http_head")
+	member := func(instance, domain string) map[string]string {
+		l := map[string]string{"failure_domain": domain}
+		if instance != "" {
+			l["instance"], l["module"], l["service"] = instance, "http_head", service
+		}
+		return l
+	}
+	for _, tc := range []struct {
+		name, commonDomain, errorPart string
+		members                       []map[string]string
+		extras                        []targets.Group
+		inactive                      bool
+		input                         ProbeNowInput
+		want                          []string
+	}{
+		{name: "removed aggregate", commonDomain: "blue", errorPart: "no target set has service git-example-com in failure domain blue"},
+		{name: "only one grouped member matches", members: []map[string]string{member(green, "green"), member("", "blue")}, errorPart: "failure domain blue"},
+		{name: "domain assigned only to an expired location", commonDomain: "blue", inactive: true, errorPart: "no active location probes service git-example-com in failure domain blue"},
+		{name: "same instance with different domain service or module", members: []map[string]string{member(green, "blue")}, extras: []targets.Group{
+			target(green, "blue", "another-service", "http_head"), target(green, "blue", service, "tcp_connect"),
+		}, errorPart: "target " + green + " for service git-example-com with module http_head in failure domain blue"},
+		{name: "current aggregate keeps just its domain", commonDomain: "blue", extras: []targets.Group{blueTarget}, want: []string{blue}},
+		{name: "both different grouped members match", members: []map[string]string{member(green, "green"), member("", "blue")}, extras: []targets.Group{blueTarget}, want: []string{green, blue}},
+		{name: "domainless legacy aggregate stays broad", extras: []targets.Group{blueTarget}, want: []string{green, blue}},
+		{name: "explicit service stays broad", extras: []targets.Group{blueTarget}, input: ProbeNowInput{Service: service}, want: []string{green, blue}},
+		{name: "explicit target keeps every module", extras: []targets.Group{target(green, "blue", service, "tcp_connect")},
+			input: ProbeNowInput{Target: green}, want: []string{green, green}},
+		{name: "single instance qualifies overlapping target labels", members: []map[string]string{member(green, "blue")},
+			extras: []targets.Group{target(green, "blue", service, "http_head")}, want: []string{green}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cat := &catalog.Catalog{Locations: []catalog.Location{
+				{ID: "us-los-angeles", Name: "United States - Los Angeles", Region: "overseas"},
+				{ID: "cn-shanghai-bgp", Name: "Mainland China - Shanghai", Region: "mainland"},
+			}}
+			files := map[string][]targets.Group{"all-scoped.yaml": append([]targets.Group{greenTarget}, tc.extras...)}
+			if tc.inactive {
+				cat.Resources = []catalog.Resource{{Name: "us-los-angeles", Kind: "vps", Expires: "2026-01-01"}}
+				files["us-los-angeles-expired.yaml"] = []targets.Group{blueTarget}
+			}
+			if err := cat.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			configured, err := targets.Build(files, []string{"us-los-angeles", "cn-shanghai-bgp"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			board := probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return cat }, Targets: func() *targets.Set { return configured }, Now: func() time.Time { return e.now }})
+			e.b.d.ProbeNow = board
+			alert := hook("firing", "critical", "one")
+			alert.CommonLabels["failure_domain"] = tc.commonDomain
+			if len(tc.members) > 0 {
+				alert.Alerts = nil
+				for idx, labels := range tc.members {
+					alert.Alerts = append(alert.Alerts, alertmanager.Alert{Status: "firing", Fingerprint: fmt.Sprint(idx), Labels: labels, StartsAt: e.now})
+				}
+			}
+			if err := e.b.HandleWebhook(t.Context(), alert); err != nil {
+				t.Fatal(err)
+			}
+			id := GroupID(alert.GroupKey)
+			in := tc.input
+			if in.Service == "" && in.Target == "" {
+				in.AlertID = id
+			}
+			in.Wait = 1
+			if tc.errorPart == "" {
+				answerAs(t, board, "us-los-angeles", true)
+				answerAs(t, board, "cn-shanghai-bgp", true)
+			}
+			result, err := e.b.ProbeNow(t.Context(), Actor{Name: "operator", Via: "console"}, in)
+			saved, _ := e.st.Group(id)
+			if tc.errorPart != "" {
+				if !errors.Is(err, ErrProbeNotFound) || !strings.Contains(err.Error(), tc.errorPart) || board.Open() != 0 ||
+					len(saved.ProbeRuns) != 0 || saved.PassingCheck != nil {
+					t.Fatalf("missing scope must fail before dispatch or recording: result=%+v err=%v runs=%+v", result, err, saved.ProbeRuns)
+				}
+				return
+			}
+			var instances []string
+			for _, match := range result.Targets {
+				instances = append(instances, match.Instance)
+			}
+			want := slices.Clone(tc.want)
+			slices.Sort(instances)
+			slices.Sort(want)
+			if err != nil || !result.Complete || !slices.Equal(instances, want) {
+				t.Fatalf("probe was not confined to the expected targets: %+v, %v", result, err)
+			}
+			if in.AlertID != "" && (saved.PassingCheck == nil || saved.PassingCheck.Passed != 2*len(tc.want)) {
+				t.Fatalf("complete observations were not retained: %+v", saved.PassingCheck)
+			}
+		})
 	}
 }
 
