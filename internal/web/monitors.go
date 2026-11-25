@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -28,8 +28,8 @@ const maxMonitorResults = 5000
 
 type monitorLabels struct {
 	Services, Heartbeats, Resources, Service, State, Targets, Pages, Severity, Checked, Machine, MaxAge string
-	LastSuccess, Expires, Kind, Note, Description, None, NoServices, Target, Module, Set, Domain        string
-	Visibility, Alerts, Started, Window, OnPages, Name, Add, Schedule                                   string
+	LastSuccess, Expires, Kind, Note, Description, None, NoServices, Target, Module                     string
+	Alerts, Started, Window, OnPages, Name, Add, Schedule                                               string
 	RefreshResults, MetricsDetails, WaitingHint, NoLocationsHint, LimitedResults                        string
 }
 
@@ -40,7 +40,7 @@ func (s *Server) monitorLabels() monitorLabels {
 		Checked: s.t("Last checked"), Machine: s.t("Machine"), MaxAge: s.t("Maximum age"), LastSuccess: s.t("Last success"),
 		Expires: s.t("Expires"), Kind: s.t("Kind"), Note: s.t("Note"), Description: s.t("Description"), None: s.t("None"),
 		NoServices: s.t("No monitored services yet."), Target: s.t("Target"), Module: s.t("Module"),
-		Set: s.t("Target set"), Domain: s.t("Failure domain"), Visibility: s.t("Visibility"), Alerts: s.t("Alerts"),
+		Alerts:  s.t("Alerts"),
 		Started: s.t("Started"), Window: s.t("What the probes saw in the last 30 minutes, at each location."),
 		OnPages: s.t("On status pages"), Name: s.t("Name"), Add: s.t("Add HTTP monitor"), Schedule: s.t("Schedule maintenance"),
 		RefreshResults: s.t("Refresh results"), MetricsDetails: s.t("Metrics error details"),
@@ -52,7 +52,7 @@ func (s *Server) monitorLabels() monitorLabels {
 
 // targetRef is one target of a service, as a target set names it.
 type targetRef struct {
-	Target, Module, Set, ProbedBy, Severity, Domain, Visibility, Page string
+	Target, Module, ProbedBy, Severity string
 }
 
 // pageRef is a status page's component that shows a service.
@@ -65,6 +65,7 @@ type serviceConfig struct {
 	targets map[string][]targetRef
 	pages   map[string][]pageRef
 	catalog *catalog.Catalog
+	state   *configdb.State
 }
 
 func (s *Server) serviceConfig() serviceConfig {
@@ -74,6 +75,7 @@ func (s *Server) serviceConfig() serviceConfig {
 	}
 	st := s.Config.State()
 	sc.catalog = st.Catalog
+	sc.state = st
 	ids := make([]string, 0, len(st.Catalog.Locations))
 	for _, l := range st.Catalog.Locations {
 		ids = append(ids, l.ID)
@@ -89,8 +91,7 @@ func (s *Server) serviceConfig() serviceConfig {
 				sc.names = append(sc.names, svc)
 			}
 			for _, t := range g.Targets {
-				sc.targets[svc] = append(sc.targets[svc], targetRef{Target: t, Module: g.Labels["module"], Set: strings.TrimSuffix(file, ".yaml"), ProbedBy: scope,
-					Severity: g.Labels["severity"], Domain: g.Labels["failure_domain"], Visibility: g.Labels["visibility"], Page: g.Labels["page"]})
+				sc.targets[svc] = append(sc.targets[svc], targetRef{Target: t, Module: g.Labels["module"], ProbedBy: scope, Severity: g.Labels["severity"]})
 			}
 		}
 	}
@@ -441,7 +442,8 @@ type monitorPage struct {
 	ProbesNote, ProbeError string
 	Refresh, Coverage      string
 	Fresh, Expected        int
-	Targets                []targetRef
+	Targets                []monitorTargetGroup
+	ChangeMachine          string
 	Pages                  []pageRef
 	Alerts                 []serviceAlert
 	Schedule               string
@@ -464,13 +466,14 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	p := monitorPage{shell: s.shellFor(r, v, "monitors", svc, crumb{Label: s.t("Monitors"), Href: consolePath("/monitors")}),
-		L: s.monitorLabels(), LL: s.labels(), Targets: ts, Pages: sc.pages[svc],
+		L: s.monitorLabels(), LL: s.labels(), Pages: sc.pages[svc],
+		Targets: s.monitorTargetGroups(sc.state, v, svc), ChangeMachine: s.t("Change designated machine"),
 		Refresh: consolePath("/monitors/") + url.PathEscape(svc)}
 	if v.has("maintenance:write") {
 		p.Schedule = consolePath("/maintenance/new") + "?service=" + url.QueryEscape(svc)
 	}
-	if v.has("config:write") && s.Config != nil {
-		if _, ok := simpleMonitor(s.Config.State(), svc); ok {
+	if v.has("config:write") {
+		if _, ok := simpleMonitor(sc.state, svc); ok {
 			p.Edit = consolePath("/monitors/") + url.PathEscape(svc) + "/edit"
 			p.EditLabel = s.t("Edit HTTP monitor")
 		}
@@ -506,10 +509,6 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 	}
 	p.ProbeError = pe.Error
-	for i := range p.Targets {
-		t := &p.Targets[i]
-		t.Severity = s.severity(t.Severity)
-	}
 	for _, g := range s.Bridge.Groups(false) {
 		if g.Service != svc {
 			continue

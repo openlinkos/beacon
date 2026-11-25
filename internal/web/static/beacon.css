@@ -162,6 +162,7 @@
 .bc-monitor-results .ol-meter::-webkit-meter-optimum-value { background: var(--ol-color-info-solid); }
 .bc-monitor-results .ol-meter:-moz-meter-optimum::-moz-meter-bar { background: var(--ol-color-info-solid); }
 .bc-monitor-results > .ol-hint { max-inline-size: 65ch; }
+.bc-response-machine { max-inline-size: 42rem; }
 .bc-monitor-results details > summary { cursor: pointer; }
 @container ol-content (width < 40rem) {
   .bc-monitor-checks .ol-panel-header .ol-btn { min-height: 2.75rem; }

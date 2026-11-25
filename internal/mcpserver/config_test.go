@@ -10,6 +10,7 @@ import (
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
 
@@ -21,7 +22,7 @@ func TestConfigTools(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 56 {
+	if err != nil || len(tools.Tools) != 57 {
 		t.Fatalf("tools: %d %v", len(tools.Tools), err)
 	}
 	if !strings.Contains(read.InitializeResult().Instructions, "put_config") {
@@ -78,5 +79,44 @@ func TestConfigTools(t *testing.T) {
 	}
 	if last := e.Bot.Texts[len(e.Bot.Texts)-1]; last != "codex reverted configuration change 1 via MCP: 0 added, 0 changed, 1 removed (version 4)\nNote: wrong" {
 		t.Errorf("echo: %q", last)
+	}
+}
+
+func TestSetTargetMachineTool(t *testing.T) {
+	e := testutil.New(t)
+	cfg := configdb.Open(configdb.Deps{Store: e.Store, Bot: e.Bot, Lang: i18n.EN})
+	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default(), WithConfig(cfg)))
+	defer srv.Close()
+
+	ctx := t.Context()
+	actor := configdb.Actor{Name: "installer", Via: "test"}
+	if _, err := cfg.Put(ctx, actor, configdb.KindModule, "http_2xx", []byte(`{"prober":"http"}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	set := "all-web"
+	if _, err := cfg.Put(ctx, actor, configdb.KindTargets, set,
+		[]byte(`[{"targets":["https://service.example.com/"],"labels":{"module":"http_2xx","service":"front","failure_domain":"origin"}}]`), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Store.PutMachine(store.Machine{Name: "origin-1"}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := e.Store.Machine("origin-1")
+	input := map[string]any{"set": set, "group": 0, "if_version": cfg.Version(), "machine": map[string]any{
+		"name": m.Name, "registration": m.Registration(),
+	}}
+	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
+	if res, text := call(t, read, "set_target_machine", input); !res.IsError || !strings.Contains(text, "config:write") {
+		t.Errorf("a reader changed a designation: %s", text)
+	}
+	write := connect(t, srv.URL, e.Token(t, "writer", "config:write", "machines:write", "machines:ssh"))
+	if res, text := call(t, write, "set_target_machine", input); res.IsError ||
+		!strings.Contains(text, `"name":"origin-1"`) || !strings.Contains(text, `"via":"mcp"`) {
+		t.Fatalf("set_target_machine: %s", text)
+	}
+	if res, text := call(t, write, "set_target_machine", map[string]any{
+		"set": set, "group": 0, "if_version": cfg.Version(), "clear": true,
+	}); res.IsError || cfg.Targets().Groups(set + ".yaml")[0].Machine != nil {
+		t.Fatalf("clear: %s", text)
 	}
 }

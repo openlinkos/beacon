@@ -1,0 +1,27 @@
+{{define "content"}}
+<section class="ol-panel bc-response-machine">
+  {{with .Group}}
+  <form method="post" action="{{$.Action}}">
+    <div class="ol-panel-body ol-stack">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="version" value="{{$.Version}}">
+      {{template "monitor-target-group" .}}
+      <div class="ol-field">
+        <label class="ol-label" for="response-machine">{{$.Designation}}</label>
+        <select class="ol-select" id="response-machine" name="machine" aria-describedby="response-machine-hint response-machine-group-hint">
+          {{range $.Machines}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+        </select>
+        <p class="ol-hint" id="response-machine-hint">{{$.Hint}}</p>
+      </div>
+      <p class="ol-hint" id="response-machine-group-hint">{{$.GroupHint}}</p>
+    </div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{$.Back}}">{{$.Return}}</a>
+      <button class="ol-btn ol-btn-primary" type="submit">{{iconSm "check"}}{{$.Save}}</button>
+    </div>
+  </form>
+  {{else}}
+  <div class="ol-panel-body"><a class="ol-btn ol-btn-primary" href="{{.Back}}">{{.Return}}</a></div>
+  {{end}}
+</section>
+{{end}}

@@ -196,6 +196,7 @@ What Beacon monitors, each item in the shape of its file ([Monitor a service](..
 | `GET /api/v1/config/targets/{name}` | `status:read` or `config:write` | One target set's groups |
 | `PUT /api/v1/config/targets/{name}` | `config:write` | Add or replace a target set; the probes have it within a minute |
 | `DELETE /api/v1/config/targets/{name}` | `config:write` | Remove a target set |
+| `PUT /api/v1/config/targets/{name}/groups/{group}/machine` | `config:write` and `machines:write` | Set or clear an HTTP group’s response machine with its reviewed configuration version |
 | `GET /api/v1/config/modules` | `status:read` or `config:write` | Probe modules, by name |
 | `GET /api/v1/config/modules/{name}` | `status:read` or `config:write` | One module |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | Add or replace a module; the module file keeps its other modules and their comments |
@@ -207,6 +208,8 @@ What Beacon monitors, each item in the shape of its file ([Monitor a service](..
 | `GET /api/v1/config/history` | `status:read` or `config:write` | Changes, newest first, without their values (`kind`, `key`, `before` a version, `limit` at most 1000); the latest 10,000 are kept |
 | `GET /api/v1/config/history/{version}` | `status:read` or `config:write` | One change, with every item's value before and after |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | Undo one change as a new change; `config.conflict` when a later change touched one of its items |
+
+Read the version and group order from `GET /api/v1/config/targets`. Send the zero-based group index with a JSON body containing `if_version` and either `machine: {"name":"origin-1","registration":"…"}` or `clear: true`. Copy the name and registration from `GET /api/v1/machines`. The caller needs SSH access to the previous and selected machines, when present. Include an optional `note` in the body.
 
 ## Status pages and maintenance
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
 
@@ -160,5 +163,83 @@ func TestConfigErrorCodes(t *testing.T) {
 		if !slices.Contains(doc.Components.Schemas.Error.Properties.Code.Enum, code) {
 			t.Errorf("%s is not among the error codes in openapi.yaml", code)
 		}
+	}
+}
+
+func TestImportedTargetMachineRoute(t *testing.T) {
+	e, c := setupConfig(t)
+	read := e.Token(t, "reader", "status:read")
+	configWriter := e.Token(t, "config-writer", "config:write")
+	writer := e.Token(t, "operator", "config:write", "machines:write", "machines:ssh")
+	restricted := e.Token(t, "restricted", "config:write", "machines:write", "machines:ssh")
+	if _, err := e.Store.UpdateToken("restricted", func(t *store.Token) error {
+		t.Machines = []string{"app-2"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Store.PutMachine(store.Machine{Name: "app-1", Address: "app-1.example.com:22"}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := e.Store.Machine("app-1")
+	config := "/api/v1/config"
+	path := config + "/targets/all-web"
+	groups := `[{"targets":["https://first.example.com/"],"labels":{"module":"http_2xx","service":"front","severity":"critical","failure_domain":"front"}},
+		{"targets":["https://other.example.com/"],"labels":{"module":"http_2xx","service":"front","severity":"critical","failure_domain":"other"}}]`
+	if code, out := c.do("PUT", config+"/modules/http_2xx", configWriter, `{"prober":"http"}`); code != 200 {
+		t.Fatalf("module: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", path, configWriter, groups); code != 200 || out["version"] != float64(2) {
+		t.Fatalf("target set: %d %v", code, out)
+	}
+	var original []targets.Group
+	if err := json.Unmarshal([]byte(groups), &original); err != nil {
+		t.Fatal(err)
+	}
+	change := path + "/groups/1/machine"
+	in := configdb.TargetMachineChange{Machine: &targets.MachineBinding{Name: m.Name, Registration: m.Registration()}, IfVersion: 2}
+	body, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{read, configWriter, restricted} {
+		if code, out := c.do("PUT", change, token, string(body)); code != 403 || out["code"] != "auth.scope" {
+			t.Errorf("a credential exceeded its binding scope: %d %v", code, out)
+		}
+	}
+	if code, out := c.do("PUT", change, writer, `{"if_version":2}`); code != 400 || out["code"] != "bad_input" {
+		t.Errorf("missing assignment cleared a binding: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", change, writer, string(body)); code != 200 || out["version"] != float64(3) || out["via"] != "api" {
+		t.Fatalf("assign: %d %v", code, out)
+	}
+	code, result := c.raw("GET", path, read)
+	var current []targets.Group
+	if err := json.Unmarshal([]byte(result), &current); err != nil {
+		t.Fatal(err)
+	}
+	if code != 200 || len(current) != 2 || current[0].Machine != nil || current[1].Machine == nil || *current[1].Machine != *in.Machine {
+		t.Fatalf("binding on wrong group: %d %s", code, result)
+	}
+	current[1].Machine = nil
+	a, _ := json.Marshal(original)
+	b, _ := json.Marshal(current)
+	if string(a) != string(b) {
+		t.Fatal("binding changed the endpoints or labels")
+	}
+	if code, out := c.do("PUT", change, writer, string(body)); code != 409 || out["code"] != "config.conflict" {
+		t.Errorf("old version reused: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", change, restricted, `{"if_version":3,"clear":true}`); code != 403 || out["code"] != "auth.scope" {
+		t.Errorf("cleared a machine outside current reach: %d %v", code, out)
+	}
+	if code, out := c.do("PUT", change, writer, `{"if_version":3,"clear":true}`); code != 200 || out["version"] != float64(4) {
+		t.Fatalf("clear: %d %v", code, out)
+	}
+	if code, result := c.raw("GET", path, read); code != 200 || strings.Contains(result, "registration") {
+		t.Fatalf("the designation remains after clearing: %d %s", code, result)
+	}
+	if audit := e.Store.AuditLog(1); len(audit) != 1 || audit[0].Action != "config_put" || audit[0].Actor != "operator" {
+		t.Fatalf("change was not audited: %+v", audit)
 	}
 }

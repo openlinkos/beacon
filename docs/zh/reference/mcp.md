@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1ca761d6
+sourceHash: sha256-703a0e30
 ---
 
 # MCP 工具
@@ -151,6 +151,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `get_config` | `status:read` 或 `config:write` | 配置和当前生效的版本；给 `kind` 只看一个列表，给 `kind` 和 `key` 只看一项 |
 | `put_config` | `config:write` | 添加或替换一项（`kind`、`key`、`value`、`note`、`if_version`）。整个配置都要校验，修改立即生效；结果是这次修改，带版本号和改前改后的值 |
+| `set_target_machine` | `config:write` 和 `machines:write` | 指定或清除 HTTP 目标分组的响应机器。传入 `set`、从零开始的 `group`、`if_version`，以及从 `list_machines` 取得的 `machine` 或 `clear: true`。可附加 `note`。已有或新选机器均要求 SSH 权限 |
 | `delete_config` | `config:write` | 删除一项（`kind`、`key`、`note`、`if_version`） |
 | `list_config_changes` | `status:read` 或 `config:write` | 修改记录，新的在前（`kind`、`key`、`before`、`limit`，默认 20，最多 200）：版本、时间、谁、通过什么途径、为什么，以及增加、修改或删除了哪些项 |
 | `get_config_change` | `status:read` 或 `config:write` | 一次修改（`version`），带每一项改前和改后的值 |

@@ -41,6 +41,12 @@ type MachineBinding struct {
 	Registration string `yaml:"registration" json:"registration"`
 }
 
+// OutageScope is the probe-target scope preserved by an aggregated ServiceDown alert.
+// An omitted dimension can have contributed any configured value.
+type OutageScope struct {
+	Service, Severity, FailureDomain, Page, Visibility string
+}
+
 // Settings is what the gateway tells one probe agent besides its targets and modules
 // (GET /api/v1/agent): the location it probes as and how, from the catalogue.
 type Settings struct {

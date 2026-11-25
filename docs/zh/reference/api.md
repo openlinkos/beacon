@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b6785eaa
+sourceHash: sha256-4ef8ab3e
 ---
 
 # REST API
@@ -200,6 +200,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/targets/{name}` | `status:read` 或 `config:write` | 一个检测目标集里的各个分组 |
 | `PUT /api/v1/config/targets/{name}` | `config:write` | 添加或替换一个检测目标集；检测点在一分钟内拿到 |
 | `DELETE /api/v1/config/targets/{name}` | `config:write` | 删除一个检测目标集 |
+| `PUT /api/v1/config/targets/{name}/groups/{group}/machine` | `config:write` 和 `machines:write` | 按已核对的配置版本，为 HTTP 目标分组指定或清除响应机器 |
 | `GET /api/v1/config/modules` | `status:read` 或 `config:write` | 检测模块，按名字 |
 | `GET /api/v1/config/modules/{name}` | `status:read` 或 `config:write` | 一个检测模块 |
 | `PUT /api/v1/config/modules/{name}` | `config:write` | 添加或替换一个检测模块；模块文件里的其他模块和注释保持不变 |
@@ -211,6 +212,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/history` | `status:read` 或 `config:write` | 修改记录，新的在前，不带具体的值（`kind`、`key`、`before` 一个版本号、`limit` 最多 1000）；保留最近 10,000 次 |
 | `GET /api/v1/config/history/{version}` | `status:read` 或 `config:write` | 一次修改，带每一项改前和改后的值 |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | 以一次新修改的方式撤销某次修改；之后的修改动过其中某一项时返回 `config.conflict` |
+
+通过 `GET /api/v1/config/targets` 一并读取版本和分组顺序。路径中的分组编号从零开始。JSON 请求体传 `if_version`，再传 `machine: {"name":"origin-1","registration":"…"}` 或 `clear: true`。机器名称和登记值取自 `GET /api/v1/machines`。调用方需要拥有原有及新选机器的 SSH 权限。可在请求体中附上 `note`。
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 

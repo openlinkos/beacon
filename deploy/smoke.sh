@@ -319,6 +319,29 @@ if [[ "$version" != v0.3.0-rc.44 ]]; then
   printf 'The signed release verified the enrolled SSH route and certificate through REST and MCP before any recorded command.\n'
 fi
 
+probe_target_groups() {
+  printf 'header = "Authorization: Bearer %s"\n' "$(cat "$work/edge-1.token")" |
+    curl -fsS --config - "$metrics_url/api/v1/targets" |
+    jq -Sc .
+}
+if [[ "$version" != v0.3.0-rc.47 ]]; then
+  assignment_token=$(beacon token create monitor-assignment -scopes status:read,config:write,machines:write,machines:ssh -machines target)
+  printf '::add-mask::%s\n' "$assignment_token"
+  config_version=$(curl -fsS -H "Authorization: Bearer $assignment_token" "$status_url/api/v1/config/targets" |
+    jq -er '.version | select(. > 0)')
+  registration=$(curl -fsS -H "Authorization: Bearer $assignment_token" "$status_url/api/v1/machines" |
+    jq -er '.machines[] | select(.name == "target") | .registration | select(length > 0)')
+  probe_target_groups > "$work/targets-before-machine"
+  body=$(jq -nc --argjson version "$config_version" --arg registration "$registration" \
+    '{if_version:$version,machine:{name:"target",registration:$registration},note:"Reference response machine"}')
+  curl -fsS -X PUT -H "Authorization: Bearer $assignment_token" -H 'Content-Type: application/json' \
+    --data "$body" "$status_url/api/v1/config/targets/all-drill/groups/0/machine" |
+    jq -e --argjson version "$config_version" '.version == ($version + 1) and any(.items[]; .key == "all-drill")' >/dev/null
+  probe_target_groups > "$work/targets-after-machine"
+  cmp "$work/targets-before-machine" "$work/targets-after-machine"
+  beacon token revoke monitor-assignment >/dev/null
+fi
+
 drill_started=$SECONDS
 drill_output=$(beacon drill fail 15m)
 printf '%s\n' "$drill_output"
@@ -362,6 +385,19 @@ if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
   retained_started_episode open
   curl -fsS -b "$work/cookies" "$status_url/console/incident-episodes?group=$alert" > "$work/started-episodes.html"
   grep -Fq "id=\"episodes-since\"" "$work/started-episodes.html"
+fi
+
+retained_designated_machine() {
+  local request
+  local match='.designated_machines == [{service:"drill",name:"target"}]'
+  curl -fsS -H "Authorization: Bearer $token" "$status_url/api/v1/alerts/$alert/evidence" | jq -e "$match" >/dev/null
+  request=$(jq -nc --arg alert "$alert" '{jsonrpc:"2.0",id:65,method:"tools/call",params:{name:"get_evidence",arguments:{id:$alert}}}')
+  rpc "$request" | jq -e ".result.structuredContent | $match" >/dev/null
+}
+if [[ "$version" != v0.3.0-rc.47 ]]; then
+  retained_designated_machine
+  curl -fsS -b "$work/cookies" "$status_url/console/alerts/$alert" > "$work/designated-machine.html"
+  grep -Fq 'Designated service machines' "$work/designated-machine.html"
 fi
 run=$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_command","arguments":{"machine":"target","command":"id -un"}}}')
 jq -e '.result.structuredContent | .exit_code == 0 and .stdout == "beacon\n"' <<< "$run" >/dev/null
@@ -541,6 +577,10 @@ fi
 if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
   retained_started_episode resolved
   printf 'REST and MCP retained the same started episode while open, after resolution and after cold restore.\n'
+fi
+if [[ "$version" != v0.3.0-rc.47 ]]; then
+  retained_designated_machine
+  printf 'The signed imported response-machine assignment kept probe targets identical and stayed visible in the incident after cold restore.\n'
 fi
 curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
   jq -e --arg note "$note_text" 'any(.events[]; .kind == "note" and .text == $note)' >/dev/null

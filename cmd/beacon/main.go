@@ -348,7 +348,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
-		Catalog: cdb.Catalog, MonitorMachine: cdb.MonitorMachine, Metrics: m, Log: log, Pages: pages,
+		Catalog: cdb.Catalog, MonitorMachine: cdb.MonitorMachineForScope, Metrics: m, Log: log, Pages: pages,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
 		deps.VM = vm.New(cfg.VictoriaMetrics.URL, nil)

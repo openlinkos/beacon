@@ -6,6 +6,11 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.48 (2026-11-25)
+
+- Choose or clear the response machine for an imported HTTP target group in the console, REST or MCP without editing the existing probe configuration.
+- Show the selected machine on a service outage only when its alert scope, current enrolment and recorded monitor configuration agree. Leave a combined alert without a designation if its target groups disagree.
+
 ### rc.47 (2026-11-25)
 
 - Include the designated service machine in REST and MCP incident evidence when its original enrolment still matches and the responder has SSH access to it.

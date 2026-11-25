@@ -57,8 +57,11 @@
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "route"}} {{.L.Targets}}</h2></div>
       <ul class="ol-list">
       {{range .Targets}}<li>
-        <span class="ol-list-row"><span class="ol-list-title ol-mono ol-break">{{.Target}}</span></span>
-        <span class="ol-list-meta"><span>{{.Module}}</span><span>{{$.L.Set}}: {{.Set}} ({{.ProbedBy}})</span><span>{{.Severity}}</span>{{if .Domain}}<span>{{$.L.Domain}}: {{.Domain}}</span>{{end}}{{if .Visibility}}<span>{{$.L.Visibility}}: {{.Visibility}}</span>{{end}}</span>
+        {{template "monitor-target-group" .}}
+        {{if or .Machine .Edit}}<div class="ol-cluster">
+          {{if .Machine}}<span class="ol-hint">{{.L.Machine}} <strong class="ol-break">{{.Machine}}</strong></span>{{end}}
+          {{if .Edit}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Edit}}" aria-label="{{.EditLabel}}">{{$.ChangeMachine}}</a>{{end}}
+        </div>{{end}}
       </li>{{end}}
       </ul>
     </section>

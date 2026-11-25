@@ -28,6 +28,9 @@ var ErrConflict = errors.New("the configuration changed meanwhile")
 // ErrMaintenanceChanged means the reviewed status page content is no longer current.
 var ErrMaintenanceChanged = errors.New("the public status content changed meanwhile")
 
+// ErrConfigMachineChanged means a designated enrolment is no longer current.
+var ErrConfigMachineChanged = errors.New("the selected machine enrolment is no longer current")
+
 // ConfigChange is one change to the configuration: its version, who made it, when and through what,
 // and every item it touched with the value before and after.
 type ConfigChange struct {
@@ -110,15 +113,20 @@ func (s *Store) CommitConfig(c ConfigChange, writes []ConfigWrite) (ConfigChange
 
 // CommitConfigAtVersion is CommitConfig with an optional expected configuration version.
 func (s *Store) CommitConfigAtVersion(c ConfigChange, writes []ConfigWrite, version int64) (ConfigChange, error) {
-	return s.commitConfig(c, writes, version, nil)
+	return s.commitConfig(c, writes, version, nil, "", "")
 }
 
 // CommitConfigWithMaintenance also checks the content read for a public page change.
 func (s *Store) CommitConfigWithMaintenance(c ConfigChange, writes []ConfigWrite, version int64, maintenance uint64) (ConfigChange, error) {
-	return s.commitConfig(c, writes, version, &maintenance)
+	return s.commitConfig(c, writes, version, &maintenance, "", "")
 }
 
-func (s *Store) commitConfig(c ConfigChange, writes []ConfigWrite, version int64, maintenance *uint64) (ConfigChange, error) {
+// CommitConfigWithMachine checks the selected machine enrolment in the configuration transaction.
+func (s *Store) CommitConfigWithMachine(c ConfigChange, writes []ConfigWrite, version int64, name, registration string) (ConfigChange, error) {
+	return s.commitConfig(c, writes, version, nil, name, registration)
+}
+
+func (s *Store) commitConfig(c ConfigChange, writes []ConfigWrite, version int64, maintenance *uint64, machineName, registration string) (ConfigChange, error) {
 	if c.Time.IsZero() {
 		c.Time = s.now().UTC()
 	}
@@ -137,6 +145,21 @@ func (s *Store) commitConfig(c ConfigChange, writes []ConfigWrite, version int64
 		}
 		if version > 0 && int64(tx.Sequence(bucketConfigChanges)) != version {
 			return ErrConflict
+		}
+		if machineName != "" {
+			key := []byte(machineName)
+			raw := tx.Get(bucketMachines, key)
+			var m Machine
+			if raw == nil || json.Unmarshal(raw, &m) != nil || m.Registration() != registration {
+				return ErrConfigMachineChanged
+			}
+			// Pin the checked enrolment until commit, including concurrent PostgreSQL writers.
+			if err := tx.CompareAndSwap(bucketMachines, key, raw, raw); err != nil {
+				if errors.Is(err, kv.ErrCompareFailed) {
+					return ErrConfigMachineChanged
+				}
+				return err
+			}
 		}
 		for _, w := range writes {
 			cur := tx.Get(bucketConfig, []byte(w.Key))
@@ -218,6 +241,20 @@ func (s *Store) ConfigVersion() (int64, error) {
 		return nil
 	})
 	return version, err
+}
+
+// MachineAtConfigVersion reads the current enrolment and configuration version in one snapshot.
+func (s *Store) MachineAtConfigVersion(name string, version int64) (Machine, bool) {
+	var m Machine
+	err := s.db.View(func(tx kv.Tx) error {
+		if int64(tx.Sequence(bucketConfigChanges)) != version {
+			return ErrConflict
+		}
+		var err error
+		m, err = machineIn(tx, name)
+		return err
+	})
+	return m, err == nil
 }
 
 // ConfigChanges returns up to limit changes older than version before (0: from the newest) for which

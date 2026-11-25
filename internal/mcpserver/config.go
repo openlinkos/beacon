@@ -61,6 +61,11 @@ type (
 		Note      string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
 		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw (get_config returns it): the change is refused with config.conflict when a later one is in force, so you never overwrite what changed meanwhile"`
 	}
+	targetMachineIn struct {
+		Set   string `json:"set" jsonschema:"target set name from get_config"`
+		Group int    `json:"group" jsonschema:"zero-based index of the group in the reviewed target set"`
+		configdb.TargetMachineChange
+	}
 	deleteConfigIn struct {
 		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages"`
 		Key       string `json:"key" jsonschema:"the item's id or name"`
@@ -116,6 +121,18 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 				return nil, store.ConfigChange{}, fmt.Errorf("value: %w", err)
 			}
 			ch, err := c.PutIf(ctx, who, in.Kind, in.Key, raw, in.Note, in.IfVersion)
+			return nil, ch, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "set_target_machine", Title: "Set a response machine for a target group", OutputSchema: object,
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Set or clear an HTTP target group's response machine. Pass the configuration version and group index from get_config, and the machine name and registration from list_machines. The probes and labels stay in force. Requires config:write, machines:write and SSH access to the previous and new machines, if any."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in targetMachineIn) (*mcp.CallToolResult, store.ConfigChange, error) {
+			p, err := needPrincipal(ctx, "config:write")
+			if err != nil {
+				return nil, store.ConfigChange{}, err
+			}
+			ch, err := c.ChangeTargetMachine(ctx, p, "mcp", in.Set, in.Group, in.TargetMachineChange)
 			return nil, ch, err
 		})
 

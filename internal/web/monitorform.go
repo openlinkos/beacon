@@ -132,6 +132,18 @@ func monitorMachineValue(binding *targets.MachineBinding) string {
 	return binding.Name + "/" + binding.Registration
 }
 
+func (s *Server) monitorMachineSelection(v *viewer, choice string) (*targets.MachineBinding, bool) {
+	if choice == "" {
+		return nil, true
+	}
+	name, registration, valid := strings.Cut(choice, "/")
+	m, enrolled := s.Store.Machine(name)
+	if !valid || !enrolled || m.Registration() != registration || !v.Principal.Reaches(name) {
+		return nil, false
+	}
+	return &targets.MachineBinding{Name: name, Registration: registration}, true
+}
+
 func (s *Server) monitorMachineOptions(v *viewer, current *targets.MachineBinding) []option {
 	if !v.person() || !v.has("machines:write") {
 		return nil
@@ -252,16 +264,13 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 			bad(s.t("You do not have permission to change the designated machine."), http.StatusForbidden)
 			return
 		}
-		in.Machine = nil
-		if choice != "" {
-			name, registration, valid := strings.Cut(choice, "/")
-			m, enrolled := s.Store.Machine(name)
-			if !valid || !enrolled || m.Registration() != registration || !v.Principal.Reaches(name) {
-				bad(s.t("Choose an enrolled machine from the current list."), http.StatusBadRequest)
-				return
-			}
-			in.Machine = &targets.MachineBinding{Name: name, Registration: registration}
+		binding, ok := s.monitorMachineSelection(v, choice)
+		if !ok {
+			in.Machine = nil
+			bad(s.t("Choose an enrolled machine from the current list."), http.StatusBadRequest)
+			return
 		}
+		in.Machine = binding
 	}
 
 	group := targets.Group{Targets: []string{in.URL}, Machine: in.Machine, Labels: map[string]string{
