@@ -10,6 +10,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 - Create the first public status page from the console. Choose which monitored services to show and review the public addresses before publishing. An existing explicit default keeps its addresses when another page is added.
 - Preview the retained incident notes that will become public along with maintenance announcements. If the disclosed content changes during review, confirm the refreshed preview.
+- Reject stale versioned configuration changes if another PostgreSQL writer commits while publication waits to obtain its version.
 - Exercise first publication from an empty status catalogue in the signed reference installation. Check the private draft, the signed-out default and named pages, and their JSON before continuing the outage drill.
 
 ### rc.36 (2026-11-25)

@@ -173,6 +173,11 @@ func (s *Store) commitConfig(c ConfigChange, writes []ConfigWrite, version int64
 		if err != nil {
 			return err
 		}
+		// An independent PostgreSQL writer can commit after the initial read. Check again
+		// under the sequence lock so a stale preview cannot publish over its changes.
+		if version > 0 && int64(seq-1) != version {
+			return ErrConflict
+		}
 		c.Version = int64(seq)
 		b, err := json.Marshal(c)
 		if err != nil {

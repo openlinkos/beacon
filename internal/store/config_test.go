@@ -1,10 +1,84 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestPostgresStatusPublicationRejectsAConfigChangeDuringCommit(t *testing.T) {
+	if os.Getenv("BEACON_TEST_POSTGRES_DSN") == "" {
+		t.Skip("requires two PostgreSQL writers")
+	}
+	s, _ := open(t)
+	seed, err := s.CommitConfig(ConfigChange{Action: "put"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("pgx", currentDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	writer, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback()
+	if _, err := writer.ExecContext(ctx, `UPDATE sequences SET seq = seq + 1 WHERE bucket = $1`, string(bucketConfigChanges)); err != nil {
+		t.Fatal(err)
+	}
+	const draft = "status/public"
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.CommitConfigWithMaintenance(ConfigChange{Action: "put"}, []ConfigWrite{{Key: draft, Value: []byte(`{}`)}}, seed.Version, 0)
+		result <- err
+	}()
+	// Wait until publication passed its first version read and is contending for the sequence.
+	ticks := time.NewTicker(10 * time.Millisecond)
+	defer ticks.Stop()
+	for {
+		var waiting bool
+		err := db.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+			AND wait_event_type = 'Lock' AND query LIKE 'INSERT INTO sequences%'
+		)`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case err := <-result:
+			t.Fatalf("publication finished without obtaining the sequence: %v", err)
+		case <-ctx.Done():
+			t.Fatal("publication did not reach the sequence lock")
+		case <-ticks.C:
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("publication accepted an obsolete configuration: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("publication did not resume after the intervening commit")
+	}
+	entries, version, err := s.Config()
+	if err != nil || version != seed.Version+1 || entries[draft] != nil {
+		t.Fatalf("a rejected publication changed configuration: %v %d %v", entries, version, err)
+	}
+}
 
 func TestConfigVersions(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "s.db"))
