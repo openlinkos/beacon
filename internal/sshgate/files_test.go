@@ -65,3 +65,47 @@ func TestDirFiles(t *testing.T) {
 		t.Fatal("unreachable")
 	}
 }
+
+func TestDirEvidenceBecomesReadableOnlyWhenSealed(t *testing.T) {
+	f := DirFiles{Dir: t.TempDir()}
+	const name = "2026/11/04/id-1.cast"
+	w, err := createEvidence(f, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("header")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Open(name); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private capture exposed before sealing: %v", err)
+	}
+	if err := w.Abandon(); err != nil {
+		t.Fatal(err)
+	}
+	w, err = createEvidence(f, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("sealed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := f.ReadFile(name); string(b) != "sealed" || err != nil {
+		t.Fatalf("sealed evidence: %q, %v", b, err)
+	}
+	if _, err := createEvidence(f, name); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("existing evidence was not reserved: %v", err)
+	}
+	const transcript = "2026/11/04/id-1.json"
+	if err := writeEvidence(f, transcript, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := f.ReadFile(transcript); string(b) != "{}" || err != nil {
+		t.Fatalf("sealed transcript: %q, %v", b, err)
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/openlinkos/beacon/internal/filecapture"
 )
 
 // Files is one recordings store. A file that is not there reads as an error naming it; removing
@@ -27,6 +29,56 @@ type Files interface {
 	Open(name string) (io.ReadCloser, error)
 	// Remove deletes the file.
 	Remove(name string) error
+}
+
+type captureWriter = filecapture.Capture
+
+type stagedFiles interface {
+	CreateStaged(string) (filecapture.Capture, error)
+}
+
+// createEvidence uses the private staging contract when provided by the files backend.
+func createEvidence(f Files, name string) (captureWriter, error) {
+	if staged, ok := f.(stagedFiles); ok {
+		return staged.CreateStaged(name)
+	}
+	w, err := f.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	return legacyCapture{WriteCloser: w, remove: func() error { return f.Remove(name) }}, nil
+}
+
+type legacyCapture struct {
+	io.WriteCloser
+	remove func() error
+}
+
+func (w legacyCapture) Sync() error {
+	if file, ok := w.WriteCloser.(interface{ Sync() error }); ok {
+		return file.Sync()
+	}
+	return nil
+}
+
+func (w legacyCapture) Abandon() error { return errors.Join(w.Close(), w.remove()) }
+
+func writeEvidence(f Files, name string, data []byte) error {
+	if _, ok := f.(stagedFiles); !ok {
+		return f.WriteFile(name, data)
+	}
+	w, err := createEvidence(f, name)
+	if err != nil {
+		return err
+	}
+	n, err := w.Write(data)
+	if n != len(data) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return errors.Join(err, w.Abandon())
+	}
+	return w.Close()
 }
 
 // DirFiles keeps recordings under one directory, the default (the data directory's recordings
@@ -53,6 +105,15 @@ func (d DirFiles) Create(name string) (io.WriteCloser, error) {
 		return nil, err
 	}
 	return os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // inside the recordings directory
+}
+
+// CreateStaged reserves a capture which becomes readable under name on Close.
+func (d DirFiles) CreateStaged(name string) (filecapture.Capture, error) {
+	if err := checkName(name); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(d.Dir, filepath.FromSlash(name))
+	return filecapture.Create(d.Dir, path+"..capture", path)
 }
 
 // WriteFile implements Files.
