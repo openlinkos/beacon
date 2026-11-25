@@ -86,6 +86,7 @@ func TestBarkAndPing(t *testing.T) {
 		path = r.URL.Path
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &body)
+		_, _ = io.WriteString(w, `{"code":200,"message":"success"}`)
 	}))
 	defer srv.Close()
 	if err := (&Bark{URL: srv.URL + "/key"}).Send(context.Background(), "t", "b", "https://x"); err != nil {
@@ -105,5 +106,66 @@ func TestBarkAndPing(t *testing.T) {
 func TestTrunc(t *testing.T) {
 	if trunc("ÄÖÜß", 3) != "ÄÖ…" || trunc("ab", 3) != "ab" {
 		t.Error("trunc")
+	}
+}
+
+func TestProviderAcceptanceRequiresTheProviderResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider, reply string
+		ok                    bool
+	}{
+		{"current Feishu reply", "feishu", `{"code":0}`, true},
+		{"legacy Feishu reply", "feishu", `{"StatusCode":0}`, true},
+		{"legacy Feishu rejection", "feishu", `{"StatusCode":19021}`, false},
+		{"contradictory Feishu reply", "feishu", `{"code":0,"StatusCode":19021}`, false},
+		{"empty Feishu object", "feishu", `{}`, false},
+		{"Feishu proxy page", "feishu", "<html>OK</html>", false},
+		{"Bark push accepted", "bark", `{"code":200}`, true},
+		{"Bark rejected push", "bark", `{"code":400}`, false},
+		{"Bark proxy page", "bark", "<html>OK</html>", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tc.reply)
+			}))
+			defer srv.Close()
+			ctx := context.Background()
+			var err error
+			if tc.provider == "feishu" {
+				err = (&GroupBot{URL: srv.URL}).Send(ctx, "fixture alert")
+			} else {
+				err = (&Bark{URL: srv.URL}).Send(ctx, "fixture alert", "test", "")
+			}
+			if tc.ok != (err == nil) {
+				t.Fatalf("accepted = %v, error %v", err == nil, err)
+			}
+		})
+	}
+}
+
+func TestProviderErrorsKeepCredentialsAndRepliesPrivate(t *testing.T) {
+	const credential = "fixture-provider-credential"
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, credential, http.StatusForbidden)
+	}))
+	defer endpoint.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, endpoint.URL+"/wrong", http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	const generic = "request failed"
+	for _, tc := range []struct {
+		name, url, want string
+	}{
+		{"body", endpoint.URL, "HTTP 403"},
+		{"redirect", redirect.URL, "HTTP 307"},
+		{"transport", "http://127.0.0.1:0", generic},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (&GroupBot{URL: tc.url + "/" + credential}).Send(context.Background(), "fixture alert")
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), credential) {
+				t.Fatalf("wanted a safe provider failure (%s), got %v", tc.want, err)
+			}
+		})
 	}
 }

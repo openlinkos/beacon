@@ -22,10 +22,8 @@ import (
 const webhookRequestLimit = 1 << 20
 
 var webhookHTTP = &http.Client{
-	Timeout: 10 * time.Second,
-	CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
+	Timeout:       10 * time.Second,
+	CheckRedirect: noRedirect,
 }
 
 // Webhook delivers signed team notifications to a fixed HTTP(S) endpoint.

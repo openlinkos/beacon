@@ -27,7 +27,8 @@ func (b *Bridge) recordNotification(g *store.Group, channel string, err error) {
 		result = "failed"
 	}
 	prev := latestNotification(g, channel)
-	if prev.Result != result || prev.At.Before(g.NotifiedAt) {
+	chatAccepted := result == "ok" && (channel == "app" || channel == "webhook")
+	if !chatAccepted && (prev.Result != result || prev.At.Before(g.NotifiedAt)) {
 		_ = b.d.Store.Audit(store.AuditEntry{Time: now, Actor: "beacon", Via: channel, Action: "notify_people", Target: g.ID, Detail: result})
 	}
 	g.Notifications = append(g.Notifications, store.Notification{At: now, Channel: channel, Result: result})
@@ -56,7 +57,7 @@ func acceptedPushoverAt(g *store.Group) *time.Time {
 
 func notificationEvents(g *store.Group) []Event {
 	var events []Event
-	if g.Channel == "app" || g.Channel == "webhook" {
+	if (g.Channel == "app" || g.Channel == "webhook") && latestNotification(g, g.Channel).Result != "ok" {
 		at := g.ChannelAt
 		if at.IsZero() {
 			at = g.NotifiedAt
@@ -68,6 +69,8 @@ func notificationEvents(g *store.Group) []Event {
 		kind, via := "notification", n.Channel
 		if n.Result == "ok" {
 			switch n.Channel {
+			case "app", "webhook":
+				kind = "notified"
 			case "feishu-buzz":
 				kind, via = "buzzed", "feishu"
 			case "pushover":

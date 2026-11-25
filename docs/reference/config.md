@@ -182,7 +182,9 @@ Without the section, critical alerts buzz after 10 minutes with the app, and esc
 
 With `channel: none`, only separately configured phone escalation can send a notification. **Critical notifications** on the Overview shows when each route may be used and the latest recorded attempt. Confirm receipt on the destination device during a drill.
 
-With `public_url` set, phone pushes, group bot, Slack and notification webhook messages link to the same incident through the console sign-in. With only automatic Pushover delivery, a failed initial submission is eligible for retry after one minute.
+With `public_url` set, phone pushes, group bot, Slack and notification webhook messages link to the same incident through the console sign-in. A failed initial Pushover submission is eligible for retry after one minute when Pushover is the only automatic route. If Feishu chat delivery fails, Beacon retries after a minute while the incident is firing and awaits a person. Scheduled phone escalation keeps its original deadline.
+
+Use the notification providers' final endpoint URLs. Beacon treats a redirect as a failed submission. A Feishu group bot must return a successful `code` or legacy `StatusCode`. A Bark push requires a JSON result with `code: 200`. These responses confirm provider acceptance.
 
 | Key | Default | What it is |
 | --- | --- | --- |

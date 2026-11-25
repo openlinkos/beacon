@@ -22,25 +22,48 @@ import (
 	"github.com/openlinkos/beacon/internal/version"
 )
 
+var directHTTP = &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirect}
+
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 func client(hc *http.Client) *http.Client {
 	if hc != nil {
-		return hc
+		direct := *hc
+		direct.CheckRedirect = noRedirect
+		return &direct
 	}
-	return &http.Client{Timeout: 15 * time.Second}
+	return directHTTP
 }
 
-func send(ctx context.Context, hc *http.Client, req *http.Request) ([]byte, error) {
-	req.Header.Set("User-Agent", version.UserAgent())
-	resp, err := client(hc).Do(req.WithContext(ctx))
+func send(ctx context.Context, hc *http.Client, method, endpoint, contentType string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid provider request")
+	}
+	req.Header.Set("User-Agent", version.UserAgent())
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := client(hc).Do(req)
+	switch {
+	case errors.Is(err, context.Canceled):
+		return nil, context.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return nil, context.DeadlineExceeded
+	case err != nil:
+		// Callback endpoints can carry credentials in their paths. Transport errors may echo them.
+		return nil, errors.New("provider request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode/100 != 2 {
-		return b, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return b, nil
+	const replyLimit = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, replyLimit+1))
+	if err != nil || len(data) > replyLimit {
+		return nil, errors.New("provider response was unreadable or too large")
+	}
+	return data, nil
 }
 
 // ---- Pushover
@@ -74,9 +97,7 @@ func (p *Pushover) Send(ctx context.Context, m Emergency) (string, error) {
 	if m.Tag != "" {
 		form.Set("tags", m.Tag)
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, p.API+"/1/messages.json", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	b, err := send(ctx, p.HTTP, req)
+	b, err := send(ctx, p.HTTP, http.MethodPost, p.API+"/1/messages.json", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("pushover: %w", err)
 	}
@@ -85,7 +106,7 @@ func (p *Pushover) Send(ctx context.Context, m Emergency) (string, error) {
 		Receipt string `json:"receipt"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.Status != 1 || out.Receipt == "" {
-		return "", fmt.Errorf("pushover: unexpected answer %s", strings.TrimSpace(string(b)))
+		return "", errors.New("pushover: response did not confirm acceptance")
 	}
 	return out.Receipt, nil
 }
@@ -101,8 +122,7 @@ type Receipt struct {
 // Receipt looks up an emergency message's receipt.
 func (p *Pushover) Receipt(ctx context.Context, receipt string) (Receipt, error) {
 	u := p.API + "/1/receipts/" + url.PathEscape(receipt) + ".json?token=" + url.QueryEscape(p.Token)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	b, err := send(ctx, p.HTTP, req)
+	b, err := send(ctx, p.HTTP, http.MethodGet, u, "", nil)
 	if err != nil {
 		return Receipt{}, fmt.Errorf("pushover receipt: %w", err)
 	}
@@ -114,7 +134,7 @@ func (p *Pushover) Receipt(ctx context.Context, receipt string) (Receipt, error)
 		Expired              int    `json:"expired"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.Status != 1 {
-		return Receipt{}, fmt.Errorf("pushover receipt: unexpected answer %s", strings.TrimSpace(string(b)))
+		return Receipt{}, errors.New("pushover receipt: invalid response")
 	}
 	r := Receipt{Acknowledged: out.Acknowledged == 1, Device: out.AcknowledgedByDevice, Expired: out.Expired == 1}
 	if out.AcknowledgedAt > 0 {
@@ -126,9 +146,8 @@ func (p *Pushover) Receipt(ctx context.Context, receipt string) (Receipt, error)
 // CancelByTag stops the retries of every emergency message carrying tag.
 func (p *Pushover) CancelByTag(ctx context.Context, tag string) error {
 	form := url.Values{"token": {p.Token}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, p.API+"/1/receipts/cancel_by_tag/"+url.PathEscape(tag)+".json", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if _, err := send(ctx, p.HTTP, req); err != nil {
+	u := p.API + "/1/receipts/cancel_by_tag/" + url.PathEscape(tag) + ".json"
+	if _, err := send(ctx, p.HTTP, http.MethodPost, u, "application/x-www-form-urlencoded", strings.NewReader(form.Encode())); err != nil {
 		return fmt.Errorf("pushover cancel: %w", err)
 	}
 	return nil
@@ -149,10 +168,18 @@ func (b *Bark) Send(ctx context.Context, title, body, link string) error {
 		in["url"] = link
 	}
 	buf, _ := json.Marshal(in)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, b.URL, bytes.NewReader(buf))
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	if _, err := send(ctx, b.HTTP, req); err != nil {
+	reply, err := send(ctx, b.HTTP, http.MethodPost, b.URL, "application/json; charset=utf-8", bytes.NewReader(buf))
+	if err != nil {
 		return fmt.Errorf("bark: %w", err)
+	}
+	var out struct {
+		Code *int `json:"code"`
+	}
+	if json.Unmarshal(reply, &out) != nil || out.Code == nil {
+		return errors.New("bark: response did not confirm acceptance")
+	}
+	if *out.Code != http.StatusOK {
+		return fmt.Errorf("bark: code %d", *out.Code)
 	}
 	return nil
 }
@@ -185,18 +212,21 @@ func (g *GroupBot) Send(ctx context.Context, text string) error {
 		in["sign"] = Sign(ts, g.Secret)
 	}
 	buf, _ := json.Marshal(in)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, g.URL, bytes.NewReader(buf))
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	b, err := send(ctx, g.HTTP, req)
+	b, err := send(ctx, g.HTTP, http.MethodPost, g.URL, "application/json; charset=utf-8", bytes.NewReader(buf))
 	if err != nil {
 		return fmt.Errorf("feishu group bot: %w", err)
 	}
 	var out struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
+		Code       *int `json:"code"`
+		StatusCode *int `json:"StatusCode"`
 	}
-	if json.Unmarshal(b, &out) == nil && out.Code != 0 {
-		return fmt.Errorf("feishu group bot: code %d: %s", out.Code, out.Msg)
+	if json.Unmarshal(b, &out) != nil || (out.Code == nil && out.StatusCode == nil) {
+		return errors.New("feishu group bot: response did not confirm acceptance")
+	}
+	for _, code := range []*int{out.Code, out.StatusCode} {
+		if code != nil && *code != 0 {
+			return fmt.Errorf("feishu group bot: code %d", *code)
+		}
 	}
 	return nil
 }
@@ -218,8 +248,7 @@ func Ping(ctx context.Context, hc *http.Client, checkURL string, ok bool) error 
 	if !ok {
 		u += "/fail"
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
-	_, err := send(ctx, hc, req)
+	_, err := send(ctx, hc, http.MethodPost, u, "", nil)
 	return err
 }
 

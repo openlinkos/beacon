@@ -55,7 +55,9 @@ class Receiver(BaseHTTPRequestHandler):
         tmp.write_text(json.dumps({"received_at": time.time(), "payload": payload}), encoding="utf-8")
         tmp.replace(receipt)
         self.send_response(200)
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
+        self.wfile.write(b'{"code":200,"message":"success"}')
 
 with HTTPServer((host, int(port)), Receiver) as server:
     server.serve_forever()
@@ -310,10 +312,17 @@ PY
       any(.events[]; .kind == "probe_now" and .by == $second and
         (.probes | length == 2 and all(.[]; .status == "ok") and (map(.location) | unique | sort == ["edge-1", "edge-2"]))) and
       any(.events[]; .kind == "resolved")' >/dev/null
-  curl -fsS "$status_url/api/v1/incident-outcomes?group=$alert" -H "Authorization: Bearer $token" |
-    jq -e --arg episode "$episode" --arg second "$second" '
+  curl -fsS "$status_url/api/v1/incident-outcomes?group=$alert" -H "Authorization: Bearer $token" > "$work/handover-history.json"
+  jq -e --arg episode "$episode" --arg second "$second" '
       any(.outcomes[]; .started_at == $episode and
         any(.participation[]; .kind == "person" and .by == $second and .via == "console") and
-        (.verification | .by == $second and .passed == 2 and .failed == 0 and .missing == 0))' >/dev/null
+        (.verification | .by == $second and .passed == 2 and .failed == 0 and .missing == 0))' "$work/handover-history.json" >/dev/null
+  if [[ "$version" != v0.3.0-rc.35 ]]; then
+    jq -e --arg episode "$episode" --arg second "$second" --arg probe "${location##*#probe-}" '
+      any(.outcomes[]; .started_at == $episode and (.passing_check |
+        .id == $probe and .actor_kind == "person" and .by == $second and .via == "console" and
+        .passed == 2 and .failed == 0 and .missing == 0))' "$work/handover-history.json" >/dev/null
+    printf 'The resolved incident retains the same complete passing check and its signed-in operator.\n'
+  fi
   printf 'The failed-Agent drill preserved human handover and verified recovery in history (%ss).\n' "$((SECONDS - drill_start))"
 }
