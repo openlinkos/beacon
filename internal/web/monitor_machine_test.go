@@ -113,6 +113,46 @@ func TestServiceOutageDesignatedMachine(t *testing.T) {
 		t.Fatalf("a signed alert link revealed console navigation: %d", code)
 	}
 
+	session := func(started time.Time, suffix, registration string) string {
+		t.Helper()
+		id := started.Format("20060102-150405") + "-" + suffix
+		if err := e.st.PutSession(store.SessionRecord{ID: id, Agent: "duty", Via: "ssh", Machine: m.Name,
+			MachineRegistration: registration, Kind: "exec", Started: started, Ended: e.now}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	good := session(e.now, "aaaaaa", m.Registration())
+	previous := session(m.Added.Add(-time.Minute), "bbbbbb", "")
+	unknown := session(e.now, "cccccc", "")
+	wrong := session(e.now, "dddddd", "different-registration")
+	beforeEnrolment := session(m.Added.Add(-time.Second), "eeeeee", m.Registration())
+	replay := link.SessionPath(good)
+	if a = oncall.get(path); !strings.Contains(a.body, `href="`+replay+`"`) ||
+		!strings.Contains(a.body, "1 sessions on 1 machines, 1 commands") {
+		t.Fatal("the personal session did not appear with the normal authenticated replay link")
+	}
+	for _, id := range []string{previous, unknown, wrong, beforeEnrolment} {
+		if strings.Contains(a.body, link.SessionPath(id)) {
+			t.Fatalf("matched a session without exact registration and start: %s", id)
+		}
+	}
+	if got := oncall.get(replay); got.code != http.StatusOK || !strings.Contains(got.body, "duty on app-1") {
+		t.Fatalf("following the replay link did not open the attributable session: %d", got.code)
+	}
+	if code, _, _ := e.get(replay, ""); code == http.StatusOK {
+		t.Fatal("a newly listed replay could be opened without its own permissions")
+	}
+	for _, access := range []struct{ path, token string }{{e.link(path), ""}, {path, e.token("incident-api", "status:read", "sessions:read")}} {
+		if code, body, _ := e.get(access.path, access.token); code != http.StatusOK || strings.Contains(body, replay) {
+			t.Fatalf("designated recording was disclosed on a bearer or signed alert view: %d", code)
+		}
+	}
+	evidence, err := e.srv.Bridge.Evidence(ctx, g.ID, "")
+	if err != nil || len(evidence.Done.Sessions) != 0 {
+		t.Fatalf("the private recording was added to the existing evidence API: %v", err)
+	}
+
 	in.Set("version", strconv.FormatInt(e.cdb.Version(), 10))
 	in.Set("machine", "")
 	if a = owner.post("/console/monitors/"+service+"/edit", in); a.code != http.StatusSeeOther {
@@ -131,7 +171,7 @@ func TestServiceOutageDesignatedMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a = oncall.get(path); a.code != http.StatusOK || !strings.Contains(a.body, "A designated machine registration is no longer available.") ||
-		strings.Contains(a.body, "/console/machines/app-1") {
+		strings.Contains(a.body, "/console/machines/app-1") || strings.Contains(a.body, replay) {
 		t.Fatalf("the old alert linked to a new enrolment of the same name: %d", a.code)
 	}
 	if a = oncall.get(machinePath); a.code != http.StatusNotFound {

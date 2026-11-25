@@ -4,12 +4,14 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.35 (2026-11-25)
+
 - Keep new notification links on the incident they were sent for, even when the same alert group fires again. Old incident links open the matching retained history. The console refuses stale acknowledgement, silence, note and on-demand check forms.
 - Reject Feishu card actions from an earlier incident so a stale card cannot pause a new incident's human escalation.
-- Choose an enrolled machine for a console HTTP monitor. New service outages link signed-in responders to that machine for personal SSH, and existing incidents retain their original designation.
+- Choose an enrolled machine for a console HTTP monitor. New service outages link signed-in responders to that machine for personal SSH, and existing incidents retain their original designation. Responders with session access can open new recordings from the same incident.
 - Document the private on-call receiver inside the reference deployment and verify that a failed signature is visible before testing a successful wake.
-
-## 0.3.0
 
 ### rc.34 (2026-11-25)
 

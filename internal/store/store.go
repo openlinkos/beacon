@@ -903,6 +903,8 @@ type SessionRecord struct {
 	Recording  string    `json:"recording,omitempty"`
 	// PTY says whether the session had a terminal; nil on sessions recorded before Beacon kept it.
 	PTY *bool `json:"pty,omitempty"`
+	// Registration is the machine's enrolment at capture. It is absent on older recordings.
+	MachineRegistration string `json:"machine_registration,omitempty"`
 }
 
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.

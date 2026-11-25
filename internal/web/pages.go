@@ -385,22 +385,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Notes = append(p.Notes, noteRow{By: n.By, Via: s.via(n.Via), At: s.clock(n.At), Text: n.Text})
 	}
 	slices.Reverse(p.Notes) // the latest first
-	p.Sessions = s.sessions(ev.Done.Sessions, a)
-	if n := len(p.Sessions); n > 0 {
-		machines, commands := map[string]bool{}, 0
-		for _, v := range ev.Done.Sessions {
-			machines[v.Machine] = true
-		}
-		for i, v := range ev.Done.Sessions {
-			switch v.Kind {
-			case "shell":
-				commands += max(v.Commands, len(p.Sessions[len(p.Sessions)-1-i].Commands))
-			case "exec", "file":
-				commands++
-			}
-		}
-		p.SessionsLine = s.t("%d sessions on %d machines, %d commands", n, len(machines), commands)
-	}
+	p.Sessions, p.SessionsLine = s.incidentSessions(ev, a)
 	for _, c := range ev.Changes {
 		about := c.Service
 		if c.Machine != "" {
@@ -797,12 +782,15 @@ func (s *Server) probeEvent(e bridge.Event, l labels, open, firing bool) *probeE
 }
 
 // sessions renders the sessions on the alert's machines, each with the commands of its transcript.
-func (s *Server) sessions(views []bridge.SessionView, a access) []sessionRow {
+func (s *Server) sessions(views []bridge.SessionView, a access, private map[string]bool) []sessionRow {
 	out := make([]sessionRow, 0, len(views))
 	for _, v := range views {
 		row := sessionRow{ID: v.ID, Agent: v.Agent, Via: s.via(v.Via), Machine: v.Machine, Kind: s.kind(v.Kind), Command: v.Command,
 			Started: s.clock(v.Started), Exit: s.exit(v.Exit), Failed: v.Exit != nil && *v.Exit != 0, Open: v.Ended == nil,
-			Href: s.signed(link.SessionPath(v.ID), a.Until)}
+			Href: link.SessionPath(v.ID)}
+		if !private[v.ID] {
+			row.Href = s.signed(row.Href, a.Until)
+		}
 		if v.Ended != nil {
 			row.Duration = s.dur(v.Ended.Sub(v.Started))
 		}
