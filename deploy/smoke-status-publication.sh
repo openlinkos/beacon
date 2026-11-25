@@ -13,7 +13,7 @@ smoke_owner_form_post() {
   base=$(sed -n 's/.*name="version" value="\([^"]*\)".*/\1/p' "$form" | awk 'NR == 1 {print}')
   confirmation=$(sed -n 's/.*name="confirmation" value="\([^"]*\)".*/\1/p' "$form" | awk 'NR == 1 {print}')
   test -n "$csrf" && test -n "$base" || return 1
-  curl -fsS --max-time 15 -b "$work/cookies" -o "$result" -D "$result.headers" -w '%{http_code}' \
+  curl -sS --max-time 15 -b "$work/cookies" -o "$result" -D "$result.headers" -w '%{http_code}' \
     --data-urlencode "csrf=$csrf" --data-urlencode "version=$base" --data-urlencode "confirmation=$confirmation" "$@" "$status_url$path"
 }
 
@@ -53,7 +53,7 @@ smoke_status_publication() {
   local add_form="$work/status-add.html" add_preview="$work/status-add-preview.html"
   local remove_form="$work/status-remove.html" remove_preview="$work/status-remove-preview.html"
   local response baseline expected redirect
-  local maintenance_secret='' maintenance_id='' maintenance_body
+  local maintenance_secret='' maintenance_id='' maintenance_body maintenance_start maintenance_end
   local maintenance_title='Reference private maintenance' maintenance_text='Replacing a component on the internal test service.'
   local add_path="$page/components/add" remove_path="$page/components/$id/remove"
   local -a fields=(--data-urlencode "component=$id" --data-urlencode "title=$title" --data-urlencode "service=$service")
@@ -71,10 +71,17 @@ smoke_status_publication() {
   baseline=$(smoke_public_components)
   smoke_add_publication_monitor "$service"
   if [[ "$version" != v0.3.0-rc.34 && "$version" != v0.3.0-rc.35 ]]; then
-    maintenance_secret=$(beacon token create smoke-publication -scopes maintenance:write -expires 20m)
+    maintenance_secret=$(beacon token create smoke-publication -scopes maintenance:write -expires 1h)
     printf '::add-mask::%s\n' "$maintenance_secret"
+    read -r maintenance_start maintenance_end < <(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+
+now = datetime.now(timezone.utc).replace(microsecond=0)
+print((now + timedelta(hours=2)).isoformat(), (now + timedelta(hours=3)).isoformat())
+PY
+)
     maintenance_body=$(jq -cn --arg service "$service" --arg title "$maintenance_title" --arg description "$maintenance_text" \
-      --arg start "$(date -u -d '2 hours' +%FT%TZ)" --arg end "$(date -u -d '3 hours' +%FT%TZ)" \
+      --arg start "$maintenance_start" --arg end "$maintenance_end" \
       '{services: [$service], title: $title, description: $description, starts_at: $start, ends_at: $end}')
     maintenance_id=$(curl -fsS --max-time 15 "$status_url/api/v1/maintenance" \
       -H "Authorization: Bearer $maintenance_secret" -H 'Content-Type: application/json' --data "$maintenance_body" | jq -er '.id')
