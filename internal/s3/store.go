@@ -296,6 +296,13 @@ func (s *Store) tidyLocalTree(root string, cutoff time.Time) {
 		}
 		return nil
 	})
+	// A reservation protects the gap between creating the parent directories and opening the
+	// capture file. Keep it exclusive with directory removal because sibling keys share parents.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.busy) != 0 {
+		return
+	}
 	for i := len(dirs) - 1; i >= 0; i-- {
 		_ = os.Remove(dirs[i])
 	}
