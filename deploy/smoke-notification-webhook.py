@@ -506,7 +506,14 @@ def exercise_pushover(binary, work, receiver, rules_token):
         report(new_start, True)
         kind, new_receipt, accepted = attempt(receiver, "the replacement emergency", 25)
         require(kind == "sent" and accepted and new_receipt != first_receipt, "Expected a separate replacement emergency")
-        wait_for("the replacement incident in the console", lambda: current().get("pushover_at") is not None)
+
+        def replacement_saved():
+            incident = current()
+            return (incident.get("id") == first["id"] and incident.get("episode") != first["episode"] and
+                    incident.get("status") == "firing" and incident.get("pushover_at") is not None)
+
+        # The receiver can accept a page before Beacon finishes saving the replacement incident.
+        wait_for("the replacement incident and its emergency to be saved", replacement_saved)
         next_incident = current()
         require(next_incident["id"] == first["id"] and next_incident["episode"] != first["episode"] and
                 next_incident["status"] == "firing" and not next_incident.get("ack"),
