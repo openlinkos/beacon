@@ -60,20 +60,46 @@ var probeTarget = map[string]string{"docker.example.com": "https://docker.exampl
 
 // fakeVictoria answers /api/v1/query_range as VictoriaMetrics would the pages' agreement query: every
 // service it names operational at every minute, except api.example.com, down in the last ten minutes.
-func fakeVictoria(t *testing.T, now func() time.Time) *httptest.Server {
+func fakeVictoria(t *testing.T, now func() time.Time, sampleTimes map[string]time.Time) *httptest.Server {
 	t.Helper()
 	re := regexp.MustCompile(`service=~?"([^"]*)"`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api/v1/query" { // the instant queries of the probes' details: nothing more to say
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+		q := r.URL.Query()
+		if r.URL.Path == "/api/v1/query" {
+			var result []map[string]any
+			if strings.Contains(q.Get("query"), "tlast_over_time(probe_success{") {
+				at, _ := strconv.ParseFloat(q.Get("time"), 64)
+				m := re.FindStringSubmatch(q.Get("query"))
+				for _, svc := range strings.Split(m[1], "|") {
+					svc = strings.ReplaceAll(svc, `\\`, "")
+					for _, loc := range []string{"edge-1", "edge-2"} {
+						sampled, ok := sampleTimes[svc+"/"+loc]
+						if !ok {
+							sampled = time.UnixMilli(int64(at * 1000))
+						}
+						if sampled.IsZero() {
+							continue
+						}
+						value := "1"
+						if svc == "api.example.com" && sampled.After(now().Add(-10*time.Minute)) {
+							value = "0"
+						}
+						stamp := strconv.FormatFloat(float64(sampled.UnixMilli())/1000, 'f', 3, 64)
+						for name, v := range map[string]string{"beacon_probe_observed_at": stamp, "beacon_probe_observed_success": value} {
+							result = append(result, map[string]any{"metric": map[string]string{"__name__": name, "service": svc, "location": loc,
+								"instance": probeTarget[svc], "module": "http_head", "job": "probe"}, "value": [2]any{at, v}})
+						}
+					}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": result}})
 			return
 		}
 		if r.URL.Path != "/api/v1/query_range" {
 			http.NotFound(w, r)
 			return
 		}
-		q := r.URL.Query()
 		start, _ := strconv.ParseFloat(q.Get("start"), 64)
 		end, _ := strconv.ParseFloat(q.Get("end"), 64)
 		step, _ := strconv.ParseFloat(q.Get("step"), 64)
@@ -117,13 +143,14 @@ func fakeVictoria(t *testing.T, now func() time.Time) *httptest.Server {
 }
 
 type statusEnv struct {
-	t        *testing.T
-	now      time.Time
-	srv      *Server
-	h        http.Handler
-	b        *bridge.Bridge
-	incident string
-	st       *store.Store
+	t           *testing.T
+	now         time.Time
+	srv         *Server
+	h           http.Handler
+	b           *bridge.Bridge
+	incident    string
+	st          *store.Store
+	sampleTimes map[string]time.Time // stored samples may be older than the range query's evaluations
 }
 
 func newStatusEnv(t *testing.T) *statusEnv {
@@ -134,7 +161,7 @@ func newStatusEnv(t *testing.T) *statusEnv {
 // newStatusEnvWith is newStatusEnv on another catalogue.
 func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
 	t.Helper()
-	e := &statusEnv{t: t, now: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)}
+	e := &statusEnv{t: t, now: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC), sampleTimes: map[string]time.Time{}}
 	now := func() time.Time { return e.now }
 	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
@@ -150,7 +177,7 @@ func newStatusEnvWith(t *testing.T, catalogue string) *statusEnv {
 	cfg := &config.Config{Language: "en", Location: time.UTC, PublicURL: publicURL, AckTTL: config.Duration(4 * time.Hour),
 		Feishu: config.Feishu{MonthlyBudget: 1000}, OnCallByID: map[string]config.OnCaller{},
 		Escalation: map[string]config.Policy{"critical": {Channel: "webhook"}}}
-	vmSrv := fakeVictoria(t, now)
+	vmSrv := fakeVictoria(t, now, e.sampleTimes)
 	e.b = bridge.New(bridge.Deps{Config: cfg, Store: st, AM: &fakeAM{}, Bot: &fakeBot{}, VM: vm.New(vmSrv.URL, nil), Now: now})
 	key := `{}:{alertname="ServiceDown",service="api.example.com"}`
 	err = e.b.HandleWebhook(context.Background(), alertmanager.Webhook{Version: "4", GroupKey: key, Status: "firing",

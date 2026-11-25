@@ -230,7 +230,7 @@ components:
                   instance: {type: string}
                   module: {type: string}
                   ok: {type: boolean}
-                  stale: {type: boolean, description: No result for over three minutes}
+                  stale: {type: boolean, description: A stored observation within the last three minutes could not be confirmed at the end of the window.}
                   failing_since: {type: string, format: date-time}
                   failing_before_window: {type: boolean}
                   recovered_at: {type: string, format: date-time}
@@ -240,7 +240,7 @@ components:
                   http_status: {type: integer}
                   attempts: {type: integer, description: beacon_probe_attempts}
                   cert_expires: {type: string, format: date-time}
-                  last_seen: {type: string, format: date-time}
+                  last_seen: {type: string, format: date-time, description: The stored observation time. Omitted when it could not be confirmed.}
             truncated: {type: boolean}
             queries: {type: array, items: {type: string}, description: "The PromQL used, for a closer look with a metrics:read token on the gateway"}
             error: {type: string}

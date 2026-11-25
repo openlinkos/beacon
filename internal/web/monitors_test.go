@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/web/link"
@@ -84,6 +85,34 @@ func TestConsoleMonitors(t *testing.T) {
 	// signed out, they send people to sign in
 	if a := e.get("/console/monitors"); a.code != http.StatusSeeOther {
 		t.Errorf("signed out: %d", a.code)
+	}
+}
+
+func TestConsoleProbeFreshnessUsesTheStoredSample(t *testing.T) {
+	e := newStatusEnv(t)
+	const service = "/console/monitors/docker.example.com"
+	old := e.now.Add(-4 * time.Minute)
+	e.sampleTimes["docker.example.com/edge-1"] = old
+	e.sampleTimes["api.example.com/edge-1"] = time.Time{}
+	cookie := e.signedInCookie()
+	for _, check := range []struct {
+		path string
+		want []string
+	}{
+		{service, []string{"1 of 2 checks have recent results", "Partial coverage", old.Format(time.RFC3339)}},
+		{"/console/monitors", []string{"Partial coverage", service}},
+		{"/console", []string{"Partial coverage", service}},
+		{link.AlertPath(e.incident), []string{"Stale", "edge-1", "edge-2"}},
+	} {
+		a := e.do(http.MethodGet, "beacon.example.com", check.path, cookie)
+		if a.code != http.StatusOK {
+			t.Fatalf("%s: %d %s", check.path, a.code, a.body)
+		}
+		for _, want := range check.want {
+			if !strings.Contains(a.body, want) {
+				t.Errorf("%s lacks %q", check.path, want)
+			}
+		}
 	}
 }
 
