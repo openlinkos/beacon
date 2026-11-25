@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-229625ac
+sourceHash: sha256-a0b99faf
 ---
 
 # 给 Agent 一台机器
@@ -145,7 +145,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 
 - **录像**（asciicast v3，存于 `data_dir/recordings/`）在控制台的会话页面回放。
 - **文字记录**里是 shell 的每条命令及其退出状态。
-- **告警群**里每个 Agent 在每台机器上一条消息，附 **Replay** 链接。
+- **告警群**里每个 Agent 在每台机器上一条消息，附 **Replay** 链接，读者用自己的 Beacon 账号查看。
 
 会话保留 `ssh.keep`（180 天），之后删除。
 
@@ -194,7 +194,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
    ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname
    ```
 
-2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接。
+2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接，读者登录后按权限查看。
 
 通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。
 

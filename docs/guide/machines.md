@@ -141,7 +141,7 @@ Every session is recorded: a command, a shell, a transfer, a forwarded port, and
 
 - **The recording** (asciicast v3, under `data_dir/recordings/`) replays on the session's page in the console.
 - **The transcript** holds each shell command with its exit status.
-- **The alert chat** hears one line per agent and machine, with a **Replay** link.
+- **The alert chat** hears one line per agent and machine, with a **Replay** link that uses the reader’s Beacon account.
 
 Sessions are kept for `ssh.keep` (180 days), then deleted.
 
@@ -190,7 +190,7 @@ What the channel guarantees here is in the [security model](../self-hosting/secu
    ssh -F ~/.ssh/beacon-claude-code.conf edge-1 hostname
    ```
 
-2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link.
+2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link for a signed-in reader.
 
 When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it.
 

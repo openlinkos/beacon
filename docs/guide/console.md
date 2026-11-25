@@ -205,11 +205,7 @@ You can create a fresh link afterwards. A link previously issued for a related a
 
 Beacon stores revocations in its database. Restoring an older backup also restores its revocation state, so a link revoked after that backup can work again until it expires.
 
-Beacon also provides signed links in these places:
-
-- the card's **Timeline** button;
-- the chat's echoes, with a **Replay** link per session;
-- the API and MCP answers, so that an agent can hand a person a link.
+The card's **Timeline** button and the alert links in REST and MCP answers use signed links to the incident. The chat's **Replay** links and session links in REST and MCP answers take the reader to sign-in for the session. Previously issued signed links retain their expiry and revocation rules.
 
 Older links may point to `/alerts/{id}` or `/sessions/{id}` at the site's root. A valid link redirects (`308`) to the same page under `/console`. Expiry and revocation apply across both paths. Other old console paths redirect with their query parameters, so bookmarks keep working ([The console says 404 on an old link](../self-hosting/troubleshooting.md#the-console-says-404-on-an-old-link)).
 
