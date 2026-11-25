@@ -1,4 +1,10 @@
 {{define "content"}}<div class="ol-stack">
+{{if .Create}}<div class="ol-section-header">
+  <a class="ol-btn ol-btn-primary" href="{{.Create}}">{{iconSm "plus"}}{{.CreateLabel}}</a>
+</div>{{end}}
+{{if .DefaultHelp}}<div class="ol-alert ol-alert-info">
+  {{icon "globe"}}<div class="ol-alert-body"><p>{{.DefaultHelp}}</p><p><a href="{{.Project.Docs}}guide/status-pages.html#define-your-own-page">{{.Project.DocsLabel}}</a></p></div>
+</div>{{end}}
 {{if .Rows}}
 <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
   <thead><tr><th>{{.L.Page}}</th><th>{{.L.State}}</th><th>{{.L.Address}}</th><th class="ol-num">{{.L.Components}}</th><th class="ol-num">{{.L.Incidents}}</th><th class="ol-num">{{.L.Maintenance}}</th><th>{{.L.Languages}}</th></tr></thead>

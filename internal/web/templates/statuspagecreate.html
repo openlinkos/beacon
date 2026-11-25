@@ -1,0 +1,61 @@
+{{define "content"}}<div class="ol-stack bc-status-component">
+  {{if or .Preview .Services}}
+  <form method="post" action="{{.Form}}" class="ol-panel"{{if .Preview}} aria-labelledby="status-page-preview"{{end}}>
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="version" value="{{.StateVersion}}">
+    {{if .Preview}}
+      <input type="hidden" name="name" value="{{.Name}}">
+      <input type="hidden" name="title" value="{{.PublicTitle}}">
+      <input type="hidden" name="confirmation" value="{{.Preview.Confirmation}}">
+      {{range .Preview.Visible}}<input type="hidden" name="service" value="{{.}}">{{end}}
+      <div class="ol-panel-header"><h2 class="ol-panel-title" id="status-page-preview" tabindex="-1" autofocus>{{.L.PublicEffect}}</h2></div>
+      <div class="ol-panel-body ol-stack">
+        <dl class="ol-dl ol-dl-stack">
+          <dt>{{.L.Title}}</dt><dd class="ol-break">{{.PublicTitle}}</dd>
+          <dt>{{.L.Destination}}</dt><dd><code class="ol-mono ol-break">{{.URL}}</code>{{if .DefaultAddress}}<p class="ol-hint">{{.L.DefaultAddress}}</p>{{end}}</dd>
+          <dt>{{.L.Services}}</dt><dd><ul class="ol-cluster bc-status-component-services" role="list">
+            {{range .Preview.Visible}}<li class="ol-badge ol-mono ol-break">{{.}}</li>{{end}}
+          </ul></dd>
+        </dl>
+        <p class="ol-hint">{{.L.PublicNotes}}</p>
+        {{template "status-publication-announcements" .Preview}}
+      </div>
+      <div class="ol-panel-footer">
+        <button type="submit" name="intent" value="edit" class="ol-btn ol-btn-secondary">{{.L.Edit}}</button>
+        <button type="submit" name="intent" value="publish" class="ol-btn ol-btn-primary">{{iconSm "globe"}}{{.L.Publish}}</button>
+      </div>
+    {{else}}
+      <div class="ol-panel-body ol-stack">
+        <div class="ol-field">
+          <label class="ol-label" for="status-page-name">{{.L.Name}}</label>
+          <input id="status-page-name" name="name" class="ol-input ol-input-mono" required maxlength="63" pattern="[a-z0-9][a-z0-9\-]{0,62}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="status-page-name-hint" value="{{.Name}}">
+          <p class="ol-hint" id="status-page-name-hint">{{.L.NameHint}}</p>
+        </div>
+        <div class="ol-field">
+          <label class="ol-label" for="status-page-title">{{.L.Title}}</label>
+          <input id="status-page-title" name="title" class="ol-input" required maxlength="120" value="{{.PublicTitle}}">
+        </div>
+        <fieldset class="ol-fieldset" aria-describedby="status-page-service-hint">
+          <legend class="ol-label">{{.L.Services}}</legend>
+          <p class="ol-hint" id="status-page-service-hint">{{.L.ServiceHint}}</p>
+          <div class="bc-status-component-choices">
+            {{range .Services}}<label class="ol-check"><input type="checkbox" name="service" class="ol-checkbox" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-break">{{.Label}}</span></label>{{end}}
+          </div>
+        </fieldset>
+      </div>
+      <div class="ol-panel-footer">
+        <a class="ol-btn ol-btn-secondary" href="{{.Back}}">{{.L.Cancel}}</a>
+        <button type="submit" name="intent" value="preview" class="ol-btn ol-btn-primary">{{.L.Preview}}</button>
+      </div>
+    {{end}}
+  </form>
+  {{else}}
+  <section class="ol-panel">
+    <div class="ol-panel-body"><p>{{.L.NoServices}}</p></div>
+    <div class="ol-panel-footer">
+      <a class="ol-btn ol-btn-secondary" href="{{.Back}}">{{.L.Cancel}}</a>
+      <a class="ol-btn ol-btn-primary" href="{{.Monitors}}">{{.L.Monitors}}</a>
+    </div>
+  </section>
+  {{end}}
+</div>{{end}}

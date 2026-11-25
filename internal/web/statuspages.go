@@ -53,14 +53,23 @@ type statusPageRow struct {
 
 type statusPagesPage struct {
 	shell
-	L    statusPagesLabels
-	Rows []statusPageRow
+	L                   statusPagesLabels
+	Rows                []statusPageRow
+	Create, CreateLabel string
+	DefaultHelp         string
 }
 
 var pageListTmpl = parse("pagelist.html")
 
 func (s *Server) pageList(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p := statusPagesPage{shell: s.shellFor(r, v, "status-pages", s.t("Status pages")), L: s.statusPagesLabels()}
+	if s.Config != nil && s.Status != nil && v.has("config:write") {
+		if s.Config.State().CanCreateStatusPage() {
+			p.Create, p.CreateLabel = consolePath(statusPageCreatePath), s.t("Create status page")
+		} else {
+			p.DefaultHelp = s.statusPageDefaultHelp()
+		}
+	}
 	defs := s.Status.Pages()
 	p.Count = num(len(defs))
 	for _, def := range defs {

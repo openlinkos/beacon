@@ -149,6 +149,8 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("POST", "/monitors/{service}/edit", s.action("config:write", s.addMonitor))
 	at("POST", "/monitors/{service}/remove", s.action("config:write", s.removeMonitor))
 	at("GET", "/status-pages", s.console("status:read", s.pageList))
+	at("GET", statusPageCreatePath+"{$}", s.console("config:write", s.createStatusPage))
+	at("POST", statusPageCreatePath+"{$}", s.action("config:write", s.createStatusPage))
 	at("GET", "/status-pages/{name}", s.console("status:read", s.pageDetail))
 	for _, mode := range []string{"add", "edit", "remove"} {
 		path := "/status-pages/{name}/components/" + mode
