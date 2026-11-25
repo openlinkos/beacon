@@ -23,6 +23,16 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	if _, err := e.b.AddNote(context.Background(), e.id, bridge.ActorOf(store.Principal{User: "alice", Agent: "duty"}, "mcp"), "first episode notes"); err != nil {
 		t.Fatal(err)
 	}
+	g, _ := e.st.Group(e.id)
+	g.ProbeRuns = []store.ProbeRun{{ID: "passing", ActorKind: "agent", By: "alice / duty", Via: "mcp", At: e.now,
+		Results: []store.ProbeObservation{
+			{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
+			{Status: "ok", Location: "edge-2", Instance: "https://git.example.com/"},
+		}}}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(time.Minute)
 	resolve := alertmanager.Webhook{GroupKey: groupKey, Status: "resolved", CommonLabels: map[string]string{"service": "git-example-com", "severity": "critical", "host": "edge-1"},
 		CommonAnnotations: map[string]string{"summary": "git.example.com is down " + hostile}}
 	if err := e.b.HandleWebhook(context.Background(), resolve); err != nil {
@@ -33,6 +43,20 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 		t.Fatalf("fixture outcome: %+v %v", retained, err)
 	}
 	path := outcomePath(retained.Outcomes[0].ID)
+	only := owner.get(path)
+	if only.code != http.StatusOK || strings.Count(only.body, "2 passed, 0 failed, 0 missing") != 1 || strings.Contains(only.body, "Passing check near rule recovery") {
+		t.Fatalf("latest and passing check displayed twice: %d", only.code)
+	}
+	g, _ = e.st.Group(e.id)
+	e.now = e.now.Add(time.Minute)
+	g.ProbeRuns = append(g.ProbeRuns, store.ProbeRun{ID: "incomplete", ActorKind: "person", By: "shift-operator", Via: "console", At: e.now,
+		Results: []store.ProbeObservation{
+			{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
+			{Status: "missing", Location: "edge-2", Instance: "https://git.example.com/"},
+		}})
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
 	e.now = e.now.Add(8 * 24 * time.Hour)
 	e.b.Tick(context.Background())
 
@@ -41,7 +65,7 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 		Target: e.id, Detail: "later episode notes"}); err != nil {
 		t.Fatal(err)
 	}
-	if a := e.browser().get(path); a.code != http.StatusSeeOther || !strings.Contains(a.header.Get("Location"), "sign-in") {
+	if a := e.browser().get(path); a.code != http.StatusSeeOther || !strings.Contains(a.header.Get("Location"), "sign-in") || strings.Contains(a.body, "shift-operator") {
 		t.Fatalf("archive secret needs sign-in: %d", a.code)
 	}
 	if code, _, _ := e.get(e.link(link.AlertPath(e.id)), ""); code != http.StatusNotFound {
@@ -59,6 +83,12 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	if arch.code != http.StatusOK || !strings.Contains(arch.body, "Alert resolved") || !strings.Contains(arch.body, "alice / duty") ||
 		strings.Contains(arch.body, "first episode notes") || strings.Contains(arch.body, hostile) || strings.Contains(arch.body, "Open alert details") {
 		t.Fatalf("protected compact outcome: %d", arch.code)
+	}
+	for _, label := range []string{"Latest on-demand check", "1 passed, 0 failed, 1 missing", "shift-operator", "Completed after rule recovery",
+		"Passing check near rule recovery", "2 passed, 0 failed, 0 missing", "Completed before rule recovery"} {
+		if !strings.Contains(arch.body, label) {
+			t.Errorf("the archived outcome is missing %q", label)
+		}
 	}
 	if !strings.Contains(arch.body, link.SessionPath(sessionID)) {
 		t.Fatal("the viewer cannot reach the retained session from the archived incident")

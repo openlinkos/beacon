@@ -88,6 +88,7 @@ type Group struct {
 	Notes          []Note            `json:"notes,omitempty"`           // see agents.go
 	Agents         []AgentCall       `json:"agents,omitempty"`          // the hooks called to wake agents
 	ProbeRuns      []ProbeRun        `json:"probe_runs,omitempty"`
+	PassingCheck   *Verification     `json:"passing_check,omitempty"` // retained independently of the recent probe runs
 	Episode        string            `json:"episode,omitempty"`
 	Participation  []Participation   `json:"participation,omitempty"`
 	Updated        time.Time         `json:"updated"`

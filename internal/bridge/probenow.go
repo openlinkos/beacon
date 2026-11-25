@@ -181,19 +181,29 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	return out, nil
 }
 
+type probePoint struct{ location, target, module string }
+
 // probeObservations records every expected target-location pair, even when a probe replied but
 // omitted a target.
 func probeObservations(v probenow.View) []store.ProbeObservation {
-	type point struct{ location, target, module string }
-	answers := make(map[point]probenow.Result, len(v.Results))
+	answers := make(map[probePoint]probenow.Result, len(v.Results))
 	for _, r := range v.Results {
-		answers[point{r.Location, r.Target, r.Module}] = r
+		answers[probePoint{r.Location, r.Target, r.Module}] = r
+	}
+	// The wire result identifies a target and module, so a result that could belong to several
+	// requested checks (for example different label sets) cannot verify any one of them.
+	expected := make(map[probePoint]int)
+	for _, target := range v.Targets {
+		for _, location := range target.Locations {
+			expected[probePoint{location, target.Instance, target.Module}]++
+		}
 	}
 	var observations []store.ProbeObservation
 	for _, target := range v.Targets {
 		for _, location := range target.Locations {
 			item := store.ProbeObservation{Location: location, Instance: cleanLine(target.Instance), Module: cleanLine(target.Module), Status: "missing"}
-			if r, ok := answers[point{location, target.Instance, target.Module}]; ok {
+			key := probePoint{location, target.Instance, target.Module}
+			if r, ok := answers[key]; ok && expected[key] == 1 {
 				item.Status, item.HTTPCode = "ok", r.HTTPStatus
 				if !r.Success {
 					item.Status, item.Reason = "failed", clean(r.Reason, maxShort, false)
@@ -213,6 +223,8 @@ func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run 
 	if !ok || !g.StartsAt.Equal(episode.starts) || g.Episode != episode.key {
 		return
 	}
+	run.ActorKind = actorKind(who)
+	g.PassingCheck = preferPassingCheck(passingCheck(&g), verifyPassingCheck(&run), g.ResolvedAt)
 	g.ProbeRuns = append(g.ProbeRuns, run)
 	if len(g.ProbeRuns) > keepProbeRuns {
 		g.ProbeRuns = g.ProbeRuns[len(g.ProbeRuns)-keepProbeRuns:]
@@ -220,6 +232,72 @@ func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run 
 	recordParticipation(&g, who, "probe_now", run.At)
 	if err := b.saveGroup(g); err != nil {
 		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
+	}
+}
+
+func verificationCounts(run *store.ProbeRun) *store.Verification {
+	if run == nil {
+		return nil
+	}
+	v := &store.Verification{ID: run.ID, At: run.At, By: cleanLine(run.By), Via: run.Via, ActorKind: run.ActorKind}
+	for _, p := range run.Results {
+		switch p.Status {
+		case "ok":
+			v.Passed++
+		case "failed":
+			v.Failed++
+		default:
+			v.Missing++
+		}
+	}
+	return v
+}
+
+func verifyPassingCheck(run *store.ProbeRun) *store.Verification {
+	if run.ID == "" || run.At.IsZero() || len(run.Results) == 0 {
+		return nil
+	}
+	seen := make(map[probePoint]bool, len(run.Results))
+	for _, p := range run.Results {
+		key := probePoint{p.Location, p.Instance, p.Module}
+		if p.Status != "ok" || p.Location == "" || p.Instance == "" || seen[key] {
+			return nil
+		}
+		seen[key] = true
+	}
+	return verificationCounts(run)
+}
+
+// passingCheck also uses still-retained runs from older groups that had no separate summary.
+func passingCheck(g *store.Group) *store.Verification {
+	if g.PassingCheck != nil {
+		return g.PassingCheck
+	}
+	var best *store.Verification
+	for i := range g.ProbeRuns {
+		best = preferPassingCheck(best, verifyPassingCheck(&g.ProbeRuns[i]), g.ResolvedAt)
+	}
+	return best
+}
+
+// preferPassingCheck takes the last complete pass by rule recovery or, if there is none, the first
+// complete pass afterwards. A firing group has no recovery boundary yet. Keep the first at a tie.
+func preferPassingCheck(current, candidate *store.Verification, resolved time.Time) *store.Verification {
+	if current == nil {
+		return candidate
+	}
+	if candidate == nil {
+		return current
+	}
+	currentAfter := !resolved.IsZero() && current.At.After(resolved)
+	candidateAfter := !resolved.IsZero() && candidate.At.After(resolved)
+	switch {
+	case currentAfter && (!candidateAfter || candidate.At.Before(current.At)):
+		return candidate
+	case !currentAfter && !candidateAfter && candidate.At.After(current.At):
+		return candidate
+	default:
+		return current
 	}
 }
 

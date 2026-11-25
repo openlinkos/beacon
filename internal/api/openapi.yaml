@@ -398,16 +398,22 @@ components:
               action: {type: string, enum: [ack, silence, note, probe_now]}
               at: {type: string, format: date-time}
         verification:
-          type: object
+          $ref: "#/components/schemas/IncidentVerification"
           description: Counts from the latest on-demand check, one observation per target and expected location
-          properties:
-            id: {type: string}
-            at: {type: string, format: date-time}
-            by: {type: string}
-            via: {type: string}
-            passed: {type: integer}
-            failed: {type: integer}
-            missing: {type: integer}
+        passing_check:
+          $ref: "#/components/schemas/IncidentVerification"
+          description: The last complete passing check at or before rule recovery, or the first complete pass after it if none came before. A pass does not identify what restored the service.
+    IncidentVerification:
+      type: object
+      properties:
+        id: {type: string}
+        at: {type: string, format: date-time, description: When Beacon finished collecting the results}
+        by: {type: string}
+        via: {type: string}
+        actor_kind: {type: string, enum: [person, agent, unattributed], description: The caller's recorded kind when available}
+        passed: {type: integer}
+        failed: {type: integer}
+        missing: {type: integer}
     Machine:
       type: object
       properties:

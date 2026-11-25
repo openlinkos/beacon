@@ -4,9 +4,15 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
-- Preview the existing maintenance titles, descriptions and times that a status component change will publish. Review any new or changed announcements before publishing.
-
 ## 0.3.0
+
+### rc.36 (2026-11-25)
+
+- Verify the provider's acknowledgement for Feishu group bots and Bark. Treat redirected requests and invalid replies as failed submissions. Keep destinations and reply bodies out of errors.
+- Retry an unsuccessful Feishu chat submission while the incident is firing and human escalation is active. Keep the original schedule for phone escalation.
+- Show whether a notification result belongs to the currently configured destination, an earlier configuration, or an unverified destination.
+- Preview the existing maintenance titles, descriptions and times that a status component change will publish. Review any new or changed announcements before publishing.
+- Keep a complete passing on-demand check near rule recovery in private incident history, alongside the latest check.
 
 ### rc.35 (2026-11-25)
 

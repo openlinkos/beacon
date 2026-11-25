@@ -95,11 +95,13 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
 | `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
-| `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录和最近一次复测的统计 |
+| `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录、最近一次复测，以及可用时规则恢复前后保留的通过复测 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间 |
 | `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
+
+故障摘要中的 `verification` 显示最近记录的一次按需复测。可选字段 `passing_check` 显示在 `resolved_at` 时刻或之前完成的最后一次全通过复测。如果此前没有全通过的复测，则保留规则恢复后第一次全通过的复测。复测至少需要一项预期观测，每项预期的目标与检测点组合都需要收到通过结果。`at` 记录 Beacon 收集完结果的时间。Beacon 记录了发起方类型时会提供 `actor_kind`。如果旧故障的详细结果已被清理，摘要可能没有全通过记录。
 
 ## 机器与会话 {#machines-and-sessions}
 

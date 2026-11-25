@@ -281,7 +281,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "firing"
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
-			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
+			g.ProbeRuns, g.PassingCheck, g.PriorAcks, g.Notifications = nil, nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
 			g.MonitorMachines = b.incidentMonitorMachines(&g)

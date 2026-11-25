@@ -10,8 +10,55 @@ import (
 	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/probenow"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/targets"
 )
+
+func TestProbeObservationsDoNotCountMissingOrAmbiguousTargetsAsPassing(t *testing.T) {
+	const target, module = "https://git.example.com/", "http_head"
+	const location = "edge-1"
+	want := probenow.Target{Instance: target, Module: module, Locations: []string{location}, Service: "git-example-com"}
+	duplicate := want
+	duplicate.Service = "another-service"
+	v := probenow.View{Done: true, Targets: []probenow.Target{want, duplicate, {Instance: "https://git.example.com/healthz", Module: module, Locations: []string{location}}},
+		Results: []probenow.Result{{Location: location, TargetResult: targets.TargetResult{Target: target, Module: module, Success: true}}}}
+	observed := probeObservations(v)
+	run := store.ProbeRun{ID: "ambiguous-or-missing", At: time.Now(), Results: observed}
+	if counted := verificationCounts(&run); counted.Passed != 0 || counted.Failed != 0 || counted.Missing != 3 || verifyPassingCheck(&run) != nil {
+		t.Fatalf("one location reply cannot verify omitted or ambiguous targets: %+v", observed)
+	}
+	run.Results = nil
+	if verifyPassingCheck(&run) != nil {
+		t.Fatal("an empty request cannot be a passing check")
+	}
+}
+
+func TestPassingCheckPreferenceUsesCompletionAndKeepsTiesStable(t *testing.T) {
+	resolved := time.Date(2026, time.November, 25, 0, 0, 0, 0, time.UTC)
+	before := &store.Verification{At: resolved.Add(-time.Minute)}
+	at := &store.Verification{At: resolved}
+	after := &store.Verification{At: resolved.Add(time.Minute)}
+	later := &store.Verification{At: after.At.Add(time.Minute)}
+	for _, tc := range []struct {
+		name                     string
+		current, candidate, want *store.Verification
+		resolved                 time.Time
+	}{
+		{"last while firing", before, at, at, time.Time{}},
+		{"first completion after recovery", later, after, after, resolved},
+		{"later pass cannot replace first after recovery", after, later, after, resolved},
+		{"completion before recovery wins over a post-recovery pass", after, before, before, resolved},
+		{"completion at recovery counts with pre-recovery passes", before, at, at, resolved},
+		{"older completion cannot replace a closer pass", at, before, at, resolved},
+		{"same completion time keeps first stored", at, &store.Verification{At: at.At}, at, resolved},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := preferPassingCheck(tc.current, tc.candidate, tc.resolved); got != tc.want {
+				t.Fatalf("passing check at %s, want %s", got.At, tc.want.At)
+			}
+		})
+	}
+}
 
 // probeBoard has the env's location and a mainland one, both probing git.example.com (the hook's service)
 // and a second target of the same service.
