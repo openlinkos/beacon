@@ -192,6 +192,16 @@ func TestSessionAccessKeepsCredentialMachineCeilings(t *testing.T) {
 	if list, body := call(t, c, "list_sessions", nil); list.IsError || !strings.Contains(body, `"sessions":[]`) {
 		t.Fatalf("a disjoint OAuth grant gained MCP session metadata: %s", body)
 	}
+	if res, body := call(t, c, "whoami", nil); res.IsError || !strings.Contains(body, `"machine_scope":"none"`) {
+		t.Fatal("whoami should distinguish a disjoint grant from all machines")
+	}
+	status, body = get(t, oauth.Access, "/api/v1/token")
+	var scope struct {
+		MachineScope string `json:"machine_scope"`
+	}
+	if err := json.Unmarshal([]byte(body), &scope); status != http.StatusOK || err != nil || scope.MachineScope != "none" {
+		t.Fatal("the REST credential view should distinguish a disjoint grant from all machines")
+	}
 }
 
 func assertSessionSignInPage(t *testing.T, address, id string) {

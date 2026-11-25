@@ -30,12 +30,6 @@ type SharedLink struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// MayReadSession reports whether the actor holds a session-detail scope now.
-func (b *Bridge) MayReadSession(who Actor) bool {
-	p, ok := b.caller(who)
-	return ok && (p.Has("sessions:read") || p.Has("machines:ssh"))
-}
-
 // ShareTarget returns the current target, without issuing a credential.
 func (b *Bridge) ShareTarget(who Actor, kind, id string) (ShareTarget, error) {
 	if !b.admin(who) {
@@ -61,6 +55,14 @@ func (b *Bridge) CreateShareLink(ctx context.Context, who Actor, kind, id string
 	target, err := b.ShareTarget(who, kind, id)
 	if err != nil {
 		return SharedLink{}, err
+	}
+	if kind == "session" && (who.Via != "cli" || who.Key != "") {
+		p, ok := b.caller(who)
+		r, found := b.d.Store.Session(id)
+		access := b.d.Store.SessionAccess(p)
+		if !ok || !found || !access.Details() || !access.Visible(r) {
+			return SharedLink{}, ErrShareNotFound
+		}
 	}
 	address := b.d.Pages.URL(target.path)
 	u, err := url.Parse(address)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/vm"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // The evidence for an alert group, in one answer for an agent: what the probes see at each location and
@@ -185,7 +186,7 @@ type SilenceView struct {
 }
 
 // SessionView is a session on one of the group's machines, or by an agent that acted on the group. Page
-// is the signed link to its replay, for people. Phase says whether it began before the group started (a
+// opens its replay in the console. Phase says whether it began before the group started (a
 // possible cause), while it fired or after it resolved. A shell's ShellCommands are the last commands run
 // at its prompt, with their exit statuses, from its transcript (Commands counts them all; get_session
 // has the rest and their output).
@@ -310,6 +311,16 @@ func (b *Bridge) brief(g *store.Group) AlertBrief {
 // Evidence gathers what an agent needs to judge the alert group id, over a window that opens before
 // (30m by default, at most 24h) ahead of the group's start.
 func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, error) {
+	return b.readEvidence(ctx, id, before, nil)
+}
+
+// EvidenceFor applies the authenticated principal's machine and session scopes to related sessions.
+func (b *Bridge) EvidenceFor(ctx context.Context, p store.Principal, id, before string) (Evidence, error) {
+	access := b.d.Store.SessionAccess(p)
+	return b.readEvidence(ctx, id, before, &access)
+}
+
+func (b *Bridge) readEvidence(ctx context.Context, id, before string, access *store.SessionAccess) (Evidence, error) {
 	d, err := parseBefore(before)
 	if err != nil {
 		return Evidence{}, err
@@ -318,26 +329,15 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 	if !ok {
 		return Evidence{}, ErrNotFound
 	}
-	return b.evidence(ctx, &g, b.window(&g, d)), nil
+	return b.evidence(ctx, &g, b.window(&g, d), access), nil
 }
 
-// EvidenceFor keeps replay grants within the caller's session-detail scopes.
-func (b *Bridge) EvidenceFor(ctx context.Context, who Actor, id, before string) (Evidence, error) {
-	ev, err := b.Evidence(ctx, id, before)
-	if err == nil && !b.MayReadSession(who) {
-		for i := range ev.Done.Sessions {
-			ev.Done.Sessions[i].Page = ""
-			ev.Done.Sessions[i].Command = ""
-			ev.Done.Sessions[i].ShellCommands = nil
-		}
-	}
-	return ev, err
-}
-
-func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window) Evidence {
+func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window, access *store.SessionAccess) Evidence {
 	machines := b.machines(g)
-	done := b.done(g, w, machines)
-	b.withCommands(done.Sessions)
+	done := b.done(g, w, machines, access)
+	if access == nil || access.Details() {
+		b.withCommands(done.Sessions)
+	}
 	explicit := b.linkedMachines(g)
 	designated := g.MonitorMachines
 	if len(explicit) > 0 || len(labelValues(g, "machine")) > 0 {
@@ -651,13 +651,18 @@ func actors(g *store.Group) []string {
 
 // sessions lists the latest sessions in the window, which opens before g started, on g's machines or by
 // the agents that acted on it, the oldest first.
-func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []SessionView {
-	rs := b.relatedSessionRecords(g, w, machines)
+func (b *Bridge) sessions(g *store.Group, w Window, machines []string, access *store.SessionAccess) []SessionView {
+	rs := b.relatedSessionRecords(g, w, machines, access)
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
-		v := SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via, Machine: r.Machine, Kind: r.Kind, Command: cleanLine(r.Command),
-			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Commands: r.Commands, Related: "agent", Phase: phase(g, r.Started),
-			Page: b.SessionPage(r.ID)}
+		v := SessionView{ID: r.ID, Agent: r.Agent, Via: r.Via, Machine: r.Machine, Kind: r.Kind,
+			Started: r.Started, Ended: tp(r.Ended), Exit: r.Exit, Commands: r.Commands, Related: "agent", Phase: phase(g, r.Started)}
+		switch {
+		case access == nil:
+			v.Command, v.Page = cleanLine(r.Command), b.SessionPage(r.ID)
+		case access.Details():
+			v.Command, v.Page = cleanLine(r.Command), b.apiURL(link.SignInPath(link.SessionPath(r.ID)))
+		}
 		if slices.Contains(machines, r.Machine) {
 			v.Related = "machine"
 		}
@@ -666,13 +671,13 @@ func (b *Bridge) sessions(g *store.Group, w Window, machines []string) []Session
 	return out
 }
 
-func (b *Bridge) relatedSessionRecords(g *store.Group, w Window, machines []string) []store.SessionRecord {
+func (b *Bridge) relatedSessionRecords(g *store.Group, w Window, machines []string, access *store.SessionAccess) []store.SessionRecord {
 	who := actors(g)
 	if len(machines) == 0 && len(who) == 0 {
 		return nil
 	}
 	rs := b.d.Store.SessionsBetween(w.From, w.To, 1000, func(r store.SessionRecord) bool {
-		return slices.Contains(machines, r.Machine) || slices.Contains(who, r.Agent)
+		return (slices.Contains(machines, r.Machine) || slices.Contains(who, r.Agent)) && (access == nil || access.Visible(r))
 	})
 	return keepSessions(rs, g.StartsAt, machines)
 }
@@ -770,9 +775,9 @@ func (b *Bridge) silences(g *store.Group, w Window) []SilenceView {
 	return out
 }
 
-func (b *Bridge) done(g *store.Group, w Window, machines []string) Done {
+func (b *Bridge) done(g *store.Group, w Window, machines []string, access *store.SessionAccess) Done {
 	d := Done{Silences: b.silences(g, w), Notes: []store.Note{}, Agents: []store.AgentCall{}, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
-		Machines: machines, Sessions: b.sessions(g, w, machines)}
+		Machines: machines, Sessions: b.sessions(g, w, machines, access)}
 	if g.Ack != nil {
 		a := *g.Ack
 		a.Note = clean(a.Note, maxLong, true)

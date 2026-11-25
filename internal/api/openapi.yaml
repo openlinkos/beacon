@@ -861,7 +861,8 @@ components:
         client: {type: string, description: "The OAuth client's name, for an access token"}
         scopes: {type: array, items: {type: string}}
         subject: {type: string, description: "The location or host a machine's token writes as"}
-        machines: {type: array, items: {type: string}, description: "The machines it reaches through the SSH channel; absent: all"}
+        machines: {type: array, items: {type: string}, description: "The explicitly selected machines when machine_scope is listed"}
+        machine_scope: {type: string, enum: [all, listed, none], description: "The effective machine selection. Each operation also requires its own scope."}
         ssh_keys: {type: array, items: {type: string}, description: Fingerprints of the keys it signs in to the SSH channel with}
         created: {type: string, format: date-time}
         expires: {type: string, format: date-time}
@@ -1719,7 +1720,7 @@ paths:
   /share-links/{kind}/{id}:
     post:
       summary: Create a signed alert or session link
-      description: "Scope: accounts:write from a standalone credential. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
+      description: "Scope: accounts:write from a standalone credential. Creating a session share also requires sessions:read or machines:ssh and access to the enrolment. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
       parameters:
         - {name: kind, in: path, required: true, schema: {type: string, enum: [alert, session]}}
         - {name: id, in: path, required: true, schema: {type: string}}

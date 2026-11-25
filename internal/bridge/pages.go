@@ -34,7 +34,7 @@ type cardSessions struct {
 func (b *Bridge) sessionSummary(g *store.Group) cardSessions {
 	var summary cardSessions
 	seen := map[string]bool{}
-	for _, s := range b.relatedSessionRecords(g, b.window(g, defaultBefore), b.machines(g)) {
+	for _, s := range b.relatedSessionRecords(g, b.window(g, defaultBefore), b.machines(g), nil) {
 		if s.Ended.IsZero() {
 			continue
 		}

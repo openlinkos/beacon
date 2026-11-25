@@ -6,13 +6,14 @@ import (
 	"strconv"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The routes for working an alert: its evidence in one answer, its timeline, notes on it, and the
 // change events around it.
 
-func (s *Server) evidence(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
-	ev, err := s.Bridge.EvidenceFor(r.Context(), who, r.PathValue("id"), r.URL.Query().Get("before"))
+func (s *Server) evidence(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	ev, err := s.Bridge.EvidenceFor(r.Context(), p, r.PathValue("id"), r.URL.Query().Get("before"))
 	if err != nil {
 		s.opError(w, err)
 		return
@@ -20,8 +21,8 @@ func (s *Server) evidence(w http.ResponseWriter, r *http.Request, who bridge.Act
 	writeJSON(w, http.StatusOK, ev)
 }
 
-func (s *Server) timeline(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
-	tl, err := s.Bridge.TimelineFor(r.Context(), who, r.PathValue("id"), r.URL.Query().Get("before"))
+func (s *Server) timeline(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	tl, err := s.Bridge.TimelineFor(r.Context(), p, r.PathValue("id"), r.URL.Query().Get("before"))
 	if err != nil {
 		s.opError(w, err)
 		return

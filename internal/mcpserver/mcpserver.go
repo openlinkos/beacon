@@ -373,6 +373,8 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 			if err != nil {
 				return nil, auditOut{}, err
 			}
+			p, _ := principal(ctx)
+			b.FilterSessionAudit(p, entries)
 			if entries == nil {
 				entries = []store.AuditEntry{}
 			}

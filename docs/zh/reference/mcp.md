@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-66694272
+sourceHash: sha256-715efa2d
 ---
 
 # MCP 工具
@@ -77,6 +77,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
+调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
+
 ## 机器 {#machines}
 
 | 工具 | 作用域 | 做什么 |
@@ -97,11 +99,11 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
 
-调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和签名回放链接。只有 `status:read` 的调用方仍可在这些位置读取会话元数据。
+调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。只有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 
 ## 管理分享链接 {#manage-share-links}
 
-两个工具均接受 `kind`（`alert` 或 `session`）和 `id`（告警组 ID 或 SSH 会话 ID）。它们需要具有 `accounts:write` 的独立凭据。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
+两个工具均接受 `kind`（`alert` 或 `session`）和 `id`（告警组 ID 或 SSH 会话 ID）。它们需要具有 `accounts:write` 的独立凭据。生成会话分享还需要会话详情作用域，以及对应机器登记的访问权限。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
 
 | 工具 | 做什么 |
 | --- | --- |
@@ -166,6 +168,8 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | `whoami` | 不限 | 你在 Beacon 眼里是谁：审计日志给你的名字（`alice / claude-code`）、你代表的人、你的预设以及它在那个人的角色范围内现在给你的作用域、你能到达的机器、你的 SSH 密钥，还有你的凭据：令牌（到期时间、有效期长度、能否续期以及何时可以续期），或者由客户端自己刷新的 OAuth 登录 |
 | `renew_token` | 不限 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和 SSH 密钥都不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期，OAuth 登录也不能，它由客户端刷新 |
 | `revoke_token` | `machines:write` | 吊销一个能上机器的令牌，或任何 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝。只针对一个 Agent 的暂停开关；机器和服务的令牌只能在中心上吊销 |
+
+`whoami` 的 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。
 
 ## 结果 {#results}
 

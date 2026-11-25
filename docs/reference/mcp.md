@@ -73,6 +73,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `list_changes` | `status:read` | Change events, newest first: deployments, configuration changes and Flux reconciliations (`service`, `machine`, `source`, `since`, 24 hours by default, `limit`, 100 by default, at most 1000) |
 | `probe_now` | `alerts:write` | Have every location that probes a target probe it again at once, and get each location's answer within the wait (`alert_id`, `target` with an optional `module`, or `service`; `wait` seconds, 45 by default, at most 90). Use it after a fix, instead of waiting for the next cycle |
 
+The caller's machine selection also limits session records in the alert evidence, the timeline and retained outcomes. SSH audit entries carry a machine name without an enrolment identifier. Their command previews require unrestricted machine selection and a session-detail scope.
+
 ## Machines
 
 | Tool | Scope | What it does |
@@ -93,11 +95,11 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
 
-Alert evidence and timeline contain command text and signed replay links only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read session metadata there.
+Alert evidence and timeline contain command text and links to the signed-in session page only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read permitted session metadata there.
 
 ## Manage share links
 
-Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. The returned URL is a credential. The audit log and alert chat record the action and its target.
+Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. Creating a session share also needs a session-detail scope and access to the enrolment. The returned URL is a credential. The audit log and alert chat record the action and its target.
 
 | Tool | What it does |
 | --- | --- |
@@ -162,6 +164,8 @@ People manage credential values and grants from their own console accounts. Use 
 | `whoami` | any | Who you are to Beacon: the name the audit log gives you (`alice / claude-code`), the person you act for, your preset and the scopes it gives you now within that person's role, the machines you reach, your SSH keys, and your credential: a token (expiry, lifetime, whether and when it may renew) or an OAuth sign-in, which your client refreshes |
 | `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token, nor for an OAuth sign-in, which its client refreshes |
 | `revoke_token` | `machines:write` | Revoke a token that reaches machines, or any agent's: what it has open on machines is closed at once and its requests are refused from now on. The pause switch for one agent; machines' and services' tokens are revoked on the centre only |
+
+`whoami` reports `machine_scope` as `all`, `listed` or `none`. In `listed`, `machines` names the effective selection. Disjoint OAuth and agent selections return `none`.
 
 ## Results
 

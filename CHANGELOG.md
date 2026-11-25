@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.39 (2026-11-25)
+
+- Enforce the effective machine selection when listing sessions, reading a transcript, downloading a recording, and viewing related sessions in alert evidence, timelines and retained incidents. A restricted credential sees recordings from the selected machines' current enrolments.
+- Keep ordinary session links tied to account sign-in. A shared alert sends readers to sign in for session history. Explicit session shares retain their view-only access and revocation.
+- Show `machine_scope` in credential details, including when the agent's machine selection and an OAuth grant have no machine in common. Keep raw audit command previews within unrestricted session-detail access when the audit has no enrolment identifier.
+
 ### rc.38 (2026-11-25)
 
 - Let owners create and revoke share links from an alert or SSH session. Revocation covers all incidents in an alert group or the selected session and its recording, including outstanding chat links. The audit and chat record the action without the URL.

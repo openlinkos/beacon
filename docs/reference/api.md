@@ -99,6 +99,8 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 In an incident outcome, `verification` shows the latest recorded on-demand check. The optional `passing_check` shows the last complete pass at or before `resolved_at`, or the first complete pass after it if none came before. A complete pass requires at least one expected target-location observation and a successful result for each. The `at` timestamp records when Beacon finished collecting results, and `actor_kind` is available when Beacon recorded the caller's kind. Older incidents may lack a passing check if their detailed results have already been removed.
 
+The caller's machine selection also limits session records in the alert evidence, the timeline and the related sessions of retained outcomes. A command preview in an SSH audit entry requires unrestricted machine selection and a session-detail scope, because those audit entries carry a machine name without an enrolment identifier.
+
 ## Machines and sessions
 
 | Route | Scope | What |
@@ -123,11 +125,11 @@ In an incident outcome, `verification` shows the latest recorded on-demand check
 
 Machine-restricted credentials see sessions from the current enrolments they are allowed to access. Beacon applies those restrictions before `limit`. A transcript or recording outside the caller's access returns the same `404 session.not_found` as an unknown session. The `page` field sends people to sign in to the console.
 
-Alert evidence and timeline include command text and signed replay links only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the session metadata there.
+Alert evidence and timeline include command text and links to the signed-in session page only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the permitted session metadata there.
 
 ## Manage share links
 
-Both routes require a standalone credential with `accounts:write`. Use `alert` or `session` for `kind`, and supply the alert group ID or SSH session ID. Treat the returned URL as a credential. The audit log and alert chat record the action and its target.
+Both routes require a standalone credential with `accounts:write`. Use `alert` or `session` for `kind`, and supply the alert group ID or SSH session ID. Creating a session share also requires `sessions:read` or `machines:ssh` and access to that enrolment. Treat the returned URL as a credential. The audit log and alert chat record the action and its target.
 
 | Route | What |
 | --- | --- |
@@ -226,6 +228,8 @@ When the credential store is enabled, these operations let an agent use its [fix
 | `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token, nor for an OAuth access token, which its client refreshes |
 | `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`), or any agent's: the pause switch for one agent, whose open sessions on machines made with it are closed at once. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the centre only (`token.not_revocable`) |
 | `GET /api/v1/openapi.yaml` | none | The OpenAPI document |
+
+`machine_scope` is `all`, `listed` or `none`. In `listed`, `machines` names the effective selection. `none` includes an OAuth grant and an agent whose selections have no machine in common. Each operation still requires its own scope.
 
 ## The gateway
 
