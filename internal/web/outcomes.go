@@ -30,6 +30,7 @@ type outcomeLabels struct {
 	First, Older, Empty, Audit, Alert, Group, Detail                                                            string
 	Evidence, Apply, Reset, AllGroups, Acknowledgement                                                          string
 	AgentReport, NoAgentReport, HumanAck, NoHumanAck, CheckRecorded, AgentPassingCheck, NoPassingCheck          string
+	Origin, Exercise, UnknownOrigin, ExerciseRun                                                                string
 }
 
 func (s *Server) outcomeLabels() outcomeLabels {
@@ -51,18 +52,22 @@ func (s *Server) outcomeLabels() outcomeLabels {
 		HumanAck: s.t("Human acknowledgement recorded"), NoHumanAck: s.t("No human acknowledgement recorded"),
 		CheckRecorded: s.t("Passing check recorded"), NoPassingCheck: s.t("No passing check recorded"),
 		AgentPassingCheck: s.t("Passing check requested by an Agent"),
+		Origin:            s.t("Incident origin"), Exercise: s.t("Verified exercise"), UnknownOrigin: s.t("Unknown origin"), ExerciseRun: s.t("Exercise run"),
 	}
 }
 
 type outcomeRow struct {
 	Title, Href, Service, Severity, SeverityTone, Started, Resolved, Duration, Verification string
 	Participants                                                                            []string
+	Exercise                                                                                bool
+	ExerciseRun                                                                             string
 }
 
 func (s *Server) outcomeRow(o store.IncidentOutcome) outcomeRow {
 	row := outcomeRow{
 		Title: o.Title, Href: outcomePath(o.ID), Service: strings.Join(o.Services, ", "), Severity: s.severity(o.Severity),
 		SeverityTone: tone(o.Severity), Started: s.clock(o.Started), Resolved: s.clock(o.Resolved), Duration: s.dur(o.Resolved.Sub(o.Started)),
+		Exercise: o.Origin == store.ExerciseOrigin, ExerciseRun: o.ExerciseRun,
 	}
 	for _, p := range o.Participation {
 		row.Participants = append(row.Participants, s.participantKind(p.Kind))
@@ -127,6 +132,8 @@ func (s *Server) outcomeFilters(l outcomeLabels, q bridge.OutcomeQuery) []outcom
 	return []outcomeFacet{
 		{Name: "severity", Label: l.Severity, Options: outcomeOptions(q.Severity, severities...)},
 		{Name: "since", Label: s.t("Resolved within"), Options: outcomeOptions(q.Since, dates...)},
+		{Name: "origin", Label: l.Origin, Options: outcomeOptions(q.Origin,
+			option{Label: s.t("All origins")}, option{Value: store.ExerciseOrigin, Label: l.Exercise}, option{Value: "unknown", Label: l.UnknownOrigin})},
 		{Name: "evidence", Label: l.Evidence, Options: outcomeOptions(q.Evidence,
 			option{Label: s.t("Any evidence state")},
 			option{Value: "agent_report", Label: l.AgentReport},
@@ -143,7 +150,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 	values := r.URL.Query()
 	q := bridge.OutcomeQuery{
 		Group: values.Get("group"), Before: values.Get("before"), Severity: values.Get("severity"),
-		Since: strings.TrimSpace(values.Get("since")), Evidence: values.Get("evidence"), Limit: perPage,
+		Since: strings.TrimSpace(values.Get("since")), Origin: values.Get("origin"), Evidence: values.Get("evidence"), Limit: perPage,
 	}
 	result, err := s.Bridge.IncidentOutcomesFor(v.Principal, q)
 	if err != nil {
@@ -155,7 +162,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 	p.Filters = s.outcomeFilters(p.L, q)
 	base := consolePath("/incident-outcomes")
 	params := url.Values{}
-	for name, value := range map[string]string{"severity": q.Severity, "since": q.Since, "evidence": q.Evidence} {
+	for name, value := range map[string]string{"severity": q.Severity, "since": q.Since, "origin": q.Origin, "evidence": q.Evidence} {
 		if value != "" {
 			params.Set(name, value)
 		}

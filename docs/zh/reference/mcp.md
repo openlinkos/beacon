@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-8b7b4d83
+sourceHash: sha256-07209df7
 ---
 
 # MCP 工具
@@ -70,7 +70,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
-| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
+| `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
 | `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录、最近一次复测，以及可用时规则恢复前后保留的完整通过复测。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
@@ -87,6 +87,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 - `agent_passing_check` 查找由身份已确认的 Agent 发起并保留的完整通过复测。筛选依据是复测发起方。
 
 对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
+
+对 `origin` 使用 `exercise`，可查找首次故障判定有演练观测证据的记录。使用 `unknown` 可查找来源未确认的记录。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障中的会话记录。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 

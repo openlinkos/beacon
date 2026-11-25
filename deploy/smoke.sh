@@ -100,6 +100,9 @@ printf '127.0.0.1 %s %s\n' "$status_host" "$metrics_host" | sudo tee -a /etc/hos
 sed -i '/^{$\(STATUS_HOST\|METRICS_HOST\)} {/a\	tls internal' Caddyfile
 # Keep the probes entirely on the runner and keep the other shipped probe targets.
 sed -i 's#https://example.com/#https://status.example.com/healthz#' targets/all-web.yaml
+if [[ "$version" != v0.3.0-rc.44 ]]; then
+  sed -i '/^gateway:$/a\  exercise_target: https://status.example.com/drill/healthz' config.yaml
+fi
 sudo env STATUS_HOST="$status_host" METRICS_HOST="$metrics_host" ACME_EMAIL=ops@ci.invalid ./install.sh
 docker exec beacon beacon version | grep -F "beacon ${version#v} ("
 docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$work/caddy.crt"
@@ -295,7 +298,9 @@ rpc '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"
   jq -e '.result.serverInfo.name != null' >/dev/null
 
 drill_started=$SECONDS
-beacon drill fail 15m
+drill_output=$(beacon drill fail 15m)
+printf '%s\n' "$drill_output"
+drill_run=$(sed -n 's/^drill run //p' <<< "$drill_output")
 test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 503
 wait_for 'Both probes saw the failed drill' 120 probes 0
 firing() {
@@ -345,8 +350,18 @@ retained_agent_check() {
     params:{name:"list_incident_outcomes",arguments:{group:$alert,evidence:"agent_passing_check"}}}')
   rpc "$request" | jq -e --arg id "$check_id" ".result.structuredContent | $match" >/dev/null
 }
+retained_exercise_origin() {
+  test -n "$drill_run"
+  curl -fsSG "$status_url/api/v1/incident-outcomes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode origin=exercise |
+    jq -e --arg run "$drill_run" '.outcomes | any(.origin == "exercise" and .exercise_run == $run)' >/dev/null
+  curl -fsSG "$status_url/api/v1/incident-outcomes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode origin=unknown |
+    jq -e --arg run "$drill_run" '.outcomes | all(.exercise_run != $run)' >/dev/null
+}
 if [[ "$version" != v0.3.0-rc.44 ]]; then
   retained_agent_check
+  retained_exercise_origin
 fi
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
 if [[ "$version" == v0.3.0-rc.38 ]]; then
@@ -470,7 +485,9 @@ jq -e '.code == "credential.denied"' "$work/credential-error.json" >/dev/null
 resolved
 if [[ "$version" != v0.3.0-rc.44 ]]; then
   retained_agent_check
+  retained_exercise_origin
   printf 'REST and MCP retained the identified Agent passing check before and after cold restore.\n'
+  printf 'The signed reference matched the recorded exercise run to the first rule quorum and preserved it after cold restore.\n'
 fi
 curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
   jq -e --arg note "$note_text" 'any(.events[]; .kind == "note" and .text == $note)' >/dev/null

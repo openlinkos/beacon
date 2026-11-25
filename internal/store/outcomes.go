@@ -11,6 +11,8 @@ import (
 
 var bucketOutcomes = []byte("incident_outcomes")
 
+const ExerciseOrigin = "exercise"
+
 // IncidentOutcome is the bounded internal record of one resolved alert episode.
 // Its ID starts with the UTC resolution timestamp so the bucket is ordered newest-first.
 type IncidentOutcome struct {
@@ -18,6 +20,8 @@ type IncidentOutcome struct {
 	Group                string                       `json:"group"`
 	Title                string                       `json:"title"`
 	Severity             string                       `json:"severity"`
+	Origin               string                       `json:"origin,omitempty"`
+	ExerciseRun          string                       `json:"exercise_run,omitempty"`
 	Services             []string                     `json:"services"`
 	Started              time.Time                    `json:"started_at"`
 	Resolved             time.Time                    `json:"resolved_at"`
@@ -120,6 +124,15 @@ func (o IncidentOutcome) matchesEvidence(v string) bool {
 		return !o.HasPassingCheck()
 	}
 	return false
+}
+
+// ValidOutcomeOrigin checks the history filter. An absent origin remains unclassified.
+func ValidOutcomeOrigin(v string) bool {
+	return v == "" || v == ExerciseOrigin || v == "unknown"
+}
+
+func (o IncidentOutcome) matchesOrigin(v string) bool {
+	return v == "" || v == o.Origin || v == "unknown" && o.Origin == ""
 }
 
 // Verification counts the target-location observations collected by an on-demand check.
@@ -229,6 +242,7 @@ type OutcomeFilter struct {
 	Before   string
 	Group    string
 	Severity string
+	Origin   string
 	Evidence string
 	Limit    int
 }
@@ -264,7 +278,8 @@ func (s *Store) IncidentOutcomes(q OutcomeFilter) ([]IncidentOutcome, error) {
 			if decodeErr = json.Unmarshal(value, &item); decodeErr != nil || item.Resolved.Before(q.Since) {
 				return false
 			}
-			if (q.Group == "" || q.Group == item.Group) && (q.Severity == "" || q.Severity == item.Severity) && item.matchesEvidence(q.Evidence) {
+			if (q.Group == "" || q.Group == item.Group) && (q.Severity == "" || q.Severity == item.Severity) &&
+				item.matchesOrigin(q.Origin) && item.matchesEvidence(q.Evidence) {
 				out = append(out, item)
 			}
 			return len(out) <= q.Limit

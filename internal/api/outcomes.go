@@ -21,7 +21,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, p stor
 	}
 	out, err := s.Bridge.IncidentOutcomesFor(p, bridge.OutcomeQuery{
 		Group: q.Get("group"), Before: q.Get("before"), Severity: q.Get("severity"),
-		Since: q.Get("since"), Evidence: q.Get("evidence"), Limit: limit,
+		Since: q.Get("since"), Origin: q.Get("origin"), Evidence: q.Get("evidence"), Limit: limit,
 	})
 	if err != nil {
 		s.outcomeError(w, err)

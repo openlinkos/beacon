@@ -68,16 +68,25 @@ func TestIncidentOutcomeRoutes(t *testing.T) {
 		{store.OutcomeID(resolved, group, "cccccccccccccccc"), "", 0},
 		{store.OutcomeID(resolved, group, "dddddddddddddddd"), "agent", 1},
 	} {
-		err := e.Store.EnsureIncidentOutcome(store.IncidentOutcome{ID: fixture.id, Group: group, Severity: "critical", Resolved: resolved,
+		outcome := store.IncidentOutcome{ID: fixture.id, Group: group, Severity: "critical", Resolved: resolved,
 			PassingCheck: &store.Verification{ID: "complete", At: resolved, By: "named-checker", ActorKind: fixture.actorKind, Passed: 2, Missing: fixture.missing},
-		})
-		if err != nil {
+		}
+		if fixture.id == agentOutcome {
+			outcome.Origin, outcome.ExerciseRun = store.ExerciseOrigin, "exercise-run-fixture"
+		}
+		if err := e.Store.EnsureIncidentOutcome(outcome); err != nil {
 			t.Fatal(err)
 		}
 	}
-	code, out = c.do(http.MethodGet, path+"?group="+group+"&evidence=agent_passing_check", read, "")
+	code, out = c.do(http.MethodGet, path+"?group="+group+"&evidence=agent_passing_check&origin=exercise", read, "")
 	outcomes, _ = out["outcomes"].([]any)
-	if code != http.StatusOK || len(outcomes) != 1 || outcomes[0].(map[string]any)["id"] != agentOutcome {
+	if code != http.StatusOK || len(outcomes) != 1 || outcomes[0].(map[string]any)["id"] != agentOutcome ||
+		outcomes[0].(map[string]any)["exercise_run"] != "exercise-run-fixture" {
 		t.Fatalf("Agent passing check filter accepted another kind of evidence: %d %+v", code, out)
+	}
+	code, out = c.do(http.MethodGet, path+"?group="+group+"&evidence=agent_passing_check&origin=unknown", read, "")
+	outcomes, _ = out["outcomes"].([]any)
+	if code != http.StatusOK || len(outcomes) != 0 {
+		t.Fatalf("unclassified or incomplete check matched the filter: %d %+v", code, out)
 	}
 }

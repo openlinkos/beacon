@@ -382,6 +382,8 @@ components:
         group: {type: string, description: Recurring alert group ID used to filter related audit entries}
         title: {type: string}
         severity: {type: string, enum: [critical, warning, info]}
+        origin: {type: string, enum: [exercise], description: Present when Beacon verified an exercise quorum at the rule's initial evaluation}
+        exercise_run: {type: string, description: The verified built-in exercise run when origin is exercise}
         services: {type: array, items: {type: string}}
         started_at: {type: string, format: date-time}
         resolved_at: {type: string, format: date-time, description: When Beacon recorded the alert as resolved}
@@ -1366,6 +1368,7 @@ paths:
         - {name: group, in: query, schema: {type: string}, description: Filter by the recurring alert group ID}
         - {name: severity, in: query, schema: {type: string, enum: [critical, warning, info]}}
         - {name: since, in: query, schema: {type: string}, description: "Include episodes resolved since this duration (such as 7d) or RFC 3339 time"}
+        - {name: origin, in: query, schema: {type: string, enum: [exercise, unknown]}, description: Filter by a verified exercise quorum or an unclassified origin}
         - {name: evidence, in: query, schema: {type: string, enum: [agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check, no_passing_check]}, description: Filter by recorded evidence. agent_passing_check requires a retained passing check requested by a recorded Agent identity.}
         - {name: before, in: query, schema: {type: string}, description: The prior page's before cursor with the same filters}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}

@@ -10,6 +10,8 @@
         <dt>{{.L.Severity}}</dt><dd><span class="ol-badge ol-badge-{{.Incident.SeverityTone}}">{{.Incident.Severity}}</span></dd>
         <dt>{{.L.Started}}</dt><dd>{{.Incident.Started}}</dd>
         <dt>{{.L.Resolved}}</dt><dd>{{.Incident.Resolved}} <span class="ol-subtle">({{.Incident.Duration}})</span></dd>
+        <dt>{{.L.Origin}}</dt><dd>{{if .Incident.Exercise}}<span class="ol-badge ol-badge-info">{{.L.Exercise}}</span>{{else}}{{.L.UnknownOrigin}}{{end}}</dd>
+        {{if .Incident.ExerciseRun}}<dt>{{.L.ExerciseRun}}</dt><dd><code>{{.Incident.ExerciseRun}}</code></dd>{{end}}
         {{if .HumanAck}}<dt>{{.L.Acknowledgement}}</dt><dd>{{.HumanAck.By}} <span class="ol-subtle">{{.HumanAck.Via}} <time datetime="{{.HumanAck.ISO}}">{{.HumanAck.At}}</time></span></dd>{{end}}
         <dt>{{.L.Group}}</dt><dd><code>{{.Group}}</code></dd>
       </dl>

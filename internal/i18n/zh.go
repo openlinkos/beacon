@@ -121,6 +121,11 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Incident history could not be loaded.":  "无法加载故障历史。",
 	"No related audit entries are retained.": "没有保留相关审计记录。",
 	"Passing check requested by an Agent":    "Agent 发起的复测已通过",
+	"Incident origin":                        "故障来源",
+	"Verified exercise":                      "已验证的演练",
+	"Unknown origin":                         "来源未确认",
+	"All origins":                            "所有来源",
+	"Exercise run":                           "演练编号",
 	// what every page says of Beacon and where the project is
 	"Powered by Beacon, open source": "由开源的 Beacon 驱动",
 	"Beacon is open source.":         "Beacon 是开源软件。",

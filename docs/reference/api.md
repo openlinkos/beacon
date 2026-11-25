@@ -90,7 +90,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
-| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
+| `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome by ID, including alert resolution, recorded participation, the latest check and a retained passing check near rule recovery when available |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time. A report after the group fires again can update the retained delivery in its original incident, with that outcome's ID as the audit target |
@@ -109,6 +109,8 @@ Filter by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or
 - `agent_passing_check` requires that the retained complete pass was requested by an identified Agent.
 
 The corresponding `no_agent_report`, `no_human_ack` and `no_passing_check` mean the retained episode has no such evidence. Older records may be incomplete. These fields are insufficient to establish who repaired the incident.
+
+Filter with `origin=exercise` for outcomes whose first failing rule quorum is supported by verified exercise observations. The outcome includes `exercise_run`. `origin=unknown` selects older or unclassified outcomes, where `origin` and `exercise_run` are absent.
 
 The caller's machine selection also limits session records in the alert evidence, the timeline and the related sessions of retained outcomes. A command preview in an SSH audit entry requires unrestricted machine selection and a session-detail scope, because those audit entries carry a machine name without an enrolment identifier.
 

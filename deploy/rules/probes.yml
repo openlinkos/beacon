@@ -30,6 +30,7 @@ groups:
           severity: '{{ or $labels.severity "critical" }}'
         annotations:
           summary: "{{ $labels.service }} is down"
+          beacon_rule_active_at: '{{ if eq $labels.service "drill" }}{{ $activeAt.UnixMilli }}{{ end }}'
           description: "{{ $labels.service }} has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 

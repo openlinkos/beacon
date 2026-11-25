@@ -38,6 +38,7 @@ func TestIncidentHistoryKeepsReviewFiltersThroughPagination(t *testing.T) {
 	pass := store.IncidentOutcome{
 		ID: store.OutcomeID(at, e.id, "1234567890abcdef"), Group: e.id, Title: "Incident with retained pass",
 		Severity: "critical", Started: at.Add(-time.Minute), Resolved: at,
+		Origin: store.ExerciseOrigin, ExerciseRun: "review-fixture-run",
 		PassingCheck:         &store.Verification{ID: "pass", At: at, By: "alice / recovery", ActorKind: "agent", Passed: 2},
 		Verification:         &store.Verification{ID: "latest", At: e.now, Passed: 1, Missing: 1},
 		HumanAcknowledgement: &store.OutcomeHumanAcknowledgement{By: "day-shift", Via: "console", At: at},
@@ -83,9 +84,11 @@ func TestIncidentHistoryKeepsReviewFiltersThroughPagination(t *testing.T) {
 		t.Fatalf("passing evidence with incomplete latest result: %d", passing.code)
 	}
 	filters.Set("evidence", "agent_passing_check")
+	filters.Set("origin", "exercise")
 	agentPassing := viewer.get(href(base, filters))
 	if agentPassing.code != http.StatusOK || !strings.Contains(agentPassing.body, "Incident with retained pass") ||
 		!strings.Contains(agentPassing.body, `<option value="agent_passing_check" selected>Passing check requested by an Agent</option>`) ||
+		!strings.Contains(agentPassing.body, `<option value="exercise" selected>Verified exercise</option>`) ||
 		strings.Contains(agentPassing.body, "Archived outage ") {
 		t.Fatalf("identified Agent verification filter: %d", agentPassing.code)
 	}

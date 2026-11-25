@@ -62,6 +62,7 @@ tests:
               failure_domain: origin-1
             exp_annotations:
               summary: example.com is down
+              beacon_rule_active_at: ""
               description: example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
       - eval_time: 10m
@@ -119,6 +120,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: plain.example.com is down
+              beacon_rule_active_at: ""
               description: plain.example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 
@@ -173,6 +175,7 @@ tests:
               failure_domain: origin-1
             exp_annotations:
               summary: example.com is down
+              beacon_rule_active_at: ""
               description: example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 
@@ -245,3 +248,33 @@ tests:
               summary: Probe location edge-3 has sent no results for 10 minutes
               description: "No probe results from edge-3 (CN2 GIA). The machine, its beacon-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md
+
+  - name: the ordinary failure was already pending before the operator armed the drill at 3m20s
+    interval: 10s
+    input_series:
+      - series: 'probe_success{job="probe",service="drill",severity="critical",failure_domain="monitoring",location="edge-1",region="overseas"}'
+        values: '1 0x30'
+      - series: 'probe_success{job="probe",service="drill",severity="critical",failure_domain="monitoring",location="edge-2",region="overseas"}'
+        values: '1 0x30'
+    metricsql_expr_test:
+      - expr: 'sum(ALERTS{alertname="ServiceDown",alertstate="pending",service="drill"})'
+        eval_time: 3m10s
+        exp_samples:
+          - labels: '{}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 3m20s
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 3m40s
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: drill
+              severity: critical
+              failure_domain: monitoring
+            exp_annotations:
+              summary: drill is down
+              beacon_rule_active_at: "946684980000"
+              description: drill has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md

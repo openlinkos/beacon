@@ -88,6 +88,7 @@ func TestIncidentOutcomeEvidenceTool(t *testing.T) {
 	resolved := time.Now().Add(-time.Hour)
 	id := store.OutcomeID(resolved, group, "legacy")
 	if err := e.Store.EnsureIncidentOutcome(store.IncidentOutcome{ID: id, Group: group, Severity: "critical", Resolved: resolved,
+		Origin: store.ExerciseOrigin, ExerciseRun: "linked-test-run",
 		PassingCheck: &store.Verification{ID: "complete", By: "owner / recovery", ActorKind: "agent", Passed: 2},
 		Verification: &store.Verification{ID: "latest", Passed: 1, Missing: 1},
 		AgentDeliveries: []store.OutcomeAgentDelivery{
@@ -106,8 +107,9 @@ func TestIncidentOutcomeEvidenceTool(t *testing.T) {
 		t.Fatalf("retained passing result alongside latest check: %s", body)
 	}
 	input["evidence"] = "agent_passing_check"
+	input["origin"] = "exercise"
 	if res, body := call(t, read, "list_incident_outcomes", input); res.IsError || !strings.Contains(body, id) ||
-		!strings.Contains(body, `"actor_kind":"agent"`) {
+		!strings.Contains(body, `"actor_kind":"agent"`) || !strings.Contains(body, `"exercise_run":"linked-test-run"`) {
 		t.Fatalf("the identified Agent's passing check was not returned: %s", body)
 	}
 	input["evidence"] = "agent_report"

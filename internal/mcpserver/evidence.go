@@ -36,6 +36,7 @@ type (
 		Before   string `json:"before,omitempty" jsonschema:"cursor from the preceding page with the same filters"`
 		Severity string `json:"severity,omitempty" jsonschema:"critical, warning or info"`
 		Since    string `json:"since,omitempty" jsonschema:"resolution time at or after a duration such as 7d or an RFC 3339 time"`
+		Origin   string `json:"origin,omitempty" jsonschema:"exercise for verified drills or unknown when origin was unclassified"`
 		Evidence string `json:"evidence,omitempty" jsonschema:"agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check or no_passing_check"`
 		Limit    int    `json:"limit,omitempty" jsonschema:"page size (default 50, maximum 200)"`
 	}
@@ -54,7 +55,7 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 			}
 			p, _ := principal(ctx)
 			page, err := b.IncidentOutcomesFor(p, bridge.OutcomeQuery{Group: in.Group, Before: in.Before,
-				Severity: in.Severity, Since: in.Since, Evidence: in.Evidence, Limit: in.Limit})
+				Severity: in.Severity, Since: in.Since, Origin: in.Origin, Evidence: in.Evidence, Limit: in.Limit})
 			return nil, page, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_incident_outcome", Title: "Get a resolved incident outcome", Annotations: read,

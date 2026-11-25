@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9083f4ba
+sourceHash: sha256-b23992e8
 ---
 
 # REST API
@@ -94,7 +94,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
-| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
+| `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | 用故障摘要 ID 查询告警恢复时间、参与记录、最近一次复测，以及可用时规则恢复前后保留的通过复测 |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间。告警组再次触发后，新的回报仍可更新原故障中保留的投递记录，审计目标为该故障摘要的 ID |
@@ -113,6 +113,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 - `agent_passing_check` 查找由身份已确认的 Agent 发起并保留的完整通过复测。
 
 对应的 `no_agent_report`、`no_human_ack` 和 `no_passing_check` 表示故障历史里没有此类证据。旧记录可能缺少证据，单靠这些字段无法判断故障由谁修复。
+
+用 `origin=exercise` 查找首次故障判定有演练观测证据的记录。结果包含 `exercise_run`。用 `origin=unknown` 查找较早或来源未确认的记录，其结果中省略 `origin` 和 `exercise_run`。
 
 调用方的机器范围也适用于告警证据、时间线与归档故障所关联的会话。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
 

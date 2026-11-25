@@ -122,7 +122,7 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 	slices.SortFunc(participants, func(a, c store.Participation) int { return c.At.Compare(a.At) })
 	o := store.IncidentOutcome{
 		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
-		Severity: g.Severity, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
+		Severity: g.Severity, Origin: g.Origin, ExerciseRun: g.ExerciseRun, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
 		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
 		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents), HumanAcknowledgement: human,
 	}
@@ -223,8 +223,8 @@ func (b *Bridge) IncidentOutcomes(group, before string, limit int) (OutcomePage,
 
 // OutcomeQuery filters retained incidents before applying the result limit and cursor.
 type OutcomeQuery struct {
-	Group, Before, Severity, Since, Evidence string
-	Limit                                    int
+	Group, Before, Severity, Since, Origin, Evidence string
+	Limit                                            int
 }
 
 func (b *Bridge) incidentOutcomes(q OutcomeQuery) (OutcomePage, error) {
@@ -240,6 +240,8 @@ func (b *Bridge) incidentOutcomes(q OutcomeQuery) (OutcomePage, error) {
 		return OutcomePage{}, fmt.Errorf("%w: group must be an alert group ID", ErrBadInput)
 	case q.Severity != "" && !slices.Contains(config.Severities, q.Severity):
 		return OutcomePage{}, fmt.Errorf("%w: severity is critical, warning or info", ErrBadInput)
+	case !store.ValidOutcomeOrigin(q.Origin):
+		return OutcomePage{}, fmt.Errorf("%w: origin is exercise or unknown", ErrBadInput)
 	case !store.ValidOutcomeEvidence(q.Evidence):
 		return OutcomePage{}, fmt.Errorf("%w: evidence is agent_report, no_agent_report, human_ack, no_human_ack, passing_check, agent_passing_check or no_passing_check", ErrBadInput)
 	}
@@ -254,7 +256,7 @@ func (b *Bridge) incidentOutcomes(q OutcomeQuery) (OutcomePage, error) {
 		}
 	}
 	out, err := b.d.Store.IncidentOutcomes(store.OutcomeFilter{Since: since, Before: q.Before,
-		Group: q.Group, Severity: q.Severity, Evidence: q.Evidence, Limit: q.Limit})
+		Group: q.Group, Severity: q.Severity, Origin: q.Origin, Evidence: q.Evidence, Limit: q.Limit})
 	if err != nil {
 		return OutcomePage{}, err
 	}
