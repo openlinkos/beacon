@@ -6,6 +6,18 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Pushover incident response.
+	"Refresh status": "刷新状态",
+	"Pushover cancellation pending. The earlier page may still repeat.": "正在取消 Pushover 紧急通知。此前发出的通知可能仍会重复响铃。",
+	"Pushover confirmed cancellation of the page.":                      "Pushover 已确认取消该条紧急通知。",
+	"The retry window for the Pushover page has ended.":                 "这条 Pushover 紧急通知的重试时限已结束。",
+	"Pushover cancellation could not be verified.":                      "目前无法确认这条 Pushover 紧急通知已取消。",
+	"No cancellation result is recorded for the Pushover page.":         "这条 Pushover 紧急通知暂无取消结果记录。",
+	"Pushover confirmed page cancellation":                              "Pushover 已确认取消紧急通知",
+	"Pushover cancellation attempt failed":                              "Pushover 紧急通知取消失败",
+	"Pushover reported a device acknowledgement":                        "Pushover 已报告设备回应",
+	"Pushover reported a device acknowledgement at %s":                  "Pushover 已于 %s 报告设备回应",
+
 	// Console session scope.
 	"Agent or machine": "Agent 或机器",
 	"Sessions shown here are limited to the machines available to this sign-in.":  "这里仅显示本次登录可访问机器的会话。",
@@ -183,10 +195,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Awaiting a person. %s":                           "等待值班人认领。%s",
 	"Take over":                                       "接手",
 	"Take over with note":                             "接手并备注",
-	"The acknowledgement changed. Review who is responding and try again.": "认领状态已变化。请查看当前处置人后重试。",
-	"This incident has changed. Review the alert before taking action.":    "事件已变化。请核对告警后再操作。",
-	"Acknowledging stops escalation while the alert is acknowledged.":      "告警被认领期间，暂停向人升级通知。",
-	"Escalation is paused while this alert is acknowledged.":               "告警处于已认领状态时，通知升级暂停。",
+	"The acknowledgement changed. Review who is responding and try again.":  "认领状态已变化。请查看当前处置人后重试。",
+	"This incident has changed. Review the alert before taking action.":     "事件已变化。请核对告警后再操作。",
+	"Acknowledging pauses new escalations while the alert is acknowledged.": "告警被认领期间，Beacon 会暂停发起新的升级通知。",
+	"New escalations are paused while this alert is acknowledged.":          "告警已认领，Beacon 已暂停发起新的升级通知。",
 	"Probe again now":                                          "立即复测",
 	"Allow up to 45 seconds for the results.":                  "最多等待 45 秒查看结果。",
 	"No result":                                                "无结果",

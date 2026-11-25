@@ -28,7 +28,7 @@ type labels struct {
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 	AcknowledgementNote, FullAcknowledgementNote, LatestNote, AllNotes                                                       string
-	ShareLinks                                                                                                               string
+	ShareLinks, RefreshStatus                                                                                                string
 }
 
 func (s *Server) labels() labels {
@@ -47,13 +47,13 @@ func (s *Server) labels() labels {
 		AckWithNote: s.t("Acknowledge with note"), TakeOverWithNote: s.t("Take over with note"),
 		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
 		SessionsOn: s.t("Sessions on the alert's machines"), EndSilence: s.t("End the silence"),
-		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging stops escalation while the alert is acknowledged."),
+		Response: s.t("Alert response"), EscalationStops: s.t("Acknowledging pauses new escalations while the alert is acknowledged."),
 		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
 		ProbeResults: s.t("On-demand check results."),
 		SignIn:       s.t("Sign in"), TakeOver: s.t("Take over"),
 		AcknowledgementNote: s.t("Acknowledgement note"), FullAcknowledgementNote: s.t("Read full acknowledgement note"),
 		LatestNote: s.t("Latest note"), AllNotes: s.t("All notes"),
-		ShareLinks: s.t("Manage share links"),
+		ShareLinks: s.t("Manage share links"), RefreshStatus: s.t("Refresh status"),
 	}
 }
 
@@ -282,6 +282,8 @@ type alertPage struct {
 	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
 	HookFailed, PeopleDeliveryFailed                                             bool
+	PhoneCancellation, PhoneRefresh                                              string
+	PhoneCancellationPending                                                     bool
 	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
 	LatestNote                                                                   *noteRow
@@ -343,9 +345,12 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Labels = append(p.Labels, kv{k, al.Labels[k]})
 	}
 	if ack := g.Ack; ack != nil {
-		if ack.StopsEscalation() {
+		switch {
+		case ack.Via == "pushover":
+			p.Ownership = s.t("Pushover reported a device acknowledgement at %s", s.clock(ack.At))
+		case ack.StopsEscalation():
 			p.Ownership = s.t("Acknowledged by %s at %s via %s", ack.By, s.clock(ack.At), s.via(ack.Via))
-		} else {
+		default:
 			p.Ownership = s.t("Agent acknowledgement from %s at %s via %s", ack.By, s.clock(ack.At), s.via(ack.Via))
 			if al.Status == "firing" {
 				p.Ownership = s.t("Awaiting a person. %s", p.Ownership)
@@ -359,7 +364,11 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	case silenced:
 		p.Escalation = s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By)
 	case g.Status == "firing" && g.Ack.StopsEscalation():
-		p.Escalation = s.t("Escalation is paused while this alert is acknowledged.")
+		p.Escalation = s.t("New escalations are paused while this alert is acknowledged.")
+	}
+	p.PhoneCancellation, p.PhoneCancellationPending = s.pushoverCancellation(g, tl)
+	if p.PhoneCancellationPending && a.Viewer != nil {
+		p.PhoneRefresh = r.URL.EscapedPath()
 	}
 	p.HookState, p.HookFailed = s.hookState(tl, g.Status)
 	p.AgentRun = s.latestAgentRun(tl, g.Status)
@@ -567,6 +576,14 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 		case "pushover":
 			row.Text = s.t("Pushover accepted the page")
 		case "notification":
+			if e.Via == "pushover" && e.Event == "cancel" && (e.Result == "ok" || e.Result == "failed") {
+				if e.Result == "ok" {
+					row.Text = s.t("Pushover confirmed page cancellation")
+				} else {
+					row.Text = s.t("Pushover cancellation attempt failed")
+				}
+				break
+			}
 			if e.Event == "resolved" {
 				if e.Result == "ok" {
 					row.Text = s.t("Recovery update accepted by %s", s.channel(e.Via))
@@ -585,7 +602,9 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 			}
 		case "acknowledged":
 			row.Text, row.Detail = s.t("Acknowledged by %s via %s", e.By, s.via(e.Via)), e.Text
-			if e.Type == "agent" {
+			if e.Via == "pushover" {
+				row.Text = s.t("Pushover reported a device acknowledgement")
+			} else if e.Type == "agent" {
 				row.Text = s.t("Agent acknowledgement from %s via %s", e.By, s.via(e.Via))
 			}
 		case "note":
@@ -744,6 +763,9 @@ func (s *Server) peopleDelivery(tl bridge.Timeline) (string, bool) {
 	seen := map[string]bool{}
 	var accepted string
 	for _, e := range slices.Backward(tl.Events) {
+		if e.Event == "cancel" || e.Event == "resolved" {
+			continue
+		}
 		var route string
 		switch e.Kind {
 		case "notified", "notification", "pushover":
@@ -768,6 +790,29 @@ func (s *Server) peopleDelivery(tl bridge.Timeline) (string, bool) {
 		return s.t("No people notification acceptance recorded."), false
 	}
 	return accepted, false
+}
+
+func (s *Server) pushoverCancellation(g bridge.GroupView, tl bridge.Timeline) (string, bool) {
+	switch g.PushoverCancellation {
+	case "pending":
+		return s.t("Pushover cancellation pending. The earlier page may still repeat."), true
+	case "confirmed":
+		return s.t("Pushover confirmed cancellation of the page."), false
+	case "expired":
+		return s.t("The retry window for the Pushover page has ended."), false
+	case "unconfirmed":
+		return s.t("Pushover cancellation could not be verified."), false
+	}
+	if g.Pushed == nil || (g.Status != "resolved" && !g.Ack.StopsEscalation()) || (g.Ack != nil && g.Ack.Via == "pushover") {
+		return "", false
+	}
+	// A device response for this page can remain in the timeline after a person takes over.
+	for _, e := range tl.Events {
+		if e.Kind == "acknowledged" && e.Via == "pushover" && !e.At.Before(*g.Pushed) {
+			return "", false
+		}
+	}
+	return s.t("No cancellation result is recorded for the Pushover page."), false
 }
 
 func (s *Server) agentEvent(e bridge.Event) (text, detail string) {

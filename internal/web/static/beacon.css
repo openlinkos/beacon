@@ -24,6 +24,7 @@
   gap: var(--ol-space-2);
   min-width: 0;
 }
+#pushover-cancellation .ol-status { white-space: normal; }
 .bc-alert-ack-note > summary, .bc-alert-observations > summary, .bc-alert-handover summary {
   cursor: pointer;
   padding-block: var(--ol-space-2);
