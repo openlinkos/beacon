@@ -54,14 +54,17 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 	if !ok {
 		return Timeline{}, ErrNotFound
 	}
-	w := b.window(&g, d)
-	ev := []Event{{At: g.StartsAt, Kind: "started", Service: cleanLine(b.service(&g))}}
+	return b.timeline(ctx, &g, b.window(&g, d)), nil
+}
+
+func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window) Timeline {
+	ev := []Event{{At: g.StartsAt, Kind: "started", Service: cleanLine(b.service(g))}}
 	add := func(e Event) {
 		if !e.At.IsZero() {
 			ev = append(ev, e)
 		}
 	}
-	for _, e := range notificationEvents(&g) {
+	for _, e := range notificationEvents(g) {
 		add(e)
 	}
 	for _, a := range g.PriorAcks {
@@ -73,7 +76,7 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 	for _, n := range g.Notes {
 		add(Event{At: n.At, Kind: "note", By: n.By, Via: n.Via, Text: clean(n.Text, maxLong, true)})
 	}
-	for _, s := range b.silences(&g, w) {
+	for _, s := range b.silences(g, w) {
 		until := s.EndsAt
 		add(Event{At: s.StartsAt, Kind: "silenced", By: s.By, Text: s.Comment, ID: s.ID, Until: &until})
 		if !s.EndsAt.After(b.now()) {
@@ -96,33 +99,33 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 	for _, run := range g.ProbeRuns {
 		add(Event{At: run.At, Kind: "probe_now", By: run.By, Via: run.Via, ID: run.ID, Probes: run.Results})
 	}
-	machines := b.machines(&g)
-	for _, c := range b.changesAround(&g, w, machines) {
+	machines := b.machines(g)
+	for _, c := range b.changesAround(g, w, machines) {
 		add(Event{At: c.Time, Kind: "change", By: c.Source, Type: c.Kind, Text: c.Summary, Service: c.Service, Machine: c.Machine, ID: c.ID,
 			URL: c.URL, Related: c.Related, Phase: c.Phase})
 	}
-	ss := b.sessions(&g, w, machines)
+	ss := b.sessions(g, w, machines)
 	b.withCommands(ss)
 	for _, s := range ss {
 		add(Event{At: s.Started, Kind: "session", By: s.Agent, Via: s.Via, Type: s.Kind, Machine: s.Machine, Text: s.Command, ID: s.ID,
 			Exit: s.Exit, URL: s.Page, Related: s.Related, Phase: s.Phase})
 		for _, c := range s.ShellCommands {
 			add(Event{At: c.Started, Kind: "command", By: s.Agent, Via: s.Via, Type: s.Kind, Machine: s.Machine, Text: c.Command, ID: s.ID,
-				Exit: c.Exit, URL: s.Page, Related: s.Related, Phase: phase(&g, c.Started)})
+				Exit: c.Exit, URL: s.Page, Related: s.Related, Phase: phase(g, c.Started)})
 		}
 	}
-	hbs := b.heartbeats(ctx, &g, w)
+	hbs := b.heartbeats(ctx, g, w)
 	for _, h := range hbs {
 		if h.LastSuccess != nil { // even when it is before the window: it is when the story began
-			add(Event{At: *h.LastSuccess, Kind: "heartbeat", ID: h.Name, Machine: h.Machine, Text: h.Description, Phase: phase(&g, *h.LastSuccess)})
+			add(Event{At: *h.LastSuccess, Kind: "heartbeat", ID: h.Name, Machine: h.Machine, Text: h.Description, Phase: phase(g, *h.LastSuccess)})
 		}
 	}
 	if !g.Firing() {
 		add(Event{At: g.ResolvedAt, Kind: "resolved"})
 	}
 	sort.SliceStable(ev, func(i, j int) bool { return ev[i].At.Before(ev[j].At) })
-	return Timeline{Alert: b.brief(&g), Window: w, Heartbeats: hbs, Events: ev,
+	return Timeline{Alert: b.brief(g), Window: w, Heartbeats: hbs, Events: ev,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
 			"heartbeats[].description", "heartbeats[].error", "events[].text", "events[].service",
-			"events[].probes[].instance", "events[].probes[].module", "events[].probes[].reason")}, nil
+			"events[].probes[].instance", "events[].probes[].module", "events[].probes[].reason")}
 }

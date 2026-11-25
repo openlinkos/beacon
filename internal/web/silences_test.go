@@ -38,7 +38,7 @@ func TestSilencesPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := e.signedIn("operator", "status:read", "alerts:write", "maintenance:write")
-	if a := w.post(link.AlertPath(e.id)+"/silence", url.Values{"duration": {"1h"}, "comment": {"deploying"}}); a.code != http.StatusSeeOther {
+	if a := w.post(link.AlertPath(e.id)+"/silence", incidentForm(t, w.get(link.AlertPath(e.id)), url.Values{"duration": {"1h"}, "comment": {"deploying"}})); a.code != http.StatusSeeOther {
 		t.Fatalf("silencing: %d", a.code)
 	}
 	// the windows made sil-1 and sil-2, the alert's page sil-3

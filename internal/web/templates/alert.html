@@ -1,4 +1,5 @@
 {{define "scripts"}}{{range .Events}}{{if and .Probe .Probe.Open}}<script src="/static/beacon-probe-result.js?v={{$.Version}}" defer></script>{{end}}{{end}}{{end}}
+{{define "incident-action"}}<input type="hidden" name="expected_episode" value="{{.Episode}}"><input type="hidden" name="return_episode" value="{{.ReturnEpisode}}">{{end}}
 {{define "content"}}<div class="ol-stack">
 <section class="ol-panel bc-alert-response" data-state="{{.StatusClass}}" aria-labelledby="alert-response">
   <div class="ol-panel-body bc-alert-response-body">
@@ -17,8 +18,8 @@
     {{if .SignInHref}}<div class="ol-cluster"><a class="ol-btn ol-btn-primary" href="{{.SignInHref}}">{{iconSm "log-in"}}{{.L.SignIn}}</a></div>{{end}}
     {{with .Actions}}<div class="bc-alert-controls">
       <div class="ol-cluster bc-alert-buttons">
-        {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="expected_ack" value="{{.AckVersion}}"><button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{if .TakeOver}}{{$.L.TakeOver}}{{else}}{{$.L.Acknowledge}}{{end}}</button></form>{{end}}
-        {{if .Probe}}<form method="post" action="{{.Probe}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ol-btn {{if .Ack}}ol-btn-secondary{{else}}ol-btn-primary{{end}}" aria-describedby="probe-wait">{{iconSm "activity"}}{{$.L.ProbeNow}}</button></form>{{end}}
+        {{if .Ack}}<form method="post" id="alert-ack" action="{{.Ack}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="expected_ack" value="{{.AckVersion}}">{{template "incident-action" .}}<button type="submit" class="ol-btn ol-btn-primary" aria-describedby="escalation-effect">{{iconSm "check"}}{{if .TakeOver}}{{$.L.TakeOver}}{{else}}{{$.L.Acknowledge}}{{end}}</button></form>{{end}}
+        {{if .Probe}}<form method="post" action="{{.Probe}}"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "incident-action" .}}<button type="submit" class="ol-btn {{if .Ack}}ol-btn-secondary{{else}}ol-btn-primary{{end}}" aria-describedby="probe-wait">{{iconSm "activity"}}{{$.L.ProbeNow}}</button></form>{{end}}
         {{if .Note}}<a class="ol-btn ol-btn-secondary" href="#add-note">{{iconSm "pencil"}}{{$.L.AddNote}}</a>{{end}}
       </div>
       {{if .Ack}}
@@ -143,13 +144,13 @@
   {{with .Actions}}
   {{if .Silence}}<form class="ol-panel" method="post" action="{{.Silence}}">
     <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "timer"}} {{$.L.Silence}}</h2></div>
-    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "incident-action" .}}
       <div class="ol-field"><label class="ol-label" for="silence-why">{{$.L.SilenceWhy}}</label><input class="ol-input" id="silence-why" name="comment" required maxlength="500"></div></div>
     <div class="ol-panel-footer"><span></span><span class="ol-btn-group">{{range .Durations}}<button type="submit" name="duration" value="{{.K}}" class="ol-btn ol-btn-secondary ol-btn-sm">{{.V}}</button>{{end}}</span></div>
   </form>{{end}}
   {{if .Note}}<form class="ol-panel" id="add-note" method="post" action="{{.Note}}" tabindex="-1" aria-labelledby="alert-add-note">
     <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-add-note">{{icon "pencil"}} {{$.L.AddNote}}</h2></div>
-    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="ol-panel-body"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "incident-action" .}}
       <div class="ol-field"><label class="ol-label" for="note-text">{{$.L.Note}}</label><textarea class="ol-textarea" id="note-text" name="text" rows="3" required maxlength="2000"></textarea></div></div>
     <div class="ol-panel-footer"><span></span><button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm">{{iconSm "pencil"}}{{$.L.AddNote}}</button></div>
   </form>{{end}}

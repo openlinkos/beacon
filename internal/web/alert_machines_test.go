@@ -81,7 +81,7 @@ func TestAlertLinksCatalogueHeartbeatMachine(t *testing.T) {
 	if a := owner.get(path); a.code != http.StatusOK || !strings.Contains(a.body, "The SSH channel is off.") || strings.Contains(a.body, `href="/console/machines/edge-2`) {
 		t.Errorf("a disabled channel should explain the unavailable link: %d", a.code)
 	}
-	found := oncall.post(path+"/notes", url.Values{"text": {"Shift handover"}})
+	found := oncall.post(path+"/notes", incidentForm(t, oncall.get(path), url.Values{"text": {"Shift handover"}}))
 	if found.code != http.StatusSeeOther || !strings.Contains(oncall.get(path).body, "Shift handover") {
 		t.Fatal("recording a handover must work with the SSH channel disabled")
 	}

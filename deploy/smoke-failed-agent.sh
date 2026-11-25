@@ -43,7 +43,7 @@ class Receiver(BaseHTTPRequestHandler):
             if payload["level"] != "critical" or not isinstance(payload["url"], str):
                 raise ValueError("missing critical incident notification")
             targets = parse_qs(urlsplit(payload["url"]).query).get("next", [])
-            match = re.fullmatch(r"/console/alerts/([0-9a-f]{12})", targets[0]) if len(targets) == 1 else None
+            match = re.fullmatch(r"/console/alerts/([0-9a-f]{12})(?:/episodes/[0-9a-f]{16})?", targets[0]) if len(targets) == 1 else None
             if not match:
                 raise ValueError("missing alert group")
         except (ValueError, TypeError, KeyError):
@@ -84,7 +84,7 @@ smoke_shift_sign_in() {
 }
 
 smoke_shift_claim() {
-  local person=$1 page=$2 button=$3 note=$4 csrf expected
+  local person=$1 page=$2 button=$3 note=$4 csrf expected expected_episode return_episode
   curl -fsS -b "$work/$person.cookies" "$status_url$page" > "$work/$person.alert.html"
   grep -Fq "$button" "$work/$person.alert.html"
   if [[ "${smoke_agent_reports:-false}" == true ]]; then
@@ -92,11 +92,18 @@ smoke_shift_claim() {
   fi
   csrf=$(sed -n 's/.*id="alert-ack".*name="csrf" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
   expected=$(sed -n 's/.*name="expected_ack" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
+  expected_episode=$(sed -n 's/.*id="alert-ack".*name="expected_episode" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
+  return_episode=$(sed -n 's/.*id="alert-ack".*name="return_episode" value="\([^"]*\)".*/\1/p' "$work/$person.alert.html")
   test -n "$csrf"
   test -n "$expected"
+  if [[ "$page" == */episodes/* ]]; then
+    test "$expected_episode" = "${page##*/}"
+    test "$return_episode" = "$expected_episode"
+  fi
   test "$(curl -fsS -b "$work/$person.cookies" -o /dev/null -D "$work/$person.headers" -w '%{http_code}' \
     --data-urlencode "csrf=$csrf" --data-urlencode "expected_ack=$expected" --data-urlencode "note=$note" \
-    "$status_url$page/ack")" = 303
+    --data-urlencode "expected_episode=$expected_episode" --data-urlencode "return_episode=$return_episode" \
+    "$status_url${page%%/episodes/*}/ack")" = 303
   test "$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "$work/$person.headers")" = "$page?done=ack"
 }
 
@@ -154,7 +161,8 @@ smoke_failed_evidence() {
 }
 
 smoke_failed_agent_drill() {
-  local previous_alert=${1:-} previous= alert drill_start page episode entry first second first_note second_note csrf location
+  local previous_alert=${1:-} previous='' previous_link='' alert drill_start page episode entry first second first_note second_note csrf location
+  local return_episode expected_episode
   local fault_requested fault_confirmed probes_observed rule_observed group_observed
   drill_start=$SECONDS
   first=smoke-first-shift
@@ -162,7 +170,9 @@ smoke_failed_agent_drill() {
   first_note='The external Agent failed to run. I checked both failed locations.'
   second_note='I took over and am confirming the HTTP recovery.'
   if [[ -n "$previous_alert" ]]; then
-    previous=$(curl -fsS "$status_url/api/v1/alerts/$previous_alert" -H "Authorization: Bearer $token" | jq -er '.starts_at')
+    curl -fsS "$status_url/api/v1/alerts/$previous_alert" -H "Authorization: Bearer $token" > "$work/first-episode.json"
+    previous=$(jq -er '.starts_at' "$work/first-episode.json")
+    previous_link=$(jq -er '.page' "$work/first-episode.json")
   fi
   rm -f "$work/hook.json"
   touch "$work/fail-agent"
@@ -195,21 +205,29 @@ smoke_failed_agent_drill() {
   entry=$(jq -er '.payload.url' "$work/phone-$alert.json")
   python3 - "$entry" "$status_url" "$page" "$work/phone-$alert.json" "$work/hook.json" \
     "$fault_requested" "$fault_confirmed" "$probes_observed" "$rule_observed" "$group_observed" \
-    "$work/wake-accepted-at" "$work/phone-accepted-at" <<'PY'
+    "$work/wake-accepted-at" "$work/phone-accepted-at" "$version" "$work/received-incident" <<'PY'
 from datetime import datetime
 import json
 from pathlib import Path
+import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
 entry, base, alert, receipt, wake = sys.argv[1:6]
 requested, confirmed, probes, rule, group = map(float, sys.argv[6:11])
-wake_accepted_at, phone_accepted_at = map(Path, sys.argv[11:])
+wake_accepted_at, phone_accepted_at = map(Path, sys.argv[11:13])
+version, incident_path = sys.argv[13], Path(sys.argv[14])
 entry, base = urlsplit(entry), urlsplit(base)
 if (entry.scheme, entry.netloc, entry.path) != (base.scheme, base.netloc, "/console/sign-in"):
     sys.exit("The recorded phone notification links outside the test sign-in")
-if parse_qs(entry.query).get("next") != [alert]:
+paths = parse_qs(entry.query).get("next", [])
+if version == "v0.3.0-rc.34":
+    valid = paths == [alert]
+else:
+    valid = len(paths) == 1 and bool(re.fullmatch(re.escape(alert) + r"/episodes/[0-9a-f]{16}", paths[0]))
+if not valid:
     sys.exit("The recorded phone notification must link to the drill alert")
+incident_path.write_text(paths[0], encoding="utf-8")
 received = json.loads(Path(receipt).read_text())["received_at"]
 wake_queued = json.loads(Path(wake).read_text())["at"]
 
@@ -240,6 +258,7 @@ print("Failed-Agent phase timing (seconds from fault request): " + json.dumps({
     "within_five_minutes": phone_accepted - requested <= 300,
 }))
 PY
+  page=$(cat "$work/received-incident")
   smoke_shift_sign_in "$first" "$entry" "$page"
   smoke_shift_claim "$first" "$page" 'Acknowledge with note' "$first_note"
   smoke_shift_sign_in "$second" "$entry" "$page"
@@ -247,14 +266,26 @@ PY
   grep -Fq "$first_note" "$work/previous-shift.html"
   smoke_shift_claim "$second" "$page" 'Take over with note' "$second_note"
   printf 'Both on-call accounts claimed the same episode through the received link.\n'
+  if [[ "$version" != v0.3.0-rc.34 && -n "$previous_alert" ]]; then
+    local old_outcome
+    [[ "$previous_link" == "$status_url/console/alerts/$previous_alert/episodes/"* ]]
+    old_outcome=$(curl -fsS "$status_url/api/v1/incident-outcomes?group=$alert" -H "Authorization: Bearer $token" |
+      jq -er --arg previous "$previous" '.outcomes[] | select(.started_at == $previous) | .id')
+    test "$(curl -fsS -b "$work/$second.cookies" -o /dev/null -D "$work/old-incident.headers" -w '%{http_code}' "$previous_link")" = 303
+    test "$(awk 'tolower($1) == "location:" {sub(/\r$/, ""); print $2}' "$work/old-incident.headers")" = "/console/incident-outcomes/$old_outcome"
+    printf 'The first episode link opens its exact retained history after the same service fires again.\n'
+  fi
 
   beacon drill off
   test "$(curl -fsS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 200
   curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/recheck.html"
   csrf=$(sed -n 's/.*action="[^"]*\/probe-now".*name="csrf" value="\([^"]*\)".*/\1/p' "$work/recheck.html")
+  expected_episode=$(sed -n 's/.*action="[^"]*\/probe-now".*name="expected_episode" value="\([^"]*\)".*/\1/p' "$work/recheck.html")
+  return_episode=$(sed -n 's/.*action="[^"]*\/probe-now".*name="return_episode" value="\([^"]*\)".*/\1/p' "$work/recheck.html")
   test -n "$csrf"
   test "$(curl -fsS --max-time 60 -b "$work/$second.cookies" -o /dev/null -D "$work/recheck.headers" -w '%{http_code}' \
-    --data-urlencode "csrf=$csrf" "$status_url$page/probe-now")" = 303
+    --data-urlencode "csrf=$csrf" --data-urlencode "expected_episode=$expected_episode" \
+    --data-urlencode "return_episode=$return_episode" "$status_url${page%%/episodes/*}/probe-now")" = 303
   location=$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "$work/recheck.headers")
   [[ "$location" == "$page?probe="* ]]
   wait_for 'Both probes measured HTTP recovery after handover' 120 probes 1

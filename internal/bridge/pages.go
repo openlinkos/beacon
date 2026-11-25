@@ -20,6 +20,8 @@ func (b *Bridge) PageURL(path string) string { return b.d.Pages.URL(path) }
 // AlertPage is the signed link to an alert group's page.
 func (b *Bridge) AlertPage(id string) string { return b.d.Pages.Alert(id) }
 
+func (b *Bridge) incidentPage(g *store.Group) string { return b.d.Pages.Incident(g.ID, g.Episode) }
+
 // SessionPage is the signed link to a session's page, with its replay.
 func (b *Bridge) SessionPage(id string) string { return b.d.Pages.Session(id) }
 

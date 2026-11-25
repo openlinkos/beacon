@@ -110,6 +110,10 @@ type Pages struct {
 
 // idRe is what an id in a page path may look like; anything else gets no link.
 var idRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var episodeRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+// ValidEpisode reports whether episode identifies an individual incident.
+func ValidEpisode(episode string) bool { return episodeRe.MatchString(episode) }
 
 // URL is the signed link to the page at path (which begins with "/"), or "".
 func (p *Pages) URL(path string) string {
@@ -120,11 +124,14 @@ func (p *Pages) URL(path string) string {
 }
 
 // Alert is the link to an alert group's page.
-func (p *Pages) Alert(id string) string {
-	if !idRe.MatchString(id) {
+func (p *Pages) Alert(id string) string { return p.Incident(id, "") }
+
+// Incident is the signed link to an episode. Older groups without an episode use their group page.
+func (p *Pages) Incident(id, episode string) string {
+	if !idRe.MatchString(id) || (episode != "" && !ValidEpisode(episode)) {
 		return ""
 	}
-	return p.URL(AlertPath(id))
+	return p.URL(IncidentPath(id, episode))
 }
 
 // Session is the link to a session's page, with its replay.
@@ -144,6 +151,14 @@ func SignInPath(next string) string { return Root + "/sign-in?next=" + url.Query
 
 // AlertPath is the path of an alert group's page.
 func AlertPath(id string) string { return Root + "/alerts/" + id }
+
+// IncidentPath pins an alert link to one episode of its recurring group.
+func IncidentPath(id, episode string) string {
+	if episode == "" {
+		return AlertPath(id)
+	}
+	return AlertPath(id) + "/episodes/" + episode
+}
 
 // SessionPath is the path of a session's page.
 func SessionPath(id string) string { return Root + "/sessions/" + id }

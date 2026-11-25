@@ -255,6 +255,7 @@ type alertActions struct {
 	Durations                       []kv   // the silence's choices: value, label
 	Unsilence, Back                 string // where the form that ends the group's silence posts, and the page to come back to
 	AckVersion                      string
+	Episode, ReturnEpisode          string
 	TakeOver                        bool
 }
 
@@ -416,12 +417,12 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	}
 	if v := a.Viewer; v != nil && v.has("alerts:write") {
 		base := link.AlertPath(al.ID)
-		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes"}
+		p.Actions = &alertActions{CSRF: v.Session.CSRF, Note: base + "/notes", Episode: g.Episode, ReturnEpisode: r.PathValue("episode")}
 		if s.Bridge.CanProbeNow() {
 			p.Actions.Probe = base + "/probe-now"
 		}
 		if silenced {
-			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", base
+			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", link.IncidentPath(al.ID, p.Actions.ReturnEpisode)
 		}
 		if al.Status == "firing" {
 			p.Actions.Silence = base + "/silence"

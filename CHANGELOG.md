@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Keep new notification links on the incident they were sent for, even when the same alert group fires again. Old incident links open the matching retained history. The console refuses stale acknowledgement, silence, note and on-demand check forms.
+
 ## 0.3.0
 
 ### rc.34 (2026-11-25)

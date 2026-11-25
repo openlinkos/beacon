@@ -10,6 +10,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 var (
@@ -184,6 +185,18 @@ func (b *Bridge) IncidentOutcomes(group, before string, limit int) (OutcomePage,
 }
 
 var ErrOutcomeNotFound = errors.New("no such incident outcome")
+
+// ArchivedIncidentID finds the incident's private summary when the live group holds a later episode.
+func (b *Bridge) ArchivedIncidentID(group, episode string) (string, error) {
+	if !outcomeGroup.MatchString(group) || !link.ValidEpisode(episode) {
+		return "", ErrOutcomeNotFound
+	}
+	o, err := b.d.Store.IncidentOutcomeForEpisode(group, episode, b.outcomeCutoff(b.now()))
+	if errors.Is(err, store.ErrNotFound) {
+		return "", ErrOutcomeNotFound
+	}
+	return o.ID, err
+}
 
 // IncidentOutcome reads the bounded, private summary of a resolved episode.
 func (b *Bridge) IncidentOutcome(id string) (OutcomeResult, error) {

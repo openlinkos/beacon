@@ -339,10 +339,10 @@ func TestScopes(t *testing.T) {
 			t.Errorf("the alert's page lacks %s", form)
 		}
 	}
-	if a := w.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"restarted the relay " + hostile}}); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=note" {
+	if a := w.post("/console/alerts/"+e.id+"/notes", incidentForm(t, page, url.Values{"text": {"restarted the relay " + hostile}})); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=note" {
 		t.Errorf("a note: %d %q", a.code, a.header.Get("Location"))
 	}
-	if a := w.post("/console/alerts/"+e.id+"/notes", url.Values{"text": {"  "}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
+	if a := w.post("/console/alerts/"+e.id+"/notes", incidentForm(t, page, url.Values{"text": {"  "}})); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
 		t.Errorf("an empty note: %q", a.header.Get("Location"))
 	}
 	if a := w.post("/console/alerts/"+e.id+"/ack", ackForm(t, page, "on it")); a.code != http.StatusSeeOther || a.header.Get("Location") != link.AlertPath(e.id)+"?done=ack" {
@@ -351,7 +351,7 @@ func TestScopes(t *testing.T) {
 	if a := w.post("/console/alerts/"+e.id+"/silence", url.Values{"duration": {"7d"}, "comment": {"x"}}); a.header.Get("Location") != link.AlertPath(e.id)+"?error=bad_input" {
 		t.Errorf("a silence the console does not offer: %q", a.header.Get("Location"))
 	}
-	if a := w.post("/console/alerts/"+e.id+"/silence", url.Values{"duration": {"4h"}, "comment": {"maintenance"}}); a.code != http.StatusSeeOther {
+	if a := w.post("/console/alerts/"+e.id+"/silence", incidentForm(t, page, url.Values{"duration": {"4h"}, "comment": {"maintenance"}})); a.code != http.StatusSeeOther {
 		t.Errorf("silencing: %d", a.code)
 	}
 	g, _ := e.st.Group(e.id)

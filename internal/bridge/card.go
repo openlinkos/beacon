@@ -241,7 +241,7 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	}
 	els = append(els, b.agentBlock(g), b.sessionsBlock(sessions), b.notesBlock(g))
 	var links []map[string]any
-	if u := b.AlertPage(g.ID); u != "" {
+	if u := b.incidentPage(g); u != "" {
 		links = append(links, feishu.LinkButton(b.t("Timeline"), u))
 	}
 	if u := b.link(b.d.Config.Links.Runbook, g); u != "" {
@@ -315,7 +315,7 @@ func (b *Bridge) notificationPage(g *store.Group) string {
 		return ""
 	}
 	base.User, base.RawQuery, base.Fragment, base.ForceQuery = nil, "", "", false
-	return cleanURL(strings.TrimSuffix(base.String(), "/") + link.SignInPath(link.AlertPath(g.ID)))
+	return cleanURL(strings.TrimSuffix(base.String(), "/") + link.SignInPath(link.IncidentPath(g.ID, g.Episode)))
 }
 
 func (b *Bridge) phoneLink(g *store.Group) (string, string) {

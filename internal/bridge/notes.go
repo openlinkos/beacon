@@ -22,6 +22,15 @@ const (
 // AddNote leaves a note on an alert group, firing or resolved. The card shows it; it is audited and
 // echoed to the alert chat. A note does not acknowledge the group.
 func (b *Bridge) AddNote(ctx context.Context, id string, who Actor, text string) (GroupView, error) {
+	return b.addNote(ctx, id, who, text, nil)
+}
+
+// AddIncidentNote leaves a note only if the console form still names the current episode.
+func (b *Bridge) AddIncidentNote(ctx context.Context, id, episode string, who Actor, text string) (GroupView, error) {
+	return b.addNote(ctx, id, who, text, &episode)
+}
+
+func (b *Bridge) addNote(ctx context.Context, id string, who Actor, text string, episode *string) (GroupView, error) {
 	text = clean(text, maxNote+1, true)
 	switch {
 	case text == "":
@@ -34,6 +43,9 @@ func (b *Bridge) AddNote(ctx context.Context, id string, who Actor, text string)
 	g, ok := b.d.Store.Group(id)
 	if !ok {
 		return GroupView{}, ErrNotFound
+	}
+	if episode != nil && g.Episode != *episode {
+		return GroupView{}, ErrEpisodeChanged
 	}
 	now := b.now()
 	g.Notes = append(g.Notes, store.Note{By: who.Name, Via: who.Via, Text: text, At: now})

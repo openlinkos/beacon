@@ -572,7 +572,8 @@ func TestPhoneAndGroupBotLinkToSameIncident(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := GroupID(w.GroupKey)
-	want := "https://beacon.example.com/console/sign-in?next=%2Fconsole%2Falerts%2F" + id
+	g, _ := e.st.Group(id)
+	want := "https://beacon.example.com/console/sign-in?next=%2Fconsole%2Falerts%2F" + id + "%2Fepisodes%2F" + g.Episode
 	if len(e.bot.texts) != 1 || !strings.Contains(e.bot.texts[0], want) || !strings.Contains(e.bot.texts[0], "https://ops.example/runbooks/ServiceDown.md") {
 		t.Fatalf("initial group bot notification: %q", e.bot.texts)
 	}
