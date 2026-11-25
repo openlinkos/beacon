@@ -61,15 +61,23 @@ func TestHeartbeatEvidenceTools(t *testing.T) {
 	}
 	srv := httptest.NewServer(Handler(e.Bridge, SSH{}, &api.Auth{Store: e.Store}, slog.Default()))
 	defer srv.Close()
-	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
-	res, text := call(t, read, "get_evidence", map[string]any{"id": bridge.GroupID("drill")})
+	args := map[string]any{"id": bridge.GroupID("drill")}
+	metadata := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
+	for _, name := range []string{"get_evidence", "get_timeline"} {
+		res, text := call(t, metadata, name, args)
+		if res.IsError || !strings.Contains(text, id) || strings.Contains(text, "systemctl stop drill.timer") {
+			t.Errorf("%s should return session metadata to a status-only credential", name)
+		}
+	}
+	read := connect(t, srv.URL, e.Token(t, "session-reader", "status:read", "sessions:read"))
+	res, text := call(t, read, "get_evidence", args)
 	for _, want := range []string{`"heartbeats":[{`, `"name":"drill-1"`, `"enrolled":true`, `"machine":"develop-1"`, `"phase":"before"`,
 		`"shell_commands":[{`, `"command":"systemctl stop drill.timer"`} {
 		if res.IsError || !strings.Contains(text, want) {
 			t.Errorf("get_evidence lacks %s: %s", want, text)
 		}
 	}
-	res, text = call(t, read, "get_timeline", map[string]any{"id": bridge.GroupID("drill")})
+	res, text = call(t, read, "get_timeline", args)
 	for _, want := range []string{`"kind":"heartbeat"`, `"kind":"command"`, `"phase":"before"`, `"heartbeats":[`} {
 		if res.IsError || !strings.Contains(text, want) {
 			t.Errorf("get_timeline lacks %s: %s", want, text)
