@@ -453,7 +453,7 @@ func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value 
 			return store.ConfigChange{}, err
 		}
 	}
-	return s.commit(ctx, who, "put", note, 0, next, false)
+	return s.commitWithConsoleTargets(ctx, who, "put", note, 0, next, false, nil, version)
 }
 
 // Delete removes one item.
