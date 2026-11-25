@@ -119,7 +119,7 @@ func TestResolvedCallWaits(t *testing.T) {
 		for _, ev := range tl.Events {
 			kinds = append(kinds, ev.Kind)
 		}
-		if got := strings.Join(kinds, " "); got != "started notified agent resolved note agent" {
+		if got := strings.Join(kinds, " "); got != "started notified agent resolved notification note agent" {
 			t.Errorf("the resolved hook delivery follows the agent's note: %s", got)
 		}
 	})

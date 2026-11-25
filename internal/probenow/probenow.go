@@ -50,10 +50,18 @@ var (
 	ErrTooMany  = errors.New("too many targets")
 )
 
-// Want names what to probe: a target (with a module, or in every module it has), or every target of a
-// service.
+// Want names a target or a service to probe. An alert can further qualify that selection with the
+// service, module and failure domain named by its rule. Empty qualifiers leave the selection open.
 type Want struct {
-	Target, Module, Service string
+	Target, Module, Service, FailureDomain string
+}
+
+func (w Want) matches(instance string, labels map[string]string) bool {
+	return (w.Target != "" || w.Service != "") &&
+		(w.Target == "" || w.Target == instance) &&
+		(w.Module == "" || w.Module == labels["module"]) &&
+		(w.Service == "" || w.Service == labels["service"]) &&
+		(w.FailureDomain == "" || w.FailureDomain == labels["failure_domain"])
 }
 
 // Target is one target of a request and the locations expected to probe it.
@@ -193,20 +201,20 @@ func (b *Board) resolve(wants []Want) ([]Target, error) {
 		}
 	}
 	var out []Target
+	selected := make(map[*Target]bool)
 	for _, w := range wants {
 		found := false
 		for _, t := range all {
-			match := (w.Target != "" && t.Instance == w.Target && (w.Module == "" || t.Module == w.Module)) ||
-				(w.Target == "" && w.Service != "" && t.Service == w.Service)
-			if !match {
+			if !w.matches(t.Instance, t.labels) {
 				continue
 			}
 			found = true
-			if !slices.ContainsFunc(out, func(o Target) bool { return o.Instance == t.Instance && labelsKey(o.labels) == labelsKey(t.labels) }) {
+			if !selected[t] {
 				c := *t
 				c.Locations = slices.Clone(t.Locations)
 				slices.Sort(c.Locations)
 				out = append(out, c)
+				selected[t] = true
 			}
 		}
 		if !found {
@@ -221,24 +229,25 @@ func (b *Board) resolve(wants []Want) ([]Target, error) {
 
 // whyNotFound tells a target no set has from one no active location probes.
 func (b *Board) whyNotFound(set *targets.Set, w Want) error {
-	inSets := false
-	for _, f := range set.Files() {
-		for _, g := range set.Groups(f) {
-			if (w.Target != "" && slices.Contains(g.Targets, w.Target) && (w.Module == "" || g.Labels["module"] == w.Module)) ||
-				(w.Target == "" && g.Labels["service"] == w.Service) {
-				inSets = true
-			}
-		}
-	}
 	what := "service " + w.Service
 	if w.Target != "" {
 		what = "target " + w.Target
-		if w.Module != "" {
-			what += " with module " + w.Module
+		if w.Service != "" {
+			what += " for service " + w.Service
 		}
 	}
-	if inSets {
-		return fmt.Errorf("%w: no active location probes %s", ErrNotFound, what)
+	if w.Module != "" {
+		what += " with module " + w.Module
+	}
+	if w.FailureDomain != "" {
+		what += " in failure domain " + w.FailureDomain
+	}
+	for _, f := range set.Files() {
+		for _, g := range set.Groups(f) {
+			if slices.ContainsFunc(g.Targets, func(instance string) bool { return w.matches(instance, g.Labels) }) {
+				return fmt.Errorf("%w: no active location probes %s", ErrNotFound, what)
+			}
+		}
 	}
 	return fmt.Errorf("%w: no target set has %s", ErrNotFound, what)
 }

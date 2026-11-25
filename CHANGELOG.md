@@ -6,6 +6,14 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.40 (2026-11-25)
+
+- Show the latest incident note with its author and time beside the response controls, separately from the acknowledgement note.
+- Retry failed Feishu recovery updates after restart against the original app card or group bot destination. Show submission failure and provider acceptance in the live incident timeline.
+- Keep each incident’s hook deliveries and programme reports in resolved history. Show hook acceptance, start and exit evidence alongside recovery checks.
+- Bind REST and MCP rechecks to the observed incident episode when supplied. Require matching targets in each known alert member’s failure domain before running an incident check.
+- Show probe freshness from the latest stored observation in the monitors, overview and alert evidence.
+
 ### rc.39 (2026-11-25)
 
 - Enforce the effective machine selection when listing sessions, reading a transcript, downloading a recording, and viewing related sessions in alert evidence, timelines and retained incidents. A restricted credential sees recordings from the selected machines' current enrolments.

@@ -73,7 +73,11 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `list_changes` | `status:read` | Change events, newest first: deployments, configuration changes and Flux reconciliations (`service`, `machine`, `source`, `since`, 24 hours by default, `limit`, 100 by default, at most 1000) |
 | `probe_now` | `alerts:write` | Have every location that probes a target probe it again at once, and get each location's answer within the wait (`alert_id`, `target` with an optional `module`, or `service`; `wait` seconds, 45 by default, at most 90). Use it after a fix, instead of waiting for the next cycle |
 
+To verify a specific incident with `probe_now`, pass `alert_id` and set `expected_episode` to the `episode` from `list_alerts`, or `alert.episode` from `get_evidence`, `get_timeline` or the signed wake. A replaced episode produces a tool error beginning with `incident.changed`. Read the current evidence before deciding whether to repeat the check. Omitting `expected_episode` continues to select the current episode. Checks by `target` or `service` are independent of incident verification. Incident checks use each alert member’s known labels, including its failure domain. The tool reports when any member has no matching target at an active location.
+
 The caller's machine selection also limits session records in the alert evidence, the timeline and retained outcomes. SSH audit entries carry a machine name without an enrolment identifier. Their command previews require unrestricted machine selection and a session-detail scope.
+
+An outcome's `agent_deliveries` gives the hook status and any programme report for that exact alert episode. `status: ok` records hook acceptance. An optional `run` records the runner's observed programme state and exit code when available. Older archived outcomes may have no delivery records.
 
 ## Machines
 

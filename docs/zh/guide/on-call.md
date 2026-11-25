@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a243eced
+sourceHash: sha256-09b4c292
 ---
 
 # 让 Agent 值班
@@ -165,7 +165,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicatio
   -d '{"alert_id": "0cdfbada62dd", "wait": 45}' https://status.example.com/api/v1/probe-now
 ```
 
-每个目标在各检测点分别有结果，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`。`missing` 列出至少缺失一项结果的检测点。告警页的**立即复测**会运行同样的检查。按告警 ID 发起的复测会进入该告警的时间线和审计日志。检测点推送的样本和日常检测相同，规则引擎判断满足恢复条件后，告警才恢复。
+每个目标在各检测点分别有结果，失败的排在前面，还有一行 `summary`，比如 `7 OK, 2 failing (dns)`。`missing` 列出至少缺失一项结果的检测点。告警页的**立即复测**会运行同样的检查。按告警 ID 发起的复测会进入该告警的时间线和审计日志。Beacon 按告警条目已有的实例、检测模块、服务和故障域选择目标。如有一项已知范围在当前配置下没有可复测的目标，会提示无法复测整个故障。检测点推送的样本和日常检测相同，规则引擎判断满足恢复条件后，告警才恢复。
 
 限制：
 

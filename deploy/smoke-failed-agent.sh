@@ -263,9 +263,25 @@ PY
   page=$(cat "$work/received-incident")
   smoke_shift_sign_in "$first" "$entry" "$page"
   smoke_shift_claim "$first" "$page" 'Acknowledge with note' "$first_note"
+  if [[ "$version" != v0.3.0-rc.39 ]]; then
+    local latest_note='The first shift isolated the relay and left the recovery check to the incoming operator.'
+    csrf=$(sed -n 's/.*id="alert-ack".*name="csrf" value="\([^"]*\)".*/\1/p' "$work/$first.alert.html")
+    test -n "$csrf"
+    test "$(curl -fsS -b "$work/$first.cookies" -o /dev/null -w '%{http_code}' --data-urlencode "csrf=$csrf" \
+      --data-urlencode "expected_episode=${page##*/}" --data-urlencode "return_episode=${page##*/}" \
+      --data-urlencode "text=$latest_note" "$status_url${page%%/episodes/*}/notes")" = 303
+  fi
   smoke_shift_sign_in "$second" "$entry" "$page"
   curl -fsS -b "$work/$second.cookies" "$status_url$page" > "$work/previous-shift.html"
   grep -Fq "$first_note" "$work/previous-shift.html"
+  if [[ "$version" != v0.3.0-rc.39 ]]; then
+    awk '/aria-labelledby="alert-latest-note"/ { preview = 1 }
+      preview { print }
+      preview && /<p class="ol-break">/ { exit }' "$work/previous-shift.html" > "$work/latest-note.html"
+    grep -Fq "$first" "$work/latest-note.html"
+    grep -Fq "$latest_note" "$work/latest-note.html"
+    printf 'The next shift saw the recent note in the response panel before taking over.\n'
+  fi
   smoke_shift_claim "$second" "$page" 'Take over with note' "$second_note"
   printf 'Both on-call accounts claimed the same episode through the received link.\n'
   if [[ "$version" != v0.3.0-rc.34 && -n "$previous_alert" ]]; then
@@ -276,6 +292,17 @@ PY
     test "$(curl -fsS -b "$work/$second.cookies" -o /dev/null -D "$work/old-incident.headers" -w '%{http_code}' "$previous_link")" = 303
     test "$(awk 'tolower($1) == "location:" {sub(/\r$/, ""); print $2}' "$work/old-incident.headers")" = "/console/incident-outcomes/$old_outcome"
     printf 'The first episode link opens its exact retained history after the same service fires again.\n'
+    if [[ "$version" != v0.3.0-rc.39 ]]; then
+      local old_episode request
+      old_episode=$(jq -er '.episode' "$work/first-episode.json")
+      request=$(jq -nc --arg id "$alert" --arg episode "$old_episode" '{alert_id:$id,expected_episode:$episode,wait:1}')
+      test "$(curl -sS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -o "$work/stale-recheck.json" \
+        -w '%{http_code}' --data "$request" "$status_url/api/v1/probe-now")" = 409
+      jq -e '.code == "incident.changed"' "$work/stale-recheck.json" >/dev/null
+      rpc "$(jq -nc --argjson input "$request" '{jsonrpc:"2.0",id:29,method:"tools/call",params:{name:"probe_now",arguments:$input}}')" |
+        jq -e '.result.isError and any(.result.content[]; .text | contains("incident.changed"))' >/dev/null
+      printf 'REST and MCP rejected the old episode before probing the replacement incident.\n'
+    fi
   fi
 
   beacon drill off
@@ -323,6 +350,17 @@ PY
         .id == $probe and .actor_kind == "person" and .by == $second and .via == "console" and
         .passed == 2 and .failed == 0 and .missing == 0))' "$work/handover-history.json" >/dev/null
     printf 'The resolved incident retains the same complete passing check and its signed-in operator.\n'
+  fi
+  if [[ "$version" != v0.3.0-rc.39 && "${smoke_agent_reports:-false}" == true ]]; then
+    local saved_outcome
+    saved_outcome=$(jq -er --arg episode "$episode" --arg delivery "$delivery" '
+      .outcomes[] | select(.started_at == $episode and any(.agent_deliveries[];
+        .id == $delivery and .event == "firing" and .status == "ok" and .started_at != null and
+        .run.status == "failed" and .run.exit_code == 79)) | .id' "$work/handover-history.json")
+    curl -fsS -b "$work/$second.cookies" "$status_url/console/incident-outcomes/$saved_outcome" > "$work/agent-outcome.html"
+    grep -Fq 'Accepted by hook' "$work/agent-outcome.html"
+    grep -Fq 'exit 79' "$work/agent-outcome.html"
+    printf 'The retained outcome separates hook acceptance and exit 79 for the same firing delivery.\n'
   fi
   printf 'The failed-Agent drill preserved human handover and verified recovery in history (%ss).\n' "$((SECONDS - drill_start))"
 }

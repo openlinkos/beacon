@@ -2,16 +2,20 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/alertmanager"
 	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/testutil"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 func TestProbeNowTool(t *testing.T) {
@@ -54,5 +58,94 @@ func TestProbeNowTool(t *testing.T) {
 	}
 	if res, text := call(t, write, "probe_now", map[string]any{"target": "https://hub.example.com/", "wait": 1}); !res.IsError || !strings.Contains(text, "busy") {
 		t.Errorf("the same target at once: %s", text)
+	}
+}
+
+func TestProbeNowRejectsEarlierEpisodeAcrossRESTAndMCP(t *testing.T) {
+	board := testutil.ProbeBoard(t)
+	e := testutil.NewWith(t, func(d *bridge.Deps) { d.ProbeNow = board })
+	secret := e.Token(t, "recovery", "status:read", "alerts:write")
+	auth := &api.Auth{Store: e.Store}
+	mux := http.NewServeMux()
+	(&api.Server{Bridge: e.Bridge, Auth: auth, Log: slog.Default()}).Register(mux)
+	mux.Handle("/mcp", Handler(e.Bridge, SSH{}, auth, slog.Default()))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := connect(t, srv.URL+"/mcp", secret)
+	request := func(method, path, in string, out any) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+secret)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		if err := json.NewDecoder(res.Body).Decode(out); err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+	group := testutil.GroupID()
+	path := "/api/v1/alerts/" + group
+	var observed bridge.GroupView
+	if status := request(http.MethodGet, path, "", &observed); status != http.StatusOK || !link.ValidEpisode(observed.Episode) {
+		t.Fatalf("REST alert did not expose its episode: %d, %q", status, observed.Episode)
+	}
+	var evidence bridge.Evidence
+	if status := request(http.MethodGet, path+"/evidence", "", &evidence); status != http.StatusOK || evidence.Alert.Episode != observed.Episode {
+		t.Fatalf("REST evidence did not expose the same episode: %d, %q", status, evidence.Alert.Episode)
+	}
+	for _, tool := range []string{"get_evidence", "get_timeline"} {
+		if result, wire := call(t, c, tool, map[string]any{"id": group}); result.IsError || !strings.Contains(wire, `"episode":"`+observed.Episode+`"`) {
+			t.Fatalf("%s did not expose the same episode: %s", tool, wire)
+		}
+	}
+
+	received := alertmanager.Webhook{GroupKey: testutil.GroupKey, Status: "resolved", CommonLabels: observed.Labels}
+	if err := e.Bridge.HandleWebhook(t.Context(), received); err != nil {
+		t.Fatal(err)
+	}
+	received.Status = "firing"
+	if err := e.Bridge.HandleWebhook(t.Context(), received); err != nil {
+		t.Fatal(err)
+	}
+	current, ok := e.Store.Group(group)
+	if !ok || current.Episode == observed.Episode || !link.ValidEpisode(current.Episode) {
+		t.Fatalf("fixture did not replace the episode: %q", current.Episode)
+	}
+
+	const route = "/api/v1/probe-now"
+	input := `{"alert_id":"` + group + `","expected_episode":"` + observed.Episode + `","wait":1}`
+	var problem map[string]string
+	if status := request(http.MethodPost, route, input, &problem); status != http.StatusConflict || problem["code"] != "incident.changed" {
+		t.Fatalf("REST accepted a check for the previous episode: %d %v", status, problem)
+	}
+	if result, wire := call(t, c, "probe_now", map[string]any{"alert_id": group, "expected_episode": observed.Episode, "wait": 1}); !result.IsError || !strings.Contains(wire, "incident.changed:") {
+		t.Fatalf("MCP accepted a check for the previous episode: %s", wire)
+	}
+	if queued := board.Wait(t.Context(), "edge-1", 0); len(queued) != 0 {
+		t.Fatalf("a stale request reached a probe: %+v", queued)
+	}
+	after, _ := e.Store.Group(group)
+	if len(after.ProbeRuns) != 0 || after.PassingCheck != nil {
+		t.Fatalf("a stale request verified the replacement episode: %v, %+v", after.ProbeRuns, after.PassingCheck)
+	}
+
+	for _, bad := range []string{`{"service":"hub-example-com","expected_episode":"` + current.Episode + `"}`, `{"alert_id":"` + group + `","expected_episode":"invalid"}`} {
+		if status := request(http.MethodPost, route, bad, &problem); status != http.StatusBadRequest || problem["code"] != "bad_input" {
+			t.Fatalf("unusable episode precondition was accepted: %d %v", status, problem)
+		}
+	}
+	if result, wire := call(t, c, "probe_now", map[string]any{"alert_id": group, "expected_episode": current.Episode, "wait": 1}); result.IsError || !strings.Contains(wire, `"episode":"`+current.Episode+`"`) {
+		t.Fatalf("matching episode: %s", wire)
+	}
+	checked, _ := e.Store.Group(group)
+	if len(checked.ProbeRuns) != 1 {
+		t.Fatalf("only the matching request should be recorded: %+v", checked.ProbeRuns)
 	}
 }

@@ -12,17 +12,21 @@ import (
 
 func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
 	var in struct {
-		AlertID string `json:"alert_id"`
-		Target  string `json:"target"`
-		Module  string `json:"module"`
-		Service string `json:"service"`
-		Wait    int    `json:"wait"`
+		AlertID         string  `json:"alert_id"`
+		ExpectedEpisode *string `json:"expected_episode"`
+		Target          string  `json:"target"`
+		Module          string  `json:"module"`
+		Service         string  `json:"service"`
+		Wait            int     `json:"wait"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	out, err := s.Bridge.ProbeNow(r.Context(), who, bridge.ProbeNowInput{AlertID: in.AlertID, Target: in.Target, Module: in.Module, Service: in.Service, Wait: in.Wait})
+	out, err := s.Bridge.ProbeNow(r.Context(), who, bridge.ProbeNowInput{AlertID: in.AlertID, Episode: in.ExpectedEpisode,
+		Target: in.Target, Module: in.Module, Service: in.Service, Wait: in.Wait})
 	switch {
+	case errors.Is(err, bridge.ErrEpisodeChanged):
+		writeError(w, http.StatusConflict, "incident.changed", "the alert incident changed. Read its current evidence before retrying")
 	case errors.Is(err, bridge.ErrProbeBusy):
 		writeError(w, http.StatusTooManyRequests, "probe.busy", err.Error())
 	case errors.Is(err, bridge.ErrProbeNotFound):

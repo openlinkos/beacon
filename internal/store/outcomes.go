@@ -13,18 +13,33 @@ var bucketOutcomes = []byte("incident_outcomes")
 // IncidentOutcome is the bounded internal record of one resolved alert episode.
 // Its ID starts with the UTC resolution timestamp so the bucket is ordered newest-first.
 type IncidentOutcome struct {
-	ID            string          `json:"id"`
-	Group         string          `json:"group"`
-	Title         string          `json:"title"`
-	Severity      string          `json:"severity"`
-	Services      []string        `json:"services"`
-	Started       time.Time       `json:"started_at"`
-	Resolved      time.Time       `json:"resolved_at"`
-	AuditUntil    time.Time       `json:"audit_until,omitzero"`
-	Participation []Participation `json:"participation"`
-	Verification  *Verification   `json:"verification,omitempty"`
-	PassingCheck  *Verification   `json:"passing_check,omitempty"`
-	Sessions      []string        `json:"related_sessions,omitempty"`
+	ID              string                 `json:"id"`
+	Group           string                 `json:"group"`
+	Title           string                 `json:"title"`
+	Severity        string                 `json:"severity"`
+	Services        []string               `json:"services"`
+	Started         time.Time              `json:"started_at"`
+	Resolved        time.Time              `json:"resolved_at"`
+	AuditUntil      time.Time              `json:"audit_until,omitzero"`
+	Participation   []Participation        `json:"participation"`
+	Verification    *Verification          `json:"verification,omitempty"`
+	PassingCheck    *Verification          `json:"passing_check,omitempty"`
+	Sessions        []string               `json:"related_sessions,omitempty"`
+	AgentDeliveries []OutcomeAgentDelivery `json:"agent_deliveries,omitempty"`
+}
+
+// OutcomeAgentDelivery preserves the observable handoff to one configured hook. Transport
+// diagnostics and reporter credentials stay on the live alert.
+type OutcomeAgentDelivery struct {
+	ID        string    `json:"id,omitempty"`
+	Hook      string    `json:"hook"`
+	Event     string    `json:"event"`
+	Status    string    `json:"status"`
+	Attempts  int       `json:"attempts"`
+	QueuedAt  time.Time `json:"queued_at,omitzero"`
+	DoneAt    time.Time `json:"done_at,omitzero"`
+	StartedAt time.Time `json:"started_at,omitzero"`
+	Run       *AgentRun `json:"run,omitempty"`
 }
 
 // Participation is the latest alert action recorded for one kind of actor, with no note text.
@@ -56,24 +71,30 @@ func putOutcome(tx kv.Tx, outcome IncidentOutcome) error {
 	return tx.Put(bucketOutcomes, []byte(outcome.ID), raw)
 }
 
-// EnsureIncidentOutcome backfills a missing summary or passing check from a retained group.
+// EnsureIncidentOutcome backfills a missing summary or evidence from a retained group.
 func (s *Store) EnsureIncidentOutcome(outcome IncidentOutcome) error {
 	return s.db.Update(func(tx kv.Tx) error {
 		raw := tx.Get(bucketOutcomes, []byte(outcome.ID))
 		if raw == nil {
 			return putOutcome(tx, outcome)
 		}
-		if outcome.PassingCheck == nil {
+		if outcome.PassingCheck == nil && len(outcome.AgentDeliveries) == 0 {
 			return nil
 		}
 		var saved IncidentOutcome
 		if err := json.Unmarshal(raw, &saved); err != nil {
 			return err
 		}
-		if saved.PassingCheck != nil {
+		changed := false
+		if saved.PassingCheck == nil && outcome.PassingCheck != nil {
+			saved.PassingCheck, changed = outcome.PassingCheck, true
+		}
+		if len(saved.AgentDeliveries) == 0 && len(outcome.AgentDeliveries) > 0 {
+			saved.AgentDeliveries, changed = outcome.AgentDeliveries, true
+		}
+		if !changed {
 			return nil
 		}
-		saved.PassingCheck = outcome.PassingCheck
 		return putOutcome(tx, saved)
 	})
 }

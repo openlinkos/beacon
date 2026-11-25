@@ -70,6 +70,11 @@ var machineLabels = []string{"machine", "host", "location", "failure_domain"}
 // probeMetrics are read at the end of the window, besides probe_success over it.
 const probeMetrics = "probe_failure_info|probe_duration_seconds|probe_http_status_code|beacon_probe_attempts|probe_ssl_earliest_cert_expiry"
 
+const (
+	probeObservedAt      = "beacon_probe_observed_at"
+	probeObservedSuccess = "beacon_probe_observed_success"
+)
+
 // Window is the time an answer covers.
 type Window struct {
 	From time.Time `json:"from"`
@@ -80,6 +85,7 @@ type Window struct {
 // from labels, so it is cleaned.
 type AlertBrief struct {
 	ID          string            `json:"id"`
+	Episode     string            `json:"episode,omitempty"`
 	Status      string            `json:"status"`
 	Severity    string            `json:"severity"`
 	Title       string            `json:"title"`
@@ -144,7 +150,7 @@ type ProbeResult struct {
 	Instance            string         `json:"instance"`
 	Module              string         `json:"module,omitempty"`
 	OK                  bool           `json:"ok"`
-	Stale               bool           `json:"stale,omitempty"` // no result for over three minutes
+	Stale               bool           `json:"stale,omitempty"` // no confirmed result in the last three minutes
 	FailingSince        *time.Time     `json:"failing_since,omitempty"`
 	FailingBeforeWindow bool           `json:"failing_before_window,omitempty"`
 	RecoveredAt         *time.Time     `json:"recovered_at,omitempty"`
@@ -154,7 +160,7 @@ type ProbeResult struct {
 	HTTPStatus          int            `json:"http_status,omitempty"`
 	Attempts            int            `json:"attempts,omitempty"` // beacon_probe_attempts
 	CertExpires         *time.Time     `json:"cert_expires,omitempty"`
-	LastSeen            time.Time      `json:"last_seen"`
+	LastSeen            time.Time      `json:"last_seen,omitzero"` // the stored sample time, when available
 }
 
 // RelatedAlert is another firing alert group in the same failure domain, or of the same service.
@@ -298,7 +304,7 @@ func (b *Bridge) brief(g *store.Group) AlertBrief {
 		labels = map[string]string{}
 	}
 	maps.Copy(labels, g.Labels)
-	a := AlertBrief{ID: g.ID, Status: g.Status, Severity: g.Severity, Title: cleanLine(v.Title), Description: clean(v.Description, maxLong, true),
+	a := AlertBrief{ID: g.ID, Episode: g.Episode, Status: g.Status, Severity: g.Severity, Title: cleanLine(v.Title), Description: clean(v.Description, maxLong, true),
 		Service: cleanLine(v.Service), Labels: cleanLabels(labels), Alerts: v.Alerts, StartsAt: g.StartsAt, ResolvedAt: v.ResolvedAt}
 	if a.Service == "" {
 		for _, s := range b.groupServices(g) {
@@ -440,7 +446,12 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	span := w.To.Sub(w.From)
 	step := max(30*time.Second, (span / 240).Round(time.Second))
 	qSuccess := "probe_success{" + sel + "}"
-	qNow := `{__name__=~"` + probeMetrics + `",` + sel + `}`
+	// The range query returns evaluation times, which can repeat a silent probe's old sample.
+	// Get the stored observation and its time together with the instant detail metrics. The
+	// rollup's lower bound is exclusive, so include the query window's first millisecond.
+	window := fmt.Sprintf("%s[%dms]", qSuccess, max(int64(1), w.To.UnixMilli()-w.From.UnixMilli()+1))
+	qNow := fmt.Sprintf(`union({__name__=~"%s",%s},label_set(last_over_time(%s),"__name__","%s"),label_set(tlast_over_time(%s),"__name__","%s"))`,
+		probeMetrics, sel, window, probeObservedSuccess, window, probeObservedAt)
 	qReasons := fmt.Sprintf("count_over_time(probe_failure_info{%s}[%ds])", sel, max(1, int(span.Seconds())))
 	pe.Queries = []string{qSuccess, qNow, qReasons}
 	series, err := rq.QueryRange(ctx, qSuccess, w.From, w.To, step)
@@ -453,11 +464,8 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 		if len(s.Points) == 0 {
 			continue
 		}
-		r := &ProbeResult{Location: cleanLine(s.Labels["location"]), Instance: cleanLine(s.Labels["instance"]), Module: cleanLine(s.Labels["module"])}
-		if len(svcs) > 1 {
-			r.Service = cleanLine(s.Labels["service"])
-		}
-		story(r, s.Points, w.To)
+		r := newProbeResult(s.Labels, len(svcs) > 1)
+		story(r, s.Points)
 		results[keyOf(s.Labels)] = r
 	}
 	var errs []string
@@ -465,9 +473,26 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	if err != nil {
 		errs = append(errs, vmError(err))
 	}
+	for key, observation := range probeObservationsAt(now, w) {
+		r := results[key]
+		if r == nil {
+			r = newProbeResult(observation.labels, len(svcs) > 1)
+			results[key] = r
+		} else if r.OK != observation.ok {
+			// The latest sample may be newer than the last range evaluation.
+			r.FailingSince, r.RecoveredAt, r.FailingBeforeWindow = nil, nil, false
+			if observation.ok {
+				r.RecoveredAt = &observation.at
+			} else {
+				r.FailingSince = &observation.at
+			}
+		}
+		r.OK, r.LastSeen = observation.ok, observation.at
+		r.Stale = w.To.Sub(observation.at) > staleAfter
+	}
 	for _, s := range now {
 		r := results[keyOf(s.Labels)]
-		if r == nil || math.IsNaN(s.Value) {
+		if r == nil || r.LastSeen.IsZero() || math.IsNaN(s.Value) {
 			continue
 		}
 		switch s.Labels["__name__"] {
@@ -513,7 +538,7 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	for _, r := range results {
 		pe.Results = append(pe.Results, *r)
 		locations[r.Location] = true
-		if !r.OK {
+		if !r.OK && !r.LastSeen.IsZero() {
 			failing[r.Location] = true
 		}
 	}
@@ -532,12 +557,61 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	return pe
 }
 
-// story reads a probe's success over the window: its state at the end, since when it fails, when it
-// came back.
-func story(r *ProbeResult, pts []vm.Point, end time.Time) {
-	last := pts[len(pts)-1]
-	r.OK, r.LastSeen = last.V >= 1, last.T
-	r.Stale = end.Sub(last.T) > staleAfter
+func newProbeResult(labels map[string]string, multipleServices bool) *ProbeResult {
+	r := &ProbeResult{Location: cleanLine(labels["location"]), Instance: cleanLine(labels["instance"]), Module: cleanLine(labels["module"]), Stale: true}
+	if multipleServices {
+		r.Service = cleanLine(labels["service"])
+	}
+	return r
+}
+
+type probeObservation struct {
+	labels                  map[string]string
+	at                      time.Time
+	ok, hasValue, ambiguous bool
+}
+
+// probeObservationsAt pairs value and timestamp from the same stored series. Different series can
+// share the short probe key used in the UI. Leave those keys unconfirmed instead of mixing samples.
+func probeObservationsAt(samples []vm.Sample, w Window) map[probeKey]probeObservation {
+	observations := make(map[probeKey]probeObservation)
+	from, to := float64(w.From.UnixMilli())/1000, float64(w.To.UnixMilli())/1000
+	for _, s := range samples {
+		name := s.Labels["__name__"]
+		if (name != probeObservedAt && name != probeObservedSuccess) || math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
+			continue
+		}
+		key := keyOf(s.Labels)
+		o := observations[key]
+		if o.labels == nil {
+			o.labels = maps.Clone(s.Labels)
+			delete(o.labels, "__name__")
+		}
+		if len(s.Labels) != len(o.labels)+1 {
+			o.ambiguous = true
+		}
+		for k, v := range o.labels {
+			if value, ok := s.Labels[k]; !ok || value != v {
+				o.ambiguous = true
+			}
+		}
+		if name == probeObservedSuccess {
+			o.ok, o.hasValue = s.Value >= 1, true
+		} else if s.Value >= from && s.Value <= to {
+			o.at = time.UnixMilli(int64(math.Round(s.Value * 1000))).UTC()
+		}
+		observations[key] = o
+	}
+	maps.DeleteFunc(observations, func(_ probeKey, o probeObservation) bool {
+		return o.ambiguous || !o.hasValue || o.at.IsZero()
+	})
+	return observations
+}
+
+// story estimates when a probe failed or recovered using evaluations of the historical range.
+// Its timestamps never determine the freshness of the latest stored observation.
+func story(r *ProbeResult, pts []vm.Point) {
+	r.OK = pts[len(pts)-1].V >= 1
 	if !r.OK {
 		i := len(pts) - 1
 		for i > 0 && pts[i-1].V < 1 {

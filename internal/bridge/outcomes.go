@@ -110,9 +110,35 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
 		Severity: g.Severity, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
 		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
-		PassingCheck: passingCheck(&g),
+		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents),
 	}
 	return &o
+}
+
+func outcomeAgentDeliveries(calls []store.AgentCall) []store.OutcomeAgentDelivery {
+	if len(calls) == 0 {
+		return nil
+	}
+	deliveries := make([]store.OutcomeAgentDelivery, 0, len(calls))
+	for _, call := range calls {
+		d := store.OutcomeAgentDelivery{
+			ID: call.Delivery, Hook: cleanLine(call.Hook), Event: call.Event, Status: call.Status,
+			Attempts: call.Attempts, QueuedAt: call.At, DoneAt: call.Done,
+		}
+		if call.Run != nil {
+			report := *call.Run
+			report.By = cleanLine(report.By)
+			d.Run = &report
+			if report.Status == "running" {
+				d.StartedAt = report.At
+			}
+		}
+		if call.RunStart != nil {
+			d.StartedAt = call.RunStart.At
+		}
+		deliveries = append(deliveries, d)
+	}
+	return deliveries
 }
 
 func newestProbeRun(runs []store.ProbeRun) *store.ProbeRun {
@@ -192,7 +218,8 @@ func (b *Bridge) IncidentOutcomes(group, before string, limit int) (OutcomePage,
 	if err != nil {
 		return OutcomePage{}, err
 	}
-	p := OutcomePage{Outcomes: out, Untrusted: untrusted("outcomes[].title", "outcomes[].services")}
+	p := OutcomePage{Outcomes: out, Untrusted: untrusted("outcomes[].title", "outcomes[].services",
+		"outcomes[].agent_deliveries[].hook", "outcomes[].agent_deliveries[].run.by")}
 	if len(out) > limit {
 		p.Outcomes, p.Before = out[:limit], out[limit-1].ID
 	}
@@ -222,7 +249,8 @@ func (b *Bridge) IncidentOutcome(id string) (OutcomeResult, error) {
 	if errors.Is(err, store.ErrNotFound) {
 		return OutcomeResult{}, ErrOutcomeNotFound
 	}
-	return OutcomeResult{Outcome: o, Untrusted: untrusted("outcome.title", "outcome.services")}, err
+	return OutcomeResult{Outcome: o, Untrusted: untrusted("outcome.title", "outcome.services",
+		"outcome.agent_deliveries[].hook", "outcome.agent_deliveries[].run.by")}, err
 }
 
 type OutcomeResult struct {

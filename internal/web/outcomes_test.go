@@ -24,6 +24,14 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, _ := e.st.Group(e.id)
+	exit := 79
+	g.Agents = []store.AgentCall{
+		{Hook: "on-call-hook", Event: "firing", Status: "ok", At: e.now.Add(-time.Minute), Done: e.now.Add(-time.Second),
+			RunStart: &store.AgentRun{Status: "running", At: e.now.Add(-30 * time.Second)},
+			Run:      &store.AgentRun{Status: "failed", At: e.now, ExitCode: &exit},
+			Error:    "transport fixture detail", Reporter: "token:fixture-reporter"},
+		{Hook: "backup-hook", Event: "firing", Status: "ok", At: e.now.Add(-time.Minute), Done: e.now.Add(-time.Second)},
+	}
 	g.ProbeRuns = []store.ProbeRun{{ID: "passing", ActorKind: "agent", By: "alice / duty", Via: "mcp", At: e.now,
 		Results: []store.ProbeObservation{
 			{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
@@ -85,10 +93,14 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 		t.Fatalf("protected compact outcome: %d", arch.code)
 	}
 	for _, label := range []string{"Latest on-demand check", "1 passed, 0 failed, 1 missing", "shift-operator", "Completed after rule recovery",
-		"Passing check near rule recovery", "2 passed, 0 failed, 0 missing", "Completed before rule recovery"} {
+		"Passing check near rule recovery", "2 passed, 0 failed, 0 missing", "Completed before rule recovery",
+		"Agent deliveries", "on-call-hook", "backup-hook", "Accepted by hook", "Programme report", "exit 79", "No Agent program report recorded."} {
 		if !strings.Contains(arch.body, label) {
 			t.Errorf("the archived outcome is missing %q", label)
 		}
+	}
+	if strings.Contains(arch.body, "transport fixture detail") || strings.Contains(arch.body, "token:fixture-reporter") {
+		t.Fatal("historical outcome included transport diagnostics or reporter credential reference")
 	}
 	if !strings.Contains(arch.body, link.SessionPath(sessionID)) {
 		t.Fatal("the viewer cannot reach the retained session from the archived incident")

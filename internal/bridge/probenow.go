@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Probing on demand (probe_now): after an agent has fixed something, it has every location that probes
@@ -42,7 +44,7 @@ type ProbeNowInput struct {
 	Module  string
 	Service string
 	Wait    int
-	Episode *string // when set by the console, only probe this alert episode
+	Episode *string // when set, only verify this alert episode
 }
 
 // ProbeTarget is one target of a request and the locations expected to probe it.
@@ -73,6 +75,7 @@ type ProbeNowResult struct {
 // did not answer in time, and a one-line summary.
 type ProbeNow struct {
 	ID        string           `json:"id"`
+	Episode   string           `json:"episode,omitempty"` // the incident selected for the check
 	Targets   []ProbeTarget    `json:"targets"`
 	Locations []string         `json:"locations"` // expected to answer
 	Results   []ProbeNowResult `json:"results"`
@@ -93,6 +96,10 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, er
 	switch {
 	case given != 1:
 		return nil, probeEpisode{}, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
+	case in.Episode != nil && strings.TrimSpace(in.AlertID) == "":
+		return nil, probeEpisode{}, fmt.Errorf("%w: expected_episode goes with alert_id", ErrBadInput)
+	case in.Episode != nil && *in.Episode != "" && !link.ValidEpisode(*in.Episode):
+		return nil, probeEpisode{}, fmt.Errorf("%w: expected_episode must be an episode identifier", ErrBadInput)
 	case in.Module != "" && in.Target == "":
 		return nil, probeEpisode{}, fmt.Errorf("%w: module goes with target", ErrBadInput)
 	case in.Target != "":
@@ -107,25 +114,34 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, er
 	if in.Episode != nil && *in.Episode != g.Episode {
 		return nil, probeEpisode{}, ErrEpisodeChanged
 	}
-	// the alerts' own targets first (instance and module, as probe rules carry them), else their services
-	var wants []probenow.Want
-	for _, a := range g.Alerts {
-		if inst := a.Labels["instance"]; inst != "" {
-			w := probenow.Want{Target: inst, Module: a.Labels["module"]}
-			if !slices.Contains(wants, w) {
-				wants = append(wants, w)
-			}
-		}
-	}
-	if len(wants) == 0 {
-		for _, s := range b.groupServices(&g) {
-			wants = append(wants, probenow.Want{Service: s})
-		}
-	}
-	if len(wants) == 0 {
-		return nil, probeEpisode{}, fmt.Errorf("%w: the alert has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+	wants, err := incidentProbeWants(g)
+	if err != nil {
+		return nil, probeEpisode{}, err
 	}
 	return wants, probeEpisode{starts: g.StartsAt, key: g.Episode}, nil
+}
+
+// incidentProbeWants preserves each alert member's selection, including aggregated rules which
+// name a service and domain without an instance. Matching one member cannot substitute for another.
+func incidentProbeWants(g store.Group) ([]probenow.Want, error) {
+	members := g.Alerts
+	if len(members) == 0 {
+		members = []store.Alert{{}} // older group records may only have common labels
+	}
+	wants := make([]probenow.Want, 0, len(members))
+	seen := make(map[probenow.Want]bool)
+	for _, member := range members {
+		label := func(name string) string { return cmp.Or(member.Labels[name], g.Common[name], g.Labels[name]) }
+		want := probenow.Want{Target: label("instance"), Module: label("module"), Service: label("service"), FailureDomain: label("failure_domain")}
+		if want.Target == "" && want.Service == "" {
+			return nil, fmt.Errorf("%w: an alert member has neither instance nor service labels, so no probes belong to it", ErrBadInput)
+		}
+		if !seen[want] {
+			seen[want] = true
+			wants = append(wants, want)
+		}
+	}
+	return wants, nil
 }
 
 type probeEpisode struct {
@@ -168,13 +184,19 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	observations := probeObservations(v)
 	tally := tallyProbes(observations)
 	out := probeNowView(v, tally)
+	out.Episode = episode.key
 	what := b.probeWhat(b.lang, v)
 	audit := store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "probe_now", Target: cleanLine(b.probeWhat(i18n.EN, v)), Detail: out.Summary}
 	if in.AlertID != "" {
 		audit.Target = in.AlertID
 		audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
 		audit.Time = b.now()
-		b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
+		current := b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
+		if !current && in.Episode != nil {
+			audit.Detail = fmt.Sprintf("%s: episode %q changed before verification could be recorded", v.ID, episode.key)
+			_ = b.d.Store.Audit(audit)
+			return ProbeNow{}, ErrEpisodeChanged
+		}
 	}
 	_ = b.d.Store.Audit(audit)
 	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), tally.summary(b.lang)))
@@ -215,13 +237,13 @@ func probeObservations(v probenow.View) []store.ProbeObservation {
 	return observations
 }
 
-// recordProbeRun saves the results on the alert episode the caller actually checked.
-func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) {
+// recordProbeRun saves the results on the episode the caller checked and reports if it still matches.
+func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
 	if !ok || !g.StartsAt.Equal(episode.starts) || g.Episode != episode.key {
-		return
+		return false
 	}
 	run.ActorKind = actorKind(who)
 	g.PassingCheck = preferPassingCheck(passingCheck(&g), verifyPassingCheck(&run), g.ResolvedAt)
@@ -233,6 +255,7 @@ func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run 
 	if err := b.saveGroup(g); err != nil {
 		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
 	}
+	return true
 }
 
 func verificationCounts(run *store.ProbeRun) *store.Verification {

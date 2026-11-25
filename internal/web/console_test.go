@@ -834,3 +834,33 @@ func TestIcons(t *testing.T) {
 		t.Error("the sprite holds more than shapes")
 	}
 }
+
+func TestFeishuRecoveryInAlertTimeline(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZH} {
+		t.Run(string(lang), func(t *testing.T) {
+			e := newEnv(t, lang)
+			g, ok := e.st.Group(e.id)
+			if !ok {
+				t.Fatal("the fixture alert was missing")
+			}
+			g.Status, g.ResolvedAt = "resolved", e.now.Add(-time.Minute)
+			g.Notifications = append(g.Notifications,
+				store.Notification{At: g.ResolvedAt, Channel: "webhook", Event: "resolved", Result: "failed"},
+				store.Notification{At: e.now, Channel: "webhook", Event: "resolved", Result: "ok"})
+			if err := e.st.PutGroup(g); err != nil {
+				t.Fatal(err)
+			}
+
+			page := e.signedIn("reader", "status:read").get(link.AlertPath(e.id))
+			channel := e.srv.channel("webhook")
+			for _, want := range []string{
+				i18n.T(lang, "Recovery update submission to %s failed", channel),
+				i18n.T(lang, "Recovery update accepted by %s", channel),
+			} {
+				if page.code != http.StatusOK || !strings.Contains(page.body, want) {
+					t.Errorf("the alert timeline lacks %q (HTTP %d)", want, page.code)
+				}
+			}
+		})
+	}
+}

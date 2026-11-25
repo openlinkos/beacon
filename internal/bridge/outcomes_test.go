@@ -113,6 +113,30 @@ func TestIncidentOutcomesBackfillOnlyWhatOldStateShows(t *testing.T) {
 	}
 }
 
+func TestIncidentOutcomeBackfillAddsReportsToAnExistingSummary(t *testing.T) {
+	e := newEnv(t)
+	g := store.Group{ID: GroupID(hook("resolved", "critical").GroupKey), Status: "resolved", Severity: "critical",
+		StartsAt: e.now.Add(-time.Minute), ResolvedAt: e.now, Episode: "0123456789abcdef"}
+	id := store.OutcomeID(g.ResolvedAt, g.ID, g.Episode)
+	old := store.IncidentOutcome{ID: id, Group: g.ID, Resolved: g.ResolvedAt, Title: "Original summary",
+		PassingCheck: &store.Verification{ID: "saved-check", Passed: 2}}
+	if err := e.st.EnsureIncidentOutcome(old); err != nil {
+		t.Fatal(err)
+	}
+	g.Agents = []store.AgentCall{{Hook: "runner", Event: "firing", Status: "ok",
+		Run: &store.AgentRun{Status: "not_started", At: e.now, By: "runner", Via: "api"}}}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	e.b.initOutcomes()
+	got, err := e.b.IncidentOutcome(id)
+	if err != nil || got.Outcome.Title != old.Title || got.Outcome.PassingCheck == nil || got.Outcome.PassingCheck.ID != "saved-check" ||
+		len(got.Outcome.AgentDeliveries) != 1 || got.Outcome.AgentDeliveries[0].Run == nil ||
+		got.Outcome.AgentDeliveries[0].Run.Status != "not_started" {
+		t.Fatalf("startup backfill changed the prior summary or lost execution evidence: %+v %v", got, err)
+	}
+}
+
 func TestPassingCheckSurvivesLaterChecksAndRefire(t *testing.T) {
 	e := newEnv(t)
 	e.b.d.ProbeNow = probeBoard(t)
