@@ -136,6 +136,15 @@ def request(url, *, data=None, headers=None):
         return r.read()
 
 
+def console_overview(base, headers):
+    try:
+        return request(base + "/console", headers=headers)
+    except HTTPError as err:
+        if err.code != 302 or err.headers.get("Location") != "/workspace/":
+            raise
+    return request(base + "/console/api/v1/overview", headers=headers)
+
+
 def wait_for(description, condition, seconds=20):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -372,11 +381,11 @@ def exercise(binary, work, receiver, rules_token, episode_links, *, mismatched_s
             wait_for("both acceptance records", both_results_recorded)
     if verify_destination:
         with beacon(binary, config, log, base):
-            overview = request(base + "/console", headers=overview_headers)
+            overview = console_overview(base, overview_headers)
             require(b"Provider accepted" in overview, "Restart lost the result for the unchanged destination")
         url_file.write_text(receiver_base + "/replacement\n", encoding="utf-8")
         with beacon(binary, config, log, base):
-            overview = request(base + "/console", headers=overview_headers)
+            overview = console_overview(base, overview_headers)
             require(b"Previous configuration" in overview and b"Provider accepted" not in overview,
                 "Historical acceptance verified the replacement destination")
             require("/replacement" not in receiver.paths, "Beacon contacted the new receiver without an alert")
