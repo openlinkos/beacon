@@ -23,12 +23,12 @@ import (
 type labels struct {
 	Alert, Session, Service, Services, Labels, Probes, Related, Changes, Agents, Notes, Sessions, Commands, Output, Timeline string
 	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
-	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, NoRecording, RecordingOpen, RecordingCut, RecordingError   string
+	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, RecordingError                                             string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
 	AcknowledgementNote, FullAcknowledgementNote, LatestNote, AllNotes                                                       string
-	ShareLinks, RefreshStatus                                                                                                string
+	ShareLinks, RefreshStatus, Transcript, NoEnd                                                                             string
 }
 
 func (s *Server) labels() labels {
@@ -40,9 +40,8 @@ func (s *Server) labels() labels {
 		Duration: s.t("Duration"), Exit: s.t("Exit status"), Location: s.t("Location"), Instance: s.t("Target"), Module: s.t("Module"),
 		Result: s.t("Result"), Reason: s.t("Reason"), OK: s.t("OK"), Failing: s.t("Failing"), Stale: s.t("Stale"), Open: s.t("Still open"),
 		None: s.t("None"), Runbook: s.t("Runbook"), Dashboard: s.t("Dashboard"), NoProbes: s.t("No probe results in the window"),
-		NoRecording: s.t("No recording"), RecordingOpen: s.t("The session is still open; the recording plays once it ends"),
-		RecordingCut: s.t("The recording was cut at 16 MiB"), RecordingError: s.t("The recording could not be loaded"),
-		Details: s.t("Details"), Status: s.t("Status"), Severity: s.t("Severity"), Kind: s.t("Kind"), Ended: s.t("Ended"),
+		RecordingError: s.t("The recording could not be loaded"),
+		Details:        s.t("Details"), Status: s.t("Status"), Severity: s.t("Severity"), Kind: s.t("Kind"), Ended: s.t("Ended"),
 		ID: s.t("Id"), Time: s.t("Time"), What: s.t("What happened"), Acknowledge: s.t("Acknowledge"), AckNote: s.t("A note for the others (optional)"),
 		AckWithNote: s.t("Acknowledge with note"), TakeOverWithNote: s.t("Take over with note"),
 		Silence: s.t("Silence"), SilenceWhy: s.t("Why silence it"), AddNote: s.t("Add a note"), Note: s.t("Note"),
@@ -54,6 +53,7 @@ func (s *Server) labels() labels {
 		AcknowledgementNote: s.t("Acknowledgement note"), FullAcknowledgementNote: s.t("Read full acknowledgement note"),
 		LatestNote: s.t("Latest note"), AllNotes: s.t("All notes"),
 		ShareLinks: s.t("Manage share links"), RefreshStatus: s.t("Refresh status"),
+		Transcript: s.t("Command transcript"), NoEnd: s.t("No end recorded"),
 	}
 }
 
@@ -892,14 +892,15 @@ func (s *Server) commands(cs []sshgate.Command) []commandRow {
 
 type sessionPage struct {
 	shell
-	L                                                                      labels
-	ActorLabel                                                             string
-	ID, Agent, Via, Machine, Kind, Command, Started, Ended, Duration, Exit string
-	Failed, Open, Truncated                                                bool
-	Commands                                                               []commandRow
-	Outputs                                                                []kv // stdout and stderr of a command
-	Recording, RecordingNote, MachineHref                                  string
-	ShareLinks, SharedViewHint                                             string
+	L                                                                        labels
+	ActorLabel                                                               string
+	ID, Agent, Via, Machine, Kind, Command, Started, Ended, Duration, Exit   string
+	Failed, Open                                                             bool
+	Commands                                                                 []commandRow
+	Outputs                                                                  []kv // stdout and stderr of a command
+	Recording, RecordingNote, RecordingReadNote, TranscriptNote, MachineHref string
+	RecordingState, TranscriptState                                          badge
+	ShareLinks, SharedViewHint                                               string
 }
 
 func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
@@ -908,11 +909,11 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	p := sessionPage{shell: s.pageShell(r, a, "sessions", s.t("Session"), heading, crumb{Label: s.t("Sessions"), Href: consolePath("/sessions")}),
 		L: s.labels(), ID: rec.ID, Agent: rec.Agent, Via: s.via(rec.Via), Machine: rec.Machine,
 		Kind: s.kind(rec.Kind), Command: rec.Command, Started: s.clock(rec.Started), Exit: s.exit(rec.Exit),
-		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Truncated: tr.Truncated, Commands: s.commands(tr.Commands)}
+		Failed: rec.Exit != nil && *rec.Exit != 0, Open: rec.Ended.IsZero(), Commands: s.commands(tr.Commands)}
 	if a.Viewer.person() && a.Viewer.owner() {
 		p.ShareLinks = shareLinksPath("sessions", rec.ID)
 	} else if a.Grant != nil {
-		p.SharedViewHint = s.t("This link opens this session and its recording. Sign in to open other sessions or machines you can access.")
+		p.SharedViewHint = s.t("This link opens this session and any available recording. Sign in to open other sessions or machines you can access.")
 	}
 	p.ActorLabel = s.t("Actor")
 	if strings.HasPrefix(rec.Principal, "agent:") {
@@ -925,7 +926,7 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	p.Badges = []badge{{Text: p.Kind}}
 	switch {
 	case p.Open:
-		p.Badges = append(p.Badges, badge{Text: p.L.Open, Tone: "info"})
+		p.Badges = append(p.Badges, badge{Text: p.L.NoEnd, Tone: "info"})
 	case p.Exit != "" && p.Failed:
 		p.Badges = append(p.Badges, badge{Text: p.Exit, Tone: "danger"})
 	case p.Exit != "":
@@ -943,13 +944,14 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	if tr.Stderr != "" {
 		p.Outputs = append(p.Outputs, kv{"stderr", tr.Stderr})
 	}
-	switch {
-	case rec.Recording == "":
-		p.RecordingNote = p.L.NoRecording
-	case p.Open:
-		p.RecordingNote = p.L.RecordingOpen
-	default:
+	recording, transcript := sessionEvidence(rec)
+	p.RecordingState, p.TranscriptState = s.sessionEvidenceBadge(recording), s.sessionEvidenceBadge(transcript)
+	p.RecordingNote = s.recordingHint(recording)
+	p.TranscriptNote = s.transcriptHint(rec, transcript, len(p.Commands) == 0 && len(p.Outputs) == 0)
+	if tr.RecordingAvailable != nil && *tr.RecordingAvailable {
 		p.Recording = s.recordingLink(link.RecordingPath(rec.ID), a)
+	} else if !p.Open && (recording == store.EvidenceComplete || recording == store.EvidenceTruncated || recording == "") {
+		p.RecordingReadNote = s.t("The recording cannot be opened from storage.")
 	}
 	return p
 }

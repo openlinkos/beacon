@@ -22,6 +22,7 @@ type listLabels struct {
 	Title, Severity, State, Service, Since, Acked, Silenced, Started, Agent, Machine, Kind, Via, Command, Duration, Exit string
 	Hook, Event, Status, Code, Attempts, When, Alert, Actor, Action, Target, Detail, Time, Source, Summary, Yes, No      string
 	Open, Target2, Configured, Calls, Severities, Resolved, NoHooks, IncidentHistory                                     string
+	Evidence, Replay, Transcript, NoEnd                                                                                  string
 }
 
 func (s *Server) listLabels() listLabels {
@@ -35,6 +36,7 @@ func (s *Server) listLabels() listLabels {
 		Target2: s.t("Calls"), Configured: s.t("Hooks configured"), Calls: s.t("Calls made"), Severities: s.t("Severities"),
 		Resolved: s.t("Also when it resolves"), NoHooks: s.t("No agent hooks are configured."),
 		IncidentHistory: s.t("Incident history"),
+		Evidence:        s.t("Evidence"), Replay: s.t("Replay"), Transcript: s.t("Command transcript"), NoEnd: s.t("No end recorded"),
 	}
 }
 
@@ -121,6 +123,7 @@ const maxScan = 10000
 type sessionItem struct {
 	ID, Href, Agent, Via, Machine, MachineHref, Kind, Command, Started, Duration, Exit string
 	Failed, Open                                                                       bool
+	RecordingState, TranscriptState                                                    badge
 }
 
 func (s *Server) sessionItem(r store.SessionRecord, details bool) sessionItem {
@@ -129,6 +132,8 @@ func (s *Server) sessionItem(r store.SessionRecord, details bool) sessionItem {
 		Started: s.clock(r.Started), Exit: s.exit(r.Exit), Failed: r.Exit != nil && *r.Exit != 0, Open: r.Ended.IsZero()}
 	if details {
 		it.Href, it.Command = link.SessionPath(r.ID), shorten(r.Command, 160)
+		recording, transcript := sessionEvidence(r)
+		it.RecordingState, it.TranscriptState = s.sessionEvidenceBadge(recording), s.sessionEvidenceBadge(transcript)
 	}
 	if !r.Ended.IsZero() {
 		it.Duration = s.dur(r.Ended.Sub(r.Started))
@@ -184,7 +189,7 @@ func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer)
 	more := len(recs) > maxScan
 	recs = recs[:min(maxScan, len(recs))]
 	details := permit.Details()
-	exits := map[string]string{"ok": s.t("Succeeded"), "failed": s.t("Failed"), "open": s.t("Still open"), "none": s.t("No exit status")}
+	exits := map[string]string{"ok": s.t("Succeeded"), "failed": s.t("Failed"), "open": s.t("No end recorded"), "none": s.t("No exit status")}
 	facets := []facet[store.SessionRecord]{
 		{Param: "agent", Title: s.t("Agent"), Value: func(r store.SessionRecord) string { return r.Agent }},
 		{Param: "machine", Title: s.t("Machine"), Value: func(r store.SessionRecord) string { return r.Machine }},

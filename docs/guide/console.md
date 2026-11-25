@@ -186,11 +186,11 @@ The session's page shows:
 - who, on which machine, and through what (ssh, MCP or the API);
 - when it started and how long it took;
 - the exit status;
-- the recording, replayed in the page with [asciinema-player](https://github.com/asciinema/asciinema-player).
+- recording and command transcript status, shown independently.
 
-The recording is asciicast v3, as the SSH channel records it: output, input, resizes, a marker at each command, the exit status. Below the player come an interactive shell's commands with their exit statuses, or a command's output. The recording can also be downloaded.
+An available asciicast v3 recording can be downloaded or replayed with [asciinema-player](https://github.com/asciinema/asciinema-player). It can contain input, output, window sizes, shell command markers and the exit status. The **Command transcript** panel shows captured structured shell commands with their exits, or a command's output.
 
-A session still open shows its record. The recording plays once the session ends.
+**Capture pending** means Beacon has no recorded end for the session. **Truncated** means only part was captured, and you can open the saved part when available. The page shows storage read failures separately from unknown capture status on older sessions. SFTP and port forwards keep connection metadata. Shells without usable command integration may have a replay and only metadata in the **Command transcript** panel.
 
 The console applies your current permissions to session lists, alert timelines, command text and recordings. A credential limited to selected machines sees only sessions that belong to those machines' current enrolments. Enrolling a machine again under the same name creates a new enrolment. Credentials with `status:read` can see permitted session summaries. Command text and recordings require `sessions:read` or `machines:ssh` as well as access to the recorded machine. Older SSH audit entries that identify machines by name alone show command text only to credentials with unrestricted session detail access.
 

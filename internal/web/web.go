@@ -302,9 +302,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	var tr sshgate.Transcript
 	var err error
 	if a.Grant != nil {
-		tr, err = s.SSH.Session(id)
+		tr, err = s.SSH.SessionDetail(r.Context(), id)
 	} else {
-		tr, err = s.SSH.SessionFor(a.Principal, id)
+		tr, err = s.SSH.SessionDetailFor(r.Context(), a.Principal, id)
 	}
 	if err != nil {
 		s.missing(w, r, a.Viewer)

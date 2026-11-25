@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a0b99faf
+sourceHash: sha256-31b7d28e
 ---
 
 # 给 Agent 一台机器
@@ -9,7 +9,7 @@ sourceHash: sha256-a0b99faf
 - Agent 用自己的密钥登录 Beacon；
 - Beacon 检查它能不能连这台机器；
 - Beacon 用一张只为这一次连接签发、五分钟有效的证书连上去；
-- 每次会话都录下来。
+- 每次会话都会记录连接人、目标和时间。
 
 收回 Agent 的权限时，它打开着的连接立即关闭。
 
@@ -141,10 +141,11 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 - **用它自己的 ssh。** `list_machines` 会给出一段 `ssh_config` 和一行 `known_hosts`。它们供 Agent 自己的 `ssh`、`scp`、`sftp`、`rsync` 以及 `ssh -L` 端口转发使用。怎样放到位，见[接入 Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
 - **用 Beacon 的工具。** `run_command`、`read_file`、`write_file` 和 `edit_file` 的名字和用法都照着 Agent 自己的工具来。`list_machines` 列出机器，以及 Agent 能否连每台。每个参数见 [MCP 工具](../reference/mcp.md)。每次工具调用都单独算一次会话，和其他会话一样录下来。
 
-每一次会话都有记录：一条命令、一个交互 shell、一次文件传输、一个转发端口，以及每次工具调用。
+Beacon 为命令、shell、文件传输、端口转发和每次工具调用保留会话记录。采集内容取决于会话类型。
 
-- **录像**（asciicast v3，存于 `data_dir/recordings/`）在控制台的会话页面回放。
-- **文字记录**里是 shell 的每条命令及其退出状态。
+- **录像**在会话支持时采集终端活动。`data_dir/recordings/` 下可用的 asciicast v3 文件可在会话页面回放。
+- **文字记录**保留命令和工具的输出，或具备可用命令集成的 shell 中每条命令及其退出状态。
+- **SFTP 和端口转发**保留连接信息。控制台分别显示录像和文字记录的采集状态，包括采集不完整和存储故障。
 - **告警群**里每个 Agent 在每台机器上一条消息，附 **Replay** 链接，读者用自己的 Beacon 账号查看。
 
 会话保留 `ssh.keep`（180 天），之后删除。
