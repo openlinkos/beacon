@@ -893,7 +893,6 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Failing at %d of %d locations": "%d / %d 个检测点失败",
 	"Failure domain":                "故障域",
 	"Visibility":                    "可见性",
-	"Target set":                    "目标集",
 	"On status pages":               "所在状态页",
 	"Late":                          "超时未报",
 	"No success in 31 days":         "31 天内没有成功",
@@ -1164,6 +1163,14 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"%s performed %s on team credential %s via %s":                                    "%[1]s 经%[4]s对团队凭据 %[3]s 执行了 %[2]s",
 
 	// Designated machines in the monitor editor and in service outages.
+	"Designated machine":                         "指定机器",
+	"Change designated machine":                  "更改指定机器",
+	"Change designated machine for %s, group %d": "更改指定机器（%[1]s 第 %[2]d 组）",
+	"Group %d":         "第 %d 组",
+	"Back to monitor":  "返回监控详情",
+	"Save designation": "保存指定机器",
+	"The configuration changed. Open the monitor and choose the target group again.":                                                        "配置已变更。请打开监控详情，重新选择目标组。",
+	"When multiple groups have the same severity and failure domain, alerts link to a machine only if those groups agree on its enrolment.": "有多个组的严重程度和故障域相同时，只有这些组指定了同一项机器登记，告警才会关联该机器。",
 	"Designated machine (optional)":                                    "指定机器（可选）",
 	"No designated machine":                                            "不指定机器",
 	"Choose where operators should connect when this service is down.": "选择服务中断时值班人员应连接的机器。",

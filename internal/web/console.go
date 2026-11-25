@@ -156,6 +156,8 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 	at("GET", "/monitors/{service}/edit", s.console("config:write", s.editMonitorForm))
 	at("POST", "/monitors/{service}/edit", s.action("config:write", s.addMonitor))
 	at("POST", "/monitors/{service}/remove", s.action("config:write", s.removeMonitor))
+	at("GET", "/monitors/{service}/response-machine/{set}/{group}", s.console("config:write", s.responseMachine))
+	at("POST", "/monitors/{service}/response-machine/{set}/{group}", s.action("config:write", s.responseMachine))
 	at("GET", "/status-pages", s.console("status:read", s.pageList))
 	at("GET", statusPageCreatePath+"{$}", s.console("config:write", s.createStatusPage))
 	at("POST", statusPageCreatePath+"{$}", s.action("config:write", s.createStatusPage))
