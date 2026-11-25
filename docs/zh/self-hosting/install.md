@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a9908a3b
+sourceHash: sha256-56f1f4f7
 ---
 
 # 装在服务器上
@@ -85,7 +85,7 @@ sudo ./install.sh
 
 ```
 configuration OK: Feishu app false, Pushover false, Bark false; gateway ":17006"; SSH channel :17002; 0 agent hooks
-files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 5 modules, 1 status pages
+files: 1 probe locations, 0 heartbeats, 0 resources, 3 probe targets in 2 sets, 6 modules, 1 status pages
 database: none yet at /var/lib/beacon/beacon.db; the service imports the files when it first starts
 Waiting for the containers to be healthy …
 
@@ -221,7 +221,7 @@ On the machine, as root, if not done yet:
 
 ### 选择对用户公开的服务 {#choose-what-users-see}
 
-1. 在**监控**中点**添加 HTTP 监控**。填写服务名和两个检测点均可访问的正常 HTTP 或 HTTPS 端点。选择**所有检测点**并保存。新增监控默认为私有。等一个检测周期后点**刷新结果**，核对两个检测点都有结果。端点和检查选项见[添加 HTTP 监控](../guide/monitoring.md#add-an-http-monitor)。
+1. 在**监控**中点**添加 HTTP 监控**。填写服务名和两个检测点均可访问的正常 HTTP 或 HTTPS 端点。选择**所有检测点**和 `http_2xx` 检测模板，再保存。新增监控默认为私有。等一个检测周期后点**刷新结果**，核对两个检测点都有结果。端点和检查选项见[添加 HTTP 监控](../guide/monitoring.md#add-an-http-monitor)。
 2. 在**状态页**中打开现有的 `status` 页面，点**添加组件**。填写组件 ID（如 `api`）和公开标题，然后选中刚添加的服务。点**预览变更**，检查公开服务列表，以及页面上可能出现的告警备注公开提示。另开一个未登录的浏览器窗口访问 `https://status.example.com/status`，确认公开页仍是原来的内容。
 3. 点**发布变更**，刷新未登录的页面，核对新组件。使用**编辑服务**更改组件展示的服务，或用**移除组件**移除示例组件。每次修改或移除都先预览，再确认。至少保留一个组件，别将 `drill` 加入页面。这些操作会更新[公开状态页](../guide/status-pages.md)，检测点仍会继续检测服务。
 
