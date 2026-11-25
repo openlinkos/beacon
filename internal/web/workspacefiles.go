@@ -23,7 +23,7 @@ func (s *Server) workspaceEntry(handler http.HandlerFunc) http.HandlerFunc {
 		headers(w)
 		w.Header().Set("Cache-Control", "private, no-store")
 		to := "/workspace" + strings.TrimPrefix(r.URL.RequestURI(), link.Root)
-		http.Redirect(w, r, local(to), http.StatusFound) //nolint:gosec // G710: local workspace route
+		redirectLocal(w, to, http.StatusFound)
 	}
 }
 

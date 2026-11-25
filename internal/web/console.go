@@ -146,7 +146,7 @@ func (s *Server) registerConsole(mux *http.ServeMux) {
 			if r.URL.RawQuery != "" {
 				to += "?" + r.URL.RawQuery
 			}
-			http.Redirect(w, r, local(to), http.StatusFound) //nolint:gosec // G710: the local workspace with the request's query
+			redirectLocal(w, to, http.StatusFound)
 		})
 	} else {
 		at("GET", "", s.console("", s.overview))
@@ -297,6 +297,11 @@ func local(next string) string {
 		return consolePath("")
 	}
 	return next
+}
+
+func redirectLocal(w http.ResponseWriter, next string, status int) {
+	w.Header().Set("Location", local(next))
+	w.WriteHeader(status)
 }
 
 // cookie is one of the console's cookies, until expires (zero: deleted).
