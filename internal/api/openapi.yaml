@@ -470,6 +470,7 @@ components:
         address: {type: string, description: "host:port Beacon connects to, or connector for a machine behind NAT that connects out to the channel itself"}
         user: {type: string, description: The account on the machine}
         metadata_version: {type: integer, description: Current settings version (0 for an unversioned machine)}
+        registration: {type: string, description: Current enrolment for a response-machine assignment. Returned when the caller can change the designation and reach this machine.}
         host_key_fingerprint: {type: string, description: "SHA256 fingerprint of the host key pinned when the machine was added; empty for a connector machine whose key is learned when it first connects"}
         critical: {type: boolean}
         note: {type: string}
@@ -691,14 +692,15 @@ components:
           type: object
           additionalProperties: {type: string}
           description: Needs module (a module's name) and service; others reach the rules and the cards
-        machine:
-          type: object
-          description: Optional designated enrolment for a routine HTTP monitor. Control-plane metadata, absent from probe responses.
-          additionalProperties: false
-          required: [name, registration]
-          properties:
-            name: {type: string}
-            registration: {type: string}
+        machine: {$ref: "#/components/schemas/TargetMachineBinding"}
+    TargetMachineBinding:
+      type: object
+      description: The designated enrolment for a service. Control-plane metadata, absent from probe responses.
+      additionalProperties: false
+      required: [name, registration]
+      properties:
+        name: {type: string}
+        registration: {type: string}
     TargetSet:
       type: object
       properties:
@@ -2117,6 +2119,42 @@ paths:
       summary: Remove a target set
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
+      responses:
+        "200": {$ref: "#/components/responses/ConfigChange"}
+        default: {$ref: "#/components/responses/Error"}
+  /config/targets/{name}/groups/{group}/machine:
+    put:
+      summary: Set or clear a target group's response machine
+      description: >-
+        Scopes: config:write and machines:write. The caller must also have SSH access to the selected
+        and previous machines, when present. Changes only the designation on an HTTP target group.
+      parameters:
+        - {$ref: "#/components/parameters/SetName"}
+        - name: group
+          in: path
+          required: true
+          description: Zero-based index of the group in the reviewed configuration
+          schema: {type: integer, minimum: 0}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [if_version]
+              properties:
+                if_version: {type: integer, minimum: 1, description: The version from the configuration that lists this group}
+                machine: {$ref: "#/components/schemas/TargetMachineBinding"}
+                clear: {type: boolean, description: Set true to remove the designation in place of machine}
+                note: {type: string}
+              oneOf:
+                - required: [machine]
+                  properties:
+                    clear: {const: false}
+                - required: [clear]
+                  properties:
+                    clear: {const: true}
+                  not: {required: [machine]}
       responses:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}

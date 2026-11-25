@@ -147,6 +147,7 @@ What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/m
 | --- | --- | --- |
 | `get_config` | `status:read` or `config:write` | The configuration with the version in force; `kind` narrows it to one list, `kind` and `key` to one item |
 | `put_config` | `config:write` | Add or replace one item (`kind`, `key`, `value`, `note`, `if_version`). The whole configuration is checked and the change takes effect at once; the result is the change, with its version and the values before and after |
+| `set_target_machine` | `config:write` and `machines:write` | Set or clear the response machine of an HTTP target group (`set`, zero-based `group`, `if_version`, optional `note`, and `machine` from `list_machines` or `clear: true`). Requires SSH access to the previous and selected machines, when present |
 | `delete_config` | `config:write` | Remove one item (`kind`, `key`, `note`, `if_version`) |
 | `list_config_changes` | `status:read` or `config:write` | Changes, newest first (`kind`, `key`, `before`, `limit`, 20 by default, at most 200): version, when, who, through what, why, and the items added, changed or removed |
 | `get_config_change` | `status:read` or `config:write` | One change (`version`), with every item's value before and after |

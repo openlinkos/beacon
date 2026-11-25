@@ -8,6 +8,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The configuration's routes: the catalogue (locations, heartbeats, resources), the target sets and
@@ -30,6 +31,7 @@ func configRoutes() []string {
 		base, item := "/api/v1/config/"+k.list, "/api/v1/config/"+k.list+"/{"+k.param+"}"
 		out = append(out, "GET "+base, "GET "+item, "PUT "+item, "DELETE "+item)
 	}
+	out = append(out, "PUT /api/v1/config/targets/{name}/groups/{group}/machine")
 	return append(out, "GET /api/v1/config/history", "GET /api/v1/config/history/{version}", "POST /api/v1/config/history/{version}/revert")
 }
 
@@ -50,6 +52,7 @@ func (s *Server) registerConfig(mux *http.ServeMux) {
 		mux.Handle("PUT "+item, s.with("config:write", s.putConfigItem(k)))
 		mux.Handle("DELETE "+item, s.with("config:write", s.deleteConfigItem(k)))
 	}
+	mux.Handle("PUT /api/v1/config/targets/{name}/groups/{group}/machine", s.withPrincipal("config:write", s.changeTargetMachine))
 	mux.Handle("GET /api/v1/config/history", s.with(configRead, s.configHistory))
 	mux.Handle("GET /api/v1/config/history/{version}", s.with(configRead, s.configChange))
 	mux.Handle("POST /api/v1/config/history/{version}/revert", s.with("config:write", s.revertConfig))
@@ -62,6 +65,8 @@ func configActor(who bridge.Actor) configdb.Actor {
 // configError maps the configuration's errors to HTTP answers.
 func (s *Server) configError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, configdb.ErrTargetMachineScope):
+		writeError(w, http.StatusForbidden, "auth.scope", err.Error())
 	case errors.Is(err, configdb.ErrNotFound):
 		writeError(w, http.StatusNotFound, "config.not_found", err.Error())
 	case errors.Is(err, configdb.ErrInvalid):
@@ -130,6 +135,24 @@ func (s *Server) deleteConfigItem(k configKind) handler {
 		}
 		writeJSON(w, http.StatusOK, ch)
 	}
+}
+
+func (s *Server) changeTargetMachine(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	index, err := strconv.Atoi(r.PathValue("group"))
+	if err != nil || index < 0 {
+		writeError(w, http.StatusBadRequest, "bad_input", "group is a zero-based index into the target set")
+		return
+	}
+	var in configdb.TargetMachineChange
+	if !readJSON(w, r, &in) {
+		return
+	}
+	ch, err := s.Config.ChangeTargetMachine(r.Context(), p, "api", r.PathValue("name"), index, in)
+	if err != nil {
+		s.configError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ch)
 }
 
 // ifVersion reads the query's if_version, the version the caller's change is based on (0 when absent),

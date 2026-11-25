@@ -27,16 +27,17 @@ func newKey() (ssh.Signer, error) {
 
 // MachineView is a machine as the API shows it.
 type MachineView struct {
-	Name         string    `json:"name"`
-	Version      int64     `json:"metadata_version"`
-	Registration string    `json:"-"`
-	Address      string    `json:"address"`
-	User         string    `json:"user"`
-	HostKey      string    `json:"host_key_fingerprint"`
-	Critical     bool      `json:"critical,omitempty"`
-	Note         string    `json:"note,omitempty"`
-	Added        time.Time `json:"added"`
-	AddedBy      string    `json:"added_by,omitempty"`
+	Name                string    `json:"name"`
+	Version             int64     `json:"metadata_version"`
+	Registration        string    `json:"-"`
+	MonitorRegistration string    `json:"registration,omitempty"`
+	Address             string    `json:"address"`
+	User                string    `json:"user"`
+	HostKey             string    `json:"host_key_fingerprint"`
+	Critical            bool      `json:"critical,omitempty"`
+	Note                string    `json:"note,omitempty"`
+	Added               time.Time `json:"added"`
+	AddedBy             string    `json:"added_by,omitempty"`
 	// Reachable says whether the caller's token reaches it through the channel.
 	Reachable bool `json:"reachable"`
 	// Connector says the machine connects out to the channel itself (behind NAT); Connected and
@@ -51,6 +52,9 @@ type MachineView struct {
 func (g *Gate) view(m store.Machine, t store.Principal) MachineView {
 	v := MachineView{Name: m.Name, Version: m.MetadataVersion, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
 		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name), Registration: m.Registration()}
+	if v.Reachable && !t.MachineScopeEmpty() && t.Has("config:write") && t.Has("machines:write") {
+		v.MonitorRegistration = v.Registration
+	}
 	if m.Connector() {
 		v.Connector = true
 		connected := false

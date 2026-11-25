@@ -21,6 +21,12 @@ If a service has one machine operators should open during an outage, an owner ca
 
 After saving, the service page lists the checks expected from the current probe locations. Select **Refresh results** after a probe cycle. A check with no sample is waiting. A check whose last stored sample is too old is stale. The check time comes from the stored sample. A failed check has a result and shows its reason when available. The service summary uses the current endpoint, check profile and locations. Each new monitor has its own versioned target set and can be reverted from **Configuration**. Existing rules evaluate the results. Public status pages show the service when explicitly configured to include it.
 
+## Assign a response machine to an imported monitor {#assign-a-response-machine}
+
+Open the service in **Monitors** and choose the target group that should lead responders to the machine. An owner can assign or clear its response machine. The target set and its probe settings continue to be managed where they were defined. With file-managed targets, export the revised configuration if you want a later full import to keep the designation.
+
+For HTTP monitors, a new `ServiceDown` incident can show the selected machine when the alert scope and the configuration at the start of the incident point to the same current enrolment. Beacon checks the service, severity and the failure domain, page and visibility when the rule sends them. When a rule combines groups, each matching group needs the same designation. A rule can also name an explicit `machine` if the service warrants a different response target. A designation helps a responder find the machine to check. The incident still uses the responder’s own SSH access.
+
 ## Add a probe location {#locations}
 
 A location is one machine running `beacon-probe agent`. Add it to the catalogue first, then install the probe there. Enrolling an id that the catalogue lacks fails.
