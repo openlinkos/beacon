@@ -234,8 +234,13 @@ test "$(curl -fsS -b "$work/cookies" -c "$work/cookies" -o /dev/null -w '%{http_
   --data-urlencode "form=$form" --data-urlencode "code=${setup##*code=}" --data-urlencode username=duty-person \
   --data-urlencode 'display_name=Test Operator' --data-urlencode "password=$password" \
   --data-urlencode "again=$password" "$status_url/console/setup")" = 303
-curl -fsS -b "$work/cookies" "$status_url/console" > "$work/console.html"
-grep -q 'Test Operator' "$work/console.html"
+curl -fsS -b "$work/cookies" -D "$work/console.headers" "$status_url/console" > "$work/console.html"
+if grep -qi '^location: /workspace/' "$work/console.headers"; then
+  curl -fsS -b "$work/cookies" "$status_url/console/api/v1/session" > "$work/console-session.json"
+  jq -e '.name == "Test Operator"' "$work/console-session.json" >/dev/null
+else
+  grep -q 'Test Operator' "$work/console.html"
+fi
 if [[ "$version" == v0.3.0-rc.36 ]]; then
   printf 'The pinned release %s predates first status page creation in the console.\n' "$version"
 else

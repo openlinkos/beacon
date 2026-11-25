@@ -68,7 +68,9 @@ smoke_first_status_page() {
   local canonical="$status_url/status/$name" history maintenance_secret maintenance_id redirect url
   local -a fields=(--data-urlencode "name=$name" --data-urlencode "title=$title" --data-urlencode service=beacon)
 
-  if ! grep -Fq 'href="/console/status-pages"' "$work/console.html"; then
+  if [[ -f "$work/console-session.json" ]]; then
+    jq -e 'any(.navigation[].Items[]; .Href == "/console/status-pages")' "$work/console-session.json" >/dev/null
+  elif ! grep -Fq 'href="/console/status-pages"' "$work/console.html"; then
     printf 'The owner has no Status pages navigation with an empty catalogue.\n' >&2
     return 1
   fi
