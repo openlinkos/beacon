@@ -209,11 +209,11 @@ func (st *State) Summary() string {
 // that differ only in what is not an item (the module file's comments, say) are a change too, with no
 // items, so that probes get the module file as it was imported.
 func (s *Service) commit(ctx context.Context, who Actor, action, note string, reverts int64, next map[string][]byte, dryRun bool) (store.ConfigChange, error) {
-	return s.commitWithConsoleTargets(ctx, who, action, note, reverts, next, dryRun, nil, 0)
+	return s.commitWithConsoleTargets(ctx, who, action, note, reverts, next, dryRun, nil, 0, nil)
 }
 
 func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, action, note string, reverts int64,
-	next map[string][]byte, dryRun bool, owned map[string]bool, expectVersion int64,
+	next map[string][]byte, dryRun bool, owned map[string]bool, expectVersion int64, maintenance *uint64,
 ) (store.ConfigChange, error) {
 	cur := s.state.Load()
 	st := build(next)
@@ -260,7 +260,12 @@ func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, actio
 			writes = append(writes, store.ConfigWrite{Key: k, Was: was})
 		}
 	}
-	ch, err := s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
+	var err error
+	if maintenance == nil {
+		ch, err = s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
+	} else {
+		ch, err = s.d.Store.CommitConfigWithMaintenance(ch, writes, expectVersion, *maintenance)
+	}
 	if errors.Is(err, store.ErrConflict) {
 		if expectVersion > 0 {
 			s.reloadLocked()

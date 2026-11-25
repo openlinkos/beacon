@@ -775,6 +775,9 @@ func (s *Store) PutSilence(r SilenceRecord) error {
 	b, _ := json.Marshal(r)
 	cutoff := s.now().Add(-keepSilences)
 	return s.db.Update(func(tx kv.Tx) error {
+		if _, err := tx.NextSequence(bucketMaintenanceRevision); err != nil {
+			return err
+		}
 		var old [][]byte
 		tx.Range(bucketSilences, kv.Range{}, func(k, v []byte) bool {
 			var x SilenceRecord
@@ -794,13 +797,7 @@ func (s *Store) PutSilence(r SilenceRecord) error {
 func (s *Store) SilenceRecords() []SilenceRecord {
 	var out []SilenceRecord
 	_ = s.db.View(func(tx kv.Tx) error {
-		tx.Range(bucketSilences, kv.Range{}, func(_, v []byte) bool {
-			var r SilenceRecord
-			if json.Unmarshal(v, &r) == nil {
-				out = append(out, r)
-			}
-			return true
-		})
+		out = statusRecords[SilenceRecord](tx, bucketSilences)
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })

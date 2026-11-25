@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Preview the existing maintenance titles, descriptions and times that a status component change will publish. Review any new or changed announcements before publishing.
+
 ## 0.3.0
 
 ### rc.35 (2026-11-25)

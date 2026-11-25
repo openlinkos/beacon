@@ -217,7 +217,16 @@ func (s *Service) compute(ctx context.Context, def catalog.StatusPage, lang stri
 		p.Components = append(p.Components, Component{Name: c.Name, Title: c.Title.In(lang), Description: c.Description.In(lang),
 			Group: group[c.Name], services: st.PageServices(c)})
 	}
-	windows := s.windows(def, p, now)
+	var source store.MaintenanceSnapshot
+	if s.d.Store != nil {
+		var err error
+		source, err = s.d.Store.MaintenanceSnapshot()
+		if err != nil {
+			s.d.Log.Warn("status pages: reading maintenance failed", "err", err)
+			source = store.MaintenanceSnapshot{}
+		}
+	}
+	windows := s.windows(p, now, source)
 	incidents := s.incidents(def, p, l, now)
 	for i := range p.Components {
 		c := &p.Components[i]
@@ -230,11 +239,7 @@ func (s *Service) compute(ctx context.Context, def catalog.StatusPage, lang stri
 			p.Incidents = append(p.Incidents, in)
 		}
 	}
-	for _, w := range windows {
-		if w.Status != "completed" || now.Sub(w.Ends) <= recent {
-			p.Maintenance = append(p.Maintenance, w.Window)
-		}
-	}
+	p.Maintenance = append(p.Maintenance, listedMaintenance(windows, now)...)
 	p.Status, p.Summary = overall(p, l)
 	return p
 }

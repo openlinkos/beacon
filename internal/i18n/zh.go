@@ -1055,6 +1055,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Preview changes":                   "预览变更",
 	"Preview the change or publish it.": "请选择预览变更或发布变更。",
 	"Preview which services would stay visible after removing this component.": "预览移除该组件后，哪些服务仍对访客可见。",
+
+	"Maintenance announcements that will become public":                     "将公开的维护公告",
+	"Review the maintenance announcements below before publishing.":         "发布前请核对下方的维护公告。",
+	"The public maintenance announcements could not be checked. Try again.": "暂时无法核对将公开的维护公告。请重试。",
 	"Public component title": "公开组件名称",
 	"Public status page":     "公开状态页",
 	"Publish changes":        "发布变更",

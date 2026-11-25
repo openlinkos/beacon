@@ -428,6 +428,15 @@ func (s *Service) Put(ctx context.Context, who Actor, kind, key string, value js
 // condition): when the configuration moved on meanwhile, the change is refused with ErrConflict naming
 // the version in force, and nothing changes, so that a caller never overwrites what it has not seen.
 func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value json.RawMessage, note string, version int64) (store.ConfigChange, error) {
+	return s.putIf(ctx, who, kind, key, value, note, version, nil)
+}
+
+// PublishStatusPageIf saves a page at the reviewed configuration and maintenance revisions.
+func (s *Service) PublishStatusPageIf(ctx context.Context, who Actor, key string, value json.RawMessage, note string, version int64, maintenance uint64) (store.ConfigChange, error) {
+	return s.putIf(ctx, who, KindStatus, key, value, note, version, &maintenance)
+}
+
+func (s *Service) putIf(ctx context.Context, who Actor, kind, key string, value json.RawMessage, note string, version int64, maintenance *uint64) (store.ConfigChange, error) {
 	k, ok := Kind(kind)
 	if !ok {
 		return store.ConfigChange{}, fmt.Errorf("%w: "+kindsHint, ErrBadInput)
@@ -453,7 +462,7 @@ func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value 
 			return store.ConfigChange{}, err
 		}
 	}
-	return s.commitWithConsoleTargets(ctx, who, "put", note, 0, next, false, nil, version)
+	return s.commitWithConsoleTargets(ctx, who, "put", note, 0, next, false, nil, version, maintenance)
 }
 
 // Delete removes one item.
@@ -536,7 +545,7 @@ func (s *Service) Revert(ctx context.Context, who Actor, v int64, note string) (
 			owned[it.Key] = true
 		}
 	}
-	return s.commitWithConsoleTargets(ctx, who, "revert", note, v, next, false, owned, 0)
+	return s.commitWithConsoleTargets(ctx, who, "revert", note, v, next, false, owned, 0, nil)
 }
 
 func touches(c store.ConfigChange, kind, key string) bool {

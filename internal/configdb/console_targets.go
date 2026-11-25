@@ -192,7 +192,7 @@ func (s *Service) SetConsoleTargetIf(ctx context.Context, who Actor, previous, s
 	if err := set(next, KindTargets, name, raw); err != nil {
 		return store.ConfigChange{}, err
 	}
-	return s.commitWithConsoleTargets(ctx, who, "put", note, 0, next, false, map[string]bool{name: true}, version)
+	return s.commitWithConsoleTargets(ctx, who, "put", note, 0, next, false, map[string]bool{name: true}, version, nil)
 }
 
 // DeleteConsoleTargetIf removes a target set still owned by the console at the expected version.
@@ -211,5 +211,5 @@ func (s *Service) DeleteConsoleTargetIf(ctx context.Context, who Actor, name, no
 	}
 	next := maps.Clone(cur.entries)
 	delete(next, entryKey(KindTargets, name))
-	return s.commitWithConsoleTargets(ctx, who, "delete", note, 0, next, false, nil, version)
+	return s.commitWithConsoleTargets(ctx, who, "delete", note, 0, next, false, nil, version, nil)
 }

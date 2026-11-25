@@ -145,10 +145,7 @@ type window struct {
 // windows are the maintenance windows on the page's components, as far back as the history reaches: the
 // active ones, then those to come (the soonest first), then those that ended (the latest first). They
 // are the windows planned through Beacon, and the silences whose comment begins with "maintenance:".
-func (s *Service) windows(def catalog.StatusPage, p *Page, now time.Time) []window {
-	if s.d.Store == nil {
-		return nil
-	}
+func (s *Service) windows(p *Page, now time.Time, source store.MaintenanceSnapshot) []window {
 	oldest := dayStart(now, s.d.Location, Days-1)
 	var out []window
 	add := func(id, title, desc string, comps []string, start, end time.Time) {
@@ -167,7 +164,7 @@ func (s *Service) windows(def catalog.StatusPage, p *Page, now time.Time) []wind
 		out = append(out, w)
 	}
 	planned := map[string]bool{}
-	for _, m := range s.d.Store.MaintenanceWindows() {
+	for _, m := range source.Windows {
 		for _, id := range m.Silences {
 			planned[id] = true
 		}
@@ -175,7 +172,7 @@ func (s *Service) windows(def catalog.StatusPage, p *Page, now time.Time) []wind
 			add(m.ID, m.Title, m.Description, componentsOf(p, m.Services), m.StartsAt, m.End())
 		}
 	}
-	for _, sil := range s.d.Store.SilenceRecords() {
+	for _, sil := range source.Silences {
 		c := strings.TrimSpace(sil.Comment)
 		if planned[sil.ID] || len(c) < len(bridge.MaintenancePrefix) || !strings.EqualFold(c[:len(bridge.MaintenancePrefix)], bridge.MaintenancePrefix) {
 			continue
