@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c44322fe
+sourceHash: sha256-182f3a0b
 ---
 
 # 装在服务器上
@@ -257,7 +257,7 @@ claude mcp login beacon
 (
   set -eu
   umask 077
-  id beacon-oncall >/dev/null 2>&1 || sudo useradd --system --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
+  id beacon-oncall >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
   sudo install -d -m 0750 -o beacon-oncall -g beacon-oncall /var/lib/beacon-oncall/logs
   sudo install -d -m 0750 -o root -g beacon-oncall /etc/beacon-oncall
   work=$(mktemp -d)
