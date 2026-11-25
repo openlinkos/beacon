@@ -6,6 +6,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.49 (2026-11-26)
+
+- Redesign the console for desktop and phones. Group navigation by task, give incident history a direct entry, and put the response queue below a single health summary with probe coverage.
+- Give the alerts table the full width with on-demand filters. Put the incident timeline and evidence beside the response controls on desktop, with the controls first on phones.
+- Make the independently built React console the default for alerts, people, agents, machines, monitoring, configuration and session replay. Beacon embeds the static bundle and serves it alongside the session API in one container.
+- Simplify the public landing and status pages. Keep current status, maintenance, incidents and uptime history visible, using the same neutral palette as the console.
+
 ### rc.48 (2026-11-25)
 
 - Choose or clear the response machine for an imported HTTP target group in the console, REST or MCP without editing the existing probe configuration.

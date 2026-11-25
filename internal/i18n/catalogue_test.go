@@ -212,6 +212,9 @@ var hanExempt = []string{
 	".claude/", // agents' worktrees and settings
 	"node_modules/",
 	"docs/",
+	"frontend/node_modules/",
+	"frontend/dist/",
+	"internal/web/static/workspace/",
 	"internal/i18n/zh.go",
 	"internal/i18n/i18n_test.go", // tests the translations
 	"internal/ui/vendor/",

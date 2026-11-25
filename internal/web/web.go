@@ -93,6 +93,7 @@ type Server struct {
 	Hooks                 []config.Agent
 	Reporting             func() map[string]time.Time
 	Version               string
+	DefaultWorkspace      bool
 
 	// Status computes the public status pages (status.go); nil leaves them out.
 	Status   *status.Service
@@ -106,9 +107,10 @@ type Server struct {
 // the paths the console had before it moved there send people on to their new place.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.home)
-	mux.HandleFunc("GET "+link.AlertPath("{id}"), s.alert)
-	mux.HandleFunc("GET "+link.IncidentPath("{id}", "{episode}"), s.alert)
-	mux.HandleFunc("GET "+link.SessionPath("{id}"), s.session)
+	mux.HandleFunc("GET "+link.AlertPath("{id}"), s.workspaceEntry(s.alert))
+	mux.HandleFunc("GET "+link.IncidentPath("{id}", "{episode}"), s.workspaceEntry(s.alert))
+	mux.HandleFunc("GET "+link.SessionPath("{id}"), s.workspaceEntry(s.session))
+	mux.HandleFunc("GET "+workspacePageRoot+"/sessions/{id}", workspacePage(s.session))
 	mux.HandleFunc("GET "+link.RecordingPath("{id}"), s.recording)
 	mux.HandleFunc("GET /static/{file}", s.static)
 	mux.HandleFunc("GET /static/ol/{file}", s.static)
@@ -117,6 +119,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	s.registerStatus(mux)
 	if s.Console() {
 		s.registerConsole(mux)
+		registerWorkspaceFiles(mux, static)
 	}
 }
 
@@ -222,6 +225,10 @@ func (s *Server) render(w http.ResponseWriter, t *template.Template, data any) {
 }
 
 func (s *Server) renderStatus(w http.ResponseWriter, status int, t *template.Template, data any) {
+	if response, ok := w.(*workspacePageWriter); ok {
+		response.page(status, data)
+		return
+	}
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 		s.log().Error("page template failed", "err", err)

@@ -241,7 +241,7 @@ func TestStatusPageRenders(t *testing.T) {
 		`<html lang="en">`, `data-brand="linkos-status"`, `class="ol-site-header"`, `class="ol-hero bc-status-hero"`, `class="ol-site-footer"`,
 		`<meta name="viewport" content="width=device-width, initial-scale=1">`, `href="/static/status.css?v=test"`,
 		"Example Status", "API &lt;img src=x onerror=alert(1)&gt; is down", "Outage: API &lt;img",
-		"Fixing it &lt;script&gt;alert(1)&lt;/script&gt;", "Pull through the mirror &lt;script&gt;",
+		"Fixing it &lt;script&gt;alert(1)&lt;/script&gt;",
 		`class="ol-uptime ol-uptime-lg bc-uptime" role="img"`, `class="ol-uptime-down"`, `class="ol-uptime-ok"`,
 		`<summary aria-label="Daily history for Mirrors">Daily history</summary>`,
 		`<ul class="bc-history-days" role="list"><li>2026-11-02: Outage, `,
@@ -256,6 +256,9 @@ func TestStatusPageRenders(t *testing.T) {
 	}
 	if strings.Contains(a.body, hostile) || strings.Contains(a.body, "<img src=x") {
 		t.Error("hostile text is not escaped")
+	}
+	if strings.Contains(a.body, "Pull through the mirror") || strings.Contains(a.body, "ol-hero-lead") {
+		t.Error("the status page rendered decorative descriptions")
 	}
 	noInlineScripts(t, a.body)
 	if n := strings.Count(a.body, `<span class="ol-uptime-`) + strings.Count(a.body, `<span title="`); n != 2*status.Days {

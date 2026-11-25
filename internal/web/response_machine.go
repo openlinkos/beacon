@@ -85,7 +85,7 @@ func (s *Server) monitorTargetGroups(st *configdb.State, v *viewer, svc string) 
 }
 
 type responseMachinePage struct {
-	shell
+	shell                     `json:"-"`
 	Back, Action              string
 	Return, Save, Designation string
 	Hint, GroupHint           string

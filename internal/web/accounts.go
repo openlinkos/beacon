@@ -138,7 +138,7 @@ type accountFormLabels struct {
 }
 
 type accountFormPage struct {
-	shell
+	shell                           `json:"-"`
 	L                               accountFormLabels
 	Kind, Action, Code, Form, Error string
 	Heading, Intro, Note            string
@@ -265,7 +265,7 @@ type accountLabels struct {
 }
 
 type accountPage struct {
-	shell
+	shell  `json:"-"`
 	L      accountLabels
 	Facts  []kvLink
 	Person bool
@@ -428,7 +428,7 @@ type personRow struct {
 type invitationRow struct{ Role, Note, By, Expires, Withdraw string }
 
 type peoplePage struct {
-	shell
+	shell       `json:"-"`
 	L           peopleLabels
 	Rows        []personRow
 	Invitations []invitationRow
@@ -471,7 +471,7 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 // oncePage shows something once: a link or a token that is not kept, with what to do with it.
 type oncePage struct {
-	shell
+	shell                `json:"-"`
 	Value, Warning, Text string
 	Snippets             []bridge.Snippet
 	SnippetsTitle        string

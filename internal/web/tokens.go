@@ -30,7 +30,7 @@ type tokenRow struct {
 }
 
 type tokensPage struct {
-	shell
+	shell   `json:"-"`
 	L       tokenLabels
 	List    list
 	Rows    []tokenRow

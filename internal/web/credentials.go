@@ -32,7 +32,7 @@ type credentialGrantRow struct {
 }
 
 type credentialPage struct {
-	shell
+	shell                                    `json:"-"`
 	L                                        credentialLabels
 	Base, Audit, Rotate, Grant, Revoke, Test string
 	Rows                                     []secrets.Credential

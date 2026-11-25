@@ -52,7 +52,7 @@ type silenceItem struct {
 }
 
 type silencesPage struct {
-	shell
+	shell    `json:"-"`
 	L        silencesLabels
 	Windows  []windowItem
 	Silences []silenceItem

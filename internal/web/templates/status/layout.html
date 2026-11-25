@@ -41,7 +41,6 @@
 <footer class="ol-site-footer">
   <div>
     <a class="ol-brand" href="{{.Root}}">{{.Mark}}<span>{{.Name}}</span></a>
-    {{if .Description}}<p class="ol-site-footer-note">{{.Description}}</p>{{end}}
     {{if .Feed}}<p class="ol-site-footer-note"><a href="{{.Feed}}">{{.L.Subscribe}}</a> · <a href="{{.JSON}}">{{.L.JSONLink}}</a></p>{{end}}
     {{with .Powered}}<p class="ol-site-footer-note bc-powered"><a href="{{.Docs}}" data-brand="beacon">{{.Mark}}<span>{{.Label}}</span></a> · <a href="{{.Repo}}">{{.RepoLabel}}</a></p>{{end}}
   </div>

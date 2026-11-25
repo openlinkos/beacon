@@ -14,7 +14,7 @@ type shareLinkLabels struct {
 }
 
 type shareLinksPage struct {
-	shell
+	shell                        `json:"-"`
 	L                            shareLinkLabels
 	Resource, SessionID          string
 	Back, Form                   string

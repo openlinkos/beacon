@@ -46,7 +46,7 @@ type statusPublicationNote struct {
 }
 
 type statusComponentFormPage struct {
-	shell
+	shell                                             `json:"-"`
 	L                                                 statusComponentLabels
 	Form, Page, PublicURL, ComponentTitle, Name, Mode string
 	Version                                           int64

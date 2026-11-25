@@ -16,4 +16,7 @@
 /docs/node_modules/
 /docs/.vitepress/cache/
 /docs/.vitepress/dist/
+/frontend/node_modules/
+/frontend/dist/
+/internal/web/static/workspace/
 /deploy/.install-state

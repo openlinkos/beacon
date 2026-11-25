@@ -33,7 +33,7 @@ type monitorInput struct {
 }
 
 type monitorFormPage struct {
-	shell
+	shell                                 `json:"-"`
 	L                                     monitorFormLabels
 	Input                                 monitorInput
 	Version                               int64

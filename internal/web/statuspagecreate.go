@@ -26,7 +26,7 @@ type statusPageCreateLabels struct {
 }
 
 type statusPageCreatePage struct {
-	shell
+	shell             `json:"-"`
 	L                 statusPageCreateLabels
 	Name, PublicTitle string
 	Form, Back        string

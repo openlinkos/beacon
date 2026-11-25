@@ -431,7 +431,7 @@ func serve(args []string, stderr io.Writer) int {
 		Metrics: m, DrillRun: st.DrillRun, Exercise: drillProof, Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
 			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa,
-			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled}, // the public pages at /, the console at /console
+			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled, DefaultWorkspace: true},
 	}
 	if cfg.Gateway.Listen != "" {
 		sd.Web.Reporting = web.ReportingFrom(m) // when each probe location last wrote through the gateway

@@ -68,15 +68,45 @@ func deviceAcknowledged(ack *store.Ack) bool { return ack != nil && ack.Via == "
 func claimed(ack *store.Ack) bool { return ack.StopsEscalation() && !deviceAcknowledged(ack) }
 
 type listPage[R any] struct {
-	shell
-	L    listLabels
-	List list
-	Rows []R
+	shell `json:"-"`
+	L     listLabels
+	List  list
+	Rows  []R
+}
+
+type alertsPage struct {
+	listPage[alertRow]
+	Views      []facetValue
+	CanHistory bool
 }
 
 var alertsTmpl = parse("alerts.html")
 
+// alertViews changes the state, ownership and silence filters together, keeping search and any
+// service or severity filter in place.
+func (s *Server) alertViews(q url.Values) []facetValue {
+	presets := []struct{ label, state, acknowledged, silenced string }{
+		{label: s.t("All alerts")},
+		{label: s.t("Firing alerts"), state: "firing"},
+		{label: s.t("Needs a responder"), state: "firing", acknowledged: "no", silenced: "no"},
+		{label: s.t("Resolved"), state: "resolved"},
+	}
+	views := make([]facetValue, 0, len(presets))
+	for _, preset := range presets {
+		on := q.Get("state") == preset.state && q.Get("acknowledged") == preset.acknowledged && q.Get("silenced") == preset.silenced
+		target := with(q, "state", preset.state)
+		target = with(target, "acknowledged", preset.acknowledged)
+		target = with(target, "silenced", preset.silenced)
+		views = append(views, facetValue{Label: preset.label, Href: href(consolePath("/alerts"), target), On: on})
+	}
+	return views
+}
+
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
+	s.render(w, alertsTmpl, s.alertsData(r, v))
+}
+
+func (s *Server) alertsData(r *http.Request, v *viewer) alertsPage {
 	now := s.now()
 	groups := s.Bridge.Groups(false)
 	sort.SliceStable(groups, func(i, j int) bool { return groups[i].StartsAt.After(groups[j].StartsAt) })
@@ -101,9 +131,14 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		return contains(q, texts...)
 	}
-	kept, l := filter(s, consolePath("/alerts"), r.URL.Query(), groups, facets, match)
+	q := r.URL.Query()
+	kept, l := filter(s, consolePath("/alerts"), q, groups, facets, match)
 	l.SearchHint = s.t("Title, service or label")
-	p := listPage[alertRow]{shell: s.shellFor(r, v, "alerts", s.t("Alerts")), L: s.listLabels(), List: l}
+	p := alertsPage{
+		listPage:   listPage[alertRow]{shell: s.shellFor(r, v, "alerts", s.t("Alerts")), L: s.listLabels(), List: l},
+		Views:      s.alertViews(q),
+		CanHistory: v.has("status:read"),
+	}
 	p.Count = l.Total
 	for _, g := range kept {
 		row := alertRow{Title: g.Title, Href: link.AlertPath(g.ID), Severity: s.severity(g.Severity), SeverityTone: tone(g.Severity),
@@ -121,7 +156,7 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 		p.Rows = append(p.Rows, row)
 	}
-	s.render(w, alertsTmpl, p)
+	return p
 }
 
 // ---- sessions
@@ -299,7 +334,7 @@ func (s *Server) hooks(w http.ResponseWriter, r *http.Request, v *viewer) {
 	match := func(c call, q string) bool { return contains(q, c.Hook, c.title, c.alert, c.Error) }
 	kept, l := filter(s, consolePath("/hooks"), r.URL.Query(), all, facets, match)
 	l.SearchHint = s.t("Hook or alert")
-	p := hooksPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "hooks", s.t("Hooks")), L: s.listLabels(), List: l}}
+	p := hooksPage{listPage: listPage[callRow]{shell: s.shellFor(r, v, "hooks", s.t("Agent deliveries")), L: s.listLabels(), List: l}}
 	p.Count = l.Total
 	for _, h := range s.Hooks {
 		row := hookRow{Name: h.Name, Kind: h.Kind, Severities: strings.Join(h.Severities, ", "), Service: h.Service, Resolved: h.Resolved, Calls: num(byHook[h.Name])}

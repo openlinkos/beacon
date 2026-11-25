@@ -12,16 +12,15 @@ import (
 )
 
 // The shell every page shares: the design system's workbench (.ol-app-workbench), with the sections in
-// a narrow sidebar with counts, the top bar as the page's header (the breadcrumb, the one h1, a count,
-// the actions), and a footer with Beacon's version and the project's links. It adapts to the width by
-// CSS alone (a full sidebar from 1200px, a rail of icons from 860px, a sheet below), so the server
-// renders one page for every screen.
+// a task-based sidebar, a breadcrumb bar, a page heading with actions, and a project footer. The
+// same HTML serves a sidebar on wider screens and a navigation sheet on narrow ones.
 
 type crumb struct{ Label, Href string }
 
 type navItem struct {
 	Key, Label, Href, Icon, Count string
 	Current                       bool
+	Scope                         string
 }
 
 type navGroup struct {
@@ -138,48 +137,52 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 	for _, n := range s.Bridge.Summarize().Firing {
 		firing += n
 	}
-	machines, tokens := len(s.Store.Machines()), len(s.Store.Tokens())
-	agents := 0
+	team := []navItem{{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot"}}
 	if v.owner() {
-		agents = len(s.Store.Agents(""))
-	} else if v.person() {
-		agents = len(s.Store.Agents(v.Account.Username))
+		team = append(team, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users"})
 	}
-	admin := []navItem{{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog"}}
-	if v.owner() {
-		admin = append(admin, navItem{Key: "people", Label: s.t("People"), Href: consolePath("/people"), Icon: "users", Count: count(len(s.Store.Accounts()))})
+	admin := []navItem{
+		{Key: "config", Label: s.t("Configuration"), Href: consolePath("/config"), Icon: "file-cog", Scope: "status:read|config:write"},
+		{Key: "tokens", Label: s.t("Access tokens"), Href: consolePath("/tokens"), Icon: "key-round"},
 	}
 	if (s.Credentials != nil || s.CredentialsConfigured) && v.owner() && v.person() {
 		admin = append(admin, navItem{Key: "credentials", Label: s.t("Team credentials"), Href: consolePath("/credentials"), Icon: "key-round"})
 	}
-	admin = append(admin,
-		navItem{Key: "tokens", Label: s.t("Tokens"), Href: consolePath("/tokens"), Icon: "key-round", Count: count(tokens)},
-		navItem{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"})
-	// The overview on its own, then the console's three parts: what Beacon watches and what it does
-	// about it; the agents and the machines they reach; and Beacon's own administration.
+	admin = append(admin, navItem{Key: "audit", Label: s.t("Audit log"), Href: consolePath("/audit"), Icon: "scroll-text"})
 	groups := []navGroup{
 		{Items: []navItem{{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"}}},
-		{Label: s.t("Monitoring"), Items: []navItem{
+		{Label: s.t("Incident response"), Items: []navItem{
 			{Key: "alerts", Label: s.t("Alerts"), Href: consolePath("/alerts"), Icon: "triangle-alert", Count: count(firing)},
-			{Key: "silences", Label: s.t("Silences and maintenance"), Href: consolePath("/silences"), Icon: "timer", Count: count(s.plannedWindows())},
-			{Key: "monitors", Label: s.t("Monitors"), Href: consolePath("/monitors"), Icon: "activity"},
-			{Key: "status-pages", Label: s.t("Status pages"), Href: consolePath("/status-pages"), Icon: "globe", Count: count(len(s.Status.Pages()))},
+			{Key: "incident-outcomes", Label: s.t("Incident history"), Href: consolePath("/incident-outcomes"), Icon: "clock", Scope: "status:read"},
+			{Key: "hooks", Label: s.t("Agent deliveries"), Href: consolePath("/hooks"), Icon: "zap"},
 			{Key: "changes", Label: s.t("Changes"), Href: consolePath("/changes"), Icon: "history"},
 		}},
-		{Label: s.t("Agents and machines"), Items: []navItem{
-			{Key: "agents", Label: s.t("Agents"), Href: consolePath("/agents"), Icon: "bot", Count: count(agents)},
-			{Key: "machines", Label: s.t("Machines"), Href: consolePath("/machines"), Icon: "server", Count: count(machines)},
-			{Key: "sessions", Label: s.t("Sessions"), Href: consolePath("/sessions"), Icon: "terminal"},
-			{Key: "hooks", Label: s.t("Hooks"), Href: consolePath("/hooks"), Icon: "zap"},
+		{Label: s.t("Monitoring"), Items: []navItem{
+			{Key: "monitors", Label: s.t("Monitors"), Href: consolePath("/monitors"), Icon: "activity", Scope: "status:read"},
+			{Key: "silences", Label: s.t("Silences and maintenance"), Href: consolePath("/silences"), Icon: "timer", Count: count(s.plannedWindows()), Scope: "status:read"},
+			{Key: "status-pages", Label: s.t("Status pages"), Href: consolePath("/status-pages"), Icon: "globe", Scope: "status:read"},
 		}},
+		{Label: s.t("SSH access"), Items: []navItem{
+			{Key: "machines", Label: s.t("Machines"), Href: consolePath("/machines"), Icon: "server", Scope: "status:read|machines:ssh"},
+			{Key: "sessions", Label: s.t("SSH sessions"), Href: consolePath("/sessions"), Icon: "terminal", Scope: "status:read|machines:ssh"},
+		}},
+		{Label: s.t("People and agents"), Items: team},
 		{Label: s.t("Administration"), Items: admin},
 	}
-	for i := range groups {
-		for j := range groups[i].Items {
-			groups[i].Items[j].Current = groups[i].Items[j].Key == current
+	visible := make([]navGroup, 0, len(groups))
+	for _, group := range groups {
+		items := group.Items[:0]
+		for _, item := range group.Items {
+			if item.Scope == "" || v.hasAny(item.Scope) {
+				item.Current = item.Key == current
+				items = append(items, item)
+			}
+		}
+		if len(items) > 0 {
+			visible = append(visible, navGroup{Label: group.Label, Items: items})
 		}
 	}
-	return groups
+	return visible
 }
 
 // count is a figure for the sidebar; none for zero.
@@ -294,7 +297,7 @@ func num(n int) string {
 // ---- pages that only say something
 
 type messagePage struct {
-	shell
+	shell                `json:"-"`
 	Text, Back, BackHref string
 }
 

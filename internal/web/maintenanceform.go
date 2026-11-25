@@ -33,7 +33,7 @@ type maintenancePreview struct {
 }
 
 type maintenanceFormPage struct {
-	shell
+	shell                    `json:"-"`
 	L                        maintenanceFormLabels
 	Form, Silences, Monitors string
 	Draft                    maintenanceDraft

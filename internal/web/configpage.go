@@ -65,7 +65,7 @@ type versionRow struct {
 }
 
 type configPage struct {
-	shell
+	shell      `json:"-"`
 	L          configLabels
 	Locations  []locationRow
 	Heartbeats []heartbeatRow
@@ -188,7 +188,7 @@ type itemDiff struct {
 }
 
 type versionPage struct {
-	shell
+	shell   `json:"-"`
 	L       configLabels
 	Change  versionRow
 	Reverts string

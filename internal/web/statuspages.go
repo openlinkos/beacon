@@ -52,7 +52,7 @@ type statusPageRow struct {
 }
 
 type statusPagesPage struct {
-	shell
+	shell               `json:"-"`
 	L                   statusPagesLabels
 	Rows                []statusPageRow
 	Create, CreateLabel string
@@ -115,7 +115,7 @@ type windowRow struct {
 }
 
 type statusPageDetail struct {
-	shell
+	shell                       `json:"-"`
 	L                           statusPagesLabels
 	URL, Open, JSON, Feed, Logo string
 	AddComponent                string

@@ -19,12 +19,12 @@ import (
 // came from is shown again, saying what happened.
 
 // back sends the person to path, a page of the console, with done (what was done) or a problem's code.
-func back(w http.ResponseWriter, r *http.Request, path, param, code string) {
+func back(w http.ResponseWriter, _ *http.Request, path, param, code string) {
 	to, _ := url.Parse(local(path))
 	q := to.Query()
 	q.Set(param, code)
 	to.RawQuery = q.Encode()
-	http.Redirect(w, r, to.String(), http.StatusSeeOther) //nolint:gosec // G710: local keeps the redirect on this site
+	redirectLocal(w, to.String(), http.StatusSeeOther)
 }
 
 // problemCode names what went wrong, for the page to say in its own words.
@@ -237,7 +237,7 @@ func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
 	case err != nil:
 		s.failed(w, r, page, "probe on demand", err)
 	default:
-		http.Redirect(w, r, probeResultPath(page, result.ID), http.StatusSeeOther) //nolint:gosec // G710: local alert page and anchor
+		http.Redirect(w, r, probeResultPath(page, result.ID), http.StatusSeeOther)
 	}
 }
 

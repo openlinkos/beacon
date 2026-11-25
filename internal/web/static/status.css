@@ -1,8 +1,47 @@
 /* The public pages' own styles: only what the design system (@openlinkos/ui, static/ol/ui.css) has no
    part for, written with its tokens. Outside any layer, so they need no specificity to apply. */
 
-/* The hero states the overall state, or what the site is; it need not be as tall as a service site's. */
-.bc-status-hero, .bc-landing-hero { min-height: 18rem; }
+body {
+  --ol-color-bg: light-dark(#f6f5f3, #1b1b1d);
+  --ol-color-bg-subtle: light-dark(#eeedeb, #1e1e20);
+  --ol-color-surface: light-dark(#fff, #242426);
+  --ol-color-fg: light-dark(#242326, #f4f1ee);
+  --ol-color-fg-muted: light-dark(#5e5958, #bcb6b2);
+  --ol-color-border: light-dark(#dedbd7, #403c3a);
+  --ol-color-accent-text: light-dark(#893f22, #f7b68b);
+  --ol-color-accent-solid: var(--ol-color-accent-text);
+  --ol-color-accent-on-solid: light-dark(#fff, #2f1c13);
+  background: var(--ol-color-bg);
+  color: var(--ol-color-fg);
+}
+
+.bc-status-hero, .bc-landing-hero {
+  min-height: 0;
+  padding-block: clamp(1.75rem, 5vw, 3.5rem);
+  background: var(--ol-color-surface);
+  border: 1px solid var(--ol-color-border);
+  border-radius: 0.625rem;
+  color: var(--ol-color-fg);
+  box-shadow: none;
+}
+.bc-status-hero::before, .bc-landing-hero::before { display: none; }
+.bc-status-hero .ol-hero-body, .bc-landing-hero .ol-hero-body { align-items: start; text-align: start; animation: none; gap: 0.65rem; }
+.bc-status-hero .ol-hero-title, .bc-landing-hero .ol-hero-title { font-size: clamp(1.75rem, 4vw, 2.6rem); overflow-wrap: anywhere; }
+.bc-status-hero .ol-hero-meta { margin: 0; color: var(--ol-color-fg-muted); }
+.ol-site-section-title, .ol-panel-title, .ol-list-title { overflow-wrap: anywhere; }
+.ol-site-header, .ol-site-nav, .ol-site-tools, .ol-site-footer { min-width: 0; }
+.ol-site-tools, .ol-legend { flex-wrap: wrap; }
+.ol-site-footer { background: var(--ol-color-bg-subtle); }
+
+@media (max-width: 860px) {
+  .ol-site-header { position: static; }
+  .ol-site-header::after { display: none; }
+  .ol-site-nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; gap: 0.35rem 0.85rem; margin: 0; padding: 0; overflow: visible; mask-image: none; }
+  .ol-site-nav:dir(rtl) { mask-image: none; }
+  .ol-site-nav a { min-block-size: 2.1rem; white-space: normal; }
+  .ol-site-tools { display: flex; }
+  .ol-site-tools > :not(:first-child) { order: 0; }
+}
 
 /* The footer's line about Beacon: its mark at the size of the text, in Beacon's own colours. */
 .bc-powered a[data-brand] { display: inline-flex; align-items: center; gap: var(--ol-space-1); }

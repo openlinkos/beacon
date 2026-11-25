@@ -23,9 +23,12 @@
 {{define "mark"}}<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14.358 35.491A15 15 0 0 1 14.358 12.509" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><path d="M33.642 12.509A15 15 0 0 1 33.642 35.491" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><circle cx="24" cy="24" r="6" class="ol-brand-accent"/></svg>{{end}}
 
 {{define "app"}}<a class="ol-skip-link" href="#main">{{.S.Skip}}</a>
-<div class="ol-app ol-app-workbench">
+<div data-console class="ol-app ol-app-workbench">
   <aside class="ol-sidebar" id="nav" popover aria-label="{{.S.Sections}}">
-    <div class="ol-sidebar-head"><a class="ol-brand" href="{{.Home}}" aria-label="Beacon">{{template "mark" .}}<span>Beacon</span></a></div>
+    <div class="ol-sidebar-head">
+      <a class="ol-brand" href="{{.Home}}" aria-label="Beacon"><span class="bc-brand-mark">{{template "mark" .}}</span><span>Beacon</span></a>
+      <button class="ol-btn ol-btn-ghost ol-btn-icon ol-nav-open" type="button" popovertarget="nav" popovertargetaction="hide" aria-label="{{.S.Close}}">{{icon "x"}}</button>
+    </div>
     <nav class="ol-nav" aria-label="{{.S.Sections}}">
       {{range .Nav}}<div class="ol-nav-group">{{if .Label}}<div class="ol-nav-label">{{.Label}}</div>{{end}}
         {{range .Items}}<a class="ol-nav-item" href="{{.Href}}" title="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="ol-nav-text">{{.Label}}</span>{{if .Count}}<span class="ol-nav-count">{{.Count}}</span>{{end}}</a>
@@ -53,12 +56,21 @@
   </aside>
   <div class="ol-main">
     <header class="ol-topbar">
-      <button class="ol-btn ol-btn-ghost ol-btn-icon ol-btn-sm ol-nav-open" type="button" popovertarget="nav" aria-label="{{.S.Menu}}">{{icon "menu"}}</button>
+      <button class="ol-btn ol-btn-ghost ol-btn-icon ol-nav-open" type="button" popovertarget="nav" aria-label="{{.S.Menu}}">{{icon "panel-left"}}</button>
       <nav aria-label="{{.S.Breadcrumb}}"><ol class="ol-breadcrumb">{{range .Crumbs}}<li>{{if .Href}}<a href="{{.Href}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</li>{{end}}</ol></nav>
-      <h1 class="ol-topbar-title"><span class="ol-topbar-title-text">{{.Heading}}</span>{{if .Count}}<span class="ol-topbar-count">{{.Count}}</span>{{end}}{{range .Badges}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Text}}</span>{{end}}</h1>
-      <div class="ol-topbar-actions">{{block "actions" .}}{{end}}</div>
+      <a class="bc-docs ol-btn ol-btn-ghost ol-btn-sm" href="{{.Project.Docs}}">{{iconSm "book-open"}}<span>{{.Project.DocsLabel}}</span></a>
     </header>
     <main class="ol-content" id="main" tabindex="-1">
+      <div class="bc-page-head">
+        <div class="bc-page-title">
+          <h1>{{.Heading}}</h1>
+          {{if or .Count .Badges}}<div class="bc-page-status">
+            {{if .Count}}<span class="ol-topbar-count">{{.Count}}</span>{{end}}
+            {{range .Badges}}<span class="ol-badge{{if .Tone}} ol-badge-{{.Tone}}{{end}}">{{.Text}}</span>{{end}}
+          </div>{{end}}
+        </div>
+        <div class="bc-page-actions">{{block "actions" .}}{{end}}</div>
+      </div>
 {{if .Problem}}<div class="ol-notices"><div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Problem}}</p></div></div></div>{{end}}
 {{template "content" .}}
     </main>
@@ -69,14 +81,9 @@
 {{end}}
 
 {{define "bare"}}<main class="ol-auth" id="main">
-  <aside class="ol-auth-aside">
-    <div class="ol-auth-rings" aria-hidden="true"></div>
-    <a class="ol-auth-brand" href="/">{{template "mark" .}}<span>Beacon</span></a>
-    <p class="ol-auth-statement">{{.Statement}}</p>
-    <p class="ol-auth-meta">{{.Host}}</p>
-  </aside>
   <div class="ol-auth-body">
     <div class="ol-auth-card">
+      <a class="bc-auth-brand" href="/">{{template "mark" .}}<span>Beacon</span></a>
 {{template "content" .}}
     </div>
     <div class="ol-auth-foot"><span>{{.Project.Version}}</span><span>{{.Project.OpenSource}}</span><a href="{{.Project.Docs}}">{{.Project.DocsLabel}}</a><a href="{{.Project.Repo}}">{{.Project.RepoLabel}}</a></div>

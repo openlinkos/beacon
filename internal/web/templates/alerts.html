@@ -1,5 +1,9 @@
-{{define "actions"}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{console "/incident-outcomes"}}">{{iconSm "history"}}{{.L.IncidentHistory}}</a>{{end}}
-{{define "content"}}<div class="ol-layout-filters">
+{{define "actions"}}{{if .CanHistory}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{console "/incident-outcomes"}}">{{iconSm "history"}}{{.L.IncidentHistory}}</a>{{end}}{{end}}
+{{define "content"}}
+<nav class="bc-section-links bc-alert-views" aria-label="{{.Heading}}">{{range .Views}}
+  <a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+</nav>
+<div class="bc-alert-list">
   {{template "facets" .}}
   <section class="ol-layout-main">
     {{template "filterbar" .}}

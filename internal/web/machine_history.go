@@ -20,7 +20,7 @@ type machineRevisionRow struct {
 }
 
 type machineHistoryPage struct {
-	shell
+	shell       `json:"-"`
 	L           machineHistoryLabels
 	Rows        []machineRevisionRow
 	Current     int64
