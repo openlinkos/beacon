@@ -157,15 +157,61 @@ func TestOverviewAttention(t *testing.T) {
 		t.Error("the acknowledged alert is not marked")
 	}
 
-	h := e.srv.healthOf(nil, serviceHealth{Total: 3})
-	if h.Tone != "success" || h.Title != "Everything is running" || h.Text != "Nothing is firing, and all 3 services answer at every location." {
+	h := e.srv.healthOf(nil, serviceHealth{Total: 3, OK: 3})
+	if h.Tone != "success" || h.Title != "Everything is running" || h.Text != "All 3 services answer at their assigned probe locations." {
 		t.Errorf("all well: %+v", h)
 	}
-	if h := e.srv.healthOf(nil, serviceHealth{Total: 3, Problem: "vm down"}); h.Tone != "warning" || !strings.Contains(h.Text, "vm down") {
+	if h := e.srv.healthOf(nil, serviceHealth{Total: 3, OK: 2}); h.Tone != "info" || h.Title != "Waiting for results" {
+		t.Errorf("partial reporting: %+v", h)
+	}
+	if h := e.srv.healthOf(nil, serviceHealth{Total: 3, Problem: "vm down"}); h.Tone != "warning" || h.Title != "Probe results unavailable" {
 		t.Errorf("the probes unread: %+v", h)
 	}
 	one := []attentionItem{{Tone: "warning", kind: "service"}}
 	if h := e.srv.healthOf(one, serviceHealth{}); h.Title != "One thing needs attention" || h.Text != "Services in trouble: 1." || h.Tone != "warning" {
 		t.Errorf("one service: %+v", h)
+	}
+}
+
+func TestOverviewMaintenanceEntryForEachRole(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	owner := e.owner()
+	_, err := e.b.ScheduleMaintenance(context.Background(), bridge.Actor{Name: "alice", Via: "api"}, bridge.MaintenanceInput{
+		Services: []string{"git-example-com"}, StartsAt: e.now.Add(time.Hour), EndsAt: e.now.Add(2 * time.Hour), Title: "Database upgrade",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		role     string
+		schedule bool
+	}{{"viewer", false}, {"oncall", false}, {"operator", true}, {"owner", true}} {
+		t.Run(tc.role, func(t *testing.T) {
+			b := owner
+			if tc.role != "owner" {
+				b = e.invite(owner, "demo-"+tc.role, tc.role)
+			}
+			page := b.get("/console")
+			if page.code != http.StatusOK {
+				t.Fatalf("overview returned %d", page.code)
+			}
+			attention, coming := strings.Index(page.body, `id="attention"`), strings.Index(page.body, `aria-labelledby="coming-up"`)
+			notification := strings.Index(page.body, `aria-labelledby="critical-notifications"`)
+			if attention < 0 || coming <= attention || notification <= coming {
+				t.Fatal("the urgent alerts, planned work and notification readiness are out of order")
+			}
+			content, _, _ := strings.Cut(page.body[coming:], "</section>")
+			if !strings.Contains(content, "Database upgrade") || !strings.Contains(content, `href="/console/silences#maintenance"`) {
+				t.Fatal("overview omits the planned window or its link")
+			}
+			if got := strings.Contains(content, `href="/console/maintenance/new"`); got != tc.schedule {
+				t.Errorf("schedule action visible: %t, want %t", got, tc.schedule)
+			}
+			nav := hrefs(page.body, "/console/")
+			alert, maintenance := slices.Index(nav, "/console/alerts"), slices.Index(nav, "/console/silences")
+			if alert < 0 || maintenance != alert+1 {
+				t.Fatal("the monitoring navigation omits alerts or maintenance")
+			}
+		})
 	}
 }

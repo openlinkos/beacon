@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-77e7bea7
+sourceHash: sha256-f21115cf
 ---
 
 # 常见问题
@@ -116,7 +116,7 @@ sudo -u beacon-probe /opt/beacon-probe/bin/beacon-probe run -modules /var/lib/be
 你以为该有告警，`GET /api/v1/alerts`（或 `list_alerts`）里却没有。顺着告警的路径查：
 
 1. **失败的检测点够不够**？至少两个检测点失败，并且失败的至少占有数据的检测点的一半，才算服务故障。只有一个检测点失败，什么都不会触发，这是有意设计的。在 vmui 里查 `probe_success{service="…"}`，能看到每个检测点的结果。
-2. **失败的时间够不够长**？检测点连续失败 3 分钟才算失败。`ServiceDown` 再过 1 分钟才触发：也就是服务出问题后 4 到 5 分钟。`ServiceDegraded`（至少两个但不到一半的检测点失败）和 `MainlandPathDegraded` 要等 5 分钟。
+2. **失败的时间够不够长**？检测点连续失败 3 分钟才算失败。参考 `ServiceDown` 规则还需要满足检测点数量和比例要求并持续 40 秒。`ServiceDegraded`（至少两个但不到一半的检测点失败）和 `MainlandPathDegraded` 要等 5 分钟。
 3. **规则引擎连得上 Beacon 吗**？收不到 vmalert 的告警时，`GET /api/v1/bridge` 会显示 `no Watchdog from the rule engine since start` 或 `the Watchdog from the rule engine stopped`。然后看 `docker compose logs vmalert`。它的 notifier 必须指向网关（`-notifier.url=http://beacon:17006`），并带上规则令牌（`rules.token_file`）或者有 `alerts:send` 的令牌。
 4. **是不是被压下去了**？匹配这条告警的静默会让它不发通知：看 `beacon silence list`。维护窗口也会创建这样的静默，备注以 `maintenance:` 开头。抑制规则会在另一条告警触发时压住这一条。参考部署里，同一服务的 `ServiceDown` 会压住 `ServiceDegraded` 和 `MainlandPathDegraded`。
 

@@ -21,9 +21,9 @@
   {{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.DeliveryHint}} <a href="{{.DeliveryHelp.Href}}">{{.DeliveryHelp.V}}</a></p></div>
 </div>{{end}}
 
-{{if .Notifications}}<div class="ol-layout-dashboard">{{end}}
-    <section class="ol-panel" id="attention">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "shield-alert"}} {{.L.Attention}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}</a></div>
+<div class="ol-layout-dashboard">
+    <section class="ol-panel" id="attention" aria-labelledby="needs-attention">
+      <div class="ol-panel-header"><h2 class="ol-panel-title" id="needs-attention">{{icon "shield-alert"}} {{.L.Attention}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/alerts"}}">{{.L.AllAlerts}}</a></div>
       {{if .Attention}}
       <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
         <tbody>
@@ -40,6 +40,15 @@
         <p class="ol-empty-text">{{.L.CalmText}}</p>
       </div></div>{{end}}
     </section>
+  <div class="ol-stack">
+    <section class="ol-panel" aria-labelledby="coming-up">
+      <div class="ol-panel-header">
+        <h2 class="ol-panel-title" id="coming-up">{{icon "calendar"}} {{.L.Coming}}</h2>
+        <a class="ol-btn ol-btn-secondary ol-btn-sm bc-overview-maintenance-action" href="{{.Maintenance.Href}}">{{.Maintenance.V}}</a>
+      </div>
+      {{if .Coming}}{{template "feed" .Coming}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoComing}}</p></div>{{end}}
+    </section>
+
     {{if .Notifications}}
     <section class="ol-panel" aria-labelledby="critical-notifications">
       <div class="ol-panel-header">
@@ -59,8 +68,9 @@
         </li>{{end}}
       </ul>
     </section>
+    {{end}}
+  </div>
 </div>
-{{end}}
 
 <section class="ol-stats" aria-label="{{.Heading}}">
   {{range .Stats}}{{template "stat" .}}{{end}}
@@ -114,11 +124,6 @@
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "globe"}} {{.L.Pages}}</h2><a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{console "/status-pages"}}">{{.L.AllPages}}</a></div>
       {{if .Pages}}{{template "feed" .Pages}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoPages}}</p></div>{{end}}
-    </section>
-
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "calendar"}} {{.L.Coming}}</h2></div>
-      {{if .Coming}}{{template "feed" .Coming}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.NoComing}}</p></div>{{end}}
     </section>
 
     <section class="ol-panel">

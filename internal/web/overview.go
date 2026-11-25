@@ -16,11 +16,8 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// The overview: is everything all right? A sentence that answers it; the figures behind it, each
-// linking to its list; what needs attention, the most urgent first: the alerts firing, and what Beacon
-// sees going wrong that no alert names yet (services failing, probe locations gone quiet, machines
-// behind NAT not connected, agents a hook failed to wake, the channel paused); then what agents did
-// and what changed lately, the status pages as the public sees them, and what is coming up.
+// The overview pairs urgent alerts and other problems with planned maintenance and due resources.
+// Notification readiness stays beside them, followed by the figures, recent activity and status pages.
 
 // reportingWindow is how recently a probe location must have written to count as reporting.
 const reportingWindow = 5 * time.Minute
@@ -87,6 +84,7 @@ type overviewPage struct {
 	Changes       []feedItem
 	Pages         []feedItem
 	Coming        []feedItem
+	Maintenance   kvLink
 	Calls         []callItem
 	CallSummary   string
 	DeliveryHint  string
@@ -203,24 +201,21 @@ func (s *Server) serviceHealth(ctx context.Context) serviceHealth {
 	now := s.now()
 	pe := s.Bridge.Probes(ctx, sc.names, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
 	h.Problem = pe.Error
-	only := ""
-	if len(sc.names) == 1 {
-		only = sc.names[0]
-	}
-	states := probeStates(pe, only)
+	current := sc.checksByService(pe, now)
 	for _, svc := range sc.names {
-		ps := states[svc]
-		state, tn := s.state(ps)
+		checks := current[svc]
+		ps := checks.sampleState()
+		state, tn := s.monitorState(checks, ps, pe)
 		switch tn {
 		case "success":
 			h.OK++
 		case "danger", "warning":
 			it := attentionItem{Icon: "activity", Tone: tn, Title: svc, Href: consolePath("/monitors/") + url.PathEscape(svc), Sub: state,
 				Badge: s.t("Service"), BadgeTone: tn, kind: "service"}
-			if ps.reason != "" {
+			if ps != nil && ps.reason != "" {
 				it.Sub = state + ": " + ps.reason
 			}
-			if ps.since != nil {
+			if ps != nil && ps.since != nil {
 				it.When = s.ago(*ps.since)
 			}
 			h.Trouble = append(h.Trouble, it)
@@ -322,9 +317,13 @@ func (s *Server) healthOf(items []attentionItem, sh serviceHealth) health {
 		h := health{Tone: "success", Icon: "circle-check", Title: s.t("Everything is running")}
 		switch {
 		case sh.Problem != "":
-			h.Tone, h.Icon, h.Text = "warning", "circle-alert", s.t("Nothing is firing, but the probes could not be read: %s", sh.Problem)
+			h.Tone, h.Icon, h.Title = "warning", "circle-alert", s.t("Probe results unavailable")
+			h.Text = s.t("Some probe results are unavailable. Check again before relying on complete coverage.")
+		case sh.OK < sh.Total:
+			h.Tone, h.Icon, h.Title = "info", "clock", s.t("Waiting for results")
+			h.Text = s.t("No alerts are firing. Some services are waiting for probe results.")
 		case sh.Total > 0:
-			h.Text = s.t("Nothing is firing, and all %d services answer at every location.", sh.Total)
+			h.Text = s.t("All %d services answer at their assigned probe locations.", sh.Total)
 		default:
 			h.Text = s.t("Nothing is firing.")
 		}
@@ -465,6 +464,10 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Pages = s.pageFeed(r)
 	p.Coming = s.coming()
+	p.Maintenance = kvLink{V: s.t("Maintenance windows"), Href: consolePath("/silences#maintenance")}
+	if v.has("maintenance:write") {
+		p.Maintenance = kvLink{V: s.t("Schedule maintenance"), Href: consolePath("/maintenance/new")}
+	}
 	for _, c := range s.calls() {
 		if c.At.Before(s.today()) || len(p.Calls) == 6 {
 			break

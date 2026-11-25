@@ -69,7 +69,7 @@ The reference rules are four files, and each group says which metric it watches.
 
 | Alert | Severity | For | When |
 | --- | --- | --- | --- |
-| `ServiceDown` | the target's `severity`; `critical` without one | 1m | The service has failed for 3 minutes from at least half of the locations reporting it (and at least two) |
+| `ServiceDown` | the target's `severity`; `critical` without one | 40s | The service has failed for 3 minutes from at least half of the locations reporting it (and at least two) |
 | `ServiceDegraded` | `warning` | 5m | At least two locations fail it, but fewer than half: a partial outage, usually one CDN node or one network path |
 | `MainlandPathDegraded` | `warning` | 5m | Every mainland location fails it while the overseas ones succeed: the path from mainland China, not the service |
 | `ProbeLocationDown` | `warning` | 5m | A location has sent no results for 10 minutes (`beacon_expected_location` against `probe_success`) |

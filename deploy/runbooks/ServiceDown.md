@@ -2,7 +2,7 @@
 
 ## What it means
 
-At least two probe locations, and at least half of those reporting the service, have failed it for 3 minutes, and that has held for 1 minute more. The severity is the target's own (`severity` in `targets/*.yaml`), critical when it has none. One location's hiccup never raises this: that is what the agreement is for.
+At least two probe locations, and at least half of those reporting the service, have each reported failures with no success in the last 3 minutes. The quorum has held for 40 seconds. The severity is the target's own (`severity` in `targets/*.yaml`), critical when it has none. The quorum filters out failures at a single location.
 
 ## What to check
 

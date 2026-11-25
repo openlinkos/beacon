@@ -68,6 +68,7 @@
 @container ol-content (width < 40rem) {
   .bc-alert-controls { width: 100%; }
   .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn, .bc-alert-ack-note .ol-btn { min-height: 2.75rem; }
+  .bc-overview-maintenance-action { min-block-size: 2.75rem; }
 }
 
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */
@@ -116,6 +117,18 @@
 
 @media (max-width: 37.5rem) {
   .bc-machine-tools { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Show the latest check coverage before the individual target-location rows. */
+.bc-monitor-checks .ol-panel-header .ol-btn { margin-inline-start: auto; }
+.bc-monitor-results .ol-meter { margin-block-start: var(--ol-space-2); }
+.bc-monitor-results .ol-meter::-webkit-meter-optimum-value { background: var(--ol-color-info-solid); }
+.bc-monitor-results .ol-meter:-moz-meter-optimum::-moz-meter-bar { background: var(--ol-color-info-solid); }
+.bc-monitor-results > .ol-hint { max-inline-size: 65ch; }
+.bc-monitor-results details > summary { cursor: pointer; }
+@container ol-content (width < 40rem) {
+  .bc-monitor-checks .ol-panel-header .ol-btn { min-height: 2.75rem; }
+  .bc-monitor-checks td:empty { display: none; }
 }
 
 .bc-machine-access:not(:has([name="machine_access"][value="selected"]:checked)) .bc-machine-options,

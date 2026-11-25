@@ -119,11 +119,13 @@ type Bridge struct {
 }
 
 const (
-	patchEvery   = 5 * time.Minute
-	receiptEvery = 30 * time.Second
-	keepResolved = 7 * 24 * time.Hour
-	watchdogMax  = 3 * time.Minute
-	maxSilence   = 24 * time.Hour
+	escalationEvery = 2 * time.Second
+	upkeepEvery     = 15 * time.Second
+	patchEvery      = 5 * time.Minute
+	receiptEvery    = 30 * time.Second
+	keepResolved    = 7 * 24 * time.Hour
+	watchdogMax     = 3 * time.Minute
+	maxSilence      = 24 * time.Hour
 )
 
 // New creates a bridge.
@@ -564,17 +566,26 @@ func (b *Bridge) markSilence(ctx context.Context, g *store.Group, silence store.
 
 // ---- Escalation and upkeep
 
-// Tick escalates alerts without human acknowledgement, polls Pushover receipts, restarts escalation when an
-// acknowledgement or silence lapses, and drops old resolved groups. Run calls it every 15 seconds.
+// Tick runs timed escalation and upkeep, including receipt polling and retaining incident history.
 func (b *Bridge) Tick(ctx context.Context) {
+	b.tick(ctx, true)
+}
+
+func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	now := b.now()
+	if ctx.Err() != nil {
+		return
+	}
 	ttl := b.d.Config.AckTTL.D()
 	groups := b.d.Store.Groups()
 	for i, g := range groups {
+		if ctx.Err() != nil {
+			return
+		}
+		now := b.now()
 		if !g.Firing() {
-			if now.Sub(g.ResolvedAt) > keepResolved {
+			if upkeep && now.Sub(g.ResolvedAt) > keepResolved {
 				if err := b.d.Store.DropResolvedGroup(g, b.archiveOutcome(g, now, now)); err != nil {
 					b.d.Log.Error("archive resolved alert group", "group", g.ID, "err", err)
 				} else {
@@ -646,7 +657,7 @@ func (b *Bridge) Tick(ctx context.Context) {
 				changed = true
 			}
 		}
-		if canEscalate && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery {
+		if upkeep && canEscalate && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery {
 			g.ReceiptAt, changed = now, true
 			r, err := b.d.Pushover.Receipt(ctx, g.Receipt)
 			switch {
@@ -680,7 +691,9 @@ func (b *Bridge) Tick(ctx context.Context) {
 			groups[i] = g
 		}
 	}
-	b.refreshSessionCards(ctx, groups, now)
+	if upkeep {
+		b.refreshSessionCards(ctx, groups, b.now())
+	}
 }
 
 func (b *Bridge) onCallIDs() []string {
@@ -727,37 +740,69 @@ func (b *Bridge) Ready() (bool, []string) {
 
 // Run ticks until ctx is done and pings the healthchecks.io check every minute when ready.
 func (b *Bridge) Run(ctx context.Context, ping func(ctx context.Context, ok bool) error) {
-	var webhooks sync.WaitGroup
-	defer webhooks.Wait()
+	var background sync.WaitGroup
+	defer background.Wait()
 	b.resumeWakes(ctx)
 	b.initOutcomes()
-	b.sendWebhooks(ctx, &webhooks)
-	tick := time.NewTicker(15 * time.Second)
+	b.sendWebhooks(ctx, &background)
+	if ping != nil {
+		background.Go(func() { b.runHealthchecks(ctx, ping) })
+	}
+	tick := time.NewTicker(upkeepEvery)
 	defer tick.Stop()
-	beat := time.NewTicker(time.Minute)
-	defer beat.Stop()
+	var escalate <-chan time.Time
+	if b.hasTimedEscalation() {
+		t := time.NewTicker(escalationEvery)
+		defer t.Stop()
+		escalate = t.C
+	}
 	prune := time.NewTicker(time.Hour)
 	defer prune.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-escalate:
+			b.tick(ctx, false)
 		case <-tick.C:
 			b.Tick(ctx)
-			b.sendWebhooks(ctx, &webhooks)
+			b.sendWebhooks(ctx, &background)
 		case <-b.webhookWake:
-			b.sendWebhooks(ctx, &webhooks)
+			b.sendWebhooks(ctx, &background)
 		case <-prune.C:
 			b.pruneOutcomes()
+		}
+	}
+}
+
+func (b *Bridge) hasTimedEscalation() bool {
+	if b.d.Pushover != nil {
+		return true // even an initial push can need a retry
+	}
+	for _, p := range b.d.Config.Escalation {
+		if (b.d.Feishu != nil && p.Buzz > 0) || (b.d.Bark != nil && p.Bark > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Bridge) runHealthchecks(ctx context.Context, ping func(context.Context, bool) error) {
+	beat := time.NewTicker(time.Minute)
+	defer beat.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case <-beat.C:
-			if ping == nil {
-				continue
+			if ctx.Err() != nil {
+				return
 			}
 			ok, why := b.Ready()
 			if !ok {
 				b.d.Log.Warn("bridge not ready", "why", strings.Join(why, "; "))
 			}
-			if err := ping(ctx, ok); err != nil {
+			if err := ping(ctx, ok); err != nil && ctx.Err() == nil {
 				b.d.Log.Warn("healthchecks ping failed", "err", err)
 			}
 		}

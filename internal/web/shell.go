@@ -161,9 +161,9 @@ func (s *Server) nav(current string, v *viewer) []navGroup {
 		{Items: []navItem{{Key: "overview", Label: s.t("Overview"), Href: consolePath(""), Icon: "layout-dashboard"}}},
 		{Label: s.t("Monitoring"), Items: []navItem{
 			{Key: "alerts", Label: s.t("Alerts"), Href: consolePath("/alerts"), Icon: "triangle-alert", Count: count(firing)},
+			{Key: "silences", Label: s.t("Silences and maintenance"), Href: consolePath("/silences"), Icon: "timer", Count: count(s.plannedWindows())},
 			{Key: "monitors", Label: s.t("Monitors"), Href: consolePath("/monitors"), Icon: "activity"},
 			{Key: "status-pages", Label: s.t("Status pages"), Href: consolePath("/status-pages"), Icon: "globe", Count: count(len(s.Status.Pages()))},
-			{Key: "silences", Label: s.t("Silences and maintenance"), Href: consolePath("/silences"), Icon: "timer", Count: count(s.plannedWindows())},
 			{Key: "changes", Label: s.t("Changes"), Href: consolePath("/changes"), Icon: "history"},
 		}},
 		{Label: s.t("Agents and machines"), Items: []navItem{

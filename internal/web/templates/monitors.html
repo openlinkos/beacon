@@ -4,7 +4,10 @@
     <h2 class="ol-section-title">{{.L.Services}}</h2>
     {{if .Add}}<a class="ol-btn ol-btn-primary" href="{{.Add}}">{{iconSm "plus"}}{{.L.Add}}</a>{{end}}
   </div>
-  {{if .ProbeError}}<p class="ol-hint ol-mono">{{.ProbeError}}</p>{{end}}
+  {{if .ProbeError}}<details>
+    <summary class="ol-hint">{{.L.LimitedResults}}</summary>
+    <p class="ol-hint ol-mono ol-break">{{.ProbeError}}</p>
+  </details>{{end}}
   {{if .Rows}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
     <thead><tr><th>{{.L.Service}}</th><th>{{.L.State}}</th><th>{{.L.Targets}}</th><th>{{.L.Pages}}</th><th>{{.L.Severity}}</th><th>{{.L.Checked}}</th></tr></thead>
     <tbody>{{range .Rows}}<tr>

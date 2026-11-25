@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-5c29910c
+sourceHash: sha256-774f0e16
 ---
 
 # 架构
@@ -86,7 +86,7 @@ Agent ──▶ ssh、scp、sftp、rsync（17002 端口）──▶ SSH 通道 �
 2. **规则判断**。vmalert 每 30 秒计算一次规则。
    - 某个检测点对一个服务连续失败 3 分钟，才算这个检测点失败。
    - 至少两个检测点失败，并且不少于有数据的检测点的一半，服务才算故障。
-   - 这个状态持续 1 分钟后，`ServiceDown` 触发。vmalert 用规则令牌，按 Alertmanager 的格式把它发到网关的 `POST /api/v2/alerts`。从第一次检测失败算起，大约 4 到 5 分钟。
+   - 参考规则中，这个状态持续 40 秒后，`ServiceDown` 触发。vmalert 用规则令牌，按 Alertmanager 的格式把它发到网关的 `POST /api/v2/alerts`。送达时间还受检测周期、指标摄取和告警路由影响。
 3. **路由分组**。Alertmanager 的活由 Beacon 自己做：
    - 告警按 `alertname` 和 `service` 分组，路由规则另有规定的除外。
    - 新的告警组先等 `group_wait`（30 秒），看还有没有别的告警进来，再发出去。之后最多每 `group_interval`（2 分钟）更新一次。

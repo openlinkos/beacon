@@ -1,13 +1,16 @@
 package web
 
 import (
+	"cmp"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/catalog"
+	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -26,7 +29,8 @@ const maxMonitorResults = 5000
 type monitorLabels struct {
 	Services, Heartbeats, Resources, Service, State, Targets, Pages, Severity, Checked, Machine, MaxAge string
 	LastSuccess, Expires, Kind, Note, Description, None, NoServices, Target, Module, Set, Domain        string
-	Visibility, Alerts, Started, Window, OnPages, Name, Add, Schedule, FirstResult                      string
+	Visibility, Alerts, Started, Window, OnPages, Name, Add, Schedule                                   string
+	RefreshResults, MetricsDetails, WaitingHint, NoLocationsHint, LimitedResults                        string
 }
 
 func (s *Server) monitorLabels() monitorLabels {
@@ -39,7 +43,10 @@ func (s *Server) monitorLabels() monitorLabels {
 		Set: s.t("Target set"), Domain: s.t("Failure domain"), Visibility: s.t("Visibility"), Alerts: s.t("Alerts"),
 		Started: s.t("Started"), Window: s.t("What the probes saw in the last 30 minutes, at each location."),
 		OnPages: s.t("On status pages"), Name: s.t("Name"), Add: s.t("Add HTTP monitor"), Schedule: s.t("Schedule maintenance"),
-		FirstResult: s.t("Waiting for the first probe results. Check the probe locations if results do not arrive after a few minutes."),
+		RefreshResults: s.t("Refresh results"), MetricsDetails: s.t("Metrics error details"),
+		WaitingHint:     s.t("Allow a probe cycle after saving a monitor, then refresh. If results are still missing, check the reporting locations in Overview."),
+		NoLocationsHint: s.t("Assign this target to an active probe location to start checking it."),
+		LimitedResults:  s.t("Some probe results are unavailable. Check again before relying on complete coverage."),
 	}
 }
 
@@ -57,6 +64,7 @@ type serviceConfig struct {
 	names   []string
 	targets map[string][]targetRef
 	pages   map[string][]pageRef
+	catalog *catalog.Catalog
 }
 
 func (s *Server) serviceConfig() serviceConfig {
@@ -64,12 +72,15 @@ func (s *Server) serviceConfig() serviceConfig {
 	if s.Config == nil {
 		return sc
 	}
-	view, err := s.Config.Get("targets", "")
-	if err != nil {
-		s.log().Error("console: reading the target sets failed", "err", err)
+	st := s.Config.State()
+	sc.catalog = st.Catalog
+	ids := make([]string, 0, len(st.Catalog.Locations))
+	for _, l := range st.Catalog.Locations {
+		ids = append(ids, l.ID)
 	}
-	for _, ts := range view.Targets {
-		for _, g := range ts.Groups {
+	for _, file := range st.Targets.Files() {
+		scope := targets.Scope(file, ids)
+		for _, g := range st.Targets.Groups(file) {
 			svc := g.Labels["service"]
 			if svc == "" {
 				continue
@@ -78,13 +89,12 @@ func (s *Server) serviceConfig() serviceConfig {
 				sc.names = append(sc.names, svc)
 			}
 			for _, t := range g.Targets {
-				sc.targets[svc] = append(sc.targets[svc], targetRef{Target: t, Module: g.Labels["module"], Set: ts.Name, ProbedBy: ts.ProbedBy,
+				sc.targets[svc] = append(sc.targets[svc], targetRef{Target: t, Module: g.Labels["module"], Set: strings.TrimSuffix(file, ".yaml"), ProbedBy: scope,
 					Severity: g.Labels["severity"], Domain: g.Labels["failure_domain"], Visibility: g.Labels["visibility"], Page: g.Labels["page"]})
 			}
 		}
 	}
 	slices.Sort(sc.names)
-	st := s.Config.State()
 	for _, p := range st.Catalog.StatusPages {
 		for _, c := range p.Components {
 			for _, svc := range st.PageServices(c) {
@@ -94,6 +104,88 @@ func (s *Server) serviceConfig() serviceConfig {
 		}
 	}
 	return sc
+}
+
+func (sc serviceConfig) activeScopes(now time.Time) map[string][]string {
+	byScope := map[string][]string{}
+	if sc.catalog == nil {
+		return byScope
+	}
+	for _, location := range sc.catalog.Locations {
+		if !sc.catalog.Expected(location, now) {
+			continue
+		}
+		for _, scope := range []string{"all", location.Region, location.ID} {
+			byScope[scope] = append(byScope[scope], location.ID)
+		}
+	}
+	return byScope
+}
+
+type monitorCheck struct{ location, target, module string }
+
+type monitorChecks struct {
+	expected, fresh int
+	unreported      map[monitorCheck]struct{}
+	results         []bridge.ProbeResult
+}
+
+// currentChecks compares the latest samples with this service's active target assignments.
+// Old results from an edited endpoint, check profile or probe scope are still in the metrics store.
+func currentChecks(refs []targetRef, scopes map[string][]string, results []bridge.ProbeResult) monitorChecks {
+	out := monitorChecks{unreported: map[monitorCheck]struct{}{}}
+	for _, ref := range refs {
+		for _, location := range scopes[ref.ProbedBy] {
+			out.unreported[monitorCheck{location, ref.Target, ref.Module}] = struct{}{}
+		}
+	}
+	out.expected = len(out.unreported)
+	for _, result := range results {
+		check := monitorCheck{result.Location, result.Instance, result.Module}
+		if _, ok := out.unreported[check]; !ok {
+			continue
+		}
+		delete(out.unreported, check)
+		out.results = append(out.results, result)
+		if !result.Stale {
+			out.fresh++
+		}
+	}
+	return out
+}
+
+func (sc serviceConfig) checksByService(pe bridge.ProbeEvidence, now time.Time) map[string]monitorChecks {
+	results := map[string][]bridge.ProbeResult{}
+	for _, result := range pe.Results {
+		svc := result.Service
+		if len(sc.names) == 1 {
+			svc = sc.names[0]
+		}
+		results[svc] = append(results[svc], result)
+	}
+	scopes := sc.activeScopes(now)
+	checks := make(map[string]monitorChecks, len(sc.names))
+	for _, svc := range sc.names {
+		checks[svc] = currentChecks(sc.targets[svc], scopes, results[svc])
+	}
+	return checks
+}
+
+func (s *Server) monitorState(c monitorChecks, ps *probeState, pe bridge.ProbeEvidence) (string, string) {
+	switch {
+	case c.expected == 0:
+		return s.t("No active probe locations"), "warning"
+	case len(c.results) == 0 && pe.Error != "":
+		return s.t("Probe results unavailable"), "warning"
+	case len(c.results) == 0 && !pe.Truncated:
+		return s.t("Waiting for results"), "info"
+	case ps != nil && (len(ps.failing) > 0 || c.fresh == 0):
+		return s.state(ps)
+	case c.fresh < c.expected:
+		return s.t("Partial coverage"), "warning"
+	default:
+		return s.state(ps)
+	}
 }
 
 // pageTitle and componentTitle are a page's and a component's titles in the console's language.
@@ -120,19 +212,13 @@ type probeState struct {
 	reason                    string
 }
 
-// probeStates sums up pe by service; a result names its service when pe has several, else it is only's.
-func probeStates(pe bridge.ProbeEvidence, only string) map[string]*probeState {
-	out := map[string]*probeState{}
-	for _, r := range pe.Results {
-		svc := r.Service
-		if svc == "" {
-			svc = only
-		}
-		ps := out[svc]
-		if ps == nil {
-			ps = &probeState{reporting: map[string]bool{}, failing: map[string]bool{}, stale: map[string]bool{}}
-			out[svc] = ps
-		}
+// sampleState summarises the readings that match the current monitor.
+func (c monitorChecks) sampleState() *probeState {
+	if len(c.results) == 0 {
+		return nil
+	}
+	ps := &probeState{reporting: map[string]bool{}, failing: map[string]bool{}, stale: map[string]bool{}}
+	for _, r := range c.results {
 		if r.LastSeen.After(ps.last) {
 			ps.last = r.LastSeen
 		}
@@ -152,7 +238,7 @@ func probeStates(pe bridge.ProbeEvidence, only string) map[string]*probeState {
 			ps.since = r.FailingSince
 		}
 	}
-	return out
+	return ps
 }
 
 // state is a service's state in words and the design system's tone: failing at two locations and at
@@ -210,17 +296,18 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if len(sc.names) > 0 {
 		p.ProbeError = pe.Error
 	}
-	only := ""
-	if len(sc.names) == 1 {
-		only = sc.names[0]
-	}
-	states := probeStates(pe, only)
+	current := sc.checksByService(pe, now)
 	firing := s.firingByService()
 	failing, rows := 0, make([]monitorRow, 0, len(sc.names))
 	for _, svc := range sc.names {
-		ps := states[svc]
+		ts := sc.targets[svc]
+		if len(ts) == 0 {
+			continue
+		}
+		checks := current[svc]
+		ps := checks.sampleState()
 		row := monitorRow{Service: svc, Href: consolePath("/monitors/") + url.PathEscape(svc), Pages: sc.pages[svc]}
-		row.State, row.Tone = s.state(ps)
+		row.State, row.Tone = s.monitorState(checks, ps, pe)
 		if row.Tone == "danger" || row.Tone == "warning" {
 			failing++
 		}
@@ -232,10 +319,6 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 			if !ps.last.IsZero() {
 				row.Checked = s.ago(ps.last)
 			}
-		}
-		ts := sc.targets[svc]
-		if len(ts) == 0 {
-			continue
 		}
 		row.Target = ts[0].Target
 		if len(ts) > 1 {
@@ -356,6 +439,8 @@ type monitorPage struct {
 	LL                     labels
 	Probes                 []probeRow
 	ProbesNote, ProbeError string
+	Refresh, Coverage      string
+	Fresh, Expected        int
 	Targets                []targetRef
 	Pages                  []pageRef
 	Alerts                 []serviceAlert
@@ -379,7 +464,8 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	p := monitorPage{shell: s.shellFor(r, v, "monitors", svc, crumb{Label: s.t("Monitors"), Href: consolePath("/monitors")}),
-		L: s.monitorLabels(), LL: s.labels(), Targets: ts, Pages: sc.pages[svc]}
+		L: s.monitorLabels(), LL: s.labels(), Targets: ts, Pages: sc.pages[svc],
+		Refresh: consolePath("/monitors/") + url.PathEscape(svc)}
 	if v.has("maintenance:write") {
 		p.Schedule = consolePath("/maintenance/new") + "?service=" + url.QueryEscape(svc)
 	}
@@ -391,14 +477,33 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	now := s.now()
 	pe := s.Bridge.Probes(r.Context(), []string{svc}, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
-	state, tn := s.state(probeStates(pe, svc)[svc])
+	checks := currentChecks(ts, sc.activeScopes(now), pe.Results)
+	pe.Results = checks.results
+	state, tn := s.monitorState(checks, checks.sampleState(), pe)
 	p.Badges = []badge{{Text: state, Tone: tn}}
 	p.Probes = s.probes(pe, now.Add(-monitorWindow), p.LL)
 	switch {
-	case len(p.Probes) == 0 && r.URL.Query().Get("done") == "monitor_added" && pe.Error == "":
-		p.ProbesNote = p.L.FirstResult
-	case len(p.Probes) == 0:
-		p.ProbesNote = p.LL.NoProbes
+	case checks.expected == 0:
+		p.ProbesNote = p.L.NoLocationsHint
+	case pe.Truncated || pe.Error != "":
+		p.ProbesNote = p.L.LimitedResults
+	default:
+		p.Fresh, p.Expected = checks.fresh, checks.expected
+		p.Coverage = s.t("%d of %d checks have recent results", checks.fresh, checks.expected)
+		if len(checks.unreported) > 0 {
+			p.ProbesNote = p.L.WaitingHint
+		}
+		missing := make([]monitorCheck, 0, len(checks.unreported))
+		for check := range checks.unreported {
+			missing = append(missing, check)
+		}
+		slices.SortFunc(missing, func(a, b monitorCheck) int {
+			return cmp.Or(cmp.Compare(a.location, b.location), cmp.Compare(a.target, b.target), cmp.Compare(a.module, b.module))
+		})
+		for _, check := range missing {
+			p.Probes = append(p.Probes, probeRow{Location: check.location, Instance: check.target, Module: check.module,
+				State: s.t("Waiting for results"), Tone: "info"})
+		}
 	}
 	p.ProbeError = pe.Error
 	for i := range p.Targets {

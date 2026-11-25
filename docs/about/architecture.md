@@ -82,7 +82,7 @@ From a service breaking to people and agents hearing of it, with the reference r
 2. **Rules decide.** vmalert evaluates the rules every 30 seconds.
    - A location counts as failing a service once it has failed it for 3 minutes.
    - The service is down when at least two locations fail it, and they are at least half of those reporting.
-   - `ServiceDown` fires after that has held for 1 minute. vmalert posts it to the gateway's `POST /api/v2/alerts`, in Alertmanager's form, with the rules token. Counting from the first failed probe, that is about 4 to 5 minutes.
+   - `ServiceDown` fires after that has held for 40 seconds in the reference rules. vmalert posts it to the gateway's `POST /api/v2/alerts`, in Alertmanager's form, with the rules token. Delivery also depends on probe cadence, ingestion and the alert route.
 3. **The router groups.** It does Alertmanager's job inside Beacon:
    - Alerts are grouped by `alertname` and `service`, unless a route says otherwise.
    - A new group waits `group_wait` (30 seconds) for more alerts before it is sent. It is then updated at most every `group_interval` (2 minutes).

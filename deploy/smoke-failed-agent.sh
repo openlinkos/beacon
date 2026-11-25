@@ -115,8 +115,9 @@ smoke_failed_wake() {
   delivery=$(jq -er '.delivery' "$work/hook.json") || return 1
   grep -Fq "delivery=$delivery event=firing alert=$alert exit=79" "$work/oncall.log" || return 1
   curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
-    jq -e --arg delivery "$delivery" '
-      any(.events[]; .kind == "agent" and .event == "firing" and .id == $delivery and .result == "ok")' >/dev/null
+    jq -er --arg delivery "$delivery" '
+      [.events[] | select(.kind == "agent" and .event == "firing" and .id == $delivery and .result == "ok") | .at][0] // empty' \
+      > "$work/wake-accepted-at"
 }
 
 smoke_failed_run_report() {
@@ -132,7 +133,18 @@ smoke_failed_run_report() {
 smoke_phone_acceptance() {
   [[ -s "$work/phone-$alert.json" ]] &&
     curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
-    jq -e 'any(.events[]; .kind == "notification" and .via == "bark" and .result == "ok")' >/dev/null
+    jq -er '[.events[] | select(.kind == "notification" and .via == "bark" and .result == "ok") | .at][0] // empty' \
+      > "$work/phone-accepted-at"
+}
+
+smoke_service_down() {
+  curl -fsS --max-time 5 "${smoke_vmalert_url:-http://127.0.0.1:8880}/api/v1/rules" |
+    jq -e 'any(.data.groups[].rules[] | select(.name == "ServiceDown") | .alerts[]?;
+      .state == "firing" and .labels.service == "drill" and .labels.severity == "critical")' >/dev/null
+}
+
+smoke_now() {
+  python3 -c 'import time; print(time.time())'
 }
 
 smoke_failed_evidence() {
@@ -143,6 +155,7 @@ smoke_failed_evidence() {
 
 smoke_failed_agent_drill() {
   local previous_alert=${1:-} previous= alert drill_start page episode entry first second first_note second_note csrf location
+  local fault_requested fault_confirmed probes_observed rule_observed group_observed
   drill_start=$SECONDS
   first=smoke-first-shift
   second=smoke-next-shift
@@ -153,10 +166,16 @@ smoke_failed_agent_drill() {
   fi
   rm -f "$work/hook.json"
   touch "$work/fail-agent"
+  fault_requested=$(smoke_now)
   beacon drill fail 15m
   test "$(curl -sS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 503
+  fault_confirmed=$(smoke_now)
   wait_for 'Both probes measured the second HTTP fault' 120 probes 0
+  probes_observed=$(smoke_now)
+  wait_for 'vmalert reports the drill ServiceDown rule firing' "$((drill_start + 300 - SECONDS))" smoke_service_down
+  rule_observed=$(smoke_now)
   wait_for 'The rules opened the failed-Agent drill alert' "$((drill_start + 300 - SECONDS))" firing > "$work/failed-agent-alert"
+  group_observed=$(smoke_now)
   alert=$(head -1 "$work/failed-agent-alert")
   if [[ -n "$previous_alert" ]]; then
     test "$alert" = "$previous_alert"
@@ -174,25 +193,52 @@ smoke_failed_agent_drill() {
   jq -e --arg previous "$previous" '.status == "firing" and .ack == null and .starts_at != $previous' "$work/second-episode.json" >/dev/null
   episode=$(jq -er '.starts_at' "$work/second-episode.json")
   entry=$(jq -er '.payload.url' "$work/phone-$alert.json")
-  python3 - "$entry" "$status_url" "$page" "$work/phone-$alert.json" "$work/hook.json" <<'PY'
+  python3 - "$entry" "$status_url" "$page" "$work/phone-$alert.json" "$work/hook.json" \
+    "$fault_requested" "$fault_confirmed" "$probes_observed" "$rule_observed" "$group_observed" \
+    "$work/wake-accepted-at" "$work/phone-accepted-at" <<'PY'
 from datetime import datetime
 import json
 from pathlib import Path
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-entry, base, alert, receipt, wake = sys.argv[1:]
+entry, base, alert, receipt, wake = sys.argv[1:6]
+requested, confirmed, probes, rule, group = map(float, sys.argv[6:11])
+wake_accepted_at, phone_accepted_at = map(Path, sys.argv[11:])
 entry, base = urlsplit(entry), urlsplit(base)
 if (entry.scheme, entry.netloc, entry.path) != (base.scheme, base.netloc, "/console/sign-in"):
     sys.exit("The recorded phone notification links outside the test sign-in")
 if parse_qs(entry.query).get("next") != [alert]:
     sys.exit("The recorded phone notification must link to the drill alert")
 received = json.loads(Path(receipt).read_text())["received_at"]
-sent = datetime.fromisoformat(json.loads(Path(wake).read_text())["at"].replace("Z", "+00:00")).timestamp()
-delay = received - sent
+wake_queued = json.loads(Path(wake).read_text())["at"]
+
+
+def epoch(value):
+    return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).timestamp()
+
+
+wake_accepted = epoch(wake_accepted_at.read_text())
+phone_accepted = epoch(phone_accepted_at.read_text())
+delay = received - epoch(wake_queued)
 if not 19 <= delay <= 60:
     sys.exit(f"Expected the 20-second phone delay, observed {delay:.1f}s from wake to receiver")
+if not confirmed <= wake_accepted <= received <= phone_accepted:
+    sys.exit("Expected phone acceptance after the signed wake and HTTP fault")
 print(f"Local phone provider accepted the critical push {delay:.1f}s after the signed wake.")
+# The fault lies between the request and the first HTTP 503. Probe, rule and group checks are
+# polled, so their observations can be later than the actual transition.
+print("Failed-Agent phase timing (seconds from fault request): " + json.dumps({
+    "http_503_confirmed": round(confirmed - requested, 3),
+    "both_probes_observed": round(probes - requested, 3),
+    "rule_firing_observed": round(rule - requested, 3),
+    "beacon_group_observed": round(group - requested, 3),
+    "signed_wake_accepted": round(wake_accepted - requested, 3),
+    "local_phone_request_received": round(received - requested, 3),
+    "local_phone_accepted": round(phone_accepted - requested, 3),
+    "phone_after_signed_wake": round(phone_accepted - wake_accepted, 3),
+    "within_five_minutes": phone_accepted - requested <= 300,
+}))
 PY
   smoke_shift_sign_in "$first" "$entry" "$page"
   smoke_shift_claim "$first" "$page" 'Acknowledge with note' "$first_note"
