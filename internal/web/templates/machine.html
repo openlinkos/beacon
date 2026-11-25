@@ -20,6 +20,19 @@
         <div class="ol-stack"><p class="ol-hint">{{.SetupHint}}</p><div class="ol-code ol-code-wrap"><pre><code>{{.Config}}</code></pre></div></div>
       </details>
       {{end}}
+      {{if .CheckAction}}
+      <form class="ol-cluster bc-machine-ssh-check" method="post" action="{{.CheckAction}}">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button type="submit" class="ol-btn ol-btn-secondary ol-btn-sm" aria-describedby="ssh-check-hint">{{iconSm "activity"}}{{.CheckLabel}}</button>
+        <p class="ol-hint" id="ssh-check-hint">{{.CheckHint}}</p>
+      </form>
+      {{end}}
+      {{with .Check}}{{if .Title}}
+      <div id="ssh-check-result" class="ol-alert ol-alert-{{if .Ready}}success{{else}}warning{{end}}" role="status" tabindex="-1">
+        {{if .Ready}}{{icon "check"}}{{else}}{{icon "circle-alert"}}{{end}}
+        <div class="ol-alert-body"><p><strong>{{.Title}}</strong></p>{{if .Detail}}<p>{{.Detail}}</p>{{end}}{{if .At}}<p class="ol-hint">{{.At}}</p>{{end}}</div>
+      </div>
+      {{end}}{{end}}
     </div>
   </section>{{end}}
 <div class="ol-layout-supporting">

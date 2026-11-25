@@ -128,6 +128,7 @@ The caller's machine selection also limits session records in the alert evidence
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
+| `POST /api/v1/machines/{name}/check` | `machines:ssh` | Check the registered route, host key and certificate authentication for one permitted machine. No request body or remote session |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
 | `POST /api/v1/machines/{name}/search` | `machines:ssh` | Search one physical project directory for literal, case-sensitive text. Returns paths, line numbers, excerpts, completeness and the session ID |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
@@ -138,6 +139,8 @@ The caller's machine selection also limits session records in the alert evidence
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` or `machines:ssh` | The recording, asciicast v3, to replay with asciinema |
 
 Machine-restricted credentials see sessions from the current enrolments they are allowed to access. Beacon applies those restrictions before `limit`. A transcript or recording outside the caller's access returns the same `404 session.not_found` as an unknown session. The `page` field sends people to sign in to the console.
+
+The SSH check returns `200` with `check_id`, `machine`, `route` (`direct` or `connector`), `status` and `checked_at`. Only `ready` confirms both a host key match and acceptance of Beacon's certificate. A timed-out check or a failed handshake is an observation in `status`. Authorisation, pause, standby, a changed machine or an unavailable audit produce HTTP errors. The result describes Beacon's connection to the machine. A workstation's key or network requires its own test. Search the audit log for `machine_ssh_check` and the returned ID.
 
 Each session reports `recording_state` and `transcript_state` independently. `complete` means the evidence was kept, `truncated` means it reached its own size limit, and `unavailable` means it could not be kept or read. `capturing` means Beacon has yet to record the end of capture. `metadata_only` describes activity with no replay or structured transcript for that artifact. Older records may omit the states. Forwarded ports and SFTP record session metadata. Interactive command indexing needs a supported Bash shell with terminal integration.
 
@@ -319,6 +322,7 @@ Each sends with a token of its own:
 | `agent_run.not_found` | 404 | No matching reportable hook delivery is available for this alert |
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
+| `ssh.check_unavailable` | 503 | Beacon could not prepare or audit the machine SSH check |
 | `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
 | `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
 | `ssh.paused` | 409 | Agents' access to machines is paused |

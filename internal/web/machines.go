@@ -180,6 +180,13 @@ type personalConnection struct {
 	Title, Hint, Href, Link, Command, Config, Setup, SetupHint string
 	Copy, Copied, CopyError                                    string
 	IncidentHref, IncidentLabel                                string
+	CheckAction, CheckLabel, CheckHint                         string
+	Check                                                      machineCheck
+}
+
+type machineCheck struct {
+	Title, Detail, At string
+	Ready             bool
 }
 
 type machinePage struct {
@@ -256,6 +263,10 @@ func (s *Server) machineConnection(v *viewer, m sshgate.MachineView, ref string)
 }
 
 func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
+	s.renderMachine(w, r, v, machineCheck{})
+}
+
+func (s *Server) renderMachine(w http.ResponseWriter, r *http.Request, v *viewer, check machineCheck) {
 	name := r.PathValue("name")
 	var m *sshgate.MachineView
 	for _, x := range s.machineList(v) {
@@ -275,6 +286,18 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 	l := s.machineLabels()
 	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: consolePath("/machines")}), L: l, LL: s.listLabels(), Note: m.Note,
 		User: m.User, Critical: m.Critical, Connector: m.Connector, Connection: s.machineConnection(v, *m, ref)}
+	if c := p.Connection; c != nil {
+		c.Check = check
+		if !s.SSH.Paused() {
+			query := url.Values{"registration": {m.Registration}}
+			if c.IncidentHref != "" {
+				query.Set(sshIncidentParam, ref)
+			}
+			c.CheckAction = machinePath(name) + "/check?" + query.Encode() + "#ssh-check-result"
+			c.CheckLabel = s.t("Check machine SSH")
+			c.CheckHint = s.t("Beacon checks the host key and certificate login from the centre, without running a command.")
+		}
+	}
 	p.History, p.HistoryHref, p.MetadataVersion = s.t("Settings history"), machinePath(name)+"/history", m.Version
 	if v.has("machines:write") {
 		p.Can = true
@@ -332,6 +355,64 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 		}
 	}
 	s.render(w, machineTmpl, p)
+}
+
+func (s *Server) checkMachineSSH(w http.ResponseWriter, r *http.Request, v *viewer) {
+	if !v.person() {
+		s.forbidden(w, r, v, "machines:ssh")
+		return
+	}
+	registration := r.URL.Query().Get("registration")
+	if registration == "" {
+		s.missing(w, r, v)
+		return
+	}
+	out, err := s.SSH.CheckSSH(r.Context(), v.gate(), r.PathValue("name"), registration)
+	switch {
+	case errors.Is(err, sshgate.ErrNoMachine), errors.Is(err, sshgate.ErrMachineChanged):
+		s.missing(w, r, v)
+	case errors.Is(err, sshgate.ErrForbidden):
+		s.forbidden(w, r, v, "machines:ssh")
+	case errors.Is(err, sshgate.ErrPaused):
+		s.renderMachine(w, r, v, machineCheck{Title: s.t("SSH access is paused for all machines.")})
+	case errors.Is(err, sshgate.ErrStandby):
+		s.renderMachine(w, r, v, machineCheck{Title: s.t("Run the SSH check on the primary instance.")})
+	case err != nil:
+		s.renderMachine(w, r, v, machineCheck{Title: s.t("Beacon could not complete the SSH check. Try again shortly.")})
+	default:
+		s.renderMachine(w, r, v, s.machineCheckResult(out))
+	}
+}
+
+func (s *Server) machineCheckResult(out sshgate.SSHCheck) machineCheck {
+	result := machineCheck{Title: s.t("Machine SSH needs attention"), At: s.clock(out.CheckedAt)}
+	switch out.Status {
+	case sshgate.SSHCheckReady:
+		result.Title = s.t("Machine SSH is ready")
+		result.Detail = s.t("The host key matched and the machine accepted Beacon's certificate.")
+		result.Ready = true
+	case sshgate.SSHCheckDisconnected:
+		result.Detail = s.t("The connector is offline. Check that its SSH process is running on the machine.")
+	case sshgate.SSHCheckConnectorBusy:
+		result.Detail = s.t("The connector is still handling an earlier check. Try again shortly.")
+	case sshgate.SSHCheckForwardFailed:
+		result.Detail = s.t("The connector did not open the configured route to the machine's SSH service. Check that sshd is listening on the forwarded port.")
+	case sshgate.SSHCheckUnreachable:
+		result.Detail = s.t("Beacon could not connect to the registered address. Check the machine's address, firewall and SSH service.")
+	case sshgate.SSHCheckHostKeyUnavailable:
+		result.Detail = s.t("Beacon has no usable pinned host key. Check the machine's registration and host key setup.")
+	case sshgate.SSHCheckHostKeyMismatch:
+		result.Detail = s.t("The machine presented a different host key. Verify its fingerprint on the machine before changing the pin.")
+	case sshgate.SSHCheckHandshakeFailed:
+		result.Detail = s.t("The SSH handshake ended before Beacon could authenticate. Check the SSH service and its logs.")
+	case sshgate.SSHCheckAuthenticationIncomplete:
+		result.Detail = s.t("The host key matched, but certificate login did not complete. Check the machine account, TrustedUserCAKeys and sshd logs.")
+	case sshgate.SSHCheckAuthenticationSkipped:
+		result.Detail = s.t("The machine let Beacon in without using its certificate. Check the SSH service's authentication settings.")
+	case sshgate.SSHCheckTimedOut:
+		result.Detail = s.t("The machine did not finish the check in 8 seconds. Check the connection and the SSH service.")
+	}
+	return result
 }
 
 // machinePath is one machine's page.

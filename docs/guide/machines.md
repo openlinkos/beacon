@@ -95,6 +95,12 @@ The console does the same for someone with `machines:write`, on **Machines**. **
 
 A machine Beacon cannot reach is added the other way round: [Machines behind NAT](#machines-behind-nat).
 
+## Check machine SSH {#check-machine-ssh}
+
+After configuring and reloading sshd, open the enrolled machine under **Machines → Connect over SSH** and select **Check machine SSH**. You need the On call role or another role with SSH access to that machine. Beacon checks the registered route, verifies the pinned host key and tries its short-lived certificate without opening a shell or running a command. The signed-in result identifies where the check stopped, and the audit log records the attempt as `machine_ssh_check`.
+
+**Machine SSH is ready** confirms the handshake from Beacon to the machine. Continue with the personal connection below to verify your workstation's key and reachability. If certificate login did not complete, check the machine account, `TrustedUserCAKeys`, and sshd's logs. For a host key mismatch, verify the machine's fingerprint before updating the pin. For a machine behind NAT, verify that its connector has registered the forward to the correct sshd port.
+
 ## Connect as yourself {#connect-as-yourself}
 
 With the On call role or above, register a public key reserved for your account in **Your account → Personal SSH keys**. If you need a new key, create it on your workstation.

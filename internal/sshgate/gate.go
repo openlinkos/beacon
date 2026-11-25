@@ -406,6 +406,11 @@ func algorithms(k ssh.PublicKey) []string {
 	return []string{k.Type()}
 }
 
+func machineClientConfig(m store.Machine, key ssh.PublicKey, auth ssh.AuthMethod) *ssh.ClientConfig {
+	return &ssh.ClientConfig{User: m.User, Auth: []ssh.AuthMethod{auth},
+		HostKeyCallback: ssh.FixedHostKey(key), HostKeyAlgorithms: algorithms(key)}
+}
+
 // dial connects to a machine as who: to its address, or through its connector for a machine behind NAT.
 func (g *Gate) dial(ctx context.Context, m store.Machine, who Actor, conn string) (*ssh.Client, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -436,8 +441,7 @@ func (g *Gate) dial(ctx context.Context, m store.Machine, who Actor, conn string
 	if dl, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(dl)
 	}
-	cfg := &ssh.ClientConfig{User: m.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: ssh.FixedHostKey(hk), HostKeyAlgorithms: algorithms(hk)}
+	cfg := machineClientConfig(m, hk, ssh.PublicKeys(signer))
 	c, chans, reqs, err := ssh.NewClientConn(nc, m.Address, cfg)
 	if err != nil {
 		_ = nc.Close()

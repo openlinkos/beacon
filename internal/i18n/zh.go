@@ -12,6 +12,27 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Requested by %s":          "由 %s 发起",
 	"No observations recorded": "未记录任何观测结果",
 
+	// Machine SSH readiness.
+	"Check machine SSH": "检查机器 SSH",
+	"Beacon checks the host key and certificate login from the centre, without running a command.":                                      "Beacon 从中心验证主机密钥和证书登录，期间不会执行命令。",
+	"Run the SSH check on the primary instance.":                                                                                        "请在主实例上检查 SSH。",
+	"Beacon could not complete the SSH check. Try again shortly.":                                                                       "Beacon 未能完成 SSH 检查，请稍后重试。",
+	"Machine SSH needs attention":                                                                                                       "机器 SSH 需要排查",
+	"Machine SSH is ready":                                                                                                              "机器 SSH 已就绪",
+	"The host key matched and the machine accepted Beacon's certificate.":                                                               "主机密钥匹配，机器已接受 Beacon 的证书。",
+	"The connector is offline. Check that its SSH process is running on the machine.":                                                   "连接器已离线。请检查机器上的 SSH 连接器进程是否运行。",
+	"The connector is still handling an earlier check. Try again shortly.":                                                              "连接器正在处理上一次检查，请稍后重试。",
+	"The connector did not open the configured route to the machine's SSH service. Check that sshd is listening on the forwarded port.": "连接器未能打开通往机器 SSH 服务的转发。请确认 sshd 正在监听转发的端口。",
+	"Beacon could not connect to the registered address. Check the machine's address, firewall and SSH service.":                        "Beacon 无法连接登记的地址。请检查机器地址、防火墙和 SSH 服务。",
+	"Beacon has no usable pinned host key. Check the machine's registration and host key setup.":                                        "Beacon 没有可用的固定主机密钥。请检查机器的登记信息和主机密钥设置。",
+	"The machine presented a different host key. Verify its fingerprint on the machine before changing the pin.":                        "机器提供了不同的主机密钥。请先在机器上核对指纹，再更新固定密钥。",
+	"The SSH handshake ended before Beacon could authenticate. Check the SSH service and its logs.":                                     "SSH 握手在 Beacon 开始身份验证前结束。请检查 SSH 服务及其日志。",
+	"The host key matched, but certificate login did not complete. Check the machine account, TrustedUserCAKeys and sshd logs.":         "主机密钥匹配，但证书登录未完成。请检查机器账号、TrustedUserCAKeys 和 sshd 日志。",
+	"The machine let Beacon in without using its certificate. Check the SSH service's authentication settings.":                         "机器未使用证书便允许 Beacon 登录。请检查 SSH 服务的身份验证设置。",
+	"The machine did not finish the check in 8 seconds. Check the connection and the SSH service.":                                      "检查在 8 秒内未完成。请排查连接和 SSH 服务。",
+	"could not verify machine SSH":                              "未能验证机器 SSH",
+	"verified the machine's host key and SSH certificate login": "已验证机器的主机密钥和 SSH 证书登录",
+
 	// Incident SSH setup.
 	"Add each block to the named file. Set IdentityFile to the local private key that matches your registered public key, then run the command.": "按标注将各段添加到对应文件。将 IdentityFile 指向与已登记公钥配套的本地私钥，再运行命令。",
 	"Back to incident":         "返回事件",

@@ -41,7 +41,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
@@ -515,6 +515,18 @@ components:
         session: {type: string}
         recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+    SSHCheck:
+      type: object
+      required: [check_id, machine, route, status, checked_at]
+      properties:
+        check_id: {type: string, description: Identifier recorded in the machine_ssh_check audit entries.}
+        machine: {type: string}
+        route: {type: string, enum: [direct, connector]}
+        status:
+          type: string
+          enum: [ready, connector_disconnected, connector_busy, connector_forward_failed, unreachable, host_key_unavailable, host_key_mismatch, handshake_failed, authentication_incomplete, authentication_skipped, timed_out]
+          description: Only ready means the machine presented its pinned host key and accepted Beacon's certificate.
+        checked_at: {type: string, format: date-time}
     SearchResult:
       type: object
       required: [machine, directory, matches, limited, session]
@@ -1680,6 +1692,19 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/RunResult"}
+        default: {$ref: "#/components/responses/Error"}
+  /machines/{name}/check:
+    post:
+      summary: Check an enrolled machine's SSH handshake
+      description: "Scope: machines:ssh, with access to this machine. Uses the registered route and pinned host key. Attempts certificate authentication without opening a machine session."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The handshake observation, including when it fails to verify readiness
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SSHCheck"}
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/search:
     post:

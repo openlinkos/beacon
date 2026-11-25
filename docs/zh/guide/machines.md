@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d7954051
+sourceHash: sha256-ddcd6412
 ---
 
 # 给 Agent 一台机器
@@ -98,6 +98,12 @@ sourceHash: sha256-d7954051
 持有 `machines:write` 的人在控制台的 **Machines** 页做同样的事。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
 
 Beacon 连不进去的机器，换个方向添加：见 [NAT 后面的机器](#machines-behind-nat)。
+
+## 检查机器 SSH {#check-machine-ssh}
+
+配置并重新加载 sshd 后，在**机器 → 通过 SSH 连接**中打开已登记的机器，选择**检查机器 SSH**。你需要值班角色，或另一个允许对这台机器使用 SSH 的角色。Beacon 检查登记的连接路径与固定主机密钥，并尝试用短期证书登录，期间不会打开 shell 或执行命令。登录后可看到检查停在哪一步；审计日志以 `machine_ssh_check` 记录这次检查。
+
+**机器 SSH 已就绪**表示 Beacon 到机器的握手通过。接着用下文的个人连接验证工作站能否访问，以及个人密钥能否登录。证书登录未完成时，检查机器账号、`TrustedUserCAKeys` 和 sshd 日志。主机密钥不匹配时，先核对机器指纹再更新固定密钥。NAT 后的机器需要让连接器登记到正确 sshd 端口的转发。
 
 ## 以自己的身份连接 {#connect-as-yourself}
 

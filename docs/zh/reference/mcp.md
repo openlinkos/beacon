@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-31d86c2a
+sourceHash: sha256-8b7b4d83
 ---
 
 # MCP 工具
@@ -97,6 +97,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
+| `check_machine_ssh` | `machines:ssh` | 检查有权访问的已登记机器 `machine` 的连接路径、固定主机密钥和证书验证，返回观察结果与审计 ID |
 | `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
 | `search_files` | `machines:ssh` | 在一台已登记的 `machine` 上，从明确指定的绝对路径 `directory` 搜索字面文本 `query`，区分大小写，`limit` 可选。返回路径、行号、摘录和会话 ID |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
@@ -112,6 +113,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
+
+`check_machine_ssh` 不会打开远程会话。仅 `status: ready` 表示主机密钥匹配且机器接受了 Beacon 的证书。[API 的机器一节](api.md#machines-and-sessions)说明了这些检查结果。首次设置 Agent 时，检查后用 `run_command` 执行 `hostname`，确认命令执行成功并查看该会话。
 
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。只有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 

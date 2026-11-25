@@ -28,6 +28,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrPaused, http.StatusConflict, "ssh.paused"},
 		{sshgate.ErrStandby, http.StatusServiceUnavailable, "ssh.standby"},
 		{sshgate.ErrEvidenceUnavailable, http.StatusServiceUnavailable, "ssh.evidence_unavailable"},
+		{sshgate.ErrSSHCheckUnavailable, http.StatusServiceUnavailable, "ssh.check_unavailable"},
 		{sshgate.ErrSearchUnavailable, http.StatusServiceUnavailable, "ssh.search_unavailable"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
 		{sshgate.ErrMachineVersion, http.StatusNotFound, "machine.version_not_found"},
@@ -93,6 +94,15 @@ func (s *Server) listMachines(w http.ResponseWriter, _ *http.Request, who bridge
 		return
 	}
 	writeJSON(w, http.StatusOK, l)
+}
+
+func (s *Server) checkMachineSSH(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	out, err := s.SSH.CheckSSH(r.Context(), gateActor(who), r.PathValue("name"), "")
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) addMachine(w http.ResponseWriter, r *http.Request, who bridge.Actor) {

@@ -93,6 +93,7 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
+| `check_machine_ssh` | `machines:ssh` | Check the registered route, pinned host key and certificate authentication for an enrolled `machine` you may reach. Returns the observation and audit ID |
 | `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` reads what was retained |
 | `search_files` | `machines:ssh` | Find literal, case-sensitive text on one enrolled `machine` under an explicit absolute `directory`, with `query` and optional `limit`. Returns paths, line numbers, excerpts and the session ID |
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
@@ -108,6 +109,8 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | `remove_machine` | `machines:write` | Forget a machine (`name`); its sessions stay on record |
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
+
+`check_machine_ssh` opens no remote session. Only `status: ready` indicates that the host key matched and the machine accepted Beacon's certificate. See [the API's machine section](api.md#machines-and-sessions) for these observations. For the first agent setup, use `run_command` with `hostname` after the check to verify command execution and inspect its session.
 
 Alert evidence and timeline contain command text and links to the signed-in session page only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read permitted session metadata there.
 

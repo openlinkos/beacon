@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cf74e8cc
+sourceHash: sha256-9067c5ea
 ---
 
 # REST API
@@ -132,6 +132,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
 | `DELETE /api/v1/machines/{name}` | `machines:write` | 移除一台机器；它的会话记录保留 |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥；用旧密钥建立的连接会被关掉 |
+| `POST /api/v1/machines/{name}/check` | `machines:ssh` | 检查有权访问的机器的登记路径、主机密钥和证书验证。无需请求正文，也无需打开远程会话 |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | 以机器上的用户身份，在 `sh` 里、不分配终端执行一条命令（`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600）：返回退出码、stdout 和 stderr |
 | `POST /api/v1/machines/{name}/search` | `machines:ssh` | 在指定的物理项目目录按字面、区分大小写搜索文本。返回路径、行号、摘录、完整性和会话 ID |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | 文本文件的若干行，带行号（`path`、`offset`、`limit`：默认 2000 行） |
@@ -142,6 +143,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` 或 `machines:ssh` | 录像文件，asciicast v3，可以用 asciinema 回放 |
 
 设有机器范围的凭据只能看到其有权访问的机器在本次注册期间产生的会话。Beacon 先按机器范围筛选，再应用 `limit`。请求无权读取的文字记录或录像时，与请求不存在的会话一样，返回 `404 session.not_found`。`page` 字段指向控制台的登录入口。
+
+SSH 检查返回 `200`，包含 `check_id`、`machine`、`route`（`direct` 或 `connector`）、`status` 和 `checked_at`。仅 `ready` 表示固定主机密钥匹配且 Beacon 的证书已被接受。检查超时或握手失败在 `status` 中说明。授权失败、暂停、备实例、机器变更和审计不可用仍返回 HTTP 错误。结果描述 Beacon 到机器的连接；工作站的密钥或网络需另行验证。可用 `machine_ssh_check` 和返回的 ID 查找审计记录。
 
 会话分别用 `recording_state` 和 `transcript_state` 表示录像与文字记录。 `complete` 表示证据已保留，`truncated` 表示已达到该项证据自身的大小上限，`unavailable` 表示无法保留或读取，`capturing` 表示 Beacon 尚未记录采集结束，`metadata_only` 表示该项只保留会话元数据。旧记录可能省略这些字段。端口转发和 SFTP 保留会话元数据。交互式命令索引需要受支持的 Bash 终端集成。
 
@@ -323,6 +326,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `agent_run.not_found` | 404 | 该告警没有匹配且可回报的钩子投递 |
 | `agent_run.conflict` | 409 | 本次回报和之前记录的执行状态冲突 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
+| `ssh.check_unavailable` | 503 | Beacon 无法准备或审计机器 SSH 检查 |
 | `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录 |
 | `ssh.search_unavailable` | 503 | 登记机器缺少文件搜索所需的标准 shell 工具 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
