@@ -12,19 +12,19 @@ import (
 )
 
 type monitorTargetLabels struct {
-	Scope, Domain, Visibility, Machine string
+	Scope, Domain, Page, Visibility, Machine string
 }
 
 func (s *Server) monitorTargetLabels() monitorTargetLabels {
 	return monitorTargetLabels{Scope: s.t("Probe from"),
-		Domain: s.t("Failure domain"), Visibility: s.t("Visibility"), Machine: s.t("Designated machine")}
+		Domain: s.t("Failure domain"), Page: s.t("Page label"), Visibility: s.t("Visibility"), Machine: s.t("Designated machine")}
 }
 
 type monitorTargetGroup struct {
-	L                                                      monitorTargetLabels
-	Name, Set, Scope, Module, Severity, Domain, Visibility string
-	Targets                                                []string
-	Machine, Edit, EditLabel                               string
+	L                                                            monitorTargetLabels
+	Name, Set, Scope, Module, Severity, Domain, Page, Visibility string
+	Targets                                                      []string
+	Machine, Edit, EditLabel                                     string
 }
 
 func (s *Server) monitorTargetGroup(st *configdb.State, set string, index int, g targets.Group) monitorTargetGroup {
@@ -34,7 +34,7 @@ func (s *Server) monitorTargetGroup(st *configdb.State, set string, index int, g
 	}
 	return monitorTargetGroup{
 		L: s.monitorTargetLabels(), Name: s.t("Group %d", index+1), Set: set, Scope: targets.Scope(set+".yaml", ids), Module: g.Labels["module"],
-		Severity: s.severity(g.Labels["severity"]), Domain: g.Labels["failure_domain"], Visibility: g.Labels["visibility"], Targets: g.Targets,
+		Severity: s.severity(g.Labels["severity"]), Domain: g.Labels["failure_domain"], Page: g.Labels["page"], Visibility: g.Labels["visibility"], Targets: g.Targets,
 	}
 }
 
@@ -129,7 +129,7 @@ func (s *Server) responseMachine(w http.ResponseWriter, r *http.Request, v *view
 		Back:  detail, Action: responseMachinePath(svc, set, index),
 		Return: s.t("Back to monitor"), Save: s.t("Save designation"), Designation: s.t("Designated machine (optional)"),
 		Hint:      s.t("Choose where operators should connect when this service is down."),
-		GroupHint: s.t("When multiple groups have the same severity and failure domain, alerts link to a machine only if those groups agree on its enrolment."),
+		GroupHint: s.t("When an alert covers several groups, the alert links to a machine only if those groups agree on its enrolment."),
 		Version:   version,
 	}
 	show := func(status int, problem string) {

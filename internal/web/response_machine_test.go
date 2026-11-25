@@ -23,7 +23,7 @@ func seedImportedResponseMonitor(t *testing.T, e *env) {
 	}
 	const grouped = `[
   {"targets":["https://checkout.example.com/health", "https://checkout.example.com/ready"],
-   "labels":{"service":"checkout-example-com","module":"http_2xx","severity":"critical","failure_domain":"blue","team":"checkout"}},
+   "labels":{"service":"checkout-example-com","module":"http_2xx","severity":"critical","failure_domain":"blue","page":"cart","visibility":"internal","team":"checkout"}},
   {"targets":["https://green.example.com/ready"],
    "labels":{"service":"checkout-example-com","module":"http_2xx","severity":"critical","failure_domain":"green","team":"checkout"}}
 ]`
@@ -65,7 +65,7 @@ func TestImportedMonitorResponseMachineForm(t *testing.T) {
 			t.Fatal("a viewer or standalone token could change the designation")
 		}
 	}
-	if editor := owner.get(formPath); editor.code != http.StatusOK || !strings.Contains(editor.body, oneEndpoint) || strings.Contains(editor.body, otherEndpoint) {
+	if editor := owner.get(formPath); editor.code != http.StatusOK || !strings.Contains(editor.body, oneEndpoint) || !strings.Contains(editor.body, "Page label cart") || strings.Contains(editor.body, otherEndpoint) {
 		t.Fatalf("the editor displayed the wrong target group (status %d)", editor.code)
 	}
 	before := e.cdb.Targets().For("edge-1", "overseas", []string{"edge-1", "edge-2"})

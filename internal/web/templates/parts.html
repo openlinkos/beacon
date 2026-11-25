@@ -94,7 +94,7 @@
   <div class="ol-stack">
     <div>
       <p class="ol-list-title ol-break">{{.Set}} · {{.Name}}</p>
-      <p class="ol-list-meta"><span>{{.Module}}</span><span>{{.Severity}}</span><span>{{.L.Scope}} {{.Scope}}</span>{{if .Domain}}<span>{{.L.Domain}} {{.Domain}}</span>{{end}}{{if .Visibility}}<span>{{.L.Visibility}} {{.Visibility}}</span>{{end}}</p>
+      <p class="ol-list-meta"><span>{{.Module}}</span><span>{{.Severity}}</span><span>{{.L.Scope}} {{.Scope}}</span>{{if .Domain}}<span>{{.L.Domain}} {{.Domain}}</span>{{end}}{{if .Page}}<span>{{.L.Page}} {{.Page}}</span>{{end}}{{if .Visibility}}<span>{{.L.Visibility}} {{.Visibility}}</span>{{end}}</p>
     </div>
     <div>{{range .Targets}}<p class="ol-mono ol-break">{{.}}</p>{{end}}</div>
   </div>
