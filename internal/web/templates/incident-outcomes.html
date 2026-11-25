@@ -1,14 +1,35 @@
 {{define "content"}}<div class="ol-stack">
-  {{if .Group}}<div class="ol-split"><p class="ol-hint">{{.L.Group}} <code>{{.Group}}</code></p><a href="{{console "/incident-outcomes"}}">{{.L.Clear}}</a></div>{{end}}
+  {{if .Group}}<div class="ol-cluster"><p class="ol-hint">{{.L.Group}} <code>{{.Group}}</code></p><a href="{{.AllGroups}}">{{.L.AllGroups}}</a></div>{{end}}
+  <form method="get" action="{{console "/incident-outcomes"}}" aria-label="{{.S.Filters}}" class="ol-panel">
+    <div class="ol-panel-body bc-outcome-filters">
+      {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
+      {{range .Filters}}<div class="ol-field{{if eq .Name "evidence"}} bc-outcome-evidence-filter{{end}}">
+        <label class="ol-label" for="outcome-{{.Name}}">{{.Label}}</label>
+        <select class="ol-select" id="outcome-{{.Name}}" name="{{.Name}}">{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </div>{{end}}
+      <div class="ol-cluster bc-outcome-filter-actions">
+        <button type="submit" class="ol-btn ol-btn-primary">{{$.L.Apply}}</button>
+        {{if .Reset}}<a class="ol-btn ol-btn-ghost" href="{{.Reset}}">{{.L.Reset}}</a>{{end}}
+      </div>
+    </div>
+  </form>
   {{if .Rows}}
   <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-    <thead><tr><th>{{.L.Incident}}</th><th>{{.L.Severity}}</th><th>{{.L.Resolved}}</th><th>{{.L.Participation}}</th><th>{{.L.Verification}}</th></tr></thead>
+    <thead><tr><th scope="col">{{.L.Incident}}</th><th scope="col">{{.L.Severity}}</th><th scope="col">{{.L.Resolved}}</th><th scope="col">{{.L.Evidence}}</th><th scope="col">{{.L.Verification}}</th></tr></thead>
     <tbody>{{range .Rows}}<tr>
-      <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}</td>
+      <td>
+        <a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Title}}</a>
+        {{if .Service}}<span class="ol-cell-sub">{{.Service}}</span>{{end}}
+        {{if .Participants}}<span class="ol-cell-sub">{{$.L.Participation}} {{range .Participants}}<span class="ol-badge">{{.}}</span> {{end}}</span>{{end}}
+      </td>
       <td data-label="{{$.L.Severity}}"><span class="ol-badge ol-badge-{{.SeverityTone}}">{{.Severity}}</span></td>
       <td data-label="{{$.L.Resolved}}">{{.Resolved}}<span class="ol-cell-sub">{{.Duration}}</span></td>
-      <td data-label="{{$.L.Participation}}">{{if .Participants}}<span class="ol-cluster">{{range .Participants}}<span class="ol-badge">{{.}}</span>{{end}}</span>{{else}}{{$.L.NoParticipants}}{{end}}</td>
-      <td data-label="{{$.L.Verification}}">{{if .Verification}}{{.Verification}}{{else}}{{$.L.NoVerification}}{{end}}</td>
+      <td data-label="{{$.L.Evidence}}" class="bc-outcome-evidence-cell"><div class="bc-outcome-evidence">
+        {{if .AgentReport}}<span>{{$.L.AgentReport}}</span>{{else}}<span class="ol-subtle">{{$.L.NoAgentReport}}</span>{{end}}
+        {{if .HumanAck}}<span>{{$.L.HumanAck}}</span>{{else}}<span class="ol-subtle">{{$.L.NoHumanAck}}</span>{{end}}
+        {{if .PassingCheck}}<span>{{$.L.CheckRecorded}}</span>{{else}}<span class="ol-subtle">{{$.L.NoPassingCheck}}</span>{{end}}
+      </div></td>
+      <td data-label="{{$.L.Verification}}" class="bc-outcome-latest">{{if .Verification}}{{.Verification}}{{else}}{{$.L.NoVerification}}{{end}}</td>
     </tr>{{end}}</tbody>
   </table></div>
   {{else}}{{template "empty" .L.Empty}}{{end}}

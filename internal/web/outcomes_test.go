@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,78 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
+
+func TestIncidentHistoryKeepsReviewFiltersThroughPagination(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	viewer := e.invite(e.owner(), "review-shift", "viewer")
+	// A page of newer warnings precedes the critical incidents in the unfiltered log.
+	for i := range 2*perPage + 1 {
+		at := e.now.Add(-time.Duration(i+1) * time.Hour)
+		episode := fmt.Sprintf("%016x", i+1)
+		o := store.IncidentOutcome{
+			ID: store.OutcomeID(at, e.id, episode), Group: e.id, Title: fmt.Sprintf("Archived outage %d", i),
+			Severity: "warning", Started: at.Add(-time.Minute), Resolved: at,
+		}
+		if i >= perPage {
+			o.Severity = "critical"
+		}
+		if err := e.st.EnsureIncidentOutcome(o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := e.now.Add(-time.Second)
+	pass := store.IncidentOutcome{
+		ID: store.OutcomeID(at, e.id, "1234567890abcdef"), Group: e.id, Title: "Incident with retained pass",
+		Severity: "critical", Started: at.Add(-time.Minute), Resolved: at,
+		PassingCheck:         &store.Verification{ID: "pass", At: at, Passed: 2},
+		Verification:         &store.Verification{ID: "latest", At: e.now, Passed: 1, Missing: 1},
+		HumanAcknowledgement: &store.OutcomeHumanAcknowledgement{By: "day-shift", Via: "console", At: at},
+	}
+	if err := e.st.EnsureIncidentOutcome(pass); err != nil {
+		t.Fatal(err)
+	}
+
+	base := consolePath("/incident-outcomes")
+	filters := url.Values{"group": {e.id}, "severity": {"critical"}, "since": {"7d"}, "evidence": {"no_passing_check"}}
+	first := viewer.get(href(base, filters))
+	if first.code != http.StatusOK || strings.Count(first.body, "Archived outage ") != perPage || !strings.Contains(first.body, "Archived outage 50") ||
+		strings.Contains(first.body, "Incident with retained pass") || strings.Contains(first.body, "Archived outage 100") {
+		t.Fatalf("first filtered archive page: %d", first.code)
+	}
+	var older string
+	for _, link := range hrefs(first.body, base+"?") {
+		u, err := url.Parse(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query := u.Query()
+		if query.Get("before") != "" {
+			older = link
+			query.Del("before")
+			if query.Encode() != filters.Encode() {
+				t.Fatalf("older page dropped review state: %q", link)
+			}
+		}
+	}
+	if older == "" {
+		t.Fatal("first filtered page has no older incidents link")
+	}
+	last := viewer.get(older)
+	if last.code != http.StatusOK || strings.Count(last.body, "Archived outage ") != 1 || !strings.Contains(last.body, "Archived outage 100") {
+		t.Fatalf("older filtered archive page: %d", last.code)
+	}
+
+	filters.Set("evidence", "passing_check")
+	passing := viewer.get(href(base, filters))
+	if passing.code != http.StatusOK || !strings.Contains(passing.body, "Incident with retained pass") ||
+		!strings.Contains(passing.body, "1 passed, 0 failed, 1 missing") || strings.Contains(passing.body, "Archived outage ") {
+		t.Fatalf("passing evidence with incomplete latest result: %d", passing.code)
+	}
+	detail := viewer.get(outcomePath(pass.ID))
+	if detail.code != http.StatusOK || !strings.Contains(detail.body, "Human acknowledgement") || !strings.Contains(detail.body, "day-shift") {
+		t.Fatalf("retained acknowledgement detail: %d", detail.code)
+	}
+}
 
 func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	e := newEnv(t, i18n.EN)
