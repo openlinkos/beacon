@@ -28,7 +28,7 @@ smoke_create_share() {
 
 smoke_page_link_revocation() {
   local alert_path="/console/alerts/$1" replay="/console/sessions/$2" other_id other_path run
-  local incident_url replay_url other_url recording_path recording_url replacement redirect url alias sign_in
+  local incident_url incident_path replay_url other_url recording_path recording_url replacement redirect url alias sign_in
   local management="$replay/share-links" preview="$work/shared-alert.html"
   run=$(rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_command","arguments":{"machine":"target","command":"id -un"}}}')
   other_id=$(jq -er '.result.structuredContent | select(.exit_code == 0 and .stdout == "beacon\n") | .session' <<< "$run")
@@ -42,18 +42,33 @@ smoke_page_link_revocation() {
   [[ "$replay_url" == "$status_url$replay"\?s=* ]]
   [[ "$other_url" == "$status_url$other_path"\?s=* ]]
   curl -fsS --max-time 15 "$incident_url" > "$preview"
-  for url in "$replay" "$other_path"; do
-    sign_in="/console/sign-in?next=$(jq -nr --arg page "$url" '$page | @uri')"
+  if [[ "$version" == v0.3.0-rc.38 ]]; then
+    for url in "$replay" "$other_path"; do
+      sign_in="/console/sign-in?next=$(jq -nr --arg page "$url" '$page | @uri')"
+      grep -Fq "href=\"$sign_in\"" "$preview"
+      if grep -Fq -e "$url?" -e "$url/recording" "$preview"; then
+        echo 'The signed-out incident contained a direct recording or signed replay link.' >&2
+        return 1
+      fi
+    done
+    printf 'The signed incident opened without a session and asked readers to sign in for both related replays.\n'
+  else
+    incident_path=${incident_url#"$status_url"}
+    incident_path=${incident_path%%\?*}
+    sign_in="/console/sign-in?next=$(jq -nr --arg page "$incident_path" '$page | @uri')"
     grep -Fq "href=\"$sign_in\"" "$preview"
-    if grep -Fq -e "$url?" -e "$url/recording" "$preview"; then
-      echo 'The signed-out incident contained a direct recording or signed replay link.' >&2
+    if grep -Fq -e "$2" -e "$other_id" "$preview"; then
+      echo 'The signed-out incident disclosed a related session ID.' >&2
       return 1
     fi
-  done
+    curl -fsS --max-time 15 -b "$work/cookies" "$status_url$incident_path" > "$work/owner-incident.html"
+    grep -Fq "href=\"$replay\"" "$work/owner-incident.html"
+    grep -Fq "href=\"$other_path\"" "$work/owner-incident.html"
+    printf 'The shared incident hid session records and led to its own sign-in; the owner could still open both replays.\n'
+  fi
   smoke_share_status 404 "$status_url$replay?${incident_url#*\?}"
   smoke_share_status 303 "$status_url$management?${incident_url#*\?}" --data-urlencode intent=create -D "$work/anonymous-share.headers"
   test "$(awk 'tolower($1) == "location:" {sub(/\r$/, "", $2); print $2}' "$work/anonymous-share.headers")" = /console/sign-in
-  printf 'The signed incident opened without a session and asked readers to sign in for both related replays.\n'
 
   curl -fsS --max-time 15 "$replay_url" > "$work/shared-replay.html"
   recording_path=$(sed -n 's/.*id="player".*data-src="\([^"]*\)".*/\1/p' "$work/shared-replay.html")

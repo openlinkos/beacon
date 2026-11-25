@@ -10,6 +10,8 @@ source ./smoke-failed-agent.sh
 source ./smoke-status-publication.sh
 # shellcheck source=smoke-page-links.sh
 source ./smoke-page-links.sh
+# shellcheck source=smoke-session-access.sh
+source ./smoke-session-access.sh
 if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
   id beacon >/dev/null 2>&1; then
   echo 'Use a clean checkout on a disposable Linux runner.' >&2
@@ -312,6 +314,11 @@ resolved() {
 }
 wait_for 'The same alert resolved' 150 resolved
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
+if [[ "$version" == v0.3.0-rc.38 ]]; then
+  printf 'The pinned release %s predates machine-scoped session reads.\n' "$version"
+else
+  smoke_session_access "$session" "$host:22300"
+fi
 if [[ "$version" == v0.3.0-rc.37 ]]; then
   printf 'The pinned release %s predates revocable page links.\n' "$version"
 else
