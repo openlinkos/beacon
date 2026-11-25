@@ -47,7 +47,7 @@ components:
             session.not_found, session.recording_unavailable,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
-            probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
+            probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
             audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
             credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
@@ -2528,7 +2528,8 @@ paths:
         targets of the group's alerts, from their instance and module labels, or every target of their service),
         target (with an optional module) or service (every target of the service, at most 20). With alert_id, pass the
         observed episode as expected_episode to verify that occurrence. A replaced occurrence returns incident.changed
-        and no verification is attached to the replacement. A target is probed on
+        and no verification is attached to the replacement. If Beacon cannot commit the incident check and its audit
+        entry, it returns probe.not_recorded. A target is probed on
         demand at most every 15 seconds and a token has at most three requests in flight (probe.busy); an unknown
         target, or one no active location probes, is probe.not_found; without a gateway, probe.unavailable.
         Audited and echoed to the alert chat.
@@ -2554,6 +2555,11 @@ paths:
               schema: {$ref: "#/components/schemas/ProbeNow"}
         "409":
           description: The incident changed. Read current evidence before retrying.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503":
+          description: On-demand checks are unavailable or Beacon could not save the check for this incident.
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}

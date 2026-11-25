@@ -49,10 +49,12 @@ func TestIncidentOutcomesSurviveRecurrenceAndPruning(t *testing.T) {
 	send("resolved")
 	e.now = e.now.Add(time.Minute)
 	g, _ := e.st.Group(id)
-	e.b.recordProbeRun(id, probeEpisode{starts: g.StartsAt, key: g.Episode}, agent, store.ProbeRun{
+	if err := e.b.recordProbeRun(id, probeEpisode{starts: g.StartsAt, key: g.Episode}, agent, store.ProbeRun{
 		ID: "latest", At: e.now, By: agent.Name, Via: agent.Via,
 		Results: []store.ProbeObservation{{Status: "ok"}, {Status: "failed"}, {Status: "missing"}},
-	})
+	}, "partial"); err != nil {
+		t.Fatal(err)
+	}
 	out, err := e.b.IncidentOutcomes(id, "", 1)
 	if err != nil || len(out.Outcomes) != 1 {
 		t.Fatalf("first outcome: %+v %v", out, err)
@@ -223,11 +225,13 @@ func TestPassingCheckSurvivesLaterChecksAndRefire(t *testing.T) {
 	// The next shift keeps checking until rich history has dropped the original pass.
 	for i := 0; i < keepProbeRuns; i++ {
 		e.now = e.now.Add(time.Minute)
-		e.b.recordProbeRun(id, episode, person, store.ProbeRun{ID: fmt.Sprintf("incomplete-%d", i), At: e.now, By: person.Name, Via: person.Via,
+		if err := e.b.recordProbeRun(id, episode, person, store.ProbeRun{ID: fmt.Sprintf("incomplete-%d", i), At: e.now, By: person.Name, Via: person.Via,
 			Results: []store.ProbeObservation{
 				{Status: "ok", Location: "us-los-angeles", Instance: "https://git.example.com/", Module: "http_head"},
 				{Status: "missing", Location: "cn-shanghai-bgp", Instance: "https://git.example.com/", Module: "http_head"},
-			}})
+			}}, "incomplete"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if g, _ = e.st.Group(id); len(g.ProbeRuns) != keepProbeRuns || g.ProbeRuns[0].ID != "incomplete-0" {
 		t.Fatalf("the passing detail must have been clipped: %+v", g.ProbeRuns)
@@ -257,8 +261,10 @@ func TestPassingCheckSurvivesLaterChecksAndRefire(t *testing.T) {
 	if err := e.b.HandleWebhook(ctx, firing); err != nil {
 		t.Fatal(err)
 	}
-	e.b.recordProbeRun(id, episode, agent, store.ProbeRun{ID: "late-old-episode", At: e.now, By: agent.Name, Via: agent.Via,
-		Results: []store.ProbeObservation{{Status: "ok", Location: "us-los-angeles", Instance: "https://git.example.com/"}}})
+	if err := e.b.recordProbeRun(id, episode, agent, store.ProbeRun{ID: "late-old-episode", At: e.now, By: agent.Name, Via: agent.Via,
+		Results: []store.ProbeObservation{{Status: "ok", Location: "us-los-angeles", Instance: "https://git.example.com/"}}}, "1 OK"); !errors.Is(err, ErrEpisodeChanged) {
+		t.Fatalf("late check: %v", err)
+	}
 	if g, _ = e.st.Group(id); g.PassingCheck != nil || len(g.ProbeRuns) != 0 {
 		t.Fatalf("a prior incident's check leaked to the new incident: %+v %+v", g.PassingCheck, g.ProbeRuns)
 	}

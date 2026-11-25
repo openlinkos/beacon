@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-dfc6e46f
+sourceHash: sha256-b6785eaa
 ---
 
 # REST API
@@ -104,6 +104,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
 
 验证一次故障时，将 `alert_id` 与 `expected_episode` 一起传入。使用该次告警的 `episode`，或证据、时间线、签名唤醒消息中的 `alert.episode`。如果检查写入前该告警组已进入新一轮故障，Beacon 返回 `409 incident.changed`。请先读取当前故障证据，再决定是否重测。省略此字段时，仍按告警组 ID 选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障时间线。故障复测按每个告警条目的已知标签匹配当前目标，包括故障域。有条目没有匹配的有效目标时，返回 `probe.no_targets`。
+
+Beacon 一并提交故障复测结果和审计条目。存储写入失败时，接口返回 `503 probe.not_recorded`。请在存储恢复可用后重试。
 
 故障摘要中的 `verification` 显示最近记录的一次按需复测。可选字段 `passing_check` 显示在 `resolved_at` 时刻或之前完成的最后一次全通过复测。如果此前没有全通过的复测，则保留规则恢复后第一次全通过的复测。复测至少需要一项预期观测，每项预期的目标与检测点组合都需要收到通过结果。`at` 记录 Beacon 收集完结果的时间。Beacon 记录了发起方类型时会提供 `actor_kind`。如果旧故障的详细结果已被清理，摘要可能没有全通过记录。
 
@@ -376,6 +378,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `probe.busy` | 429 | 这个目标在 15 秒内刚按需重测过，或者这个令牌已有三个请求在进行 |
 | `probe.not_found` | 404 | 没有正在工作的检测点检测这个目标 |
 | `probe.unavailable` | 503 | 这个 Beacon 没有网关，无法检测 |
+| `probe.not_recorded` | 503 | Beacon 无法保存故障复测及其审计条目 |
 | `location.inactive` | 403 | 网关：检测点不在目录里，或者它的机器已经到期 |
 | `changes.too_many` | 429 | 网关：这个令牌这一分钟发了超过 60 个变更事件 |
 | `request.not_found` | 404 | 网关：没有这个检测请求，或者它已经过期 |

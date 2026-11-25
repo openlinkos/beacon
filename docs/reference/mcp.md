@@ -77,6 +77,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 To verify a specific incident with `probe_now`, pass `alert_id` and set `expected_episode` to the `episode` from `list_alerts`, or `alert.episode` from `get_evidence`, `get_timeline` or the signed wake. A replaced episode produces a tool error beginning with `incident.changed`. Read the current evidence before deciding whether to repeat the check. Omitting `expected_episode` continues to select the current episode. Checks by `target` or `service` are independent of incident verification. Incident checks use each alert member’s known labels, including its failure domain. The tool reports when any member has no matching target at an active location.
 
+Beacon commits the incident check together with its audit entry. If storage rejects the write, the tool returns an error beginning with `probe.not_recorded`. Retry once storage is available.
+
 Use `list_incident_episodes` for a start-time review, including episodes still open. Supply RFC 3339 `since` (inclusive) and `until` (exclusive) for a window up to 31 days. The default is the last 24 hours. Repeat the returned `since` and `until` with `before` and the same filters when paging. The returned `retained_from` gives the recovery-time retention boundary for resolved records. Hook acceptance, programme reports, human participation and passing checks carry separate evidence.
 
 Filter resolved outcomes by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or an RFC 3339 time), and `evidence` before paging. This time filter uses rule recovery, within the configured retention period.

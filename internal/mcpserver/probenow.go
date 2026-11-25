@@ -42,6 +42,9 @@ func addProbeNowTools(s *mcp.Server, b *bridge.Bridge) {
 			if errors.Is(err, bridge.ErrEpisodeChanged) {
 				err = fmt.Errorf("incident.changed: %w. Read its current evidence before retrying", err)
 			}
+			if errors.Is(err, bridge.ErrProbeNotRecorded) {
+				err = fmt.Errorf("probe.not_recorded: %w", err)
+			}
 			return nil, out, err
 		})
 }

@@ -101,6 +101,8 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 For incident verification, pair `alert_id` with `expected_episode`. Copy the `episode` from the alert or `alert.episode` from the evidence, timeline or signed wake for the incident you are verifying. If another episode replaces it before the check is recorded, Beacon returns `409 incident.changed`. Read the current evidence before deciding whether to run another check. Omit the field to continue selecting the current episode by group ID. A check by `target` or `service` is independent of the incident timeline. An alert-bound check uses the current targets matching each alert member’s known labels, including its failure domain. A member with no matching active targets returns `probe.no_targets`.
 
+Beacon commits the incident check together with its audit entry. If storage rejects the write, the call returns `503 probe.not_recorded`. Retry once storage is available.
+
 In an incident outcome, `verification` shows the latest recorded on-demand check. The optional `passing_check` shows the last complete pass at or before `resolved_at`, or the first complete pass after it if none came before. A complete pass requires at least one expected target-location observation and a successful result for each. The `at` timestamp records when Beacon finished collecting results, and `actor_kind` is available when Beacon recorded the caller's kind. Older incidents may lack a passing check if their detailed results have already been removed.
 
 For a start-time review, use `incident-episodes` with an inclusive `since` and an exclusive `until` in RFC 3339. It defaults to the last 24 hours and accepts windows up to 31 days. Pass the returned `since`, `until` and `before` with the same filters to continue. The `group` and `episode` identify the same record as its state changes from `open` to `resolved`. Resolved records with recovery times before `retained_from` may have been pruned. The severity filter uses `opening_severity` when available. Older episodes report `opening_severity: unknown` and the filter uses their last recorded severity.
@@ -372,6 +374,7 @@ Each sends with a token of its own:
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |
+| `probe.not_recorded` | 503 | Beacon could not save the incident check and its audit entry |
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |
