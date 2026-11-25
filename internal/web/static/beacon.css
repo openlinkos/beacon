@@ -4,6 +4,10 @@
 /* The session's replay: asciinema-player inside a panel. */
 .bc-player { margin-block: var(--ol-space-2); }
 .bc-player .ap-player { border-radius: var(--ol-radius-control); }
+.bc-session-evidence-lines { display: grid; gap: var(--ol-space-1); }
+@container ol-table (max-width: 40rem) {
+  .bc-session-evidence-cell { flex: 1 0 100%; }
+}
 
 /* Put taking charge and checking recovery ahead of the timeline at every width. */
 .bc-alert-response {

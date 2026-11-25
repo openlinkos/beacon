@@ -11,7 +11,6 @@
   var say = function (text) {
     if (note) {
       note.textContent = text;
-      note.hidden = !text;
     }
   };
   var src = el.getAttribute("data-src");

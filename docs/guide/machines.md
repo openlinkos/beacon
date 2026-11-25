@@ -5,7 +5,7 @@ By the end of this page an agent reaches a server through Beacon's SSH channel. 
 - the agent signs in to Beacon with its own key;
 - Beacon checks that it may reach the machine;
 - Beacon connects with a certificate for that one connection, valid for five minutes;
-- every session is recorded.
+- every session leaves a record of who connected, to what and when.
 
 Taking the agent's access away closes what it has open at once.
 
@@ -137,10 +137,11 @@ Either way, with the same credentials:
 - **Its own ssh.** `list_machines` returns an `ssh_config` block and a `known_hosts` line. They are for the agent's own `ssh`, `scp`, `sftp` and `rsync`, with `ssh -L` port forwarding. How to put them in place is in [Claude Code](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 - **Beacon's tools.** `run_command`, `read_file`, `write_file` and `edit_file` take the names and behaviour of an agent's own tools. `list_machines` lists the machines and whether the agent reaches each. Every parameter is in [MCP tools](../reference/mcp.md). Each tool call is a session of its own, recorded like any other.
 
-Every session is recorded: a command, a shell, a transfer, a forwarded port, and each tool call.
+Beacon keeps a session record for commands, shells, transfers, forwarded ports and each tool call. Capture depends on the session type.
 
-- **The recording** (asciicast v3, under `data_dir/recordings/`) replays on the session's page in the console.
-- **The transcript** holds each shell command with its exit status.
+- **The recording** captures terminal activity when supported. An available asciicast v3 file under `data_dir/recordings/` replays on the session's page.
+- **The transcript** keeps command and tool output, or the individual commands and exit statuses from a shell with usable command integration.
+- **SFTP and port forwards** keep connection metadata. The console shows recording and transcript capture status independently, including incomplete captures and storage failures.
 - **The alert chat** hears one line per agent and machine, with a **Replay** link that uses the reader’s Beacon account.
 
 Sessions are kept for `ssh.keep` (180 days), then deleted.

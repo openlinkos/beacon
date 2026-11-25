@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-77b86927
+sourceHash: sha256-c1cab929
 ---
 
 # REST API
@@ -140,6 +140,12 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` 或 `machines:ssh` | 录像文件，asciicast v3，可以用 asciinema 回放 |
 
 设有机器范围的凭据只能看到其有权访问的机器在本次注册期间产生的会话。Beacon 先按机器范围筛选，再应用 `limit`。请求无权读取的文字记录或录像时，与请求不存在的会话一样，返回 `404 session.not_found`。`page` 字段指向控制台的登录入口。
+
+会话分别用 `recording_state` 和 `transcript_state` 表示录像与文字记录。 `complete` 表示证据已保留，`truncated` 表示已达到该项证据自身的大小上限，`unavailable` 表示无法保留或读取，`capturing` 表示 Beacon 尚未记录采集结束，`metadata_only` 表示该项只保留会话元数据。旧记录可能省略这些字段。端口转发和 SFTP 保留会话元数据。交互式命令索引需要受支持的 Bash 终端集成。
+
+详情中的 `recording_available` 表示当前实例是否能打开录像。采集已完成时，这个字段仍可能为 false。可选的 `recording_publication` 和 `transcript_publication` 分别表示已知的共享存储上传状态，例如仅保存在原中心的文件会显示 `pending`。字段省略表示当前响应没有本地上传证据。对有权查看的会话，如果录像无法打开，回放接口返回 `404 session.recording_unavailable`。
+
+如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。其他拥有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 
@@ -313,6 +319,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `agent_run.not_found` | 404 | 该告警没有匹配且可回报的钩子投递 |
 | `agent_run.conflict` | 409 | 本次回报和之前记录的执行状态冲突 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
+| `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
@@ -329,7 +336,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `file.changed` | 409 | 读取之后文件变过；请重新读取 |
 | `edit.no_match` | 422 | 文件里没有 `old_string` |
 | `edit.ambiguous` | 422 | `old_string` 出现了不止一次；多带一些上下文，或者设置 `replace_all` |
-| `session.not_found` | 404 | 没有这个 id 的会话 |
+| `session.not_found` | 404 | 没有这个 ID 的可见会话 |
+| `session.recording_unavailable` | 404 | 会话可见，录像当前无法打开 |
 | `config.not_found` | 404 | 没有这个配置项或这次修改 |
 | `config.invalid` | 422 | 修改通不过校验；消息说明原因，什么都没有改 |
 | `config.conflict` | 409 | 已有更新的版本生效，或者之后的修改动过同一项；重新读取，再做决定 |

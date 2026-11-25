@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ee94884e
+sourceHash: sha256-2672807e
 ---
 
 # MCP 工具
@@ -101,7 +101,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
 | `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）。Beacon 先按凭据的机器范围筛选，再应用条数限制。仅有 `status:read` 权限时返回会话元数据 |
-| `get_session` | `sessions:read` 或 `machines:ssh` | 有权读取的会话的文字记录（`id`），包含命令的全部输出，或交互 shell 每条命令的输出和退出码。`page` 字段指向控制台的登录入口 |
+| `get_session` | `sessions:read` 或 `machines:ssh` | 查询可见会话（`id`），包括已保留的命令输出、可用的交互命令与退出状态或会话元数据。`page` 字段指向控制台登录入口 |
 | `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
 | `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。可选的 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `machine_history` | `status:read` 或 `machines:ssh` | 读取 `name` 的设置历史。用 `before`（不含该版本）和 `limit` 翻页 |
@@ -112,6 +112,12 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
 
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。只有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
+
+会话分别用 `recording_state` 和 `transcript_state` 表示录像与文字记录。 `complete` 表示证据已保留，`truncated` 表示已达到该项证据自身的大小上限，`unavailable` 表示无法保留或读取，`capturing` 表示 Beacon 尚未记录采集结束，`metadata_only` 表示该项只保留会话元数据。旧记录可能省略这些字段。端口转发和 SFTP 保留会话元数据。交互式命令索引需要受支持的 Bash 终端集成。
+
+详情中的 `recording_available` 表示当前实例是否能打开录像。采集已完成时，这个字段仍可能为 false。可选的 `recording_publication` 和 `transcript_publication` 分别表示已知的共享存储上传状态，例如仅保存在原中心的文件会显示 `pending`。字段省略表示当前响应没有本地上传证据。对有权查看的会话，如果录像无法打开，回放接口返回 `404 session.recording_unavailable`。
+
+如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
 ## 管理分享链接 {#manage-share-links}
 

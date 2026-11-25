@@ -11,39 +11,36 @@
   </div>{{end}}
   {{if .Command}}<div class="ol-code ol-code-wrap"><pre><code>{{.Command}}</code></pre></div>{{end}}
 
-  <section class="ol-panel">
-    <div class="ol-panel-header bc-sharing-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Recording}}</h2>
+  <section class="ol-panel" aria-labelledby="session-recording">
+    <div class="ol-panel-header bc-sharing-header"><h2 class="ol-panel-title" id="session-recording">{{icon "history"}} {{.L.Recording}}</h2>
       {{if or .Recording .ShareLinks}}<div class="ol-cluster">
         {{if .Recording}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Recording}}" download="{{.ID}}.cast">{{iconSm "download"}}{{.L.Download}}</a>{{end}}
         {{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}
       </div>{{end}}
     </div>
-    <div class="ol-panel-body">
-    {{if .Recording}}
-      <div id="player" class="bc-player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>
-      <p id="player-note" class="ol-hint" hidden></p>
-      {{if .Truncated}}<p class="ol-hint">{{.L.RecordingCut}}</p>{{end}}
-    {{else}}<p class="ol-hint">{{.RecordingNote}}</p>{{end}}
-    </div>
-  </section>
-
-  {{if .Commands}}
-  <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Commands}}</h2></div>
-    <div class="ol-table-wrap"><table class="ol-table ol-table-compact">
-      <tbody>{{range .Commands}}<tr><td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td><td><span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span></td><td class="ol-num">{{.Took}}</td></tr>{{end}}</tbody>
-    </table></div>
-  </section>
-  {{end}}
-
-  {{if .Outputs}}
-  <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Output}}</h2></div>
     <div class="ol-panel-body ol-stack">
-    {{range .Outputs}}<div class="ol-code"><div class="ol-code-label">{{.K}}</div><pre><code>{{.V}}</code></pre></div>{{end}}
+      <div class="ol-cluster">{{template "session-state" .RecordingState}}{{if .RecordingNote}}<p class="ol-hint">{{.RecordingNote}}</p>{{end}}</div>
+      {{if .RecordingReadNote}}<p class="ol-hint">{{.RecordingReadNote}}</p>{{end}}
+      {{if .Recording}}
+        <div id="player" class="bc-player" data-src="{{.Recording}}" data-error="{{.L.RecordingError}}"></div>
+        <p id="player-note" class="ol-hint" role="status"></p>
+      {{end}}
     </div>
   </section>
-  {{end}}
+
+  <section class="ol-panel" aria-labelledby="session-transcript">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="session-transcript">{{icon "terminal"}} {{.L.Transcript}}</h2></div>
+    <div class="ol-panel-body"><div class="ol-cluster">{{template "session-state" .TranscriptState}}{{if .TranscriptNote}}<p class="ol-hint">{{.TranscriptNote}}</p>{{end}}</div></div>
+    {{if .Commands}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+      <thead><tr><th scope="col">{{.L.Commands}}</th><th scope="col">{{.L.Exit}}</th><th scope="col" class="ol-num">{{.L.Duration}}</th></tr></thead>
+      <tbody>{{range .Commands}}<tr><td class="ol-cell-wrap"><code class="ol-mono">{{.Command}}</code></td><td data-label="{{$.L.Exit}}">{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</td><td data-label="{{$.L.Duration}}" class="ol-num">{{.Took}}</td></tr>{{end}}</tbody>
+    </table></div>{{end}}
+    {{if .Outputs}}<div class="ol-panel-body ol-stack">
+      <h3 class="ol-heading-sm">{{.L.Output}}</h3>
+      {{range .Outputs}}<div class="ol-code"><div class="ol-code-label">{{.K}}</div><pre><code>{{.V}}</code></pre></div>{{end}}
+    </div>
+    {{end}}
+  </section>
 </div>
 
 <div class="ol-stack">
@@ -56,7 +53,7 @@
         <dt>{{.L.Via}}</dt><dd>{{.Via}}</dd>
         <dt>{{.L.Kind}}</dt><dd>{{.Kind}}</dd>
         <dt>{{.L.Started}}</dt><dd>{{.Started}}</dd>
-        {{if .Duration}}<dt>{{.L.Duration}}</dt><dd>{{.Duration}}</dd><dt>{{.L.Ended}}</dt><dd>{{.Ended}}</dd>{{else if .Open}}<dt>{{.L.Duration}}</dt><dd>{{.L.Open}}</dd>{{end}}
+        {{if .Duration}}<dt>{{.L.Duration}}</dt><dd>{{.Duration}}</dd><dt>{{.L.Ended}}</dt><dd>{{.Ended}}</dd>{{else if .Open}}<dt>{{.L.Duration}}</dt><dd>{{.L.NoEnd}}</dd>{{end}}
         {{if .Exit}}<dt>{{.L.Exit}}</dt><dd>{{.Exit}}</dd>{{end}}
         <dt>{{.L.ID}}</dt><dd class="ol-mono ol-break">{{.ID}}</dd>
       </dl>

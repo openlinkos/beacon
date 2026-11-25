@@ -417,8 +417,66 @@ func TestSessionPage(t *testing.T) {
 		Started: e.now.Add(-time.Minute), Recording: "2026/11/02/20261102-095900-abcdef-1"}
 	_ = e.st.PutSession(open)
 	code, body, _ = e.get(e.link(link.SessionPath(open.ID)), "")
-	if code != 200 || !strings.Contains(body, "Still open") || !strings.Contains(body, "the recording plays once it ends") || strings.Contains(body, `id="player"`) {
+	if code != 200 || !strings.Contains(body, "No end recorded") || !strings.Contains(body, "Capture pending") || strings.Contains(body, `id="player"`) {
 		t.Errorf("open session: %d %s", code, body)
+	}
+}
+
+func TestSessionEvidenceExplainsIndependentCaptureStates(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	owner := e.owner()
+	legacy, ok := e.st.Session(sessionID)
+	if !ok {
+		t.Fatal("session fixture missing")
+	}
+	for _, tt := range []struct {
+		name       string
+		change     func(*store.SessionRecord)
+		labels     []string
+		replayable bool
+	}{
+		{"legacy readable", func(*store.SessionRecord) {}, []string{"This older session has no recording capture status.", "This older session has no transcript capture status."}, true},
+		{"truncated replay only", func(r *store.SessionRecord) {
+			r.RecordingState, r.TranscriptState = store.EvidenceTruncated, store.EvidenceUnavailable
+		}, []string{"Beacon saved only part of the recording.", "The command transcript could not be saved or loaded."}, true},
+		{"failed replay", func(r *store.SessionRecord) {
+			r.RecordingState, r.TranscriptState = store.EvidenceUnavailable, store.EvidenceComplete
+		}, []string{"Beacon could not save a usable recording.", "systemctl restart relay"}, false},
+		{"missing backing files", func(r *store.SessionRecord) {
+			r.Recording, r.RecordingState, r.TranscriptState = "2026/11/02/missing", store.EvidenceComplete, store.EvidenceComplete
+		}, []string{"The recording cannot be opened from storage.", "The command transcript could not be saved or loaded."}, false},
+		{"metadata-only transfer", func(r *store.SessionRecord) {
+			r.Kind, r.RecordingState, r.TranscriptState = "sftp", store.EvidenceMetadataOnly, store.EvidenceMetadataOnly
+		}, []string{"Metadata only", "This session type has no command transcript."}, false},
+		{"metadata-only shell transcript", func(r *store.SessionRecord) {
+			r.RecordingState, r.TranscriptState = store.EvidenceComplete, store.EvidenceMetadataOnly
+		}, []string{"This shell provided no structured command records."}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := legacy
+			tt.change(&rec)
+			if err := e.st.PutSession(rec); err != nil {
+				t.Fatal(err)
+			}
+			page := owner.get(link.SessionPath(rec.ID))
+			if page.code != http.StatusOK {
+				t.Fatalf("session page status %d", page.code)
+			}
+			for _, label := range tt.labels {
+				if !strings.Contains(page.body, label) {
+					t.Errorf("session page missing %q", label)
+				}
+			}
+			if hasPlayer := strings.Contains(page.body, `id="player"`); hasPlayer != tt.replayable || (len(hrefs(page.body, link.RecordingPath(rec.ID))) != 0) != tt.replayable {
+				t.Error("player and download visibility disagree with replay availability")
+			}
+		})
+	}
+	if page := owner.get(consolePath("/sessions")); page.code != http.StatusOK || !strings.Contains(page.body, "Command transcript") || !strings.Contains(page.body, "Metadata only") {
+		t.Fatal("session list does not distinguish the replay and transcript states")
+	}
+	if page := e.signedIn("session-metadata", "status:read").get(consolePath("/sessions")); page.code != http.StatusOK || strings.Contains(page.body, "Command transcript") || strings.Contains(page.body, "Metadata only") {
+		t.Fatal("session evidence states are visible without session detail permission")
 	}
 }
 

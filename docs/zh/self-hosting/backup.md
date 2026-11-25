@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c0269c96
+sourceHash: sha256-9bb17de3
 ---
 
 # 备份与恢复
@@ -19,6 +19,8 @@ sourceHash: sha256-c0269c96
 | 证书 | `caddy-data` 卷 | 不要紧：Caddy 会再向 Let's Encrypt 申请 |
 | 部署 | `/opt/beacon`：`.env`、`config.yaml`、`secrets/`、`catalog/`、`targets/`、`rules/` | 你的配置，SSH 通道的密钥 |
 | 团队凭据策略 | 状态数据库中的加密记录，以及 Beacon 数据目录的 `team-credentials/epochs` | 验证当前策略所需的防回滚记录。将最新版本另存一份受保护的独立副本 |
+
+当 `ssh.recordings` 设为 `s3` 时，备份共享存储桶和每个中心的本地状态。等待上传的已封存证据位于原中心的 `recordings/` 目录。重启后，Beacon 会继续上传已封存的文件。旧版遗留且没有封存标记的文件，在会话保留期内仍可在原中心读取。
 
 关于密钥说两句。`install.sh` 在机器上生成它们，它们永不离开这台机器：
 

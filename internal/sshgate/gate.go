@@ -114,6 +114,8 @@ var (
 	ErrNoMatch     = errors.New("old_string is not in the file")
 	ErrAmbiguous   = errors.New("old_string occurs more than once")
 	ErrNoSession   = errors.New("no such session")
+
+	ErrEvidenceUnavailable = errors.New("cannot start an SSH session while its evidence cannot be stored")
 )
 
 // PauseKey is where the start of a pause is stored; zero when the channel runs.
@@ -565,10 +567,7 @@ func refuse(nc ssh.NewChannel, why error) {
 	for r := range reqs {
 		switch r.Type {
 		case "exec", "shell", "subsystem":
-			_ = r.Reply(true, nil)
-			_, _ = ch.Stderr().Write([]byte(msg + "\n"))
-			_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{1}))
-			_ = ch.Close()
+			refuseSessionRequest(ch, r, why)
 			return
 		default:
 			if r.WantReply {
@@ -576,6 +575,16 @@ func refuse(nc ssh.NewChannel, why error) {
 			}
 		}
 	}
+}
+
+// refuseSessionRequest reports an admission error on an already accepted channel.
+func refuseSessionRequest(ch ssh.Channel, r *ssh.Request, why error) {
+	if r.WantReply {
+		_ = r.Reply(true, nil)
+	}
+	_, _ = ch.Stderr().Write([]byte("beacon: " + why.Error() + "\n"))
+	_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{1}))
+	_ = ch.Close()
 }
 
 // conn is one agent connection to one machine, which may carry several channels. The connection to

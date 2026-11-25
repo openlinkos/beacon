@@ -37,3 +37,90 @@ smoke_session_access() {
   beacon token revoke smoke-second-machine >/dev/null
   printf 'Scoped REST and MCP session reads obeyed the machine limit; the signed-in owner could still replay both recordings.\n'
 }
+
+# These file moves are confined to the disposable reference installation. Park an artifact
+# under a name that no Beacon reader uses, then restore it before the cold backup.
+smoke_evidence_files() {
+  docker run --rm --volumes-from beacon alpine sh -ec '
+    root=/var/lib/beacon/recordings
+    case "$1" in
+      refuse)
+        test -d "$root"
+        test ! -e "$root.reference-parked"
+        mv "$root" "$root.reference-parked"
+        printf "%s\n" beacon-reference-recording-fault > "$root"
+        ;;
+      admit)
+        if test -d "$root.reference-parked"; then
+          test "$(cat "$root")" = beacon-reference-recording-fault
+          rm "$root"
+          mv "$root.reference-parked" "$root"
+        fi
+        ;;
+      hide)
+        test -f "$root/$2"
+        test ! -e "$root/$2.reference-parked"
+        mv "$root/$2" "$root/$2.reference-parked"
+        ;;
+      restore)
+        if test -f "$root/$2.reference-parked"; then
+          test ! -e "$root/$2"
+          mv "$root/$2.reference-parked" "$root/$2"
+        fi
+        ;;
+    esac
+  ' sh "$1" "${2:-}"
+}
+
+smoke_session_evidence() (
+  local id=$1 route name denied call
+  route="$status_url/api/v1/sessions/$id"
+  curl -fsS "$route" -H "Authorization: Bearer $token" > "$work/complete-session.json"
+  name=$(jq -er '.recording' "$work/complete-session.json")
+  [[ "$name" =~ ^[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9a-f-]+$ && "${name##*/}" == "$id" ]]
+  jq -e '.recording_state == "complete" and .transcript_state == "complete" and
+    .recording_available and .stdout == "beacon\n" and .exit == 0' "$work/complete-session.json" >/dev/null
+  trap 'smoke_evidence_files admit; smoke_evidence_files restore "$name.cast"; smoke_evidence_files restore "$name.json"' EXIT
+
+  smoke_evidence_files hide "$name.cast"
+  curl -fsS "$route" -H "Authorization: Bearer $token" |
+    jq -e '.recording_state == "complete" and .recording_available == false and
+      .transcript_state == "complete" and .stdout == "beacon\n"' >/dev/null
+  test "$(curl -sS -o "$work/recording-unavailable.json" -w '%{http_code}' \
+    "$route/recording" -H "Authorization: Bearer $token")" = 404
+  jq -e '.code == "session.recording_unavailable"' "$work/recording-unavailable.json" >/dev/null
+  curl -fsS -b "$work/cookies" "$status_url/console/sessions/$id" > "$work/no-player.html"
+  if grep -Fq 'id="player"' "$work/no-player.html"; then
+    echo 'The console offered a replay whose recording was unavailable.' >&2
+    exit 1
+  fi
+  smoke_evidence_files restore "$name.cast"
+
+  smoke_evidence_files hide "$name.json"
+  call=$(jq -nc --arg id "$id" '{jsonrpc:"2.0",id:44,method:"tools/call",params:{name:"get_session",arguments:{id:$id}}}')
+  rpc "$call" | jq -e '.result.structuredContent | .recording_state == "complete" and .recording_available and
+    .transcript_state == "unavailable" and .stdout == null' >/dev/null
+  curl -fsS -b "$work/cookies" "$status_url/console/sessions/$id" > "$work/no-transcript.html"
+  grep -Fq 'id="player"' "$work/no-transcript.html"
+  smoke_evidence_files restore "$name.json"
+  printf 'The signed release distinguishes replay availability and transcript failures in REST, MCP and the session page.\n'
+
+  local marker=/home/beacon/.beacon-recording-fault-test
+  sudo test ! -e "$marker"
+  denied=$(jq -nc --arg command "printf 'observed' > '$marker'" '{command:$command}')
+  smoke_evidence_files refuse
+  test "$(curl -sS -o "$work/evidence-admission.json" -w '%{http_code}' \
+    "$status_url/api/v1/machines/target/run" -H "Authorization: Bearer $token" \
+    -H 'Content-Type: application/json' --data "$denied")" = 503
+  jq -e '.code == "ssh.evidence_unavailable"' "$work/evidence-admission.json" >/dev/null
+  call=$(jq -nc --argjson in "$denied" '{jsonrpc:"2.0",id:45,method:"tools/call",
+    params:{name:"run_command",arguments:($in + {machine:"target"})}}')
+  rpc "$call" | jq -e '.result.isError and any(.result.content[]; .text | contains("ssh.evidence_unavailable"))' >/dev/null
+  sudo test ! -e "$marker"
+  smoke_evidence_files admit
+  rpc "$call" | jq -e '.result.structuredContent | .exit_code == 0 and
+    .recording_state == "complete" and .transcript_state == "complete"' >/dev/null
+  sudo grep -Fxq observed "$marker"
+  sudo rm "$marker"
+  printf 'The signed release refused unrecordable machine commands before execution and resumed recorded commands when storage returned.\n'
+)

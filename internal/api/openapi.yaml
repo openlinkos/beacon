@@ -41,10 +41,10 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
-            session.not_found,
+            session.not_found, session.recording_unavailable,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
@@ -498,6 +498,10 @@ components:
         address: {type: string}
         host_key: {type: string}
         trusted_user_ca_key: {type: string, description: The line machines put in their TrustedUserCAKeys file}
+    SessionEvidenceState:
+      type: string
+      enum: [capturing, complete, truncated, unavailable, metadata_only]
+      description: Captured state of this evidence. Older sessions may omit it. Availability on this instance is checked separately.
     RunResult:
       type: object
       properties:
@@ -506,9 +510,11 @@ components:
         stdout: {type: string, description: Plain text, terminal codes removed; long output keeps its start and end}
         stderr: {type: string}
         timed_out: {type: boolean}
-        truncated: {type: boolean, description: Output was cut; the session's transcript has more}
+        truncated: {type: boolean, description: Output in this response was cut; consult transcript_state for the stored result}
         duration_ms: {type: integer}
         session: {type: string}
+        recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
     FileView:
       type: object
       properties:
@@ -520,6 +526,8 @@ components:
         total_lines: {type: integer}
         more: {type: boolean, description: Lines follow the last one shown}
         session: {type: string}
+        recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
     Written:
       type: object
       properties:
@@ -528,6 +536,8 @@ components:
         bytes: {type: integer}
         replacements: {type: integer}
         session: {type: string}
+        recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
     Session:
       type: object
       properties:
@@ -546,6 +556,8 @@ components:
         bytes_in: {type: integer}
         bytes_out: {type: integer}
         recording: {type: string}
+        recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         page: {type: string, format: uri, description: "Sign in to the console to open this session and its replay. Provided when public_url is configured and the caller may read the session."}
     Transcript:
       allOf:
@@ -554,7 +566,10 @@ components:
           properties:
             stdout: {type: string}
             stderr: {type: string}
-            truncated: {type: boolean}
+            truncated: {type: boolean, description: A configured output or recording limit was reached; use the specific evidence states for each artifact}
+            recording_available: {type: boolean, description: This instance opened the recording during the authorised detail read}
+            recording_publication: {type: string, enum: [pending, uploaded], description: Known local state of publication to shared storage}
+            transcript_publication: {type: string, enum: [pending, uploaded], description: Known local state of publication to shared storage}
             commands:
               type: array
               items:
@@ -1621,7 +1636,7 @@ paths:
   /machines/{name}/run:
     post:
       summary: Run a command on a machine
-      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal; recorded as a session."
+      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -1734,7 +1749,7 @@ paths:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
         "200":
-          description: The transcript
+          description: The session and any retained transcript. If it cannot be read, transcript_state reports unavailable.
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Transcript"}
@@ -1742,7 +1757,7 @@ paths:
   /sessions/{id}/recording:
     get:
       summary: A session's recording, to replay with asciinema
-      description: "Scope: sessions:read or machines:ssh. A session outside the credential's machine access returns session.not_found."
+      description: "Scope: sessions:read or machines:ssh. A session outside the credential's machine access returns session.not_found. For an authorised session, a replay that is not available returns session.recording_unavailable."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:

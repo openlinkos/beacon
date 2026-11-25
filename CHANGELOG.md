@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.43 (2026-11-25)
+
+- Refuse a new machine operation if the SSH channel cannot start its required local evidence. Preserve exit status and readable output when recording fails after execution.
+- Show replay availability and transcript state independently in the console, REST and MCP. File transfers and forwarded ports retain session metadata. Older sessions can still open their retained evidence.
+- Seal S3-bound evidence locally, then publish it in the background. Retry sealed artifacts after restart and keep incomplete captures out of the upload queue.
+
 ### rc.42 (2026-11-25)
 
 - Filter private incident history by severity, resolution time and recorded evidence in the console, REST and MCP. Keep named human acknowledgements distinct from later participation, and show the latest check alongside a retained complete pass.

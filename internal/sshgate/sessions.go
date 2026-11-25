@@ -3,6 +3,7 @@ package sshgate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -18,13 +19,17 @@ import (
 // is the session's replay URL.
 type Transcript struct {
 	store.SessionRecord
-	Stdout    string    `json:"stdout,omitempty"`
-	Stderr    string    `json:"stderr,omitempty"`
-	Commands  []Command `json:"commands,omitempty"`
-	Truncated bool      `json:"truncated,omitempty"` // the session was longer than what was kept
-	Page      string    `json:"page,omitempty"`
+	Stdout                string    `json:"stdout,omitempty"`
+	Stderr                string    `json:"stderr,omitempty"`
+	Commands              []Command `json:"commands,omitempty"`
+	Truncated             bool      `json:"truncated,omitempty"` // the recording or structured text exceeded its capture limit
+	Page                  string    `json:"page,omitempty"`
+	RecordingAvailable    *bool     `json:"recording_available,omitempty"`
+	RecordingPublication  string    `json:"recording_publication,omitempty"`
+	TranscriptPublication string    `json:"transcript_publication,omitempty"`
 
-	raw string // what a command printed, before cleaning: the file tools need the bytes as they are
+	raw           string // what a command printed, before cleaning: the file tools need the bytes as they are
+	textTruncated bool
 }
 
 // SessionView is a session as the API and MCP list it: its record and the link to its page.
@@ -38,15 +43,13 @@ func (g *Gate) page(id string) string { return g.d.Pages.Session(id) }
 
 var idRe = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}(-[0-9]+)?$`)
 
-// file writes the transcript next to the recording.
-func (g *Gate) file(t Transcript) {
-	if t.Recording == "" {
-		return
+// file seals the structured transcript independently of the recording.
+func (g *Gate) file(t Transcript) error {
+	b, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return err
 	}
-	b, _ := json.MarshalIndent(t, "", "  ")
-	if err := g.d.Files.WriteFile(t.Recording+".json", b); err != nil {
-		g.d.Log.Error("cannot write a transcript", "session", t.ID, "err", err)
-	}
+	return writeEvidence(g.d.Files, t.Recording+".json", b)
 }
 
 // RanBy reports whether a session's actor (as the audit log names it) is who: the whole name, or the
@@ -117,7 +120,7 @@ func (g *Gate) Session(id string) (Transcript, error) {
 	if err != nil {
 		return Transcript{}, err
 	}
-	return g.transcript(r, g.page(id)), nil
+	return g.transcript(context.Background(), r, g.page(id)), nil
 }
 
 // SessionFor returns a transcript only when p may see this session's details.
@@ -126,21 +129,83 @@ func (g *Gate) SessionFor(p store.Principal, id string) (Transcript, error) {
 	if err != nil {
 		return Transcript{}, err
 	}
-	return g.transcript(r, g.sessionSignIn(id)), nil
+	return g.transcript(context.Background(), r, g.sessionSignIn(id)), nil
 }
 
-func (g *Gate) transcript(r store.SessionRecord, page string) Transcript {
-	t := Transcript{SessionRecord: r, Page: page}
-	if r.Recording == "" || r.Ended.IsZero() {
-		return t
+// SessionDetail verifies access to the replay for a caller who has already authorised the session.
+func (g *Gate) SessionDetail(ctx context.Context, id string) (Transcript, error) {
+	if g == nil {
+		return Transcript{}, ErrDisabled
 	}
-	b, err := g.d.Files.ReadFile(r.Recording + ".json")
+	r, err := g.sessionRecord(id)
 	if err != nil {
+		return Transcript{}, err
+	}
+	return g.sessionDetail(ctx, r, g.page(id)), nil
+}
+
+// SessionDetailFor verifies the replay only after checking the caller's machine and session scope.
+func (g *Gate) SessionDetailFor(ctx context.Context, p store.Principal, id string) (Transcript, error) {
+	r, err := g.sessionRecordFor(p, id)
+	if err != nil {
+		return Transcript{}, err
+	}
+	return g.sessionDetail(ctx, r, g.sessionSignIn(id)), nil
+}
+
+func (g *Gate) sessionDetail(ctx context.Context, r store.SessionRecord, page string) Transcript {
+	// Shared storage can be slow or unavailable while a recording is still on the primary.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	t := g.transcript(ctx, r, page)
+	f, err := g.openRecording(ctx, r)
+	t.RecordingAvailable = new(err == nil)
+	if f != nil {
+		_ = f.Close()
+	}
+	if r.Recording != "" {
+		if files, ok := g.d.Files.(interface{ Publication(string) string }); ok {
+			t.RecordingPublication = files.Publication(r.Recording + ".cast")
+			t.TranscriptPublication = files.Publication(r.Recording + ".json")
+		}
+	}
+	return t
+}
+
+func (g *Gate) transcript(ctx context.Context, r store.SessionRecord, page string) Transcript {
+	t := Transcript{SessionRecord: r, Page: page}
+	if r.Ended.IsZero() || r.TranscriptState == store.EvidenceMetadataOnly || r.TranscriptState == store.EvidenceUnavailable {
 		return t
 	}
-	_ = json.Unmarshal(b, &t)
-	t.SessionRecord, t.Page = r, page
+	if r.Recording == "" {
+		t.TranscriptState = store.EvidenceUnavailable
+		return t
+	}
+	name := r.Recording + ".json"
+	var data []byte
+	var err error
+	if files, ok := g.d.Files.(interface {
+		ReadFileContext(context.Context, string) ([]byte, error)
+	}); ok {
+		data, err = files.ReadFileContext(ctx, name)
+	} else {
+		data, err = g.d.Files.ReadFile(name)
+	}
+	var saved Transcript
+	if err != nil || json.Unmarshal(data, &saved) != nil || !transcriptMatches(r, saved) {
+		t.TranscriptState = store.EvidenceUnavailable
+		return t
+	}
+	t.Stdout, t.Stderr, t.Commands, t.Truncated = saved.Stdout, saved.Stderr, saved.Commands, saved.Truncated
 	return t
+}
+
+func transcriptMatches(r store.SessionRecord, saved Transcript) bool {
+	if saved.ID != "" || r.TranscriptState != "" {
+		return saved.ID == r.ID
+	}
+	// Accept the older sidecars that carried output without a session ID.
+	return saved.Stdout != "" || saved.Stderr != "" || saved.Commands != nil
 }
 
 func (g *Gate) sessionSignIn(id string) string {
@@ -186,7 +251,7 @@ func (g *Gate) Recording(id string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	return g.openRecording(r)
+	return g.openRecording(context.Background(), r)
 }
 
 // RecordingFor opens a recording only when p may see this session's details.
@@ -195,16 +260,33 @@ func (g *Gate) RecordingFor(p store.Principal, id string) (io.ReadCloser, error)
 	if err != nil {
 		return nil, err
 	}
-	return g.openRecording(r)
+	return g.openRecording(context.Background(), r)
 }
 
-func (g *Gate) openRecording(r store.SessionRecord) (io.ReadCloser, error) {
-	if r.Recording == "" {
-		return nil, fmt.Errorf("%w %q", ErrNoSession, r.ID)
+// ErrRecordingUnavailable identifies a visible session that cannot currently be replayed.
+var ErrRecordingUnavailable = errors.New("the session recording is unavailable")
+
+func (g *Gate) openRecording(ctx context.Context, r store.SessionRecord) (io.ReadCloser, error) {
+	if r.Recording == "" || r.Ended.IsZero() {
+		return nil, ErrRecordingUnavailable
 	}
-	f, err := g.d.Files.Open(r.Recording + ".cast")
+	switch r.RecordingState {
+	case "", store.EvidenceComplete, store.EvidenceTruncated:
+	default:
+		return nil, ErrRecordingUnavailable
+	}
+	name := r.Recording + ".cast"
+	var f io.ReadCloser
+	var err error
+	if files, ok := g.d.Files.(interface {
+		OpenContext(context.Context, string) (io.ReadCloser, error)
+	}); ok {
+		f, err = files.OpenContext(ctx, name)
+	} else {
+		f, err = g.d.Files.Open(name)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, r.ID)
+		return nil, ErrRecordingUnavailable
 	}
 	if !terminal(r) {
 		return replayable(f), nil
@@ -278,31 +360,15 @@ func (g *Gate) prune() {
 	}
 }
 
-// RetryPending uploads leftover local recordings (a crash or a previous primary) when the files
-// store supports it. Every instance runs this, including a standby.
-func (g *Gate) RetryPending(ctx context.Context) {
+// RunPending publishes sealed evidence when the files store supports it. Every instance runs the
+// worker, including a standby which may have local evidence from an earlier term as primary.
+func (g *Gate) RunPending(ctx context.Context) {
 	if g == nil {
 		return
 	}
-	type pending interface {
-		RetryPending(context.Context) error
-	}
-	if r, ok := g.d.Files.(pending); ok {
-		if err := r.RetryPending(ctx); err != nil && g.d.Log != nil {
-			g.d.Log.Warn("pending recordings were not uploaded", "err", err)
-		}
-	}
-}
-
-// TidyLocal removes leftover local staging files older than keep, when the files store supports it.
-func (g *Gate) TidyLocal(keep time.Duration) {
-	if g == nil {
-		return
-	}
-	type local interface {
-		TidyLocal(time.Duration)
-	}
-	if t, ok := g.d.Files.(local); ok {
-		t.TidyLocal(keep)
+	if worker, ok := g.d.Files.(interface {
+		RunPending(context.Context, time.Duration)
+	}); ok {
+		worker.RunPending(ctx, g.d.Keep)
 	}
 }

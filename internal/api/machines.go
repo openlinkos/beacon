@@ -27,6 +27,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrDisabled, http.StatusServiceUnavailable, "ssh.disabled"},
 		{sshgate.ErrPaused, http.StatusConflict, "ssh.paused"},
 		{sshgate.ErrStandby, http.StatusServiceUnavailable, "ssh.standby"},
+		{sshgate.ErrEvidenceUnavailable, http.StatusServiceUnavailable, "ssh.evidence_unavailable"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
 		{sshgate.ErrMachineVersion, http.StatusNotFound, "machine.version_not_found"},
 		{sshgate.ErrMachineChanged, http.StatusConflict, "machine.changed"},
@@ -41,6 +42,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrNoMatch, http.StatusUnprocessableEntity, "edit.no_match"},
 		{sshgate.ErrAmbiguous, http.StatusUnprocessableEntity, "edit.ambiguous"},
 		{sshgate.ErrNoSession, http.StatusNotFound, "session.not_found"},
+		{sshgate.ErrRecordingUnavailable, http.StatusNotFound, "session.recording_unavailable"},
 		{sshgate.ErrBadInput, http.StatusBadRequest, "bad_input"},
 		{sshgate.ErrDisconnected, http.StatusBadGateway, "machine.disconnected"},
 	} {
@@ -274,7 +276,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, p store.Pr
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request, p store.Principal) {
-	t, err := s.SSH.SessionFor(p, r.PathValue("id"))
+	t, err := s.SSH.SessionDetailFor(r.Context(), p, r.PathValue("id"))
 	if err != nil {
 		s.gateError(w, err)
 		return

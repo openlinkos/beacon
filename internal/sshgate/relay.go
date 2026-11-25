@@ -46,14 +46,15 @@ type session struct {
 	cols, rows int
 	pty        bool
 
-	mu      sync.Mutex
-	started bool
-	cast    *recorder
-	shell   *shellLog
-	stdout  strings.Builder
-	stderr  strings.Builder
-	cut     bool
-	in, out atomic.Int64
+	mu       sync.Mutex
+	started  bool
+	finished bool
+	cast     *recorder
+	shell    *shellLog
+	stdout   strings.Builder
+	stderr   strings.Builder
+	cut      bool
+	in, out  atomic.Int64
 }
 
 func (g *Gate) newSession(who Actor, m store.Machine, id string) *session {
@@ -61,39 +62,64 @@ func (g *Gate) newSession(who Actor, m store.Machine, id string) *session {
 		Via: who.Via, Machine: m.Name, MachineRegistration: m.Registration(), Started: g.now().UTC()}}
 }
 
-// start opens the recording once the session says what it is: exec, shell, sftp, forward or file.
-func (s *session) start(kind, command string) {
+// start makes the local header and initial index durable before any remote operation starts.
+func (s *session) start(kind, command string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
-		return
+		return nil
 	}
-	s.started = true
-	s.rec.Kind, s.rec.Command = kind, command
+	rec := s.rec
+	rec.Kind, rec.Command = kind, command
 	pty := s.pty
-	s.rec.PTY = &pty
-	day := s.rec.Started.Format("2006/01/02")
+	rec.PTY = &pty
+	rec.Recording = rec.Started.Format("2006/01/02") + "/" + rec.ID
+	rec.RecordingState, rec.TranscriptState = store.EvidenceCapturing, store.EvidenceMetadataOnly
+	if metadataOnlyRecording(kind) {
+		rec.RecordingState = store.EvidenceMetadataOnly
+	}
+	if kind == "exec" || kind == "file" || (kind == "shell" && pty) {
+		rec.TranscriptState = store.EvidenceCapturing
+	}
+
 	cols, rows := s.cols, s.rows
 	if cols <= 0 || rows <= 0 {
 		cols, rows = 120, 40
 	}
-	title := fmt.Sprintf("%s on %s", s.rec.Agent, s.rec.Machine)
-	name := day + "/" + s.rec.ID + ".cast"
-	w, err := s.g.d.Files.Create(name)
+	w, err := createEvidence(s.g.d.Files, rec.Recording+".cast")
 	if err != nil {
-		s.g.d.Log.Error("cannot record a session", "session", s.rec.ID, "err", err)
-	} else if r, err := newRecorder(w, cols, rows, command, title, s.g.now); err != nil {
-		_ = w.Close()
-		s.g.d.Log.Error("cannot record a session", "session", s.rec.ID, "err", err)
-	} else {
-		s.cast = r
-		s.rec.Recording = day + "/" + s.rec.ID
+		return s.startError("create recording", err)
 	}
-	if kind == "shell" && s.pty {
+	title := fmt.Sprintf("%s on %s", rec.Agent, rec.Machine)
+	cast, err := newRecorder(w, cols, rows, command, title, s.g.now)
+	if err == nil {
+		err = w.Sync()
+	}
+	if err != nil {
+		s.abandonEvidence(w)
+		return s.startError("write recording header", err)
+	}
+	if err := s.g.d.Store.PutSession(rec); err != nil {
+		s.abandonEvidence(w)
+		return s.startError("store initial session record", err)
+	}
+	s.rec, s.cast, s.started = rec, cast, true
+	if kind == "shell" && pty {
 		s.shell = &shellLog{rec: s.cast, now: s.g.now}
 	}
-	if err := s.g.d.Store.PutSession(s.rec); err != nil {
-		s.g.d.Log.Error("session record was not stored", "session", s.rec.ID, "err", err)
+	return nil
+}
+
+func metadataOnlyRecording(kind string) bool { return kind == "sftp" || kind == "forward" }
+
+func (s *session) startError(stage string, err error) error {
+	s.g.d.Log.Error("SSH evidence unavailable at session start", "session", s.rec.ID, "stage", stage, "err", err)
+	return ErrEvidenceUnavailable
+}
+
+func (s *session) abandonEvidence(w captureWriter) {
+	if err := w.Abandon(); err != nil {
+		s.g.d.Log.Warn("cannot discard unstarted SSH evidence", "session", s.rec.ID, "err", err)
 	}
 }
 
@@ -106,14 +132,18 @@ func (s *session) parts() (*recorder, *shellLog, string) {
 
 // input takes what the agent sends: typed into a terminal, or a command's stdin.
 func (s *session) input(p []byte) {
-	s.in.Add(int64(len(p)))
-	cast, shell, kind := s.parts()
-	if kind == "sftp" || kind == "" {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.finished {
 		return
 	}
-	cast.event("i", string(p))
-	if shell != nil {
-		shell.input(p)
+	s.in.Add(int64(len(p)))
+	if metadataOnlyRecording(s.rec.Kind) || s.rec.Kind == "" {
+		return
+	}
+	s.cast.event("i", string(p))
+	if s.shell != nil {
+		s.shell.input(p)
 	}
 }
 
@@ -122,7 +152,7 @@ func (s *session) input(p []byte) {
 func (s *session) output(p []byte, stderr bool) []byte {
 	s.out.Add(int64(len(p)))
 	cast, shell, kind := s.parts()
-	if kind == "sftp" || kind == "" {
+	if metadataOnlyRecording(kind) || kind == "" {
 		return p
 	}
 	if shell != nil && !stderr {
@@ -149,47 +179,76 @@ func (s *session) output(p []byte, stderr bool) []byte {
 }
 
 // finish files the session: the transcript next to the recording, the record, the audit log, the chat.
-func (s *session) finish(exit *int) Transcript {
+func (s *session) finish(exit *int, reachedTarget bool) Transcript {
 	s.mu.Lock()
 	if !s.started {
 		s.mu.Unlock()
 		return Transcript{}
 	}
+	s.finished = true
 	rec, cast, shell, cut := s.rec, s.cast, s.shell, s.cut
 	raw, stderr := s.stdout.String(), s.stderr.String()
 	s.mu.Unlock()
-	if exit != nil {
-		cast.event("x", fmt.Sprint(*exit))
-	}
-	if err := cast.close(); err != nil {
-		s.g.d.Log.Error("the session recording was not stored", "id", rec.ID, "err", err)
-	}
+
 	rec.Ended = s.g.now().UTC()
 	rec.Exit = exit
 	rec.BytesIn, rec.BytesOut = s.in.Load(), s.out.Load()
-	t := Transcript{Truncated: cut || cast.truncated()}
+	if exit != nil && rec.RecordingState != store.EvidenceMetadataOnly {
+		cast.event("x", fmt.Sprint(*exit))
+	}
+	if err := cast.close(); err != nil {
+		rec.RecordingState = store.EvidenceUnavailable
+		s.g.d.Log.Error("SSH recording could not be sealed", "session", rec.ID, "err", err)
+	} else if rec.RecordingState != store.EvidenceMetadataOnly {
+		rec.RecordingState = store.EvidenceComplete
+		if cast.truncated() {
+			rec.RecordingState = store.EvidenceTruncated
+		}
+	}
+
+	t := Transcript{textTruncated: cut}
 	if shell != nil {
-		t.Commands = shell.done()
+		t.Commands, t.textTruncated = shell.done()
 		rec.Commands = len(t.Commands)
+		if len(t.Commands) == 0 {
+			rec.TranscriptState = store.EvidenceMetadataOnly
+		}
 	} else if rec.Kind == "exec" || rec.Kind == "file" {
 		t.raw = raw
 		t.Stdout, t.Stderr = clean(raw), clean(stderr)
+	}
+	t.Truncated = t.textTruncated || cast.truncated()
+	if rec.TranscriptState != store.EvidenceMetadataOnly {
+		rec.TranscriptState = store.EvidenceComplete
+		if t.textTruncated {
+			rec.TranscriptState = store.EvidenceTruncated
+		}
+		t.SessionRecord = rec
+		if err := s.g.file(t); err != nil {
+			rec.TranscriptState = store.EvidenceUnavailable
+			s.g.d.Log.Error("SSH transcript could not be sealed", "session", rec.ID, "err", err)
+		}
 	}
 	t.SessionRecord = rec
 	s.mu.Lock()
 	s.rec = rec
 	s.mu.Unlock()
-	s.g.file(t)
 	if err := s.g.d.Store.PutSession(rec); err != nil {
 		s.g.d.Log.Error("session record was not stored", "session", rec.ID, "err", err)
 	}
-	_ = s.g.d.Store.Audit(store.AuditEntry{Actor: rec.Agent, Via: rec.Via, Action: "ssh_" + rec.Kind, Target: rec.Machine,
+	action := "ssh_" + rec.Kind
+	if !reachedTarget {
+		action += "_refused"
+	}
+	_ = s.g.d.Store.Audit(store.AuditEntry{Actor: rec.Agent, Via: rec.Via, Action: action, Target: rec.Machine,
 		Detail: short(rec.Command, 200)})
 	if s.g.d.Metrics != nil {
 		s.g.d.Metrics.Inc("beacon_ssh_sessions_total", "Sessions on machines through the SSH channel, by kind and how they came",
 			metrics.Labels("kind", rec.Kind, "via", rec.Via))
 	}
-	s.g.echo.add(rec)
+	if reachedTarget {
+		s.g.echo.add(rec)
+	}
 	return t
 }
 
@@ -253,9 +312,22 @@ func (c *conn) session(nc ssh.NewChannel) {
 	// The target can close as soon as it accepts a short command. Keep that close behind
 	// the acknowledgement of any request already sent to it.
 	var replyMu sync.Mutex
+	var reachedTarget atomic.Bool
+	admitted, done := make(chan struct{}), make(chan struct{})
+	requestsDone := make(chan struct{})
 	go func() {
+		defer close(requestsDone)
+		operationSent := false
 		for r := range areqs {
 			typ, payload := r.Type, r.Payload
+			startsOperation := typ == "shell" || typ == "exec" || typ == "subsystem"
+			if startsOperation && operationSent {
+				if r.WantReply {
+					_ = r.Reply(false, nil)
+				}
+				continue
+			}
+			var startErr error
 			switch typ {
 			case "env": // the machine's own locale and environment, not the agent's
 				if r.WantReply {
@@ -277,23 +349,37 @@ func (c *conn) session(nc ssh.NewChannel) {
 					cast.event("r", fmt.Sprintf("%dx%d", p.Cols, p.Rows))
 				}
 			case "shell":
-				s.start("shell", "")
+				startErr = s.start("shell", "")
 				if s.pty {
 					typ, payload = "exec", ssh.Marshal(struct{ Command string }{launcher})
 				}
 			case "exec":
 				var p struct{ Command string }
 				_ = ssh.Unmarshal(payload, &p)
-				s.start("exec", p.Command)
+				startErr = s.start("exec", p.Command)
 			case "subsystem":
 				var p struct{ Name string }
 				_ = ssh.Unmarshal(payload, &p)
-				s.start(p.Name, p.Name)
+				startErr = s.start(p.Name, p.Name)
+			}
+			if startErr != nil {
+				replyMu.Lock()
+				refuseSessionRequest(ach, r, startErr)
+				replyMu.Unlock()
+				_ = tch.Close()
+				return
+			}
+			if startsOperation {
+				operationSent = true
+				close(admitted)
 			}
 			if r.WantReply {
 				replyMu.Lock()
 			}
 			ok, err := tch.SendRequest(typ, r.WantReply, payload)
+			if startsOperation && err == nil && (!r.WantReply || ok) {
+				reachedTarget.Store(true)
+			}
 			if r.WantReply {
 				_ = r.Reply(ok && err == nil, nil)
 				replyMu.Unlock()
@@ -302,7 +388,6 @@ func (c *conn) session(nc ssh.NewChannel) {
 	}()
 	var exit atomic.Pointer[int]
 	copied := make(chan struct{})
-	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for r := range treqs {
@@ -323,9 +408,17 @@ func (c *conn) session(nc ssh.NewChannel) {
 		_ = ach.Close()
 		replyMu.Unlock()
 	}()
+	inputDone := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(tch, teeReader{ach, s.input})
-		_ = tch.CloseWrite()
+		defer close(inputDone)
+		select {
+		case <-admitted:
+			_, _ = io.Copy(tch, teeReader{ach, s.input})
+			_ = tch.CloseWrite()
+		case <-requestsDone:
+			_ = tch.Close()
+		case <-done:
+		}
 	}()
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -339,7 +432,13 @@ func (c *conn) session(nc ssh.NewChannel) {
 	close(copied)
 	<-done
 	_ = tch.Close()
-	s.finish(exit.Load())
+	// Channel.Close sends the closing packet, but a peer can leave its input reader blocked
+	// by never acknowledging. Join normal teardown without delaying evidence indefinitely.
+	select {
+	case <-inputDone:
+	case <-time.After(250 * time.Millisecond):
+	}
+	s.finish(exit.Load(), reachedTarget.Load())
 }
 
 // forward relays a forwarded port (ssh -L) to the machine and files where it went.
@@ -351,25 +450,31 @@ func (c *conn) forward(nc ssh.NewChannel) {
 		OrigPort uint32
 	}
 	_ = ssh.Unmarshal(nc.ExtraData(), &p)
+	s := c.g.newSession(c.who, c.machine, c.next())
+	if err := s.start("forward", fmt.Sprintf("%s:%d", p.Host, p.Port)); err != nil {
+		refuse(nc, err)
+		return
+	}
 	tc, err := c.target()
 	if err != nil {
 		refuse(nc, err)
+		s.finish(nil, false)
 		return
 	}
 	tch, treqs, err := tc.OpenChannel("direct-tcpip", nc.ExtraData())
 	if err != nil {
 		_ = nc.Reject(ssh.ConnectionFailed, err.Error())
+		s.finish(nil, false)
 		return
 	}
 	ach, areqs, err := nc.Accept()
 	if err != nil {
 		_ = tch.Close()
+		s.finish(nil, false)
 		return
 	}
 	go ssh.DiscardRequests(areqs)
 	go ssh.DiscardRequests(treqs)
-	s := c.g.newSession(c.who, c.machine, c.next())
-	s.start("forward", fmt.Sprintf("%s:%d", p.Host, p.Port))
 	done := make(chan struct{})
 	go func() {
 		n, _ := io.Copy(tch, ach)
@@ -386,5 +491,5 @@ func (c *conn) forward(nc ssh.NewChannel) {
 	}
 	_ = ach.Close()
 	_ = tch.Close()
-	s.finish(nil)
+	s.finish(nil, true)
 }

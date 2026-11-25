@@ -72,7 +72,12 @@ func (e *echoer) add(r store.SessionRecord) {
 		return
 	}
 	if u := e.g.sessionSignIn(r.ID); u != "" {
-		line += " " + i18n.T(e.g.d.Lang, "Replay: %s", u)
+		if r.RecordingState == store.EvidenceComplete || r.RecordingState == store.EvidenceTruncated ||
+			(r.RecordingState == "" && r.Recording != "") {
+			line += " " + i18n.T(e.g.d.Lang, "Replay: %s", u)
+		} else {
+			line += " " + i18n.T(e.g.d.Lang, "Session") + " " + u
+		}
 	}
 	now := e.g.now()
 	key := r.Agent + "\x00" + r.Machine
