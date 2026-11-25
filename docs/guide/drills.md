@@ -62,6 +62,16 @@ docker exec beacon beacon drill off
 
 The probes succeed on their next round, usually within a minute. After the rule engine sees those results, Beacon records recovery. Slack and the signed notification webhook send a separate recovery message. A Feishu app card updates in place. The alert stays in the console for 7 days, with its timeline and its sessions.
 
+## Verify chat delivery {#verify-chat-delivery}
+
+Use a test Slack channel, Feishu group or [notification receiver](../integrations/notification-webhook.md), as in [The first drill](../self-hosting/install.md#5-the-first-drill). Start with two locations reporting and the drill endpoint answering HTTP 200. In **Overview → Critical notifications**, confirm that your chat route is selected.
+
+1. Run `docker exec beacon beacon drill fail 15m`. Check that a `ServiceDown` notification for `drill` arrives in the intended test channel. For a signed webhook, verify the receiver accepts the event and, if it relays to chat, check that the message appears there.
+2. Open the incident link and sign in. Compare its alert ID and start time with the incident in **Alerts**. The timeline records the provider's response. **Previous configuration** or **Destination unverified** on Overview describes older attempts and calls for a new delivery check.
+3. Run `docker exec beacon beacon drill off`. Check that the incident resolves and that the same test channel receives the recovery message or an update to the Feishu card.
+
+For timed pushes and a two-person handover, follow [Verify phone delivery and handover](#verify-phone-delivery-and-handover).
+
 ## Verify phone delivery and handover {#verify-phone-delivery-and-handover}
 
 An owner prepares a separate Beacon test instance with two reporting locations and a `public_url` reachable from the test phone. Use only test destinations and credentials, [invite](people.md#invite-people) two people with the `oncall` role, and scope the test hook with `service: '^drill$'`. For a phone-only drill, set `escalation.critical.channel: none` in `config.yaml` and configure the phone route and its delay. This example uses a test [Bark endpoint](../reference/config.md#pushover-bark-and-healthchecksio) in `bark.url_file`.

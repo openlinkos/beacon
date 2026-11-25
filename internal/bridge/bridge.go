@@ -108,13 +108,14 @@ type Bridge struct {
 	lang    i18n.Lang
 	started time.Time
 
-	mu            sync.Mutex // serialises every change to the groups
-	watchdogAt    atomic.Int64
-	feishuFail    atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
-	hooks         hooks        // calls that wake agents, in flight (agents.go)
-	webhookWake   chan struct{}
-	webhookActive map[string]bool // one in-flight notice per group, protected by mu
-	slackActive   bool            // one request at a time to the Slack channel, protected by mu
+	mu             sync.Mutex // serialises every change to the groups
+	watchdogAt     atomic.Int64
+	feishuFail     atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
+	hooks          hooks        // calls that wake agents, in flight (agents.go)
+	webhookWake    chan struct{}
+	webhookActive  map[string]bool   // one in-flight notice per group, protected by mu
+	slackActive    bool              // one request at a time to the Slack channel, protected by mu
+	deliveryRoutes map[string]string // keyed identities of the configured notification destinations
 
 	sessionCardCursor int // next group to check for session changes, protected by mu
 }
@@ -145,6 +146,7 @@ func New(d Deps) *Bridge {
 		lang = i18n.EN
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
+	b.deliveryRoutes = b.notificationRoutes()
 	if d.NotificationWebhook != nil || d.Slack != nil {
 		b.webhookWake = make(chan struct{}, 1)
 		b.webhookActive = make(map[string]bool)
@@ -279,7 +281,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		g.Status = "firing"
 		if !wasFiring {
 			g.Ack, g.Silence, g.Notes, g.Agents = nil, nil, nil, nil
-			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
+			g.ProbeRuns, g.PassingCheck, g.PriorAcks, g.Notifications = nil, nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
 			g.MonitorMachines = b.incidentMonitorMachines(&g)
@@ -292,9 +294,6 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 				g.StartsAt = b.now()
 			}
 			b.notifyNew(ctx, &g)
-			if g.Channel == "app" || g.Channel == "webhook" {
-				g.ChannelAt = g.NotifiedAt
-			}
 			b.wake(&g, "firing")
 		} else {
 			b.refresh(ctx, &g)
@@ -344,43 +343,70 @@ func (b *Bridge) notifyNew(ctx context.Context, g *store.Group) {
 		b.d.Log.Info("alert recorded without an initial human notification", "group", g.ID, "summary", b.title(g))
 		return
 	}
+	b.tryChat(ctx, g, pol)
+	if g.Channel == "none" && g.Pushed.IsZero() {
+		b.d.Log.Error("alert could not be delivered by its initial routes", "group", g.ID, "summary", b.title(g))
+	}
+}
 
-	triedPhone := false
-	if pol.Channel == "app" && b.appAllowed(g.Severity) {
-		sessions := b.sessionSummary(g)
-		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.cardWithSessions(ctx, g, sessions), g.ID+"-"+g.StartsAt.UTC().Format("20060102T150405"))
-		b.feishuResult(err)
-		if err == nil {
-			g.Channel, g.MessageID, g.CardAt, g.CardHash = "app", id, b.now(), cardHash(g)
-			g.CardSessionHash = sessions.fingerprint()
-			b.count("feishu", "ok")
-			return
-		}
-		b.recordNotification(g, "app", err)
-		b.count("feishu", "error")
-		b.d.Log.Error("feishu card failed; falling back", "group", g.ID, "err", err)
-		if g.Severity == "critical" && b.d.Pushover != nil {
+// tryChat sends through the existing Feishu routes. The same group and delivery identity are
+// retained on retry, and NotifiedAt continues to govern scheduled phone escalation.
+func (b *Bridge) tryChat(ctx context.Context, g *store.Group, pol config.Policy) bool {
+	now := b.now()
+	attempted := false
+	phoneFallback := func() {
+		if g.Severity == "critical" && b.d.Pushover != nil && !pushoverAccepted(g) && notificationDue(g, "pushover", b.now()) {
 			b.push(ctx, g)
-			triedPhone = true
+			attempted = true
 		}
 	}
-	if b.d.Bot != nil {
-		err := b.d.Bot.Send(ctx, b.plainFiring(g))
-		if err == nil {
-			g.Channel = "webhook"
-			b.count("feishu-bot", "ok")
-			return
+	if pol.Channel == "app" && b.appAllowed(g.Severity) && notificationDue(g, "app", now) {
+		attempted = true
+		sessions := b.sessionSummary(g)
+		episode := g.Episode
+		if episode == "" {
+			episode = g.StartsAt.UTC().Format("20060102T150405")
 		}
+		id, err := b.d.Feishu.SendCard(ctx, b.d.Config.Feishu.ChatID, b.cardWithSessions(ctx, g, sessions), g.ID+"-"+episode)
+		if err == nil && id == "" {
+			err = errors.New("feishu send: response did not confirm acceptance")
+		}
+		b.feishuResult(err)
+		b.recordNotification(g, "app", err)
+		if err == nil {
+			g.Channel, g.MessageID, g.CardAt, g.CardHash = "app", id, b.now(), cardHash(g)
+			g.ChannelAt = g.CardAt
+			g.CardSessionHash = sessions.fingerprint()
+			b.count("feishu", "ok")
+			return true
+		}
+		b.count("feishu", "error")
+		b.d.Log.Error("feishu card failed; falling back", "group", g.ID, "err", err)
+		phoneFallback()
+	}
+	if b.d.Bot != nil && notificationDue(g, "webhook", now) {
+		attempted = true
+		err := b.d.Bot.Send(ctx, b.plainFiring(g))
 		b.recordNotification(g, "webhook", err)
+		if err == nil {
+			g.Channel, g.ChannelAt = "webhook", b.now()
+			b.count("feishu-bot", "ok")
+			return true
+		}
 		b.count("feishu-bot", "error")
 		b.d.Log.Error("feishu group bot failed", "group", g.ID, "err", err)
 	}
-	if !triedPhone && b.d.Pushover != nil && g.Severity == "critical" {
-		b.push(ctx, g)
+	phoneFallback()
+	return attempted
+}
+
+func (b *Bridge) chatRetryDue(g *store.Group, pol config.Policy, now time.Time) bool {
+	if g.Channel != "none" || pol.InitialPushover || g.NotifiedAt.IsZero() ||
+		now.Sub(g.NotifiedAt) < notificationRetry || (pol.Channel != "app" && pol.Channel != "webhook") {
+		return false
 	}
-	if g.Pushed.IsZero() {
-		b.d.Log.Error("alert could not be delivered by its initial routes", "group", g.ID, "summary", b.title(g))
-	}
+	return (pol.Channel == "app" && b.appAllowed(g.Severity) && notificationDue(g, "app", now)) ||
+		(b.d.Bot != nil && notificationDue(g, "webhook", now))
 }
 
 // refresh updates the card when the alerts in the group changed, at most every five minutes.
@@ -584,6 +610,7 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 	}
 	ttl := b.d.Config.AckTTL.D()
 	groups := b.d.Store.Groups()
+	retryChat := -1
 	for i, g := range groups {
 		if ctx.Err() != nil {
 			return
@@ -694,6 +721,19 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 				b.d.Log.Error("save group", "err", err)
 			}
 			groups[i] = g
+		}
+		if !silenced && !g.Ack.StopsEscalation() && b.chatRetryDue(&g, pol, now) &&
+			(retryChat < 0 || g.Severity == "critical" && groups[retryChat].Severity != "critical") {
+			retryChat = i
+		}
+	}
+	// Try one group after checking every scheduled phone route so chat retries cannot take their turn.
+	if retryChat >= 0 && ctx.Err() == nil {
+		g := &groups[retryChat]
+		if b.tryChat(ctx, g, b.d.Config.Policy(g.Severity)) {
+			if err := b.d.Store.PutGroup(*g); err != nil {
+				b.d.Log.Error("save retried chat delivery", "group", g.ID, "err", err)
+			}
 		}
 	}
 	if upkeep {

@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -107,7 +108,123 @@ func TestIncidentOutcomesBackfillOnlyWhatOldStateShows(t *testing.T) {
 		t.Fatalf("backfill: %+v %v", p, err)
 	}
 	o := p.Outcomes[0]
-	if !slices.Equal(o.Services, []string{"git-example-com"}) || o.Verification != nil || len(o.Participation) != 1 || o.Participation[0].Kind != "unattributed" {
+	if !slices.Equal(o.Services, []string{"git-example-com"}) || o.Verification != nil || o.PassingCheck != nil || len(o.Participation) != 1 || o.Participation[0].Kind != "unattributed" {
 		t.Fatalf("backfill guessed identity or a result: %+v", o)
+	}
+}
+
+func TestPassingCheckSurvivesLaterChecksAndRefire(t *testing.T) {
+	e := newEnv(t)
+	e.b.d.ProbeNow = probeBoard(t)
+	ctx := context.Background()
+	firing, resolved := hook("firing", "critical", "f1"), hook("resolved", "critical", "f1")
+	firing.Alerts[0].Labels = map[string]string{"instance": "https://git.example.com/", "module": "http_head"}
+	id := GroupID(firing.GroupKey)
+	if err := e.b.HandleWebhook(ctx, firing); err != nil {
+		t.Fatal(err)
+	}
+	answerAs(t, e.b.d.ProbeNow, "us-los-angeles", true)
+	answerAs(t, e.b.d.ProbeNow, "cn-shanghai-bgp", true)
+	person := ActorOf(store.Principal{User: "alice"}, "console")
+	agent := ActorOf(store.Principal{User: "bob", Agent: "duty"}, "mcp")
+	e.now = e.now.Add(time.Minute)
+	checkedAt := e.now
+	passing, err := e.b.ProbeNow(ctx, agent, ProbeNowInput{AlertID: id, Wait: 1})
+	if err != nil || passing.Summary != "2 OK" || len(passing.Results) != 2 {
+		t.Fatalf("check fixture: %+v, %v", passing, err)
+	}
+	g, _ := e.st.Group(id)
+	episode := probeEpisode{starts: g.StartsAt, key: g.Episode}
+	e.now = e.now.Add(time.Minute)
+	if err := e.b.HandleWebhook(ctx, resolved); err != nil {
+		t.Fatal(err)
+	}
+	// The next shift keeps checking until rich history has dropped the original pass.
+	for i := 0; i < keepProbeRuns; i++ {
+		e.now = e.now.Add(time.Minute)
+		e.b.recordProbeRun(id, episode, person, store.ProbeRun{ID: fmt.Sprintf("incomplete-%d", i), At: e.now, By: person.Name, Via: person.Via,
+			Results: []store.ProbeObservation{
+				{Status: "ok", Location: "us-los-angeles", Instance: "https://git.example.com/", Module: "http_head"},
+				{Status: "missing", Location: "cn-shanghai-bgp", Instance: "https://git.example.com/", Module: "http_head"},
+			}})
+	}
+	if g, _ = e.st.Group(id); len(g.ProbeRuns) != keepProbeRuns || g.ProbeRuns[0].ID != "incomplete-0" {
+		t.Fatalf("the passing detail must have been clipped: %+v", g.ProbeRuns)
+	}
+	outcomes, err := e.b.IncidentOutcomes(id, "", 1)
+	if err != nil || len(outcomes.Outcomes) != 1 {
+		t.Fatalf("resolved incident: %+v %v", outcomes, err)
+	}
+	outcome := outcomes.Outcomes[0].ID
+	assertChecks := func() {
+		t.Helper()
+		result, err := e.b.IncidentOutcome(outcome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check := result.Outcome.PassingCheck; check == nil || check.ID != passing.ID || !check.At.Equal(checkedAt) ||
+			check.Passed != 2 || check.Failed != 0 || check.Missing != 0 || check.ActorKind != "agent" || check.By != agent.Name || check.Via != agent.Via {
+			t.Fatalf("retained pass %+v", check)
+		}
+		if latest := result.Outcome.Verification; latest == nil || latest.ID != fmt.Sprintf("incomplete-%d", keepProbeRuns-1) ||
+			latest.Passed != 1 || latest.Failed != 0 || latest.Missing != 1 || latest.ActorKind != "person" || latest.By != person.Name || latest.Via != person.Via {
+			t.Fatalf("latest raw check %+v", latest)
+		}
+	}
+	assertChecks()
+	e.now = e.now.Add(time.Minute)
+	if err := e.b.HandleWebhook(ctx, firing); err != nil {
+		t.Fatal(err)
+	}
+	e.b.recordProbeRun(id, episode, agent, store.ProbeRun{ID: "late-old-episode", At: e.now, By: agent.Name, Via: agent.Via,
+		Results: []store.ProbeObservation{{Status: "ok", Location: "us-los-angeles", Instance: "https://git.example.com/"}}})
+	if g, _ = e.st.Group(id); g.PassingCheck != nil || len(g.ProbeRuns) != 0 {
+		t.Fatalf("a prior incident's check leaked to the new incident: %+v %+v", g.PassingCheck, g.ProbeRuns)
+	}
+	assertChecks()
+	e.now = e.now.Add(time.Minute)
+	if err := e.b.HandleWebhook(ctx, resolved); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(keepResolved + time.Hour)
+	e.b.Tick(ctx)
+	if _, ok := e.st.Group(id); ok {
+		t.Fatal("the rich group must have been removed")
+	}
+	assertChecks()
+}
+
+func TestPassingCheckBackfillsOnlyRetainedUnambiguousDetails(t *testing.T) {
+	e := newEnv(t)
+	id := GroupID(hook("resolved", "critical").GroupKey)
+	old := store.IncidentOutcome{ID: store.OutcomeID(e.now, id, "legacy"), Group: id, Started: e.now.Add(-time.Hour), Resolved: e.now,
+		Title: "Retained outcome", Verification: &store.Verification{ID: "latest", Missing: 1}, Sessions: []string{"recorded-session"}}
+	if err := e.st.EnsureIncidentOutcome(old); err != nil {
+		t.Fatal(err)
+	}
+	e.b.initOutcomes()
+	got, err := e.b.IncidentOutcome(old.ID)
+	if err != nil || got.Outcome.PassingCheck != nil {
+		t.Fatalf("old compact outcome gained evidence without its detail: %+v %v", got, err)
+	}
+	if err := e.st.PutGroup(store.Group{ID: id, Status: "resolved", StartsAt: old.Started, ResolvedAt: old.Resolved,
+		ProbeRuns: []store.ProbeRun{
+			{ID: "passing", By: "untyped", At: e.now.Add(-time.Minute), Results: []store.ProbeObservation{
+				{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
+			}},
+			{ID: "ambiguous", At: e.now, Results: []store.ProbeObservation{
+				{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
+				{Status: "ok", Location: "edge-1", Instance: "https://git.example.com/"},
+			}},
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	e.b.initOutcomes()
+	got, err = e.b.IncidentOutcome(old.ID)
+	if err != nil || got.Outcome.Title != old.Title || !slices.Equal(got.Outcome.Sessions, old.Sessions) || got.Outcome.Verification == nil || *got.Outcome.Verification != *old.Verification {
+		t.Fatalf("startup changed existing outcome fields: %+v %v", got, err)
+	}
+	if check := got.Outcome.PassingCheck; check == nil || check.ID != "passing" || check.Passed != 1 || check.By != "untyped" || check.ActorKind != "" {
+		t.Fatalf("retained legacy passing check %+v", check)
 	}
 }

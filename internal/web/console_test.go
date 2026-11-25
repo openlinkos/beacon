@@ -615,7 +615,7 @@ func TestOverviewLinksToMissingDeliverySetup(t *testing.T) {
 	}
 }
 
-func TestOverviewShowsInitialPhoneAndProviderResult(t *testing.T) {
+func TestOverviewShowsInitialPhoneAndUnverifiedLegacyResult(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	e.srv.Bridge = bridge.New(bridge.Deps{Config: &config.Config{Location: time.UTC,
 		Escalation: map[string]config.Policy{"critical": {Channel: "none", InitialPushover: true,
@@ -636,15 +636,16 @@ func TestOverviewShowsInitialPhoneAndProviderResult(t *testing.T) {
 	page := b.get("/console").body
 	for _, want := range []string{
 		"Critical notifications", "Pushover", "When the alert opens", "After 15m if unacknowledged",
-		"Submission failed", `aria-label="Open alert from Pushover" href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
+		"Destination unverified", `aria-label="Open alert from Pushover" href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
 		"Bark", "After 30m if unacknowledged", "No recent response",
+		`/guide/drills#verify-phone-delivery-and-handover`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("overview lacks %q", want)
 		}
 	}
-	if strings.Contains(page, "Provider accepted") {
-		t.Error("stale acceptance hides the latest failure")
+	if strings.Contains(page, "Provider accepted") || strings.Contains(page, "Submission failed") {
+		t.Error("a historical result verifies the current destination")
 	}
 }
 
@@ -668,7 +669,7 @@ func TestNotificationWebhookNamesInOverviewAndAlert(t *testing.T) {
 			path := link.AlertPath(e.id)
 			routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: route, Initial: "primary"}})
 			if len(routes) != 1 || routes[0].Channel != name || routes[0].Schedule != i18n.T(lang, "When the alert opens") ||
-				routes[0].Result != i18n.T(lang, "Submission failed") || routes[0].Href != path+"#timeline" {
+				routes[0].Result != i18n.T(lang, "Destination unverified") || routes[0].Href != path+"#timeline" {
 				t.Fatalf("wrong critical notification route: %+v", routes)
 			}
 			show := e.signedIn("reader", "status:read").get(path)
@@ -696,12 +697,24 @@ func TestSlackNamesInOverviewAndAlert(t *testing.T) {
 	}
 	path := link.AlertPath(g.ID)
 	routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: config.SlackChannel, Initial: "primary"}})
-	if len(routes) != 1 || routes[0].Channel != "Slack" || routes[0].Result != "Provider accepted" || routes[0].Href != path+"#timeline" {
+	if len(routes) != 1 || routes[0].Channel != "Slack" || routes[0].Result != "Destination unverified" || routes[0].Href != path+"#timeline" {
 		t.Fatalf("Slack delivery missing from the overview: %+v", routes)
 	}
 	show := e.signedIn("reader", "status:read").get(path)
 	if show.code != http.StatusOK || !strings.Contains(show.body, "Notification accepted by Slack") {
 		t.Fatalf("Slack acceptance missing from the incident timeline, got HTTP %d", show.code)
+	}
+}
+
+func TestOverviewLinksToChatDeliveryGuide(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	e.srv.Bridge = bridge.New(bridge.Deps{
+		Config: &config.Config{Location: time.UTC, Escalation: map[string]config.Policy{"critical": {Channel: config.SlackChannel}}},
+		Store:  e.st, Slack: &notify.Slack{},
+	})
+	page := e.signedIn("reader", "status:read").get("/console").body
+	if !strings.Contains(page, `/guide/drills#verify-chat-delivery">Verify delivery</a>`) {
+		t.Error("the configured chat route lacks a link to its delivery guide")
 	}
 }
 

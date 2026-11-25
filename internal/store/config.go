@@ -25,6 +25,9 @@ var keepConfigChanges = 10000
 // ErrConflict means an entry of the configuration changed after it was read.
 var ErrConflict = errors.New("the configuration changed meanwhile")
 
+// ErrMaintenanceChanged means a publication's reviewed maintenance snapshot is no longer current.
+var ErrMaintenanceChanged = errors.New("the maintenance announcements changed meanwhile")
+
 // ConfigChange is one change to the configuration: its version, who made it, when and through what,
 // and every item it touched with the value before and after.
 type ConfigChange struct {
@@ -107,11 +110,31 @@ func (s *Store) CommitConfig(c ConfigChange, writes []ConfigWrite) (ConfigChange
 
 // CommitConfigAtVersion is CommitConfig with an optional expected configuration version.
 func (s *Store) CommitConfigAtVersion(c ConfigChange, writes []ConfigWrite, version int64) (ConfigChange, error) {
+	return s.commitConfig(c, writes, version, nil)
+}
+
+// CommitConfigWithMaintenance also checks the announcements read for a public page change.
+func (s *Store) CommitConfigWithMaintenance(c ConfigChange, writes []ConfigWrite, version int64, maintenance uint64) (ConfigChange, error) {
+	return s.commitConfig(c, writes, version, &maintenance)
+}
+
+func (s *Store) commitConfig(c ConfigChange, writes []ConfigWrite, version int64, maintenance *uint64) (ConfigChange, error) {
 	if c.Time.IsZero() {
 		c.Time = s.now().UTC()
 	}
 	c.Unchanged = false
 	err := s.db.Update(func(tx kv.Tx) error {
+		if maintenance != nil {
+			// Lock the same sequence both maintenance writers advance. PostgreSQL holds this
+			// row lock until the configuration and its check commit together.
+			current, err := tx.NextSequence(bucketMaintenanceRevision)
+			if err != nil {
+				return err
+			}
+			if current-1 != *maintenance {
+				return ErrMaintenanceChanged
+			}
+		}
 		if version > 0 && int64(tx.Sequence(bucketConfigChanges)) != version {
 			return ErrConflict
 		}

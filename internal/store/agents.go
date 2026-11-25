@@ -42,11 +42,12 @@ type AgentRun struct {
 
 // ProbeRun records what each expected target and location returned during an alert's on-demand check.
 type ProbeRun struct {
-	ID      string             `json:"id"`
-	At      time.Time          `json:"at"`
-	By      string             `json:"by"`
-	Via     string             `json:"via"`
-	Results []ProbeObservation `json:"results"`
+	ID        string             `json:"id"`
+	At        time.Time          `json:"at"` // when Beacon finished collecting these results
+	By        string             `json:"by"`
+	Via       string             `json:"via"`
+	ActorKind string             `json:"actor_kind,omitempty"`
+	Results   []ProbeObservation `json:"results"`
 }
 
 type ProbeObservation struct {

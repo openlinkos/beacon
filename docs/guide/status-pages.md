@@ -45,7 +45,7 @@ The pages are on the family's site design (`@openlinkos/ui`), in English, Chines
 
 In the console, open **Status pages** and choose the public page. Use **Add component** to give a monitored service its own public title, or **Edit services** to change what an existing component includes. A new component's title is shown in each of the page's languages. Any configured label selector continues to supply its automatically included services. **Remove component** removes a row from the page.
 
-Choose **Preview changes** before publishing. It shows which services become visible, which leave the page and which remain visible through any component. The public page can show the status, incidents and maintenance of those services, including notes allowed by the page's policy. Review **Publish changes** or **Remove component** with that audience in mind.
+Choose **Preview changes** before publishing. It shows which services become visible, which leave the page and which remain visible through any component. The preview lists the existing maintenance titles, descriptions and dates that will become public with the change. If those announcements change before you publish, review the updated preview. The public page can also show incidents and notes allowed by its policy. Review **Publish changes** or **Remove component** with that audience in mind.
 
 After publishing, open the public link in a signed-out browser to check what visitors see. Browser caches can take up to 30 seconds to refresh. The change has its own entry in **Configuration** history and can be reverted there.
 

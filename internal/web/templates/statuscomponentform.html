@@ -17,6 +17,7 @@
     <input type="hidden" name="version" value="{{.Version}}">
     {{if or .Preview (ne .Mode "add")}}<input type="hidden" name="component" value="{{.Name}}">{{end}}
     {{if .Preview}}
+      {{if .Preview.Confirmation}}<input type="hidden" name="confirmation" value="{{.Preview.Confirmation}}">{{end}}
       {{if eq .Mode "add"}}<input type="hidden" name="title" value="{{.ComponentTitle}}">{{end}}
       {{if ne .Mode "remove"}}{{range .Choices}}{{if .Selected}}<input type="hidden" name="service" value="{{.Value}}">{{end}}{{end}}{{end}}
       <div class="ol-panel-header"><h2 class="ol-panel-title" id="component-preview" tabindex="-1" autofocus>{{.L.PublicEffect}}</h2></div>
@@ -35,6 +36,16 @@
           <dt>{{.L.Visible}}</dt><dd>{{if .Preview.Visible}}{{template "component-service-list" .Preview.Visible}}{{else}}{{.L.NoServices}}{{end}}</dd>
           {{with .Automatic}}<dt>{{$.L.Automatic}}</dt><dd>{{template "component-service-list" .}}</dd>{{end}}
         </dl>
+        {{with .Preview.Announcements}}<section class="ol-stack" aria-labelledby="component-maintenance">
+          <h3 id="component-maintenance" class="ol-label">{{$.L.Maintenance}}</h3>
+          <ul class="ol-list">
+            {{range .}}<li>
+              <p class="ol-cell-title ol-break">{{.Title}}</p>
+              {{with .Description}}<p class="ol-text-pre ol-break">{{.}}</p>{{end}}
+              <dl class="ol-dl ol-dl-stack"><dt>{{$.L.Starts}}</dt><dd>{{.Starts}}</dd><dt>{{$.L.Ends}}</dt><dd>{{.Ends}} <span class="ol-badge">{{.Status}}</span></dd></dl>
+            </li>{{end}}
+          </ul>
+        </section>{{end}}
       </div>
       <div class="ol-panel-footer">
         <button type="submit" name="intent" value="edit" class="ol-btn ol-btn-secondary">{{.L.Edit}}</button>

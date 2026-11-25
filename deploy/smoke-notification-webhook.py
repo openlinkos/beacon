@@ -4,11 +4,13 @@ import contextlib
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import hmac
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
 from queue import Empty, Queue
+import re
 import secrets
 import socket
 import subprocess
@@ -17,7 +19,7 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
@@ -36,7 +38,8 @@ def signature(secret, body):
 
 class Receiver(BaseHTTPRequestHandler):
     def do_POST(self):
-        if self.path != "/notifications":
+        self.server.paths.add(self.path)
+        if self.path not in ("/notifications", "/replacement"):
             self.send_error(404)
             return
         if self.headers.get_content_type() != "application/json":
@@ -139,7 +142,35 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def exercise(binary, work, receiver, rules_token, episode_links, mismatched_secret=False):
+def cookie_header(headers):
+    cookies = SimpleCookie()
+    for value in headers.get_all("Set-Cookie", []):
+        cookies.load(value)
+    return "; ".join(f"{name}={c.coded_value}" for name, c in cookies.items() if c.value)
+
+
+def owner_session(binary, state, base):
+    setup = subprocess.run([binary, "setup"], env={**os.environ, "BEACON_DATA_DIR": str(state)},
+        capture_output=True, check=True, text=True, timeout=10).stdout.strip()
+    with client.open(setup, timeout=4) as page:
+        form = re.search(r'name="form" value="([^"]+)"', page.read().decode())
+        setup_cookie = cookie_header(page.headers)
+    require(form and setup_cookie, "Could not open the console owner setup form")
+    password = secrets.token_hex(16)
+    data = urlencode({"form": form[1], "code": parse_qs(urlsplit(setup).query)["code"][0],
+        "username": "fixture-owner", "password": password, "again": password}).encode()
+    try:
+        request(base + "/console/setup", data=data, headers={
+            "Cookie": setup_cookie, "Content-Type": "application/x-www-form-urlencoded"})
+    except HTTPError as response:
+        require(response.code == 303, "Console owner setup did not redirect")
+        session = cookie_header(response.headers)
+        require(session, "Console owner setup did not establish a session")
+        return session
+    raise RuntimeError("Console owner setup did not redirect")
+
+
+def exercise(binary, work, receiver, rules_token, episode_links, *, mismatched_secret=False, verify_destination=False):
     with port_reservation() as console_socket, port_reservation() as gateway_socket:
         console = f"127.0.0.1:{console_socket.getsockname()[1]}"
         gateway = f"127.0.0.1:{gateway_socket.getsockname()[1]}"
@@ -157,6 +188,7 @@ def exercise(binary, work, receiver, rules_token, episode_links, mismatched_secr
         path.touch(0o600)
         path.write_bytes(value + b"\n")
     config.write_text(
+        'language: en\n'
         f'listen: "{console}"\n'
         f'data_dir: {json.dumps(str(state))}\n'
         f'public_url: {json.dumps(base)}\n'
@@ -271,18 +303,41 @@ def exercise(binary, work, receiver, rules_token, episode_links, mismatched_secr
             require(err.code == 401, "Receiver returned the wrong status for a modified signed body")
         else:
             raise RuntimeError("Receiver accepted a modified signed body")
+        if verify_destination:
+            overview_headers = {"Cookie": owner_session(binary, state, base)}
+
+            def both_results_recorded():
+                events = json.loads(request(base + f"/api/v1/alerts/{group}/timeline",
+                    headers={"Authorization": "Bearer " + read_token}))["events"]
+                return sum(e.get("kind") == "notification" and e.get("via") == "notification_webhook" and
+                    e.get("result") == "ok" for e in events) == 2
+
+            wait_for("both acceptance records", both_results_recorded)
+    if verify_destination:
+        with beacon(binary, config, log, base):
+            overview = request(base + "/console", headers=overview_headers)
+            require(b"Provider accepted" in overview, "Restart lost the result for the unchanged destination")
+        url_file.write_text(receiver_base + "/replacement\n", encoding="utf-8")
+        with beacon(binary, config, log, base):
+            overview = request(base + "/console", headers=overview_headers)
+            require(b"Previous configuration" in overview and b"Provider accepted" not in overview,
+                "Historical acceptance verified the replacement destination")
+            require("/replacement" not in receiver.paths, "Beacon contacted the new receiver without an alert")
+        print("Overview retained acceptance across restart and marked it historical after the destination changed.")
     print("Signed firing and recovery passed across restart with matching incident links and idempotent acceptance.")
 
 
 def main(binary):
     version = subprocess.check_output([binary, "version"], text=True, timeout=10).split()
     episode_links = version[:2] != ["beacon", "0.3.0-rc.34"]
+    verify_destination = version[:2] not in (["beacon", "0.3.0-rc.34"], ["beacon", "0.3.0-rc.35"])
     with TemporaryDirectory(prefix="beacon-notifications-") as tmp, HTTPServer(("127.0.0.1", 0), Receiver) as receiver:
         work = Path(tmp)
         receiver.secret = secrets.token_hex(32).encode()
         receiver.attempts = Queue()
         receiver.rejected_signatures = Queue()
         receiver.accepted = {}
+        receiver.paths = set()
         receiver.rejected_first = False
         rules_token = secrets.token_hex(32)
         thread = Thread(target=receiver.serve_forever, daemon=True)
@@ -291,7 +346,7 @@ def main(binary):
             mismatch = work / "mismatch"
             mismatch.mkdir()
             exercise(binary, mismatch, receiver, rules_token, episode_links, mismatched_secret=True)
-            exercise(binary, work, receiver, rules_token, episode_links)
+            exercise(binary, work, receiver, rules_token, episode_links, verify_destination=verify_destination)
         except Exception:
             for log in (work / "beacon.log", work / "mismatch/beacon.log"):
                 if log.exists():

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/store"
@@ -22,7 +23,7 @@ func outcomePath(id string) string {
 }
 
 type outcomeLabels struct {
-	Sessions                                                                                                    string
+	Sessions, PassingCheck                                                                                      string
 	Incident, Service, Severity, Started, Resolved, Verification, Participation, NoParticipants, NoVerification string
 	First, Older, Empty, Audit, Alert, Clear, Group, Detail                                                     string
 }
@@ -31,6 +32,7 @@ func (s *Server) outcomeLabels() outcomeLabels {
 	return outcomeLabels{
 		Incident: s.t("Incident"), Service: s.t("Service"), Severity: s.t("Severity"), Started: s.t("Started"), Resolved: s.t("Alert resolved"),
 		Verification: s.t("Latest on-demand check"), Participation: s.t("Recorded participation"), NoParticipants: s.t("No participation recorded"),
+		PassingCheck:   s.t("Passing check near rule recovery"),
 		NoVerification: s.t("No on-demand check recorded"), First: s.t("Newest incidents"), Older: s.t("Older incidents"),
 		Empty: s.t("No incident outcomes match."), Audit: s.t("Related audit entries"), Alert: s.t("Open alert details"),
 		Clear: s.t("All incident outcomes"), Group: s.t("Alert group"),
@@ -106,15 +108,43 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 
 type outcomePage struct {
 	shell
-	L                   outcomeLabels
-	Incident            outcomeRow
-	Audit, Alert, Group string
-	By, Via, Checked    string
-	Participation       []participantRow
-	Sessions            []sessionItem
+	L                    outcomeLabels
+	Incident             outcomeRow
+	Audit, Alert, Group  string
+	Latest, PassingCheck *outcomeCheck
+	Participation        []participantRow
+	Sessions             []sessionItem
 }
 
 type participantRow struct{ By, Via, Kind, Action, At, ISO string }
+
+type outcomeCheck struct{ Summary, By, Via, Kind, At, ISO, Phase string }
+
+func (s *Server) outcomeCheck(v *store.Verification, resolved time.Time) *outcomeCheck {
+	if v == nil {
+		return nil
+	}
+	check := &outcomeCheck{
+		Summary: s.t("%d passed, %d failed, %d missing", v.Passed, v.Failed, v.Missing),
+		By:      v.By, Via: s.via(v.Via),
+	}
+	if v.ActorKind != "" {
+		check.Kind = s.participantKind(v.ActorKind)
+	}
+	if v.At.IsZero() {
+		return check
+	}
+	check.At, check.ISO = s.clock(v.At), iso(v.At)
+	switch v.At.Compare(resolved) {
+	case -1:
+		check.Phase = s.t("Completed before rule recovery")
+	case 0:
+		check.Phase = s.t("Completed at rule recovery")
+	case 1:
+		check.Phase = s.t("Completed after rule recovery")
+	}
+	return check
+}
 
 func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *viewer) {
 	result, err := s.Bridge.IncidentOutcome(r.PathValue("id"))
@@ -134,8 +164,9 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 	if g, err := s.Bridge.Group(o.Group); err == nil && g.ResolvedAt != nil && g.ResolvedAt.Equal(o.Resolved) && g.StartsAt.Equal(o.Started) && o.AuditUntil.IsZero() {
 		p.Alert = link.IncidentPath(o.Group, g.Episode)
 	}
-	if check := o.Verification; check != nil {
-		p.By, p.Via, p.Checked = check.By, s.via(check.Via), s.clock(check.At)
+	p.Latest = s.outcomeCheck(o.Verification, o.Resolved)
+	if o.Verification == nil || (o.PassingCheck != nil && o.Verification.ID != o.PassingCheck.ID) {
+		p.PassingCheck = s.outcomeCheck(o.PassingCheck, o.Resolved)
 	}
 	for _, a := range o.Participation {
 		p.Participation = append(p.Participation, participantRow{

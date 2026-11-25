@@ -65,7 +65,7 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window) Timelin
 		}
 	}
 	for _, e := range notificationEvents(g) {
-		add(e)
+		add(e.Event)
 	}
 	for _, a := range g.PriorAcks {
 		add(Event{At: a.At, Kind: "acknowledged", By: a.By, Via: a.Via, Type: a.Kind, Text: clean(a.Note, maxLong, true)})

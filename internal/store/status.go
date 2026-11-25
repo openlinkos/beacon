@@ -15,8 +15,9 @@ import (
 // reaches. The buckets are made when first written, so a database from an older version needs nothing.
 
 var (
-	bucketIncidents   = []byte("status_incidents")
-	bucketMaintenance = []byte("maintenance")
+	bucketIncidents           = []byte("status_incidents")
+	bucketMaintenance         = []byte("maintenance")
+	bucketMaintenanceRevision = []byte("maintenance_revision")
 )
 
 // KeepStatus is how long an incident or a maintenance window stays after it ended.
@@ -140,6 +141,36 @@ func (m Maintenance) End() time.Time {
 	return m.EndsAt
 }
 
+// MaintenanceSnapshot holds one durable view of both sources of public maintenance.
+type MaintenanceSnapshot struct {
+	Revision uint64
+	Windows  []Maintenance
+	Silences []SilenceRecord
+}
+
+func (s *Store) MaintenanceSnapshot() (MaintenanceSnapshot, error) {
+	var out MaintenanceSnapshot
+	err := s.db.View(func(tx kv.Tx) error {
+		out.Revision = tx.Sequence(bucketMaintenanceRevision)
+		out.Windows = statusRecords[Maintenance](tx, bucketMaintenance)
+		out.Silences = statusRecords[SilenceRecord](tx, bucketSilences)
+		return nil
+	})
+	return out, err
+}
+
+func statusRecords[T any](tx kv.Tx, bucket []byte) []T {
+	var out []T
+	tx.Range(bucket, kv.Range{}, func(_, v []byte) bool {
+		var row T
+		if json.Unmarshal(v, &row) == nil {
+			out = append(out, row)
+		}
+		return true
+	})
+	return out
+}
+
 // PutMaintenance saves a maintenance window and forgets those that ended before forget.
 func (s *Store) PutMaintenance(m Maintenance, forget time.Time) error {
 	b, err := json.Marshal(m)
@@ -147,6 +178,9 @@ func (s *Store) PutMaintenance(m Maintenance, forget time.Time) error {
 		return err
 	}
 	return s.db.Update(func(tx kv.Tx) error {
+		if _, err := tx.NextSequence(bucketMaintenanceRevision); err != nil {
+			return err
+		}
 		var old [][]byte
 		tx.Range(bucketMaintenance, kv.Range{}, func(k, v []byte) bool {
 			var x Maintenance
@@ -168,13 +202,7 @@ func (s *Store) PutMaintenance(m Maintenance, forget time.Time) error {
 func (s *Store) MaintenanceWindows() []Maintenance {
 	var out []Maintenance
 	_ = s.db.View(func(tx kv.Tx) error {
-		tx.Range(bucketMaintenance, kv.Range{}, func(_, v []byte) bool {
-			var m Maintenance
-			if json.Unmarshal(v, &m) == nil {
-				out = append(out, m)
-			}
-			return true
-		})
+		out = statusRecords[Maintenance](tx, bucketMaintenance)
 		return nil
 	})
 	sort.Slice(out, func(a, b int) bool {

@@ -81,21 +81,8 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 	o := store.IncidentOutcome{
 		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
 		Severity: g.Severity, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
-		AuditUntil: auditUntil, Participation: participants,
-	}
-	if latest != nil {
-		v := store.Verification{ID: latest.ID, At: latest.At, By: cleanLine(latest.By), Via: latest.Via}
-		for _, p := range latest.Results {
-			switch p.Status {
-			case "ok":
-				v.Passed++
-			case "failed":
-				v.Failed++
-			default:
-				v.Missing++
-			}
-		}
-		o.Verification = &v
+		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
+		PassingCheck: passingCheck(&g),
 	}
 	return &o
 }

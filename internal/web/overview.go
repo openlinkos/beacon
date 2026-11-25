@@ -387,9 +387,14 @@ func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow
 			row.Href = link.AlertPath(attempt.AlertID) + "#timeline"
 			row.OpenLabel = s.t("Open alert from %s", row.Channel)
 			row.At = s.ago(attempt.At)
-			if attempt.Result == "failed" {
+			switch {
+			case attempt.Destination == bridge.DeliveryPrevious:
+				row.Result = s.t("Previous configuration")
+			case attempt.Destination == bridge.DeliveryUnverified:
+				row.Result = s.t("Destination unverified")
+			case attempt.Result == "failed":
 				row.Result, row.Tone = s.t("Submission failed"), "danger"
-			} else {
+			default:
 				row.Result, row.Tone = s.t("Provider accepted"), "success"
 			}
 		}
@@ -427,7 +432,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 			Href: docsURL(s.Lang) + "reference/config#escalation-and-acknowledgements"}
 	} else {
 		p.Notifications = s.overviewDeliveries(delivery.CriticalRoutes)
-		p.DeliveryDrill = kvLink{V: s.t("Verify delivery"), Href: docsURL(s.Lang) + "guide/drills#verify-phone-delivery-and-handover"}
+		guide := "guide/drills#verify-phone-delivery-and-handover"
+		if delivery.CriticalChat != "none" {
+			guide = "guide/drills#verify-chat-delivery"
+		}
+		p.DeliveryDrill = kvLink{V: s.t("Verify delivery"), Href: docsURL(s.Lang) + guide}
 	}
 
 	switch {

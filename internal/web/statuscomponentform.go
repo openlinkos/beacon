@@ -1,6 +1,8 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -12,18 +14,27 @@ import (
 
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/configdb"
+	"github.com/openlinkos/beacon/internal/status"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 type statusComponentLabels struct {
 	Name, NameHint, Title, Services, ServiceHint, Automatic, Preview, Publish, Edit, Cancel string
 	PublicEffect, Added, Removed, Visible, NoChange, AllNotes, Remove, Destination          string
-	NoServices, PublicHint, RemoveHint                                                      string
+	NoServices, PublicHint, RemoveHint, Maintenance, Starts, Ends                           string
 }
 
 type statusComponentPreview struct {
 	Title                   string
 	Added, Removed, Visible []string
 	AllNotes                bool
+	Announcements           []maintenanceAnnouncement
+	Confirmation            string
+	Revision                *uint64
+}
+
+type maintenanceAnnouncement struct {
+	Title, Description, Starts, Ends, Status string
 }
 
 type statusComponentFormPage struct {
@@ -93,22 +104,82 @@ func (s *Server) statusComponentForm(mode string) func(http.ResponseWriter, *htt
 			return
 		}
 		next, err := state.EditStatusComponent(page.Name, draft)
-		switch {
-		case err != nil:
+		if err != nil {
 			show(nil, s.statusComponentProblem(mode), http.StatusBadRequest)
-		case intent == "preview":
-			preview := statusComponentEffect(state, page, next)
-			preview.Title = component.Title.In(string(s.Lang))
-			if mode == "add" {
-				preview.Title = draft.Title
-			}
-			show(&preview, "", http.StatusOK)
-		case intent == "publish":
-			s.saveStatusComponent(w, r, v, next, draft.Component, version)
-		default:
+			return
+		}
+		if intent != "preview" && intent != "publish" {
 			show(nil, s.t("Preview the change or publish it."), http.StatusBadRequest)
+			return
+		}
+		title := component.Title.In(string(s.Lang))
+		if mode == "add" {
+			title = draft.Title
+		}
+		preview, err := s.statusComponentPreview(state, page, next, title)
+		if err != nil {
+			s.log().Error("console: reading maintenance for a public preview", "err", err)
+			show(nil, s.t("The public maintenance announcements could not be checked. Try again."), http.StatusServiceUnavailable)
+			return
+		}
+		if intent == "preview" {
+			show(&preview, "", http.StatusOK)
+			return
+		}
+		confirmation := r.PostForm.Get("confirmation")
+		if (len(preview.Announcements) > 0 || confirmation != "") && confirmation != preview.Confirmation {
+			show(&preview, s.t("Review the maintenance announcements below before publishing."), http.StatusConflict)
+			return
+		}
+		err = s.saveStatusComponent(r, v, next, draft.Component, version, preview.Revision)
+		switch {
+		case errors.Is(err, store.ErrMaintenanceChanged):
+			// Do not reuse a previous result when a source changed as the transaction began.
+			refreshed, err := s.statusComponentPreview(state, page, next, title)
+			if err != nil {
+				show(nil, s.t("The public maintenance announcements could not be checked. Try again."), http.StatusServiceUnavailable)
+				return
+			}
+			show(&refreshed, s.t("Review the maintenance announcements below before publishing."), http.StatusConflict)
+		case errors.Is(err, configdb.ErrConflict):
+			title := s.t("Configuration changed")
+			s.message(w, r, v, http.StatusConflict, title, s.t("Open the status page again and preview the change using the latest services."))
+		case err != nil:
+			s.failed(w, r, consolePath("/status-pages/")+url.PathEscape(page.Name), "status component", err)
+		default:
+			back(w, r, consolePath("/status-pages/")+url.PathEscape(page.Name), "done", "status_page_updated")
 		}
 	}
+}
+
+func (s *Server) statusComponentPreview(state *configdb.State, before, after catalog.StatusPage, title string) (statusComponentPreview, error) {
+	preview := statusComponentEffect(state, before, after)
+	preview.Title = title
+	if len(preview.Added) == 0 {
+		return preview, nil
+	}
+	windows, revision, err := s.Status.MaintenancePublication(state, before, after)
+	if err != nil {
+		return preview, err
+	}
+	review := struct {
+		Version int64
+		Page    catalog.StatusPage
+		Windows []status.Window
+	}{state.Version, after, windows}
+	data, err := json.Marshal(review)
+	if err != nil {
+		return preview, err
+	}
+	fingerprint := sha256.Sum256(data)
+	preview.Confirmation, preview.Revision = hex.EncodeToString(fingerprint[:]), &revision
+	for _, window := range windows {
+		preview.Announcements = append(preview.Announcements, maintenanceAnnouncement{
+			Title: window.Title, Description: window.Description, Starts: s.clock(window.Starts),
+			Ends: s.clock(window.Ends), Status: s.windowStatus(window.Status),
+		})
+	}
+	return preview, nil
 }
 
 func statusComponentEffect(state *configdb.State, before, after catalog.StatusPage) statusComponentPreview {
@@ -147,21 +218,19 @@ func (s *Server) statusComponentProblem(mode string) string {
 	}
 }
 
-func (s *Server) saveStatusComponent(w http.ResponseWriter, r *http.Request, v *viewer, page catalog.StatusPage, component string, version int64) {
+func (s *Server) saveStatusComponent(r *http.Request, v *viewer, page catalog.StatusPage, component string, version int64, revision *uint64) error {
 	data, err := json.Marshal(page)
-	if err == nil {
-		_, err = s.Config.PutIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, configdb.KindStatus, page.Name,
-			data, "Update status page component "+component, version)
+	if err != nil {
+		return err
 	}
-	switch {
-	case errors.Is(err, configdb.ErrConflict):
-		title := s.t("Configuration changed")
-		s.message(w, r, v, http.StatusConflict, title, s.t("Open the status page again and preview the change using the latest services."))
-	case err != nil:
-		s.failed(w, r, consolePath("/status-pages/")+url.PathEscape(page.Name), "status component", err)
-	default:
-		back(w, r, consolePath("/status-pages/")+url.PathEscape(page.Name), "done", "status_page_updated")
+	actor := configdb.Actor{Name: v.name(), Via: "console"}
+	note := "Update status page component " + component
+	if revision == nil {
+		_, err = s.Config.PutIf(r.Context(), actor, configdb.KindStatus, page.Name, data, note, version)
+	} else {
+		_, err = s.Config.PublishStatusPageIf(r.Context(), actor, page.Name, data, note, version, *revision)
 	}
+	return err
 }
 
 func (s *Server) renderStatusComponent(w http.ResponseWriter, r *http.Request, v *viewer, state *configdb.State,
@@ -191,8 +260,9 @@ func (s *Server) renderStatusComponent(w http.ResponseWriter, r *http.Request, v
 			NoChange: s.t("The services visible on the public page stay the same."),
 			AllNotes: s.t("This page publishes all incident notes for its visible services. Review notes on newly visible services for private information."),
 			Remove:   s.t("Remove component"), Destination: s.t("Public status page"), NoServices: s.t("No services"),
-			PublicHint: s.t("Anyone can view this status page. Changes you publish appear there."),
-			RemoveHint: s.t("Preview which services would stay visible after removing this component."),
+			PublicHint:  s.t("Anyone can view this status page. Changes you publish appear there."),
+			RemoveHint:  s.t("Preview which services would stay visible after removing this component."),
+			Maintenance: s.t("Maintenance announcements that will become public"), Starts: s.t("Starts"), Ends: s.t("Ends"),
 		},
 		Form: statusComponentPath(page.Name, component.Name, mode), Page: pagePath, PublicURL: s.Status.URL(page, ""),
 		ComponentTitle: component.Title.In(string(s.Lang)), Name: draft.Component, Mode: mode, Version: state.Version,

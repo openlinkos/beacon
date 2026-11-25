@@ -23,6 +23,7 @@ type IncidentOutcome struct {
 	AuditUntil    time.Time       `json:"audit_until,omitzero"`
 	Participation []Participation `json:"participation"`
 	Verification  *Verification   `json:"verification,omitempty"`
+	PassingCheck  *Verification   `json:"passing_check,omitempty"`
 	Sessions      []string        `json:"related_sessions,omitempty"`
 }
 
@@ -35,15 +36,16 @@ type Participation struct {
 	At     time.Time `json:"at"`
 }
 
-// Verification counts the target-location observations of the latest on-demand check.
+// Verification counts the target-location observations collected by an on-demand check.
 type Verification struct {
-	ID      string    `json:"id"`
-	At      time.Time `json:"at"`
-	By      string    `json:"by"`
-	Via     string    `json:"via"`
-	Passed  int       `json:"passed"`
-	Failed  int       `json:"failed"`
-	Missing int       `json:"missing"`
+	ID        string    `json:"id"`
+	At        time.Time `json:"at"` // when Beacon finished collecting the results
+	By        string    `json:"by"`
+	Via       string    `json:"via"`
+	ActorKind string    `json:"actor_kind,omitempty"` // absent if the record did not identify the caller's kind
+	Passed    int       `json:"passed"`
+	Failed    int       `json:"failed"`
+	Missing   int       `json:"missing"`
 }
 
 func putOutcome(tx kv.Tx, outcome IncidentOutcome) error {
@@ -54,13 +56,25 @@ func putOutcome(tx kv.Tx, outcome IncidentOutcome) error {
 	return tx.Put(bucketOutcomes, []byte(outcome.ID), raw)
 }
 
-// EnsureIncidentOutcome backfills a missing summary from a group saved by an older Beacon.
+// EnsureIncidentOutcome backfills a missing summary or passing check from a retained group.
 func (s *Store) EnsureIncidentOutcome(outcome IncidentOutcome) error {
 	return s.db.Update(func(tx kv.Tx) error {
-		if tx.Get(bucketOutcomes, []byte(outcome.ID)) != nil {
+		raw := tx.Get(bucketOutcomes, []byte(outcome.ID))
+		if raw == nil {
+			return putOutcome(tx, outcome)
+		}
+		if outcome.PassingCheck == nil {
 			return nil
 		}
-		return putOutcome(tx, outcome)
+		var saved IncidentOutcome
+		if err := json.Unmarshal(raw, &saved); err != nil {
+			return err
+		}
+		if saved.PassingCheck != nil {
+			return nil
+		}
+		saved.PassingCheck = outcome.PassingCheck
+		return putOutcome(tx, saved)
 	})
 }
 
