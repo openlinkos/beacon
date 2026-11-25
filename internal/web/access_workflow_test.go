@@ -36,6 +36,7 @@ func TestPersonalMachineConnection(t *testing.T) {
 	reader := e.invite(owner, "reader", "viewer")
 	const one = "/console/machines/edge-1"
 	const link = one + "#ssh-connect"
+	const command = "ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1"
 	if a := reader.get(one); strings.Contains(a.body, `id="ssh-connect"`) {
 		t.Error("a viewer with no machine access was invited to connect")
 	}
@@ -48,22 +49,22 @@ func TestPersonalMachineConnection(t *testing.T) {
 	if a := owner.post("/console/account/keys", url.Values{"key": {lockPubKey(t)}}); !strings.Contains(a.header.Get("Location"), "done=key_added") {
 		t.Fatalf("add personal SSH key: %d %s", a.code, a.header.Get("Location"))
 	}
-	if a := owner.get(one); !strings.Contains(a.body, "ssh.public_address") || strings.Contains(a.body, "ssh beacon-edge-1") {
+	if a := owner.get(one); !strings.Contains(a.body, "ssh.public_address") || strings.Contains(a.body, command) {
 		t.Error("without an SSH endpoint, the page should explain what the owner needs to configure")
 	}
 	e.srv.Bridge = bridge.New(bridge.Deps{Store: e.st, Config: &config.Config{Location: time.UTC}, SSHConfig: func(identity, machine string) string {
 		if identity != "user:alice" || machine != "edge-1" {
 			t.Errorf("SSH snippet requested for %q and %q", identity, machine)
 		}
-		return "# ~/.ssh/config\nHost beacon-edge-1\n  HostName beacon.example.com"
+		return "# ~/.ssh/beacon-personal.conf\nHost beacon-edge-1\n  HostName beacon.example.com"
 	}})
-	if a := owner.get(one); !strings.Contains(a.body, "ssh beacon-edge-1") || !strings.Contains(a.body, "HostName beacon.example.com") || !strings.Contains(a.body, "records the session as alice") {
+	if a := owner.get(one); !strings.Contains(a.body, command) || !strings.Contains(a.body, "HostName beacon.example.com") || !strings.Contains(a.body, "records the session as alice") {
 		t.Error("an eligible account should see the command, client setup and audit identity")
 	}
 	if a := owner.post("/console/machines/pause", nil); !strings.Contains(a.header.Get("Location"), "done=paused") {
 		t.Fatalf("pause SSH access: %d %s", a.code, a.header.Get("Location"))
 	}
-	if a := owner.get(one); strings.Contains(a.body, "ssh beacon-edge-1") || !strings.Contains(a.body, "SSH access is paused") {
+	if a := owner.get(one); strings.Contains(a.body, command) || !strings.Contains(a.body, "SSH access is paused") {
 		t.Error("during a pause the detail should explain the state and withhold the connection command")
 	}
 	if a := owner.get("/console/machines"); strings.Contains(a.body, link) {

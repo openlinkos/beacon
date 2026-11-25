@@ -7,6 +7,7 @@ const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
 	// Incident SSH setup.
+	"Add each block to the named file. Set IdentityFile to the local private key that matches your registered public key, then run the command.": "按标注将各段添加到对应文件。将 IdentityFile 指向与已登记公钥配套的本地私钥，再运行命令。",
 	"Back to incident":         "返回事件",
 	"Back to SSH setup for %s": "返回 %s 的 SSH 设置",
 
@@ -1055,14 +1056,13 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"SSH access is paused for all machines.":                "所有机器的 SSH 访问已暂停。",
 	"View the SSH channel":                                  "查看 SSH 通道",
 	"This machine is not connected to the SSH channel yet.": "这台机器尚未连上 SSH 通道。",
-	"Register this device's public key in your account to connect as yourself.":             "在个人账户中登记这台设备的公钥，即可用自己的身份连接。",
-	"Ask the owner to set the public address of the SSH channel.":                           "请联系所有者设置 SSH 通道的公开地址。",
-	"Beacon records the session as %s.":                                                     "Beacon 以 %s 的身份记录本次会话。",
-	"First-time terminal setup":                                                             "首次使用的终端配置",
-	"Add each block to the file named above it, then run the SSH command in your terminal.": "按标注将各段添加到对应文件，然后在终端运行 SSH 命令。",
-	"Copy command":   "复制命令",
-	"Command copied": "命令已复制",
-	"Could not copy the command. Select it and copy it from the page.": "无法自动复制。请在页面上选中命令并复制。",
+	"Register this device's public key in your account to connect as yourself.": "在个人账户中登记这台设备的公钥，即可用自己的身份连接。",
+	"Ask the owner to set the public address of the SSH channel.":               "请联系所有者设置 SSH 通道的公开地址。",
+	"Beacon records the session as %s.":                                         "Beacon 以 %s 的身份记录本次会话。",
+	"First-time terminal setup":                                                 "首次使用的终端配置",
+	"Copy command":                                                              "复制命令",
+	"Command copied":                                                            "命令已复制",
+	"Could not copy the command. Select it and copy it from the page.":          "无法自动复制。请在页面上选中命令并复制。",
 
 	// Machine metadata history.
 	"Settings history": "设置历史",

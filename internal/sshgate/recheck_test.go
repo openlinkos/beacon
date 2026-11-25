@@ -34,7 +34,9 @@ func TestPersonalSSHIdentity(t *testing.T) {
 		t.Fatalf("key reused by token: %v", err)
 	}
 	cfg, known := e.g.ConnectionConfig(Actor{Key: "user:alice"}, "beacon.example.com:17002", "box")
-	if cfg != "Host beacon-box\n  HostName beacon.example.com\n  Port 17002\n  User box\n  HostKeyAlias beacon" ||
+	want := "Host beacon-box\n  HostName beacon.example.com\n  Port 17002\n  User box\n  HostKeyAlias beacon" +
+		"\n  IdentityFile ~/.ssh/beacon-personal\n  IdentitiesOnly yes\n  ControlPath none"
+	if cfg != want ||
 		known != "beacon "+e.g.HostKey() {
 		t.Fatalf("configuration: %q; known hosts: %q", cfg, known)
 	}

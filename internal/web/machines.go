@@ -244,10 +244,10 @@ func (s *Server) machineConnection(v *viewer, m sshgate.MachineView, ref string)
 			}
 			return c
 		}
-		c.Command = "ssh beacon-" + m.Name
+		c.Command = "ssh -F " + sshgate.PersonalConfigPath + " beacon-" + m.Name
 		c.Hint = s.t("Beacon records the session as %s.", v.name())
 		c.Setup = s.t("First-time terminal setup")
-		c.SetupHint = s.t("Add each block to the file named above it, then run the SSH command in your terminal.")
+		c.SetupHint = s.t("Add each block to the named file. Set IdentityFile to the local private key that matches your registered public key, then run the command.")
 		c.Copy = s.t("Copy command")
 		c.Copied = s.t("Command copied")
 		c.CopyError = s.t("Could not copy the command. Select it and copy it from the page.")

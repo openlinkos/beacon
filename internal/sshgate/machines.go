@@ -110,6 +110,9 @@ func sshHostConfig(alias, machine, host, port string) string {
 	return fmt.Sprintf("Host %s\n  HostName %s\n  Port %s\n  User %s\n  HostKeyAlias beacon", alias, host, port, machine)
 }
 
+// PersonalConfigPath is the dedicated OpenSSH configuration file for the console's personal connection.
+const PersonalConfigPath = "~/.ssh/beacon-personal.conf"
+
 // ConnectionConfig returns a personal connection's SSH configuration and the channel's public host key.
 func (g *Gate) ConnectionConfig(who Actor, address, machine string) (config, knownHosts string) {
 	host, port, _ := net.SplitHostPort(address)
@@ -120,7 +123,9 @@ func (g *Gate) ConnectionConfig(who Actor, address, machine string) (config, kno
 	if _, ok := g.d.Store.Machine(machine); !ok {
 		return "", ""
 	}
-	return sshHostConfig("beacon-"+machine, machine, host, port), "beacon " + g.HostKey()
+	config = sshHostConfig("beacon-"+machine, machine, host, port)
+	config += "\n  IdentityFile ~/.ssh/beacon-personal\n  IdentitiesOnly yes\n  ControlPath none"
+	return config, "beacon " + g.HostKey()
 }
 
 // MachineInput adds a machine. Address is host or host:port (22 by default), or "connector" for a
