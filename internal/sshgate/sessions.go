@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Transcript is a session as an agent reads it back: the record, plus what a command printed (cleaned
-// of terminal codes) or, for an interactive shell, each command with its output and exit status. Page is
-// the signed link to the session's page, where people replay it; an agent can hand it to a person.
+// of terminal codes) or, for an interactive shell, each command with its output and exit status. Page
+// is the session's replay URL.
 type Transcript struct {
 	store.SessionRecord
 	Stdout    string    `json:"stdout,omitempty"`
@@ -66,58 +67,144 @@ type SessionFilter struct {
 	Limit   int
 }
 
-// Sessions lists sessions, the newest first.
+// Sessions lists sessions for a trusted caller, newest first.
 func (g *Gate) Sessions(f SessionFilter) ([]SessionView, error) {
 	if g == nil {
 		return nil, ErrDisabled
 	}
+	return g.sessionViews(f, nil), nil
+}
+
+// SessionsFor lists sessions visible to p. The machine scope is applied before the result limit.
+func (g *Gate) SessionsFor(p store.Principal, f SessionFilter) ([]SessionView, error) {
+	if g == nil {
+		return nil, ErrDisabled
+	}
+	access := g.d.Store.SessionAccess(p)
+	return g.sessionViews(f, &access), nil
+}
+
+func (g *Gate) sessionViews(f SessionFilter, access *store.SessionAccess) []SessionView {
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
 	rs := g.d.Store.Sessions(min(f.Limit, 1000), func(r store.SessionRecord) bool {
-		return (f.Machine == "" || r.Machine == f.Machine) && (f.Agent == "" || RanBy(r.Agent, f.Agent))
+		return (f.Machine == "" || r.Machine == f.Machine) && (f.Agent == "" || RanBy(r.Agent, f.Agent)) &&
+			(access == nil || access.Visible(r))
 	})
 	out := make([]SessionView, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, SessionView{SessionRecord: r, Page: g.page(r.ID)})
+		view := SessionView{SessionRecord: r}
+		switch {
+		case access == nil:
+			view.Page = g.page(r.ID)
+		case access.Details():
+			view.Page = g.sessionSignIn(r.ID)
+		default:
+			view.Command, view.Recording = "", ""
+		}
+		out = append(out, view)
 	}
-	return out, nil
+	return out
 }
 
-// Session returns a session's transcript; one still open has only its record.
+// Session returns a session's transcript for a trusted caller; an open session has only its record.
 func (g *Gate) Session(id string) (Transcript, error) {
 	if g == nil {
 		return Transcript{}, ErrDisabled
 	}
-	r, ok := g.d.Store.Session(id)
-	if !ok || !idRe.MatchString(id) {
-		return Transcript{}, fmt.Errorf("%w %q", ErrNoSession, id)
+	r, err := g.sessionRecord(id)
+	if err != nil {
+		return Transcript{}, err
 	}
-	t := Transcript{SessionRecord: r, Page: g.page(id)}
+	return g.transcript(r, g.page(id)), nil
+}
+
+// SessionFor returns a transcript only when p may see this session's details.
+func (g *Gate) SessionFor(p store.Principal, id string) (Transcript, error) {
+	r, err := g.sessionRecordFor(p, id)
+	if err != nil {
+		return Transcript{}, err
+	}
+	return g.transcript(r, g.sessionSignIn(id)), nil
+}
+
+func (g *Gate) transcript(r store.SessionRecord, page string) Transcript {
+	t := Transcript{SessionRecord: r, Page: page}
 	if r.Recording == "" || r.Ended.IsZero() {
-		return t, nil
+		return t
 	}
 	b, err := g.d.Files.ReadFile(r.Recording + ".json")
 	if err != nil {
-		return t, nil //nolint:nilerr // the record alone is still the answer
+		return t
 	}
 	_ = json.Unmarshal(b, &t)
-	t.SessionRecord, t.Page = r, g.page(id)
-	return t, nil
+	t.SessionRecord, t.Page = r, page
+	return t
 }
 
-// Recording opens a session's recording (asciicast v3).
+func (g *Gate) sessionSignIn(id string) string {
+	if g.d.Pages == nil || g.d.Pages.PublicURL == "" || !idRe.MatchString(id) {
+		return ""
+	}
+	return strings.TrimSuffix(g.d.Pages.PublicURL, "/") + link.SignInPath(link.SessionPath(id))
+}
+
+func (g *Gate) sessionRecord(id string) (store.SessionRecord, error) {
+	if idRe.MatchString(id) {
+		if r, ok := g.d.Store.Session(id); ok {
+			return r, nil
+		}
+	}
+	return store.SessionRecord{}, fmt.Errorf("%w %q", ErrNoSession, id)
+}
+
+func (g *Gate) sessionRecordFor(p store.Principal, id string) (store.SessionRecord, error) {
+	if g == nil {
+		return store.SessionRecord{}, ErrDisabled
+	}
+	access := g.d.Store.SessionAccess(p)
+	if !access.Details() {
+		return store.SessionRecord{}, fmt.Errorf("%w %q", ErrNoSession, id)
+	}
+	r, err := g.sessionRecord(id)
+	if err != nil {
+		return store.SessionRecord{}, err
+	}
+	if !access.Visible(r) {
+		return store.SessionRecord{}, fmt.Errorf("%w %q", ErrNoSession, id)
+	}
+	return r, nil
+}
+
+// Recording opens a session's recording (asciicast v3) for a trusted caller.
 func (g *Gate) Recording(id string) (io.ReadCloser, error) {
 	if g == nil {
 		return nil, ErrDisabled
 	}
-	r, ok := g.d.Store.Session(id)
-	if !ok || !idRe.MatchString(id) || r.Recording == "" {
-		return nil, fmt.Errorf("%w %q", ErrNoSession, id)
+	r, err := g.sessionRecord(id)
+	if err != nil {
+		return nil, err
+	}
+	return g.openRecording(r)
+}
+
+// RecordingFor opens a recording only when p may see this session's details.
+func (g *Gate) RecordingFor(p store.Principal, id string) (io.ReadCloser, error) {
+	r, err := g.sessionRecordFor(p, id)
+	if err != nil {
+		return nil, err
+	}
+	return g.openRecording(r)
+}
+
+func (g *Gate) openRecording(r store.SessionRecord) (io.ReadCloser, error) {
+	if r.Recording == "" {
+		return nil, fmt.Errorf("%w %q", ErrNoSession, r.ID)
 	}
 	f, err := g.d.Files.Open(r.Recording + ".cast")
 	if err != nil {
-		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, id)
+		return nil, fmt.Errorf("%w: the recording of %s is gone", ErrNoSession, r.ID)
 	}
 	if !terminal(r) {
 		return replayable(f), nil

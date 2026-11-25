@@ -237,17 +237,17 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/alerts", s.with("status:read", s.listAlerts))
 	mux.Handle("GET /api/v1/alerts/{id}", s.with("status:read", s.getAlert))
 	mux.Handle("POST /api/v1/alerts/{id}/ack", s.with("alerts:write", s.ackAlert))
-	mux.Handle("GET /api/v1/alerts/{id}/evidence", s.with("status:read", s.evidence))
-	mux.Handle("GET /api/v1/alerts/{id}/timeline", s.with("status:read", s.timeline))
-	mux.Handle("GET /api/v1/incident-outcomes", s.with("status:read", s.incidentOutcomes))
-	mux.Handle("GET /api/v1/incident-outcomes/{id}", s.with("status:read", s.incidentOutcome))
+	mux.Handle("GET /api/v1/alerts/{id}/evidence", s.withPrincipal("status:read", s.evidence))
+	mux.Handle("GET /api/v1/alerts/{id}/timeline", s.withPrincipal("status:read", s.timeline))
+	mux.Handle("GET /api/v1/incident-outcomes", s.withPrincipal("status:read", s.incidentOutcomes))
+	mux.Handle("GET /api/v1/incident-outcomes/{id}", s.withPrincipal("status:read", s.incidentOutcome))
 	mux.Handle("POST /api/v1/alerts/{id}/notes", s.with("alerts:write", s.addNote))
 	mux.Handle("PUT /api/v1/alerts/{id}/agent-runs/{delivery}", s.with(bridge.AgentRunScope, s.reportAgentRun))
 	mux.Handle("GET /api/v1/changes", s.with("status:read", s.listChanges))
 	mux.Handle("GET /api/v1/silences", s.with("status:read", s.listSilences))
 	mux.Handle("POST /api/v1/silences", s.with("alerts:write", s.createSilence))
 	mux.Handle("DELETE /api/v1/silences/{id}", s.with("alerts:write", s.expireSilence))
-	mux.Handle("GET /api/v1/audit", s.with("status:read", s.audit))
+	mux.Handle("GET /api/v1/audit", s.withPrincipal("status:read", s.audit))
 
 	mux.Handle("GET /api/v1/ssh", s.with("status:read", s.sshState))
 	mux.Handle("POST /api/v1/ssh/pause", s.with("machines:write", s.sshPause(true)))
@@ -262,9 +262,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/machines/{name}/file", s.with("machines:ssh", s.readFile))
 	mux.Handle("PUT /api/v1/machines/{name}/file", s.with("machines:ssh", s.writeFile))
 	mux.Handle("PATCH /api/v1/machines/{name}/file", s.with("machines:ssh", s.editFile))
-	mux.Handle("GET /api/v1/sessions", s.with("status:read|machines:ssh", s.listSessions))
-	mux.Handle("GET /api/v1/sessions/{id}", s.with("sessions:read|machines:ssh", s.getSession))
-	mux.Handle("GET /api/v1/sessions/{id}/recording", s.with("sessions:read|machines:ssh", s.getRecording))
+	mux.Handle("GET /api/v1/sessions", s.withPrincipal("status:read|machines:ssh", s.listSessions))
+	mux.Handle("GET /api/v1/sessions/{id}", s.withPrincipal("sessions:read|machines:ssh", s.getSession))
+	mux.Handle("GET /api/v1/sessions/{id}/recording", s.withPrincipal("sessions:read|machines:ssh", s.getRecording))
 	s.registerToken(mux)
 	s.registerPeople(mux)
 	s.registerAgents(mux)
@@ -462,7 +462,7 @@ func (s *Server) expireSilence(w http.ResponseWriter, r *http.Request, who bridg
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) audit(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+func (s *Server) audit(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	limit := 100
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -500,6 +500,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
 		writeError(w, http.StatusInternalServerError, "audit.unavailable", "the audit log cannot be read")
 		return
 	}
+	s.Bridge.FilterSessionAudit(p, entries)
 	if entries == nil {
 		entries = []store.AuditEntry{}
 	}

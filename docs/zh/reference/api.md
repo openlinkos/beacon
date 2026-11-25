@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a90834d8
+sourceHash: sha256-f69a6e5a
 ---
 
 # REST API
@@ -103,6 +103,8 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 
 故障摘要中的 `verification` 显示最近记录的一次按需复测。可选字段 `passing_check` 显示在 `resolved_at` 时刻或之前完成的最后一次全通过复测。如果此前没有全通过的复测，则保留规则恢复后第一次全通过的复测。复测至少需要一项预期观测，每项预期的目标与检测点组合都需要收到通过结果。`at` 记录 Beacon 收集完结果的时间。Beacon 记录了发起方类型时会提供 `actor_kind`。如果旧故障的详细结果已被清理，摘要可能没有全通过记录。
 
+调用方的机器范围也适用于告警证据、时间线与归档故障所关联的会话。SSH 审计条目只记录机器名称，查看其中的命令预览需要会话详情权限和不限机器的选择范围。
+
 ## 机器与会话 {#machines-and-sessions}
 
 | 接口 | 作用域 | 做什么 |
@@ -121,15 +123,17 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | 文本文件的若干行，带行号（`path`、`offset`、`limit`：默认 2000 行） |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | 写入整个文件，最多 1 MiB，需要时创建目录 |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | 替换一段完全一致的文本，一处或全部（`old_string`、`new_string`、`replace_all`）；读取之后文件变过则拒绝 |
-| `GET /api/v1/sessions` | `status:read` 或 `machines:ssh` | 机器上的会话，新的在前，可以按 `machine` 和 `agent` 筛选（`limit`，默认 50，最多 1000）：谁、在哪里、做了什么、什么时候、退出码 |
+| `GET /api/v1/sessions` | `status:read` 或 `machines:ssh` | 有权查看的机器上的会话，新的在前，可按 `machine` 和 `agent` 筛选（`limit`，默认 50，最多 1000）。仅有 `status:read` 权限时返回会话元数据 |
 | `GET /api/v1/sessions/{id}` | `sessions:read` 或 `machines:ssh` | 会话的文字记录：命令的输出，或者交互 shell 的每条命令及其输出和退出码 |
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` 或 `machines:ssh` | 录像文件，asciicast v3，可以用 asciinema 回放 |
 
-调用方拥有 `sessions:read` 或 `machines:ssh` 时，会话列表、告警证据和时间线才包含命令正文和签名回放链接。其他拥有 `status:read` 的调用方仍可在这些位置读取会话元数据。
+设有机器范围的凭据只能看到其有权访问的机器在本次注册期间产生的会话。Beacon 先按机器范围筛选，再应用 `limit`。请求无权读取的文字记录或录像时，与请求不存在的会话一样，返回 `404 session.not_found`。`page` 字段指向控制台的登录入口。
+
+调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。其他拥有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 
 ## 管理分享链接 {#manage-share-links}
 
-两个接口均需要具有 `accounts:write` 的独立凭据。`kind` 为 `alert` 或 `session`，`id` 为告警组 ID 或 SSH 会话 ID。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
+两个接口均需要具有 `accounts:write` 的独立凭据。`kind` 为 `alert` 或 `session`，`id` 为告警组 ID 或 SSH 会话 ID。生成会话分享还需要 `sessions:read` 或 `machines:ssh`，并且可以访问对应的机器登记。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。
 
 | 接口 | 做什么 |
 | --- | --- |
@@ -228,6 +232,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `POST /api/v1/token/renew` | 不限 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，它由客户端刷新 |
 | `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一个能上机器的令牌（`machines:ssh`），或任何 Agent 的令牌：只针对一个 Agent 的暂停开关，它用这个令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销（`token.not_revocable`） |
 | `GET /api/v1/openapi.yaml` | 不需要 | OpenAPI 文档 |
+
+`machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。每项操作仍需要对应的作用域。
 
 ## 网关 {#the-gateway}
 

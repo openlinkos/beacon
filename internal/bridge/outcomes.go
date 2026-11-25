@@ -18,6 +18,34 @@ var (
 	outcomeGroup = regexp.MustCompile(`^[0-9a-f]{12}$`)
 )
 
+// IncidentOutcomesFor returns retained outcomes with related sessions within the machine selection.
+func (b *Bridge) IncidentOutcomesFor(p store.Principal, group, before string, limit int) (OutcomePage, error) {
+	page, err := b.IncidentOutcomes(group, before, limit)
+	if err == nil && (len(p.Machines) != 0 || p.MachineScopeEmpty()) {
+		access := b.d.Store.SessionAccess(p)
+		for i := range page.Outcomes {
+			b.filterOutcomeSessions(access, &page.Outcomes[i])
+		}
+	}
+	return page, err
+}
+
+// IncidentOutcomeFor returns one outcome and the related sessions within the machine selection.
+func (b *Bridge) IncidentOutcomeFor(p store.Principal, id string) (OutcomeResult, error) {
+	result, err := b.IncidentOutcome(id)
+	if err == nil && (len(p.Machines) != 0 || p.MachineScopeEmpty()) {
+		b.filterOutcomeSessions(b.d.Store.SessionAccess(p), &result.Outcome)
+	}
+	return result, err
+}
+
+func (b *Bridge) filterOutcomeSessions(access store.SessionAccess, outcome *store.IncidentOutcome) {
+	outcome.Sessions = slices.DeleteFunc(outcome.Sessions, func(id string) bool {
+		r, ok := b.d.Store.Session(id)
+		return !ok || !access.Visible(r)
+	})
+}
+
 func (b *Bridge) outcomeCutoff(now time.Time) time.Time {
 	keep := b.d.Config.Storage.IncidentRetention.D()
 	if keep == 0 {
@@ -112,7 +140,7 @@ func (b *Bridge) archiveOutcome(g store.Group, now, auditUntil time.Time) *store
 		return nil
 	}
 	const keepRelatedSessions = 8
-	sessions := b.sessions(&g, b.window(&g, defaultBefore), b.machines(&g))
+	sessions := b.sessions(&g, b.window(&g, defaultBefore), b.machines(&g), nil)
 	for i := len(sessions) - 1; i >= max(0, len(sessions)-keepRelatedSessions); i-- {
 		o.Sessions = append(o.Sessions, sessions[i].ID)
 	}

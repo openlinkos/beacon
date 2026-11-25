@@ -6,6 +6,12 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Console session scope.
+	"Agent or machine": "Agent 或机器",
+	"Sessions shown here are limited to the machines available to this sign-in.":  "这里仅显示本次登录可访问机器的会话。",
+	"No sessions are available for your machine access.":                          "在当前可访问的机器范围内暂无会话。",
+	"Command text and recordings require permission to read SSH session details.": "查看命令文本和录像需要 SSH 会话详情读取权限。",
+
 	// Private alert and session share links.
 	"Manage share links":               "管理分享链接",
 	"Share this alert":                 "分享此告警",
@@ -24,7 +30,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Anyone with a share link can view this session and download its recording until the link expires or is revoked.": "持有分享链接的人都可以查看此会话并下载其录像，直到链接过期或被撤销。",
 	"Earlier share links to any incident in this alert group will stop working, including links in chat.":             "此告警组内所有事件先前发出的分享链接都会失效，包括聊天中的链接。",
 	"Earlier share links to this session and its recording will stop working, including links in chat.":               "此会话及其录像先前发出的分享链接都会失效，包括聊天中的链接。",
-	"This link opens this alert. Sign in to respond or open related alerts and SSH replays.":                          "此链接可查看当前告警。登录后可响应告警，或打开权限范围内的相关告警和 SSH 回放。",
+	"This link opens this alert. Sign in to respond or see related alerts and SSH session history.":                   "此链接可查看当前告警。登录后可响应告警，并查看权限范围内的相关告警和 SSH 会话历史。",
 	"This link opens this session and its recording. Sign in to open other sessions or machines you can access.":      "此链接可查看当前会话及其录像。登录后可打开权限范围内的其他会话或机器。",
 
 	// Private incident outcome history and its audit link.

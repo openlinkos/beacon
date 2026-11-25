@@ -139,9 +139,10 @@ func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 		listed[m.Name] = true
 	}
 	walked := 0
+	permit := s.Store.SessionAccess(v.Principal)
 	s.Store.EachSession(func(rec store.SessionRecord) bool { // newest first: until every machine has its last session and the day is past
 		walked++
-		if listed[rec.Machine] {
+		if listed[rec.Machine] && permit.Visible(rec) {
 			if !rec.Started.Before(since) {
 				counts[rec.Machine]++
 			}
@@ -158,7 +159,10 @@ func (s *Server) machines(w http.ResponseWriter, r *http.Request, v *viewer) {
 			row.ConnectLabel = s.t("Connect to %s over SSH", m.Name)
 		}
 		if rec, ok := last[m.Name]; ok {
-			row.Last, row.LastHref = s.t("%s by %s", s.ago(rec.Started), rec.Agent), link.SessionPath(rec.ID)
+			row.Last = s.t("%s by %s", s.ago(rec.Started), rec.Agent)
+			if permit.Details() {
+				row.LastHref = link.SessionPath(rec.ID)
+			}
 		}
 		p.Rows = append(p.Rows, row)
 	}
@@ -198,11 +202,15 @@ type machinePage struct {
 	Connection           *personalConnection
 	History, HistoryHref string
 	MetadataVersion      int64
+	SessionDetails       bool
+	SessionHint          string
 }
 
 var machineTmpl = parse("machine.html")
 
-func (p machinePage) Table() sessionTable { return sessionTable{L: p.LL, Rows: p.Sessions} }
+func (p machinePage) Table() sessionTable {
+	return sessionTable{L: p.LL, Rows: p.Sessions, Details: p.SessionDetails}
+}
 
 // machineConnection is the terminal hand-off for a person who may reach this machine. The gateway
 // still reads that person's role when they authenticate and throughout their session.
@@ -281,20 +289,19 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Facts = append(p.Facts, kv{l.Added, added})
 
-	var recs []store.SessionRecord
-	walked := 0
-	s.Store.EachSession(func(rec store.SessionRecord) bool {
-		walked++
-		if rec.Machine == name {
-			recs = append(recs, rec)
-		}
-		return walked < maxScan
+	permit := s.Store.SessionAccess(v.Principal)
+	p.SessionDetails = permit.Details()
+	recs := s.Store.Sessions(maxScan, func(rec store.SessionRecord) bool {
+		return rec.Machine == name && permit.Visible(rec)
 	})
+	if len(recs) == 0 && machineScoped(v.Principal) {
+		p.SessionHint = s.t("No sessions are available for your machine access.")
+	}
 	p.Count = num(len(recs))
 	_, from, to := s.page(len(recs), r.URL.Query(), consolePath("/machines/")+url.PathEscape(name), &p.List)
 	for i, rec := range recs[from:to] {
-		p.Sessions = append(p.Sessions, s.sessionItem(rec))
-		if i >= 20 { // the commands of the page's 20 newest sessions
+		p.Sessions = append(p.Sessions, s.sessionItem(rec, p.SessionDetails))
+		if !p.SessionDetails || i >= 20 { // the commands of the page's 20 newest sessions
 			continue
 		}
 		switch rec.Kind {
@@ -302,7 +309,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 			p.Commands = append(p.Commands, commandItem{At: s.clock(rec.Started), Agent: rec.Agent, Command: rec.Command, Exit: s.exit(rec.Exit),
 				Failed: rec.Exit != nil && *rec.Exit != 0, Href: link.SessionPath(rec.ID)})
 		case "shell":
-			tr, err := s.SSH.Session(rec.ID)
+			tr, err := s.SSH.SessionFor(v.Principal, rec.ID)
 			if err != nil {
 				continue
 			}

@@ -73,6 +73,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `list_changes` | `status:read` | Change events, newest first: deployments, configuration changes and Flux reconciliations (`service`, `machine`, `source`, `since`, 24 hours by default, `limit`, 100 by default, at most 1000) |
 | `probe_now` | `alerts:write` | Have every location that probes a target probe it again at once, and get each location's answer within the wait (`alert_id`, `target` with an optional `module`, or `service`; `wait` seconds, 45 by default, at most 90). Use it after a fix, instead of waiting for the next cycle |
 
+The caller's machine selection also limits session records in the alert evidence, the timeline and retained outcomes. SSH audit entries carry a machine name without an enrolment identifier. Their command previews require unrestricted machine selection and a session-detail scope.
+
 ## Machines
 
 | Tool | Scope | What it does |
@@ -82,8 +84,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
 | `edit_file` | `machines:ssh` | Replace an exact string in a text file (`machine`, `path`, `old_string`, `new_string`, `replace_all`). `old_string` must occur once unless `replace_all` is set; refused, rather than overwrite, if the file changed meanwhile |
-| `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default): who, where, what, when, the exit status |
-| `get_session` | `sessions:read` or `machines:ssh` | A session's transcript (`id`): a command's whole output, or an interactive shell's commands with their output and exit status |
+| `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default). Beacon applies the credential's machine restrictions before the limit. Readers with `status:read` alone receive metadata |
+| `get_session` | `sessions:read` or `machines:ssh` | A visible session's transcript (`id`), with the full output of a command or the output and exit status of each interactive shell command. The `page` field leads to console sign-in |
 | `add_machine` | `machines:write` | Add a machine, pinning its host key (`name`, `address`, `user`, `critical`, `note`, `replace`); `address: connector` for one behind NAT, with `connector_key` and optionally `host_key`. The result says what the machine needs |
 | `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The optional `if_version` guards against concurrent edits. The host key and the address stay |
 | `machine_history` | `status:read` or `machines:ssh` | Read the settings history for `name`. Use `before` (exclusive) and `limit` to page |
@@ -93,11 +95,11 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
 
-The session list, alert evidence and timeline contain command text and signed replay links only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read session metadata there.
+Alert evidence and timeline contain command text and links to the signed-in session page only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read permitted session metadata there.
 
 ## Manage share links
 
-Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. The returned URL is a credential. The audit log and alert chat record the action and its target.
+Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. Creating a session share also needs a session-detail scope and access to the enrolment. The returned URL is a credential. The audit log and alert chat record the action and its target.
 
 | Tool | What it does |
 | --- | --- |
@@ -162,6 +164,8 @@ People manage credential values and grants from their own console accounts. Use 
 | `whoami` | any | Who you are to Beacon: the name the audit log gives you (`alice / claude-code`), the person you act for, your preset and the scopes it gives you now within that person's role, the machines you reach, your SSH keys, and your credential: a token (expiry, lifetime, whether and when it may renew) or an OAuth sign-in, which your client refreshes |
 | `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token, nor for an OAuth sign-in, which its client refreshes |
 | `revoke_token` | `machines:write` | Revoke a token that reaches machines, or any agent's: what it has open on machines is closed at once and its requests are refused from now on. The pause switch for one agent; machines' and services' tokens are revoked on the centre only |
+
+`whoami` reports `machine_scope` as `all`, `listed` or `none`. In `listed`, `machines` names the effective selection. Disjoint OAuth and agent selections return `none`.
 
 ## Results
 

@@ -6,9 +6,10 @@ import (
 	"strconv"
 
 	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
-func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	q := r.URL.Query()
 	limit := 0
 	if raw := q.Get("limit"); raw != "" {
@@ -18,7 +19,7 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, _ brid
 			return
 		}
 	}
-	out, err := s.Bridge.IncidentOutcomes(q.Get("group"), q.Get("before"), limit)
+	out, err := s.Bridge.IncidentOutcomesFor(p, q.Get("group"), q.Get("before"), limit)
 	if err != nil {
 		s.outcomeError(w, err)
 		return
@@ -26,8 +27,8 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, _ brid
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
-	out, err := s.Bridge.IncidentOutcome(r.PathValue("id"))
+func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	out, err := s.Bridge.IncidentOutcomeFor(p, r.PathValue("id"))
 	if err != nil {
 		s.outcomeError(w, err)
 		return

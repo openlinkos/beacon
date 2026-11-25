@@ -23,9 +23,9 @@
   <div class="ol-stack">
     <section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "history"}} {{.L.Sessions}}</h2></div>
-      {{if .Sessions}}{{template "sessionrows" .Table}}{{template "pager" .}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
+      {{if .Sessions}}{{template "sessionrows" .Table}}{{template "pager" .}}{{else}}<div class="ol-panel-body"><p class="ol-hint">{{if .SessionHint}}{{.SessionHint}}{{else}}{{.L.None}}{{end}}</p></div>{{end}}
     </section>
-    <section class="ol-panel">
+    {{if .SessionDetails}}<section class="ol-panel">
       <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.Commands}}</h2></div>
       {{if .Commands}}
       <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
@@ -41,7 +41,7 @@
         </tbody>
       </table></div>
       {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
-    </section>
+    </section>{{end}}
   </div>
   <div class="ol-stack">
     <section class="ol-panel">

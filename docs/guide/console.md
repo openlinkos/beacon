@@ -56,7 +56,7 @@ The sidebar has the overview on its own, then three parts:
 | `/console/status-pages`, `/console/status-pages/{name}` | The status pages as the public sees them now ([below](#monitors-and-status-pages)) |
 | `/console/silences` | What keeps alerts from paging people: the maintenance windows and the silences ([below](#silences-and-maintenance)) |
 | `/console/machines`, `/console/machines/{name}` | The machines the channel reaches, whether one behind NAT is connected, and sessions in the last 24 hours. With `machines:write`: add a machine, edit its note, whether it is critical and its account, pin the host key again, change a connector's key, and remove a machine after typing its name. One machine's address, host key, recent sessions and the commands run on it. Search by machine name, address or note. Open **Add a machine** when you need the registration form. Members with SSH access can select **SSH** to get the command and terminal settings for their own account. The separate **Pause all SSH access** control stops machine operations through Beacon while monitoring continues |
-| `/console/sessions`, `/console/sessions/{id}` | Every session, with facets for agent, machine, kind, via, exit status and day, and search over commands. The session's page has its replay ([below](#the-sessions-page-and-its-replay)) |
+| `/console/sessions`, `/console/sessions/{id}` | Sessions available to the signed-in identity, with facets for agent, machine, kind, via, exit status and day. With session detail permission the list searches command text and the session page plays the recording ([below](#the-sessions-page-and-its-replay)) |
 | `/console/agents`, `/console/agents/{name}` | Your agents (an owner sees everyone's): what each may do now, credentials, keys. Open the connection instructions for an OAuth client or the form for a headless agent's token. The editor shows the chosen preset's permissions. Choose all current and future machines, or select the specific machines it may reach. Each agent's page changes its preset and machines, and revokes its credentials. An owner who signs in as a person also sets custom scopes there |
 | `/console/tokens` | Every token: scopes, machines, keys, expiry, whose agent it is. **Legacy** marks those from before accounts, with the form to claim one. Never a secret |
 | `/console/config`, `/console/config/history/{version}` | The configuration, read-only (locations, heartbeats, resources, target sets, modules), and its history. Who, when, through what and why; each version item by item as a diff, with the form to revert it |
@@ -158,7 +158,7 @@ After signing in, **Linked machines** takes you to an enrolled machine named by 
 - **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it.
 - **Related alerts** in the same failure domain.
 - **Agents**: whether they reach machines, delivery to each hook, and one line "N sessions on M machines, K commands".
-- **Sessions**: every session in the alert's window on the machines its labels name, each with a **Replay** link.
+- **Sessions**: records on related machines in the alert's window, filtered by your current machine access. With session detail permission, **Replay** opens the session.
 - **Notes**, **Changes** and the **Timeline**: everything in time order, as `get_timeline` returns it.
 
 The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
@@ -186,11 +186,13 @@ The recording is asciicast v3, as the SSH channel records it: output, input, res
 
 A session still open shows its record. The recording plays once the session ends.
 
+The console applies your current permissions to session lists, alert timelines, command text and recordings. A credential limited to selected machines sees only sessions that belong to those machines' current enrolments. Enrolling a machine again under the same name creates a new enrolment. Credentials with `status:read` can see permitted session summaries. Command text and recordings require `sessions:read` or `machines:ssh` as well as access to the recorded machine. Older SSH audit entries that identify machines by name alone show command text only to credentials with unrestricted session detail access.
+
 ## Signed links {#signed-links}
 
 Beacon's signed links let anyone who holds the link open the shared page without signing in. The signature is part of the `s` query parameter, and Beacon keeps the signing key in its database. Links last for `pages.link_ttl`, 30 days by default. A signed-out request with an expired, revoked or invalid link gets a plain 404.
 
-An alert link opens one alert episode for viewing. Sign in with your own account to respond or browse related alerts and SSH replays, subject to that account's permissions. Command text from related SSH sessions follows the same access rules as replays. A session link opens that session and lets the recipient play or download its recording when one is available. **Sign in** returns you to the same page and uses the account's permissions.
+An alert link opens one alert episode for viewing. Sign in with your own account to respond or browse related alerts and SSH replays, subject to that account's permissions. Command text from related SSH sessions follows the same access rules as replays. A session link lets a signed-out recipient open that session and play or download its recording when available. **Sign in** returns you to the same page. Opening a shared address while signed in uses your role and machine access.
 
 To share from the console, sign in as an owner and open the alert or session. Choose **Manage share links**, then **Create share link**. Copy the displayed link and check its expiry. An alert share opens the current episode while its detail is retained. Send links only to people who should see the alert or recording, and set `link_ttl` to fit how long recipients need access.
 
@@ -203,11 +205,7 @@ You can create a fresh link afterwards. A link previously issued for a related a
 
 Beacon stores revocations in its database. Restoring an older backup also restores its revocation state, so a link revoked after that backup can work again until it expires.
 
-Beacon also provides signed links in these places:
-
-- the card's **Timeline** button;
-- the chat's echoes, with a **Replay** link per session;
-- the API and MCP answers, so that an agent can hand a person a link.
+The card's **Timeline** button and the alert links in REST and MCP answers use signed links to the incident. The chat's **Replay** links and session links in REST and MCP answers take the reader to sign-in for the session. Previously issued signed links retain their expiry and revocation rules.
 
 Older links may point to `/alerts/{id}` or `/sessions/{id}` at the site's root. A valid link redirects (`308`) to the same page under `/console`. Expiry and revocation apply across both paths. Other old console paths redirect with their query parameters, so bookmarks keep working ([The console says 404 on an old link](../self-hosting/troubleshooting.md#the-console-says-404-on-an-old-link)).
 
@@ -243,7 +241,7 @@ Run the loop once as a person:
 
 1. **Open an alert** from the card or `/console/alerts`.
 2. **Read its probes and its timeline.** You will see each location's latest result with its reason, and the events in time order.
-3. **Open one session's replay from it.** Every session on the alert's machines has a **Replay** link.
+3. **Open a permitted session's replay from it.** Use **Replay** under **Sessions**.
 4. **Check the record is complete.** Put `get_timeline` (or the API's `GET /api/v1/alerts/{id}/timeline`) next to the alert's page. Both should show the same events: the hook's call, the sessions, the `probe_now` result and the notes.
 
 ## Next

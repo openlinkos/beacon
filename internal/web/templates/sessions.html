@@ -2,6 +2,10 @@
   {{template "facets" .}}
   <section class="ol-layout-main">
     {{template "filterbar" .}}
+    {{if or .MachineHint .DetailHint}}<div class="ol-panel-body ol-stack">
+      {{if .MachineHint}}<p class="ol-hint">{{.MachineHint}}</p>{{end}}
+      {{if .DetailHint}}<p class="ol-hint">{{.DetailHint}}</p>{{end}}
+    </div>{{end}}
     {{if .Rows}}{{template "sessionrows" .Table}}{{template "pager" .}}{{else}}{{template "empty" .List.Empty}}{{end}}
     {{if .More}}<p class="ol-hint">{{.More}}</p>{{end}}
   </section>

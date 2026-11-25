@@ -23,14 +23,14 @@
 </span></nav>{{end}}{{end}}
 
 {{define "sessionrows"}}<div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
-  <thead><tr><th>{{.L.Started}}</th><th>{{.L.Agent}}</th><th>{{.L.Machine}}</th><th>{{.L.Kind}}</th><th>{{.L.Command}}</th><th class="ol-num">{{.L.Duration}}</th><th>{{.L.Exit}}</th></tr></thead>
+  <thead><tr><th>{{.L.Started}}</th><th>{{.L.Agent}}</th><th>{{.L.Machine}}</th><th>{{.L.Kind}}</th>{{if .Details}}<th>{{.L.Command}}</th>{{end}}<th class="ol-num">{{.L.Duration}}</th><th>{{.L.Exit}}</th></tr></thead>
   <tbody>
   {{range .Rows}}<tr>
-    <td><a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Started}}</a></td>
+    <td>{{if .Href}}<a class="ol-cell-title ol-row-link" href="{{.Href}}">{{.Started}}</a>{{else}}<span class="ol-cell-title">{{.Started}}</span>{{end}}</td>
     <td><span class="ol-cell-title">{{.Agent}}</span><span class="ol-cell-sub">{{.Via}}</span></td>
     <td><a href="{{.MachineHref}}">{{.Machine}}</a></td>
     <td data-label="{{$.L.Kind}}">{{.Kind}}</td>
-    <td data-label="{{$.L.Command}}">{{if .Command}}<code class="ol-mono">{{.Command}}</code>{{end}}</td>
+    {{if $.Details}}<td data-label="{{$.L.Command}}">{{if .Command}}<code class="ol-mono">{{.Command}}</code>{{end}}</td>{{end}}
     <td class="ol-num" data-label="{{$.L.Duration}}">{{if .Open}}<span class="ol-badge ol-badge-info">{{$.L.Open}}</span>{{else}}{{.Duration}}{{end}}</td>
     <td data-label="{{$.L.Exit}}">{{if .Exit}}<span class="ol-badge ol-badge-{{if .Failed}}danger{{else}}success{{end}}">{{.Exit}}</span>{{end}}</td>
   </tr>{{end}}

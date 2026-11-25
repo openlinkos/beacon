@@ -44,22 +44,18 @@ type Event struct {
 	Probes  []store.ProbeObservation `json:"probes,omitempty"`  // on-demand observations, including missing results
 }
 
-// TimelineFor limits session replay links and command text to callers with a session-detail scope.
-func (b *Bridge) TimelineFor(ctx context.Context, who Actor, id, before string) (Timeline, error) {
-	timeline, err := b.Timeline(ctx, id, before)
-	if err == nil && !b.MayReadSession(who) {
-		for i := range timeline.Events {
-			e := &timeline.Events[i]
-			if e.Kind == "session" || e.Kind == "command" {
-				e.URL, e.Text = "", ""
-			}
-		}
-	}
-	return timeline, err
+// TimelineFor applies the authenticated principal's machine and session scopes to related sessions.
+func (b *Bridge) TimelineFor(ctx context.Context, p store.Principal, id, before string) (Timeline, error) {
+	access := b.d.Store.SessionAccess(p)
+	return b.readTimeline(ctx, id, before, &access)
 }
 
 // Timeline returns the alert group id's timeline, over the window of its evidence.
 func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, error) {
+	return b.readTimeline(ctx, id, before, nil)
+}
+
+func (b *Bridge) readTimeline(ctx context.Context, id, before string, access *store.SessionAccess) (Timeline, error) {
 	d, err := parseBefore(before)
 	if err != nil {
 		return Timeline{}, err
@@ -68,10 +64,10 @@ func (b *Bridge) Timeline(ctx context.Context, id, before string) (Timeline, err
 	if !ok {
 		return Timeline{}, ErrNotFound
 	}
-	return b.timeline(ctx, &g, b.window(&g, d)), nil
+	return b.timeline(ctx, &g, b.window(&g, d), access), nil
 }
 
-func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window) Timeline {
+func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access *store.SessionAccess) Timeline {
 	ev := []Event{{At: g.StartsAt, Kind: "started", Service: cleanLine(b.service(g))}}
 	add := func(e Event) {
 		if !e.At.IsZero() {
@@ -118,8 +114,10 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window) Timelin
 		add(Event{At: c.Time, Kind: "change", By: c.Source, Type: c.Kind, Text: c.Summary, Service: c.Service, Machine: c.Machine, ID: c.ID,
 			URL: c.URL, Related: c.Related, Phase: c.Phase})
 	}
-	ss := b.sessions(g, w, machines)
-	b.withCommands(ss)
+	ss := b.sessions(g, w, machines, access)
+	if access == nil || access.Details() {
+		b.withCommands(ss)
+	}
 	for _, s := range ss {
 		add(Event{At: s.Started, Kind: "session", By: s.Agent, Via: s.Via, Type: s.Kind, Machine: s.Machine, Text: s.Command, ID: s.ID,
 			Exit: s.Exit, URL: s.Page, Related: s.Related, Phase: s.Phase})

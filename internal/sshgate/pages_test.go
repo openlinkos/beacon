@@ -11,8 +11,7 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// TestReplayLinks checks that the chat's echoes and the session answers carry the signed link to each
-// session's page once the channel has a public URL to build them from.
+// TestReplayLinks checks that chat echoes direct readers to the session through their own sign-in.
 func TestReplayLinks(t *testing.T) {
 	e := setup(t)
 	zero := 0
@@ -39,8 +38,9 @@ func TestReplayLinks(t *testing.T) {
 	want := "https://beacon.example.com/console/sessions/" + rec.ID + "?s="
 	e.g.echo.add(rec)
 	e.g.echo.flush(context.Background(), true)
-	if got := e.bot.all(); !strings.Contains(got, "Replay: "+want) {
-		t.Errorf("the echo lacks the replay link: %q", got)
+	signIn := "https://beacon.example.com" + link.SignInPath(link.SessionPath(rec.ID))
+	if got := e.bot.all(); !strings.Contains(got, "Replay: "+signIn) || strings.Contains(got, "?s=") {
+		t.Errorf("the echo must open the replay through sign-in: %q", got)
 	}
 	ss, err = e.g.Sessions(SessionFilter{Machine: "box"})
 	if err != nil || len(ss) != 1 || !strings.HasPrefix(ss[0].Page, want) || ss[0].ID != rec.ID {

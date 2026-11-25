@@ -71,7 +71,7 @@ func (e *echoer) add(r store.SessionRecord) {
 	if line == "" || e.g.d.Bot == nil {
 		return
 	}
-	if u := e.g.page(r.ID); u != "" {
+	if u := e.g.sessionSignIn(r.ID); u != "" {
 		line += " " + i18n.T(e.g.d.Lang, "Replay: %s", u)
 	}
 	now := e.g.now()

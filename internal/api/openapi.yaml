@@ -518,7 +518,7 @@ components:
         bytes_in: {type: integer}
         bytes_out: {type: integer}
         recording: {type: string}
-        page: {type: string, format: uri, description: "The session's page for people, with its replay: a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/guide/console.md"}
+        page: {type: string, format: uri, description: "Sign in to the console to open this session and its replay. Provided when public_url is configured and the caller may read the session."}
     Transcript:
       allOf:
         - {$ref: "#/components/schemas/Session"}
@@ -861,7 +861,8 @@ components:
         client: {type: string, description: "The OAuth client's name, for an access token"}
         scopes: {type: array, items: {type: string}}
         subject: {type: string, description: "The location or host a machine's token writes as"}
-        machines: {type: array, items: {type: string}, description: "The machines it reaches through the SSH channel; absent: all"}
+        machines: {type: array, items: {type: string}, description: "The explicitly selected machines when machine_scope is listed"}
+        machine_scope: {type: string, enum: [all, listed, none], description: "The effective machine selection. Each operation also requires its own scope."}
         ssh_keys: {type: array, items: {type: string}, description: Fingerprints of the keys it signs in to the SSH channel with}
         created: {type: string, format: date-time}
         expires: {type: string, format: date-time}
@@ -1676,7 +1677,7 @@ paths:
   /sessions:
     get:
       summary: Sessions on machines, newest first
-      description: "Scope: status:read or machines:ssh"
+      description: "Scope: status:read or machines:ssh. Machine restrictions apply before the limit. A credential with status:read alone sees session metadata on the machines it may see."
       parameters:
         - {name: machine, in: query, schema: {type: string}}
         - {name: agent, in: query, schema: {type: string}}
@@ -1694,7 +1695,7 @@ paths:
   /sessions/{id}:
     get:
       summary: A session's transcript
-      description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status."
+      description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status. A session outside the credential's machine access returns session.not_found."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
@@ -1707,7 +1708,7 @@ paths:
   /sessions/{id}/recording:
     get:
       summary: A session's recording, to replay with asciinema
-      description: "Scope: sessions:read or machines:ssh"
+      description: "Scope: sessions:read or machines:ssh. A session outside the credential's machine access returns session.not_found."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
@@ -1719,7 +1720,7 @@ paths:
   /share-links/{kind}/{id}:
     post:
       summary: Create a signed alert or session link
-      description: "Scope: accounts:write from a standalone credential. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
+      description: "Scope: accounts:write from a standalone credential. Creating a session share also requires sessions:read or machines:ssh and access to the enrolment. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
       parameters:
         - {name: kind, in: path, required: true, schema: {type: string, enum: [alert, session]}}
         - {name: id, in: path, required: true, schema: {type: string}}

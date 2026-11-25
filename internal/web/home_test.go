@@ -268,10 +268,10 @@ func TestOldSignedLinks(t *testing.T) {
 	if page := b.get(a.header.Get("Location")); page.code != http.StatusOK {
 		t.Errorf("signed in, an expired link: %d", page.code)
 	}
-	// The alert does not hand its reader a replay credential for a different record.
+	// The alert sends the reader back to this incident after signing in for session history.
 	_, body, _ := e.get(e.link(link.AlertPath(e.id)), "")
-	if replays := hrefs(body, link.SignInPath(link.SessionPath(sessionID))); len(replays) == 0 || len(hrefs(body, link.SessionPath(sessionID)+"?s=")) != 0 {
-		t.Error("the alert should send its reader to sign in for replays")
+	if len(hrefs(body, link.SignInPath(link.AlertPath(e.id)))) == 0 || strings.Contains(body, sessionID) {
+		t.Error("the alert should send its reader back to the incident without exposing session references")
 	}
 	if u := e.b.AlertPage(e.id); !strings.HasPrefix(u, publicURL+"/console/alerts/"+e.id+"?s=") {
 		t.Errorf("the card's link: %q", u)

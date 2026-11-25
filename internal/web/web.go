@@ -67,11 +67,6 @@ var (
 const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' data:; " +
 	"connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
-// tokenTTL is how long the links inside a page last (to sessions, to the recording the player fetches)
-// when the page was opened with a token rather than a signed link; opened with a link, they last as long
-// as it does, and in the console as long as the sign-in.
-const tokenTTL = time.Hour
-
 // Server serves the pages. SSH is nil when the channel is off (session pages are then 404); Auth checks
 // bearer tokens (nil: only signed links open pages); Pages checks the links' signatures and signs the
 // links inside pages (nil: only tokens open pages, and pages link nowhere).
@@ -166,37 +161,34 @@ func notFound(w http.ResponseWriter) {
 	http.Error(w, "404 page not found", http.StatusNotFound)
 }
 
-// access is how a request may see a page: signed in to the console (Viewer), through a signed link or a
-// token (Token names it). Until is how long the links inside the page last: as long as the sign-in or
-// the link that opened it, or tokenTTL.
+// access is how a request may see a page: a console viewer, a bearer principal or an anonymous
+// signed link. A recognised principal uses its own permissions even when the request carries a link.
 type access struct {
 	OK            bool
 	Until         time.Time
 	Token         string
 	Viewer        *viewer
+	Principal     store.Principal
 	Grant         *link.Grant
 	SessionDetail bool
 }
 
-// access checks the request against the console's sign-in, then the signed link it carries, then a
-// bearer token, each with one of the scopes ("a|b"). Signed in without the scope, the viewer is still
-// returned (OK false), so that the page can say so rather than pretend it does not exist.
 func (s *Server) access(r *http.Request, scopes string) access {
-	v := s.viewer(r)
-	if v != nil && v.hasAny(scopes) {
-		return access{OK: true, Until: v.Session.Expires, Viewer: v, SessionDetail: v.hasAny("sessions:read|machines:ssh")}
+	if v := s.viewer(r); v != nil {
+		return access{OK: v.hasAny(scopes), Until: v.Session.Expires, Viewer: v, Principal: v.Principal, SessionDetail: v.hasAny("sessions:read|machines:ssh")}
+	}
+	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
+		if p, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret)); ok {
+			return access{OK: slices.ContainsFunc(strings.Split(scopes, "|"), p.Has), Token: p.Name(), Principal: p,
+				SessionDetail: p.Has("sessions:read") || p.Has("machines:ssh")}
+		}
 	}
 	if sig := r.URL.Query().Get(link.Param); sig != "" && s.Pages != nil && s.Pages.Signer != nil {
 		if grant, ok := s.Pages.Signer.VerifyGrant(http.MethodGet, r.URL.Path, sig); ok {
 			return access{OK: true, Until: grant.Until, Grant: &grant}
 		}
 	}
-	if secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.Auth != nil {
-		if p, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret)); ok && slices.ContainsFunc(strings.Split(scopes, "|"), p.Has) {
-			return access{OK: true, Token: p.Name(), Until: s.now().Add(tokenTTL), SessionDetail: p.Has("sessions:read") || p.Has("machines:ssh")}
-		}
-	}
-	return access{Viewer: v}
+	return access{}
 }
 
 // relatedLink grants no access to another incident or session from the page's share link.
@@ -212,18 +204,13 @@ func (s *Server) relatedLink(path string, a access, scope string) string {
 
 // recordingLink keeps anonymous playback within its session's original share grant.
 func (s *Server) recordingLink(path string, a access) string {
-	if a.Viewer != nil {
+	if a.Grant == nil {
 		return path
 	}
 	if s.Pages == nil || s.Pages.Signer == nil {
 		return ""
 	}
-	var signature string
-	if a.Grant != nil {
-		signature = s.Pages.Signer.Derive(http.MethodGet, path, *a.Grant)
-	} else {
-		signature = s.Pages.Signer.SignUntil(http.MethodGet, path, a.Until)
-	}
+	signature := s.Pages.Signer.Derive(http.MethodGet, path, *a.Grant)
 	if signature == "" {
 		return ""
 	}
@@ -260,7 +247,7 @@ func (s *Server) alert(w http.ResponseWriter, r *http.Request) {
 		s.missing(w, r, a.Viewer)
 		return
 	}
-	g, ev, tl, err := s.Bridge.IncidentPage(r.Context(), id, episode)
+	g, ev, tl, err := s.Bridge.IncidentPageFor(r.Context(), id, episode, a.Principal)
 	if err != nil {
 		if errors.Is(err, bridge.ErrNotFound) && s.redirectAlertHistory(w, r, a.Viewer, id, episode) {
 			return
@@ -311,7 +298,14 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	tr, err := s.SSH.Session(r.PathValue("id"))
+	id := r.PathValue("id")
+	var tr sshgate.Transcript
+	var err error
+	if a.Grant != nil {
+		tr, err = s.SSH.Session(id)
+	} else {
+		tr, err = s.SSH.SessionFor(a.Principal, id)
+	}
 	if err != nil {
 		s.missing(w, r, a.Viewer)
 		return
@@ -327,7 +321,14 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	rc, err := s.SSH.Recording(r.PathValue("id"))
+	id := r.PathValue("id")
+	var rc io.ReadCloser
+	var err error
+	if a.Grant != nil {
+		rc, err = s.SSH.Recording(id)
+	} else {
+		rc, err = s.SSH.RecordingFor(a.Principal, id)
+	}
 	if err != nil {
 		notFound(w)
 		return

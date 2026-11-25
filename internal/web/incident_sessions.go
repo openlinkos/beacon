@@ -12,7 +12,7 @@ import (
 func (s *Server) incidentSessions(ev bridge.Evidence, a access) ([]sessionRow, string) {
 	views := slices.Clone(ev.Done.Sessions)
 	if v := a.Viewer; v != nil && v.person() && v.hasAny("sessions:read|machines:ssh") && s.SSH != nil {
-		designated := s.designatedSessionRecords(ev)
+		designated := s.designatedSessionRecords(ev, s.Store.SessionAccess(v.Principal))
 		for _, r := range designated {
 			var ended *time.Time
 			if !r.Ended.IsZero() {
@@ -42,7 +42,7 @@ func (s *Server) incidentSessions(ev bridge.Evidence, a access) ([]sessionRow, s
 	return rows, s.t("%d sessions on %d machines, %d commands", len(rows), len(machines), commands)
 }
 
-func (s *Server) designatedSessionRecords(ev bridge.Evidence) []store.SessionRecord {
+func (s *Server) designatedSessionRecords(ev bridge.Evidence, permit store.SessionAccess) []store.SessionRecord {
 	machines := map[string]store.Machine{}
 	for _, binding := range ev.MonitorMachines {
 		if m, ok := s.Store.Machine(binding.Name); ok && m.Registration() == binding.Registration {
@@ -58,7 +58,7 @@ func (s *Server) designatedSessionRecords(ev bridge.Evidence) []store.SessionRec
 	}
 	records := s.Store.SessionsBetween(ev.Window.From, ev.Window.To, 1000, func(r store.SessionRecord) bool {
 		m, ok := machines[r.Machine]
-		return ok && r.MachineRegistration == m.Registration() && !r.Started.Before(m.Added) && !listed[r.ID]
+		return ok && r.MachineRegistration == m.Registration() && !r.Started.Before(m.Added) && !listed[r.ID] && permit.Visible(r)
 	})
 	const limit = 20
 	return records[max(0, len(records)-limit):]

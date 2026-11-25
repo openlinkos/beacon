@@ -564,7 +564,9 @@ type Principal struct {
 	Machines []string  `json:"machines,omitempty"`
 	Subject  string    `json:"subject,omitempty"`
 	Expires  time.Time `json:"expires,omitzero"`
-	proof    credentialProof
+
+	proof             credentialProof
+	machineScopeEmpty bool
 }
 
 // Name is how the audit log, the chat and the console name the principal: the person, "person / agent"
@@ -647,6 +649,10 @@ func (p Principal) Reaches(machine string) bool {
 	return p.Has("machines:ssh") && (len(p.Machines) == 0 || slices.Contains(p.Machines, machine))
 }
 
+// MachineScopeEmpty reports whether the credential and its agent allow no machines in common.
+// An empty Machines list otherwise allows all machines within the principal's scopes.
+func (p Principal) MachineScopeEmpty() bool { return p.machineScopeEmpty }
+
 // Person reports whether the principal is a person signed in to the console.
 func (p Principal) Person() bool { return p.User != "" && p.Agent == "" }
 
@@ -685,7 +691,7 @@ func grantPrincipal(tx kv.Tx, g Grant) (Principal, bool) {
 		p.Scopes = intersect(p.Scopes, PresetScopes(g.Preset))
 	}
 	machines, none := capMachines(p.Machines, g.Machines)
-	p.Machines = machines
+	p.Machines, p.machineScopeEmpty = machines, none
 	if none { // the agent and the grant have no machine in common: it reaches none
 		p.Scopes = slices.DeleteFunc(p.Scopes, func(s string) bool { return s == "machines:ssh" })
 	}

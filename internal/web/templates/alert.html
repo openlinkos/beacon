@@ -94,8 +94,9 @@
     </div>
   </section>
 
-  <section class="ol-panel">
+  {{if not .SharedViewHint}}<section class="ol-panel">
     <div class="ol-panel-header bc-alert-sessions-header"><h2 class="ol-panel-title">{{icon "terminal"}} {{.L.SessionsOn}}</h2>{{if .SessionsLine}}<span class="ol-badge">{{.SessionsLine}}</span>{{end}}</div>
+    {{if .SessionsHint}}<div class="ol-panel-body"><p class="ol-hint">{{.SessionsHint}}</p></div>{{end}}
     {{if .Sessions}}
     <ul class="ol-list">
     {{range .Sessions}}<li>
@@ -108,7 +109,7 @@
     </li>{{end}}
     </ul>
     {{else}}<div class="ol-panel-body"><p class="ol-hint">{{.L.None}}</p></div>{{end}}
-  </section>
+  </section>{{end}}
 
   <section class="ol-panel" id="timeline" tabindex="-1" aria-labelledby="alert-timeline">
     <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-timeline">{{icon "clock"}} {{.L.Timeline}}</h2></div>

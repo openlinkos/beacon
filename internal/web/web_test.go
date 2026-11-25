@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -355,7 +354,7 @@ func TestAlertPage(t *testing.T) {
 	for _, want := range []string{
 		`<html lang="en">`, "git.example.com is down &lt;script&gt;", "Firing", "Critical", "Since 2026-11-02 09:50:00 (10 min)",
 		"No answer from 2 locations", "edge-1", "claude-code", "restarting the relay &lt;script&gt;", // the note
-		"1 sessions on 1 machines, 2 commands", "Timeline", "Alert started", "left a note via MCP", "Replay",
+		"Timeline", "Alert started", "left a note via MCP", "SSH session history",
 		"Agents reach machines", "This link is valid until 2026-11-02 11:00:00", `data-brand="beacon"`,
 		"No probe results in the window", `<dt>note</dt><dd class="ol-mono ol-break">&lt;script&gt;alert(1)&lt;/script&gt;</dd>`,
 	} {
@@ -366,12 +365,11 @@ func TestAlertPage(t *testing.T) {
 	if strings.Contains(body, "codex") || strings.Contains(body, "edge-2") {
 		t.Error("another machine's session is on the page")
 	}
-	if strings.Contains(body, "systemctl restart relay") || strings.Contains(body, "false &lt;script&gt;") {
-		t.Error("the signed alert exposed session command text")
+	if strings.Contains(body, "systemctl restart relay") || strings.Contains(body, "false &lt;script&gt;") || strings.Contains(body, sessionID) {
+		t.Error("the signed alert exposed session records")
 	}
-	replays := hrefs(body, link.SignInPath(link.SessionPath(sessionID)))
-	if len(replays) < 2 { // the sessions block and the timeline
-		t.Fatalf("replay links: %v", replays)
+	if len(hrefs(body, link.SignInPath(path))) == 0 {
+		t.Fatal("the shared alert did not send a visitor back to this alert after sign-in")
 	}
 	owner := e.owner()
 	if page := owner.get(path); !strings.Contains(page.body, "systemctl restart relay") || len(hrefs(page.body, link.SessionPath(sessionID))) == 0 {
@@ -458,15 +456,14 @@ func TestAccess(t *testing.T) {
 		}
 		checkHeaders(t, hd)
 	}
-	// a token-opened session page links to its recording for an hour, and says it was a token
+	// A token-opened session page links to the recording with the same access requirements.
 	code, body, _ := e.get(session, e.token("sessions2", "sessions:read"))
 	if code != 200 || !strings.Contains(body, "Opened with API access") {
 		t.Fatalf("token page: %d", code)
 	}
 	recs := hrefs(body, link.RecordingPath(sessionID))
-	u, _ := url.Parse(recs[0])
-	if until, ok := e.signer.Verify(http.MethodGet, u.Path, u.Query().Get(link.Param)); !ok || !until.Equal(e.now.Add(tokenTTL)) {
-		t.Errorf("the recording link of a token-opened page lasts %v", until)
+	if len(recs) != 1 || recs[0] != link.RecordingPath(sessionID) {
+		t.Fatalf("recording path of a token-opened page: %v", recs)
 	}
 	// the link expires
 	signed := e.link(alert)
@@ -509,8 +506,8 @@ func TestChinesePage(t *testing.T) {
 	e := newEnv(t, i18n.ZH)
 	code, body, _ := e.get(e.link(link.AlertPath(e.id)), "")
 	if code != 200 || !strings.Contains(body, `<html lang="zh-CN">`) || !strings.Contains(body, i18n.T(i18n.ZH, "Timeline")) ||
-		!strings.Contains(body, i18n.T(i18n.ZH, "Firing")) || !strings.Contains(body, i18n.T(i18n.ZH, "Replay")) {
-		t.Errorf("Chinese page: %d %s", code, body)
+		!strings.Contains(body, i18n.T(i18n.ZH, "Firing")) || !strings.Contains(body, i18n.T(i18n.ZH, "This link opens this alert. Sign in to respond or see related alerts and SSH session history.")) {
+		t.Errorf("Chinese page: %d", code)
 	}
 	code, body, _ = e.get(e.link(link.SessionPath(sessionID)), "")
 	if code != 200 || !strings.Contains(body, i18n.T(i18n.ZH, "interactive shell")) || !strings.Contains(body, i18n.T(i18n.ZH, "Download the recording")) {
