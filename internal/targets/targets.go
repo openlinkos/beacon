@@ -29,6 +29,14 @@ import (
 type Group struct {
 	Targets []string          `yaml:"targets" json:"targets"`
 	Labels  map[string]string `yaml:"labels" json:"labels"`
+	Machine *MachineBinding   `yaml:"machine,omitempty" json:"machine,omitempty"`
+}
+
+// MachineBinding designates a machine registration for a monitored service. It is control-plane
+// metadata and is not sent to the probes.
+type MachineBinding struct {
+	Name         string `yaml:"name" json:"name"`
+	Registration string `yaml:"registration" json:"registration"`
 }
 
 // Settings is what the gateway tells one probe agent besides its targets and modules
@@ -168,7 +176,10 @@ func (s *Set) For(location, region string, locations []string) []Group {
 	for _, n := range names {
 		switch scope(n, locations) {
 		case "all", region, location:
-			out = append(out, s.files[n]...)
+			for _, g := range s.files[n] {
+				g.Machine = nil
+				out = append(out, g)
+			}
 		}
 	}
 	return out

@@ -81,6 +81,7 @@ type Deps struct {
 	Slack               WebhookSender
 	VM                  Querier
 	Catalog             func() *catalog.Catalog
+	MonitorMachine      func(service, severity string, started time.Time) (store.MonitorMachine, bool)
 	Metrics             *metrics.Metrics
 	Log                 *slog.Logger
 	Now                 func() time.Time
@@ -281,6 +282,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.ProbeRuns, g.PriorAcks, g.Notifications = nil, nil, nil
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
+			g.MonitorMachines = b.incidentMonitorMachines(&g)
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel = "", "", "", ""

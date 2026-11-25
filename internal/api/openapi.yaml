@@ -587,6 +587,14 @@ components:
           type: object
           additionalProperties: {type: string}
           description: Needs module (a module's name) and service; others reach the rules and the cards
+        machine:
+          type: object
+          description: Optional designated enrolment for a routine HTTP monitor. Control-plane metadata, absent from probe responses.
+          additionalProperties: false
+          required: [name, registration]
+          properties:
+            name: {type: string}
+            registration: {type: string}
     TargetSet:
       type: object
       properties:

@@ -58,7 +58,8 @@
     {{if .Items}}<div class="ol-cluster">
       <h3 class="ol-label">{{.Title}}</h3>
       {{range .Items}}<a class="ol-btn ol-btn-secondary" href="{{.Href}}" aria-label="{{.K}}">{{iconSm "server"}}{{.V}}</a>{{end}}
-    </div>{{else}}<p class="ol-hint">{{.Hint}}</p>{{end}}
+    </div>{{end}}
+    {{if .Hint}}<p class="ol-hint">{{.Hint}}</p>{{end}}
   </div>{{end}}
 </section>
 <div class="ol-layout-supporting">

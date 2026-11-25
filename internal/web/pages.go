@@ -307,7 +307,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
-		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines)}
+		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
 	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
 	if p.Problem != "" {
 		p.Feedback, p.FeedbackTone = p.Problem, "danger"
@@ -452,12 +452,12 @@ func currentHandover(tl bridge.Timeline, ack *store.Ack) handoverNote {
 	return handoverNote{}
 }
 
-func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
+func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine) *alertMachineLinks {
 	if v == nil || !v.hasAny("status:read|machines:ssh") {
 		return nil
 	}
 	out := &alertMachineLinks{Title: s.t("Linked machines")}
-	if len(names) == 0 {
+	if len(names) == 0 && len(designated) == 0 {
 		out.Hint = s.t("No machine is linked to this alert.")
 		return out
 	}
@@ -476,7 +476,24 @@ func (s *Server) alertMachines(v *viewer, names []string) *alertMachineLinks {
 		}
 		out.Items = append(out.Items, kvLink{V: m.Name, K: s.t("Open machine %s", m.Name), Href: href})
 	}
-	if len(out.Items) == 0 {
+	if len(designated) > 0 {
+		out.Title = s.t("Designated service machines")
+		for _, binding := range designated {
+			m, ok := s.Store.Machine(binding.Name)
+			if !ok || m.Registration() != binding.Registration {
+				continue
+			}
+			href := machinePath(m.Name) + "?registration=" + url.QueryEscape(binding.Registration)
+			if v.person() && v.Principal.Reaches(m.Name) {
+				href += "#ssh-connect"
+			}
+			out.Items = append(out.Items, kvLink{V: m.Name + " (" + binding.Service + ")",
+				K: s.t("Open designated machine %s for %s", m.Name, binding.Service), Href: href})
+		}
+		if len(out.Items) < len(designated) {
+			out.Hint = s.t("A designated machine registration is no longer available.")
+		}
+	} else if len(out.Items) == 0 {
 		out.Hint = s.t("This alert links to machines that are not enrolled.")
 	}
 	return out

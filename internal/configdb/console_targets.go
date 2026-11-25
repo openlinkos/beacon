@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/store"
@@ -76,6 +78,68 @@ func (s *Service) loadConsoleTargets(st *State, tracked map[string]bool) {
 	})
 }
 
+// RoutineMonitorGroup reports whether the group has the console's routine HTTP monitor shape.
+func RoutineMonitorGroup(g targets.Group) bool {
+	if len(g.Targets) != 1 || len(g.Labels) != 4 || g.Labels["service"] == "" ||
+		g.Labels["module"] == "" || g.Labels["severity"] == "" || g.Labels["visibility"] != "internal" {
+		return false
+	}
+	return RoutineMonitorURL(g.Targets[0])
+}
+
+// RoutineMonitorURL accepts an HTTP endpoint without credentials or URL parts the form may not display.
+func RoutineMonitorURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.User == nil && u.RawQuery == "" && !u.ForceQuery &&
+		(u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
+		len(raw) <= 2048 && !strings.Contains(raw, "#")
+}
+
+// MonitorMachine resolves an exact routine HTTP service only if its current definition was already
+// in effect when the source alert started. A reconfiguration during delivery leaves the incident
+// unlinked, as does missing history or a state that trails the durable configuration.
+func (s *Service) MonitorMachine(service, severity string, started time.Time) (store.MonitorMachine, bool) {
+	var binding store.MonitorMachine
+	if service == "" || started.IsZero() || started.After(s.d.Now()) {
+		return binding, false
+	}
+	st := s.State()
+	var key string
+	for _, file := range st.Targets.Files() {
+		for _, g := range st.Targets.Groups(file) {
+			if g.Labels["service"] != service {
+				continue
+			}
+			name := strings.TrimSuffix(file, ".yaml")
+			if key != "" || !strings.HasSuffix(name, "-http."+service+".monitor") ||
+				!RoutineMonitorGroup(g) || g.Labels["severity"] != severity || g.Machine == nil {
+				return binding, false
+			}
+			// Explicit binding metadata survives file reimport. Imported sets still use their
+			// usual editing entry points and do not gain console ownership.
+			key = name
+			binding = store.MonitorMachine{Service: service, Name: g.Machine.Name, Registration: g.Machine.Registration}
+		}
+	}
+	if key == "" {
+		return binding, false
+	}
+	changes := s.d.Store.ConfigChanges(st.Version+1, 1, func(ch store.ConfigChange) bool {
+		return slices.ContainsFunc(ch.Items, func(it store.ConfigItem) bool {
+			return it.Kind == KindTargets && it.Key == key
+		})
+	})
+	if len(changes) != 1 || changes[0].Time.IsZero() || !changes[0].Time.Before(started) {
+		return binding, false
+	}
+	version, err := s.d.Store.ConfigVersion()
+	if err != nil || version != st.Version {
+		return binding, false
+	}
+	m, ok := s.d.Store.Machine(binding.Name)
+	return binding, ok && m.Registration() == binding.Registration
+}
+
 // SetConsoleTargetIf creates a console-managed monitor or updates one. Moving its probe scope
 // writes the old and new target sets as one version, so probes never see a duplicated or absent
 // target in between. The monitor keeps its service name.
@@ -84,8 +148,7 @@ func (s *Service) SetConsoleTargetIf(ctx context.Context, who Actor, previous, s
 ) (store.ConfigChange, error) {
 	service := group.Labels["service"]
 	name := ConsoleTargetName(scope, service)
-	if service == "" || scope == "" || version <= 0 || len(group.Targets) != 1 ||
-		len(group.Labels) != 4 || group.Labels["visibility"] != "internal" {
+	if scope == "" || version <= 0 || !RoutineMonitorGroup(group) {
 		return store.ConfigChange{}, ErrBadInput
 	}
 	s.mu.Lock()

@@ -118,7 +118,8 @@ type Evidence struct {
 	Links      AlertLinks      `json:"links"`
 	// LinkedMachines are named by an explicit machine label or a catalogue heartbeat. The console
 	// uses these for navigation, independently of the broader correlations in Done.
-	LinkedMachines []string `json:"-"`
+	LinkedMachines  []string               `json:"-"`
+	MonitorMachines []store.MonitorMachine `json:"-"`
 }
 
 // ProbeEvidence is what the probes of the group's services saw, one result per location, target and
@@ -324,6 +325,11 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window) Evidenc
 	machines := b.machines(g)
 	done := b.done(g, w, machines)
 	b.withCommands(done.Sessions)
+	explicit := b.linkedMachines(g)
+	designated := g.MonitorMachines
+	if len(explicit) > 0 || len(labelValues(g, "machine")) > 0 {
+		designated = nil
+	}
 	return Evidence{
 		Alert: b.brief(g), Window: w,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
@@ -335,7 +341,7 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window) Evidenc
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),
 		Probes: b.probeEvidence(ctx, g, w), Heartbeats: b.heartbeats(ctx, g, w), Related: b.related(g),
 		Changes: b.changesAround(g, w, machines), Done: done, Links: b.links(g),
-		LinkedMachines: b.linkedMachines(g),
+		LinkedMachines: explicit, MonitorMachines: designated,
 	}
 }
 

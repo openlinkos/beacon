@@ -57,7 +57,7 @@ type (
 	putConfigIn struct {
 		Kind      string `json:"kind" jsonschema:"locations, heartbeats, resources, targets, modules or status_pages"`
 		Key       string `json:"key" jsonschema:"the item's id or name; a target set's name starts with all-, overseas-, mainland- or a location id and a dash, which says who probes it"`
-		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}}; a module {prober, timeout, http: {...}}; a status page {title, languages, components: [{name, title, services or page}], groups, links, menu} (docs/guide/status-pages.md)"`
+		Value     any    `json:"value" jsonschema:"the item in the shape of its file: a location {name, region, network, ...}; a heartbeat {max_age, severity, description, machine (where its job runs, a machine list_machines shows)}; a resource {kind, expires, note}; a target set, a list of {targets: [...], labels: {module, service, ...}, optional machine: {name, registration}}; a module {prober, timeout, http: {...}}; a status page {title, languages, components: [{name, title, services or page}], groups, links, menu} (docs/guide/status-pages.md)"`
 		Note      string `json:"note,omitempty" jsonschema:"why; kept with the change and shown in the alert chat"`
 		IfVersion int64  `json:"if_version,omitempty" jsonschema:"the version you last saw (get_config returns it): the change is refused with config.conflict when a later one is in force, so you never overwrite what changed meanwhile"`
 	}

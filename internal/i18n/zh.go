@@ -1013,6 +1013,17 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"The configured service could not be reached.":                                    "无法连接已配置的服务。",
 	"%s performed %s on team credential %s via %s":                                    "%[1]s 经%[4]s对团队凭据 %[3]s 执行了 %[2]s",
 
+	// Designated machines in the monitor editor and in service outages.
+	"Designated machine (optional)":                                    "指定机器（可选）",
+	"No designated machine":                                            "不指定机器",
+	"Choose where operators should connect when this service is down.": "选择服务中断时值班人员应连接的机器。",
+	"%s (registration unavailable)":                                    "%s（登记已失效）",
+	"You do not have permission to change the designated machine.":     "你没有更改指定机器的权限。",
+	"Choose an enrolled machine from the current list.":                "请从当前列表选择已登记的机器。",
+	"Designated service machines":                                      "服务指定机器",
+	"Open designated machine %s for %s":                                "打开机器 %s（为服务 %s 指定）",
+	"A designated machine registration is no longer available.":        "有一项指定机器的登记已失效。",
+
 	// Machine navigation from the alert response.
 	"Linked machines":                                     "关联机器",
 	"No machine is linked to this alert.":                 "此告警没有关联机器。",
