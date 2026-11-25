@@ -107,12 +107,18 @@ func TestMCP(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 44 {
+	if err != nil || len(tools.Tools) != 46 {
 		t.Fatalf("tools: %v %v", tools, err)
 	}
 	for _, tool := range tools.Tools {
 		if tool.Annotations == nil || tool.Description == "" {
 			t.Errorf("%s needs annotations and a description", tool.Name)
+		}
+	}
+	for _, name := range []string{"create_share_link", "revoke_share_links"} {
+		res, details := call(t, read, name, map[string]any{"kind": "alert", "id": testutil.GroupID()})
+		if !res.IsError || !strings.Contains(details, "accounts:write") {
+			t.Errorf("%s allowed a status-only credential", name)
 		}
 	}
 	if _, text := call(t, read, "list_alerts", nil); !strings.Contains(text, testutil.GroupID()) || !strings.Contains(text, "hub.example.com is down") {

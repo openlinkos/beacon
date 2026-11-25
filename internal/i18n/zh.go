@@ -6,6 +6,27 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Private alert and session share links.
+	"Manage share links":               "管理分享链接",
+	"Share this alert":                 "分享此告警",
+	"Share this session":               "分享此会话",
+	"Session ID":                       "会话标识",
+	"Create share link":                "创建分享链接",
+	"Share link ready":                 "分享链接已生成",
+	"Copy link":                        "复制链接",
+	"Link copied.":                     "已复制链接。",
+	"Select the link text to copy it.": "请选择链接文字进行复制。",
+	"Back to alert":                    "返回告警",
+	"Back to session":                  "返回会话",
+	"Revoke existing links":            "撤销已有链接",
+	"Revoke all share links":           "撤销所有分享链接",
+	"Anyone with a share link can view the incident it opens until the link expires or is revoked.":                   "持有分享链接的人都可以查看对应的事件，直到链接过期或被撤销。",
+	"Anyone with a share link can view this session and download its recording until the link expires or is revoked.": "持有分享链接的人都可以查看此会话并下载其录像，直到链接过期或被撤销。",
+	"Earlier share links to any incident in this alert group will stop working, including links in chat.":             "此告警组内所有事件先前发出的分享链接都会失效，包括聊天中的链接。",
+	"Earlier share links to this session and its recording will stop working, including links in chat.":               "此会话及其录像先前发出的分享链接都会失效，包括聊天中的链接。",
+	"This link opens this alert. Sign in to respond or open related alerts and SSH replays.":                          "此链接可查看当前告警。登录后可响应告警，或打开权限范围内的相关告警和 SSH 回放。",
+	"This link opens this session and its recording. Sign in to open other sessions or machines you can access.":      "此链接可查看当前会话及其录像。登录后可打开权限范围内的其他会话或机器。",
+
 	// Private incident outcome history and its audit link.
 	"Related sessions":                 "关联会话",
 	"Incident history":                 "故障历史",
@@ -1077,6 +1098,11 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Services that will no longer be visible":                                                      "将停止公开的服务",
 	"Services visible after publishing":                                                            "发布后可见的服务",
 	"Status page updated":                                                                          "已更新状态页",
+	"%s created a share link for %s via %s":                                                        "%s 为 %s 创建了分享链接，来源为 %s。",
+	"%s revoked share links for %s via %s":                                                         "%s 撤销了 %s 的分享链接，来源为 %s。",
+	"Choose to create a share link or revoke existing links.":                                      "请选择生成分享链接或撤销现有链接。",
+	"Share links are unavailable. Try again.":                                                      "暂时无法管理分享链接。请重试。",
+	"Share links revoked.":                                                                         "已撤销分享链接。",
 
 	"Create status page":  "创建状态页",
 	"Page ID":             "状态页标识",

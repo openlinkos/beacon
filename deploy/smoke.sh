@@ -8,6 +8,8 @@ cd "$(dirname "$0")"
 source ./smoke-failed-agent.sh
 # shellcheck source=smoke-status-publication.sh
 source ./smoke-status-publication.sh
+# shellcheck source=smoke-page-links.sh
+source ./smoke-page-links.sh
 if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
   id beacon >/dev/null 2>&1; then
   echo 'Use a clean checkout on a disposable Linux runner.' >&2
@@ -310,6 +312,11 @@ resolved() {
 }
 wait_for 'The same alert resolved' 150 resolved
 printf 'Fresh reference install, Agent MCP, SSH recording and recovered drill passed in %ss\n' "$((SECONDS - start))"
+if [[ "$version" == v0.3.0-rc.37 ]]; then
+  printf 'The pinned release %s predates revocable page links.\n' "$version"
+else
+  smoke_page_link_revocation "$alert" "$session"
+fi
 
 # Add and revoke a fixture grant before the backup. The endpoint is inside the Beacon container and
 # is unused by the test. The REST list verifies delegation without sending any upstream request.
@@ -417,6 +424,9 @@ curl -fsS "$status_url/api/v1/sessions/$session/recording" -H "Authorization: Be
 cmp "$work/recording" "$work/restored-recording"
 curl -fsS -b "$work/restored-cookies" "$status_url/console/sessions/$session" > "$work/restored-replay.html"
 grep -Fq 'id="player"' "$work/restored-replay.html"
+if [[ "$version" != v0.3.0-rc.37 ]]; then
+  smoke_page_links_restored
+fi
 printf 'Cold SQLite restore preserved account access, the incident note, SSH replay and credential revocation after %ss\n' "$((SECONDS - start))"
 
 # A fresh episode preserves the separate successful Agent and restore checks above. The Bark

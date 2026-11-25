@@ -121,6 +121,17 @@ In an incident outcome, `verification` shows the latest recorded on-demand check
 | `GET /api/v1/sessions/{id}` | `sessions:read` or `machines:ssh` | A session's transcript: a command's output, or an interactive shell's commands with their output and exit status |
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` or `machines:ssh` | The recording, asciicast v3, to replay with asciinema |
 
+The session list, alert evidence and timeline include command text and signed replay links only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the session metadata there.
+
+## Manage share links
+
+Both routes require a standalone credential with `accounts:write`. Use `alert` or `session` for `kind`, and supply the alert group ID or SSH session ID. Treat the returned URL as a credential. The audit log and alert chat record the action and its target.
+
+| Route | What |
+| --- | --- |
+| `POST /api/v1/share-links/{kind}/{id}` | Create a read-only URL and return `url` and `expires_at`. An alert link opens the current incident. A session link opens the session and its recording. |
+| `POST /api/v1/share-links/{kind}/{id}/revoke` | Revoke outstanding links for that alert group, including all its incidents, or that SSH session and its recording. Returns `{"ok":true}`. |
+
 ## Configuration
 
 What Beacon monitors, each item in the shape of its file ([Monitor a service](../guide/monitoring.md)). Reads take `status:read` or `config:write`, and changes take `config:write`.
@@ -269,6 +280,8 @@ Each sends with a token of its own:
 | `auth.too_many_failures` | 429 | Too many failed attempts from this address; the message says how long to wait, and the response carries `Retry-After` |
 | `bad_input` | 400, 415 | The request is not what the route takes: not JSON, an unknown field, a value out of range. The message says which |
 | `upstream` | 502, 503 | Something Beacon relies on did not answer (VictoriaMetrics, the store), or this Beacon does not take the request |
+| `share.not_found` | 404 | No alert group or SSH session with this ID |
+| `share.unavailable` | 503 | Beacon cannot create or revoke a signed link right now |
 | `audit.unavailable` | 500 | The audit log cannot be read |
 | `incident.not_found` | 404 | No incident outcome with that ID is retained |
 | `incident.unavailable` | 500 | Incident outcomes cannot be read |

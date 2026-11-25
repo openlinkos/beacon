@@ -283,7 +283,7 @@ func TestSignedAlertReturnsToAlertAfterSignIn(t *testing.T) {
 	b := e.browser()
 	path := link.AlertPath(e.id)
 	a := b.get(e.link(path))
-	signIns := hrefs(a.body, "/console/sign-in?")
+	signIns := hrefs(a.body, link.SignInPath(path))
 	if a.code != http.StatusOK || len(signIns) == 0 || strings.Contains(a.body, `id="alert-ack"`) {
 		t.Fatalf("signed alert: status %d, sign-in links %v", a.code, signIns)
 	}

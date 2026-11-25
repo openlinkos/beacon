@@ -11,8 +11,8 @@ import (
 // The routes for working an alert: its evidence in one answer, its timeline, notes on it, and the
 // change events around it.
 
-func (s *Server) evidence(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
-	ev, err := s.Bridge.Evidence(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"))
+func (s *Server) evidence(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	ev, err := s.Bridge.EvidenceFor(r.Context(), who, r.PathValue("id"), r.URL.Query().Get("before"))
 	if err != nil {
 		s.opError(w, err)
 		return
@@ -20,8 +20,8 @@ func (s *Server) evidence(w http.ResponseWriter, r *http.Request, _ bridge.Actor
 	writeJSON(w, http.StatusOK, ev)
 }
 
-func (s *Server) timeline(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
-	tl, err := s.Bridge.Timeline(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"))
+func (s *Server) timeline(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	tl, err := s.Bridge.TimelineFor(r.Context(), who, r.PathValue("id"), r.URL.Query().Get("before"))
 	if err != nil {
 		s.opError(w, err)
 		return

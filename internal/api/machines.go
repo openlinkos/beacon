@@ -253,7 +253,7 @@ func (s *Server) editFile(w http.ResponseWriter, r *http.Request, who bridge.Act
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
+func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
 	q := r.URL.Query()
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -268,6 +268,11 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, _ bridge.A
 	if err != nil {
 		s.gateError(w, err)
 		return
+	}
+	if !s.Bridge.MayReadSession(who) {
+		for i := range ss {
+			ss[i].Page, ss[i].Command = "", ""
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": ss})
 }

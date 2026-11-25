@@ -36,6 +36,9 @@ func TestMigrateToPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := src.RevokePageLinks("alert", "c", AuditEntry{Actor: "alice", Via: "api"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := src.CheckpointAudit(); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +80,9 @@ func TestMigrateToPostgres(t *testing.T) {
 	}
 	if _, ok := s.Group("c"); !ok {
 		t.Error("a group the source held is gone")
+	}
+	if generation, err := s.PageLinkGeneration("alert", "c"); err != nil || generation != 1 {
+		t.Errorf("revocation generation did not survive migration: %d, %v", generation, err)
 	}
 
 	// a full destination copies nothing

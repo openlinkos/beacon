@@ -331,7 +331,7 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
-	signer, err := link.NewSigner(pageKey, cfg.Pages.LinkTTL.D(), time.Now)
+	signer, err := link.NewRevocableSigner(pageKey, cfg.Pages.LinkTTL.D(), time.Now, st.PageLinkGeneration)
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 1

@@ -188,28 +188,28 @@ A session still open shows its record. The recording plays once the session ends
 
 ## Signed links {#signed-links}
 
-The links Beacon puts in the chat open one page without signing in. Such a link ends in `?s=<expiry>.<signature>`:
+Beacon's signed links let anyone who holds the link open the shared page without signing in. The signature is part of the `s` query parameter, and Beacon keeps the signing key in its database. Links last for `pages.link_ttl`, 30 days by default. A signed-out request with an expired, revoked or invalid link gets a plain 404.
 
-- the expiry is in Unix seconds;
-- the signature is the base64url HMAC-SHA256 of the method, the path and the expiry, under a key Beacon keeps in its database.
+An alert link opens one alert episode for viewing. Sign in with your own account to respond or browse related alerts and SSH replays, subject to that account's permissions. Command text from related SSH sessions follows the same access rules as replays. A session link opens that session and lets the recipient play or download its recording when one is available. **Sign in** returns you to the same page and uses the account's permissions.
 
-Links are valid for `pages.link_ttl`, 30 days by default. Each grants exactly one page, view-only: the alert's page, or the session's page with its recording. A link for another path, with a changed expiry, or expired, fails. Every failure is a plain 404, the same as for a page that does not exist, so a wrong link reveals nothing.
+To share from the console, sign in as an owner and open the alert or session. Choose **Manage share links**, then **Create share link**. Copy the displayed link and check its expiry. An alert share opens the current episode while its detail is retained. Send links only to people who should see the alert or recording, and set `link_ttl` to fit how long recipients need access.
 
-**Sign in** on that page returns to the same alert or session. After sign-in, the page uses the account's own permissions.
+Use **Revoke all share links** on that management page to end access through links already issued for the resource:
 
-**Anyone holding a link can see that page, recording included, without signing in anywhere.** So:
+- For an alert, revocation covers every episode in its alert group, including links in chat.
+- For a session, revocation covers both the session page and the signed recording link.
 
-- the chat the links go to must be private;
-- a link should not be forwarded further than the recording may travel;
-- keep `link_ttl` as short as the chat's habits allow.
+You can create a fresh link afterwards. A link previously issued for a related alert or session is a separate grant. Revoke those links from that resource's own management page. Signed-in users continue to access what their accounts allow.
 
-Beacon hands links out wherever a person might pick one up:
+Beacon stores revocations in its database. Restoring an older backup also restores its revocation state, so a link revoked after that backup can work again until it expires.
+
+Beacon also provides signed links in these places:
 
 - the card's **Timeline** button;
 - the chat's echoes, with a **Replay** link per session;
 - the API and MCP answers, so that an agent can hand a person a link.
 
-Links made before 0.3.0 named `/alerts/{id}` and `/sessions/{id}` at the site's root. Those paths still answer, sent on (`308`) to the page's path under `/console`. Every other old path of the console is sent on to its place under `/console` with its query, so bookmarks keep working ([The console says 404 on an old link](../self-hosting/troubleshooting.md#the-console-says-404-on-an-old-link)).
+Older links may point to `/alerts/{id}` or `/sessions/{id}` at the site's root. A valid link redirects (`308`) to the same page under `/console`. Expiry and revocation apply across both paths. Other old console paths redirect with their query parameters, so bookmarks keep working ([The console says 404 on an old link](../self-hosting/troubleshooting.md#the-console-says-404-on-an-old-link)).
 
 ## Tokens instead {#tokens-instead}
 

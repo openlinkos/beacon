@@ -1,0 +1,30 @@
+{{define "head"}}{{if .IssuedURL}}<script defer src="/static/beacon-copy.js?v={{.Version}}"></script>{{end}}{{end}}
+{{define "content"}}<div class="ol-stack bc-share-links">
+  <section class="ol-panel" aria-labelledby="share-link-heading">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="share-link-heading"{{if .IssuedURL}} tabindex="-1" autofocus{{end}}>{{icon "link"}} {{if .IssuedURL}}{{.L.Created}}{{else}}{{.L.Subject}}{{end}}</h2></div>
+    <div class="ol-panel-body ol-stack">
+      <p class="ol-break"><strong>{{.Resource}}</strong></p>
+      {{if .SessionID}}<p class="ol-hint ol-break">{{.L.SessionID}} <code>{{.SessionID}}</code></p>{{end}}
+      <p>{{.Audience}}</p>
+      {{if .IssuedURL}}<div class="ol-code ol-code-wrap"><pre><code id="issued-share-url">{{.IssuedURL}}</code></pre></div>
+      <div class="ol-cluster">
+        <button type="button" class="ol-btn ol-btn-primary ol-btn-sm" data-copy-source="issued-share-url" data-copied="{{.L.Copied}}" data-copy-error="{{.L.CopyError}}" hidden>{{.L.Copy}}</button>
+        {{if .Expiry}}<p class="ol-hint">{{.L.Expires}} <time datetime="{{.ExpiryISO}}">{{.Expiry}}</time></p>{{end}}
+      </div>
+      <p class="ol-hint bc-copy-feedback" id="issued-share-url-status" role="status"></p>{{end}}
+    </div>
+    {{if not .IssuedURL}}<form class="ol-panel-footer" method="post" action="{{.Form}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" class="ol-btn ol-btn-primary" name="intent" value="create">{{iconSm "link"}}{{.L.Create}}</button>
+    </form>{{end}}
+  </section>
+
+  <form class="ol-panel" method="post" action="{{.Form}}" aria-labelledby="revoke-share-heading">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="revoke-share-heading">{{.L.RevokeHeading}}</h2></div>
+    <div class="ol-panel-body"><p class="ol-hint" id="share-revocation-effect">{{.Revocation}}</p></div>
+    <div class="ol-panel-footer"><button type="submit" class="ol-btn ol-btn-danger-soft" name="intent" value="revoke" aria-describedby="share-revocation-effect">{{.L.Revoke}}</button></div>
+  </form>
+
+  <div><a class="ol-btn ol-btn-secondary" href="{{.Back}}">{{iconSm "chevron-left"}}{{.L.Back}}</a></div>
+</div>{{end}}

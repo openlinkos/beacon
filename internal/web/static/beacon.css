@@ -172,6 +172,9 @@
 }
 .bc-maintenance-choices .ol-check { min-block-size: 2.5rem; }
 
+.bc-share-links { max-inline-size: 46rem; }
+.bc-sharing-header { flex-wrap: wrap; justify-content: space-between; }
+
 .bc-status-component { max-inline-size: 52rem; }
 .bc-status-component-services .ol-badge { white-space: normal; }
 .bc-status-component-choices {
@@ -196,4 +199,5 @@
 #ssh-connect { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
 
 .bc-copy-feedback:empty,
+.bc-share-links [hidden],
 .bc-ssh-command [hidden] { display: none; }

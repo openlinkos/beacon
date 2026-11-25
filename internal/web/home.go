@@ -82,8 +82,10 @@ func (s *Server) moved(w http.ResponseWriter, r *http.Request) {
 		sig := q.Get(link.Param)
 		q.Del(link.Param)
 		if now, ok := link.Moved(r.URL.Path); ok && s.Pages != nil && s.Pages.Signer != nil {
-			if until, ok := s.Pages.Signer.Verify(http.MethodGet, r.URL.Path, sig); ok {
-				q.Set(link.Param, s.Pages.Signer.SignUntil(http.MethodGet, now, until))
+			if grant, ok := s.Pages.Signer.VerifyGrant(http.MethodGet, r.URL.Path, sig); ok {
+				if movedSignature := s.Pages.Signer.Derive(http.MethodGet, now, grant); movedSignature != "" {
+					q.Set(link.Param, movedSignature)
+				}
 			}
 		}
 		query = q.Encode()

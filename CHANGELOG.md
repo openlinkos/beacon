@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.38 (2026-11-25)
+
+- Let owners create and revoke share links from an alert or SSH session. Revocation covers all incidents in an alert group or the selected session and its recording, including outstanding chat links. The audit and chat record the action without the URL.
+- Require the recipient to sign in for related alerts and replays opened from a shared alert. Keep session command text and replay links within their session scopes across the session list, alert evidence and timeline.
+- Keep signed URL revocation effective across restarts and supported storage migration. Old console paths retain the same expiry and revocation when forwarded to their current address.
+
 ### rc.37 (2026-11-25)
 
 - Create the first public status page from the console. Choose which monitored services to show and review the public addresses before publishing. An existing explicit default keeps its addresses when another page is added.
