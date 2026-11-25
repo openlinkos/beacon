@@ -289,6 +289,18 @@ if [[ "$version" != v0.3.0-rc.43 ]]; then
   test ! -e "$work/hook.json"
   printf 'The signed first-drill checker verified current Agent and reporter access and refused a reporter mismatch before injecting a fault.\n'
 fi
+if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
+  curl -fsS -H "Authorization: Bearer $reporter_token" "$status_url/api/v1/agent-hooks/smoke-oncall/first-drill" |
+    jq -e '.signed_webhook and .matches_drill and .drill_only and .critical_chat == "none"' >/dev/null
+  if "$work/beacon-oncall" check "${check_args[@]}" -reporter "$reporter_name" \
+    -hook smoke-oncall -chat notification_webhook > "$work/check-no-chat.log" 2>&1; then
+    echo 'The first drill check accepted a deployment without a critical chat route.' >&2
+    exit 1
+  fi
+  grep -Fq 'there is no configured critical chat route' "$work/check-no-chat.log"
+  test ! -e "$work/hook.json"
+  printf 'The signed checker inspected the loaded first-drill hook and refused the absent critical chat before dispatch.\n'
+fi
 rpc() {
   curl -fsS "$status_url/mcp" -H "Authorization: Bearer $token" \
     -H 'Accept: application/json, text/event-stream' -H 'Content-Type: application/json' \
@@ -327,6 +339,30 @@ hook_firing() {
 wait_for 'Signed drill alert started the Agent fixture' "$((drill_started + 300 - SECONDS))" hook_firing
 (( SECONDS <= drill_started + 300 ))
 printf 'The on-call harness started the Agent fixture %ss after the injected failure\n' "$((SECONDS - drill_started))"
+
+retained_started_episode() {
+  local state=$1 request
+  # Read the same frozen start window after resolution and restore.
+  # shellcheck disable=SC2016
+  local match='any(.episodes[]; .episode == $episode and .started_at == $start and .opening_severity == "critical" and .state == $state)'
+  curl -fsSG "$status_url/api/v1/incident-episodes" -H "Authorization: Bearer $token" \
+    --data-urlencode "group=$alert" --data-urlencode "since=$episode_since" --data-urlencode "until=$episode_until" |
+    jq -e --arg episode "$cohort_episode" --arg start "$episode_started" --arg state "$state" "$match" >/dev/null
+  request=$(jq -nc --arg group "$alert" --arg since "$episode_since" --arg until "$episode_until" \
+    '{jsonrpc:"2.0",id:64,method:"tools/call",params:{name:"list_incident_episodes",arguments:{group:$group,since:$since,until:$until}}}')
+  rpc "$request" |
+    jq -e --arg episode "$cohort_episode" --arg start "$episode_started" --arg state "$state" ".result.structuredContent | $match" >/dev/null
+}
+if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
+  cohort_episode=$(jq -er '.alert.episode | select(length > 0)' "$work/hook.json")
+  started=$(curl -fsSG "$status_url/api/v1/incident-episodes" -H "Authorization: Bearer $token" --data-urlencode "group=$alert")
+  episode_since=$(jq -er '.since' <<< "$started")
+  episode_until=$(jq -er '.until' <<< "$started")
+  episode_started=$(jq -er --arg episode "$cohort_episode" '.episodes[] | select(.episode == $episode) | .started_at' <<< "$started")
+  retained_started_episode open
+  curl -fsS -b "$work/cookies" "$status_url/console/incident-episodes?group=$alert" > "$work/started-episodes.html"
+  grep -Fq "id=\"episodes-since\"" "$work/started-episodes.html"
+fi
 run=$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_command","arguments":{"machine":"target","command":"id -un"}}}')
 jq -e '.result.structuredContent | .exit_code == 0 and .stdout == "beacon\n"' <<< "$run" >/dev/null
 session=$(jq -er '.result.structuredContent.session' <<< "$run")
@@ -345,6 +381,9 @@ resolved() {
     jq -e '.status == "resolved"' >/dev/null
 }
 wait_for 'The same alert resolved' 150 resolved
+if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
+  retained_started_episode resolved
+fi
 retained_agent_check() {
   local check_id request
   check_id=$(jq -er '.result.structuredContent.id' <<< "$probe_result")
@@ -498,6 +537,10 @@ if [[ "$version" != v0.3.0-rc.44 ]]; then
   retained_exercise_origin
   printf 'REST and MCP retained the identified Agent passing check before and after cold restore.\n'
   printf 'The signed reference matched the recorded exercise run to the first rule quorum and preserved it after cold restore.\n'
+fi
+if [[ "$version" != v0.3.0-rc.44 && "$version" != v0.3.0-rc.45 ]]; then
+  retained_started_episode resolved
+  printf 'REST and MCP retained the same started episode while open, after resolution and after cold restore.\n'
 fi
 curl -fsS "$status_url/api/v1/alerts/$alert/timeline" -H "Authorization: Bearer $token" |
   jq -e --arg note "$note_text" 'any(.events[]; .kind == "note" and .text == $note)' >/dev/null

@@ -268,7 +268,7 @@ You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On
 )
 ```
 
-**Check the first drill before sending an alert.** Use the matching release with `beacon-oncall check` (rc.44 or later). Set the address to Beacon’s `public_url` and use the name after `token:` in the hook's `reporter` setting. Run as the same Linux user that will receive the hook.
+**Check the first-drill credentials.** Use the matching release with `beacon-oncall check` (rc.44 or later). Set the address to Beacon’s `public_url` and use the name after `token:` in the hook's `reporter` setting. Run as the same Linux user that will receive the hook.
 
 ```sh
 sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
@@ -290,6 +290,18 @@ agents:
     service: '^drill$'
     reporter: token:reference-drill-reporter
 ```
+
+**Check that the hook and test chat settings are live.** If `beacon-oncall check -h` lists `-hook`, repeat the credential check after the reload, with the loaded hook name and the expected chat route. For a signed notification receiver:
+
+```sh
+sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
+  -url https://status.example.com -owner alice -agent reference-drill -machine edge-1 \
+  -agent-token-file /etc/beacon-oncall/beacon-token \
+  -reporter reference-drill-reporter -report-token-file /etc/beacon-oncall/run-report-token \
+  -hook reference-drill -chat notification_webhook
+```
+
+Use `-chat slack` for Slack or `-chat app` for the Feishu or Lark app. The check confirms that the active signed hook matches critical alerts for `drill`, is limited to that test service and names the reporter you supplied. It also checks the configured critical chat route. The receiver health check and drill below verify the connection, Agent sign-in and actual notification delivery.
 
 **Give the awake Agent one read-only task.** The built-in `drill` probes Beacon's HTTP endpoint. Name the enrolled test machine explicitly in a separate prompt for this first run.
 

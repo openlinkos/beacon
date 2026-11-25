@@ -89,6 +89,13 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 	if episode == "" {
 		episode = "legacy"
 	}
+	o := b.summariseEpisode(g)
+	o.ID, o.AuditUntil = store.OutcomeID(g.ResolvedAt, g.ID, episode), auditUntil
+	o.BindDeliveryReporters(g.Agents)
+	return &o
+}
+
+func (b *Bridge) summariseEpisode(g store.Group) store.IncidentOutcome {
 	services := make([]string, 0, maxServices)
 	for _, service := range b.groupServices(&g) {
 		services = append(services, cleanLine(service))
@@ -120,14 +127,12 @@ func (b *Bridge) outcome(g store.Group, now, auditUntil time.Time) *store.Incide
 	}
 	participants := append([]store.Participation{}, g.Participation...)
 	slices.SortFunc(participants, func(a, c store.Participation) int { return c.At.Compare(a.At) })
-	o := store.IncidentOutcome{
-		ID: store.OutcomeID(g.ResolvedAt, g.ID, episode), Group: g.ID, Title: cleanLine(b.title(&g)),
-		Severity: g.Severity, Origin: g.Origin, ExerciseRun: g.ExerciseRun, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
-		AuditUntil: auditUntil, Participation: participants, Verification: verificationCounts(latest),
+	return store.IncidentOutcome{
+		Group: g.ID, Title: cleanLine(b.title(&g)),
+		Severity: g.Severity, OpeningSeverity: g.OpeningSeverity, Origin: g.Origin, ExerciseRun: g.ExerciseRun, Services: services, Started: g.StartsAt, Resolved: g.ResolvedAt,
+		Participation: participants, Verification: verificationCounts(latest),
 		PassingCheck: passingCheck(&g), AgentDeliveries: outcomeAgentDeliveries(g.Agents), HumanAcknowledgement: human,
 	}
-	o.BindDeliveryReporters(g.Agents)
-	return &o
 }
 
 func outcomeAgentDeliveries(calls []store.AgentCall) []store.OutcomeAgentDelivery {

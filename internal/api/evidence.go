@@ -45,6 +45,15 @@ func (s *Server) addNote(w http.ResponseWriter, r *http.Request, who bridge.Acto
 	writeJSON(w, http.StatusCreated, g)
 }
 
+func (s *Server) checkDrillHook(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	out, err := s.Bridge.CheckDrillHook(r.PathValue("name"), who)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "agent_hook.not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) reportAgentRun(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
 	var body bridge.AgentRunInput
 	if !readJSON(w, r, &body) {

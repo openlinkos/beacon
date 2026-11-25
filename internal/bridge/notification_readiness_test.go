@@ -99,3 +99,65 @@ func TestRecordedChatAcceptanceReplacesLegacyTimelineEvent(t *testing.T) {
 		t.Fatalf("the recorded acceptance appears %d times, want 1", found)
 	}
 }
+
+func TestCriticalDeviceAcknowledgementBelongsToExactPushoverSubmission(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	deps := e.b.d
+	cfg := *deps.Config
+	cfg.Secrets.PushoverUserKey = "isolated recipient"
+	cfg.Escalation = map[string]config.Policy{"critical": {Channel: "none", InitialPushover: true, Pushover: config.Duration(time.Second)}}
+	deps.Config = &cfg
+	b := New(deps)
+	w := hook("firing", "critical", "f1")
+	id := GroupID(w.GroupKey)
+	if err := b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	initial := b.LatestCriticalDeliveries()["pushover"]
+	if initial.Episode == "" || initial.AlertID != id || initial.Destination != DeliveryCurrent || initial.Result != "ok" ||
+		!initial.DeviceAcknowledgedAt.IsZero() {
+		t.Fatalf("provider acceptance was missing or incorrectly verified the device: %+v", initial)
+	}
+	e.push.acked = true
+	e.now = e.now.Add(receiptEvery)
+	b.Tick(ctx)
+	at := e.now
+	if got := b.LatestCriticalDeliveries()["pushover"]; got.Episode != initial.Episode || !got.DeviceAcknowledgedAt.Equal(at) {
+		t.Fatalf("provider response did not bind to its accepted submission: %+v", got)
+	}
+	if _, err := b.Ack(ctx, id, Actor{Name: "Night shift", Key: "user:night-shift", Via: "console"}, "Taking over"); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(deps).LatestCriticalDeliveries()["pushover"]; got.Episode != initial.Episode || !got.DeviceAcknowledgedAt.Equal(at) {
+		t.Fatalf("device acknowledgement did not survive takeover and restart: %+v", got)
+	}
+	changed := cfg
+	changed.Secrets.PushoverUserKey = "another isolated recipient"
+	deps.Config = &changed
+	if got := New(deps).LatestCriticalDeliveries()["pushover"]; got.Destination != DeliveryPrevious || !got.DeviceAcknowledgedAt.IsZero() {
+		t.Fatalf("the historical device response appeared current after changing recipient: %+v", got)
+	}
+	e.now = e.now.Add(cfg.AckTTL.D() + time.Second)
+	b.Tick(ctx)
+	e.now = e.now.Add(time.Second)
+	b.Tick(ctx)
+	if got := b.LatestCriticalDeliveries()["pushover"]; got.Episode != initial.Episode || !got.At.After(initial.At) ||
+		got.Result != "ok" || !got.DeviceAcknowledgedAt.IsZero() {
+		t.Fatalf("a later page in the same episode inherited the first response: %+v", got)
+	}
+	e.now = e.now.Add(time.Minute)
+	w.Status = "resolved"
+	if err := b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(time.Minute)
+	w.Status = "firing"
+	if err := b.HandleWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.LatestCriticalDeliveries()["pushover"]; got.Episode == "" || got.Episode == initial.Episode ||
+		got.Destination != DeliveryCurrent || got.Result != "ok" || !got.DeviceAcknowledgedAt.IsZero() {
+		t.Fatalf("a new episode inherited an earlier device acknowledgement: %+v", got)
+	}
+}

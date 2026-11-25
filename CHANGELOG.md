@@ -6,6 +6,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.46 (2026-11-25)
+
+- Review open and resolved incidents by start time, with the original severity when known and separate evidence for wake delivery, Agent execution, human handover and passing checks.
+- Show which phone submission a provider acknowledged and keep that evidence visible after a named person takes over. Open the chat and phone verification guides without leaving the console.
+- Verify the loaded first-drill hook, reporter, signing, filters and expected critical chat route with `beacon-oncall check` before sending an alert.
+- Match exercise receipts when the metrics store omits an empty label from the raw probe sample.
+
 ### rc.45 (2026-11-25)
 
 - Show the latest recorded on-demand check, its requester and a link to per-location results in the incident response panel.

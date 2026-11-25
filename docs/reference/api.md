@@ -50,7 +50,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | --- | --- |
 | `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration, the status pages and maintenance windows |
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
-| `alerts:report` | Recording execution for hook deliveries assigned to this reporter |
+| `alerts:report` | Record execution for deliveries and check first-drill configuration for hooks assigned to this reporter |
 | `machines:ssh` | The SSH channel with the agent's own keys, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
 | `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
@@ -90,9 +90,11 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | --- | --- | --- |
 | `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
+| `GET /api/v1/incident-episodes` | `status:read` | Open and resolved episodes ordered by start time, filtered by `since`, `until`, `group`, `severity` and `origin` |
 | `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome by ID, including alert resolution, recorded participation, the latest check and a retained passing check near rule recovery when available |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
+| `GET /api/v1/agent-hooks/{name}/first-drill` | `alerts:report` | Check a hook assigned to this reporter. Returns `signed_webhook`, `matches_drill`, `drill_only` and `critical_chat` from loaded configuration. Sends no delivery |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time. A report after the group fires again can update the retained delivery in its original incident, with that outcome's ID as the audit target |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
@@ -101,7 +103,11 @@ For incident verification, pair `alert_id` with `expected_episode`. Copy the `ep
 
 In an incident outcome, `verification` shows the latest recorded on-demand check. The optional `passing_check` shows the last complete pass at or before `resolved_at`, or the first complete pass after it if none came before. A complete pass requires at least one expected target-location observation and a successful result for each. The `at` timestamp records when Beacon finished collecting results, and `actor_kind` is available when Beacon recorded the caller's kind. Older incidents may lack a passing check if their detailed results have already been removed.
 
-Filter by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or an RFC 3339 time), and `evidence` before paging. The time filter uses rule recovery, within the configured retention period.
+For a start-time review, use `incident-episodes` with an inclusive `since` and an exclusive `until` in RFC 3339. It defaults to the last 24 hours and accepts windows up to 31 days. Pass the returned `since`, `until` and `before` with the same filters to continue. The `group` and `episode` identify the same record as its state changes from `open` to `resolved`. Resolved records with recovery times before `retained_from` may have been pruned. The severity filter uses `opening_severity` when available. Older episodes report `opening_severity: unknown` and the filter uses their last recorded severity.
+
+In this view, `wake: accepted` means Beacon recorded hook acceptance for the firing alert. A programme report, a person's alert action and a passing check each record their own observation. Unclassified incident origins and missing hook acceptance are reported as `unknown`.
+
+Filter resolved outcomes by `severity` (`critical`, `warning` or `info`), `since` (such as `7d` or an RFC 3339 time), and `evidence` before paging. This time filter uses rule recovery, within the configured retention period.
 
 - `agent_report` matches a programme report for a firing delivery, including `not_started`. A report for a recovery delivery does not qualify.
 - `human_ack` matches an identified person's explicit acknowledgement. The outcome's `human_acknowledgement` keeps the person's name, source and time. Device receipts, silences and notes are recorded separately.
@@ -322,6 +328,7 @@ Each sends with a token of its own:
 | `incident.changed` | 409 | The incident being verified is no longer the current episode of its alert group |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
+| `agent_hook.not_found` | 404 | The named live hook is absent or is not assigned to this reporter |
 | `agent_run.not_found` | 404 | No matching reportable hook delivery is available for this alert |
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |

@@ -26,7 +26,7 @@ func latestNotification(g *store.Group, channel string) store.Notification {
 	return store.Notification{}
 }
 
-func (b *Bridge) recordNotification(g *store.Group, channel string, err error) {
+func (b *Bridge) recordNotification(g *store.Group, channel string, err error) time.Time {
 	now := b.now()
 	result := "ok"
 	if err != nil {
@@ -38,6 +38,7 @@ func (b *Bridge) recordNotification(g *store.Group, channel string, err error) {
 		_ = b.d.Store.Audit(store.AuditEntry{Time: now, Actor: "beacon", Via: channel, Action: "notify_people", Target: g.ID, Detail: result})
 	}
 	appendNotification(g, store.Notification{At: now, Channel: channel, Result: result, RouteID: b.deliveryRoutes[channel]})
+	return now
 }
 
 func appendNotification(g *store.Group, n store.Notification) {
@@ -112,9 +113,25 @@ func acceptedPushoverAt(g *store.Group) *time.Time {
 	return nil
 }
 
+// recordPushoverDeviceAcknowledgement binds the receipt response to its accepted submission.
+func (b *Bridge) recordPushoverDeviceAcknowledgement(g *store.Group, at time.Time) {
+	route := b.deliveryRoutes["pushover"]
+	if g.Pushed.IsZero() || route == "" || g.ReceiptRouteID != route {
+		return
+	}
+	for i := len(g.Notifications) - 1; i >= 0; i-- {
+		n := &g.Notifications[i]
+		if n.Channel == "pushover" && n.Event == "" && n.Result == "ok" && n.RouteID == route && n.At.Equal(g.Pushed) {
+			n.DeviceAcknowledgedAt = at
+			return
+		}
+	}
+}
+
 type notificationEvent struct {
 	Event
-	routeID string
+	routeID              string
+	deviceAcknowledgedAt time.Time
 }
 
 func notificationEvents(g *store.Group) []notificationEvent {
@@ -142,7 +159,8 @@ func notificationEvents(g *store.Group) []notificationEvent {
 				kind = "pushover"
 			}
 		}
-		events = append(events, notificationEvent{Event: Event{At: n.At, Kind: kind, Via: via, Result: n.Result, Event: n.Event}, routeID: n.RouteID})
+		events = append(events, notificationEvent{Event: Event{At: n.At, Kind: kind, Via: via, Result: n.Result, Event: n.Event},
+			routeID: n.RouteID, deviceAcknowledgedAt: n.DeviceAcknowledgedAt})
 		if n.Event == "" {
 			seen[n.Channel] = true
 		}
@@ -165,9 +183,9 @@ func notificationEvents(g *store.Group) []notificationEvent {
 
 // DeliveryAttempt links a recent provider response to its incident.
 type DeliveryAttempt struct {
-	AlertID, Result string
-	At              time.Time
-	Destination     DeliveryDestination
+	AlertID, Episode, Result string
+	At, DeviceAcknowledgedAt time.Time
+	Destination              DeliveryDestination
 }
 
 // DeliveryDestination describes whether a historical outcome matches the current configuration.
@@ -205,7 +223,11 @@ func (b *Bridge) LatestCriticalDeliveries() map[string]DeliveryAttempt {
 			prior := results[channel]
 			current, priorCurrent := destination == DeliveryCurrent, prior.Destination == DeliveryCurrent
 			if (current && !priorCurrent) || (current == priorCurrent && e.At.After(prior.At)) {
-				results[channel] = DeliveryAttempt{AlertID: g.ID, Result: e.Result, At: e.At, Destination: destination}
+				attempt := DeliveryAttempt{AlertID: g.ID, Episode: g.Episode, Result: e.Result, At: e.At, Destination: destination}
+				if current && e.Kind == "pushover" {
+					attempt.DeviceAcknowledgedAt = e.deviceAcknowledgedAt
+				}
+				results[channel] = attempt
 			}
 		}
 	}

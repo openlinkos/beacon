@@ -284,7 +284,7 @@ type alertPage struct {
 	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
 	HookFailed, PeopleDeliveryFailed                                             bool
-	PhoneCancellation, PhoneRefresh                                              string
+	PhoneCancellation, PhoneRefresh, EarlierPhoneAck                             string
 	PhoneCancellationPending                                                     bool
 	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
@@ -375,6 +375,14 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		p.Escalation = s.t("New escalations are paused while this alert is acknowledged.")
 	}
 	p.PhoneCancellation, p.PhoneCancellationPending = s.pushoverCancellation(g, tl)
+	if g.Ack == nil || g.Ack.Via != "pushover" {
+		for _, e := range slices.Backward(tl.Events) {
+			if e.Kind == "acknowledged" && e.Via == "pushover" {
+				p.EarlierPhoneAck = s.t("Earlier Pushover device acknowledgement at %s", s.clock(e.At))
+				break
+			}
+		}
+	}
 	if p.PhoneCancellationPending && a.Viewer != nil {
 		p.PhoneRefresh = r.URL.EscapedPath()
 	}

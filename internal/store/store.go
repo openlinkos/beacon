@@ -62,6 +62,7 @@ type Group struct {
 	Key                  string                       `json:"key"`
 	Status               string                       `json:"status"` // firing or resolved
 	Severity             string                       `json:"severity"`
+	OpeningSeverity      string                       `json:"opening_severity,omitempty"`
 	Origin               string                       `json:"origin,omitempty"`
 	ExerciseRun          string                       `json:"exercise_run,omitempty"`
 	Labels               map[string]string            `json:"labels"`
@@ -174,11 +175,12 @@ func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
 
 // Notification records a provider submission outcome, independently of human acknowledgement.
 type Notification struct {
-	At      time.Time `json:"at"`
-	Channel string    `json:"channel"`
-	Event   string    `json:"event,omitempty"`    // resolved for a recovery update, cancel for an emergency cancellation
-	Result  string    `json:"result"`             // ok or failed
-	RouteID string    `json:"route_id,omitempty"` // keyed identity of the configuration used for this attempt
+	At                   time.Time `json:"at"`
+	Channel              string    `json:"channel"`
+	Event                string    `json:"event,omitempty"`    // resolved for a recovery update, cancel for an emergency cancellation
+	Result               string    `json:"result"`             // ok or failed
+	RouteID              string    `json:"route_id,omitempty"` // keyed identity of the configuration used for this attempt
+	DeviceAcknowledgedAt time.Time `json:"device_acknowledged_at,omitzero"`
 }
 
 // Silence is the silence created for a group.

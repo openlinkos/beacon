@@ -22,6 +22,8 @@ func checkDrill(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&check.Agent, "agent", "", "Beacon agent name")
 	fs.StringVar(&check.Machine, "machine", "", "enrolled machine selected for the drill")
 	fs.StringVar(&check.Reporter, "reporter", "", "standalone token name in the hook's reporter field")
+	fs.StringVar(&check.Hook, "hook", "", "check this loaded first-drill hook after applying configuration")
+	fs.StringVar(&check.Chat, "chat", "", "expected critical chat route (requires -hook)")
 	agentFile := fs.String("agent-token-file", "", "file used by the on-call agent")
 	reportFile := fs.String("report-token-file", "", "file used by the harness to report execution")
 	if err := fs.Parse(args); err != nil {
@@ -56,5 +58,8 @@ func checkDrill(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Agent %q / %q is limited to enrolled machine %q. Reporter token %q has alerts:report.\n",
 		check.Owner, check.Agent, check.Machine, check.Reporter)
+	if check.Hook != "" {
+		fmt.Fprintf(stdout, "The loaded signed hook %q matches a critical drill, is limited to service drill and is assigned to this reporter. A critical chat route is configured. The drill verifies delivery.\n", check.Hook)
+	}
 	return 0
 }

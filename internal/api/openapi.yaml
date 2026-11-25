@@ -40,7 +40,7 @@ components:
         error: {type: string}
         code:
           type: string
-          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, upstream,
+          enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, agent_hook.not_found, upstream,
             ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
@@ -140,6 +140,14 @@ components:
         reporter: {type: string, description: The principal bound to this delivery for execution reports}
         run: {$ref: "#/components/schemas/AgentRun"}
         run_start: {$ref: "#/components/schemas/AgentRun"}
+    DrillHookCheck:
+      type: object
+      required: [signed_webhook, matches_drill, drill_only, critical_chat]
+      properties:
+        signed_webhook: {type: boolean, description: The active hook is a webhook with a loaded HMAC signing secret.}
+        matches_drill: {type: boolean, description: The hook matches a firing critical alert for the built-in drill service.}
+        drill_only: {type: boolean, description: The configured service selector is the literal drill or ^drill$.}
+        critical_chat: {type: string, enum: [none, app, webhook, notification_webhook, slack], description: The configured critical chat route.}
     AgentRun:
       type: object
       required: [status, at, by, via]
@@ -382,6 +390,7 @@ components:
         group: {type: string, description: Recurring alert group ID used to filter related audit entries}
         title: {type: string}
         severity: {type: string, enum: [critical, warning, info]}
+        opening_severity: {type: string, enum: [critical, warning, info], description: Severity recorded when this episode opened. Absent for older episodes.}
         origin: {type: string, enum: [exercise], description: Present when Beacon verified an exercise quorum at the rule's initial evaluation}
         exercise_run: {type: string, description: The verified built-in exercise run when origin is exercise}
         services: {type: array, items: {type: string}}
@@ -1359,6 +1368,71 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AgentRun"}
+        default: {$ref: "#/components/responses/Error"}
+  /agent-hooks/{name}/first-drill:
+    get:
+      summary: Check the active hook and critical chat configuration for a first drill
+      description: >-
+        Scope: alerts:report. Only the reporter assigned to the named hook can check it. Describes the loaded
+        configuration for a critical alert on the drill service. No request is sent to the hook or chat.
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Configuration observations
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DrillHookCheck"}
+        "404": {$ref: "#/components/responses/Error"}
+        default: {$ref: "#/components/responses/Error"}
+  /incident-episodes:
+    get:
+      summary: List incidents by start time
+      description: "Scope: status:read. Retained open and resolved alert episodes ordered by start time. No combination of recorded observations proves unattended repair."
+      parameters:
+        - {name: group, in: query, schema: {type: string}, description: Filter by recurring alert group ID}
+        - {name: severity, in: query, schema: {type: string, enum: [critical, warning, info]}, description: Opening severity when recorded. Older rows use their last recorded severity and mark opening severity unknown.}
+        - {name: origin, in: query, schema: {type: string, enum: [exercise, unknown]}, description: Filter by a verified exercise quorum or unclassified origin}
+        - {name: since, in: query, schema: {type: string, format: date-time}, description: Inclusive start-time bound. Defaults to 24 hours before until.}
+        - {name: until, in: query, schema: {type: string, format: date-time}, description: Exclusive start-time bound. Defaults to now. Set a window of up to 31 days.}
+        - {name: before, in: query, schema: {type: string}, description: Cursor from the preceding page with its returned since and until and the same filters}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        "200":
+          description: A page of episodes with the fixed query and archive retention bounds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        group: {type: string}
+                        episode: {type: string}
+                        outcome_id: {type: string, description: The detail ID when a resolved outcome is retained}
+                        state: {type: string, enum: [open, resolved]}
+                        title: {type: string}
+                        services: {type: array, items: {type: string}}
+                        severity: {type: string, enum: [critical, warning, info]}
+                        opening_severity: {type: string, enum: [critical, warning, info, unknown]}
+                        origin: {type: string, enum: [exercise, unknown]}
+                        exercise_run: {type: string}
+                        started_at: {type: string, format: date-time}
+                        resolved_at: {type: string, format: date-time}
+                        wake: {type: string, enum: [accepted, unknown], description: Recorded acceptance of a firing delivery. Programme status is separate.}
+                        agent_deliveries: {$ref: "#/components/schemas/IncidentOutcome/properties/agent_deliveries"}
+                        human_acknowledgement: {$ref: "#/components/schemas/IncidentOutcome/properties/human_acknowledgement"}
+                        participation: {$ref: "#/components/schemas/IncidentOutcome/properties/participation"}
+                        verification: {$ref: "#/components/schemas/IncidentOutcome/properties/verification"}
+                        passing_check: {$ref: "#/components/schemas/IncidentOutcome/properties/passing_check"}
+                  since: {type: string, format: date-time}
+                  until: {type: string, format: date-time}
+                  retained_from: {type: string, format: date-time, description: Resolved outcomes older than this recovery time may have been pruned.}
+                  before: {type: string}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
         default: {$ref: "#/components/responses/Error"}
   /incident-outcomes:
     get:

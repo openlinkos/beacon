@@ -134,7 +134,7 @@ Upgrade both centres in an HA deployment before setting the reporter. If rolling
 
 The incident shows execution separately from the signed wake. The harness can report that the programme started, exited successfully, exited with an error, timed out or could not start. It reports the exit code when known. Programme output stays in the local log. The harness retries transient report failures within a short window. Reports still in memory can be lost if the harness stops abruptly. Check the harness log when execution is missing in the console, and confirm the service separately with a recovery check.
 
-For the first drill, run [`beacon-oncall check`](../self-hosting/install.md#prepare-a-first-wake-on-the-centre) as the receiver's Linux user. It compares the configured reporter's token name and scope with the credential files and checks the Agent's current permissions and machine enrolment. The check only makes authenticated, read-only requests to the specified Beacon centre.
+For the first drill, run [`beacon-oncall check`](../self-hosting/install.md#prepare-a-first-wake-on-the-centre) as the receiver's Linux user. It checks the reporter token's name and scope, and the Agent's current permissions and machine enrolment. After applying the hook configuration, add `-hook NAME` to check the live binding and critical drill filters on the centre. Add `-chat CHANNEL` to check the specific test chat route. Both checks make only authenticated, read-only requests to the specified centre.
 
 ### What the program gets
 

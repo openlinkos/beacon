@@ -95,6 +95,7 @@ type outcomesPage struct {
 	Rows                                  []outcomeHistoryRow
 	Filters                               []outcomeFacet
 	Group, AllGroups, Reset, First, Older string
+	Episodes, EpisodesLabel               string
 }
 
 type outcomeHistoryRow struct {
@@ -179,6 +180,8 @@ func (s *Server) incidentOutcomes(w http.ResponseWriter, r *http.Request, v *vie
 	if q.Group != "" {
 		params.Set("group", q.Group)
 	}
+	p.Episodes = href(consolePath("/incident-episodes"), url.Values{"group": {q.Group}, "severity": {q.Severity}, "origin": {q.Origin}})
+	p.EpisodesLabel = s.t("Started episodes")
 	if q.Before != "" {
 		p.First = href(base, params)
 	}

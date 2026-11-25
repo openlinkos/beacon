@@ -125,6 +125,19 @@ func addEvidenceTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, g, err
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "check_drill_hook", Title: "Check first-drill hook configuration", Annotations: read,
+		Description: "Check the named hook's loaded signing configuration, firing filters and critical chat route. Requires alerts:report and the hook's assigned reporter. This sends no delivery.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		Name string `json:"name" jsonschema:"the named first-drill hook"`
+	}) (*mcp.CallToolResult, bridge.DrillHookCheck, error) {
+		who, err := need(ctx, bridge.AgentRunScope)
+		if err != nil {
+			return nil, bridge.DrillHookCheck{}, err
+		}
+		out, err := b.CheckDrillHook(in.Name, who)
+		return nil, out, err
+	})
+
 	type agentRunIn struct {
 		ID       string `json:"id" jsonschema:"alert group id"`
 		Delivery string `json:"delivery" jsonschema:"delivery id from the signed wake"`
