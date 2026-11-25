@@ -114,19 +114,27 @@ type AlertLinks struct {
 // Evidence is what an agent needs to judge an alert group. Heartbeats are there when its labels name a
 // heartbeat (HeartbeatStale, HeartbeatMissing).
 type Evidence struct {
-	Alert      AlertBrief      `json:"alert"`
-	Window     Window          `json:"window"`
-	Untrusted  Untrusted       `json:"untrusted"`
-	Probes     ProbeEvidence   `json:"probes"`
-	Heartbeats []HeartbeatView `json:"heartbeats,omitempty"`
-	Related    []RelatedAlert  `json:"related"`
-	Changes    []ChangeView    `json:"changes"` // related ones first, then the newest
-	Done       Done            `json:"done"`
-	Links      AlertLinks      `json:"links"`
+	Alert              AlertBrief          `json:"alert"`
+	Window             Window              `json:"window"`
+	Untrusted          Untrusted           `json:"untrusted"`
+	Probes             ProbeEvidence       `json:"probes"`
+	Heartbeats         []HeartbeatView     `json:"heartbeats,omitempty"`
+	DesignatedMachines []DesignatedMachine `json:"designated_machines,omitempty"`
+	Related            []RelatedAlert      `json:"related"`
+	Changes            []ChangeView        `json:"changes"` // related ones first, then the newest
+	Done               Done                `json:"done"`
+	Links              AlertLinks          `json:"links"`
 	// LinkedMachines are named by an explicit machine label or a catalogue heartbeat. The console
 	// uses these for navigation, independently of the broader correlations in Done.
 	LinkedMachines  []string               `json:"-"`
 	MonitorMachines []store.MonitorMachine `json:"-"`
+}
+
+// DesignatedMachine names an enrolled machine that was designated for the service when the alert
+// opened and is within the reader's machine access.
+type DesignatedMachine struct {
+	Name    string `json:"name"`
+	Service string `json:"service"`
 }
 
 // ProbeEvidence is what the probes of the group's services saw, one result per location, target and
@@ -320,10 +328,22 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 	return b.readEvidence(ctx, id, before, nil)
 }
 
-// EvidenceFor applies the authenticated principal's machine and session scopes to related sessions.
+// EvidenceFor applies the authenticated principal's machine and session scopes to the evidence.
 func (b *Bridge) EvidenceFor(ctx context.Context, p store.Principal, id, before string) (Evidence, error) {
 	access := b.d.Store.SessionAccess(p)
-	return b.readEvidence(ctx, id, before, &access)
+	ev, err := b.readEvidence(ctx, id, before, &access)
+	if err != nil || p.MachineScopeEmpty() {
+		return ev, err
+	}
+	for _, binding := range ev.MonitorMachines {
+		if !p.Reaches(binding.Name) {
+			continue
+		}
+		if m, ok := b.d.Store.Machine(binding.Name); ok && m.Registration() == binding.Registration {
+			ev.DesignatedMachines = append(ev.DesignatedMachines, DesignatedMachine{Name: m.Name, Service: cleanLine(binding.Service)})
+		}
+	}
+	return ev, nil
 }
 
 func (b *Bridge) readEvidence(ctx context.Context, id, before string, access *store.SessionAccess) (Evidence, error) {
@@ -355,6 +375,7 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window, access 
 			"probes.services", "probes.failing", "probes.results[].location", "probes.results[].service", "probes.results[].instance",
 			"probes.results[].module", "probes.results[].reason", "probes.results[].reasons", "probes.error",
 			"heartbeats[].description", "heartbeats[].error",
+			"designated_machines[].service",
 			"related[].title", "related[].service", "related[].why", "changes[].summary", "changes[].service", "changes[].object",
 			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),

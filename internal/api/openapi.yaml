@@ -260,6 +260,15 @@ components:
           type: array
           description: "The heartbeats the alert's labels name (heartbeat), as HeartbeatStale and HeartbeatMissing carry it; absent otherwise"
           items: {$ref: "#/components/schemas/HeartbeatState"}
+        designated_machines:
+          type: array
+          description: Service machines designated when the episode opened, whose enrolment still matches and whose SSH scope includes this reader.
+          items:
+            type: object
+            required: [name, service]
+            properties:
+              name: {type: string}
+              service: {type: string}
         related:
           type: array
           description: Other firing groups in the same failure domain or of the same service

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9127e84c
+sourceHash: sha256-46e2b9ba
 ---
 
 # 让 Agent 值班
@@ -149,6 +149,7 @@ docker compose exec -T caddy wget -q -O - "http://$beacon_gateway:17007/healthz"
 ```
 
 - **probes** 是告警组的服务在每个检测点的一条结果：是否正常、从什么时候开始失败、为什么失败（`dns`、`connect`、`timeout`、`tls` 等）。心跳的告警还会加上心跳的条目和要去的机器（[心跳](heartbeats.md)）。
+- **designated_machines** 列出故障开启时为服务指定的机器。原登记仍有效且调用方有该机器的 SSH 权限时，Beacon 会返回这项绑定，供处置时查找机器。
 - **related** 是同一故障域里其他正在触发的告警组。
 - **changes** 是窗口内的[变更事件](#change-events)。
 - **done** 是人和 Agent 已经做过的事，包括告警所在机器上的会话。每条标着 `before`、`during` 或 `after`，即在告警之前、期间还是之后。

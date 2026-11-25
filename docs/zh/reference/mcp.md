@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-61ac6f1f
+sourceHash: sha256-e69c2f79
 ---
 
 # MCP 工具
@@ -68,7 +68,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
+| `get_evidence` | `status:read` | 判断一个告警组需要的一切，一次调用给全（`id`、`before`：时间窗口从告警组开始前 30 分钟算起，最多往前 24 小时）：每个检测点现在的结果、从什么时候开始失败、为什么失败，耗时、HTTP 状态码、尝试次数和证书到期时间；调用方 SSH 权限范围内为服务指定的机器；同一故障域里的相关告警组；变更事件；人和 Agent 已经做过的事；链接 |
 | `get_timeline` | `status:read` | 告警组的来龙去脉，按时间排列：开始、通知、加急、Pushover、认领、备注、静默、唤醒 Agent、变更、会话及其中的命令、恢复 |
 | `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
 | `list_incident_episodes` | `status:read` | 按开始时间列出仍在告警和已恢复的故障（`since`、`until`、`group`、`severity`、`origin`、`before` 和 `limit`） |

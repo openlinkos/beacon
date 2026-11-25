@@ -88,7 +88,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
+| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, designated service machines within the caller's SSH scope, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
 | `GET /api/v1/incident-episodes` | `status:read` | Open and resolved episodes ordered by start time, filtered by `since`, `until`, `group`, `severity` and `origin` |
 | `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |

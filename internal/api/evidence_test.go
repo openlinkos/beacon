@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/store"
@@ -105,5 +106,56 @@ func TestEvidenceRoutes(t *testing.T) {
 		if code, out := c.do("GET", "/api/v1/changes?"+q, read, ""); code != 400 || out["code"] != "bad_input" {
 			t.Errorf("%s: %d %v", q, code, out)
 		}
+	}
+}
+
+func TestEvidenceReturnsOnlyCurrentDesignatedMachineWithinScope(t *testing.T) {
+	e, c := setup(t)
+	id := testutil.GroupID()
+	g, ok := e.Store.Group(id)
+	if !ok {
+		t.Fatal("missing alert fixture")
+	}
+	m := store.Machine{Name: "app-1", Address: "host.example.com:22", Added: time.Now()}
+	if err := e.Store.PutMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = e.Store.Machine(m.Name)
+	g.MonitorMachines = []store.MonitorMachine{{Service: "hub-example-com", Name: m.Name, Registration: m.Registration()}}
+	if err := e.Store.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/alerts/" + id + "/evidence"
+	allowed := e.Token(t, "allowed", "status:read", "machines:ssh")
+	outside := e.Token(t, "other-machine", "status:read", "machines:ssh")
+	if _, err := e.Store.UpdateToken("other-machine", func(tok *store.Token) error {
+		tok.Machines = []string{"app-2"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reader := e.Token(t, "reader", "status:read")
+
+	code, out := c.do("GET", path, allowed, "")
+	links, ok := out["designated_machines"].([]any)
+	if code != 200 || !ok || len(links) != 1 {
+		t.Fatalf("the authorised responder cannot discover the current designation: %d %v", code, out["designated_machines"])
+	}
+	link, _ := links[0].(map[string]any)
+	if len(link) != 2 || link["name"] != m.Name || link["service"] != "hub-example-com" {
+		t.Fatalf("wrong public designation metadata: %v", link)
+	}
+	for _, token := range []string{outside, reader} {
+		if code, out := c.do("GET", path, token, ""); code != 200 || out["designated_machines"] != nil {
+			t.Errorf("a token without SSH access could see the designation: %d %v", code, out["designated_machines"])
+		}
+	}
+
+	m.Added = m.Added.Add(time.Minute)
+	if err := e.Store.PutMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := c.do("GET", path, allowed, ""); code != 200 || out["designated_machines"] != nil {
+		t.Errorf("an older incident pointed to a replacement registration: %d %v", code, out["designated_machines"])
 	}
 }

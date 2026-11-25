@@ -53,6 +53,21 @@ func TestEvidenceTools(t *testing.T) {
 		!strings.Contains(text, `"related":"service"`) || strings.Contains(text, `\u001b`) {
 		t.Fatalf("get_evidence: %s", text)
 	}
+	m := store.Machine{Name: "app-1", Added: time.Now()}
+	if err := e.Store.PutMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = e.Store.Machine(m.Name)
+	group, _ := e.Store.Group(id)
+	group.MonitorMachines = []store.MonitorMachine{{Name: m.Name, Service: "hub-example-com", Registration: m.Registration()}}
+	if err := e.Store.PutGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	operator := connect(t, srv.URL, e.Token(t, "machine-operator", "status:read", "machines:ssh"))
+	res, text = call(t, operator, "get_evidence", map[string]any{"id": id})
+	if res.IsError || !strings.Contains(text, `"designated_machines":[{"name":"app-1","service":"hub-example-com"}]`) {
+		t.Fatalf("designated machine was not available to the MCP operator: %s", text)
+	}
 	if res, text := call(t, read, "get_evidence", map[string]any{"id": "nope"}); !res.IsError || !strings.Contains(text, "no such alert group") {
 		t.Errorf("unknown group: %s", text)
 	}

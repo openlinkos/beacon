@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b8d11d72
+sourceHash: sha256-dfc6e46f
 ---
 
 # REST API
@@ -92,7 +92,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
+| `GET /api/v1/alerts/{id}/evidence` | `status:read` | 判断一个告警组需要的一切，一次给全：每个检测点的结果和失败原因、调用方 SSH 权限范围内为服务指定的机器、相关告警组、变更事件、已经做了什么、链接（[让 Agent 值班](../guide/on-call.md#the-evidence)）。时间窗口从告警组开始前 30 分钟算起；`before` 可以往前放宽，最多 `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | 告警组的来龙去脉，按时间排列，覆盖证据的时间窗口 |
 | `GET /api/v1/incident-episodes` | `status:read` | 按开始时间列出仍在告警和已恢复的故障。可用 `since`、`until`、`group`、`severity` 和 `origin` 筛选 |
 | `GET /api/v1/incident-outcomes` | `status:read` | 内部故障历史，最新的在前（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的 `before` 取下一页 |

@@ -64,7 +64,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `get_evidence` | `status:read` | Everything to judge a group in one call (`id`, `before`: the window opens 30 minutes before the group started, at most 24 hours): each location's result now, since when it fails and why, the duration, HTTP status, attempts and certificate expiry; related groups in the same failure domain; change events; what people and agents have done; links |
+| `get_evidence` | `status:read` | Everything to judge a group in one call (`id`, `before`: the window opens 30 minutes before the group started, at most 24 hours): each location's result now, since when it fails and why, the duration, HTTP status, attempts and certificate expiry; designated service machines within the caller's SSH scope; related groups in the same failure domain; change events; what people and agents have done; links |
 | `get_timeline` | `status:read` | The group's story in time order: started, notified, buzzed, Pushover, acknowledged, notes, silences, agents woken, changes, sessions and their commands, resolved |
 | `list_incident_outcomes` | `status:read` | Private resolved episodes (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned cursor as `before` to continue |
 | `list_incident_episodes` | `status:read` | Open and resolved episodes by start time (`since`, `until`, `group`, `severity`, `origin`, `before` and `limit`) |

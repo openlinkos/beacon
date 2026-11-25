@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Include the designated service machine in REST and MCP incident evidence when its original enrolment still matches and the responder has SSH access to it.
+
 ## 0.3.0
 
 ### rc.46 (2026-11-25)

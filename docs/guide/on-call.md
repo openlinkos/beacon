@@ -145,6 +145,7 @@ Here is one, trimmed. Two locations cannot connect to `git.example.com`. A deplo
 ```
 
 - **probes** is one result per location for the group's service: whether it works, since when it fails, and why (`dns`, `connect`, `timeout`, `tls`, …). For a heartbeat's alert it adds the heartbeat's entry and the machine to reach ([Heartbeats](heartbeats.md)).
+- **designated_machines** lists the service machines selected when the episode opened. Beacon includes each machine while its original enrolment still matches and the caller’s SSH scope includes it. The designation identifies the machine chosen for triage.
 - **related** are the other groups firing in the same failure domain.
 - **changes** are the [change events](#change-events) in the window.
 - **done** is what people and agents have already done, the sessions on the alert's machines included. Each is marked `before`, `during` or `after` the alert.
