@@ -253,6 +253,9 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	if firing {
 		val := func(a string, extra ...string) map[string]any {
 			v := map[string]any{"a": a, "g": g.ID}
+			if g.Episode != "" {
+				v["e"] = g.Episode
+			}
 			if len(extra) == 2 {
 				v[extra[0]] = extra[1]
 			}
@@ -276,6 +279,19 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 		els = append(els, feishu.Hr(), feishu.Row(links...))
 	}
 	return feishu.NewCard(feishu.Header(b.title(g), subtitle, colour, tags...), els...)
+}
+
+// currentCardAction binds an action to an episode, or to its message for cards sent before episode
+// binding. An SDK message ID, when present, must always name the current card.
+func currentCardAction(g *store.Group, a feishu.Action) bool {
+	if a.MessageID != "" && a.MessageID != g.MessageID {
+		return false
+	}
+	if raw, ok := a.Value["e"]; ok {
+		episode, _ := raw.(string)
+		return episode != "" && episode == g.Episode
+	}
+	return a.MessageID != ""
 }
 
 // plainBody is the alert in a few lines of text (Pushover, Bark, the group bot).

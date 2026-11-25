@@ -456,6 +456,9 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	if !ok {
 		return feishu.Response{Toast: b.t("Unknown alert; it may have been cleaned up"), ToastKind: "warning"}
 	}
+	if !currentCardAction(&g, a) {
+		return feishu.Response{Toast: b.t("Open the current alert card to act."), ToastKind: "warning"}
+	}
 	if !g.Firing() {
 		return feishu.Response{Toast: b.t("This alert has already resolved"), ToastKind: "info", Card: b.card(ctx, &g)}
 	}

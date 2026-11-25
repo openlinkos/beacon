@@ -39,6 +39,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Only the people on call can act on alerts":              "只有值班的人可以处理告警",
 	"Unknown alert; it may have been cleaned up":             "找不到这条告警，可能已经清理掉了",
 	"This alert has already resolved":                        "这条告警已经恢复",
+	"Open the current alert card to act.":                    "请打开当前的告警卡片再操作。",
 	"Acknowledged":                                           "已认领",
 	"Unknown action":                                         "不支持的操作",
 	"Could not silence: %s":                                  "静默失败：%s",

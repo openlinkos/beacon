@@ -192,7 +192,8 @@ func TestFiringAckResolve(t *testing.T) {
 	if r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_x", Value: map[string]any{"a": "ack", "g": id}}); r.ToastKind != "error" || r.Card != nil {
 		t.Errorf("stranger: %+v", r)
 	}
-	r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", Value: map[string]any{"a": "note", "g": id}, Form: map[string]any{"note": " restarting gitea "}})
+	r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", MessageID: "om_1",
+		Value: map[string]any{"a": "note", "g": id}, Form: map[string]any{"note": " restarting gitea "}})
 	if r.ToastKind != "success" || r.Card == nil {
 		t.Fatalf("ack: %+v", r)
 	}
@@ -213,7 +214,7 @@ func TestFiringAckResolve(t *testing.T) {
 	if !strings.Contains(last, `"template":"green"`) || !strings.Contains(last, "Resolved at") || strings.Contains(last, `"a":"silence"`) {
 		t.Errorf("resolved card: %s", last)
 	}
-	if r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", Value: map[string]any{"a": "ack", "g": id}}); r.Toast != "This alert has already resolved" {
+	if r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", MessageID: "om_1", Value: map[string]any{"a": "ack", "g": id}}); r.Toast != "This alert has already resolved" {
 		t.Errorf("click after resolve: %+v", r)
 	}
 	if got := e.st.AuditLog(5); len(got) != 1 || got[0].Actor != "Alice" || got[0].Action != "note" {
@@ -436,7 +437,7 @@ func TestSilenceFromCard(t *testing.T) {
 	id := GroupID(hook("firing", "critical").GroupKey)
 	e.now = e.now.Add(16 * time.Minute)
 	e.b.Tick(ctx) // buzz and pushover
-	r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", Value: map[string]any{"a": "silence", "g": id, "d": "4h"}})
+	r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", MessageID: "om_1", Value: map[string]any{"a": "silence", "g": id, "d": "4h"}})
 	if r.ToastKind != "success" || len(e.am.created) != 1 || e.am.created[0]["service"] != "git-example-com" {
 		t.Fatalf("silence: %+v %v", r, e.am.created)
 	}
@@ -447,7 +448,7 @@ func TestSilenceFromCard(t *testing.T) {
 	if !strings.Contains(c, "Silenced until") || strings.Contains(c, `"a":"silence"`) {
 		t.Errorf("silenced card: %s", c)
 	}
-	if r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", Value: map[string]any{"a": "silence", "g": id, "d": "48h"}}); r.ToastKind != "error" {
+	if r := e.b.HandleAction(ctx, feishu.Action{OpenID: "ou_a", MessageID: "om_1", Value: map[string]any{"a": "silence", "g": id, "d": "48h"}}); r.ToastKind != "error" {
 		t.Errorf("a 48h silence should be refused: %+v", r)
 	}
 }
