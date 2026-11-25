@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/exercise"
 )
 
 func statusSample(code int) Sample {
@@ -23,13 +25,28 @@ func statusSample(code int) Sample {
 
 // ---- http
 
-func (p *Prober) http(ctx context.Context, m HTTPModule, target string) Result {
+func (p *Prober) http(ctx context.Context, m HTTPModule, target, challenge string, at time.Time) Result {
 	follow := m.FollowRedirects == nil || *m.FollowRedirects
 	req, err := p.request(ctx, m.Method, target, m.Headers)
 	if err != nil {
 		return fail(ReasonConfig, err)
 	}
-	resp, err := p.client(m.IPConfig, follow).Do(req) //nolint:gosec,bodyclose // G704: requesting the configured target is what a probe is for; drain closes the body
+	client := p.client(m.IPConfig, follow)
+	if challenge != "" {
+		req.Header.Set(exercise.ChallengeHeader, challenge)
+		req.Header.Set(exercise.SampleHeader, strconv.FormatInt(at.UnixMilli(), 10))
+		if follow {
+			client.CheckRedirect = func(next *http.Request, previous []*http.Request) error {
+				next.Header.Del(exercise.ChallengeHeader)
+				next.Header.Del(exercise.SampleHeader)
+				if len(previous) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				return nil
+			}
+		}
+	}
+	resp, err := client.Do(req) //nolint:gosec,bodyclose // G704: requesting the configured target is what a probe is for; drain closes the body
 	if err != nil {
 		return fail(classify(ctx, err), err)
 	}
@@ -51,6 +68,11 @@ func (p *Prober) http(ctx context.Context, m HTTPModule, target string) Result {
 				r.Success, r.Reason, r.Detail = false, ReasonBody, "body does not match "+re.String()
 				break
 			}
+		}
+	}
+	if challenge != "" && r.Reason == ReasonHTTPStatus && resp.StatusCode == http.StatusServiceUnavailable && resp.Request.Response == nil {
+		if receipt := resp.Header.Get(exercise.ReceiptHeader); len(receipt) <= exercise.MaxToken {
+			r.ExerciseReceipt = receipt
 		}
 	}
 	return r

@@ -21,6 +21,8 @@ import (
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/openlinkos/beacon/internal/exercise"
 )
 
 // Severities are the alert severities the bridge knows, from the most to the least urgent.
@@ -51,9 +53,10 @@ type Config struct {
 	// Gateway is the metrics gateway for machines (remote write, probe targets, heartbeats, reads,
 	// Flux's alerts); see the gateway package. An empty Listen turns it off.
 	Gateway struct {
-		Listen      string `yaml:"listen"`
-		TargetsDir  string `yaml:"targets_dir"`
-		ModulesFile string `yaml:"modules_file"` // how to probe; default modules.yml in targets_dir
+		Listen         string `yaml:"listen"`
+		TargetsDir     string `yaml:"targets_dir"`
+		ModulesFile    string `yaml:"modules_file"`    // how to probe; default modules.yml in targets_dir
+		ExerciseTarget string `yaml:"exercise_target"` // opt in to attestations for the built-in drill URL
 	} `yaml:"gateway"`
 	// Storage is where the service's state lives: one SQL database, SQLite by default. Driver and
 	// path belong here because the database has to be open before anything else can be read; the
@@ -469,6 +472,9 @@ func (c *Config) validate() error {
 		if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			bad("public_url %q is not an http(s) URL", c.PublicURL)
 		}
+	}
+	if target := c.Gateway.ExerciseTarget; target != "" && (target != exercise.Endpoint(c.PublicURL) || len(target) > 512) {
+		bad("gateway.exercise_target must be the built-in HTTPS drill URL at public_url")
 	}
 	for _, p := range c.TrustedProxies {
 		pfx, err := netip.ParsePrefix(p)

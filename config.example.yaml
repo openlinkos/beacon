@@ -94,6 +94,7 @@ gateway:
   listen: ":17006"
   targets_dir: /etc/beacon/targets          # all-*.yaml, overseas-*.yaml, mainland-*.yaml, <location>-*.yaml; imported as above
   # modules_file: /etc/beacon/targets/modules.yml   # the probe modules (this is the default); imported as above
+  # exercise_target: https://status.example.com/drill/healthz  # opt in to verified responses from the built-in drill target
 
 # The SSH channel: agents reach machines with their own ssh, scp, sftp or rsync, or with the MCP tools,
 # and never hold a key. On when ca_key_file is set; see docs/guide/machines.md. Both keys: ssh-keygen -t ed25519.

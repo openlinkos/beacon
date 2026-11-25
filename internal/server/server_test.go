@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/exercise"
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
@@ -22,7 +23,7 @@ func TestRoutes(t *testing.T) {
 	h := Handler(Deps{
 		Bridge: e.Bridge, API: &api.Server{Bridge: e.Bridge, Auth: &api.Auth{Store: e.Store}, Log: slog.Default()},
 		MCP: http.NotFoundHandler(), Metrics: metrics.New("test"),
-		Drill: func() time.Time { return drill }, Log: slog.Default(),
+		DrillRun: func() exercise.Run { return exercise.Run{Until: drill} }, Log: slog.Default(),
 		Standby: func() bool { return standby },
 		Live:    func() bool { return live },
 	})

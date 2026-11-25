@@ -45,6 +45,7 @@ import (
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/ctl"
+	"github.com/openlinkos/beacon/internal/exercise"
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/gateway"
 	"github.com/openlinkos/beacon/internal/ha"
@@ -337,6 +338,14 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	pages := &link.Pages{Signer: signer, PublicURL: cfg.PublicURL}
+	var drillProof *exercise.Authority
+	if cfg.Gateway.ExerciseTarget != "" {
+		if key, err := st.Secret("drill-observations"); err != nil {
+			log.Warn("drill observation verification is unavailable", "err", err)
+		} else {
+			drillProof = exercise.New(key)
+		}
+	}
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
 		Catalog: cdb.Catalog, MonitorMachine: cdb.MonitorMachine, Metrics: m, Log: log, Pages: pages,
@@ -419,7 +428,7 @@ func serve(args []string, stderr io.Writer) int {
 			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled},
 		MCP: mcpserver.Handler(br, mcpserver.SSH{Gate: gate, Address: cfg.SSH.PublicAddress}, auth, log, mcpserver.WithConfig(cdb),
 			mcpserver.WithStatus(pagesOut), mcpserver.WithResourceMetadata(oa.ResourceMetadataURL), mcpserver.WithTeamCredentials(credentials, cfg.Credentials.Enabled)),
-		Metrics: m, Drill: server.DrillFrom(st.Time), Log: log, OAuth: oa,
+		Metrics: m, DrillRun: st.DrillRun, Exercise: drillProof, Log: log, OAuth: oa,
 		Web: &web.Server{Bridge: br, SSH: gate, Auth: auth, Pages: pages, Lang: lang, Location: cfg.Location, Log: log,
 			Store: st, Config: cdb, Hooks: cfg.Agents, Version: version.Version, Status: pagesOut, Branding: cfg.Branding, OAuth: oa,
 			Credentials: credentials, CredentialsConfigured: cfg.Credentials.Enabled}, // the public pages at /, the console at /console
@@ -563,7 +572,7 @@ func serve(args []string, stderr io.Writer) int {
 		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
 		gdeps := gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
 			Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
-			Metrics: m, Log: log, Requests: board}
+			Metrics: m, Log: log, Requests: board, Exercise: drillProof, ExerciseTarget: cfg.Gateway.ExerciseTarget}
 		if lease != nil {
 			gdeps.Leader = lease.Leader
 		}
@@ -852,6 +861,12 @@ func drill(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "no drill: /drill/healthz answers 200")
 	} else {
 		fmt.Fprintf(stdout, "drill until %s: /drill/healthz answers 503\n", state.Until.Local().Format(time.DateTime))
+	}
+	if state.Run != "" {
+		fmt.Fprintf(stdout, "drill run %s\n", state.Run)
+	}
+	if len(state.Observed) > 0 {
+		fmt.Fprintf(stdout, "verified drill responses from %s\n", strings.Join(state.Observed, ", "))
 	}
 	return 0
 }

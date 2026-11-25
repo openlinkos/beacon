@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7164e12a
+sourceHash: sha256-a549073f
 ---
 
 # config.yaml
@@ -80,6 +80,7 @@ sourceHash: sha256-7164e12a
 | `gateway.listen` | 地址 | `:17006` | 机器接入的地址。留空关闭网关 |
 | `gateway.targets_dir` | 路径 | `/etc/beacon/targets` | 检测目标文件（`all-*.yaml`、`<location>-*.yaml`），首次启动和 SIGHUP 时导入数据库 |
 | `gateway.modules_file` | 路径 | `gateway.targets_dir` 下的 `modules.yml` | 检测模块，同样导入 |
+| `gateway.exercise_target` | HTTPS URL | 空 | 当检测点被分配了 `public_url` 上的内置 `/drill/healthz` 目标时，收集经过验证的演练响应。中心和检测点都需要支持此协议。`beacon drill status` 列出已核实收到主动故障响应的检测点 |
 | `victoriametrics.url` | URL | 开网关即必填 | 检测结果所在处：网关写入，卡片从这里取每个检测点的结果 |
 
 ## SSH 通道 {#the-ssh-channel}

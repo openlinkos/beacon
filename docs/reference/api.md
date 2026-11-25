@@ -275,6 +275,7 @@ Each sends with a token of its own:
 | `GET /api/v1/agent` | `probe:write` | The location's settings: its id, probe timeout and retries |
 | `GET /api/v1/agent/requests` | `probe:write` | Probing on demand: a long-poll (`?wait=25s`, at most 55 seconds) for targets to probe now |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | What the probe found for a request |
+| `POST /api/v1/agent/exercise-observations` | `probe:write` | The enrolled probe submits the receipt from a deliberate response at its assigned built-in drill target |
 | `POST /api/v2/alerts` | the rules token, or `alerts:send` | Alerts, in Alertmanager's API v2 form |
 | `POST /api/v1/changes` | `changes:write` | A change event: a deployment, a configuration change. At most 60 a minute per token |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux's notification-controller events, from its `generic` provider |
@@ -365,4 +366,6 @@ Each sends with a token of its own:
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |
+| `exercise.invalid_receipt` | 400 | Gateway: the drill receipt is invalid or expired for this probe and target |
+| `exercise.not_current` | 409 | Gateway: the drill changed while recording the observation or reached its observation limit |
 | `not_found` | 404 | Gateway: no such route |

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/exercise"
 )
 
 // Failure reasons, the reason label of probe_failure_info.
@@ -41,11 +43,12 @@ type Sample struct {
 
 // Result is what a probe found.
 type Result struct {
-	Success  bool
-	Reason   string // why it failed
-	Detail   string // the error, for the log; never in metrics (it may hold anything a server said)
-	Duration time.Duration
-	Samples  []Sample
+	Success         bool
+	Reason          string // why it failed
+	Detail          string // the error, for the log; never in metrics (it may hold anything a server said)
+	Duration        time.Duration
+	Samples         []Sample
+	ExerciseReceipt string `json:"-"`
 }
 
 // Prober runs probes. RootCAs is nil for the system's roots and Resolver nil for the system's resolver
@@ -60,13 +63,25 @@ type Prober struct {
 
 // Run probes target with module m, within the module's timeout and ctx.
 func (p *Prober) Run(ctx context.Context, m *Module, target string) Result {
+	return p.run(ctx, m, target, "", time.Time{})
+}
+
+// RunExercise collects an optional receipt from the gateway-designated built-in drill target.
+func (p *Prober) RunExercise(ctx context.Context, m *Module, target string, challenge *exercise.Challenge, at time.Time) Result {
+	if challenge == nil || challenge.Target != target || at.IsZero() {
+		return p.Run(ctx, m, target)
+	}
+	return p.run(ctx, m, target, challenge.Token, at)
+}
+
+func (p *Prober) run(ctx context.Context, m *Module, target, challenge string, at time.Time) Result {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(m.Timeout))
 	defer cancel()
 	start := time.Now()
 	var r Result
 	switch m.Prober {
 	case "http":
-		r = p.http(ctx, m.HTTP, target)
+		r = p.http(ctx, m.HTTP, target, challenge, at)
 	case "tcp":
 		r = p.tcp(ctx, m.TCP, target)
 	case "registry":

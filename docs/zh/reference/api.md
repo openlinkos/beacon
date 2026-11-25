@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9067c5ea
+sourceHash: sha256-9083f4ba
 ---
 
 # REST API
@@ -279,6 +279,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/agent` | `probe:write` | 检测点的设置：它的 id、检测超时和重试次数 |
 | `GET /api/v1/agent/requests` | `probe:write` | 按需重测：长轮询（`?wait=25s`，最长 55 秒），等待要立刻检测的目标 |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | 检测点交回某个请求的检测结果 |
+| `POST /api/v1/agent/exercise-observations` | `probe:write` | 已登记的检测点交回被分配的内置目标所返回的演练响应凭据 |
 | `POST /api/v2/alerts` | 规则令牌，或 `alerts:send` | 告警，Alertmanager API v2 的格式 |
 | `POST /api/v1/changes` | `changes:write` | 一个变更事件：一次部署、一次配置修改。每个令牌每分钟最多 60 个 |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux notification-controller 的事件，来自它的 `generic` provider |
@@ -369,4 +370,6 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `location.inactive` | 403 | 网关：检测点不在目录里，或者它的机器已经到期 |
 | `changes.too_many` | 429 | 网关：这个令牌这一分钟发了超过 60 个变更事件 |
 | `request.not_found` | 404 | 网关：没有这个检测请求，或者它已经过期 |
+| `exercise.invalid_receipt` | 400 | 网关：演练响应凭据对此检测点或目标无效，或已经过期 |
+| `exercise.not_current` | 409 | 网关：记录观测结果时演练已切换，或已达到观测记录上限 |
 | `not_found` | 404 | 网关：没有这个接口 |
