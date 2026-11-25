@@ -49,7 +49,7 @@ components:
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable, incident.not_found, incident.unavailable,
+            audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
             credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
             share.not_found, share.unavailable]
         docs:
@@ -92,6 +92,7 @@ components:
       type: object
       properties:
         id: {type: string, description: Stable id of the alert group}
+        episode: {type: string, description: Identifier of the observed occurrence within this group. Absent on older records.}
         status: {type: string, enum: [firing, resolved]}
         severity: {type: string, enum: [critical, warning, info]}
         title: {type: string}
@@ -195,6 +196,7 @@ components:
       type: object
       properties:
         id: {type: string}
+        episode: {type: string, description: Identifier of the observed occurrence within this group. Absent on older records.}
         status: {type: string, enum: [firing, resolved]}
         severity: {type: string, enum: [critical, warning, info]}
         title: {type: string}
@@ -1012,6 +1014,7 @@ components:
       type: object
       properties:
         id: {type: string, description: The request}
+        episode: {type: string, description: The selected alert episode when an alert was checked and its episode is known.}
         targets: {type: array, items: {$ref: "#/components/schemas/ProbeTarget"}}
         locations: {type: array, items: {type: string}, description: The locations expected to answer}
         results: {type: array, items: {$ref: "#/components/schemas/ProbeNowResult"}, description: Failing first}
@@ -2334,7 +2337,9 @@ paths:
         45 by default, at most 90) and returns each location's answer, the locations that did not answer in time
         (a probe that is down, or too old to know the route) and a one-line summary. Give one of alert_id (the
         targets of the group's alerts, from their instance and module labels, or every target of their service),
-        target (with an optional module) or service (every target of the service, at most 20). A target is probed on
+        target (with an optional module) or service (every target of the service, at most 20). With alert_id, pass the
+        observed episode as expected_episode to verify that occurrence. A replaced occurrence returns incident.changed
+        and no verification is attached to the replacement. A target is probed on
         demand at most every 15 seconds and a token has at most three requests in flight (probe.busy); an unknown
         target, or one no active location probes, is probe.not_found; without a gateway, probe.unavailable.
         Audited and echoed to the alert chat.
@@ -2347,6 +2352,7 @@ paths:
               additionalProperties: false
               properties:
                 alert_id: {type: string}
+                expected_episode: {type: string, description: With alert_id. Copy the episode from the alert or evidence being verified.}
                 target: {type: string}
                 module: {type: string}
                 service: {type: string}
@@ -2357,6 +2363,11 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ProbeNow"}
+        "409":
+          description: The incident changed. Read current evidence before retrying.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
         default: {$ref: "#/components/responses/Error"}
   /status/{name}:
     get:

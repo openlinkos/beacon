@@ -219,3 +219,56 @@ func TestProbeNowByAlertInstance(t *testing.T) {
 		t.Fatalf("by instance: %+v", out)
 	}
 }
+
+func TestGuardedProbeCompletesAfterEpisodeReplacement(t *testing.T) {
+	e := newEnv(t)
+	board := probeBoard(t)
+	e.b.d.ProbeNow = board
+	ctx := t.Context()
+	first := hook("firing", "critical", "first")
+	if err := e.b.HandleWebhook(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	id := GroupID(first.GroupKey)
+	g, ok := e.st.Group(id)
+	if !ok || g.Episode == "" {
+		t.Fatal("missing first episode")
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.b.ProbeNow(ctx, Actor{Name: "recovery", Via: "api"}, ProbeNowInput{AlertID: id, Episode: &g.Episode, Wait: 5})
+		done <- err
+	}()
+	reqs := board.Wait(ctx, "us-los-angeles", 2*time.Second)
+	if len(reqs) != 1 {
+		t.Fatalf("the first episode's check was not queued: %v", reqs)
+	}
+	if err := e.b.HandleWebhook(ctx, hook("resolved", "critical", "first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.b.HandleWebhook(ctx, hook("firing", "critical", "second")); err != nil {
+		t.Fatal(err)
+	}
+	var passing []targets.TargetResult
+	for _, group := range reqs[0].Groups {
+		for _, target := range group.Targets {
+			passing = append(passing, targets.TargetResult{Target: target, Module: group.Labels["module"], Success: true, HTTPStatus: 200})
+		}
+	}
+	for _, location := range []string{"us-los-angeles", "cn-shanghai-bgp"} {
+		if err := board.Answer(reqs[0].ID, location, passing); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := <-done; !errors.Is(err, ErrEpisodeChanged) {
+		t.Fatalf("a replaced episode returned a successful verification: %v", err)
+	}
+	current, _ := e.st.Group(id)
+	if current.Episode == g.Episode || len(current.ProbeRuns) != 0 || current.PassingCheck != nil {
+		t.Fatalf("the passing check changed the replacement episode: %q, %v, %+v", current.Episode, current.ProbeRuns, current.PassingCheck)
+	}
+	audit := e.st.AuditLog(1)
+	if len(audit) != 1 || audit[0].Action != "probe_now" || !strings.Contains(audit[0].Detail, g.Episode) {
+		t.Fatalf("the abandoned check lacks an audit record for the first episode: %+v", audit)
+	}
+}

@@ -80,6 +80,7 @@ type Window struct {
 // from labels, so it is cleaned.
 type AlertBrief struct {
 	ID          string            `json:"id"`
+	Episode     string            `json:"episode,omitempty"`
 	Status      string            `json:"status"`
 	Severity    string            `json:"severity"`
 	Title       string            `json:"title"`
@@ -298,7 +299,7 @@ func (b *Bridge) brief(g *store.Group) AlertBrief {
 		labels = map[string]string{}
 	}
 	maps.Copy(labels, g.Labels)
-	a := AlertBrief{ID: g.ID, Status: g.Status, Severity: g.Severity, Title: cleanLine(v.Title), Description: clean(v.Description, maxLong, true),
+	a := AlertBrief{ID: g.ID, Episode: g.Episode, Status: g.Status, Severity: g.Severity, Title: cleanLine(v.Title), Description: clean(v.Description, maxLong, true),
 		Service: cleanLine(v.Service), Labels: cleanLabels(labels), Alerts: v.Alerts, StartsAt: g.StartsAt, ResolvedAt: v.ResolvedAt}
 	if a.Service == "" {
 		for _, s := range b.groupServices(g) {

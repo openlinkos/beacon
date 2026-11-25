@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,11 +14,12 @@ import (
 // once, and the result holds each location's answer. It calls the same bridge method as POST /probe-now.
 
 type probeNowIn struct {
-	AlertID string `json:"alert_id,omitempty" jsonschema:"probe the targets of this alert group's alerts (their instance and module labels, or every target of their service); one of alert_id, target and service"`
-	Target  string `json:"target,omitempty" jsonschema:"probe this target, exactly as the target sets name it (such as https://example.com/)"`
-	Module  string `json:"module,omitempty" jsonschema:"with target: only this module; every module the target has otherwise"`
-	Service string `json:"service,omitempty" jsonschema:"probe every target of this service (at most 20)"`
-	Wait    int    `json:"wait,omitempty" jsonschema:"seconds to wait for the locations; default 45, at most 90"`
+	AlertID         string  `json:"alert_id,omitempty" jsonschema:"probe the targets of this alert group's alerts (their instance and module labels, or every target of their service); one of alert_id, target and service"`
+	ExpectedEpisode *string `json:"expected_episode,omitempty" jsonschema:"with alert_id: copy alert.episode from the incident or wake you are verifying"`
+	Target          string  `json:"target,omitempty" jsonschema:"probe this target, exactly as the target sets name it (such as https://example.com/)"`
+	Module          string  `json:"module,omitempty" jsonschema:"with target: only this module; every module the target has otherwise"`
+	Service         string  `json:"service,omitempty" jsonschema:"probe every target of this service (at most 20)"`
+	Wait            int     `json:"wait,omitempty" jsonschema:"seconds to wait for the locations; default 45, at most 90"`
 }
 
 func addProbeNowTools(s *mcp.Server, b *bridge.Bridge) {
@@ -26,14 +29,19 @@ func addProbeNowTools(s *mcp.Server, b *bridge.Bridge) {
 			"ok, the failure reason (dns, connect, timeout, tls, http_status, …), duration, HTTP status, attempts and certificate expiry; " +
 			"missing lists the locations that did not answer in time, and summary says it in one line. Use it after a fix to verify, instead of " +
 			"waiting for the next probe cycle; the probes also push the fresh samples, so the alert resolves sooner. Give one of alert_id, " +
-			"target (with an optional module) or service. A target is probed on demand at most every 15 seconds, and a token has at most three " +
+			"target (with an optional module) or service. With alert_id, copy alert.episode from the alert to expected_episode. If the " +
+			"incident has changed, read its current evidence before retrying. A target is probed on demand at most every 15 seconds, and a token has at most three " +
 			"requests in flight."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in probeNowIn) (*mcp.CallToolResult, bridge.ProbeNow, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {
 				return nil, bridge.ProbeNow{}, err
 			}
-			out, err := b.ProbeNow(ctx, who, bridge.ProbeNowInput{AlertID: in.AlertID, Target: in.Target, Module: in.Module, Service: in.Service, Wait: in.Wait})
+			out, err := b.ProbeNow(ctx, who, bridge.ProbeNowInput{AlertID: in.AlertID, Episode: in.ExpectedEpisode,
+				Target: in.Target, Module: in.Module, Service: in.Service, Wait: in.Wait})
+			if errors.Is(err, bridge.ErrEpisodeChanged) {
+				err = fmt.Errorf("incident.changed: %w. Read its current evidence before retrying", err)
+			}
 			return nil, out, err
 		})
 }

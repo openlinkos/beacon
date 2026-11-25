@@ -894,8 +894,8 @@ type GroupView struct {
 	ResolvedAt  *time.Time        `json:"resolved_at,omitempty"`
 	Channel     string            `json:"channel"`
 	Ack         *store.Ack        `json:"ack,omitempty"`
-	AckVersion  string            `json:"-"` // the console form's view of the current acknowledgement
-	Episode     string            `json:"-"` // the incident open in the console
+	AckVersion  string            `json:"-"`                 // the console form's view of the current acknowledgement
+	Episode     string            `json:"episode,omitempty"` // the current incident within the group
 	Silence     *store.Silence    `json:"silence,omitempty"`
 	Buzzed      *time.Time        `json:"buzzed_at,omitempty"`
 	Pushed      *time.Time        `json:"pushover_at,omitempty"`

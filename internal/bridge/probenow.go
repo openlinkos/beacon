@@ -13,6 +13,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/web/link"
 )
 
 // Probing on demand (probe_now): after an agent has fixed something, it has every location that probes
@@ -42,7 +43,7 @@ type ProbeNowInput struct {
 	Module  string
 	Service string
 	Wait    int
-	Episode *string // when set by the console, only probe this alert episode
+	Episode *string // when set, only verify this alert episode
 }
 
 // ProbeTarget is one target of a request and the locations expected to probe it.
@@ -73,6 +74,7 @@ type ProbeNowResult struct {
 // did not answer in time, and a one-line summary.
 type ProbeNow struct {
 	ID        string           `json:"id"`
+	Episode   string           `json:"episode,omitempty"` // the incident selected for the check
 	Targets   []ProbeTarget    `json:"targets"`
 	Locations []string         `json:"locations"` // expected to answer
 	Results   []ProbeNowResult `json:"results"`
@@ -93,6 +95,10 @@ func (b *Bridge) probeWants(in ProbeNowInput) ([]probenow.Want, probeEpisode, er
 	switch {
 	case given != 1:
 		return nil, probeEpisode{}, fmt.Errorf("%w: give one of alert_id, target or service", ErrBadInput)
+	case in.Episode != nil && strings.TrimSpace(in.AlertID) == "":
+		return nil, probeEpisode{}, fmt.Errorf("%w: expected_episode goes with alert_id", ErrBadInput)
+	case in.Episode != nil && *in.Episode != "" && !link.ValidEpisode(*in.Episode):
+		return nil, probeEpisode{}, fmt.Errorf("%w: expected_episode must be an episode identifier", ErrBadInput)
 	case in.Module != "" && in.Target == "":
 		return nil, probeEpisode{}, fmt.Errorf("%w: module goes with target", ErrBadInput)
 	case in.Target != "":
@@ -168,13 +174,19 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	observations := probeObservations(v)
 	tally := tallyProbes(observations)
 	out := probeNowView(v, tally)
+	out.Episode = episode.key
 	what := b.probeWhat(b.lang, v)
 	audit := store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "probe_now", Target: cleanLine(b.probeWhat(i18n.EN, v)), Detail: out.Summary}
 	if in.AlertID != "" {
 		audit.Target = in.AlertID
 		audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
 		audit.Time = b.now()
-		b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
+		current := b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
+		if !current && in.Episode != nil {
+			audit.Detail = fmt.Sprintf("%s: episode %q changed before verification could be recorded", v.ID, episode.key)
+			_ = b.d.Store.Audit(audit)
+			return ProbeNow{}, ErrEpisodeChanged
+		}
 	}
 	_ = b.d.Store.Audit(audit)
 	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), tally.summary(b.lang)))
@@ -215,13 +227,13 @@ func probeObservations(v probenow.View) []store.ProbeObservation {
 	return observations
 }
 
-// recordProbeRun saves the results on the alert episode the caller actually checked.
-func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) {
+// recordProbeRun saves the results on the episode the caller checked and reports if it still matches.
+func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
 	if !ok || !g.StartsAt.Equal(episode.starts) || g.Episode != episode.key {
-		return
+		return false
 	}
 	run.ActorKind = actorKind(who)
 	g.PassingCheck = preferPassingCheck(passingCheck(&g), verifyPassingCheck(&run), g.ResolvedAt)
@@ -233,6 +245,7 @@ func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run 
 	if err := b.saveGroup(g); err != nil {
 		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
 	}
+	return true
 }
 
 func verificationCounts(run *store.ProbeRun) *store.Verification {
