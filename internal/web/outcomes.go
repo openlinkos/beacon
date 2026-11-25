@@ -174,10 +174,11 @@ func (s *Server) incidentOutcome(w http.ResponseWriter, r *http.Request, v *view
 			Kind: s.participantKind(a.Kind), Action: s.participationAction(a.Action),
 		})
 	}
-	if s.SSH != nil && v.hasAny("sessions:read|machines:ssh") {
+	permit := s.Store.SessionAccess(v.Principal)
+	if s.SSH != nil && permit.Details() {
 		for _, id := range o.Sessions {
-			if rec, ok := s.Store.Session(id); ok {
-				p.Sessions = append(p.Sessions, s.sessionItem(rec))
+			if rec, ok := s.Store.Session(id); ok && permit.Visible(rec) {
+				p.Sessions = append(p.Sessions, s.sessionItem(rec, true))
 			}
 		}
 	}
@@ -261,6 +262,7 @@ func (s *Server) outcomeAudit(w http.ResponseWriter, r *http.Request, v *viewer,
 			return
 		}
 	}
+	s.Bridge.FilterSessionAudit(v.Principal, entries)
 	p.Count, p.Rows = num(total), s.auditRows(entries)
 	s.render(w, auditTmpl, p)
 }

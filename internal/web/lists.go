@@ -123,10 +123,13 @@ type sessionItem struct {
 	Failed, Open                                                                       bool
 }
 
-func (s *Server) sessionItem(r store.SessionRecord) sessionItem {
-	it := sessionItem{ID: r.ID, Href: link.SessionPath(r.ID), Agent: r.Agent, Via: s.via(r.Via), Machine: r.Machine,
-		MachineHref: consolePath("/machines/") + url.PathEscape(r.Machine), Kind: s.kind(r.Kind), Command: shorten(r.Command, 160),
+func (s *Server) sessionItem(r store.SessionRecord, details bool) sessionItem {
+	it := sessionItem{ID: r.ID, Agent: r.Agent, Via: s.via(r.Via), Machine: r.Machine,
+		MachineHref: consolePath("/machines/") + url.PathEscape(r.Machine), Kind: s.kind(r.Kind),
 		Started: s.clock(r.Started), Exit: s.exit(r.Exit), Failed: r.Exit != nil && *r.Exit != 0, Open: r.Ended.IsZero()}
+	if details {
+		it.Href, it.Command = link.SessionPath(r.ID), shorten(r.Command, 160)
+	}
 	if !r.Ended.IsZero() {
 		it.Duration = s.dur(r.Ended.Sub(r.Started))
 	}
@@ -158,28 +161,29 @@ var sessionsTmpl = parse("sessions.html")
 
 type sessionsPage struct {
 	listPage[sessionItem]
-	More string
+	More, MachineHint, DetailHint string
+	Details                       bool
 }
 
 // sessionTable is a table of sessions, as the sessions' and a machine's pages show them.
 type sessionTable struct {
-	L    listLabels
-	Rows []sessionItem
+	L       listLabels
+	Rows    []sessionItem
+	Details bool
 }
 
-func (p sessionsPage) Table() sessionTable { return sessionTable{L: p.L, Rows: p.Rows} }
+func (p sessionsPage) Table() sessionTable {
+	return sessionTable{L: p.L, Rows: p.Rows, Details: p.Details}
+}
+
+func machineScoped(p store.Principal) bool { return p.MachineScopeEmpty() || len(p.Machines) != 0 }
 
 func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer) {
-	var recs []store.SessionRecord
-	more := false
-	s.Store.EachSession(func(rec store.SessionRecord) bool {
-		if len(recs) == maxScan {
-			more = true
-			return false
-		}
-		recs = append(recs, rec)
-		return true
-	})
+	permit := s.Store.SessionAccess(v.Principal)
+	recs := s.Store.Sessions(maxScan+1, permit.Visible)
+	more := len(recs) > maxScan
+	recs = recs[:min(maxScan, len(recs))]
+	details := permit.Details()
 	exits := map[string]string{"ok": s.t("Succeeded"), "failed": s.t("Failed"), "open": s.t("Still open"), "none": s.t("No exit status")}
 	facets := []facet[store.SessionRecord]{
 		{Param: "agent", Title: s.t("Agent"), Value: func(r store.SessionRecord) string { return r.Agent }},
@@ -191,16 +195,31 @@ func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer)
 	}
 	// days read newest first, not by how busy they were
 	facets[5].Order = days(recs, s.day)
-	match := func(r store.SessionRecord, q string) bool { return contains(q, r.ID, r.Agent, r.Machine, r.Command) }
+	match := func(r store.SessionRecord, q string) bool {
+		return contains(q, r.ID, r.Agent, r.Machine) || details && contains(q, r.Command)
+	}
 	kept, l := filter(s, consolePath("/sessions"), r.URL.Query(), recs, facets, match)
-	l.SearchHint = s.t("Command, agent or machine")
-	p := sessionsPage{listPage: listPage[sessionItem]{shell: s.shellFor(r, v, "sessions", s.t("Sessions")), L: s.listLabels(), List: l}}
+	if details {
+		l.SearchHint = s.t("Command, agent or machine")
+	} else {
+		l.SearchHint = s.t("Agent or machine")
+	}
+	p := sessionsPage{listPage: listPage[sessionItem]{shell: s.shellFor(r, v, "sessions", s.t("Sessions")), L: s.listLabels(), List: l}, Details: details}
+	if machineScoped(v.Principal) {
+		p.MachineHint = s.t("Sessions shown here are limited to the machines available to this sign-in.")
+		if len(recs) == 0 {
+			p.List.Empty = s.t("No sessions are available for your machine access.")
+		}
+	}
+	if !details {
+		p.DetailHint = s.t("Command text and recordings require permission to read SSH session details.")
+	}
 	p.Count = l.Total
 	if more {
 		p.More = s.t("Only the newest %s sessions are listed here; the API lists the rest.", num(maxScan))
 	}
 	for _, rec := range kept {
-		p.Rows = append(p.Rows, s.sessionItem(rec))
+		p.Rows = append(p.Rows, s.sessionItem(rec, details))
 	}
 	s.render(w, sessionsTmpl, p)
 }
@@ -297,6 +316,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	entries := s.Store.AuditLog(10000)
+	s.Bridge.FilterSessionAudit(v.Principal, entries)
 	facets := []facet[store.AuditEntry]{
 		{Param: "actor", Title: s.t("Who"), Value: func(e store.AuditEntry) string { return e.Actor }},
 		{Param: "action", Title: s.t("Action"), Value: func(e store.AuditEntry) string { return e.Action }},

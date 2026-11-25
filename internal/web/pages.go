@@ -293,6 +293,7 @@ type alertPage struct {
 	Agents                                                                       []string
 	Notes                                                                        []noteRow
 	SessionsLine                                                                 string
+	SessionsHint                                                                 string
 	Sessions                                                                     []sessionRow
 	Changes                                                                      []changeRow
 	Channel                                                                      string
@@ -314,7 +315,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	if a.Viewer.person() && a.Viewer.owner() {
 		p.ShareLinks = shareLinksPath("alerts", al.ID)
 	} else if a.Grant != nil {
-		p.SharedViewHint = s.t("This link opens this alert. Sign in to respond or open related alerts and SSH replays.")
+		p.SharedViewHint = s.t("This link opens this alert. Sign in to respond or see related alerts and SSH session history.")
 	}
 	p.Feedback, p.FeedbackTone = p.Toast, p.ToastTone
 	if p.Problem != "" {
@@ -394,6 +395,9 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	}
 	slices.Reverse(p.Notes) // the latest first
 	p.Sessions, p.SessionsLine = s.incidentSessions(ev, a)
+	if machineScoped(a.Principal) {
+		p.SessionsHint = s.t("Sessions shown here are limited to the machines available to this sign-in.")
+	}
 	for _, c := range ev.Changes {
 		about := c.Service
 		if c.Machine != "" {
@@ -805,7 +809,7 @@ func (s *Server) sessions(views []bridge.SessionView, a access) []sessionRow {
 		if a.SessionDetail {
 			row.Command = v.Command
 			if v.Kind == "shell" && s.SSH != nil {
-				if tr, err := s.SSH.Session(v.ID); err == nil {
+				if tr, err := s.SSH.SessionFor(a.Principal, v.ID); err == nil {
 					row.Commands = s.commands(tr.Commands)
 				}
 			}

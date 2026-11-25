@@ -55,7 +55,7 @@
     <td data-label="{{$.L.Address}}">{{if .ConnectorTone}}<span class="ol-badge ol-badge-{{.ConnectorTone}}"><span class="ol-dot"></span>{{.Address}}</span>{{else}}<span class="ol-mono">{{.Address}}</span>{{end}}</td>
     <td>{{if .Critical}}<span class="ol-badge ol-badge-danger">{{$.L.Critical}}</span>{{end}}</td>
     <td class="ol-num" data-label="{{$.L.Sessions24h}}">{{.Sessions}}</td>
-    <td data-label="{{$.L.LastSession}}">{{if .LastHref}}<a href="{{.LastHref}}">{{.Last}}</a>{{end}}</td>
+    <td data-label="{{$.L.LastSession}}">{{if .LastHref}}<a href="{{.LastHref}}">{{.Last}}</a>{{else}}{{.Last}}{{end}}</td>
     <td class="ol-actions">{{if .ConnectLabel}}<a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.Href}}#ssh-connect" aria-label="{{.ConnectLabel}}">{{iconSm "terminal"}}SSH</a>{{end}}</td>
   </tr>{{end}}
   </tbody>

@@ -173,11 +173,14 @@ func (s *Server) figures(v *viewer) overviewFigures {
 	} else {
 		f.Machines = len(s.Store.Machines())
 	}
+	permit := s.Store.SessionAccess(v.Principal)
 	s.Store.EachSession(func(r store.SessionRecord) bool {
 		if r.Started.Before(today) {
 			return false
 		}
-		f.SessionsToday++
+		if permit.Visible(r) {
+			f.SessionsToday++
+		}
 		return true
 	})
 	return f
@@ -448,8 +451,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	default:
 		p.Channel = stat{Label: s.t("The SSH channel"), Value: s.t("Running"), Tone: "success", Href: consolePath("/machines"), Meta: s.t("Agents reach machines")}
 	}
-	s.Store.EachSession(func(rec store.SessionRecord) bool {
-		it := s.sessionItem(rec)
+	permit := s.Store.SessionAccess(v.Principal)
+	if machineScoped(v.Principal) {
+		p.L.NoSessions = s.t("No sessions are available for your machine access.")
+	}
+	for _, rec := range s.Store.Sessions(6, permit.Visible) {
+		it := s.sessionItem(rec, permit.Details())
 		fi := feedItem{Icon: "terminal", Title: s.t("%s on %s", rec.Agent, rec.Machine), Href: it.Href, Sub: it.Command, Mono: it.Command != "",
 			When: s.ago(rec.Started)}
 		if fi.Sub == "" {
@@ -465,8 +472,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 			}
 		}
 		p.Sessions = append(p.Sessions, fi)
-		return len(p.Sessions) < 6
-	})
+	}
 	for _, c := range s.Store.Changes(store.ChangeFilter{Limit: 5}) {
 		about := strings.TrimSpace(c.Service + " " + c.Machine)
 		p.Changes = append(p.Changes, feedItem{Icon: "history", Title: c.Summary, Sub: about, Badge: c.Source, When: s.ago(c.Time)})

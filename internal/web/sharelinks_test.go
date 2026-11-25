@@ -36,7 +36,7 @@ func TestSessionDetailsRespectTheCallersScope(t *testing.T) {
 			t.Errorf("%s did not keep command text and signed playback within the session scope: %d", path, code)
 		}
 		code, payload, _ = e.get(path, detail)
-		if code != http.StatusOK || !strings.Contains(payload, fixture) || !strings.Contains(payload, link.SessionPath(sessionID)+"?s=") {
+		if code != http.StatusOK || !strings.Contains(payload, fixture) || !strings.Contains(payload, link.SignInPath(link.SessionPath(sessionID))) || strings.Contains(payload, link.SessionPath(sessionID)+"?s=") {
 			t.Errorf("%s did not retain session text and playback for an authorized credential: %d", path, code)
 		}
 	}
