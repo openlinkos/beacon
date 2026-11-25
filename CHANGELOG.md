@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Show planned maintenance beside urgent alerts on the Overview, with a direct scheduling link for people who may arrange maintenance.
+
 ## 0.3.0
 
 ### rc.32 (2026-11-25)

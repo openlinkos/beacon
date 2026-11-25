@@ -16,11 +16,8 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// The overview: is everything all right? A sentence that answers it; the figures behind it, each
-// linking to its list; what needs attention, the most urgent first: the alerts firing, and what Beacon
-// sees going wrong that no alert names yet (services failing, probe locations gone quiet, machines
-// behind NAT not connected, agents a hook failed to wake, the channel paused); then what agents did
-// and what changed lately, the status pages as the public sees them, and what is coming up.
+// The overview pairs urgent alerts and other problems with planned maintenance and due resources.
+// Notification readiness stays beside them, followed by the figures, recent activity and status pages.
 
 // reportingWindow is how recently a probe location must have written to count as reporting.
 const reportingWindow = 5 * time.Minute
@@ -87,6 +84,7 @@ type overviewPage struct {
 	Changes       []feedItem
 	Pages         []feedItem
 	Coming        []feedItem
+	Maintenance   kvLink
 	Calls         []callItem
 	CallSummary   string
 	DeliveryHint  string
@@ -465,6 +463,10 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Pages = s.pageFeed(r)
 	p.Coming = s.coming()
+	p.Maintenance = kvLink{V: s.t("Maintenance windows"), Href: consolePath("/silences#maintenance")}
+	if v.has("maintenance:write") {
+		p.Maintenance = kvLink{V: s.t("Schedule maintenance"), Href: consolePath("/maintenance/new")}
+	}
 	for _, c := range s.calls() {
 		if c.At.Before(s.today()) || len(p.Calls) == 6 {
 			break
