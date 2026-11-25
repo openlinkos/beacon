@@ -143,7 +143,7 @@ On installations with the credential store enabled, owners can store and replace
 
 ## The alert's page {#the-alerts-page}
 
-The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. The current handover note stays next to the response actions, and a failed agent hook is shown separately from human ownership. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
+The card's **Timeline** button opens it. The response panel shows how long the alert has been firing, who acknowledged it, and the result of sending the alert to hooks and notification providers. **Latest note** shows the latest update with its author and time. **Acknowledgement note** shows what was recorded at the current acknowledgement. Open **All notes** for the full text and earlier updates. A failed agent hook has its own status. On a phone or desktop, you can acknowledge or take over the alert, probe again or jump to the note form from the same panel.
 
 A new notification opens the incident it describes, even when the same service has fired again. Once the complete evidence is replaced or expires, sign in to open that incident's retained history. Links issued before incident-specific links were added still open the alert group. If an incident changed while a response form was open, review the alert before taking action again.
 

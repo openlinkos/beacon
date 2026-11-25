@@ -27,7 +27,7 @@ type labels struct {
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
 	Response, EscalationStops, ProbeNow, ProbeWait, NoResult, SignIn, TakeOver                                               string
-	HandoverNote, FullHandoverNote                                                                                           string
+	AcknowledgementNote, FullAcknowledgementNote, LatestNote, AllNotes                                                       string
 	ShareLinks                                                                                                               string
 }
 
@@ -51,7 +51,8 @@ func (s *Server) labels() labels {
 		ProbeNow: s.t("Probe again now"), ProbeWait: s.t("Allow up to 45 seconds for the results."), NoResult: s.t("No result"),
 		ProbeResults: s.t("On-demand check results."),
 		SignIn:       s.t("Sign in"), TakeOver: s.t("Take over"),
-		HandoverNote: s.t("Handover note"), FullHandoverNote: s.t("Read full handover note"),
+		AcknowledgementNote: s.t("Acknowledgement note"), FullAcknowledgementNote: s.t("Read full acknowledgement note"),
+		LatestNote: s.t("Latest note"), AllNotes: s.t("All notes"),
 		ShareLinks: s.t("Manage share links"),
 	}
 }
@@ -234,7 +235,7 @@ type probeEvent struct {
 	Rows                  []probeRow
 }
 
-type noteRow struct{ By, Via, At, Text string }
+type noteRow struct{ By, Via, At, ISO, Text string }
 
 type commandRow struct {
 	Command, Exit, Took string
@@ -283,6 +284,7 @@ type alertPage struct {
 	HookFailed, PeopleDeliveryFailed                                             bool
 	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
+	LatestNote                                                                   *noteRow
 	Services                                                                     []string
 	Labels                                                                       []kv
 	Runbook, Dashboard, Window                                                   string
@@ -391,9 +393,14 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		}
 	}
 	for _, n := range ev.Done.Notes {
-		p.Notes = append(p.Notes, noteRow{By: n.By, Via: s.via(n.Via), At: s.clock(n.At), Text: n.Text})
+		p.Notes = append(p.Notes, noteRow{By: n.By, Via: s.via(n.Via), At: s.clock(n.At), ISO: iso(n.At), Text: n.Text})
 	}
 	slices.Reverse(p.Notes) // the latest first
+	if len(p.Notes) > 0 {
+		latest := p.Notes[0]
+		latest.Text = shorten(strings.Join(strings.Fields(latest.Text), " "), 120)
+		p.LatestNote = &latest
+	}
 	p.Sessions, p.SessionsLine = s.incidentSessions(ev, a)
 	if machineScoped(a.Principal) {
 		p.SessionsHint = s.t("Sessions shown here are limited to the machines available to this sign-in.")

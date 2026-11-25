@@ -40,11 +40,21 @@
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
     </div>{{end}}
-    {{if .Handover.Preview}}<div class="bc-alert-handover">
-      <h3 class="ol-label">{{.L.HandoverNote}}</h3>
-      <p class="ol-break">{{.Handover.Preview}}</p>
-      {{if .Handover.Full}}<details><summary>{{.L.FullHandoverNote}}</summary>
-        <p class="ol-text-pre ol-break">{{.Handover.Full}}</p></details>{{end}}
+    {{if or .LatestNote .Handover.Preview}}<div class="bc-alert-note-previews">
+      {{with .LatestNote}}<div class="bc-alert-note-preview" role="group" aria-labelledby="alert-latest-note">
+        <div class="ol-cluster">
+          <h3 class="ol-label" id="alert-latest-note">{{$.L.LatestNote}}</h3>
+          <a href="#alert-notes" class="ol-btn ol-btn-ghost ol-btn-xs">{{$.L.AllNotes}}</a>
+        </div>
+        <p class="ol-cluster ol-hint"><span class="ol-break">{{.By}}</span><time datetime="{{.ISO}}">{{.At}}</time></p>
+        <p class="ol-break">{{.Text}}</p>
+      </div>{{end}}
+      {{if .Handover.Preview}}<div class="bc-alert-note-preview bc-alert-handover">
+        <h3 class="ol-label">{{.L.AcknowledgementNote}}</h3>
+        <p class="ol-break">{{.Handover.Preview}}</p>
+        {{if .Handover.Full}}<details><summary>{{.L.FullAcknowledgementNote}}</summary>
+          <p class="ol-text-pre ol-break">{{.Handover.Full}}</p></details>{{end}}
+      </div>{{end}}
     </div>{{end}}
     {{if or .HookState .PeopleDelivery .AgentRun}}<div class="bc-alert-signals">
       {{if or .HookState .PeopleDelivery}}<div class="ol-cluster">
@@ -174,10 +184,10 @@
     </div>
   </section>
 
-  <section class="ol-panel">
-    <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "message-square"}} {{.L.Notes}}</h2></div>
+  <section class="ol-panel" id="alert-notes" tabindex="-1" aria-labelledby="alert-notes-heading">
+    <div class="ol-panel-header"><h2 class="ol-panel-title" id="alert-notes-heading">{{icon "message-square"}} {{.L.Notes}}</h2></div>
     {{if .Notes}}<ul class="ol-list">{{range .Notes}}<li>
-      <span class="ol-list-row"><span class="ol-list-title">{{.By}}</span><span class="ol-list-value">{{.At}}</span></span>
+      <span class="ol-list-row"><span class="ol-list-title">{{.By}}</span><time class="ol-list-value" datetime="{{.ISO}}">{{.At}}</time></span>
       <span class="ol-list-meta"><span>{{.Via}}</span></span>
       <p class="ol-text-pre">{{.Text}}</p>
     </li>{{end}}</ul>

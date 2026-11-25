@@ -47,19 +47,26 @@
   justify-self: start;
   max-inline-size: 100%;
 }
-.bc-alert-handover {
+.bc-alert-note-previews {
   display: grid;
   flex-basis: 100%;
+  gap: var(--ol-space-3);
+  min-width: 0;
+}
+.bc-alert-note-preview {
+  display: grid;
+  align-content: start;
   gap: var(--ol-space-1);
   min-width: 0;
   padding-inline-start: var(--ol-space-3);
   border-inline-start: 2px solid var(--ol-color-border-strong);
 }
-.bc-alert-handover p { max-inline-size: 75ch; }
+.bc-alert-note-preview p { max-inline-size: 75ch; }
+.bc-alert-note-preview > .ol-cluster:first-child { justify-content: space-between; }
 .bc-alert-observations > :is(.ol-list, .ol-hint) { margin-inline-start: var(--ol-space-3); }
 .bc-alert-observations > .ol-hint { margin-block: var(--ol-space-1) var(--ol-space-2); }
 .bc-alert-observations .ol-list-title { overflow-wrap: anywhere; }
-#alert-action-result, #timeline, #add-note, .kind-agent_run[id], .bc-alert-observations > summary {
+#alert-action-result, #timeline, #add-note, #alert-notes, .kind-agent_run[id], .bc-alert-observations > summary {
   scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8));
 }
 .kind-probe_now > td:last-child { flex: 1 1 100%; }
@@ -69,6 +76,9 @@
   .bc-alert-controls { width: 100%; }
   .bc-alert-buttons .ol-btn, .bc-alert-machines .ol-btn, .bc-alert-ack-note .ol-btn { min-height: 2.75rem; }
   .bc-overview-maintenance-action { min-block-size: 2.75rem; }
+}
+@container ol-content (width >= 40rem) {
+  .bc-alert-note-previews:has(> :nth-child(2)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* A configuration change's diff: one line per field, added and removed lines on the status tints. */

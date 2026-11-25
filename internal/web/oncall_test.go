@@ -97,6 +97,11 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	if a := first.post(post, ackForm(t, show, "Checked the failed dependency.")); a.header.Get("Location") != path+"?done=ack" {
 		t.Fatalf("first shift could not claim it: %q", a.header.Get("Location"))
 	}
+	e.now = e.now.Add(time.Minute)
+	const update = "The upstream relay still returns HTTP 502. Follow up with the network team."
+	if a := first.post(path+"/notes", incidentForm(t, first.get(path), url.Values{"text": {update}})); a.header.Get("Location") != path+"?done=note" {
+		t.Fatalf("first shift could not share an update: %q", a.header.Get("Location"))
+	}
 	if _, err := e.b.Ack(context.Background(), e.id, who, "finished initial checks"); err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +110,13 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 		t.Fatal("Agent update displaced the first shift or omitted handover")
 	}
 	response := alertResponse(t, show)
-	for _, want := range []string{"Handover note", "Checked the failed dependency.", "Escalation is paused while this alert is acknowledged."} {
+	for _, want := range []string{"Latest note", update, "first-shift</span><time datetime=", `href="#alert-notes"`,
+		"Acknowledgement note", "Checked the failed dependency.", "Escalation is paused while this alert is acknowledged."} {
 		if !strings.Contains(response, want) {
 			t.Errorf("the takeover response lacks %q", want)
 		}
 	}
-	if strings.Contains(response, "finished initial checks") || strings.Contains(response, "Read full handover note") {
+	if strings.Contains(response, "finished initial checks") || strings.Contains(response, "Read full acknowledgement note") {
 		t.Fatal("the response added an Agent note or a disclosure for a short handover")
 	}
 	if a := second.post(post, ackForm(t, show, "Continuing the dependency investigation.")); a.header.Get("Location") != path+"?done=ack" {
@@ -118,7 +124,7 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	}
 	show = second.get(path)
 	response = alertResponse(t, show)
-	if !strings.Contains(response, "Continuing the dependency investigation.") || strings.Contains(response, "Checked the failed dependency.") {
+	if !strings.Contains(response, "Continuing the dependency investigation.") || !strings.Contains(response, update) || strings.Contains(response, "Checked the failed dependency.") {
 		t.Fatal("takeover did not replace the current handover")
 	}
 	for _, want := range []string{"Acknowledged by next-shift at", "Acknowledged by first-shift via the console",
@@ -159,7 +165,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 	}
 	response = alertResponse(t, viewer.get(path))
 	if !strings.Contains(response, "Awaiting a person. Agent acknowledgement") ||
-		strings.Contains(response, "Handover note") || strings.Contains(response, "Escalation is paused") {
+		strings.Contains(response, "Acknowledgement note") || strings.Contains(response, "Escalation is paused") {
 		t.Fatal("an Agent acknowledgement implied a human handover or paused escalation")
 	}
 
@@ -168,7 +174,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 		t.Fatalf("could not acknowledge the alert: %q", a.header.Get("Location"))
 	}
 	response = alertResponse(t, viewer.get(path))
-	if !strings.Contains(response, "Read full handover note") || !strings.Contains(response, "&lt;script&gt;alert(1)&lt;/script&gt;") ||
+	if !strings.Contains(response, "Read full acknowledgement note") || !strings.Contains(response, "&lt;script&gt;alert(1)&lt;/script&gt;") ||
 		strings.Contains(response, hostile) {
 		t.Fatal("the current handover does not expose its full text safely")
 	}
@@ -185,7 +191,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	response = alertResponse(t, viewer.get(path))
-	if strings.Contains(response, "Handover note") || strings.Contains(response, "Agent hook delivery failed.") {
+	if strings.Contains(response, "Acknowledgement note") || strings.Contains(response, "Agent hook delivery failed.") {
 		t.Fatal("a resolved alert showed handover or wake delivery as current")
 	}
 }

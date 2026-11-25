@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Show the latest incident note with its author and time beside the response controls, separately from the acknowledgement note.
+
 ## 0.3.0
 
 ### rc.39 (2026-11-25)
