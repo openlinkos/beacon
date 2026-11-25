@@ -41,6 +41,7 @@ token=
 recovery_volume=
 cleanup() {
   local result=$?
+  smoke_restore_starter_status_file || true
   if (( result != 0 )); then
     for metric in probe_success beacon:probe_failing beacon:service_down; do
       curl -fsSG --max-time 5 http://127.0.0.1:8428/api/v1/query --data-urlencode "query=$metric{service=\"drill\"}" |
@@ -85,6 +86,10 @@ status_url=https://$status_host
 metrics_url=https://$metrics_host
 version=$(sed -n 's/^BEACON_VERSION=//p' .env.example)
 test "$version" = "$(sed -n 's/^BEACON_VERSION=//p' try/.env.example)"
+# Start the first-page acceptance with an empty catalogue, then restore the shipped example.
+if [[ "$version" != v0.3.0-rc.36 ]]; then
+  mv catalog/status_pages.yaml "$work/starter-status-pages.yaml"
+fi
 printf '127.0.0.1 %s %s\n' "$status_host" "$metrics_host" | sudo tee -a /etc/hosts >/dev/null
 sed -i '/^{$\(STATUS_HOST\|METRICS_HOST\)} {/a\	tls internal' Caddyfile
 # Keep the probes entirely on the runner and keep the other shipped probe targets.
@@ -222,6 +227,14 @@ test "$(curl -fsS -b "$work/cookies" -c "$work/cookies" -o /dev/null -w '%{http_
   --data-urlencode "again=$password" "$status_url/console/setup")" = 303
 curl -fsS -b "$work/cookies" "$status_url/console" > "$work/console.html"
 grep -q 'Test Operator' "$work/console.html"
+if [[ "$version" == v0.3.0-rc.36 ]]; then
+  printf 'The pinned release %s predates first status page creation in the console.\n' "$version"
+else
+  smoke_first_status_page
+  smoke_restore_starter_status_file
+  beacon config import /etc/beacon -note 'restore the starter status page after testing first publication'
+  smoke_first_status_restored
+fi
 smoke_status_publication
 
 # A real OpenSSH server trusts the reference install's CA and hosts the restricted account.
