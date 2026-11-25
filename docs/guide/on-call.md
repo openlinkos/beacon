@@ -115,6 +115,8 @@ Delivery of the alert itself never waits for the hook.
 
 Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. An acknowledgement by an identified Agent leaves that escalation in effect. An explicit silence still pauses it.
 
+An earlier Pushover emergency can repeat while cancellation is pending. The response panel shows when Pushover confirms cancellation or when the retry window expires. Beacon requests cancellation for the original [emergency receipt](https://pushover.net/api/receipts). A separate emergency on a later incident has its own receipt.
+
 As the person on call, open the alert page and select **Acknowledge**. Use **Take over** if a previous shift or an Agent has already acknowledged it. Add a brief note about the next action. The timeline keeps up to 20 previous acknowledgements and their notes, and the audit log records each acknowledgement. Check the probes and the alert state to verify recovery.
 
 Use a drill to [verify real phone delivery and a two-person handover](drills.md#verify-phone-delivery-and-handover) before putting the routes on call.
