@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7c8a6f56
+sourceHash: sha256-fd110569
 ---
 
 # 装在服务器上
@@ -272,7 +272,7 @@ claude mcp login beacon
 )
 ```
 
-**发送告警前检查首次演练。** 使用带 `beacon-oncall check` 的匹配版本（rc.44 或更新版本）。地址使用 Beacon 的 `public_url`。回报方名称使用钩子配置 `reporter` 中 `token:` 后面的部分。以运行接收程序的 Linux 用户执行。
+**检查首次演练的凭据。** 使用带 `beacon-oncall check` 的匹配版本（rc.44 或更新版本）。地址使用 Beacon 的 `public_url`。回报方名称使用钩子配置 `reporter` 中 `token:` 后面的部分。以运行接收程序的 Linux 用户执行。
 
 ```sh
 sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
@@ -294,6 +294,18 @@ agents:
     service: '^drill$'
     reporter: token:reference-drill-reporter
 ```
+
+**确认钩子和测试群聊设置已经生效。** 如果 `beacon-oncall check -h` 列出了 `-hook`，重载后再次检查凭据，并指定生效的钩子名称和预期群聊渠道。用签名通知接收程序时，运行：
+
+```sh
+sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
+  -url https://status.example.com -owner alice -agent reference-drill -machine edge-1 \
+  -agent-token-file /etc/beacon-oncall/beacon-token \
+  -reporter reference-drill-reporter -report-token-file /etc/beacon-oncall/run-report-token \
+  -hook reference-drill -chat notification_webhook
+```
+
+Slack 用 `-chat slack`，飞书或 Lark 应用用 `-chat app`。检查会确认生效的签名钩子匹配 `drill` 的严重告警、只用于该测试服务，并且指定了你提供的回报方，也会核对严重告警的群聊渠道。下文的接收端健康检查和演练会验证连接、Agent 登录和实际通知送达。
 
 **只给被唤醒的 Agent 一项只读任务。** 内置 `drill` 检测的是 Beacon 自己的 HTTP 端点。第一次演练用独立的提示词明确指定已登记的测试机器。
 

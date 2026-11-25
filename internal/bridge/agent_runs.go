@@ -10,7 +10,7 @@ import (
 	"github.com/openlinkos/beacon/internal/store"
 )
 
-// AgentRunScope allows only execution reports. The hook must also name the reporting principal.
+// AgentRunScope allows execution reports and first-drill configuration checks for a hook that names the reporting principal.
 const AgentRunScope = "alerts:report"
 
 var (

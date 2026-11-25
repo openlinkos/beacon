@@ -50,7 +50,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | --- | --- |
 | `status:read` | Reading: alerts, the evidence and timeline, change events, silences, the audit log, machines and sessions, the configuration, the status pages and maintenance windows |
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
-| `alerts:report` | Recording execution for hook deliveries assigned to this reporter |
+| `alerts:report` | Record execution for deliveries and check first-drill configuration for hooks assigned to this reporter |
 | `machines:ssh` | The SSH channel with the agent's own keys, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
 | `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
 | `sessions:read` | Sessions' transcripts and recordings |
@@ -93,6 +93,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
 | `GET /api/v1/incident-outcomes/{id}` | `status:read` | One retained outcome by ID, including alert resolution, recorded participation, the latest check and a retained passing check near rule recovery when available |
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | Leave a note, `text` of at most 2000 characters, on a firing or resolved group. It does not acknowledge |
+| `GET /api/v1/agent-hooks/{name}/first-drill` | `alerts:report` | Check a hook assigned to this reporter. Returns `signed_webhook`, `matches_drill`, `drill_only` and `critical_chat` from loaded configuration. Sends no delivery |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | Record a programme's status and exit code for this hook delivery. Repeating an identical report keeps its original time. A report after the group fires again can update the retained delivery in its original incident, with that outcome's ID as the audit target |
 | `GET /api/v1/changes` | `status:read` | Change events, newest first, by `service`, `machine`, `source` and `since` (`2h`, `7d` or a time; the last day by default), `limit` at most 1000 |
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
@@ -322,6 +323,7 @@ Each sends with a token of its own:
 | `incident.changed` | 409 | The incident being verified is no longer the current episode of its alert group |
 | `alert.not_found` | 404 | No alert group with this id |
 | `alert.not_firing` | 409 | The group is not firing, so it cannot be acknowledged or silenced |
+| `agent_hook.not_found` | 404 | The named live hook is absent or is not assigned to this reporter |
 | `agent_run.not_found` | 404 | No matching reportable hook delivery is available for this alert |
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |

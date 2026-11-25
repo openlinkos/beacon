@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-07209df7
+sourceHash: sha256-6e1f807b
 ---
 
 # MCP 工具
@@ -73,6 +73,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `list_incident_outcomes` | `status:read` | 内部已恢复的故障记录（`group`、`severity`、`since`、`origin`、`evidence`、`before`、`limit` 默认 50、最多 200）。用返回的游标作为 `before` 继续翻页 |
 | `get_incident_outcome` | `status:read` | 按故障摘要 ID 查询参与记录、最近一次复测，以及可用时规则恢复前后保留的完整通过复测。用 `list_audit` 按告警组（`target`）和该次故障的时间范围查找相关审计 |
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
+| `check_drill_hook` | `alerts:report` | 检查分配给当前回报方的钩子 `name` 的生效设置，包括签名、是否匹配 `drill` 的严重告警、是否限于该服务，以及配置的严重告警群聊渠道。期间不发送通知或唤醒 |
 | `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
 | `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |

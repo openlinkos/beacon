@@ -17,13 +17,30 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/openlinkos/beacon/internal/api"
+	"github.com/openlinkos/beacon/internal/bridge"
+	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/testutil"
 )
 
 func TestCheckDrillUsesCurrentPermissionsAndEnrolment(t *testing.T) {
-	env := testutil.New(t)
+	const signingSecret = "fixture hook signing secret"
+	const destination = "http://127.0.0.1:1/private"
+	loaded := func(name, service, reporter string, severities ...string) config.Agent {
+		return config.Agent{Name: name, Kind: "webhook", Service: service, Severities: severities,
+			Reporter: reporter, Secret: signingSecret, URL: destination}
+	}
+	env := testutil.NewWith(t, func(deps *bridge.Deps) {
+		deps.Config.Agents = []config.Agent{
+			loaded("reference-drill", "^drill$", "token:drill-reporter", "critical"),
+			loaded("wrong-reporter", "^drill$", "token:other-reporter", "critical"),
+			loaded("wrong-severity", "^drill$", "token:drill-reporter", "warning"),
+			loaded("wrong-service", "^demo$", "token:drill-reporter", "critical"),
+			loaded("broad-filter", "drill.*", "token:drill-reporter", "critical"),
+			{Name: "no-signature", Kind: "webhook", Service: "drill", Severities: []string{"critical"}, Reporter: "token:drill-reporter"},
+		}
+	})
 	setupCode, _, err := env.Store.CreateSetupLink()
 	if err != nil {
 		t.Fatal(err)
@@ -70,15 +87,15 @@ func TestCheckDrillUsesCurrentPermissionsAndEnrolment(t *testing.T) {
 	args := []string{"check", "-url", server.URL, "-owner", "alice", "-agent", "drill-agent", "-machine", "edge-1",
 		"-agent-token-file", agentFile, "-report-token-file", reportFile}
 	expectedReporter := "drill-reporter"
-	check := func(code int, want string) {
+	check := func(code int, want string, extra ...string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
-		got := run(append(args, "-reporter", expectedReporter), &stdout, &stderr)
+		got := run(append(append(args, "-reporter", expectedReporter), extra...), &stdout, &stderr)
 		output := stdout.String() + stderr.String()
 		if got != code || !strings.Contains(output, want) {
 			t.Fatalf("check exit %d, output %q; want %d and %q", got, output, code, want)
 		}
-		for _, secret := range []string{agent, reporter, broad} {
+		for _, secret := range []string{agent, reporter, broad, signingSecret, destination} {
 			if strings.Contains(output, secret) {
 				t.Fatal("check disclosed a credential")
 			}
@@ -90,6 +107,16 @@ func TestCheckDrillUsesCurrentPermissionsAndEnrolment(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(0, "is limited to enrolled machine")
+	check(0, "The loaded signed hook", "-hook", "reference-drill", "-chat", "webhook")
+	check(1, "did not confirm hook", "-hook", "missing")
+	check(1, "did not confirm hook", "-hook", "wrong-reporter")
+	check(1, "does not match a firing critical alert", "-hook", "wrong-severity")
+	check(1, "does not match a firing critical alert", "-hook", "wrong-service")
+	check(1, "limit the first hook", "-hook", "broad-filter")
+	check(1, "with a signing secret", "-hook", "no-signature")
+	check(1, `is "webhook"; expected "slack"`, "-hook", "reference-drill", "-chat", "slack")
+	check(1, "-chat requires -hook", "-chat", "slack")
+	check(1, "the hook name uses lower case", "-hook", "../token")
 	write(reportFile, agent)
 	check(1, "must be separate")
 	write(reportFile, broad)
