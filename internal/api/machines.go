@@ -28,6 +28,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrPaused, http.StatusConflict, "ssh.paused"},
 		{sshgate.ErrStandby, http.StatusServiceUnavailable, "ssh.standby"},
 		{sshgate.ErrEvidenceUnavailable, http.StatusServiceUnavailable, "ssh.evidence_unavailable"},
+		{sshgate.ErrSearchUnavailable, http.StatusServiceUnavailable, "ssh.search_unavailable"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
 		{sshgate.ErrMachineVersion, http.StatusNotFound, "machine.version_not_found"},
 		{sshgate.ErrMachineChanged, http.StatusConflict, "machine.changed"},
@@ -190,6 +191,19 @@ func (s *Server) runCommand(w http.ResponseWriter, r *http.Request, who bridge.A
 		return
 	}
 	out, err := s.SSH.Run(r.Context(), gateActor(who), r.PathValue("name"), in)
+	if err != nil {
+		s.gateError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	var in sshgate.SearchInput
+	if !readJSON(w, r, &in) {
+		return
+	}
+	out, err := s.SSH.SearchFiles(r.Context(), gateActor(who), r.PathValue("name"), in)
 	if err != nil {
 		s.gateError(w, err)
 		return

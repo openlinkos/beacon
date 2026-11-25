@@ -106,14 +106,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/beacon-personal
 
 Register only the contents of `~/.ssh/beacon-personal.pub`. Keep the matching private key on your workstation. Beacon accepts each key fingerprint for one identity, so the agent needs a different key even on the same workstation.
 
-Open **Machines → edge-1 → Connect over SSH**. Copy the `Host` block into a dedicated file, `~/.ssh/beacon-personal.conf`, and add these two lines under `Host beacon-edge-1`.
-
-```ssh-config
-  IdentityFile ~/.ssh/beacon-personal
-  IdentitiesOnly yes
-```
-
-Add the displayed host key line to `~/.ssh/known_hosts`. Run `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`. The dedicated configuration selects your key even when the workstation has keys or shared SSH connections configured for other uses. The reference deployment sets `ssh.public_address` so the console can show these settings.
+Open **Machines → edge-1 → Connect over SSH**. Copy the displayed `Host` block to `~/.ssh/beacon-personal.conf` and append the host key line to `~/.ssh/known_hosts`. Set `IdentityFile` to your local private key if you use a different path. Run `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`. The dedicated configuration selects your key and establishes a new connection under your personal account. The reference deployment sets `ssh.public_address` so the console can show these settings.
 
 Open **Sessions**, find the command on `edge-1` and start its replay. The actor is your username. An agent's sessions show `person / agent`. Remove a personal key in **Your account** to close its active connections and stop it from signing in again.
 

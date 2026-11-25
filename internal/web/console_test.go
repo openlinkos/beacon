@@ -442,7 +442,7 @@ func (e *env) consolePages() map[string][]string {
 		"/console/machines":                {"edge-1", "edge-2", "192.0.2.10:22", "Behind NAT, not connected", "Running"},
 		"/console/machines/edge-1":         {"edge-1", "beacon", "systemctl restart relay", "false &lt;script&gt;", "the relay &lt;script&gt;"},
 		"/console/sessions":                {"claude-code", "codex", "uptime", "interactive shell", "2026-11-02"},
-		"/console/sessions?agent=codex":    {"uptime", "Agent: codex"},
+		"/console/sessions?agent=codex":    {"uptime", "Who: codex"},
 		link.SessionPath(sessionID):        {"claude-code on edge-1", "systemctl restart relay", `id="player"`},
 		"/console/tokens":                  {"root", "status:read", "All machines"},
 		"/console/config":                  {"edge-1", "Europe - Frankfurt", "Asia - Shanghai", "alice", "new location &lt;script&gt;"},

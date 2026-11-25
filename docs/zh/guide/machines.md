@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-31b7d28e
+sourceHash: sha256-d7954051
 ---
 
 # 给 Agent 一台机器
@@ -110,14 +110,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/beacon-personal
 
 只登记 `~/.ssh/beacon-personal.pub` 的内容，配套私钥留在工作站。Beacon 只允许把同一个密钥指纹登记给一个身份，所以同一台工作站上的 Agent 也需要另用一把密钥。
 
-打开**机器 → edge-1 → 通过 SSH 连接**。把页面给出的 `Host` 段复制到独立的 `~/.ssh/beacon-personal.conf`，再在 `Host beacon-edge-1` 下加这两行。
-
-```ssh-config
-  IdentityFile ~/.ssh/beacon-personal
-  IdentitiesOnly yes
-```
-
-将页面给出的主机密钥行加入 `~/.ssh/known_hosts`。运行 `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`。即使工作站还有别的密钥或共享的 SSH 连接，这份独立配置也会选用你的密钥。参考部署会设置 `ssh.public_address`，让控制台能显示这些配置。
+打开**机器 → edge-1 → 通过 SSH 连接**。把页面给出的 `Host` 段复制到 `~/.ssh/beacon-personal.conf`，将主机密钥行追加到 `~/.ssh/known_hosts`。如果私钥保存在其他路径，请修改 `IdentityFile`。运行 `ssh -F ~/.ssh/beacon-personal.conf beacon-edge-1 hostname`。这份独立配置会选用你的密钥，并以个人账号建立新的连接。参考部署会设置 `ssh.public_address`，让控制台能显示这些配置。
 
 打开**会话**，找到 `edge-1` 上刚执行的命令并开始回放。操作人应显示为你的用户名。Agent 的会话记为 `人 / Agent`。在**你的账号**移除个人公钥，会关闭它已打开的连接，并阻止它再次登录。
 

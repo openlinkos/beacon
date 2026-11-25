@@ -76,7 +76,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh        # 会问两个域名和一个用于申请证书的邮箱
 ```
 
-`install.sh` 生成密钥、校验所有文件，并启动 Beacon、VictoriaMetrics、vmalert 和 Caddy。按[装在服务器上](docs/zh/self-hosting/install.md)登记两个检测点和一台机器，回放个人 SSH 与 Agent 会话，再用自己的飞书或 Lark 测试群演练从告警到恢复。演练前请先安排组织管理员审批应用。
+`install.sh` 生成密钥、校验所有文件，并启动 Beacon、VictoriaMetrics、vmalert 和 Caddy。按[装在服务器上](docs/zh/self-hosting/install.md)登记两个检测点和一台机器，回放个人 SSH 与 Agent 会话，再在团队测试群演练从告警到恢复。使用飞书或 Lark 时，请在演练前安排组织管理员审批应用。
 
 ### 接入 Claude Code
 

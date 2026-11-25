@@ -179,6 +179,7 @@ type commandItem struct {
 type personalConnection struct {
 	Title, Hint, Href, Link, Command, Config, Setup, SetupHint string
 	Copy, Copied, CopyError                                    string
+	IncidentHref, IncidentLabel                                string
 }
 
 type machinePage struct {
@@ -214,11 +215,14 @@ func (p machinePage) Table() sessionTable {
 
 // machineConnection is the terminal hand-off for a person who may reach this machine. The gateway
 // still reads that person's role when they authenticate and throughout their session.
-func (s *Server) machineConnection(v *viewer, m sshgate.MachineView) *personalConnection {
+func (s *Server) machineConnection(v *viewer, m sshgate.MachineView, ref string) *personalConnection {
 	if !v.person() || !m.Reachable {
 		return nil
 	}
 	c := &personalConnection{Title: s.t("Connect over SSH")}
+	if path := sshIncidentPath(ref); path != "" {
+		c.IncidentHref, c.IncidentLabel = path, s.t("Back to incident")
+	}
 	switch {
 	case s.SSH.Paused():
 		c.Hint = s.t("SSH access is paused for all machines.")
@@ -228,6 +232,9 @@ func (s *Server) machineConnection(v *viewer, m sshgate.MachineView) *personalCo
 	case len(v.Account.SSHKeys) == 0:
 		c.Hint = s.t("Register this device's public key in your account to connect as yourself.")
 		c.Href, c.Link = consolePath("/account")+"#ssh-keys", s.t("Add an SSH key")
+		if c.IncidentHref != "" {
+			c.Href = (incidentKeyReturn{Ref: ref, Machine: m.Name, Registration: m.Registration}).accountPath()
+		}
 	default:
 		c.Config = s.Bridge.PersonalSSHConfig(v.actor(), m.Name)
 		if c.Config == "" {
@@ -237,10 +244,10 @@ func (s *Server) machineConnection(v *viewer, m sshgate.MachineView) *personalCo
 			}
 			return c
 		}
-		c.Command = "ssh beacon-" + m.Name
+		c.Command = "ssh -F " + sshgate.PersonalConfigPath + " beacon-" + m.Name
 		c.Hint = s.t("Beacon records the session as %s.", v.name())
 		c.Setup = s.t("First-time terminal setup")
-		c.SetupHint = s.t("Add each block to the file named above it, then run the SSH command in your terminal.")
+		c.SetupHint = s.t("Add each block to the named file. Set IdentityFile to the local private key that matches your registered public key, then run the command.")
 		c.Copy = s.t("Copy command")
 		c.Copied = s.t("Command copied")
 		c.CopyError = s.t("Could not copy the command. Select it and copy it from the page.")
@@ -261,9 +268,13 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.missing(w, r, v)
 		return
 	}
+	var ref string
+	if r.URL.Query().Get("registration") == m.Registration {
+		ref = r.URL.Query().Get(sshIncidentParam)
+	}
 	l := s.machineLabels()
 	p := machinePage{shell: s.shellFor(r, v, "machines", m.Name, crumb{Label: s.t("Machines"), Href: consolePath("/machines")}), L: l, LL: s.listLabels(), Note: m.Note,
-		User: m.User, Critical: m.Critical, Connector: m.Connector, Connection: s.machineConnection(v, *m)}
+		User: m.User, Critical: m.Critical, Connector: m.Connector, Connection: s.machineConnection(v, *m, ref)}
 	p.History, p.HistoryHref, p.MetadataVersion = s.t("Settings history"), machinePath(name)+"/history", m.Version
 	if v.has("machines:write") {
 		p.Can = true

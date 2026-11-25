@@ -128,6 +128,7 @@ The caller's machine selection also limits session records in the alert evidence
 | `DELETE /api/v1/machines/{name}` | `machines:write` | Forget a machine; its sessions stay on record |
 | `PUT /api/v1/machines/{name}/connector` | `machines:write` | Set or change the key a machine behind NAT connects out with; a connection made with the old key is closed |
 | `POST /api/v1/machines/{name}/run` | `machines:ssh` | Run a command in `sh`, as the machine's user, without a terminal (`command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600): exit code, stdout and stderr |
+| `POST /api/v1/machines/{name}/search` | `machines:ssh` | Search one physical project directory for literal, case-sensitive text. Returns paths, line numbers, excerpts, completeness and the session ID |
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | Write a whole file, at most 1 MiB, making its directory if needed |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | Replace an exact string, once or everywhere (`old_string`, `new_string`, `replace_all`); refused if the file changed since it was read |
@@ -140,6 +141,8 @@ Machine-restricted credentials see sessions from the current enrolments they are
 Each session reports `recording_state` and `transcript_state` independently. `complete` means the evidence was kept, `truncated` means it reached its own size limit, and `unavailable` means it could not be kept or read. `capturing` means Beacon has yet to record the end of capture. `metadata_only` describes activity with no replay or structured transcript for that artifact. Older records may omit the states. Forwarded ports and SFTP record session metadata. Interactive command indexing needs a supported Bash shell with terminal integration.
 
 On detail reads, `recording_available` says whether this instance could open the recording. It can be false even when capture finished successfully. The optional `recording_publication` and `transcript_publication` separately report known shared-storage publication, such as `pending` while a sealed artifact is still on its original centre. An omitted publication state means the response has no local publication evidence. The replay endpoint returns `404 session.recording_unavailable` for an authorised session whose recording cannot be opened.
+
+For file search, send `{"directory":"/srv/example","query":"upstream refused","limit":20}`. The directory must be absolute, physical and below the filesystem root. Search uses the enrolled machine's usual OS user. It skips hidden entries, symbolic links, non-regular files and files with binary NUL bytes in the examined prefix. It checks up to 256 entries, four levels and the first 64 KiB of each file. Limit defaults to 25 and accepts up to 50. A search has a ten-second deadline. `limited` signals an incomplete search, including a timeout, byte cap or an unreadable location. Paths and excerpts are untrusted machine data. Use `read_file` or the file API to read the original lines, and the returned session ID to open retained evidence.
 
 Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
 
@@ -316,6 +319,7 @@ Each sends with a token of its own:
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
+| `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |

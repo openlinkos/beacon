@@ -22,7 +22,7 @@ import (
 // labels are the texts of the alert's and the session's pages that take no arguments.
 type labels struct {
 	Alert, Session, Service, Services, Labels, Probes, Related, Changes, Agents, Notes, Sessions, Commands, Output, Timeline string
-	Recording, Replay, Download, Machine, Agent, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason    string
+	Recording, Replay, Download, Machine, Via, Started, Duration, Exit, Location, Instance, Module, Result, Reason           string
 	OK, Failing, Stale, Open, None, Runbook, Dashboard, NoProbes, RecordingError                                             string
 	Details, Status, Severity, Kind, Ended, ID, Time, What, Acknowledge, AckNote, Silence, SilenceWhy, AddNote, Note         string
 	SessionsOn, EndSilence, AckWithNote, TakeOverWithNote, ProbeResults                                                      string
@@ -36,7 +36,7 @@ func (s *Server) labels() labels {
 		Alert: s.t("Alert"), Session: s.t("Session"), Service: s.t("Service"), Services: s.t("Services"), Labels: s.t("Labels"),
 		Probes: s.t("Probes"), Related: s.t("Related alerts"), Changes: s.t("Changes"), Agents: s.t("Agents"), Notes: s.t("Notes"), Timeline: s.t("Timeline"),
 		Sessions: s.t("Sessions"), Commands: s.t("Commands"), Output: s.t("Output"), Recording: s.t("Recording"), Replay: s.t("Replay"),
-		Download: s.t("Download the recording"), Machine: s.t("Machine"), Agent: s.t("Agent"), Via: s.t("Via"), Started: s.t("Started"),
+		Download: s.t("Download the recording"), Machine: s.t("Machine"), Via: s.t("Via"), Started: s.t("Started"),
 		Duration: s.t("Duration"), Exit: s.t("Exit status"), Location: s.t("Location"), Instance: s.t("Target"), Module: s.t("Module"),
 		Result: s.t("Result"), Reason: s.t("Reason"), OK: s.t("OK"), Failing: s.t("Failing"), Stale: s.t("Stale"), Open: s.t("Still open"),
 		None: s.t("None"), Runbook: s.t("Runbook"), Dashboard: s.t("Dashboard"), NoProbes: s.t("No probe results in the window"),
@@ -310,12 +310,16 @@ type alertPage struct {
 func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeline, g bridge.GroupView, a access) alertPage {
 	now := s.now()
 	al := ev.Alert
+	ref := al.ID + "." + g.Episode
+	if sshIncidentPath(ref) == "" {
+		ref = ""
+	}
 	p := alertPage{shell: s.pageShell(r, a, "alerts", s.t("Alert"), al.Title, crumb{Label: s.t("Alerts"), Href: consolePath("/alerts")}),
 		L: s.labels(), ID: al.ID, Heading: al.Title, Description: al.Description,
 		Service: al.Service, Services: al.Services, Severity: s.severity(al.Severity), SeverityClass: tone(al.Severity),
 		Runbook: external(g.Runbook), Dashboard: external(g.Dashboard),
 		Window:   s.t("Window: %s to %s", s.clock(ev.Window.From), s.clock(ev.Window.To)),
-		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines)}
+		Machines: s.alertMachines(a.Viewer, ev.LinkedMachines, ev.MonitorMachines, ref)}
 	if a.Viewer.person() && a.Viewer.owner() {
 		p.ShareLinks = shareLinksPath("alerts", al.ID)
 	} else if a.Grant != nil {
@@ -465,7 +469,7 @@ func currentHandover(tl bridge.Timeline, ack *store.Ack) handoverNote {
 	return handoverNote{}
 }
 
-func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine) *alertMachineLinks {
+func (s *Server) alertMachines(v *viewer, names []string, designated []store.MonitorMachine, ref string) *alertMachineLinks {
 	if v == nil || !v.hasAny("status:read|machines:ssh") {
 		return nil
 	}
@@ -485,7 +489,11 @@ func (s *Server) alertMachines(v *viewer, names []string, designated []store.Mon
 		}
 		href := machinePath(m.Name)
 		if v.person() && v.Principal.Reaches(m.Name) {
-			href += "#ssh-connect"
+			if ref == "" {
+				href += "#ssh-connect"
+			} else {
+				href = incidentMachinePath(m.Name, m.Registration(), ref)
+			}
 		}
 		out.Items = append(out.Items, kvLink{V: m.Name, K: s.t("Open machine %s", m.Name), Href: href})
 	}
@@ -498,7 +506,11 @@ func (s *Server) alertMachines(v *viewer, names []string, designated []store.Mon
 			}
 			href := machinePath(m.Name) + "?registration=" + url.QueryEscape(binding.Registration)
 			if v.person() && v.Principal.Reaches(m.Name) {
-				href += "#ssh-connect"
+				if ref == "" {
+					href += "#ssh-connect"
+				} else {
+					href = incidentMachinePath(m.Name, binding.Registration, ref)
+				}
 			}
 			out.Items = append(out.Items, kvLink{V: m.Name + " (" + binding.Service + ")",
 				K: s.t("Open designated machine %s for %s", m.Name, binding.Service), Href: href})
@@ -903,6 +915,23 @@ type sessionPage struct {
 	ShareLinks, SharedViewHint                                               string
 }
 
+func (s *Server) sessionActorKind(principal string) string {
+	kind, _, ok := strings.Cut(principal, ":")
+	if !ok {
+		return ""
+	}
+	switch kind {
+	case "agent":
+		return s.t("Agent")
+	case "user":
+		return s.t("Person")
+	case "token":
+		return s.t("Token")
+	default:
+		return ""
+	}
+}
+
 func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) sessionPage {
 	rec := tr.SessionRecord
 	heading := s.t("%s on %s", rec.Agent, rec.Machine)
@@ -915,13 +944,9 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	} else if a.Grant != nil {
 		p.SharedViewHint = s.t("This link opens this session and any available recording. Sign in to open other sessions or machines you can access.")
 	}
-	p.ActorLabel = s.t("Actor")
-	if strings.HasPrefix(rec.Principal, "agent:") {
-		p.ActorLabel = p.L.Agent
-	} else if strings.HasPrefix(rec.Principal, "user:") {
-		p.ActorLabel = s.t("Person")
-	} else if strings.HasPrefix(rec.Principal, "token:") {
-		p.ActorLabel = s.t("Token")
+	p.ActorLabel = s.sessionActorKind(rec.Principal)
+	if p.ActorLabel == "" {
+		p.ActorLabel = s.t("Actor")
 	}
 	p.Badges = []badge{{Text: p.Kind}}
 	switch {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b2b41c97
+sourceHash: sha256-42c00ad2
 ---
 
 # 命令行
@@ -178,5 +178,20 @@ docker exec beacon beacon token list
 | `-timeout` | `30m` | 超时后杀死程序的整个进程组 |
 | `-log-dir` | `/var/lib/beacon-oncall/logs` | 每次运行的输出，文件名 `<time>-<delivery>.log` |
 | `-keep` | `720h` | 超过此时长的日志被清除；`0` 全部保留 |
+
+### 检查首次演练 {#check-a-first-drill}
+
+在[首次演练](../self-hosting/install.md#prepare-a-first-wake-on-the-centre)前运行 `beacon-oncall check`，读取中心的当前凭据和 SSH 登记状态。以接收钩子的 Linux 用户执行。以下参数均为必填。
+
+| 参数 | 需要的值 |
+| --- | --- |
+| `-url` | 中心的公开基地址 |
+| `-owner`、`-agent` | 预期的 Beacon 账号和 Agent 名称 |
+| `-machine` | 本次演练选定的一台已登记机器 |
+| `-agent-token-file` | Agent 已有的凭据文件 |
+| `-reporter` | 钩子配置中 `token:` 后面的令牌名 |
+| `-report-token-file` | 接收程序独立的 `alerts:report` 令牌文件 |
+
+凭据或机器检查未通过时，命令退出码为 1。接着用签名演练验收钩子投递和实际执行。
 
 `beacon-oncall version` 打印版本、提交和构建。Claude Code 与 Codex 的包装脚本和运行它的 unit 在仓库的 `contrib/oncall` 里。

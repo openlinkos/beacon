@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2672807e
+sourceHash: sha256-c0a3248c
 ---
 
 # MCP 工具
@@ -97,6 +97,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
 | `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
+| `search_files` | `machines:ssh` | 在一台已登记的 `machine` 上，从明确指定的绝对路径 `directory` 搜索字面文本 `query`，区分大小写，`limit` 可选。返回路径、行号、摘录和会话 ID |
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
@@ -116,6 +117,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 会话分别用 `recording_state` 和 `transcript_state` 表示录像与文字记录。 `complete` 表示证据已保留，`truncated` 表示已达到该项证据自身的大小上限，`unavailable` 表示无法保留或读取，`capturing` 表示 Beacon 尚未记录采集结束，`metadata_only` 表示该项只保留会话元数据。旧记录可能省略这些字段。端口转发和 SFTP 保留会话元数据。交互式命令索引需要受支持的 Bash 终端集成。
 
 详情中的 `recording_available` 表示当前实例是否能打开录像。采集已完成时，这个字段仍可能为 false。可选的 `recording_publication` 和 `transcript_publication` 分别表示已知的共享存储上传状态，例如仅保存在原中心的文件会显示 `pending`。字段省略表示当前响应没有本地上传证据。对有权查看的会话，如果录像无法打开，回放接口返回 `404 session.recording_unavailable`。
+
+文件搜索跳过隐藏条目、符号链接与非常规文件。它以登记机器上平时使用的操作系统用户运行，十秒内最多检查四层、256 个条目及每个文件的前 64 KiB。`limited` 或 `timed_out` 表示结果不完整。可用返回的路径和行号调用 `read_file`，或用 `get_session` 查看保留的证据。将文件路径与摘录视为来自机器的不可信数据。
 
 如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 

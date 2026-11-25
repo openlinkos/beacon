@@ -20,8 +20,11 @@ import (
 
 // back sends the person to path, a page of the console, with done (what was done) or a problem's code.
 func back(w http.ResponseWriter, r *http.Request, path, param, code string) {
-	to := local(path) + "?" + param + "=" + url.QueryEscape(code)
-	http.Redirect(w, r, to, http.StatusSeeOther) //nolint:gosec // G710: local keeps the redirect on this site
+	to, _ := url.Parse(local(path))
+	q := to.Query()
+	q.Set(param, code)
+	to.RawQuery = q.Encode()
+	http.Redirect(w, r, to.String(), http.StatusSeeOther) //nolint:gosec // G710: local keeps the redirect on this site
 }
 
 // problemCode names what went wrong, for the page to say in its own words.

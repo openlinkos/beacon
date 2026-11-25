@@ -62,7 +62,7 @@ func sshConfig(gate *sshgate.Gate, address string) func(string, string) string {
 			if cfg == "" {
 				return ""
 			}
-			return "# ~/.ssh/config\n" + cfg + "\n\n# ~/.ssh/known_hosts\n" + hosts
+			return "# " + sshgate.PersonalConfigPath + "\n" + cfg + "\n\n# ~/.ssh/known_hosts\n" + hosts
 		}
 		l, err := gate.List(sshgate.Actor{Key: key}, address)
 		if err != nil || l.SSHConfig == "" {

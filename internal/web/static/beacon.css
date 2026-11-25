@@ -230,7 +230,10 @@
   background: var(--ol-color-bg-subtle);
 }
 
-#ssh-connect { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+#ssh-connect, #ssh-keys { scroll-margin-block-start: calc(var(--ol-size-topbar) + var(--ol-space-8)); }
+@container ol-content (width < 40rem) {
+  .bc-incident-ssh-controls .ol-btn { min-block-size: 2.75rem; }
+}
 
 .bc-copy-feedback:empty,
 .bc-share-links [hidden],

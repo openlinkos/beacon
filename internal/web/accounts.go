@@ -290,6 +290,22 @@ func (s *Server) accountPage(w http.ResponseWriter, r *http.Request, v *viewer) 
 		p.Facts = append(p.Facts, kvLink{K: s.t("Agents"), V: num(len(s.Store.Agents(a.Username))), Href: consolePath("/agents")})
 		p.Help = s.t("A new password ends every other sign-in of yours.")
 		p.SSH = s.personalKeys(v)
+		if p.SSH != nil {
+			p.SSH.Return = s.incidentKeyReturn(v, r.URL.Query())
+			if p.SSH.Return.Ref != "" {
+				p.SSH.ReturnHref, p.SSH.ReturnLabel = sshIncidentPath(p.SSH.Return.Ref), s.t("Back to incident")
+				if p.SSH.Return.Machine != "" {
+					p.SSH.ReturnHref = incidentMachinePath(p.SSH.Return.Machine, p.SSH.Return.Registration, p.SSH.Return.Ref)
+					p.SSH.ReturnLabel = s.t("Back to SSH setup for %s", p.SSH.Return.Machine)
+				}
+				if p.Problem != "" {
+					p.SSH.Result, p.SSH.ResultTone = p.Problem, "danger"
+				} else {
+					p.SSH.Result, p.SSH.ResultTone = p.Toast, p.ToastTone
+				}
+				p.Problem, p.Toast = "", ""
+			}
+		}
 	} else {
 		p.Facts = []kvLink{{K: s.t("Token"), V: v.Token.Name}, {K: s.t("Scopes"), V: strings.Join(v.Principal.Scopes, ", ")},
 			{K: s.t("Expires"), V: s.clock(v.Token.Expires)}}
@@ -301,6 +317,8 @@ type personalKeySection struct {
 	Heading, Help, PublicKey, PublicKeyHint, Comment, Add, Remove, Empty string
 	CanAdd                                                               bool
 	Keys                                                                 []bridge.SSHKeyView
+	Return                                                               incidentKeyReturn
+	ReturnHref, ReturnLabel, Result, ResultTone                          string
 }
 
 func (s *Server) personalKeys(v *viewer) *personalKeySection {
@@ -320,7 +338,7 @@ func (s *Server) personalKeys(v *viewer) *personalKeySection {
 }
 
 func (s *Server) addPersonalKey(w http.ResponseWriter, r *http.Request, v *viewer) {
-	path := consolePath("/account")
+	path := s.incidentKeyReturn(v, r.PostForm).accountPath()
 	if !v.person() || s.SSH == nil {
 		back(w, r, path, "error", "forbidden")
 		return
