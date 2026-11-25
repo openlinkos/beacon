@@ -19,7 +19,7 @@ const (
 
 func latestNotification(g *store.Group, channel string) store.Notification {
 	for i := len(g.Notifications) - 1; i >= 0; i-- {
-		if g.Notifications[i].Channel == channel {
+		if g.Notifications[i].Channel == channel && g.Notifications[i].Event == "" {
 			return g.Notifications[i]
 		}
 	}
@@ -143,7 +143,9 @@ func notificationEvents(g *store.Group) []notificationEvent {
 			}
 		}
 		events = append(events, notificationEvent{Event: Event{At: n.At, Kind: kind, Via: via, Result: n.Result, Event: n.Event}, routeID: n.RouteID})
-		seen[n.Channel] = true
+		if n.Event == "" {
+			seen[n.Channel] = true
+		}
 	}
 	if !seen["feishu-buzz"] {
 		events = append(events, notificationEvent{Event: Event{At: g.Buzzed, Kind: "notification", Via: "feishu-buzz"}})
@@ -186,7 +188,7 @@ func (b *Bridge) LatestCriticalDeliveries() map[string]DeliveryAttempt {
 			continue
 		}
 		for _, e := range notificationEvents(&g) {
-			if e.Event.Event == "resolved" || e.At.IsZero() || (e.Result != "ok" && e.Result != "failed") {
+			if e.Event.Event != "" || e.At.IsZero() || (e.Result != "ok" && e.Result != "failed") {
 				continue
 			}
 			channel := e.Via

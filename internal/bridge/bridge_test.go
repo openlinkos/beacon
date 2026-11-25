@@ -90,8 +90,8 @@ func (p *fakePush) Send(_ context.Context, m notify.Emergency) (string, error) {
 func (p *fakePush) Receipt(context.Context, string) (notify.Receipt, error) {
 	return notify.Receipt{Acknowledged: p.acked, Device: "iphone"}, nil
 }
-func (p *fakePush) CancelByTag(_ context.Context, tag string) error {
-	p.cancelled = append(p.cancelled, tag)
+func (p *fakePush) Cancel(_ context.Context, receipt string) error {
+	p.cancelled = append(p.cancelled, receipt)
 	return nil
 }
 
@@ -244,7 +244,7 @@ func TestEscalation(t *testing.T) {
 	}
 	e.now = e.now.Add(5 * time.Minute)
 	e.b.Tick(ctx)
-	if len(e.push.sent) != 1 || e.push.sent[0].Tag != id || !strings.Contains(e.push.sent[0].Title, "Critical: git.example.com is down") {
+	if len(e.push.sent) != 1 || !strings.Contains(e.push.sent[0].Title, "Critical: git.example.com is down") {
 		t.Fatalf("pushover at 15 minutes: %+v", e.push.sent)
 	}
 	// acknowledged in Pushover → acknowledged here
@@ -441,7 +441,7 @@ func TestSilenceFromCard(t *testing.T) {
 	if r.ToastKind != "success" || len(e.am.created) != 1 || e.am.created[0]["service"] != "git-example-com" {
 		t.Fatalf("silence: %+v %v", r, e.am.created)
 	}
-	if len(e.push.cancelled) != 1 || e.push.cancelled[0] != id {
+	if len(e.push.cancelled) != 1 || e.push.cancelled[0] != "rc1" {
 		t.Errorf("silencing should stop Pushover's retries: %v", e.push.cancelled)
 	}
 	c := cardText(r.Card)

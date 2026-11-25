@@ -16,19 +16,22 @@ func TestPushover(t *testing.T) {
 	var sent url.Values
 	cancelled := ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/1/messages.json":
+		switch r.URL.Path {
+		case "/1/messages.json":
 			_ = r.ParseForm()
 			sent = r.PostForm
 			_, _ = w.Write([]byte(`{"status":1,"request":"x","receipt":"rcpt1"}`))
-		case r.URL.Path == "/1/receipts/rcpt1.json":
+		case "/1/receipts/rcpt1.json":
 			if r.URL.Query().Get("token") != "app" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			_, _ = w.Write([]byte(`{"status":1,"acknowledged":1,"acknowledged_at":1793080000,"acknowledged_by_device":"iphone","expired":0}`))
-		case strings.HasPrefix(r.URL.Path, "/1/receipts/cancel_by_tag/"):
-			cancelled = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/1/receipts/cancel_by_tag/"), ".json")
+		case "/1/receipts/rcpt1/cancel.json":
+			if err := r.ParseForm(); err != nil || r.Method != http.MethodPost || r.PostForm.Get("token") != "app" {
+				t.Errorf("cancellation did not POST its application token in the form")
+			}
+			cancelled = r.URL.Path
 			_, _ = w.Write([]byte(`{"status":1}`))
 		default:
 			http.NotFound(w, r)
@@ -37,19 +40,19 @@ func TestPushover(t *testing.T) {
 	defer srv.Close()
 	p := &Pushover{API: srv.URL, Token: "app", User: "usr", Retry: time.Minute, Expire: 3 * time.Hour}
 	ctx := context.Background()
-	rc, err := p.Send(ctx, Emergency{Title: "git.linkos.io is down", Message: "since 10:00", URL: "https://example.com", URLTitle: "Runbook", Tag: "g123"})
+	rc, err := p.Send(ctx, Emergency{Title: "git.linkos.io is down", Message: "since 10:00", URL: "https://example.com", URLTitle: "Runbook"})
 	if err != nil || rc != "rcpt1" {
 		t.Fatalf("Send: %q %v", rc, err)
 	}
-	if sent.Get("priority") != "2" || sent.Get("retry") != "60" || sent.Get("expire") != "10800" || sent.Get("tags") != "g123" || sent.Get("user") != "usr" {
+	if sent.Get("priority") != "2" || sent.Get("retry") != "60" || sent.Get("expire") != "10800" || sent.Has("tags") || sent.Get("user") != "usr" {
 		t.Errorf("form: %v", sent)
 	}
 	r, err := p.Receipt(ctx, "rcpt1")
 	if err != nil || !r.Acknowledged || r.Device != "iphone" || r.At.Unix() != 1793080000 {
 		t.Fatalf("Receipt: %+v %v", r, err)
 	}
-	if err := p.CancelByTag(ctx, "g123"); err != nil || cancelled != "g123" {
-		t.Fatalf("CancelByTag: %v %q", err, cancelled)
+	if err := p.Cancel(ctx, "rcpt1"); err != nil || cancelled != "/1/receipts/rcpt1/cancel.json" {
+		t.Fatalf("Cancel: %v %q", err, cancelled)
 	}
 	if _, err := p.Receipt(ctx, "missing"); err == nil {
 		t.Error("an unknown receipt should fail")

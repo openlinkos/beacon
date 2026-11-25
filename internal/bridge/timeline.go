@@ -35,7 +35,7 @@ type Event struct {
 	Service string                   `json:"service,omitempty"`
 	ID      string                   `json:"id,omitempty"` // the session (of a command too), change, silence or hook delivery; the heartbeat's name
 	Until   *time.Time               `json:"until,omitempty"`
-	Event   string                   `json:"event,omitempty"`  // notification or agent call: for firing or resolved
+	Event   string                   `json:"event,omitempty"`  // notification or agent call phase, or emergency cancellation
 	Result  string                   `json:"result,omitempty"` // provider result or reported execution phase
 	Exit    *int                     `json:"exit,omitempty"`   // a session, command or programme exit status
 	URL     string                   `json:"url,omitempty"`
@@ -76,7 +76,7 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access 
 	}
 	notifications := notificationEvents(g)
 	for _, e := range notifications {
-		if e.Event.Event != "resolved" {
+		if e.Event.Event == "" {
 			add(e.Event)
 		}
 	}
@@ -139,7 +139,7 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access 
 		add(Event{At: g.ResolvedAt, Kind: "resolved"})
 	}
 	for _, e := range notifications {
-		if e.Event.Event == "resolved" {
+		if e.Event.Event != "" {
 			add(e.Event)
 		}
 	}

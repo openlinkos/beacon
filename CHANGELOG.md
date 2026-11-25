@@ -4,6 +4,8 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Retry a failed request to stop a Pushover emergency after acknowledgement, silence or recovery. The persisted request is tied to its original receipt and route, and the incident records Pushover's response.
+
 ## 0.3.0
 
 ### rc.40 (2026-11-25)

@@ -102,9 +102,26 @@ type Group struct {
 	CardSessionHash      string    `json:"card_session_hash,omitempty"`
 	CardSessionAttemptAt time.Time `json:"card_session_attempt_at,omitzero"`
 
+	// Receipt routing lasts as long as this emergency; pending cancellations also survive refiring.
+	ReceiptRouteID        string                 `json:"receipt_route_id,omitempty"`
+	ReceiptExpiresAt      time.Time              `json:"receipt_expires_at,omitzero"`
+	PushoverCancelID      string                 `json:"pushover_cancel_id,omitempty"`
+	PushoverCancelStatus  string                 `json:"pushover_cancel_status,omitempty"`
+	PushoverCancellations []PushoverCancellation `json:"pushover_cancellations,omitempty"`
+
 	NotifySlack  bool            `json:"-"` // stored separately from the group JSON
 	SlackNotices []WebhookNotice `json:"-"`
 	slackStored  bool
+}
+
+// PushoverCancellation stops retries for one accepted emergency on its original route.
+type PushoverCancellation struct {
+	ID        string    `json:"id"`
+	Episode   string    `json:"episode,omitempty"`
+	Receipt   string    `json:"receipt"`
+	RouteID   string    `json:"route_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	RetryAt   time.Time `json:"retry_at,omitzero"`
 }
 
 // ChatRecovery holds the original Feishu destination and content for a resolved episode.
@@ -156,7 +173,7 @@ func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
 type Notification struct {
 	At      time.Time `json:"at"`
 	Channel string    `json:"channel"`
-	Event   string    `json:"event,omitempty"`    // resolved for a recovery update
+	Event   string    `json:"event,omitempty"`    // resolved for a recovery update, cancel for an emergency cancellation
 	Result  string    `json:"result"`             // ok or failed
 	RouteID string    `json:"route_id,omitempty"` // keyed identity of the configuration used for this attempt
 }
