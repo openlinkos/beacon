@@ -154,6 +154,23 @@ func currentChecks(refs []targetRef, scopes map[string][]string, results []bridg
 	return out
 }
 
+func (sc serviceConfig) checksByService(pe bridge.ProbeEvidence, now time.Time) map[string]monitorChecks {
+	results := map[string][]bridge.ProbeResult{}
+	for _, result := range pe.Results {
+		svc := result.Service
+		if len(sc.names) == 1 {
+			svc = sc.names[0]
+		}
+		results[svc] = append(results[svc], result)
+	}
+	scopes := sc.activeScopes(now)
+	checks := make(map[string]monitorChecks, len(sc.names))
+	for _, svc := range sc.names {
+		checks[svc] = currentChecks(sc.targets[svc], scopes, results[svc])
+	}
+	return checks
+}
+
 func (s *Server) monitorState(c monitorChecks, ps *probeState, pe bridge.ProbeEvidence) (string, string) {
 	switch {
 	case c.expected == 0:
@@ -195,19 +212,13 @@ type probeState struct {
 	reason                    string
 }
 
-// probeStates sums up pe by service; a result names its service when pe has several, else it is only's.
-func probeStates(pe bridge.ProbeEvidence, only string) map[string]*probeState {
-	out := map[string]*probeState{}
-	for _, r := range pe.Results {
-		svc := r.Service
-		if svc == "" {
-			svc = only
-		}
-		ps := out[svc]
-		if ps == nil {
-			ps = &probeState{reporting: map[string]bool{}, failing: map[string]bool{}, stale: map[string]bool{}}
-			out[svc] = ps
-		}
+// sampleState summarises the readings that match the current monitor.
+func (c monitorChecks) sampleState() *probeState {
+	if len(c.results) == 0 {
+		return nil
+	}
+	ps := &probeState{reporting: map[string]bool{}, failing: map[string]bool{}, stale: map[string]bool{}}
+	for _, r := range c.results {
 		if r.LastSeen.After(ps.last) {
 			ps.last = r.LastSeen
 		}
@@ -227,7 +238,7 @@ func probeStates(pe bridge.ProbeEvidence, only string) map[string]*probeState {
 			ps.since = r.FailingSince
 		}
 	}
-	return out
+	return ps
 }
 
 // state is a service's state in words and the design system's tone: failing at two locations and at
@@ -285,15 +296,7 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if len(sc.names) > 0 {
 		p.ProbeError = pe.Error
 	}
-	results := map[string][]bridge.ProbeResult{}
-	for _, result := range pe.Results {
-		svc := result.Service
-		if len(sc.names) == 1 {
-			svc = sc.names[0]
-		}
-		results[svc] = append(results[svc], result)
-	}
-	scopes := sc.activeScopes(now)
+	current := sc.checksByService(pe, now)
 	firing := s.firingByService()
 	failing, rows := 0, make([]monitorRow, 0, len(sc.names))
 	for _, svc := range sc.names {
@@ -301,8 +304,8 @@ func (s *Server) monitors(w http.ResponseWriter, r *http.Request, v *viewer) {
 		if len(ts) == 0 {
 			continue
 		}
-		checks := currentChecks(ts, scopes, results[svc])
-		ps := probeStates(bridge.ProbeEvidence{Results: checks.results}, svc)[svc]
+		checks := current[svc]
+		ps := checks.sampleState()
 		row := monitorRow{Service: svc, Href: consolePath("/monitors/") + url.PathEscape(svc), Pages: sc.pages[svc]}
 		row.State, row.Tone = s.monitorState(checks, ps, pe)
 		if row.Tone == "danger" || row.Tone == "warning" {
@@ -476,7 +479,7 @@ func (s *Server) monitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	pe := s.Bridge.Probes(r.Context(), []string{svc}, bridge.Window{From: now.Add(-monitorWindow), To: now}, maxMonitorResults)
 	checks := currentChecks(ts, sc.activeScopes(now), pe.Results)
 	pe.Results = checks.results
-	state, tn := s.monitorState(checks, probeStates(pe, svc)[svc], pe)
+	state, tn := s.monitorState(checks, checks.sampleState(), pe)
 	p.Badges = []badge{{Text: state, Tone: tn}}
 	p.Probes = s.probes(pe, now.Add(-monitorWindow), p.LL)
 	switch {

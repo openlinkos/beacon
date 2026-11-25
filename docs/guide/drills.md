@@ -37,7 +37,7 @@ Starting a drill and ending it are both change events. So the alert's evidence s
 What happens, with two locations:
 
 1. **Within a minute** both locations see 503, and `probe_success{service="drill"}` is 0 for each.
-2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires once that quorum holds for 1 minute**.
+2. **After 3 minutes** of failure the rules count each location as failing. Two of two is at least two and at least half, so **`ServiceDown` fires once that quorum holds for 40 seconds**.
 3. **After the route's group wait** (5 seconds for critical `ServiceDown` in the reference deployment), Beacon records the group, wakes matching agent hooks and sends its chat card if configured. Allow about five minutes from the command to see it in `GET /api/v1/alerts` and MCP's `list_alerts`. The card turns green on recovery. The phone escalation delay depends on your notification policy.
 
 With one location nothing fires, by design.

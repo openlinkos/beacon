@@ -4,9 +4,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
-- Show planned maintenance beside urgent alerts on the Overview, with a direct scheduling link for people who may arrange maintenance.
-
 ## 0.3.0
+
+### rc.33 (2026-11-25)
+
+- Show current probe coverage, waiting checks and stale results in the console. The monitoring views only use samples that match the active target, check profile and location.
+- Pick up due human escalation every two seconds when a provider is configured. Reference ServiceDown rules confirm a sustained quorum in 40 seconds. The reference drill records time from fault to the two probe failures, the rule, the incident, signed wake and provider acceptance.
+- Show planned maintenance beside urgent alerts on the Overview, with a direct scheduling link for people who may arrange maintenance.
 
 ### rc.32 (2026-11-25)
 

@@ -112,7 +112,7 @@ It prints the result's metrics and, when it fails, `failed: <reason>: <detail>`.
 You expected an alert, and `GET /api/v1/alerts` (or `list_alerts`) has none. Follow the alert's path:
 
 1. **Do enough locations fail?** A service is down only when at least two locations fail it, and they are at least half of those reporting. One location's failure never fires anything, by design. In vmui, `probe_success{service="…"}` shows each location's results.
-2. **Long enough?** A location counts as failing after 3 minutes of failures. `ServiceDown` fires after 1 more minute: 4 to 5 minutes after the service broke. `ServiceDegraded` (at least two locations but fewer than half) and `MainlandPathDegraded` wait 5 minutes.
+2. **Long enough?** A location counts as failing after 3 minutes of failures. The reference `ServiceDown` rule requires its quorum to hold for 40 seconds after that. `ServiceDegraded` (at least two locations but fewer than half) and `MainlandPathDegraded` wait 5 minutes.
 3. **Does the rule engine reach Beacon?** When vmalert's alerts do not arrive, `GET /api/v1/bridge` says `no Watchdog from the rule engine since start` or `the Watchdog from the rule engine stopped`. Then read `docker compose logs vmalert`. Its notifier must point at the gateway (`-notifier.url=http://beacon:17006`) with the rules token (`rules.token_file`), or a token with `alerts:send`.
 4. **Is it muted?** A silence matching the alert keeps it from notifying: `beacon silence list`. A maintenance window makes such silences, with comments that begin with `maintenance:`. An inhibition rule mutes an alert while another fires. In the reference deployment, `ServiceDown` mutes `ServiceDegraded` and `MainlandPathDegraded` for the same service.
 

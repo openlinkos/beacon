@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c28c8029
+sourceHash: sha256-72628486
 ---
 
 # 指标与告警规则 {#metrics-and-alert-rules}
@@ -73,7 +73,7 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 
 | 告警 | 级别 | 持续 | 何时 |
 | --- | --- | --- | --- |
-| `ServiceDown` | 目标的 `severity`；没有则 `critical` | 1m | 服务在至少一半上报位置（且至少两个）失败 3 分钟 |
+| `ServiceDown` | 目标的 `severity`；没有则 `critical` | 40s | 服务在至少一半上报位置（且至少两个）失败 3 分钟 |
 | `ServiceDegraded` | `warning` | 5m | 至少两个位置失败，但不到一半：部分故障，通常是一个 CDN 节点或一条网络路径 |
 | `MainlandPathDegraded` | `warning` | 5m | 所有大陆位置失败而海外成功：是从中国大陆出去的路径，不是服务 |
 | `ProbeLocationDown` | `warning` | 5m | 一个位置 10 分钟没有上报（`beacon_expected_location` 对 `probe_success`） |
