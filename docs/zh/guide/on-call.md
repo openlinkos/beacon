@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-40a1aed0
+sourceHash: sha256-a243eced
 ---
 
 # 让 Agent 值班
@@ -30,27 +30,21 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
 
 ## 叫醒 Agent {#wake-an-agent}
 
-1. **在配置里列出钩子。** 钩子从 `config.yaml` 读取：
+1. **在配置里列出钩子。** 把钩子添加到 `config.yaml` 的 `agents` 中。保留部署已有的 `public_url`，让钩子能找到告警证据。
 
    ```yaml
-   public_url: https://status.example.com     # 钩子要告诉 Agent 证据在哪里
-
    agents:
      - name: claude-oncall
        kind: webhook
        url: https://agents.example.com/hooks/beacon
        secret_file: /etc/beacon/secrets/agent-hook-secret   # 至少 24 个随机字符
-       severities: [critical, warning]
+       service: '^drill$'
        resolved: true                            # 告警恢复时也通知
    ```
 
    `severities` 说明哪些级别的告警组会叫醒它（默认 `[critical]`），可选的 `service` 正则可以再收窄。`kind: github` 的钩子改为触发一个 workflow，配置块和各字段的含义见 [GitHub Actions](../integrations/github-actions.md)。
 
-2. **校验配置并重启。**
-
-   ```bash
-   docker exec beacon beacon check-config -config /etc/beacon/config.yaml && docker compose restart beacon
-   ```
+2. **校验配置并重启。** 使用参考部署时，在 `/opt/beacon` 下运行 `sudo ./install.sh`，设置新增密钥文件的权限、校验并重启。其他部署请用该部署的配置文件运行 `beacon check-config`，然后重启服务。
 
    以下情况 `beacon check-config` 会拒绝：
 
@@ -60,7 +54,7 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
 
 3. **把另一头立起来。** webhook 需要有程序来运行 Agent。`beacon-oncall` 是参考 harness：它校验签名，然后启动你指定的程序，载荷从标准输入传入（[无头 Agent 与 CI](../integrations/headless.md)）。请求头和载荷见[被 webhook 唤醒的 Agent](../integrations/webhooks.md)。
 
-4. **弄坏点什么，看它触发。** 再开始一次演练，等卡片出来，在卡片上找关于 Agent 的那一行：
+4. **先检查渠道，再演练。** 如果 harness 在 Linux 中心上运行，按[中心上的私有接收端](#a-private-receiver-on-the-centre)设置，再[检查通知和唤醒渠道](#check-the-routes-before-the-drill)。开始演练后，在控制台打开该告警，在时间线查找钩子的受理记录：
 
    ```
    告警已于 10:02 送达钩子 claude-oncall
@@ -69,6 +63,49 @@ Beacon 不调用任何模型，也不要求任何人审批。Agent 做什么由�
    每次调用的结果同样记在审计日志（`wake_agent`）、告警群和控制台的 **Hook** 页面里。
 
    送达表示钩子返回了成功的 HTTP 响应。例如，参考接收端可以在告警入队后立即返回 202。配置[程序执行回报](../integrations/headless.md#report-programme-execution)后，可以在告警页查看程序何时启动、如何退出。用复测结果和告警规则的状态验证恢复。
+
+### 中心上的私有接收端 {#a-private-receiver-on-the-centre}
+
+在 Linux 参考部署中，`beacon` 容器接入 Docker 网桥。首次演练时，如果 `beacon-oncall` 与中心同机运行，使用网桥网关作为私有地址。默认配置的公开域名 `status.example.com` 对 `/hooks/beacon` 返回 HTTP 404。
+
+在 `/opt/beacon` 下找到网关地址和对应的网卡。为此地址的 TCP 17007 端口设置入站规则，丢弃来自网桥以外的流量。下面使用 `iptables`。如果你已有防火墙管理器，请将等价规则放在宽泛的放行规则之前。
+
+```sh
+beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+beacon_bridge=$(ip -o -4 address show | awk -v gateway="$beacon_gateway" '{split($4, address, "/"); if (address[1] == gateway) print $2}')
+test -n "$beacon_bridge" && {
+  sudo iptables -C INPUT ! -i "$beacon_bridge" -d "$beacon_gateway/32" -p tcp --dport 17007 -j DROP ||
+    sudo iptables -I INPUT 1 ! -i "$beacon_bridge" -d "$beacon_gateway/32" -p tcp --dport 17007 -j DROP
+} && printf 'http://%s:17007/beacon\n' "$beacon_gateway"
+```
+
+将上面打印出的 URL 填入钩子的 `url`。首次测试时设置 `service: '^drill$'`，运行 `sudo ./install.sh` 应用中心配置。harness 监听在此地址期间，请保留防火墙规则。
+
+[装好 harness、包装脚本和 Agent 账户](../integrations/headless.md#as-a-service)后，首次前台演练时让 systemd 服务保持停止。在另一个终端，将 `beacon_gateway` 设为前面找到的地址，再运行以下命令。示例使用 Claude Code 包装脚本，两端使用同一份签名密钥。
+
+```sh
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_TOKEN_FILE=/etc/beacon-oncall/beacon-token \
+  /usr/local/bin/beacon-oncall -listen "$beacon_gateway:17007" \
+  -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs
+```
+
+回到 `/opt/beacon`，从 Beacon 所在的 Docker 网络检查接收端，应返回 `ok`。
+
+```sh
+docker compose exec -T caddy wget -q -O - "http://$beacon_gateway:17007/healthz"
+```
+
+同机的通知接收端也可以绑定这个网桥地址，并为自己的端口设置入站规则。有健康检查路径时，就用它验证可达性。接收端在另一台机器上时，使用两台机器所在的私有网络，或使用 Beacon 能访问的 HTTPS 端点。
+
+### 演练前检查渠道 {#check-the-routes-before-the-drill}
+
+- **配置。** `beacon check-config` 检查设置和密钥文件。**概览 → 严重告警通知**显示所选渠道。这两项检查通过后，接收端可能还没收到 Beacon 的请求。
+- **网络可达性。** 从中心所在的网络检查 harness 和接收端提供的健康检查路径。如果探测失败，先修正监听地址或防火墙规则，再启动演练。
+- **送达。** 演练时同时核对时间线和接收端。签名接收端返回 HTTP 401 时，检查双方共享的密钥和请求签名。`beacon-oncall` 返回 HTTP 202 表示唤醒请求已被接收端受理，另外核对程序执行结果。验收聊天和手机通知时，查看目标测试群或设备是否实际显示了通知。
 
 ### 钩子什么时候被调用 {#when-a-hook-is-called}
 

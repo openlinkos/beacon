@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-56f1f4f7
+sourceHash: sha256-1305b868
 ---
 
 # 装在服务器上
@@ -245,7 +245,7 @@ claude mcp login beacon
 
 **接入一个测试接收端。** 使用本指南新建的实例或独立测试实例。在 `/opt/beacon/config.yaml` 中为 `escalation.critical.channel` 选择要验收的渠道。使用 `slack` 时配置 [Slack 传入 Webhook](../integrations/slack.md)，使用 `notification_webhook` 时[配置接收端](../integrations/notification-webhook.md)转发到测试群，使用 `app` 时[配置飞书或 Lark 应用](../integrations/feishu.md)及测试群的 `feishu.chat_id`。将凭据保存在 `/opt/beacon/secrets/` 下的文件中，确保测试者能访问 `public_url`。运行 `sudo ./install.sh`，设置文件权限、校验配置并重新加载 Beacon。演练前，在**概览 → 严重告警通知**中核对所选渠道。
 
-**准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。初次测试时，把钩子的服务范围限定为 `service: '^drill$'`。使用参考部署时，新增钩子密钥文件后运行 `sudo ./install.sh`，让 Beacon 能读取它。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
+**准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。如果 harness 与 Linux 中心同机运行，按[私有 Docker 网桥](../guide/on-call.md#a-private-receiver-on-the-centre)配置。测试钩子限定为 `service: '^drill$'`。添加钩子密钥后运行 `sudo ./install.sh`，并在[演练前检查渠道](../guide/on-call.md#check-the-routes-before-the-drill)。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
 
 **跑通演练。** 两个检测点都在上报后，[运行演练](../guide/drills.md)。从测试接收端打开通知链接，登录后核对是同一条 `drill` 告警。认领并备注，然后核对时间线。确认钩子启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认检测恢复，渠道收到恢复消息或飞书卡片已更新。手机推送和备用通知按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
 

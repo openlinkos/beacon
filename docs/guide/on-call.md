@@ -26,27 +26,21 @@ A woken agent works the same way. The hook only takes the place of the person wh
 
 ## Wake an agent {#wake-an-agent}
 
-1. **List the hook in the configuration.** Hooks are read from `config.yaml`:
+1. **List the hook in the configuration.** Add the hook under `agents` in `config.yaml`. Keep your deployment's existing `public_url` so the hook can find the evidence.
 
    ```yaml
-   public_url: https://status.example.com     # the hooks tell agents where the evidence is
-
    agents:
      - name: claude-oncall
        kind: webhook
        url: https://agents.example.com/hooks/beacon
        secret_file: /etc/beacon/secrets/agent-hook-secret   # at least 24 random characters
-       severities: [critical, warning]
+       service: '^drill$'
        resolved: true                            # also say when the alert resolves
    ```
 
    `severities` says which alert groups wake it (`[critical]` by default). An optional `service` regular expression narrows them further. A hook of `kind: github` dispatches a workflow instead. [GitHub Actions](../integrations/github-actions.md) has that block and what each field means.
 
-2. **Check the configuration and restart.**
-
-   ```bash
-   docker exec beacon beacon check-config -config /etc/beacon/config.yaml && docker compose restart beacon
-   ```
+2. **Check the configuration and restart.** On the reference deployment, run `sudo ./install.sh` from `/opt/beacon` to set the new secret file's permissions, validate and restart. On other installations, run `beacon check-config` with the deployment's configuration, then restart the service.
 
    `beacon check-config` refuses:
 
@@ -56,7 +50,7 @@ A woken agent works the same way. The hook only takes the place of the person wh
 
 3. **Stand up the other end.** A webhook needs something that runs the agent. `beacon-oncall` is the reference harness. It checks the signature and starts the program you name, with the payload on its standard input ([Headless agents and CI](../integrations/headless.md)). The headers and the payload are in [Agents woken by a webhook](../integrations/webhooks.md).
 
-4. **Break something and watch it fire.** Start another drill and wait for the card. Look on it for the line about the agent:
+4. **Check the routes, then run the drill.** Use the [private receiver setup](#a-private-receiver-on-the-centre) when the harness runs on the Linux centre, then [check your routes](#check-the-routes-before-the-drill). Start a drill and open its incident in the console. Look for the hook acceptance in the timeline:
 
    ```
    Alert delivered to hook claude-oncall at 10:02
@@ -65,6 +59,49 @@ A woken agent works the same way. The hook only takes the place of the person wh
    Each call's outcome is also in the audit log (`wake_agent`), in the alert chat and on the console's **Hooks** page.
 
    Delivery means the hook returned a successful HTTP response. For example, the reference receiver can return 202 as soon as it queues the alert. Set up [execution reports](../integrations/headless.md#report-programme-execution) to see programme starts and exits on the alert page. Use probe results and rule status to verify recovery.
+
+### A private receiver on the centre {#a-private-receiver-on-the-centre}
+
+On the reference Linux deployment, `beacon` runs on its Docker bridge. For a first drill with `beacon-oncall` on the same host, use the bridge gateway as the private address. A request to the stock public `/hooks/beacon` on `status.example.com` returns HTTP 404.
+
+From `/opt/beacon`, find the gateway address and its interface. Apply an inbound firewall rule for TCP 17007 that drops traffic to that address from outside the bridge. The commands below use `iptables`. If you use a firewall manager, put the equivalent rule before broad accept rules.
+
+```sh
+beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+beacon_bridge=$(ip -o -4 address show | awk -v gateway="$beacon_gateway" '{split($4, address, "/"); if (address[1] == gateway) print $2}')
+test -n "$beacon_bridge" && {
+  sudo iptables -C INPUT ! -i "$beacon_bridge" -d "$beacon_gateway/32" -p tcp --dport 17007 -j DROP ||
+    sudo iptables -I INPUT 1 ! -i "$beacon_bridge" -d "$beacon_gateway/32" -p tcp --dport 17007 -j DROP
+} && printf 'http://%s:17007/beacon\n' "$beacon_gateway"
+```
+
+Use the printed URL in the hook's `url` field. Set `service: '^drill$'` for the first test, and run `sudo ./install.sh` to apply the centre configuration. Keep the firewall rule in place while the harness listens there.
+
+After [installing the harness, wrapper and agent account](../integrations/headless.md#as-a-service), leave the systemd unit stopped for the first foreground run. In a separate terminal, set `beacon_gateway` to the address you found above and run the following. This example uses the Claude Code wrapper and the same signing secret on both sides.
+
+```sh
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_TOKEN_FILE=/etc/beacon-oncall/beacon-token \
+  /usr/local/bin/beacon-oncall -listen "$beacon_gateway:17007" \
+  -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs
+```
+
+Back in `/opt/beacon`, check health from the same Docker network as Beacon. You should see `ok`.
+
+```sh
+docker compose exec -T caddy wget -q -O - "http://$beacon_gateway:17007/healthz"
+```
+
+For a notification receiver on the same host, use the same bridge address and an ingress rule for its own port. Use the receiver's health path when it has one. For receivers on a different machine, use the private network shared by the two hosts or an HTTPS endpoint that Beacon can reach.
+
+### Check the routes before the drill {#check-the-routes-before-the-drill}
+
+- **Configuration.** `beacon check-config` validates settings and secret files. **Overview → Critical notifications** shows the selected route. Both can be correct before either receiver has heard from Beacon.
+- **Reachability.** Check the harness and any receiver health endpoint from the centre's network. If the network check fails, fix the bind address or firewall before starting the drill.
+- **Delivery.** During the drill, check the timeline and receiver together. HTTP 401 from a signed receiver calls for checking the shared secret and the signature on the request. HTTP 202 from `beacon-oncall` confirms the queue accepted the wake. Check the programme's result separately. For a chat or phone notification, check that it actually appears in the intended test channel or device.
 
 ### When a hook is called
 
