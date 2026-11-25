@@ -165,6 +165,8 @@ For your first connection from an incident, choose **Add an SSH key**, save your
 
 The window opens 30 minutes before the alert started, as for the [evidence](on-call.md#the-evidence). **Probe again now** waits up to 45 seconds and opens the result on the timeline, including failures and missing results by location and target.
 
+When you reopen the incident or take over from another person, **Latest on-demand check** brings the most recent recorded result into the response panel with its completion time. **View check results** opens the observations from that check. Earlier retained checks remain available in the timeline. A run in progress leaves the most recent recorded result visible. The alert's status follows the monitoring rule.
+
 ## Incident history {#incident-history}
 
 From **Alerts**, open **Incident history** to revisit each resolved episode, including when the same group fired again. The outcome records when Beacon marked the alert resolved, the latest alert action associated with each known kind of actor, and the latest on-demand check's counts by target and location. Standalone credentials appear as unattributed. A delivered hook alone does not make an agent a participant.

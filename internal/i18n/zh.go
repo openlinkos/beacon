@@ -6,6 +6,12 @@ package i18n
 const zhName = "简体中文"
 
 var zh = map[string]string{ //nolint:gosec // G101: translations, some of which mention tokens; no credential here
+	// Incident handover checks.
+	"View check results":       "查看复测结果",
+	"Completed at %s":          "于 %s 完成",
+	"Requested by %s":          "由 %s 发起",
+	"No observations recorded": "未记录任何观测结果",
+
 	// Incident SSH setup.
 	"Add each block to the named file. Set IdentityFile to the local private key that matches your registered public key, then run the command.": "按标注将各段添加到对应文件。将 IdentityFile 指向与已登记公钥配套的本地私钥，再运行命令。",
 	"Back to incident":         "返回事件",

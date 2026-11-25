@@ -43,6 +43,14 @@
       {{end}}
       {{if .Probe}}<p class="ol-hint" id="probe-wait">{{$.L.ProbeWait}}</p>{{end}}
     </div>{{end}}
+    {{with .LatestProbe}}<div class="bc-alert-note-preview bc-alert-check-preview" role="group" aria-labelledby="alert-latest-check">
+      <div class="ol-cluster">
+        <h3 class="ol-label" id="alert-latest-check">{{$.L.LatestCheck}}</h3>
+        <a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{$.LatestProbeHref}}">{{$.L.ViewCheck}}</a>
+      </div>
+      <p><strong>{{.Summary}}</strong></p>
+      <p class="ol-cluster ol-hint">{{if .Requested}}<span class="ol-break">{{.Requested}}</span>{{end}}<time datetime="{{.ISO}}">{{.Completed}}</time></p>
+    </div>{{end}}
     {{if or .LatestNote .Handover.Preview}}<div class="bc-alert-note-previews">
       {{with .LatestNote}}<div class="bc-alert-note-preview" role="group" aria-labelledby="alert-latest-note">
         <div class="ol-cluster">
@@ -134,14 +142,14 @@
         <td class="ol-cell-wrap">{{.Text}}{{if .Href}} <a href="{{.Href}}"{{if .External}} rel="noopener noreferrer"{{end}}>{{.HrefText}}</a>{{end}}{{if .Detail}}<span class="ol-cell-sub ol-text-pre">{{.Detail}}</span>{{end}}
           {{if .Probe}}<details class="bc-alert-observations"{{if .Probe.Open}} open{{end}}><summary id="{{.Anchor}}"{{if .Probe.RecoveryHint}} aria-describedby="{{.Anchor}}-recovery"{{end}}><span class="ol-sr-only">{{$.L.ProbeResults}} </span>{{.Probe.Summary}}</summary>
             {{if .Probe.RecoveryHint}}<p class="ol-hint" id="{{.Anchor}}-recovery">{{.Probe.RecoveryHint}}</p>{{end}}
-            <ul class="ol-list">
+            {{if .Probe.Rows}}<ul class="ol-list">
               {{range .Probe.Rows}}<li>
                 <span class="ol-list-row"><strong class="ol-list-title">{{.Location}}</strong><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span></span>
                 <span class="ol-cell-sub ol-break">{{.Instance}} <span class="ol-mono">{{.Module}}</span></span>
                 {{if .Reason}}<span class="ol-cell-sub ol-break">{{.Reason}}</span>{{end}}
                 {{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}
               </li>{{end}}
-            </ul>
+            </ul>{{end}}
           </details>{{end}}
         </td>
       </tr>{{end}}
