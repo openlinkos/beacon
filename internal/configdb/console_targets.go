@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/store"
@@ -93,51 +92,6 @@ func RoutineMonitorURL(raw string) bool {
 	return err == nil && u.User == nil && u.RawQuery == "" && !u.ForceQuery &&
 		(u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
 		len(raw) <= 2048 && !strings.Contains(raw, "#")
-}
-
-// MonitorMachine resolves an exact routine HTTP service only if its current definition was already
-// in effect when the source alert started. A reconfiguration during delivery leaves the incident
-// unlinked, as does missing history or a state that trails the durable configuration.
-func (s *Service) MonitorMachine(service, severity string, started time.Time) (store.MonitorMachine, bool) {
-	var binding store.MonitorMachine
-	if service == "" || started.IsZero() || started.After(s.d.Now()) {
-		return binding, false
-	}
-	st := s.State()
-	var key string
-	for _, file := range st.Targets.Files() {
-		for _, g := range st.Targets.Groups(file) {
-			if g.Labels["service"] != service {
-				continue
-			}
-			name := strings.TrimSuffix(file, ".yaml")
-			if key != "" || !strings.HasSuffix(name, "-http."+service+".monitor") ||
-				!RoutineMonitorGroup(g) || g.Labels["severity"] != severity || g.Machine == nil {
-				return binding, false
-			}
-			// Explicit binding metadata survives file reimport. Imported sets still use their
-			// usual editing entry points and do not gain console ownership.
-			key = name
-			binding = store.MonitorMachine{Service: service, Name: g.Machine.Name, Registration: g.Machine.Registration}
-		}
-	}
-	if key == "" {
-		return binding, false
-	}
-	changes := s.d.Store.ConfigChanges(st.Version+1, 1, func(ch store.ConfigChange) bool {
-		return slices.ContainsFunc(ch.Items, func(it store.ConfigItem) bool {
-			return it.Kind == KindTargets && it.Key == key
-		})
-	})
-	if len(changes) != 1 || changes[0].Time.IsZero() || !changes[0].Time.Before(started) {
-		return binding, false
-	}
-	version, err := s.d.Store.ConfigVersion()
-	if err != nil || version != st.Version {
-		return binding, false
-	}
-	m, ok := s.d.Store.Machine(binding.Name)
-	return binding, ok && m.Registration() == binding.Registration
 }
 
 // SetConsoleTargetIf creates a console-managed monitor or updates one. Moving its probe scope

@@ -35,6 +35,7 @@ import (
 	"github.com/openlinkos/beacon/internal/notify"
 	"github.com/openlinkos/beacon/internal/probenow"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/vm"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -81,7 +82,7 @@ type Deps struct {
 	Slack               WebhookSender
 	VM                  Querier
 	Catalog             func() *catalog.Catalog
-	MonitorMachine      func(service, severity string, started time.Time) (store.MonitorMachine, bool)
+	MonitorMachine      func(scope targets.OutageScope, started time.Time) (store.MonitorMachine, bool)
 	Metrics             *metrics.Metrics
 	Log                 *slog.Logger
 	Now                 func() time.Time
@@ -272,6 +273,9 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 	if wasFiring && w.Status == "firing" && g.Origin == store.ExerciseOrigin && !sameExerciseAlert(g, w) {
 		g.Origin, g.ExerciseRun = "", ""
 	}
+	if wasFiring && w.Status == "firing" && len(g.MonitorMachines) > 0 && !sameMonitorMembers(g, w) {
+		g.MonitorMachines = nil
+	}
 	g.ID, g.Key, g.Severity = id, w.GroupKey, sev
 	g.Labels, g.Common, g.Annotations = w.GroupLabels, w.CommonLabels, w.CommonAnnotations
 	g.Alerts = g.Alerts[:0]
@@ -296,7 +300,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.NotifyWebhook, g.NotifySlack = false, false
 			g.Episode, g.Participation = newDelivery(), nil
 			g.HumanAcknowledgement = nil
-			g.MonitorMachines = b.incidentMonitorMachines(&g)
+			g.MonitorMachines = b.incidentMonitorMachines(&g, w.TruncatedAlerts)
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel, g.ChatRouteID = "", "", "", "", ""

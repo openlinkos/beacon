@@ -18,6 +18,7 @@ import (
 	"github.com/openlinkos/beacon/internal/i18n"
 	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
+	"github.com/openlinkos/beacon/internal/targets"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -70,7 +71,7 @@ func TestServiceOutageDesignatedMachine(t *testing.T) {
 	}
 
 	e.srv.Bridge = bridge.New(bridge.Deps{Store: e.st, Config: &config.Config{Location: time.UTC}, Pages: e.srv.Pages, Bot: e.bot,
-		MonitorMachine: e.cdb.MonitorMachine, Now: func() time.Time { return e.now }})
+		MonitorMachine: e.cdb.MonitorMachineForScope, Now: func() time.Time { return e.now }})
 	rt := router.New(router.Config{GroupBy: []string{"alertname", "service"}}, e.st, e.srv.Bridge, func() time.Time { return e.now }, nil)
 	post := func(labels map[string]string, starts, ends time.Time) {
 		t.Helper()
@@ -209,10 +210,10 @@ func TestMonitorMachineSnapshotAfterImport(t *testing.T) {
 		t.Fatalf("saving from an old form without the machine field: %d", a.code)
 	}
 	e.now = e.now.Add(time.Second)
-	if m, ok := e.cdb.MonitorMachine(svc, "critical", e.now); !ok || m.Name != "edge-1" {
+	if m, ok := e.cdb.MonitorMachineForScope(targets.OutageScope{Service: svc, Severity: "critical"}, e.now); !ok || m.Name != "edge-1" {
 		t.Fatalf("old form removed a binding: %+v, %v", m, ok)
 	}
-	if _, ok := e.cdb.MonitorMachine(svc, "critical", originally); ok {
+	if _, ok := e.cdb.MonitorMachineForScope(targets.OutageScope{Service: svc, Severity: "critical"}, originally); ok {
 		t.Fatal("matched a delayed alert that began before the current definition")
 	}
 	if _, err = e.cdb.Import(ctx, actor, files, "restore the exported monitor", false); err != nil {
@@ -220,7 +221,7 @@ func TestMonitorMachineSnapshotAfterImport(t *testing.T) {
 	}
 	e.cdb.Reload()
 	e.now = e.now.Add(time.Second)
-	if m, ok := e.cdb.MonitorMachine(svc, "critical", e.now); !ok || m.Name != "edge-1" {
+	if m, ok := e.cdb.MonitorMachineForScope(targets.OutageScope{Service: svc, Severity: "critical"}, e.now); !ok || m.Name != "edge-1" {
 		t.Fatalf("import or reload dropped the exact binding: %+v, %v", m, ok)
 	}
 	files["targets/all-duplicate.yaml"] = `[{"targets":["https://example.org/health"],"labels":{"service":"imported-designation","module":"http_2xx","severity":"critical","unrelated":"preserved"}}]`
@@ -228,7 +229,7 @@ func TestMonitorMachineSnapshotAfterImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.now = e.now.Add(time.Second)
-	if _, ok := e.cdb.MonitorMachine(svc, "critical", e.now); ok {
+	if _, ok := e.cdb.MonitorMachineForScope(targets.OutageScope{Service: svc, Severity: "critical"}, e.now); ok {
 		t.Fatal("used a scoped target while another target carried the same service")
 	}
 }

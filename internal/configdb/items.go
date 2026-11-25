@@ -89,6 +89,7 @@ func build(entries map[string][]byte) *State {
 	if st.Modules != nil {
 		ms, err := probe.ParseModules(st.Modules)
 		if err == nil {
+			st.probeModules = ms
 			err = probe.CheckSecretFiles(ms) // a module reads files only from the probe's secrets directory
 		}
 		if err != nil {

@@ -26,6 +26,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/catalog"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/probe"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/targets"
 )
@@ -99,6 +100,7 @@ type State struct {
 	entries        map[string][]byte // as stored, by key; never changed once built
 	problem        error             // why the state does not pass the checks, if it does not
 	consoleTargets map[string]bool
+	probeModules   *probe.Modules
 }
 
 // Service holds the configuration.
@@ -215,6 +217,12 @@ func (s *Service) commit(ctx context.Context, who Actor, action, note string, re
 func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, action, note string, reverts int64,
 	next map[string][]byte, dryRun bool, owned map[string]bool, expectVersion int64, maintenance *uint64,
 ) (store.ConfigChange, error) {
+	return s.commitChecked(ctx, who, action, note, reverts, next, dryRun, owned, expectVersion, maintenance, nil)
+}
+
+func (s *Service) commitChecked(ctx context.Context, who Actor, action, note string, reverts int64,
+	next map[string][]byte, dryRun bool, owned map[string]bool, expectVersion int64, maintenance *uint64, machine *targets.MachineBinding,
+) (store.ConfigChange, error) {
 	cur := s.state.Load()
 	st := build(next)
 	if st.problem != nil {
@@ -261,10 +269,13 @@ func (s *Service) commitWithConsoleTargets(ctx context.Context, who Actor, actio
 		}
 	}
 	var err error
-	if maintenance == nil {
-		ch, err = s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
-	} else {
+	switch {
+	case maintenance != nil:
 		ch, err = s.d.Store.CommitConfigWithMaintenance(ch, writes, expectVersion, *maintenance)
+	case machine != nil:
+		ch, err = s.d.Store.CommitConfigWithMachine(ch, writes, expectVersion, machine.Name, machine.Registration)
+	default:
+		ch, err = s.d.Store.CommitConfigAtVersion(ch, writes, expectVersion)
 	}
 	if errors.Is(err, store.ErrConflict) {
 		if expectVersion > 0 {
