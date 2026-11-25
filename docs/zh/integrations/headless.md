@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-60eccc47
+sourceHash: sha256-ae9ca1ab
 ---
 
 # 无头 Agent 与 CI
@@ -137,6 +137,8 @@ beacon-oncall -secret-file /etc/beacon-oncall/hook-secret \
 HA 部署需要先升级两个中心再配置回报方。回退时先恢复旧版中心配置，并从旧版接收程序的启动命令中移除执行回报参数。
 
 事件分别显示签名唤醒和实际执行。接收程序可回报程序已启动、成功退出、失败退出、超时或未能启动，并在知道退出码时一并回报。程序的输出保存在本地日志中。回报遇到临时故障时会短时间重试。接收程序意外停止时，内存中尚未提交的回报可能丢失。控制台缺少执行记录时可以核对接收程序日志，并用恢复检测确认服务状态。
+
+首次演练前，以接收程序的 Linux 用户运行 [`beacon-oncall check`](../self-hosting/install.md#prepare-a-first-wake-on-the-centre)。命令会核对回报方的令牌名称和权限，以及 Agent 当前的权限和机器登记。检查只向指定中心发送经过身份验证的只读请求。
 
 ### 程序拿到什么 {#what-the-program-gets}
 

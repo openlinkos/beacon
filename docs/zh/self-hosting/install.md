@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0183ad3d
+sourceHash: sha256-59007287
 ---
 
 # 装在服务器上
@@ -270,23 +270,16 @@ claude mcp login beacon
 )
 ```
 
-**演练前检查 Agent 账号。** 在中心上将地址替换为 Beacon 的 `public_url`。这项检查使用与下方接收程序相同的 Linux 用户、主目录和 `PATH`。如果通过服务环境提供模型凭据，检查和启动接收程序时使用同一套环境。
+**发送告警前检查首次演练。** 使用带 `beacon-oncall check` 的匹配版本（rc.44 或更新版本）。地址使用 Beacon 的 `public_url`。回报方名称使用钩子配置 `reporter` 中 `token:` 后面的部分。以运行接收程序的 Linux 用户执行。
 
 ```sh
-beacon_url=https://status.example.com
-sudo -u beacon-oncall -H env \
-  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
-  BEACON_URL="$beacon_url" sh -eu -c '
-    claude --version
-    claude auth status --text
-    token=$(tr -d "\r\n" </etc/beacon-oncall/beacon-token)
-    test -n "$token"
-    printf "Authorization: Bearer %s\n" "$token" |
-      curl -q -fsS --max-time 10 --proto "=https" -H @- "$BEACON_URL/api/v1/token"
-  '
+sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
+  -url https://status.example.com -owner alice -agent reference-drill -machine edge-1 \
+  -agent-token-file /etc/beacon-oncall/beacon-token \
+  -reporter reference-drill-reporter -report-token-file /etc/beacon-oncall/run-report-token
 ```
 
-确认 Claude Code 显示账号已登录。Beacon 的响应中，`actor` 应为你的用户名加上 `/ reference-drill`，例如 `alice / reference-drill`，`machine_scope` 应为 `listed`，`machines` 应只包含 `edge-1`，`scopes` 应包含 `status:read`、`alerts:write` 和 `machines:ssh`。如果找不到程序或登录失败，先在 `beacon-oncall` 用户下处理。如果 Beacon 返回 `401`，检查令牌是否无效或过期。如果身份或权限不符，先核对令牌文件及 Agent 的所有者和机器授权。接下来的演练再检验模型实际运行和测试群收件。
+检查会从中心读取当前的 Agent 和回报凭据。它确认 Agent 属于指定的人、具备演练所需权限，并且仅限已登记的测试机器。回报使用独立的令牌，权限仅为 `alerts:report`。命令还会检查 SSH 通道是否开放，以及连接器是否在线。使用同一 Linux 用户、主目录和 `PATH` 确认 Agent CLI 的登录状态。发布包提供 [Claude Code 和 Codex 的运行脚本](../integrations/headless.md#the-wrappers)。下面的演练会验证签名唤醒、实际运行和测试群收件。
 
 **配置钩子。** 按[私有网桥地址和防火墙步骤](../guide/on-call.md#a-private-receiver-on-the-centre)设置 `beacon_gateway`，并在示例中使用打印出的 URL。将此条目加入 `/opt/beacon/config.yaml`，然后运行 `sudo ./install.sh`，一并校验并应用钩子和群聊渠道设置。重载后，在**概览 → 严重告警通知**中核对渠道。
 

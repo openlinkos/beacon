@@ -124,3 +124,31 @@ smoke_session_evidence() (
   sudo rm "$marker"
   printf 'The signed release refused unrecordable machine commands before execution and resumed recorded commands when storage returned.\n'
 )
+
+smoke_scoped_search() (
+  local directory query request rest remote expected session
+  directory=$(sudo --user=beacon mktemp -d /home/beacon/beacon-search.XXXXXX)
+  trap 'sudo --user=beacon rm -f "$directory/service.log"; sudo --user=beacon rmdir "$directory"' EXIT
+  query='Reference [verify]'
+  printf '%s\n' 'first line' "$query found" | sudo --user=beacon tee "$directory/service.log" >/dev/null
+  request=$(jq -nc --arg directory "$directory" --arg query "$query" '{directory:$directory,query:$query}')
+  rest=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    --data "$request" "$status_url/api/v1/machines/target/search")
+  expected=$(jq -nc --arg path "$directory/service.log" --arg text "$query found" '[[ $path,2,$text ]]')
+  jq -e --argjson expected "$expected" '.machine == "target" and .limited == false and
+    (.matches | map([.path,.line,.text])) == $expected' <<< "$rest" >/dev/null
+  session=$(jq -er '.session' <<< "$rest")
+  curl -fsS -H "Authorization: Bearer $token" "$status_url/api/v1/sessions/$session" |
+    jq -e --arg directory "$directory" '.kind == "file" and .recording_available and
+      .transcript_state == "complete" and .command == ("search " + $directory)' >/dev/null
+
+  remote=$(jq -nc --argjson input "$request" '{jsonrpc:"2.0",id:61,method:"tools/call",
+    params:{name:"search_files",arguments:($input + {machine:"target"})}}')
+  rpc "$remote" | jq -e --argjson expected "$expected" '.result.structuredContent |
+    .machine == "target" and (.matches | map([.path,.line,.text])) == $expected' >/dev/null
+  test "$(curl -sS -o "$work/search-denied.json" -w '%{http_code}' \
+    -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    --data "$request" "$status_url/api/v1/machines/second-target/search")" = 403
+  jq -e '.code == "machine.forbidden"' "$work/search-denied.json" >/dev/null
+  printf 'The signed release found the same literal line through REST and MCP and refused search outside the Agent machine scope.\n'
+)

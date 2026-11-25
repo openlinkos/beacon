@@ -12,6 +12,8 @@ source ./smoke-status-publication.sh
 source ./smoke-page-links.sh
 # shellcheck source=smoke-session-access.sh
 source ./smoke-session-access.sh
+# shellcheck source=smoke-personal-incident.sh
+source ./smoke-personal-incident.sh
 if [[ $(uname -s) != Linux || -e .env || -e secrets || -e /etc/beacon-probe || -e /opt/beacon-probe ]] ||
   id beacon >/dev/null 2>&1; then
   echo 'Use a clean checkout on a disposable Linux runner.' >&2
@@ -270,6 +272,20 @@ if ! token=$(beacon agent add recovery -owner duty-person -preset operator -mach
   exit 1
 fi
 printf '::add-mask::%s\n' "$token"
+if [[ "$version" != v0.3.0-rc.43 ]]; then
+  printf '%s\n' "$token" > "$work/agent-check-token"
+  check_args=(-url "$status_url" -owner duty-person -agent recovery -machine target
+    -agent-token-file "$work/agent-check-token" -report-token-file "$work/report-token")
+  "$work/beacon-oncall" check "${check_args[@]}" -reporter "$reporter_name" > "$work/check-ready.log"
+  grep -Fq 'is limited to enrolled machine "target"' "$work/check-ready.log"
+  if "$work/beacon-oncall" check "${check_args[@]}" -reporter recovery > "$work/check-wrong.log" 2>&1; then
+    echo 'The first drill check accepted a different configured reporter.' >&2
+    exit 1
+  fi
+  grep -Fq 'the report token must be the standalone token named' "$work/check-wrong.log"
+  test ! -e "$work/hook.json"
+  printf 'The signed first-drill checker verified current Agent and reporter access and refused a reporter mismatch before injecting a fault.\n'
+fi
 rpc() {
   curl -fsS "$status_url/mcp" -H "Authorization: Bearer $token" \
     -H 'Accept: application/json, text/event-stream' -H 'Content-Type: application/json' \
@@ -327,6 +343,10 @@ fi
 
 if [[ "$version" != v0.3.0-rc.42 ]]; then
   smoke_session_evidence "$session"
+fi
+
+if [[ "$version" != v0.3.0-rc.43 ]]; then
+  smoke_scoped_search
 fi
 
 # Add and revoke a fixture grant before the backup. The endpoint is inside the Beacon container and
@@ -462,3 +482,6 @@ wait_for 'The restored centre is ready for the failed-Agent drill' 45 centre_hea
 test "$(curl -fsS -o /dev/null -w '%{http_code}' "$status_url/drill/healthz")" = 200
 wait_for 'Both probes see a healthy service before the failed-Agent drill' 90 probes 1
 smoke_failed_agent_drill "$alert"
+if [[ "$version" != v0.3.0-rc.43 ]]; then
+  smoke_personal_incident
+fi

@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.44 (2026-11-25)
+
+- Preserve the incident and machine enrolment while a responder registers their first personal SSH key. Return to the same machine and incident, with a connection command that uses a dedicated personal SSH configuration.
+- Check first-drill Agent and reporter credentials, effective machine access and SSH channel state with `beacon-oncall check`.
+- Search regular text files for literal matches in an authorised machine's project directory through REST and MCP. Return excerpts and the recorded session, with an explicit limit or timeout indication.
+
 ### rc.43 (2026-11-25)
 
 - Refuse a new machine operation if the SSH channel cannot start its required local evidence. Preserve exit status and readable output when recording fails after execution.

@@ -76,7 +76,7 @@ sudo cp -r beacon/deploy /opt/beacon && cd /opt/beacon
 sudo ./install.sh        # asks for the two host names and an e-mail address for the certificates
 ```
 
-`install.sh` generates the secrets, validates every file and starts Beacon, VictoriaMetrics, vmalert and Caddy. Follow [On a server](docs/self-hosting/install.md) to enrol two probes and a machine, replay a personal SSH and an Agent session, and rehearse an outage in your own Feishu or Lark test group. Arrange app approval with your organisation’s administrator before the drill.
+`install.sh` generates the secrets, validates every file and starts Beacon, VictoriaMetrics, vmalert and Caddy. Follow [On a server](docs/self-hosting/install.md) to enrol two probes and a machine, replay a personal SSH and an Agent session, and rehearse an outage in your team’s test chat. For Feishu or Lark, arrange app approval with your organisation’s administrator before the drill.
 
 ### Connect Claude Code
 

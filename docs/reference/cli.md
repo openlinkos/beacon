@@ -175,4 +175,19 @@ The reference harness on the agent's machine ([Agents woken by a webhook](../int
 | `-log-dir` | `/var/lib/beacon-oncall/logs` | Each run's output, as `<time>-<delivery>.log` |
 | `-keep` | `720h` | Logs older than this are removed; `0` keeps them all |
 
+### Check a first drill
+
+`beacon-oncall check` reads the centre's current credentials and SSH enrolment before the [first drill](../self-hosting/install.md#prepare-a-first-wake-on-the-centre). Run it as the Linux user that will receive the hook. Each flag is required.
+
+| Flag | What it expects |
+| --- | --- |
+| `-url` | The centre's public base URL |
+| `-owner`, `-agent` | The expected Beacon account and Agent name |
+| `-machine` | The one enrolled machine selected for the drill |
+| `-agent-token-file` | The Agent's existing credential file |
+| `-reporter` | The token name following `token:` in the hook configuration |
+| `-report-token-file` | The harness's separate `alerts:report` token file |
+
+The check exits with status 1 when a credential or the machine does not pass. The signed drill exercises the configured hook and verifies delivery and execution.
+
 `beacon-oncall version` prints the version, commit and build. The wrappers around Claude Code and Codex, and the unit that runs it, are in `contrib/oncall` in the repository.

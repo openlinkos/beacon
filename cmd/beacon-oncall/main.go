@@ -7,6 +7,7 @@
 //	beacon-oncall -secret-file FILE -run CMD [-run-resolved CMD] [-listen :17007] [-concurrency 2]
 //	              [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
 //	              [-report-url BEACON_URL -report-token-file FILE]
+//	beacon-oncall check -help
 //	beacon-oncall version
 package main
 
@@ -37,6 +38,7 @@ func usage(w io.Writer) {
                 [-timeout 30m] [-log-dir /var/lib/beacon-oncall/logs] [-keep 720h]
                 [-report-url BEACON_URL -report-token-file FILE]
                                                      take Beacon's webhook and run the program for each alert
+  beacon-oncall check -help                           check the first drill credentials and machine
   beacon-oncall version
 `)
 }
@@ -56,6 +58,8 @@ func versionString() string {
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
+		case "check":
+			return checkDrill(args[1:], stdout, stderr)
 		case "version", "-version", "--version":
 			fmt.Fprintln(stdout, versionString())
 			return 0
