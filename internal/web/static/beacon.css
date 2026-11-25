@@ -181,6 +181,11 @@
 }
 .bc-status-component-choices .ol-check { min-block-size: 2.75rem; }
 
+@container ol-content (width < 40rem) {
+  .bc-status-component .ol-panel-footer .ol-btn,
+  .bc-status-components .ol-btn { min-block-size: 2.75rem; }
+}
+
 .bc-ssh-command {
   justify-content: space-between;
   padding: var(--ol-space-2) var(--ol-space-3);

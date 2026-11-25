@@ -10,15 +10,13 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// The status pages Beacon serves, as the public sees them now, read-only: each page's address, state,
-// components, incidents and maintenance windows, with the services behind each component. What a page
-// shows is the configuration's business (status_pages, changed through the API, MCP and the command
-// line); its incidents are alert groups, its public updates notes that begin with "public:", its
-// maintenance planned with schedule_maintenance.
+// The status pages Beacon serves, with the services behind each component. The console edits
+// components through the same versioned status page configuration as the API, MCP and command line.
 
 type statusPagesLabels struct {
 	Page, Address, State, Components, Incidents, Maintenance, Languages, None, NoPages, Open, JSON, Feed, Badge string
 	Component, Group, Services, Availability, Impact, Status, Started, Resolved, Starts, Ends, Title, Problem   string
+	Manage, AddComponent, EditServices, RemoveComponent                                                         string
 }
 
 func (s *Server) statusPagesLabels() statusPagesLabels {
@@ -30,6 +28,7 @@ func (s *Server) statusPagesLabels() statusPagesLabels {
 		Availability: s.t("Availability (90 days)"), Impact: s.t("Impact"), Status: s.t("Status"), Started: s.t("Started"),
 		Resolved: s.t("Resolved"), Starts: s.t("Starts"), Ends: s.t("Ends"), Title: s.t("Title"),
 		Problem: s.t("The page could not be computed"),
+		Manage:  s.t("Manage"), AddComponent: s.t("Add component"), EditServices: s.t("Edit services"), RemoveComponent: s.t("Remove component"),
 	}
 }
 
@@ -94,6 +93,7 @@ func (s *Server) pageList(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 type componentRow struct {
 	Name, Title, Group, State, Tone, Availability string
+	Edit, EditText, Remove, RemoveText            string
 	Services                                      []pageRef
 }
 
@@ -109,6 +109,7 @@ type statusPageDetail struct {
 	shell
 	L                           statusPagesLabels
 	URL, Open, JSON, Feed, Logo string
+	AddComponent                string
 	Components                  []componentRow
 	Incidents                   []incidentRow
 	Maintenance                 []windowRow
@@ -133,6 +134,9 @@ func (s *Server) pageDetail(w http.ResponseWriter, r *http.Request, v *viewer) {
 	state, tn := s.pageState(pg.Status)
 	p.Badges = []badge{{Text: state, Tone: tn}}
 	p.Count = pg.Summary
+	if s.Config != nil && v.has("config:write") {
+		p.AddComponent = statusComponentPath(def.Name, "", "add")
+	}
 	// the page as Beacon serves it on its own host too, so that the console links nowhere else
 	p.URL, p.Open = pg.URL, "/status/"+url.PathEscape(def.Name)
 	p.JSON, p.Feed, p.Logo = p.Open+".json", p.Open+"/feed.atom", p.Open+"/badge.svg"
@@ -140,6 +144,12 @@ func (s *Server) pageDetail(w http.ResponseWriter, r *http.Request, v *viewer) {
 	for _, c := range pg.Components {
 		row := componentRow{Name: c.Name, Title: c.Title, Group: c.Group}
 		row.State, row.Tone = s.pageState(c.Status)
+		if p.AddComponent != "" {
+			row.Edit, row.EditText = statusComponentPath(def.Name, c.Name, "edit"), s.t("Edit services for %s", c.Title)
+			if len(pg.Components) > 1 {
+				row.Remove, row.RemoveText = statusComponentPath(def.Name, c.Name, "remove"), s.t("Remove component %s", c.Title)
+			}
+		}
 		if c.Availability != nil {
 			row.Availability = fmt.Sprintf("%.2f%%", *c.Availability)
 		}
