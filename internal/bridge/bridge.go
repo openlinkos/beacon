@@ -468,14 +468,14 @@ func (b *Bridge) push(ctx context.Context, g *store.Group) {
 		Title: b.t("%s: %s", b.severityName(g.Severity), b.title(g)), Message: b.plainBody(g),
 		URL: target, URLTitle: label,
 	})
-	b.recordNotification(g, "pushover", err)
+	submittedAt := b.recordNotification(g, "pushover", err)
 	if err != nil {
 		b.count("pushover", "error")
 		b.d.Log.Error("pushover failed", "group", g.ID, "err", err)
 		return
 	}
 	b.count("pushover", "ok")
-	g.Pushed, g.Receipt, g.ReceiptAt = b.now(), rc, b.now()
+	g.Pushed, g.Receipt, g.ReceiptAt = submittedAt, rc, b.now()
 	g.ReceiptRouteID, g.ReceiptExpiresAt = b.deliveryRoutes["pushover"], g.Pushed.Add(pushoverLifetime(b.d.Config.Pushover.Expire.D()))
 	g.PushoverCancelID, g.PushoverCancelStatus = "", ""
 }
@@ -716,6 +716,7 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 				if g.Ack.At.IsZero() {
 					g.Ack.At = now
 				}
+				b.recordPushoverDeviceAcknowledgement(&g, g.Ack.At)
 				recordParticipation(&g, Actor{Name: by, Via: "pushover"}, "ack", g.Ack.At)
 				_ = b.d.Store.Audit(store.AuditEntry{Actor: by, Via: "pushover", Action: "ack", Target: g.ID, Detail: b.title(&g)})
 				if b.patchAllowed(&g, false) {

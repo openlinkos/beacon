@@ -49,6 +49,7 @@ type callItem struct {
 
 type deliveryRow struct {
 	Channel, Schedule, Result, Tone, At, Href, OpenLabel string
+	DeviceAcknowledgement                                string
 }
 
 // health is the overview's answer, in a sentence.
@@ -71,28 +72,28 @@ type feedItem struct {
 type overviewLabels struct {
 	Attention, AllAlerts, Calm, CalmText, Sessions, AllSessions, NoSessions, Changes, AllChanges, NoChanges string
 	Pages, AllPages, NoPages, Coming, NoComing, Woken, AllCalls, NoneWoken, Beacon, Silenced                string
-	Notifications, OpenAlert                                                                                string
+	Notifications, OpenAlert, GuideNewTab                                                                   string
 }
 
 type overviewPage struct {
 	shell
-	L             overviewLabels
-	Health        health
-	Stats         []stat
-	Attention     []attentionItem
-	Sessions      []feedItem
-	Changes       []feedItem
-	Pages         []feedItem
-	Coming        []feedItem
-	Maintenance   kvLink
-	Calls         []callItem
-	CallSummary   string
-	DeliveryHint  string
-	DeliveryHelp  kvLink
-	Notifications []deliveryRow
-	DeliveryDrill kvLink
-	Channel       stat
-	Facts         []kvLink
+	L              overviewLabels
+	Health         health
+	Stats          []stat
+	Attention      []attentionItem
+	Sessions       []feedItem
+	Changes        []feedItem
+	Pages          []feedItem
+	Coming         []feedItem
+	Maintenance    kvLink
+	Calls          []callItem
+	CallSummary    string
+	DeliveryHint   string
+	DeliveryHelp   kvLink
+	Notifications  []deliveryRow
+	DeliveryDrills []kvLink
+	Channel        stat
+	Facts          []kvLink
 }
 
 type kvLink struct{ K, V, Href string }
@@ -240,6 +241,8 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
 			Acked: owned, Silenced: silenced, Unclaimed: !owned && !silenced, kind: "alert"}
 		switch {
+		case item.Acked && g.Ack.Via == "pushover":
+			item.Response = s.t("Pushover reported a device acknowledgement")
 		case item.Acked:
 			item.Response = s.t("Acknowledged by %s", g.Ack.By)
 		case item.Unclaimed && g.Ack != nil:
@@ -387,7 +390,7 @@ func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow
 		row.Schedule = strings.Join(schedule, s.t(", "))
 		attempt, ok := last[route.Channel]
 		if ok {
-			row.Href = link.AlertPath(attempt.AlertID) + "#timeline"
+			row.Href = link.IncidentPath(attempt.AlertID, attempt.Episode) + "#timeline"
 			row.OpenLabel = s.t("Open alert from %s", row.Channel)
 			row.At = s.ago(attempt.At)
 			switch {
@@ -399,6 +402,12 @@ func (s *Server) overviewDeliveries(routes []bridge.DeliveryRoute) []deliveryRow
 				row.Result, row.Tone = s.t("Submission failed"), "danger"
 			default:
 				row.Result, row.Tone = s.t("Provider accepted"), "success"
+				if route.Channel == "pushover" {
+					row.DeviceAcknowledgement = s.t("No linked device acknowledgement recorded")
+					if !attempt.DeviceAcknowledgedAt.IsZero() {
+						row.DeviceAcknowledgement = s.t("Pushover reported a device acknowledgement at %s", s.clock(attempt.DeviceAcknowledgedAt))
+					}
+				}
 			}
 		}
 		rows = append(rows, row)
@@ -418,7 +427,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Coming: s.t("Coming up"), NoComing: s.t("No maintenance is planned, and nothing expires in the next 30 days."),
 		Woken: s.t("Agent hook deliveries today"), AllCalls: s.t("All hook deliveries"), NoneWoken: s.t("No agent hooks called today."),
 		Beacon: s.t("Beacon"), Silenced: s.t("Silenced"),
-		Notifications: s.t("Critical notifications"), OpenAlert: s.t("Open alert"),
+		Notifications: s.t("Critical notifications"), OpenAlert: s.t("Open alert"), GuideNewTab: s.t("(opens in a new tab)"),
 	}}
 	p.Crumbs = []crumb{{Label: s.t("Console")}}
 	p.Attention = s.attention(v, f, sh)
@@ -435,11 +444,13 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v *viewer) {
 			Href: docsURL(s.Lang) + "reference/config#escalation-and-acknowledgements"}
 	} else {
 		p.Notifications = s.overviewDeliveries(delivery.CriticalRoutes)
-		guide := "guide/drills#verify-phone-delivery-and-handover"
 		if delivery.CriticalChat != "none" {
-			guide = "guide/drills#verify-chat-delivery"
+			p.DeliveryDrills = append(p.DeliveryDrills, kvLink{V: s.t("Verify chat delivery"), Href: docsURL(s.Lang) + "guide/drills#verify-chat-delivery"})
 		}
-		p.DeliveryDrill = kvLink{V: s.t("Verify delivery"), Href: docsURL(s.Lang) + guide}
+		if slices.ContainsFunc(delivery.CriticalRoutes, func(r bridge.DeliveryRoute) bool { return r.Channel == "pushover" || r.Channel == "bark" }) {
+			p.DeliveryDrills = append(p.DeliveryDrills, kvLink{V: s.t("Verify phone delivery"),
+				Href: docsURL(s.Lang) + "guide/drills#verify-phone-delivery-and-handover"})
+		}
 	}
 
 	switch {

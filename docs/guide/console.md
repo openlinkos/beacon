@@ -91,6 +91,8 @@ Beside it are:
 - the latest sessions and changes;
 - the channel's state and the configuration's version.
 
+**Critical notifications** shows the scheduled routes and each recent provider response. For Pushover, it shows a reported device acknowledgement when Beacon can link it to the accepted submission for the current destination. Use **Verify chat delivery** or **Verify phone delivery** for the drill that checks your intended recipient. These links open the guide in a new tab.
+
 ### Monitors and status pages {#monitors-and-status-pages}
 
 `/console/monitors` shows what is monitored and how it is doing now:
@@ -156,7 +158,7 @@ For your first connection from an incident, choose **Add an SSH key**, save your
 **Designated service machines** shows the machine chosen for a routine [HTTP monitor](monitoring.md#add-an-http-monitor) when a new service outage began. Open the machine to connect and review sessions available to your account.
 
 - **The alert itself**: title, status, severity, since when, labels, runbook.
-- **Notifications and response** shows provider acceptances, failed submissions, acknowledgement history and silences. Provider acceptance records receipt by the API for the configured destination. Pushover reports whether a device acknowledged a page. When Beacon pauses new escalations after a console acknowledgement, an earlier Pushover page may still repeat while cancellation is pending. The response panel shows pending cancellation, confirmation from Pushover, or the end of the retry window. Choose **Refresh status** to check whether Pushover has confirmed cancellation or the retry window has ended. The response panel also identifies cancellations that cannot be verified and older pages with no recorded cancellation result. The timeline records cancellation attempts separately from submissions. A button ends the silence.
+- **Notifications and response** shows provider acceptances, failed submissions, acknowledgement history and silences. Provider acceptance records receipt by the API for the configured destination. Pushover reports whether a device acknowledged a page. The response panel keeps the earlier device acknowledgement visible after a person takes over. When Beacon pauses new escalations after a console acknowledgement, an earlier Pushover page may still repeat while cancellation is pending. The response panel shows pending cancellation, confirmation from Pushover, or the end of the retry window. Choose **Refresh status** to check whether Pushover has confirmed cancellation or the retry window has ended. The response panel also identifies cancellations that cannot be verified and older pages with no recorded cancellation result. The timeline records cancellation attempts separately from submissions. A button ends the silence.
 - **Probes**: for the alert's service, each location's latest result and reason, as `get_evidence` returns it.
 - **Related alerts** in the same failure domain.
 - **Agents**: whether they reach machines, delivery to each hook, and one line "N sessions on M machines, K commands".

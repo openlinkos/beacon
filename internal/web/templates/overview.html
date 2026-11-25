@@ -51,9 +51,11 @@
 
     {{if .Notifications}}
     <section class="ol-panel" aria-labelledby="critical-notifications">
-      <div class="ol-panel-header">
+      <div class="ol-panel-header bc-sharing-header">
         <h2 class="ol-panel-title" id="critical-notifications">{{icon "message-square"}} {{.L.Notifications}}</h2>
-        <a class="ol-btn ol-btn-ghost ol-btn-sm" href="{{.DeliveryDrill.Href}}">{{.DeliveryDrill.V}}</a>
+        <div class="ol-cluster bc-delivery-drills">{{range .DeliveryDrills}}
+          <a class="ol-btn ol-btn-ghost ol-btn-sm" target="_blank" rel="noopener noreferrer" href="{{.Href}}">{{.V}} <span class="ol-sr-only">{{$.L.GuideNewTab}}</span></a>
+        {{end}}</div>
       </div>
       <ul class="ol-list">
         {{range .Notifications}}<li>
@@ -65,6 +67,7 @@
             <span>{{.Schedule}}</span>
             {{if .Href}}<a aria-label="{{.OpenLabel}}" href="{{.Href}}">{{$.L.OpenAlert}}</a><span>{{.At}}</span>{{end}}
           </span>
+          {{if .DeviceAcknowledgement}}<p class="ol-hint">{{.DeviceAcknowledgement}}</p>{{end}}
         </li>{{end}}
       </ul>
     </section>

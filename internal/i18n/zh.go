@@ -49,6 +49,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Pushover cancellation attempt failed":                              "Pushover 紧急通知取消失败",
 	"Pushover reported a device acknowledgement":                        "Pushover 已报告设备回应",
 	"Pushover reported a device acknowledgement at %s":                  "Pushover 已于 %s 报告设备回应",
+	"Earlier Pushover device acknowledgement at %s":                     "Pushover 曾于 %s 报告设备回应",
 
 	// Console session scope.
 	"Name or machine": "名称或机器",
@@ -235,7 +236,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Critical notifications":                          "严重告警通知",
 	"Monitoring is running":                           "监控正在运行",
 	"Feishu group bot":                                "飞书群机器人",
-	"Verify delivery":                                 "验证送达",
+	"Verify chat delivery":                            "验证聊天通知",
+	"Verify phone delivery":                           "验证手机通知",
+	"(opens in a new tab)":                            "（在新标签页打开）",
+	"No linked device acknowledgement recorded":       "未记录与本次通知关联的设备回应",
 	"When the alert opens":                            "告警触发时",
 	"When chat is unavailable":                        "聊天渠道不可用时",
 	"After %s if unacknowledged":                      "%s 后仍未认领时",

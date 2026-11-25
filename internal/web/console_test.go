@@ -636,7 +636,7 @@ func TestOverviewShowsInitialPhoneAndUnverifiedLegacyResult(t *testing.T) {
 	page := b.get("/console").body
 	for _, want := range []string{
 		"Critical notifications", "Pushover", "When the alert opens", "After 15m if unacknowledged",
-		"Destination unverified", `aria-label="Open alert from Pushover" href="` + link.AlertPath(e.id) + `#timeline">Open alert</a>`,
+		"Destination unverified", `aria-label="Open alert from Pushover" href="` + link.IncidentPath(e.id, g.Episode) + `#timeline">Open alert</a>`,
 		"Bark", "After 30m if unacknowledged", "No recent response",
 		`/guide/drills#verify-phone-delivery-and-handover`,
 	} {
@@ -669,7 +669,7 @@ func TestNotificationWebhookNamesInOverviewAndAlert(t *testing.T) {
 			path := link.AlertPath(e.id)
 			routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: route, Initial: "primary"}})
 			if len(routes) != 1 || routes[0].Channel != name || routes[0].Schedule != i18n.T(lang, "When the alert opens") ||
-				routes[0].Result != i18n.T(lang, "Destination unverified") || routes[0].Href != path+"#timeline" {
+				routes[0].Result != i18n.T(lang, "Destination unverified") || routes[0].Href != link.IncidentPath(g.ID, g.Episode)+"#timeline" {
 				t.Fatalf("wrong critical notification route: %+v", routes)
 			}
 			show := e.signedIn("reader", "status:read").get(path)
@@ -697,7 +697,8 @@ func TestSlackNamesInOverviewAndAlert(t *testing.T) {
 	}
 	path := link.AlertPath(g.ID)
 	routes := e.srv.overviewDeliveries([]bridge.DeliveryRoute{{Channel: config.SlackChannel, Initial: "primary"}})
-	if len(routes) != 1 || routes[0].Channel != "Slack" || routes[0].Result != "Destination unverified" || routes[0].Href != path+"#timeline" {
+	if len(routes) != 1 || routes[0].Channel != "Slack" || routes[0].Result != "Destination unverified" ||
+		routes[0].Href != link.IncidentPath(g.ID, g.Episode)+"#timeline" {
 		t.Fatalf("Slack delivery missing from the overview: %+v", routes)
 	}
 	show := e.signedIn("reader", "status:read").get(path)
@@ -706,15 +707,34 @@ func TestSlackNamesInOverviewAndAlert(t *testing.T) {
 	}
 }
 
-func TestOverviewLinksToChatDeliveryGuide(t *testing.T) {
+func TestOverviewLinksToEachConfiguredDeliveryGuide(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	e.srv.Bridge = bridge.New(bridge.Deps{
-		Config: &config.Config{Location: time.UTC, Escalation: map[string]config.Policy{"critical": {Channel: config.SlackChannel}}},
-		Store:  e.st, Slack: &notify.Slack{},
+		Config: &config.Config{Location: time.UTC, Escalation: map[string]config.Policy{"critical": {
+			Channel: config.SlackChannel, Pushover: config.Duration(time.Minute),
+		}}},
+		Store: e.st, Slack: &notify.Slack{}, Pushover: &notify.Pushover{},
 	})
 	page := e.signedIn("reader", "status:read").get("/console").body
-	if !strings.Contains(page, `/guide/drills#verify-chat-delivery">Verify delivery</a>`) {
+	if !strings.Contains(page, `/guide/drills#verify-chat-delivery">Verify chat delivery`) {
 		t.Error("the configured chat route lacks a link to its delivery guide")
+	}
+	if !strings.Contains(page, `/guide/drills#verify-phone-delivery-and-handover">Verify phone delivery`) {
+		t.Error("the chat route hid the configured phone route's delivery guide")
+	}
+}
+
+func TestOverviewShowsDeviceResponseWithoutAnOwnerName(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	g, _ := e.st.Group(e.id)
+	g.Ack = &store.Ack{By: "Pushover (private device label)", Via: "pushover", Kind: "person", At: e.now}
+	if err := e.st.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	page := e.signedIn("reader", "status:read").get("/console")
+	if page.code != http.StatusOK || !strings.Contains(page.body, "Pushover reported a device acknowledgement") ||
+		strings.Contains(page.body, "private device label") {
+		t.Fatal("the overview confused a device response with a named handover")
 	}
 }
 
