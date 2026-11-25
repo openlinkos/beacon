@@ -107,6 +107,10 @@ components:
         silence: {$ref: "#/components/schemas/SilenceRef"}
         buzzed_at: {type: string, format: date-time}
         pushover_at: {type: string, format: date-time}
+        pushover_cancellation:
+          type: string
+          enum: [pending, confirmed, expired, unconfirmed]
+          description: The cancellation of the current incident's latest accepted emergency. Confirmed means Pushover accepted the request to stop repeated pages. Unconfirmed means Beacon could not verify the original delivery route.
         runbook: {type: string, format: uri}
         dashboard: {type: string, format: uri}
         notes: {type: array, items: {$ref: "#/components/schemas/Note"}}
@@ -343,7 +347,7 @@ components:
               kind:
                 type: string
                 enum: [started, notified, buzzed, pushover, notification, acknowledged, note, silenced, silence_ended, agent, agent_run, change, session, command, heartbeat, probe_now, resolved]
-                description: "agent records hook delivery. agent_run records external programme execution. notification records provider acceptance or failure, with event resolved for Feishu recovery. Acknowledgement is separate."
+                description: "agent records hook delivery. agent_run records external programme execution. notification records provider acceptance or failure, with event resolved for Feishu recovery or cancel for Pushover cancellation. Acknowledgement is separate."
               by: {type: string}
               via: {type: string}
               text: {type: string}
@@ -352,7 +356,7 @@ components:
               service: {type: string}
               id: {type: string}
               until: {type: string, format: date-time}
-              event: {type: string, enum: [firing, resolved]}
+              event: {type: string, enum: [firing, resolved, cancel]}
               result: {type: string, enum: [pending, ok, failed, running, succeeded, timed_out, not_started]}
               exit: {type: integer}
               url: {type: string, description: "A change's link, or the signed link to a session's page where people replay it"}

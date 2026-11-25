@@ -111,7 +111,7 @@ func TestHumanTakeoverAndShiftHandover(t *testing.T) {
 	}
 	response := alertResponse(t, show)
 	for _, want := range []string{"Latest note", update, "first-shift</span><time datetime=", `href="#alert-notes"`,
-		"Acknowledgement note", "Checked the failed dependency.", "Escalation is paused while this alert is acknowledged."} {
+		"Acknowledgement note", "Checked the failed dependency.", "New escalations are paused while this alert is acknowledged."} {
 		if !strings.Contains(response, want) {
 			t.Errorf("the takeover response lacks %q", want)
 		}
@@ -165,7 +165,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 	}
 	response = alertResponse(t, viewer.get(path))
 	if !strings.Contains(response, "Awaiting a person. Agent acknowledgement") ||
-		strings.Contains(response, "Acknowledgement note") || strings.Contains(response, "Escalation is paused") {
+		strings.Contains(response, "Acknowledgement note") || strings.Contains(response, "New escalations are paused") {
 		t.Fatal("an Agent acknowledgement implied a human handover or paused escalation")
 	}
 
@@ -182,7 +182,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	response = alertResponse(t, viewer.get(path))
-	if !strings.Contains(response, "Silenced until 2026-11-02 11:00:00 by duty") || strings.Contains(response, "Escalation is paused") {
+	if !strings.Contains(response, "Silenced until 2026-11-02 11:00:00 by duty") || strings.Contains(response, "New escalations are paused") {
 		t.Fatal("the response did not show the active silence")
 	}
 	g, _ = e.st.Group(e.id)
@@ -193,6 +193,52 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 	response = alertResponse(t, viewer.get(path))
 	if strings.Contains(response, "Acknowledgement note") || strings.Contains(response, "Agent hook delivery failed.") {
 		t.Fatal("a resolved alert showed handover or wake delivery as current")
+	}
+}
+
+func TestPushoverResponseKeepsCancellationAndDeviceAcknowledgementSeparate(t *testing.T) {
+	e := newEnv(t, i18n.EN)
+	phone := e.now.Add(-time.Minute)
+	person := &store.Ack{Via: "console", By: "duty", Kind: "person", At: e.now}
+	device := &store.Ack{Via: "pushover", By: "test-device", Kind: "person", At: e.now}
+	stamp := bridge.Event{At: e.now, Kind: "acknowledged", Via: "pushover", By: device.By, Type: device.Kind}
+	for _, tc := range []struct {
+		name, status, cancel, label string
+		ack                         *store.Ack
+		prior                       []bridge.Event
+		pending                     bool
+	}{
+		{name: "accepted still waiting", status: "firing"},
+		{name: "pending after claim", status: "firing", cancel: "pending", label: "Pushover cancellation pending. The earlier page may still repeat.", ack: person, pending: true},
+		{name: "pending after recovery", status: "resolved", cancel: "pending", label: "Pushover cancellation pending. The earlier page may still repeat.", pending: true},
+		{name: "provider confirmed", status: "resolved", cancel: "confirmed", label: "Pushover confirmed cancellation of the page."},
+		{name: "expired", status: "resolved", cancel: "expired", label: "The retry window for the Pushover page has ended."},
+		{name: "legacy destination unverified", status: "firing", cancel: "unconfirmed", label: "Pushover cancellation could not be verified.", ack: person},
+		{name: "legacy cancellation not observed", status: "firing", label: "No cancellation result is recorded for the Pushover page.", ack: person},
+		{name: "legacy recovery not observed", status: "resolved", label: "No cancellation result is recorded for the Pushover page."},
+		{name: "device responded", status: "firing", ack: device},
+		{name: "took over after device responded", status: "firing", ack: person, prior: []bridge.Event{stamp}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := bridge.GroupView{Status: tc.status, Pushed: &phone, Ack: tc.ack, PushoverCancellation: tc.cancel}
+			if text, pending := e.srv.pushoverCancellation(g, bridge.Timeline{Events: tc.prior}); text != tc.label || pending != tc.pending {
+				t.Fatalf("cancellation %q (%t), want %q (%t)", text, pending, tc.label, tc.pending)
+			}
+		})
+	}
+	accepted := bridge.Event{At: phone, Kind: "pushover", Via: "pushover", Result: "ok"}
+	failed := bridge.Event{At: e.now, Kind: "notification", Via: "pushover", Event: "cancel", Result: "failed"}
+	completed := bridge.Event{At: e.now, Kind: "notification", Via: "pushover", Event: "cancel", Result: "ok"}
+	tl := bridge.Timeline{Events: []bridge.Event{accepted, stamp, failed, completed}}
+	if text, failed := e.srv.peopleDelivery(tl); text != "Notification accepted by Pushover" || failed {
+		t.Fatalf("cancellation history changed provider acceptance: %q, %t", text, failed)
+	}
+	rows := e.srv.events(tl, access{}, e.srv.labels(), "", true)
+	for i, want := range []string{"Pushover accepted the page", "Pushover reported a device acknowledgement",
+		"Pushover cancellation attempt failed", "Pushover confirmed page cancellation"} {
+		if rows[i].Text != want || strings.Contains(rows[i].Detail, device.By) {
+			t.Fatalf("event %d: %+v", i, rows[i])
+		}
 	}
 }
 
@@ -321,7 +367,7 @@ func TestSignedAlertReturnsToAlertAfterSignIn(t *testing.T) {
 	a = b.get(path)
 	ack := strings.Index(a.body, `id="alert-ack"`)
 	evidence := strings.Index(a.body, `id="timeline"`)
-	if a.code != http.StatusOK || ack < 0 || ack >= evidence || !strings.Contains(a.body, "Acknowledging stops escalation") {
+	if a.code != http.StatusOK || ack < 0 || ack >= evidence || !strings.Contains(a.body, "Acknowledging pauses new escalations") {
 		t.Fatalf("signed-in on-call controls missing or below evidence (status %d, positions %d/%d)", a.code, ack, evidence)
 	}
 }

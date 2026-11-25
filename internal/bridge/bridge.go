@@ -50,7 +50,7 @@ type Silencer interface {
 type Pusher interface {
 	Send(ctx context.Context, m notify.Emergency) (string, error)
 	Receipt(ctx context.Context, receipt string) (notify.Receipt, error)
-	CancelByTag(ctx context.Context, tag string) error
+	Cancel(ctx context.Context, receipt string) error
 }
 
 // Barker is a ringing iOS push.
@@ -117,8 +117,9 @@ type Bridge struct {
 	slackActive    bool              // one request at a time to the Slack channel, protected by mu
 	deliveryRoutes map[string]string // keyed identities of the configured notification destinations
 
-	chatRecoveryCursor int // next group to check for a pending Feishu recovery, protected by mu
-	sessionCardCursor  int // next group to check for session changes, protected by mu
+	pushoverCancelCursor int // next group to check for cancellation, protected by mu
+	chatRecoveryCursor   int // next group to check for a pending Feishu recovery, protected by mu
+	sessionCardCursor    int // next group to check for session changes, protected by mu
 }
 
 const (
@@ -289,6 +290,8 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 			g.Buzzed, g.Pushed, g.Barked, g.ReceiptAt, g.ResolvedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.ChannelAt = time.Time{}
 			g.Receipt, g.MessageID, g.CardHash, g.Channel, g.ChatRouteID = "", "", "", "", ""
+			g.ReceiptRouteID, g.ReceiptExpiresAt = "", time.Time{}
+			g.PushoverCancelID, g.PushoverCancelStatus = "", ""
 			g.CardSessionHash, g.CardSessionAttemptAt = "", time.Time{}
 			g.StartsAt = starts
 			if g.StartsAt.IsZero() {
@@ -305,9 +308,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		}
 		g.Status = "resolved"
 		g.ResolvedAt = b.now()
-		if pushoverAccepted(&g) && b.d.Pushover != nil && !g.Ack.StopsEscalation() {
-			b.cancelPushover(ctx, &g)
-		}
+		b.queuePushoverCancellation(&g)
 		queuedRecovery := b.queueChatRecovery(ctx, &g)
 		if g.NotifyWebhook {
 			b.queueWebhook(&g, config.NotificationWebhookChannel, "resolved")
@@ -322,6 +323,7 @@ func (b *Bridge) HandleWebhook(ctx context.Context, w alertmanager.Webhook) erro
 		if len(g.WebhookNotices) > 0 || len(g.SlackNotices) > 0 {
 			b.wakeWebhooks()
 		}
+		b.submitNewPushoverCancellation(ctx, &g)
 		if queuedRecovery {
 			b.sendChatRecovery(ctx, &g, len(g.ChatRecoveries)-1, b.now())
 		} else if g.Channel == "app" && chatRoute(&g) == "" && b.patchAllowed(&g, true) {
@@ -455,7 +457,7 @@ func (b *Bridge) push(ctx context.Context, g *store.Group) {
 	target, label := b.phoneLink(g)
 	rc, err := b.d.Pushover.Send(ctx, notify.Emergency{
 		Title: b.t("%s: %s", b.severityName(g.Severity), b.title(g)), Message: b.plainBody(g),
-		URL: target, URLTitle: label, Tag: g.ID,
+		URL: target, URLTitle: label,
 	})
 	b.recordNotification(g, "pushover", err)
 	if err != nil {
@@ -465,6 +467,8 @@ func (b *Bridge) push(ctx context.Context, g *store.Group) {
 	}
 	b.count("pushover", "ok")
 	g.Pushed, g.Receipt, g.ReceiptAt = b.now(), rc, b.now()
+	g.ReceiptRouteID, g.ReceiptExpiresAt = b.deliveryRoutes["pushover"], g.Pushed.Add(pushoverLifetime(b.d.Config.Pushover.Expire.D()))
+	g.PushoverCancelID, g.PushoverCancelStatus = "", ""
 }
 
 // ---- Clicks
@@ -498,7 +502,7 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 			note, _ = a.Form["note"].(string)
 			note = strings.TrimSpace(note)
 		}
-		b.ack(ctx, &g, who, note)
+		b.ack(&g, who, note)
 		toast = b.t("Acknowledged")
 	case "silence":
 		d, err := time.ParseDuration(fmt.Sprint(a.Value["d"]))
@@ -524,12 +528,14 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	g.CardSessionHash = sessions.fingerprint()
 	if err := b.d.Store.PutGroup(g); err != nil {
 		b.d.Log.Error("save group", "err", err)
+	} else {
+		b.submitNewPushoverCancellation(ctx, &g)
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: person.Name, Via: "feishu", Action: act, Target: g.ID, Detail: b.title(&g)})
 	return feishu.Response{Toast: toast, ToastKind: "success", Card: card}
 }
 
-func (b *Bridge) ack(ctx context.Context, g *store.Group, who Actor, note string) {
+func (b *Bridge) ack(g *store.Group, who Actor, note string) {
 	a := store.Ack{By: who.Name, Via: who.Via, Note: note, At: b.now(), Kind: actorKind(who)}
 	if a.Kind == "agent" && g.Ack.StopsEscalation() {
 		rememberAck(g, a)
@@ -540,15 +546,7 @@ func (b *Bridge) ack(ctx context.Context, g *store.Group, who Actor, note string
 	}
 	g.Ack = &a
 	if a.Kind != "agent" {
-		b.cancelPushover(ctx, g)
-	}
-}
-
-func (b *Bridge) cancelPushover(ctx context.Context, g *store.Group) {
-	if pushoverAccepted(g) && b.d.Pushover != nil {
-		if err := b.d.Pushover.CancelByTag(ctx, g.ID); err != nil {
-			b.d.Log.Warn("pushover cancel failed", "group", g.ID, "err", err)
-		}
+		b.queuePushoverCancellation(g)
 	}
 }
 
@@ -579,18 +577,19 @@ func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, w
 	if err != nil {
 		return err
 	}
-	b.markSilence(ctx, g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
+	b.markSilence(g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
 	return nil
 }
 
-func (b *Bridge) markSilence(ctx context.Context, g *store.Group, silence store.Silence, who Actor) {
+func (b *Bridge) markSilence(g *store.Group, silence store.Silence, who Actor) {
 	g.Silence = &silence
 	if g.Ack == nil {
-		b.ack(ctx, g, who, "")
+		b.ack(g, who, "")
 	}
+	b.queuePushoverCancellation(g)
 	if !g.Ack.StopsEscalation() {
-		b.cancelPushover(ctx, g)
 		g.Pushed, g.Receipt, g.ReceiptAt = time.Time{}, "", time.Time{}
+		g.ReceiptRouteID, g.ReceiptExpiresAt = "", time.Time{}
 	}
 }
 
@@ -639,7 +638,7 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 					g.ChannelAt = g.NotifiedAt
 				}
 				g.NotifiedAt, g.Buzzed, g.Pushed, g.Barked, g.Receipt = now, time.Time{}, time.Time{}, time.Time{}, ""
-				g.ReceiptAt = time.Time{}
+				g.ReceiptAt, g.ReceiptExpiresAt, g.ReceiptRouteID = time.Time{}, time.Time{}, ""
 			}
 			if b.patchAllowed(&g, false) {
 				b.patch(ctx, &g)
@@ -688,13 +687,15 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 				changed = true
 			}
 		}
-		if upkeep && canEscalate && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery {
+		if upkeep && canEscalate && g.Receipt != "" && b.d.Pushover != nil && now.Sub(g.ReceiptAt) >= receiptEvery &&
+			b.pushoverReceiptRouteMatches(&g) {
 			g.ReceiptAt, changed = now, true
 			r, err := b.d.Pushover.Receipt(ctx, g.Receipt)
 			switch {
 			case err != nil:
 				b.d.Log.Warn("pushover receipt failed", "group", g.ID, "err", err)
 			case r.Acknowledged:
+				g.Receipt = "" // Acknowledging on the phone already stops retries.
 				by := "Pushover"
 				if r.Device != "" {
 					by += " (" + r.Device + ")"
@@ -735,8 +736,11 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 			}
 		}
 	}
-	if upkeep && !b.retryChatRecovery(ctx, groups, b.now()) {
-		b.refreshSessionCards(ctx, groups, b.now())
+	if upkeep {
+		b.retryPushoverCancellation(ctx, groups, b.now())
+		if !b.retryChatRecovery(ctx, groups, b.now()) {
+			b.refreshSessionCards(ctx, groups, b.now())
+		}
 	}
 }
 
@@ -903,6 +907,8 @@ type GroupView struct {
 	Notes       []store.Note      `json:"notes,omitempty"`
 	Agents      []store.AgentCall `json:"agents,omitempty"` // the hooks called to wake agents, and how that went
 	Page        string            `json:"page,omitempty"`   // the signed link to the alert's page, for people
+
+	PushoverCancellation string `json:"pushover_cancellation,omitempty"`
 }
 
 func tp(t time.Time) *time.Time {
@@ -924,7 +930,7 @@ func (b *Bridge) view(g *store.Group) GroupView {
 		Service: b.service(g), Labels: g.Labels, Alerts: firing, StartsAt: g.StartsAt, ResolvedAt: tp(g.ResolvedAt),
 		Channel: g.Channel, Ack: g.Ack, AckVersion: ackVersion(g), Episode: g.Episode, Silence: g.Silence, Buzzed: tp(g.Buzzed), Pushed: acceptedPushoverAt(g),
 		Runbook: b.link(b.d.Config.Links.Runbook, g), Dashboard: b.link(b.d.Config.Links.GrafanaService, g),
-		Notes: g.Notes, Agents: g.Agents, Page: b.incidentPage(g),
+		Notes: g.Notes, Agents: g.Agents, Page: b.incidentPage(g), PushoverCancellation: g.PushoverCancelStatus,
 	}
 }
 
@@ -1099,7 +1105,7 @@ func (b *Bridge) acknowledge(ctx context.Context, id string, who Actor, note str
 	if expected != nil && *expected != ackVersion(&g) {
 		return b.view(&g), ErrAckChanged
 	}
-	b.ack(ctx, &g, who, strings.TrimSpace(note))
+	b.ack(&g, who, strings.TrimSpace(note))
 	recordParticipation(&g, who, "ack", b.now())
 	if b.patchAllowed(&g, false) {
 		b.patch(ctx, &g)
@@ -1108,6 +1114,7 @@ func (b *Bridge) acknowledge(ctx context.Context, id string, who Actor, note str
 		return GroupView{}, err
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "ack", Target: g.ID, Detail: note})
+	b.submitNewPushoverCancellation(ctx, &g)
 	text := b.t("%s acknowledged \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
 	if actorKind(who) == "agent" {
 		text = b.t("%s recorded an Agent acknowledgement for \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
@@ -1164,6 +1171,7 @@ func (b *Bridge) silenceAlert(ctx context.Context, id string, d time.Duration, w
 		return GroupView{}, err
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "silence", Target: g.ID, Detail: d.String() + ": " + comment})
+	b.submitNewPushoverCancellation(ctx, &g)
 	b.echo(ctx, b.t("%s silenced \"%s\" for %s via %s: %s", who.Name, b.title(&g), b.dur(d), b.viaName(who.Via), comment))
 	return b.view(&g), nil
 }
@@ -1199,7 +1207,7 @@ func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d 
 		if !g.Firing() || !everyAlertHas(&g, labels) {
 			continue
 		}
-		b.markSilence(ctx, &g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
+		b.markSilence(&g, store.Silence{ID: id, By: who.Name, Until: now.Add(d)}, who)
 		recordParticipation(&g, who, "silence", now)
 		if b.patchAllowed(&g, false) {
 			b.patch(ctx, &g)

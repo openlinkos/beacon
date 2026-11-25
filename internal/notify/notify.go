@@ -79,9 +79,9 @@ type Pushover struct {
 	Enabled bool
 }
 
-// Emergency is an emergency message. Tag lets every message about one alert group be cancelled at once.
+// Emergency is an emergency-priority message.
 type Emergency struct {
-	Title, Message, URL, URLTitle, Tag string
+	Title, Message, URL, URLTitle string
 }
 
 // Send sends an emergency (priority 2) message and returns its receipt.
@@ -93,9 +93,6 @@ func (p *Pushover) Send(ctx context.Context, m Emergency) (string, error) {
 	if m.URL != "" {
 		form.Set("url", m.URL)
 		form.Set("url_title", trunc(m.URLTitle, 100))
-	}
-	if m.Tag != "" {
-		form.Set("tags", m.Tag)
 	}
 	b, err := send(ctx, p.HTTP, http.MethodPost, p.API+"/1/messages.json", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -143,12 +140,24 @@ func (p *Pushover) Receipt(ctx context.Context, receipt string) (Receipt, error)
 	return r, nil
 }
 
-// CancelByTag stops the retries of every emergency message carrying tag.
-func (p *Pushover) CancelByTag(ctx context.Context, tag string) error {
+// Cancel stops retries for a single emergency message identified by its receipt.
+func (p *Pushover) Cancel(ctx context.Context, receipt string) error {
+	if receipt == "" || len(receipt) > 64 || strings.ContainsFunc(receipt, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	}) {
+		return errors.New("pushover cancel: invalid receipt")
+	}
 	form := url.Values{"token": {p.Token}}
-	u := p.API + "/1/receipts/cancel_by_tag/" + url.PathEscape(tag) + ".json"
-	if _, err := send(ctx, p.HTTP, http.MethodPost, u, "application/x-www-form-urlencoded", strings.NewReader(form.Encode())); err != nil {
+	u := p.API + "/1/receipts/" + receipt + "/cancel.json"
+	body, err := send(ctx, p.HTTP, http.MethodPost, u, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
 		return fmt.Errorf("pushover cancel: %w", err)
+	}
+	var reply struct {
+		Status int `json:"status"`
+	}
+	if json.Unmarshal(body, &reply) != nil || reply.Status != 1 {
+		return errors.New("pushover cancel: response did not confirm acceptance")
 	}
 	return nil
 }

@@ -8,13 +8,16 @@
         <h2 class="ol-heading-md" id="alert-response">{{.L.Response}}</h2>
         {{if .ShareLinks}}<a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.ShareLinks}}">{{iconSm "link"}}{{.L.ShareLinks}}</a>{{end}}
       </div>
-      {{if .Feedback}}<div class="ol-alert ol-alert-{{.FeedbackTone}}" id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message" role="{{if eq .FeedbackTone "danger"}}alert{{else}}status{{end}}">
+      {{if .Feedback}}<div class="ol-alert ol-alert-{{.FeedbackTone}}" id="alert-action-result" tabindex="-1" autofocus aria-labelledby="alert-action-message"{{if .PhoneCancellation}} aria-describedby="pushover-cancellation"{{end}} role="{{if eq .FeedbackTone "danger"}}alert{{else}}status{{end}}">
         {{if eq .FeedbackTone "danger"}}{{icon "circle-alert"}}{{else}}{{icon "circle-check"}}{{end}}
         <div class="ol-alert-body"><p id="alert-action-message">{{.Feedback}}</p></div>
       </div>{{end}}
       {{if .When}}<p class="ol-hint">{{.When}}</p>{{end}}
       {{if .Ownership}}<p>{{.Ownership}}</p>{{end}}
       {{if .Escalation}}<p class="ol-hint" id="escalation-effect">{{.Escalation}}</p>{{end}}
+      {{if .PhoneCancellation}}<div class="ol-cluster"><p id="pushover-cancellation"><a class="{{if .PhoneCancellationPending}}ol-status ol-status-warning{{else}}ol-hint{{end}}" href="#timeline">{{if .PhoneCancellationPending}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.PhoneCancellation}}</a></p>
+        {{if .PhoneRefresh}}<a class="ol-btn ol-btn-ghost ol-btn-xs" href="{{.PhoneRefresh}}">{{.L.RefreshStatus}}</a>{{end}}
+      </div>{{end}}
       {{if .Service}}<p class="ol-hint">{{.L.Service}} <strong>{{.Service}}</strong></p>
       {{else if .Services}}<p class="ol-cluster">{{range .Services}}<span class="ol-badge">{{.}}</span>{{end}}</p>{{end}}
     </div>

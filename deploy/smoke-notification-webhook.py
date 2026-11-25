@@ -84,6 +84,53 @@ class Receiver(BaseHTTPRequestHandler):
         pass
 
 
+class PushoverReceiver(BaseHTTPRequestHandler):
+    def reply(self, status, value):
+        body = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        form = parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
+        if form.get("token") != [self.server.token]:
+            self.reply(401, {"status": 0})
+            self.server.attempts.put(("invalid", "", False))
+            return
+        if self.path == "/1/messages.json":
+            if form.get("user") != [self.server.user] or form.get("priority") != ["2"]:
+                self.reply(400, {"status": 0})
+                self.server.attempts.put(("invalid", "", False))
+                return
+            receipt = secrets.token_hex(15)
+            self.server.receipts.add(receipt)
+            self.reply(200, {"status": 1, "receipt": receipt})
+            self.server.attempts.put(("sent", receipt, True))
+            return
+        match = re.fullmatch(r"/1/receipts/([a-f0-9]{30})/cancel\.json", self.path)
+        if not match or match[1] not in self.server.receipts:
+            self.reply(404, {"status": 0})
+            self.server.attempts.put(("invalid", "", False))
+            return
+        accepted = self.server.rejected_first_cancel
+        self.server.rejected_first_cancel = True
+        self.reply(200, {"status": int(accepted)})
+        self.server.attempts.put(("cancel", match[1], accepted))
+
+    def do_GET(self):
+        target = urlsplit(self.path)
+        match = re.fullmatch(r"/1/receipts/([a-f0-9]{30})\.json", target.path)
+        if match and match[1] in self.server.receipts and parse_qs(target.query).get("token") == [self.server.token]:
+            self.reply(200, {"status": 1, "acknowledged": 0, "expired": 0})
+            return
+        self.reply(404, {"status": 0})
+
+    def log_message(self, *_):
+        pass
+
+
 def request(url, *, data=None, headers=None):
     with client.open(Request(url, data=data, headers=headers or {}), timeout=4) as r:
         return r.read()
@@ -140,6 +187,16 @@ def port_reservation():
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def show_fixture_log(log, values):
+    if not log.exists():
+        return
+    output = log.read_text(errors="replace")
+    for value in values:
+        output = output.replace(value, "[fixture value]")
+    output = re.sub(r'([?&](?:code|s)=)[^&"\s]+', r'\1[fixture link]', output)
+    print(output[-6000:], file=sys.stderr)
 
 
 def cookie_header(headers):
@@ -349,9 +406,147 @@ def main(binary):
             exercise(binary, work, receiver, rules_token, episode_links, verify_destination=verify_destination)
         except Exception:
             for log in (work / "beacon.log", work / "mismatch/beacon.log"):
-                if log.exists():
-                    output = log.read_text(errors="replace").replace(rules_token, "[rules token]")
-                    print(output.replace(receiver.secret.decode(), "[webhook secret]")[-6000:], file=sys.stderr)
+                show_fixture_log(log, (rules_token, receiver.secret.decode()))
+            raise
+        finally:
+            receiver.shutdown()
+            thread.join()
+
+
+def acknowledge_as_owner(binary, state, base, incident):
+    cookie = owner_session(binary, state, base)
+    group, episode = incident["id"], incident["episode"]
+    page = request(base + f"/console/alerts/{group}/episodes/{episode}", headers={"Cookie": cookie}).decode()
+    form = re.search(r'<form\b[^>]*\bid="alert-ack"[^>]*>(.*?)</form>', page, re.S)
+    require(form, "The owner could not find the acknowledgement form")
+    fields = dict(re.findall(r'name="(csrf|expected_ack|expected_episode|return_episode)" value="([^"]+)"', form[1]))
+    require(fields.get("expected_episode") == episode and fields.get("csrf"), "The form did not name the incident")
+    headers = {"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"}
+    try:
+        request(base + f"/console/alerts/{group}/ack", data=urlencode(fields).encode(), headers=headers)
+    except HTTPError as response:
+        require(response.code == 303 and response.headers["Location"].endswith("?done=ack"),
+                "Beacon did not confirm the human acknowledgement")
+        return
+    raise RuntimeError("The acknowledgement form did not redirect")
+
+
+def exercise_pushover(binary, work, receiver, rules_token):
+    with port_reservation() as console_socket, port_reservation() as gateway_socket:
+        console = f"127.0.0.1:{console_socket.getsockname()[1]}"
+        gateway = f"127.0.0.1:{gateway_socket.getsockname()[1]}"
+    base, gateway_base = f"http://{console}", f"http://{gateway}"
+    receiver_base = f"http://127.0.0.1:{receiver.server_port}"
+    state = work / "data"
+    state.mkdir()
+    config, rules, token_file, user_file = (work / name for name in ("config.yaml", "rules", "token", "user"))
+    for path, value in ((rules, rules_token), (token_file, receiver.token), (user_file, receiver.user)):
+        path.touch(0o600)
+        path.write_text(value + "\n", encoding="utf-8")
+    config.write_text(
+        'language: en\n'
+        f'listen: "{console}"\n'
+        f'data_dir: {json.dumps(str(state))}\n'
+        f'public_url: "{base}"\n'
+        f'rules: {{token_file: {json.dumps(str(rules))}}}\n'
+        f'gateway: {{listen: "{gateway}"}}\n'
+        'victoriametrics: {url: "http://127.0.0.1:1"}\n'
+        'routing: {group_by: [alertname, service], group_wait: 1s, group_interval: 1s}\n'
+        'pushover:\n'
+        f'  api: "{receiver_base}"\n'
+        f'  token_file: {json.dumps(str(token_file))}\n'
+        f'  user_key_file: {json.dumps(str(user_file))}\n'
+        '  retry: 30s\n'
+        '  expire: 10m\n',
+        encoding="utf-8",
+    )
+
+    def report(start, firing):
+        post = {
+            "labels": fixture_labels,
+            "annotations": {"summary": "Phone cancellation smoke test"},
+            "startsAt": start.isoformat(),
+            "endsAt": (start + timedelta(minutes=10) if firing else start).isoformat(),
+        }
+        request(gateway_base + "/api/v2/alerts", data=json.dumps([post]).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + rules_token})
+
+    def current():
+        data = json.loads(request(base + "/api/v1/alerts?state=all", headers=headers))
+        return next((a for a in data["alerts"] if a.get("service") == fixture_labels["service"]), {})
+
+    log = work / "beacon.log"
+    with beacon(binary, config, log, base):
+        token = subprocess.run(
+            [binary, "token", "create", "phone-smoke", "-scopes", "status:read"],
+            env={**os.environ, "BEACON_DATA_DIR": str(state)},
+            capture_output=True, check=True, text=True, timeout=10,
+        ).stdout.strip()
+        headers = {"Authorization": "Bearer " + token}
+        start = datetime.now(timezone.utc) - timedelta(seconds=1)
+        report(start, True)
+        kind, first_receipt, accepted = attempt(receiver, "the original emergency", 25)
+        require(kind == "sent" and accepted, "The receiver did not accept the original emergency")
+        wait_for("the original emergency in the console", lambda: current().get("pushover_at") is not None)
+        first = current()
+        acknowledge_as_owner(binary, state, base, first)
+        require(current().get("ack", {}).get("by") == "fixture-owner", "The named owner did not take ownership")
+        require(attempt(receiver, "the refused cancellation", 25) == ("cancel", first_receipt, False),
+                "The first cancellation did not address the exact original receipt")
+        refused_at = time.monotonic()
+        pending = current()
+        require(pending.get("pushover_cancellation") == "pending" and first_receipt not in json.dumps(pending),
+                "The pending cancellation was missing or exposed the receipt")
+        print("Pushover refused the receipt cancellation after a named owner acknowledged.", flush=True)
+        report(start, False)
+        wait_for("the first episode to resolve", lambda: current().get("status") == "resolved")
+
+    with beacon(binary, config, log, base):
+        new_start = datetime.now(timezone.utc) - timedelta(seconds=1)
+        report(new_start, True)
+        kind, new_receipt, accepted = attempt(receiver, "the replacement emergency", 25)
+        require(kind == "sent" and accepted and new_receipt != first_receipt, "Expected a separate replacement emergency")
+
+        def replacement_saved():
+            incident = current()
+            return (incident.get("id") == first["id"] and incident.get("episode") != first["episode"] and
+                    incident.get("status") == "firing" and incident.get("pushover_at") is not None)
+
+        # The receiver can accept a page before Beacon finishes saving the replacement incident.
+        wait_for("the replacement incident and its emergency to be saved", replacement_saved)
+        next_incident = current()
+        require(next_incident["id"] == first["id"] and next_incident["episode"] != first["episode"] and
+                next_incident["status"] == "firing" and not next_incident.get("ack"),
+                "The replacement emergency did not belong to a fresh episode of the same alert group")
+        require(attempt(receiver, "the retained receipt cancellation after restart", 105) == ("cancel", first_receipt, True),
+                "The retained cancellation did not address only the original receipt")
+        require(time.monotonic() - refused_at >= 55, "Pushover cancellation retried before the backoff")
+        replacement = current()
+        require(replacement["episode"] == next_incident["episode"] and replacement["status"] == "firing" and
+                not replacement.get("pushover_cancellation"),
+                "Cancelling the old emergency changed the new incident")
+        print("Pushover accepted the original receipt cancellation after restart while the replacement stayed firing.", flush=True)
+        report(new_start, False)
+        require(attempt(receiver, "the replacement receipt to be cancelled on recovery", 25) == ("cancel", new_receipt, True),
+                "Resolution did not cancel the replacement incident's own receipt")
+        wait_for("confirmed cancellation on the resolved incident", lambda:
+                 current().get("status") == "resolved" and current().get("pushover_cancellation") == "confirmed")
+        print("Rule recovery cancelled the replacement incident's separate receipt.", flush=True)
+
+
+def pushover_main(binary):
+    with TemporaryDirectory(prefix="beacon-phone-cancellation-") as tmp, HTTPServer(("127.0.0.1", 0), PushoverReceiver) as receiver:
+        work = Path(tmp)
+        receiver.token, receiver.user, rules = (secrets.token_hex(15) for _ in range(3))
+        receiver.attempts = Queue()
+        receiver.receipts = set()
+        receiver.rejected_first_cancel = False
+        thread = Thread(target=receiver.serve_forever, daemon=True)
+        thread.start()
+        try:
+            exercise_pushover(binary, work, receiver, rules)
+        except Exception:
+            show_fixture_log(work / "beacon.log", (receiver.token, receiver.user, rules, *receiver.receipts))
             raise
         finally:
             receiver.shutdown()
@@ -359,6 +554,10 @@ def main(binary):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("usage: python3 deploy/smoke-notification-webhook.py /path/to/beacon")
-    main(Path(sys.argv[1]).resolve(strict=True))
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--pushover-cancellation"):
+        sys.exit("usage: python3 deploy/smoke-notification-webhook.py /path/to/beacon [--pushover-cancellation]")
+    binary = Path(sys.argv[1]).resolve(strict=True)
+    if len(sys.argv) == 3:
+        pushover_main(binary)
+    else:
+        main(binary)

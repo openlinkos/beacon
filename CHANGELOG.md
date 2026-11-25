@@ -6,6 +6,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.41 (2026-11-25)
+
+- Retry a failed request to stop a Pushover emergency after acknowledgement, silence or recovery. The persisted request is tied to its original receipt and route, and the incident records Pushover's response.
+- Show the Pushover retry cancellation state in the incident response panel and timeline. Distinguish provider confirmation, a device acknowledgement and a named person taking ownership.
+- Document how to install the on-call harness that matches the centre and verify the first signed wake, limited SSH session, programme report and test chat.
+
 ### rc.40 (2026-11-25)
 
 - Show the latest incident note with its author and time beside the response controls, separately from the acknowledgement note.

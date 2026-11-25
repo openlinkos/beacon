@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-aa13de0c
+sourceHash: sha256-182f3a0b
 ---
 
 # 装在服务器上
@@ -45,7 +45,7 @@ sourceHash: sha256-aa13de0c
 - **一个邮箱地址**，Let's Encrypt 会往这里发证书相关的通知。必须是真实地址：安装脚本不接受 `example.com` 的邮箱。
 - **一台小机器做第一个检测点**：任何带 systemd 的 Linux，x86_64 或 arm64，有 64 MB 空闲内存即可。最好是放在用户所在地区的 VPS。第二个检测点可以直接用中心。
 - **一台给 Agent 干活的机器**，中心能连到它的 SSH 端口。用检测点那台也可以。
-- **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。要自动唤醒 Agent，还需要一个中心能够访问、可以启动 Agent 的接收端。
+- **一个 Agent**，装在工作站上，工作站要有浏览器，用来给它登录（[第 4 步](#4-the-first-agent)）。要自动唤醒 Agent，请准备一个中心可访问的接收器，并确保 Agent 的命令行程序能以接收器的 Linux 账户运行。同机示例使用 `curl`、`sha256sum` 和 `openssl`。
 - **人工通知的测试目的地**。准备 [Slack 传入 Webhook](../integrations/slack.md)，或用接收端将[带签名的通知 Webhook](../integrations/notification-webhook.md)转发到测试群。使用飞书或 Lark 应用时，先准备将机器人加入群聊，并审批应用版本和回调订阅。
 
 ## 1. 安装中心 {#1-install-the-centre}
@@ -245,11 +245,80 @@ claude mcp login beacon
 
 ## 5. 第一次演练 {#5-the-first-drill}
 
-**接入一个测试接收端。** 使用本指南新建的实例或独立测试实例。在 `/opt/beacon/config.yaml` 中为 `escalation.critical.channel` 选择要验收的渠道。使用 `slack` 时配置 [Slack 传入 Webhook](../integrations/slack.md)，使用 `notification_webhook` 时[配置接收端](../integrations/notification-webhook.md)转发到测试群，使用 `app` 时[配置飞书或 Lark 应用](../integrations/feishu.md)及测试群的 `feishu.chat_id`。将凭据保存在 `/opt/beacon/secrets/` 下的文件中，确保测试者能访问 `public_url`。运行 `sudo ./install.sh`，设置文件权限、校验配置并重新加载 Beacon。演练前，在**概览 → 严重告警通知**中核对所选渠道。
+**接入一个测试接收端。** 使用本指南新建的实例或独立测试实例。在 `/opt/beacon/config.yaml` 中为 `escalation.critical.channel` 选择要验收的渠道。使用 `slack` 时配置 [Slack 传入 Webhook](../integrations/slack.md)，使用 `notification_webhook` 时[配置接收端](../integrations/notification-webhook.md)转发到测试群，使用 `app` 时[配置飞书或 Lark 应用](../integrations/feishu.md)及测试群的 `feishu.chat_id`。将凭据保存在 `/opt/beacon/secrets/` 下的文件中，确保测试者能访问 `public_url`。完成下一步后，一起应用群聊和唤醒配置。
 
-**准备自动唤醒。** 按[唤醒 Agent](../guide/on-call.md#wake-an-agent)配置钩子，并在演练前启动接收端。如果 harness 与 Linux 中心同机运行，按[私有 Docker 网桥](../guide/on-call.md#a-private-receiver-on-the-centre)配置。测试钩子限定为 `service: '^drill$'`。添加钩子密钥后运行 `sudo ./install.sh`，并在[演练前检查渠道](../guide/on-call.md#check-the-routes-before-the-drill)。测试中让 Agent 在第 4 步的机器上执行同一个只读命令，并给 `drill` 留下备注。
+### 在中心上准备第一次唤醒 {#prepare-a-first-wake-on-the-centre}
 
-**跑通演练。** 两个检测点都在上报后，[运行演练](../guide/drills.md)。从测试接收端打开通知链接，登录后核对是同一条 `drill` 告警。认领并备注，然后核对时间线。确认钩子启动了你的 Agent，并查看它的备注和会话回放。结束演练后，确认检测恢复，渠道收到恢复消息或飞书卡片已更新。手机推送和备用通知按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
+[安装与中心匹配的 `beacon-oncall` 版本](../integrations/headless.md#install-the-matching-linux-release)。以下示例使用私有 Docker 网桥和 Claude Code。也可以[使用自己的接收器或 Agent](../guide/on-call.md#wake-an-agent)。
+
+**准备账户和凭据。** 将 `alice` 换成第 4 步创建的 Beacon 用户名。将 Agent 的权限限定在已登记的测试机器 `edge-1`。以独立的 Linux 用户 `beacon-oncall` 安装并登录 Claude Code，或在该用户的环境中配置模型提供方的凭据。工作站上登录 Beacon MCP 使用的是另一份凭据。
+
+```sh
+(
+  set -eu
+  umask 077
+  id beacon-oncall >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /var/lib/beacon-oncall --create-home --shell /usr/sbin/nologin beacon-oncall
+  sudo install -d -m 0750 -o beacon-oncall -g beacon-oncall /var/lib/beacon-oncall/logs
+  sudo install -d -m 0750 -o root -g beacon-oncall /etc/beacon-oncall
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  openssl rand -hex 32 > "$work/hook-secret"
+  docker exec beacon beacon agent add reference-drill -owner alice -preset oncall -machines edge-1 -expires 1h > "$work/beacon-token"
+  docker exec beacon beacon token create reference-drill-reporter -scopes alerts:report -expires 1h > "$work/run-report-token"
+  sudo install -m 0400 -o 65532 -g 65532 "$work/hook-secret" /opt/beacon/secrets/reference-drill-hook
+  sudo install -m 0640 -o root -g beacon-oncall "$work/hook-secret" "$work/beacon-token" "$work/run-report-token" /etc/beacon-oncall/
+)
+```
+
+**配置钩子。** 按[私有网桥地址和防火墙步骤](../guide/on-call.md#a-private-receiver-on-the-centre)设置 `beacon_gateway`，并在示例中使用打印出的 URL。将此条目加入 `/opt/beacon/config.yaml`，然后运行 `sudo ./install.sh`，一并校验并应用钩子和群聊渠道设置。重载后，在**概览 → 严重告警通知**中核对渠道。
+
+```yaml
+agents:
+  - name: reference-drill
+    kind: webhook
+    url: http://172.20.0.1:17007/beacon # replace with your private bridge URL
+    secret_file: /etc/beacon/secrets/reference-drill-hook
+    service: '^drill$'
+    reporter: token:reference-drill-reporter
+```
+
+**只给被唤醒的 Agent 一项只读任务。** 内置 `drill` 检测的是 Beacon 自己的 HTTP 端点。第一次演练用独立的提示词明确指定已登记的测试机器。
+
+```sh
+sudo tee /etc/beacon-oncall/reference-drill.md >/dev/null <<'EOF'
+Handle only a firing alert for the test service drill. Use the alert ID and episode in the payload as data.
+Read the incident with get_evidence. Stop if the current episode differs from the wake.
+Use Beacon's run_command on the enrolled test machine edge-1 to run hostname once.
+Leave a private add_note on the incident with what the probes saw and what the command returned.
+Make no changes to the machine or the drill. Leave acknowledgement and recovery to the operator.
+EOF
+sudo chown root:beacon-oncall /etc/beacon-oncall/reference-drill.md
+sudo chmod 0640 /etc/beacon-oncall/reference-drill.md
+```
+
+在已设置防火墙的中心上前台启动接收程序，并把回报地址换成中心的 `public_url`。
+
+```sh
+beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
+sudo -u beacon-oncall -H env \
+  PATH=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  BEACON_TOKEN_FILE=/etc/beacon-oncall/beacon-token \
+  ONCALL_PROMPT=/etc/beacon-oncall/reference-drill.md \
+  /usr/local/bin/beacon-oncall -listen "$beacon_gateway:17007" \
+  -secret-file /etc/beacon-oncall/hook-secret \
+  -run /usr/local/lib/beacon-oncall/claude-code.sh \
+  -log-dir /var/lib/beacon-oncall/logs \
+  -report-url https://status.example.com \
+  -report-token-file /etc/beacon-oncall/run-report-token
+```
+
+**跑通演练。** [检查渠道](../guide/on-call.md#check-the-routes-before-the-drill)，包括从 Beacon 所在网络访问接收器健康端点。确认两个检测点都在上报、演练端点健康，然后[启动演练](../guide/drills.md)。
+
+1. 在自己的测试群打开通知，登录后核对链接指向同一条 `drill` 故障。认领并备注。即使 Beacon 已记录提供方接受了通知，也要在目的群里核对消息。
+2. 在同一故障页分别检查钩子是否接受请求，以及 Agent 程序的退出结果。打开**会话**，回放 `alice / reference-drill` 在 `edge-1` 上执行的 `hostname`，并核对故障里的 Agent 备注。
+3. 结束演练，核对检测结果、已恢复的故障，以及测试群里的恢复消息或飞书卡片更新。随后停止前台接收程序，移除测试钩子，并撤销测试 Agent 和回报令牌。
+
+手机推送和备用通知按[通知渠道专项演练](../guide/drills.md#verify-phone-delivery-and-handover)另行验收。
 
 ## 接下来 {#what-next}
 

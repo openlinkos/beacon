@@ -166,6 +166,8 @@ Send firing and recovery notifications to [a receiver you run](../integrations/n
 | `bark.url_file` | path | — | An iOS push with a ringing critical level: `https://api.day.app/<key>`, or a self-hosted server |
 | `healthchecks.bridge_url_file` | path | — | Pinged every minute when the rules pipeline and any configured Feishu app pass their health checks, `/fail` otherwise. Verify actual receipt separately |
 
+When a responder acknowledges or silences an incident in Beacon, or when the incident resolves, Beacon asks Pushover to stop repeating the specific [emergency receipt](https://pushover.net/api/receipts#cancel). Beacon saves the request and retries a failed submission after one minute on the original route, up to the emergency's original expiry. An older receipt with a verified route but no recorded expiry uses the provider's three-hour maximum. An older receipt with an unverified route is shown as unconfirmed. Acknowledging on the phone stops that receipt's retries through Pushover directly.
+
 ## Escalation and acknowledgements
 
 How alerts of each severity reach people. A zero duration turns off that scheduled step.

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-142fdade
+sourceHash: sha256-cdc697db
 ---
 
 # config.yaml
@@ -169,6 +169,8 @@ sourceHash: sha256-142fdade
 | `pushover.api` | URL | `https://api.pushover.net` | Pushover 的 API，供代理或测试用 |
 | `bark.url_file` | 路径 | — | 带响铃紧急级别的 iOS 推送：`https://api.day.app/<key>`，或自建服务 |
 | `healthchecks.bridge_url_file` | 路径 | — | 规则链路以及已配置的飞书应用通过健康检查时，每分钟 ping 一次，否则 ping `/fail`。收件情况需要单独核对 |
+
+在 Beacon 中认领或静默事件，或事件恢复时，Beacon 会请求 Pushover 停止重复推送对应的[紧急通知回执](https://pushover.net/api/receipts#cancel)。Beacon 会保存这项请求，提交失败后等待一分钟再通过原渠道重试，直到该通知原定的到期时间。对于能验证渠道但没有记录到期时间的旧回执，使用 Pushover 的三小时上限。渠道无法验证的旧回执显示为未确认。在手机上确认会直接通过 Pushover 停止该回执的重复提醒。
 
 ## 升级与确认 {#escalation-and-acknowledgements}
 
