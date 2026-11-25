@@ -141,7 +141,8 @@ func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
 type Notification struct {
 	At      time.Time `json:"at"`
 	Channel string    `json:"channel"`
-	Result  string    `json:"result"` // ok or failed
+	Result  string    `json:"result"`             // ok or failed
+	RouteID string    `json:"route_id,omitempty"` // keyed identity of the configuration used for this attempt
 }
 
 // Silence is the silence created for a group.

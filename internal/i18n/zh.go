@@ -131,6 +131,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"When chat is unavailable":                        "聊天渠道不可用时",
 	"After %s if unacknowledged":                      "%s 后仍未认领时",
 	"No recent response":                              "暂无近期回应",
+	"Previous configuration":                          "先前配置",
+	"Destination unverified":                          "目的地未验证",
 	"Submission failed":                               "提交失败",
 	"Provider accepted":                               "提供方已受理",
 	"Open alert":                                      "打开告警",

@@ -108,13 +108,14 @@ type Bridge struct {
 	lang    i18n.Lang
 	started time.Time
 
-	mu            sync.Mutex // serialises every change to the groups
-	watchdogAt    atomic.Int64
-	feishuFail    atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
-	hooks         hooks        // calls that wake agents, in flight (agents.go)
-	webhookWake   chan struct{}
-	webhookActive map[string]bool // one in-flight notice per group, protected by mu
-	slackActive   bool            // one request at a time to the Slack channel, protected by mu
+	mu             sync.Mutex // serialises every change to the groups
+	watchdogAt     atomic.Int64
+	feishuFail     atomic.Int64 // unix nanoseconds of the last failed Feishu call, 0 after a success
+	hooks          hooks        // calls that wake agents, in flight (agents.go)
+	webhookWake    chan struct{}
+	webhookActive  map[string]bool   // one in-flight notice per group, protected by mu
+	slackActive    bool              // one request at a time to the Slack channel, protected by mu
+	deliveryRoutes map[string]string // keyed identities of the configured notification destinations
 
 	sessionCardCursor int // next group to check for session changes, protected by mu
 }
@@ -145,6 +146,7 @@ func New(d Deps) *Bridge {
 		lang = i18n.EN
 	}
 	b := &Bridge{d: d, lang: lang, started: d.Now()}
+	b.deliveryRoutes = b.notificationRoutes()
 	if d.NotificationWebhook != nil || d.Slack != nil {
 		b.webhookWake = make(chan struct{}, 1)
 		b.webhookActive = make(map[string]bool)

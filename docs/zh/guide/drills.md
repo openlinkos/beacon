@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7fb906de
+sourceHash: sha256-302a616d
 ---
 
 # 演练一次故障
@@ -65,6 +65,16 @@ docker exec beacon beacon drill off
 ```
 
 检测点下一轮就会成功，通常在一分钟以内。规则引擎看到成功结果后，Beacon 记录恢复。Slack 和带签名的通知 Webhook 会发出一条新的恢复消息。飞书应用卡片会在原处更新。告警连同时间线和会话在控制台里保留 7 天。
+
+## 验证聊天通知送达 {#verify-chat-delivery}
+
+按[第一次演练](../self-hosting/install.md#5-the-first-drill)准备测试 Slack 频道、飞书群或[通知接收端](../integrations/notification-webhook.md)。开始前，确认两个检测点都在上报，演练端点返回 HTTP 200。在**概览 → 严重告警通知**中核对所选聊天渠道。
+
+1. 运行 `docker exec beacon beacon drill fail 15m`。检查目标测试渠道是否收到 `drill` 的 `ServiceDown` 通知。使用签名 Webhook 时，确认接收端受理事件。如果接收端会转发到聊天渠道，也要在那里核对消息。
+2. 从通知链接打开告警并登录，核对告警 ID 和开始时间是否与**告警**列表中的记录一致。时间线会记录服务商的响应。概览显示**先前配置**或**目的地未验证**时，看到的是历史记录，需要重新验证当前渠道。
+3. 运行 `docker exec beacon beacon drill off`。确认告警已恢复，同时核对测试渠道收到恢复消息或飞书卡片已更新。
+
+需要检查定时推送和两人交接时，按[验证手机送达和交接](#verify-phone-delivery-and-handover)操作。
 
 ## 验证手机送达和交接 {#verify-phone-delivery-and-handover}
 
