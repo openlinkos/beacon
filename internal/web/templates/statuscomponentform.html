@@ -1,0 +1,81 @@
+{{define "component-service-list"}}<ul class="ol-cluster bc-status-component-services" role="list">
+  {{range .}}<li class="ol-badge ol-mono ol-break">{{.}}</li>{{end}}
+</ul>{{end}}
+
+{{define "content"}}<div class="ol-stack bc-status-component">
+  <div class="ol-alert ol-alert-info">
+    {{icon "globe"}}
+    <div class="ol-alert-body">
+      <p class="ol-alert-title">{{.L.Destination}}</p>
+      <p id="component-public-hint">{{.L.PublicHint}}</p>
+      {{if .PublicURL}}<p><a class="ol-mono ol-break" href="{{.PublicURL}}" rel="noopener noreferrer">{{.PublicURL}}</a></p>{{end}}
+    </div>
+  </div>
+
+  <form method="post" action="{{.Form}}" class="ol-panel" aria-describedby="component-public-hint"{{if .Preview}} aria-labelledby="component-preview"{{end}}>
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="version" value="{{.Version}}">
+    {{if or .Preview (ne .Mode "add")}}<input type="hidden" name="component" value="{{.Name}}">{{end}}
+    {{if .Preview}}
+      {{if eq .Mode "add"}}<input type="hidden" name="title" value="{{.ComponentTitle}}">{{end}}
+      {{if ne .Mode "remove"}}{{range .Choices}}{{if .Selected}}<input type="hidden" name="service" value="{{.Value}}">{{end}}{{end}}{{end}}
+      <div class="ol-panel-header"><h2 class="ol-panel-title" id="component-preview" tabindex="-1" autofocus>{{.L.PublicEffect}}</h2></div>
+      <div class="ol-panel-body ol-stack">
+        <dl class="ol-dl ol-dl-stack">
+          <dt>{{.L.Title}}</dt><dd class="ol-break">{{.Preview.Title}}</dd>
+          <dt>{{.L.Name}}</dt><dd class="ol-mono ol-break">{{.Name}}</dd>
+        </dl>
+        {{if .Preview.AllNotes}}<div class="ol-alert ol-alert-warning" id="component-all-notes">
+          {{icon "triangle-alert"}}<div class="ol-alert-body"><p>{{.L.AllNotes}}</p></div>
+        </div>{{end}}
+        {{if not (or .Preview.Added .Preview.Removed)}}<p>{{.L.NoChange}}</p>{{end}}
+        <dl class="ol-dl ol-dl-stack">
+          {{with .Preview.Added}}<dt>{{$.L.Added}}</dt><dd>{{template "component-service-list" .}}</dd>{{end}}
+          {{with .Preview.Removed}}<dt>{{$.L.Removed}}</dt><dd>{{template "component-service-list" .}}</dd>{{end}}
+          <dt>{{.L.Visible}}</dt><dd>{{if .Preview.Visible}}{{template "component-service-list" .Preview.Visible}}{{else}}{{.L.NoServices}}{{end}}</dd>
+          {{with .Automatic}}<dt>{{$.L.Automatic}}</dt><dd>{{template "component-service-list" .}}</dd>{{end}}
+        </dl>
+      </div>
+      <div class="ol-panel-footer">
+        <button type="submit" name="intent" value="edit" class="ol-btn ol-btn-secondary">{{.L.Edit}}</button>
+        <button type="submit" name="intent" value="publish" class="ol-btn {{if eq .Mode "remove"}}ol-btn-danger{{else}}ol-btn-primary{{end}}"{{if .Preview.AllNotes}} aria-describedby="component-all-notes"{{end}}>
+          {{if eq .Mode "remove"}}{{.L.Remove}}{{else}}{{.L.Publish}}{{end}}
+        </button>
+      </div>
+    {{else}}
+      <div class="ol-panel-body ol-stack">
+        {{if eq .Mode "add"}}
+        <div class="ol-field">
+          <label class="ol-label" for="status-component-name">{{.L.Name}}</label>
+          <input class="ol-input ol-input-mono" id="status-component-name" name="component" value="{{.Name}}" required maxlength="63" pattern="[a-z0-9][a-z0-9\-]{0,62}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="status-component-name-hint">
+          <p class="ol-hint" id="status-component-name-hint">{{.L.NameHint}}</p>
+        </div>
+        <div class="ol-field">
+          <label class="ol-label" for="status-component-title">{{.L.Title}}</label>
+          <input class="ol-input" id="status-component-title" name="title" value="{{.ComponentTitle}}" required maxlength="120" aria-describedby="component-public-hint">
+        </div>
+        {{else}}
+        <dl class="ol-dl ol-dl-stack">
+          <dt>{{.L.Title}}</dt><dd class="ol-break">{{.ComponentTitle}}</dd>
+          <dt>{{.L.Name}}</dt><dd class="ol-mono ol-break">{{.Name}}</dd>
+        </dl>
+        {{end}}
+        {{if eq .Mode "remove"}}<p>{{.L.RemoveHint}}</p>
+        {{else}}
+        <fieldset class="ol-fieldset" aria-describedby="status-component-service-hint">
+          <legend class="ol-label">{{.L.Services}}</legend>
+          <p class="ol-hint" id="status-component-service-hint">{{.L.ServiceHint}}</p>
+          {{if .Choices}}<div class="bc-status-component-choices">
+            {{range .Choices}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="service" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-break">{{.Label}}</span></label>{{end}}
+          </div>{{else}}<p>{{.L.NoServices}}</p>{{end}}
+        </fieldset>
+        {{end}}
+        {{with .Automatic}}<dl class="ol-dl ol-dl-stack"><dt>{{$.L.Automatic}}</dt><dd>{{template "component-service-list" .}}</dd></dl>{{end}}
+      </div>
+      <div class="ol-panel-footer">
+        <a class="ol-btn ol-btn-secondary" href="{{.Page}}">{{.L.Cancel}}</a>
+        <button type="submit" name="intent" value="preview" class="ol-btn ol-btn-primary">{{.L.Preview}}</button>
+      </div>
+    {{end}}
+  </form>
+</div>{{end}}
