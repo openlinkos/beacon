@@ -88,7 +88,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
+| `GET /api/v1/alerts/{id}/evidence` | `status:read` | Everything to judge a group in one answer: each location's result and failure reason, designated service machines within the caller's SSH scope, related groups, change events, what was done, links ([Put an agent on call](../guide/on-call.md#the-evidence)). The window opens 30 minutes before the group started; `before` widens it, at most `24h` |
 | `GET /api/v1/alerts/{id}/timeline` | `status:read` | The group's story in time order, over the evidence's window |
 | `GET /api/v1/incident-episodes` | `status:read` | Open and resolved episodes ordered by start time, filtered by `since`, `until`, `group`, `severity` and `origin` |
 | `GET /api/v1/incident-outcomes` | `status:read` | Private outcomes of resolved episodes, newest first (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned `before` cursor to get the next page |
@@ -100,6 +100,8 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `POST /api/v1/probe-now` | `alerts:write` | Have every location that probes a target probe it again now, and get each location's answer: `alert_id`, `target` (with an optional `module`) or `service`; `wait` seconds, 45 by default, at most 90 |
 
 For incident verification, pair `alert_id` with `expected_episode`. Copy the `episode` from the alert or `alert.episode` from the evidence, timeline or signed wake for the incident you are verifying. If another episode replaces it before the check is recorded, Beacon returns `409 incident.changed`. Read the current evidence before deciding whether to run another check. Omit the field to continue selecting the current episode by group ID. A check by `target` or `service` is independent of the incident timeline. An alert-bound check uses the current targets matching each alert member’s known labels, including its failure domain. A member with no matching active targets returns `probe.no_targets`.
+
+Beacon commits the incident check together with its audit entry. If storage rejects the write, the call returns `503 probe.not_recorded`. Retry once storage is available.
 
 In an incident outcome, `verification` shows the latest recorded on-demand check. The optional `passing_check` shows the last complete pass at or before `resolved_at`, or the first complete pass after it if none came before. A complete pass requires at least one expected target-location observation and a successful result for each. The `at` timestamp records when Beacon finished collecting results, and `actor_kind` is available when Beacon recorded the caller's kind. Older incidents may lack a passing check if their detailed results have already been removed.
 
@@ -372,6 +374,7 @@ Each sends with a token of its own:
 | `probe.busy` | 429 | The target was probed on demand less than 15 seconds ago, or the token has three requests in flight |
 | `probe.not_found` | 404 | No active location probes this target |
 | `probe.unavailable` | 503 | This Beacon has no gateway to probe through |
+| `probe.not_recorded` | 503 | Beacon could not save the incident check and its audit entry |
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |

@@ -146,6 +146,30 @@ The payload comes on its standard input. These variables come in its environment
 
 The title and the service come from labels: they are data, not instructions.
 
+### Sign in as the receiver user {#sign-in-as-the-receiver-user}
+
+Install the chosen CLI for `beacon-oncall`, using the same home and executable search path as the receiver. This is the model provider's sign-in. The Agent's Beacon access uses `BEACON_TOKEN_FILE`.
+
+**Claude Code**
+
+```sh
+oncall_path=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin
+sudo -u beacon-oncall -H env PATH="$oncall_path" claude auth login
+sudo -u beacon-oncall -H env PATH="$oncall_path" claude auth status --text
+```
+
+**Codex**
+
+Use device authorisation if your team allows it, and complete it in your browser.
+
+```sh
+oncall_path=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin
+sudo -u beacon-oncall -H env PATH="$oncall_path" codex login --device-auth
+sudo -u beacon-oncall -H env PATH="$oncall_path" codex login status
+```
+
+If you use an API key and your `sudo` policy allows passing a named environment variable, export the key through your usual credential setup. In the foreground receiver command, use `sudo --preserve-env=ANTHROPIC_API_KEY -u beacon-oncall -H env …` for Claude Code or `sudo --preserve-env=CODEX_API_KEY -u beacon-oncall -H env …` for Codex. The normal `sudo` launch can discard these variables. Pass the variable name only. For a system service, provide the variable in that service's environment.
+
 ### The wrappers
 
 `contrib/oncall/claude-code.sh` runs Claude Code headless. It:

@@ -58,6 +58,7 @@ type health struct{ Title, Text, Tone, Icon string }
 // attentionItem is one thing that needs someone: an alert, or what Beacon sees that no alert names.
 type attentionItem struct {
 	Icon, Tone, Title, Href, Sub, Badge, BadgeTone, When, Response string
+	DeviceResponse                                                 string
 	Acked, Silenced, Unclaimed                                     bool
 	kind                                                           string // alert, service, channel, location, machine or hook
 }
@@ -236,15 +237,19 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
 		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
-		owned := g.Ack.StopsEscalation()
+		owned := claimed(g.Ack)
 		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
 			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),
 			Acked: owned, Silenced: silenced, Unclaimed: !owned && !silenced, kind: "alert"}
+		device := deviceAcknowledged(g.Ack)
+		if device {
+			item.DeviceResponse = s.t("Pushover device acknowledged")
+		}
 		switch {
-		case item.Acked && g.Ack.Via == "pushover":
-			item.Response = s.t("Pushover reported a device acknowledgement")
 		case item.Acked:
 			item.Response = s.t("Acknowledged by %s", g.Ack.By)
+		case item.Unclaimed && device:
+			item.Response = s.t("Awaiting a person to take over")
 		case item.Unclaimed && g.Ack != nil:
 			item.Response = s.t("Awaiting a person. %s", s.t("Agent acknowledgement from %s via %s", g.Ack.By, s.via(g.Ack.Via)))
 		case item.Unclaimed:

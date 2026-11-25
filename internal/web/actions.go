@@ -107,6 +107,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("No eligible probe targets are configured for this alert.")
 	case "probe_busy":
 		return s.t("The probes are busy. Try again in a moment.")
+	case "probe_not_recorded":
+		return s.t("Beacon could not save the incident check. Try again.")
 	case "window_over":
 		return s.t("That maintenance window has ended already.")
 	case "bad_agent":
@@ -230,6 +232,8 @@ func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
 		back(w, r, page, "error", "probe_no_targets")
 	case errors.Is(err, bridge.ErrProbeBusy):
 		back(w, r, page, "error", "probe_busy")
+	case errors.Is(err, bridge.ErrProbeNotRecorded):
+		back(w, r, page, "error", "probe_not_recorded")
 	case err != nil:
 		s.failed(w, r, page, "probe on demand", err)
 	default:

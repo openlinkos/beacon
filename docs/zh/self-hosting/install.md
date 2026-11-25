@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-fd110569
+sourceHash: sha256-82832927
 ---
 
 # 装在服务器上
@@ -233,14 +233,14 @@ On the machine, as root, if not done yet:
 
 **验证个人 SSH。** 按[以自己的身份连接](../guide/machines.md#connect-as-yourself)登记个人公钥，再到 `edge-1` 执行 `hostname`。在**会话**中回放，确认操作人是你的用户名。
 
-**接入 Agent 的 MCP 客户端。** 在工作站上添加 Beacon，通过浏览器登录。
+**接入 Agent 的 MCP 客户端。** 如果你用 Codex，请在工作站按 [Codex 的 MCP 登录流程](../integrations/codex.md)操作。使用 Claude Code 时，在工作站上添加 Beacon，通过浏览器登录。
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 claude mcp login beacon
 ```
 
-也可以在 Claude Code 里通过 `/mcp` 选择 `beacon` 完成登录。在授权页选择**值班**预设，并选定 `edge-1`。在 Claude Code 中请 Agent 调用 Beacon 的 `whoami`，然后通过 `run_command` 在 `edge-1` 上执行 `hostname`。在**会话**中打开回放，确认操作人显示为 `人 / Agent`。这项检查会用到 Beacon 的 SSH 通道，MCP 客户端无需登记 SSH 密钥。要让 Agent 直接使用 `ssh` 和 `scp`，请[登记独立的 Agent 密钥](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
+也可以在 Claude Code 里通过 `/mcp` 选择 `beacon` 完成登录。在 Beacon 的授权页选择**值班**预设，并选定 `edge-1`。请 Agent 调用 Beacon 的 `whoami`，然后通过 `run_command` 在 `edge-1` 上执行 `hostname`。在**会话**中打开回放，确认操作人显示为 `人 / Agent`。这项检查会用到 Beacon 的 SSH 通道，MCP 客户端无需登记 SSH 密钥。要让 Agent 直接使用 `ssh` 和 `scp`，请[登记独立的 Agent 密钥](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync)。
 
 - 角色和邀请成员，见[邀请你的团队](../guide/people.md)。
 - Codex、其他客户端和用令牌的无头 Agent，见[接入](../integrations/index.md)。
@@ -253,7 +253,7 @@ claude mcp login beacon
 
 [安装与中心匹配的 `beacon-oncall` 版本](../integrations/headless.md#install-the-matching-linux-release)。以下示例使用私有 Docker 网桥和 Claude Code。也可以[使用自己的接收器或 Agent](../guide/on-call.md#wake-an-agent)。
 
-**准备账户和凭据。** 将 `alice` 换成第 4 步创建的 Beacon 用户名。将 Agent 的权限限定在已登记的测试机器 `edge-1`。以独立的 Linux 用户 `beacon-oncall` 安装并登录 Claude Code，或在该用户的环境中配置模型提供方的凭据。工作站上登录 Beacon MCP 使用的是另一份凭据。
+**准备账户和凭据。** 将 `alice` 换成第 4 步创建的 Beacon 用户名。将 Agent 的权限限定在已登记的测试机器 `edge-1`。接收程序和 Agent CLI 将以独立的 Linux 用户 `beacon-oncall` 运行。
 
 ```sh
 (
@@ -272,6 +272,8 @@ claude mcp login beacon
 )
 ```
 
+**登录你的模型提供方。** 使用上面创建的 Linux 用户设置 Claude Code 或 Codex。集成指南有两种 CLI 的登录与状态命令，并说明如何把 API 密钥传给前台接收程序。[以接收程序的用户登录](../integrations/headless.md#sign-in-as-the-receiver-user)
+
 **检查首次演练的凭据。** 使用带 `beacon-oncall check` 的匹配版本（rc.44 或更新版本）。地址使用 Beacon 的 `public_url`。回报方名称使用钩子配置 `reporter` 中 `token:` 后面的部分。以运行接收程序的 Linux 用户执行。
 
 ```sh
@@ -281,7 +283,7 @@ sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
   -reporter reference-drill-reporter -report-token-file /etc/beacon-oncall/run-report-token
 ```
 
-检查会从中心读取当前的 Agent 和回报凭据。它确认 Agent 属于指定的人、具备演练所需权限，并且仅限已登记的测试机器。回报使用独立的令牌，权限仅为 `alerts:report`。命令还会检查 SSH 通道是否开放，以及连接器是否在线。使用同一 Linux 用户、主目录和 `PATH` 确认 Agent CLI 的登录状态。发布包提供 [Claude Code 和 Codex 的运行脚本](../integrations/headless.md#the-wrappers)。下面的演练会验证签名唤醒、实际运行和测试群收件。
+检查会从中心读取当前的 Agent 和回报凭据。它确认 Agent 属于指定的人、具备演练所需权限，并且仅限已登记的测试机器。回报使用独立的令牌，权限仅为 `alerts:report`。命令还会检查 SSH 通道是否开放，以及连接器是否在线。下面的演练会验证签名唤醒、实际运行和测试群收件。
 
 **配置钩子。** 按[私有网桥地址和防火墙步骤](../guide/on-call.md#a-private-receiver-on-the-centre)设置 `beacon_gateway`，并在示例中使用打印出的 URL。将此条目加入 `/opt/beacon/config.yaml`，然后运行 `sudo ./install.sh`，一并校验并应用钩子和群聊渠道设置。重载后，在**概览 → 严重告警通知**中核对渠道。
 
@@ -321,7 +323,7 @@ sudo chown root:beacon-oncall /etc/beacon-oncall/reference-drill.md
 sudo chmod 0640 /etc/beacon-oncall/reference-drill.md
 ```
 
-在已设置防火墙的中心上前台启动接收程序，并把回报地址换成中心的 `public_url`。
+在已设置防火墙的中心上前台启动接收程序，并把回报地址换成中心的 `public_url`。如果你选用 Codex，把 `-run` 设为 `/usr/local/lib/beacon-oncall/codex.sh`。如果你用 API 密钥，按上文选择相应的 `sudo --preserve-env` 选项。
 
 ```sh
 beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')

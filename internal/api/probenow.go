@@ -33,6 +33,8 @@ func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, who bridge.Act
 		writeError(w, http.StatusNotFound, "probe.not_found", err.Error())
 	case errors.Is(err, bridge.ErrProbeUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "probe.unavailable", err.Error())
+	case errors.Is(err, bridge.ErrProbeNotRecorded):
+		writeError(w, http.StatusServiceUnavailable, "probe.not_recorded", err.Error())
 	case err != nil:
 		s.opError(w, err)
 	default:

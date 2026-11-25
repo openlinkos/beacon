@@ -29,7 +29,7 @@
         <tbody>
         {{range .Attention}}<tr>
           <td><span class="ol-entity"><span class="ol-tone-{{.Tone}}">{{icon .Icon}}</span><span class="ol-entity-text"><a class="ol-entity-title ol-row-link" href="{{.Href}}">{{.Title}}</a>{{if .Sub}}<span class="ol-entity-sub">{{.Sub}}</span>{{end}}</span></span></td>
-          <td><span class="ol-cluster"><span class="ol-badge ol-badge-{{.BadgeTone}}">{{.Badge}}</span>{{if .Response}}<span class="ol-badge{{if .Unclaimed}} ol-badge-warning{{end}}">{{.Response}}</span>{{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span></td>
+          <td><span class="ol-cluster"><span class="ol-badge ol-badge-{{.BadgeTone}}">{{.Badge}}</span>{{if .Response}}<span class="ol-badge{{if .Unclaimed}} ol-badge-warning{{end}}">{{.Response}}</span>{{end}}{{if .DeviceResponse}}<span class="ol-badge">{{.DeviceResponse}}</span>{{end}}{{if .Silenced}}<span class="ol-badge">{{$.L.Silenced}}</span>{{end}}</span></td>
           <td class="ol-num">{{.When}}</td>
         </tr>{{end}}
         </tbody>

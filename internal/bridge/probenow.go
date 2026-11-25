@@ -22,12 +22,13 @@ import (
 // cycle and the rule engine. The board (package probenow) holds the requests and the gateway wakes the
 // probes; this is the operation the API and MCP call, audited and echoed like the other writes.
 
-// Errors of probing on demand. ErrProbeBusy and ErrProbeNotFound are the board's, with the detail in the
-// message; ErrProbeUnavailable says there is no board (no gateway, so no probes).
+// Errors of probing on demand. The board reports busy and not found. Checks are unavailable without
+// a board, and an incident check requires a confirmed write of its result and audit entry.
 var (
 	ErrProbeBusy        = probenow.ErrBusy
 	ErrProbeNotFound    = probenow.ErrNotFound
 	ErrProbeUnavailable = errors.New("probing on demand is not available: this Beacon has no gateway for probes")
+	ErrProbeNotRecorded = errors.New("could not save the check for this incident")
 )
 
 const (
@@ -187,18 +188,27 @@ func (b *Bridge) ProbeNow(ctx context.Context, who Actor, in ProbeNowInput) (Pro
 	out.Episode = episode.key
 	what := b.probeWhat(b.lang, v)
 	audit := store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "probe_now", Target: cleanLine(b.probeWhat(i18n.EN, v)), Detail: out.Summary}
-	if in.AlertID != "" {
+	if in.AlertID == "" {
+		_ = b.d.Store.Audit(audit)
+	} else {
 		audit.Target = in.AlertID
-		audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
 		audit.Time = b.now()
-		current := b.recordProbeRun(in.AlertID, episode, who, store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations})
-		if !current && in.Episode != nil {
+		run := store.ProbeRun{ID: v.ID, At: audit.Time, By: who.Name, Via: who.Via, Results: observations}
+		err := b.recordProbeRun(in.AlertID, episode, who, run, out.Summary)
+		switch {
+		case err == nil:
+			// The check and its audit entry were committed together.
+		case !errors.Is(err, ErrEpisodeChanged):
+			return ProbeNow{}, err
+		case in.Episode != nil:
 			audit.Detail = fmt.Sprintf("%s: episode %q changed before verification could be recorded", v.ID, episode.key)
 			_ = b.d.Store.Audit(audit)
-			return ProbeNow{}, ErrEpisodeChanged
+			return ProbeNow{}, err
+		default:
+			audit.Detail = fmt.Sprintf("%s: %s", v.ID, out.Summary)
+			_ = b.d.Store.Audit(audit)
 		}
 	}
-	_ = b.d.Store.Audit(audit)
 	b.echo(ctx, b.t("%s had %d locations probe %s again via %s: %s", who.Name, len(v.Expected), chatSafe(cleanLine(what)), b.viaName(who.Via), tally.summary(b.lang)))
 	return out, nil
 }
@@ -237,13 +247,13 @@ func probeObservations(v probenow.View) []store.ProbeObservation {
 	return observations
 }
 
-// recordProbeRun saves the results on the episode the caller checked and reports if it still matches.
-func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun) bool {
+// recordProbeRun saves the check, the resolved outcome if present, and its audit entry together.
+func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run store.ProbeRun, summary string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	g, ok := b.d.Store.Group(id)
 	if !ok || !g.StartsAt.Equal(episode.starts) || g.Episode != episode.key {
-		return false
+		return ErrEpisodeChanged
 	}
 	run.ActorKind = actorKind(who)
 	g.PassingCheck = preferPassingCheck(passingCheck(&g), verifyPassingCheck(&run), g.ResolvedAt)
@@ -252,10 +262,13 @@ func (b *Bridge) recordProbeRun(id string, episode probeEpisode, who Actor, run 
 		g.ProbeRuns = g.ProbeRuns[len(g.ProbeRuns)-keepProbeRuns:]
 	}
 	recordParticipation(&g, who, "probe_now", run.At)
-	if err := b.saveGroup(g); err != nil {
+	audit := store.AuditEntry{Time: run.At, Actor: run.By, Via: run.Via, Action: "probe_now", Target: id,
+		Detail: fmt.Sprintf("%s: %s", run.ID, summary)}
+	if err := b.d.Store.PutGroupAndAudit(g, b.outcome(g, b.now(), time.Time{}), audit); err != nil {
 		b.d.Log.Error("recording on-demand probe results", "group", id, "request", run.ID, "err", err)
+		return ErrProbeNotRecorded
 	}
-	return true
+	return nil
 }
 
 func verificationCounts(run *store.ProbeRun) *store.Verification {

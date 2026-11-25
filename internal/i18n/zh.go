@@ -60,6 +60,9 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Pushover reported a device acknowledgement":                        "Pushover 已报告设备回应",
 	"Pushover reported a device acknowledgement at %s":                  "Pushover 已于 %s 报告设备回应",
 	"Earlier Pushover device acknowledgement at %s":                     "Pushover 曾于 %s 报告设备回应",
+	"Pushover device acknowledged":                                      "Pushover 设备已回应",
+	"Awaiting a person to take over":                                    "等待值班人员接手",
+	"The device acknowledgement pauses new escalations.":                "设备回应后，Beacon 暂停发起新的升级通知。",
 
 	// Console session scope.
 	"Name or machine": "名称或机器",
@@ -278,6 +281,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"This Beacon has no gateway for on-demand checks.":         "此 Beacon 未启用网关，无法立即复测。",
 	"No eligible probe targets are configured for this alert.": "此告警没有可复测的探测目标，请检查监控配置。",
 	"The probes are busy. Try again in a moment.":              "探测点正在处理其他请求，请稍后重试。",
+	"Beacon could not save the incident check. Try again.":     "Beacon 无法保存这次故障复测，请重试。",
 	// changes to the configuration (catalogue, targets, modules), echoed to the alert chat
 	"%d added, %d changed, %d removed": "新增 %d，修改 %d，删除 %d",
 	"Beacon could not reload the configuration from the database; the catalogue in memory is unchanged.": "Beacon 无法从数据库重新加载配置，内存中正在使用的配置保持不变。",

@@ -724,17 +724,47 @@ func TestOverviewLinksToEachConfiguredDeliveryGuide(t *testing.T) {
 	}
 }
 
-func TestOverviewShowsDeviceResponseWithoutAnOwnerName(t *testing.T) {
+func TestDeviceAcknowledgementLeavesAlertInHumanQueue(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	g, _ := e.st.Group(e.id)
 	g.Ack = &store.Ack{By: "Pushover (private device label)", Via: "pushover", Kind: "person", At: e.now}
 	if err := e.st.PutGroup(g); err != nil {
 		t.Fatal(err)
 	}
-	page := e.signedIn("reader", "status:read").get("/console")
-	if page.code != http.StatusOK || !strings.Contains(page.body, "Pushover reported a device acknowledgement") ||
-		strings.Contains(page.body, "private device label") {
-		t.Fatal("the overview confused a device response with a named handover")
+	const (
+		device    = "Pushover device acknowledged"
+		unclaimed = "Awaiting a person to take over"
+		queue     = "/console/alerts?state=firing&acknowledged="
+	)
+	b := e.invite(e.owner(), "person-on-duty", "oncall")
+	page := b.get("/console")
+	if page.code != http.StatusOK || !strings.Contains(page.body, `ol-badge-warning">`+unclaimed) ||
+		!strings.Contains(page.body, device) || strings.Contains(page.body, "private device label") {
+		t.Fatal("overview did not distinguish the device response from a person taking over")
+	}
+	path := link.AlertPath(e.id)
+	if page := b.get(queue + "no"); page.code != http.StatusOK || !strings.Contains(page.body, path) || !strings.Contains(page.body, device) {
+		t.Fatal("the alert was missing from the human queue or lacked its device acknowledgement")
+	}
+	if page := b.get(queue + "yes"); page.code != http.StatusOK || strings.Contains(page.body, path) {
+		t.Fatal("the alert appeared in the queue of acknowledged alerts with only a device response")
+	}
+	page = b.get(path)
+	resp := alertResponse(t, page)
+	for _, want := range []string{unclaimed, "Pushover reported a device acknowledgement at", "The device acknowledgement pauses new escalations.", "Take over"} {
+		if !strings.Contains(resp, want) {
+			t.Errorf("alert response lacks %q", want)
+		}
+	}
+	if a := b.post(path+"/ack", ackForm(t, page, "I am taking over.")); a.header.Get("Location") != path+"?done=ack" {
+		t.Fatalf("takeover redirected to %q", a.header.Get("Location"))
+	}
+	resp = alertResponse(t, b.get(path))
+	if !strings.Contains(resp, "Acknowledged by person-on-duty") || strings.Contains(resp, unclaimed) {
+		t.Fatal("alert response did not update after a person took over")
+	}
+	if !strings.Contains(b.get(queue+"yes").body, path) || strings.Contains(b.get(queue+"no").body, path) {
+		t.Fatal("the alert did not move out of the human queue after takeover")
 	}
 }
 

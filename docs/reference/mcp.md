@@ -64,7 +64,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `get_evidence` | `status:read` | Everything to judge a group in one call (`id`, `before`: the window opens 30 minutes before the group started, at most 24 hours): each location's result now, since when it fails and why, the duration, HTTP status, attempts and certificate expiry; related groups in the same failure domain; change events; what people and agents have done; links |
+| `get_evidence` | `status:read` | Everything to judge a group in one call (`id`, `before`: the window opens 30 minutes before the group started, at most 24 hours): each location's result now, since when it fails and why, the duration, HTTP status, attempts and certificate expiry; designated service machines within the caller's SSH scope; related groups in the same failure domain; change events; what people and agents have done; links |
 | `get_timeline` | `status:read` | The group's story in time order: started, notified, buzzed, Pushover, acknowledged, notes, silences, agents woken, changes, sessions and their commands, resolved |
 | `list_incident_outcomes` | `status:read` | Private resolved episodes (`group`, `severity`, `since`, `origin`, `evidence`, `before`, `limit` default 50, up to 200). Pass the returned cursor as `before` to continue |
 | `list_incident_episodes` | `status:read` | Open and resolved episodes by start time (`since`, `until`, `group`, `severity`, `origin`, `before` and `limit`) |
@@ -76,6 +76,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `probe_now` | `alerts:write` | Have every location that probes a target probe it again at once, and get each location's answer within the wait (`alert_id`, `target` with an optional `module`, or `service`; `wait` seconds, 45 by default, at most 90). Use it after a fix, instead of waiting for the next cycle |
 
 To verify a specific incident with `probe_now`, pass `alert_id` and set `expected_episode` to the `episode` from `list_alerts`, or `alert.episode` from `get_evidence`, `get_timeline` or the signed wake. A replaced episode produces a tool error beginning with `incident.changed`. Read the current evidence before deciding whether to repeat the check. Omitting `expected_episode` continues to select the current episode. Checks by `target` or `service` are independent of incident verification. Incident checks use each alert member’s known labels, including its failure domain. The tool reports when any member has no matching target at an active location.
+
+Beacon commits the incident check together with its audit entry. If storage rejects the write, the tool returns an error beginning with `probe.not_recorded`. Retry once storage is available.
 
 Use `list_incident_episodes` for a start-time review, including episodes still open. Supply RFC 3339 `since` (inclusive) and `until` (exclusive) for a window up to 31 days. The default is the last 24 hours. Repeat the returned `since` and `until` with `before` and the same filters when paging. The returned `retained_from` gives the recovery-time retention boundary for resolved records. Hook acceptance, programme reports, human participation and passing checks carry separate evidence.
 

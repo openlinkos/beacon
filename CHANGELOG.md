@@ -6,6 +6,13 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## 0.3.0
 
+### rc.47 (2026-11-25)
+
+- Include the designated service machine in REST and MCP incident evidence when its original enrolment still matches and the responder has SSH access to it.
+- Save an incident's on-demand check and audit entry together. Show a storage error when Beacon cannot save the check.
+- Keep alerts in the human work queue after a Pushover device acknowledgement. Show who takes over and why paging is paused separately.
+- Document how to sign in and pass model-provider credentials to the service user running Claude Code or Codex for the first drill.
+
 ### rc.46 (2026-11-25)
 
 - Review open and resolved incidents by start time, with the original severity when known and separate evidence for wake delivery, Agent execution, human handover and passing checks.

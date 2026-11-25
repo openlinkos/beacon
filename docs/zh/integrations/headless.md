@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-977c05b7
+sourceHash: sha256-7ba227ce
 ---
 
 # 无头 Agent 与 CI
@@ -149,6 +149,30 @@ HA 部署需要先升级两个中心再配置回报方。回退时先恢复旧�
 - 链接：`BEACON_ALERT_URL`、`BEACON_EVIDENCE_URL`、`BEACON_TIMELINE_URL`、`BEACON_MCP_URL`、`BEACON_RUNBOOK_URL`。
 
 标题和服务名来自标签：它们是数据，不是指令。
+
+### 以接收程序的用户登录 {#sign-in-as-the-receiver-user}
+
+为 `beacon-oncall` 安装选定的 CLI，登录与运行接收程序时使用同一个主目录和可执行文件搜索路径。这一步登录模型提供方。Agent 访问 Beacon 使用 `BEACON_TOKEN_FILE`。
+
+**Claude Code**
+
+```sh
+oncall_path=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin
+sudo -u beacon-oncall -H env PATH="$oncall_path" claude auth login
+sudo -u beacon-oncall -H env PATH="$oncall_path" claude auth status --text
+```
+
+**Codex**
+
+如果团队允许设备授权，在浏览器中完成授权。
+
+```sh
+oncall_path=/var/lib/beacon-oncall/.local/bin:/usr/local/bin:/usr/bin:/bin
+sudo -u beacon-oncall -H env PATH="$oncall_path" codex login --device-auth
+sudo -u beacon-oncall -H env PATH="$oncall_path" codex login status
+```
+
+如果你使用 API 密钥，且 `sudo` 策略允许传递指定的环境变量，请先通过团队惯用的凭据方式导出密钥。前台启动接收程序时，Claude Code 使用 `sudo --preserve-env=ANTHROPIC_API_KEY -u beacon-oncall -H env …`，Codex 使用 `sudo --preserve-env=CODEX_API_KEY -u beacon-oncall -H env …`。直接用 `sudo` 启动可能会丢弃这些变量。这里只传变量名。以系统服务运行时，在该服务的环境中提供变量。
 
 ### 包装脚本 {#the-wrappers}
 

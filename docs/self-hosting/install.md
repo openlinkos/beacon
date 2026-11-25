@@ -229,14 +229,14 @@ For a separate page or an installation with no status pages, follow [Create a pu
 
 **Check personal SSH.** Follow [Connect as yourself](../guide/machines.md#connect-as-yourself) to register your personal key and run `hostname` on `edge-1`. Replay the session in **Sessions** and check that it shows your username.
 
-**Connect the agent's MCP client.** On the workstation, add the server and sign in through the browser.
+**Connect the agent's MCP client.** On the workstation, follow [Codex's MCP sign-in](../integrations/codex.md) if you use Codex. For Claude Code, add the server and sign in through the browser.
 
 ```bash
 claude mcp add --scope user --transport http beacon https://status.example.com/mcp
 claude mcp login beacon
 ```
 
-You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On the consent page, choose the **On call** preset and select `edge-1`. In Claude Code, ask the agent to call Beacon's `whoami` and then `run_command` on `edge-1` with the command `hostname`. Open its replay in **Sessions** and check that the actor is `person / agent`. This check uses Beacon's SSH channel without registering a key for the MCP client. For the agent's own `ssh` and `scp`, set up a [separate agent key](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
+You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On Beacon's consent page, choose the **On call** preset and select `edge-1`. Ask the Agent to call Beacon's `whoami` and then `run_command` on `edge-1` with the command `hostname`. Open its replay in **Sessions** and check that the actor is `person / agent`. This check uses Beacon's SSH channel without registering a key for the MCP client. For the agent's own `ssh` and `scp`, set up a [separate agent key](../integrations/claude-code.md#connect-with-your-own-ssh-scp-and-rsync).
 
 - Roles and invitations are in [Invite your team](../guide/people.md).
 - Codex, other clients and headless agents with tokens are in [Integrations](../integrations/index.md).
@@ -249,7 +249,7 @@ You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On
 
 [Install the matching `beacon-oncall` release](../integrations/headless.md#install-the-matching-linux-release). The example below uses the private Docker bridge and Claude Code. You can also [use your own receiver or Agent](../guide/on-call.md#wake-an-agent).
 
-**Prepare the account and credentials.** Change `alice` to your Beacon username from step 4. Keep the agent limited to the enrolled test machine `edge-1`. Install and sign in to Claude Code as the separate Linux user `beacon-oncall`, or configure its provider credential in that user's environment. An interactive Beacon MCP sign-in on your workstation is a separate credential.
+**Prepare the account and credentials.** Change `alice` to your Beacon username from step 4. Keep the agent limited to the enrolled test machine `edge-1`. The separate Linux user `beacon-oncall` will run the receiver and the Agent CLI.
 
 ```sh
 (
@@ -268,6 +268,8 @@ You can also authenticate by selecting `beacon` in `/mcp` inside Claude Code. On
 )
 ```
 
+**Sign in to your model provider.** Set up Claude Code or Codex as the Linux user created above. The guide includes the sign-in and status commands for both and the way to pass an API key to the foreground receiver. [Sign in as the receiver user](../integrations/headless.md#sign-in-as-the-receiver-user)
+
 **Check the first-drill credentials.** Use the matching release with `beacon-oncall check` (rc.44 or later). Set the address to Beacon’s `public_url` and use the name after `token:` in the hook's `reporter` setting. Run as the same Linux user that will receive the hook.
 
 ```sh
@@ -277,7 +279,7 @@ sudo -u beacon-oncall -H /usr/local/bin/beacon-oncall check \
   -reporter reference-drill-reporter -report-token-file /etc/beacon-oncall/run-report-token
 ```
 
-The check reads the current Agent and reporter credentials from the centre. It confirms the Agent belongs to the expected owner, has the scopes needed for the drill and is limited to its enrolled machine. The reporter must be a separate token granted only `alerts:report`. It also checks the SSH channel is open and reports a disconnected connector. Use the same Linux user, home and `PATH` to verify the Agent CLI’s own sign-in. The release includes [wrappers for Claude Code and Codex](../integrations/headless.md#the-wrappers). The drill below verifies a signed wake, an actual run and delivery to the test chat.
+The check reads the current Agent and reporter credentials from the centre. It confirms the Agent belongs to the expected owner, has the scopes needed for the drill and is limited to its enrolled machine. The reporter must be a separate token granted only `alerts:report`. It also checks the SSH channel is open and reports a disconnected connector. The drill below verifies a signed wake, an actual run and delivery to the test chat.
 
 **Configure the hook.** Follow the [private bridge address and firewall steps](../guide/on-call.md#a-private-receiver-on-the-centre) to set `beacon_gateway`. Use its printed URL in the example. Add this entry to `/opt/beacon/config.yaml`, then run `sudo ./install.sh` to validate and apply both the hook and the chat route. Check **Overview → Critical notifications** after the reload.
 
@@ -317,7 +319,7 @@ sudo chown root:beacon-oncall /etc/beacon-oncall/reference-drill.md
 sudo chmod 0640 /etc/beacon-oncall/reference-drill.md
 ```
 
-Start the harness in the foreground on the centre with the firewall rule in place. Replace the reporting URL with the centre's `public_url`.
+Start the harness in the foreground on the centre with the firewall rule in place. Replace the reporting URL with the centre's `public_url`. If you chose Codex, set `-run` to `/usr/local/lib/beacon-oncall/codex.sh`. If you use an API key, use the corresponding `sudo --preserve-env` option described above.
 
 ```sh
 beacon_gateway=$(docker network inspect beacon --format '{{(index .IPAM.Config 0).Gateway}}')
