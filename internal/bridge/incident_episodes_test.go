@@ -99,3 +99,16 @@ func TestStartedEpisodeWindowReportsItsRetainedBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestStartedEpisodeSeparatesDeviceObservationFromParticipation(t *testing.T) {
+	at := time.Now()
+	episode := episodeProjection(store.IncidentEpisodeRecord{}, store.IncidentOutcome{
+		Participation: []store.Participation{
+			{Kind: "person", By: "Pushover (device label)", Via: "pushover", Action: "ack", At: at},
+			{Kind: "person", By: "duty operator", Via: "console", Action: "note", At: at},
+		},
+	})
+	if episode.HumanAcknowledgement != nil || len(episode.Participation) != 1 || episode.Participation[0].By != "duty operator" {
+		t.Fatalf("device receipt became evidence of human participation: %+v", episode)
+	}
+}

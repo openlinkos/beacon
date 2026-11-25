@@ -171,7 +171,7 @@ When you reopen the incident or take over from another person, **Latest on-deman
 
 ## Incident history {#incident-history}
 
-Open **Started episodes** to review everything that began in a chosen UTC period, including incidents still open. Filter by severity and origin, then open each episode to see its evidence. The rows show hook acceptance, programme reports, passing checks and recorded participation together. Older rows with no recorded opening severity show the latest available severity. The view shows the earliest retained recovery time for resolved records.
+Open **Started episodes** to review everything that began in a chosen UTC period, including incidents still open. Filter by severity and origin, then open each episode to see its evidence. The rows show hook acceptance, programme reports, passing checks and recorded participation together. Phone device responses remain in the incident’s notification history. Older rows with no recorded opening severity show the latest available severity. The view shows the earliest retained recovery time for resolved records.
 
 From **Alerts**, open **Incident history** to revisit each resolved episode, including when the same group fired again. The outcome records when Beacon marked the alert resolved, the latest alert action associated with each known kind of actor, and the latest on-demand check's counts by target and location. Standalone credentials appear as unattributed. A delivered hook alone does not make an agent a participant.
 

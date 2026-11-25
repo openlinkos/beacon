@@ -95,7 +95,7 @@ func episodeProjection(row store.IncidentEpisodeRecord, o store.IncidentOutcome)
 		State: "open", Title: o.Title, Services: o.Services, Severity: o.Severity,
 		OpeningSeverity: o.OpeningSeverity, Origin: o.Origin, ExerciseRun: o.ExerciseRun,
 		Started: o.Started, Resolved: tp(o.Resolved), Wake: "unknown",
-		Participation: append([]store.Participation{}, o.Participation...), HumanAcknowledgement: o.HumanAcknowledgement,
+		Participation: make([]store.Participation, 0, len(o.Participation)), HumanAcknowledgement: o.HumanAcknowledgement,
 		Verification: o.Verification, PassingCheck: o.PassingCheck,
 	}
 	if e.Origin == "" {
@@ -106,6 +106,12 @@ func episodeProjection(row store.IncidentEpisodeRecord, o store.IncidentOutcome)
 	}
 	if e.Resolved != nil {
 		e.State = "resolved"
+	}
+	for _, p := range o.Participation {
+		// A provider's device observation does not identify a person who took part in the response.
+		if p.Via != "pushover" {
+			e.Participation = append(e.Participation, p)
+		}
 	}
 	for _, d := range o.AgentDeliveries {
 		if d.Event != "firing" {
