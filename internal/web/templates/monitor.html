@@ -5,26 +5,35 @@
 </p>{{end}}
 <div class="ol-layout-supporting">
   <div class="ol-stack">
-    <section class="ol-panel">
-      <div class="ol-panel-header"><h2 class="ol-panel-title">{{icon "activity"}} {{.LL.Probes}}</h2></div>
+    <section class="ol-panel bc-monitor-checks">
+      <div class="ol-panel-header">
+        <h2 class="ol-panel-title">{{icon "activity"}} {{.LL.Probes}}</h2>
+        <a class="ol-btn ol-btn-secondary ol-btn-sm" href="{{.Refresh}}">{{.L.RefreshResults}}</a>
+      </div>
+      {{if or .Coverage .ProbesNote .ProbeError}}
+      <div class="ol-panel-body ol-stack bc-monitor-results">
+        {{if .Coverage}}<div>
+          <p id="monitor-coverage"><strong>{{.Coverage}}</strong></p>
+          <meter class="ol-meter" min="0" max="{{.Expected}}" value="{{.Fresh}}" aria-labelledby="monitor-coverage"></meter>
+        </div>{{end}}
+        {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
+        {{if .ProbeError}}<details><summary>{{.L.MetricsDetails}}</summary><p class="ol-hint ol-mono ol-break">{{.ProbeError}}</p></details>{{end}}
+      </div>
+      {{end}}
       {{if .Probes}}
       <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
         <thead><tr><th>{{.LL.Location}}</th><th>{{.LL.Result}}</th><th>{{.LL.Reason}}</th><th>{{.LL.Instance}}</th></tr></thead>
         <tbody>
         {{range .Probes}}<tr>
           <td><span class="ol-cell-title">{{.Location}}</span></td>
-          <td data-label="{{$.LL.Result}}"><span class="ol-badge ol-badge-{{if .OK}}success{{else}}danger{{end}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}</td>
+          <td data-label="{{$.LL.Result}}"><span class="ol-badge ol-badge-{{.Tone}}">{{.State}}</span>{{if .Since}}<span class="ol-cell-sub">{{.Since}}</span>{{end}}{{if .Checked}}<time class="ol-cell-sub" datetime="{{.CheckedISO}}">{{$.L.Checked}} {{.Checked}}</time>{{end}}</td>
           <td data-label="{{$.LL.Reason}}">{{.Reason}}{{if .Detail}}<span class="ol-cell-sub">{{.Detail}}</span>{{end}}</td>
           <td data-label="{{$.LL.Instance}}"><span class="ol-mono ol-break">{{.Instance}}</span>{{if .Module}}<span class="ol-cell-sub">{{.Module}}</span>{{end}}</td>
         </tr>{{end}}
         </tbody>
       </table></div>
       {{end}}
-      <div class="ol-panel-body">
-        {{if .ProbesNote}}<p class="ol-hint">{{.ProbesNote}}</p>{{end}}
-        {{if .ProbeError}}<p class="ol-hint ol-mono">{{.ProbeError}}</p>{{end}}
-        <p class="ol-hint">{{.L.Window}}</p>
-      </div>
+      <div class="ol-panel-body"><p class="ol-hint">{{.L.Window}}</p></div>
     </section>
 
     <section class="ol-panel">

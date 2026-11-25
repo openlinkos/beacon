@@ -212,6 +212,7 @@ type probeRow struct {
 	Location, Service, Instance, Module string
 	OK                                  bool
 	State, Since, Reason, Detail, Tone  string
+	Checked, CheckedISO                 string
 }
 
 type relatedRow struct {
@@ -485,13 +486,16 @@ func (s *Server) probes(pe bridge.ProbeEvidence, from time.Time, l labels) []pro
 	var out []probeRow
 	for _, r := range pe.Results {
 		row := probeRow{Location: r.Location, Service: r.Service, Instance: r.Instance, Module: r.Module, OK: r.OK, Reason: r.Reason}
+		if !r.LastSeen.IsZero() {
+			row.Checked, row.CheckedISO = s.short(r.LastSeen), iso(r.LastSeen)
+		}
 		switch {
 		case r.Stale:
-			row.State = l.Stale
+			row.State, row.Tone = l.Stale, "warning"
 		case r.OK:
-			row.State = l.OK
+			row.State, row.Tone = l.OK, "success"
 		default:
-			row.State = l.Failing
+			row.State, row.Tone = l.Failing, "danger"
 		}
 		switch {
 		case !r.OK && r.FailingBeforeWindow:

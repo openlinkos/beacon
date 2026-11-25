@@ -17,7 +17,7 @@ For a monitor created here, open the service's **Edit HTTP monitor** to change i
 
 In the console, open **Monitors** and select **Add HTTP monitor**. Give the service a name and its HTTP or HTTPS endpoint. Choose an existing GET or HEAD check profile, the locations that should probe it and its alert severity. Use an endpoint without a query, fragment or credentials.
 
-After saving, check the service page for the first probe results. Each new monitor has its own versioned target set and can be reverted from **Configuration**. Existing rules evaluate the results. Public status pages show the service when explicitly configured to include it.
+After saving, the service page lists the checks expected from the current probe locations. Select **Refresh results** after a probe cycle. A check with no sample is waiting. A check whose last sample is too old is stale. A failed check has a result and shows its reason when available. The service summary uses the current endpoint, check profile and locations. Each new monitor has its own versioned target set and can be reverted from **Configuration**. Existing rules evaluate the results. Public status pages show the service when explicitly configured to include it.
 
 ## Add a probe location {#locations}
 

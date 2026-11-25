@@ -1,10 +1,13 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -82,4 +85,45 @@ func TestConsoleMonitors(t *testing.T) {
 	if a := e.get("/console/monitors"); a.code != http.StatusSeeOther {
 		t.Errorf("signed out: %d", a.code)
 	}
+}
+
+func TestConsoleMonitorCurrentAssignments(t *testing.T) {
+	e := newStatusEnv(t)
+	cookie := e.signedInCookie()
+	ctx := context.Background()
+	owner := configdb.Actor{Name: "owner", Via: "cli"}
+	const service = "/console/monitors/docker.example.com"
+	assertPage := func(path string, want, unexpected string) {
+		t.Helper()
+		a := e.do(http.MethodGet, "beacon.example.com", path, cookie)
+		if a.code != http.StatusOK || !strings.Contains(a.body, want) || (unexpected != "" && strings.Contains(a.body, unexpected)) {
+			t.Errorf("%s: status %d, wanted %q, unexpected %q", path, a.code, want, unexpected)
+		}
+	}
+	if _, err := e.srv.Config.Put(ctx, owner, configdb.KindLocation, "edge-3",
+		json.RawMessage(`{"id":"edge-3","name":"Europe - Paris","region":"overseas"}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	assertPage(service, "2 of 3 checks have recent results", "")
+	assertPage(service, ">edge-3<", "")
+	assertPage(service, "Waiting for results", "")
+	assertPage("/console/monitors", "Partial coverage", `ol-badge-success">OK`)
+	// The metrics backend still has the old endpoint's successful results.
+	if _, err := e.srv.Config.Put(ctx, owner, configdb.KindTargets, "all-web", json.RawMessage(`[{
+		"targets":["https://docker.example.com/healthz"],
+		"labels":{"module":"http_head","service":"docker.example.com"}
+	}]`), ""); err != nil {
+		t.Fatal(err)
+	}
+	assertPage(service, "0 of 3 checks have recent results", "https://docker.example.com/v2/")
+	assertPage(service, `<meter class="ol-meter" min="0" max="3" value="0"`, `ol-badge-success">OK`)
+	assertPage("/console/monitors", "Waiting for results", "https://docker.example.com/v2/")
+
+	// Only one location is assigned after a scope move. Successful samples from elsewhere
+	// must not enter the count, even when the target URL and module are unchanged.
+	if _, err := e.srv.Config.Import(ctx, owner, configdb.Files{"catalog/catalog.yaml": statusCatalogue,
+		"targets/edge-1-web.yaml": statusTargets}, "", false); err != nil {
+		t.Fatal(err)
+	}
+	assertPage(service, "1 of 1 checks have recent results", ">edge-2<")
 }

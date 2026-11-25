@@ -118,6 +118,18 @@
   .bc-machine-tools { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* Show the latest check coverage before the individual target-location rows. */
+.bc-monitor-checks .ol-panel-header .ol-btn { margin-inline-start: auto; }
+.bc-monitor-results .ol-meter { margin-block-start: var(--ol-space-2); }
+.bc-monitor-results .ol-meter::-webkit-meter-optimum-value { background: var(--ol-color-info-solid); }
+.bc-monitor-results .ol-meter:-moz-meter-optimum::-moz-meter-bar { background: var(--ol-color-info-solid); }
+.bc-monitor-results > .ol-hint { max-inline-size: 65ch; }
+.bc-monitor-results details > summary { cursor: pointer; }
+@container ol-content (width < 40rem) {
+  .bc-monitor-checks .ol-panel-header .ol-btn { min-height: 2.75rem; }
+  .bc-monitor-checks td:empty { display: none; }
+}
+
 .bc-machine-access:not(:has([name="machine_access"][value="selected"]:checked)) .bc-machine-options,
 .bc-agent-form:not(:has([name="preset"] option[value="custom"]:checked)) .bc-custom-scopes,
 .bc-register-fields:has([name="reach"][value="dial"]:checked) [data-reach="connector"],
