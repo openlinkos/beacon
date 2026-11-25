@@ -6,6 +6,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 - Include the designated service machine in REST and MCP incident evidence when its original enrolment still matches and the responder has SSH access to it.
 - Save an incident's on-demand check and audit entry together. Show a storage error when Beacon cannot save the check.
+- Keep alerts in the human work queue after a Pushover device acknowledgement. Show who takes over and why paging is paused separately.
 
 ## 0.3.0
 

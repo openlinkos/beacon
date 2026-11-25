@@ -284,7 +284,7 @@ type alertPage struct {
 	Feedback, FeedbackTone                                                       string
 	HookState, PeopleDelivery                                                    string
 	HookFailed, PeopleDeliveryFailed                                             bool
-	PhoneCancellation, PhoneRefresh, EarlierPhoneAck                             string
+	PhoneCancellation, PhoneRefresh, PhoneAcknowledgement                        string
 	PhoneCancellationPending                                                     bool
 	AgentRun                                                                     *alertAgentRun
 	Handover                                                                     handoverNote
@@ -354,8 +354,11 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	}
 	if ack := g.Ack; ack != nil {
 		switch {
-		case ack.Via == "pushover":
-			p.Ownership = s.t("Pushover reported a device acknowledgement at %s", s.clock(ack.At))
+		case deviceAcknowledged(ack):
+			p.PhoneAcknowledgement = s.t("Pushover reported a device acknowledgement at %s", s.clock(ack.At))
+			if al.Status == "firing" {
+				p.Ownership = s.t("Awaiting a person to take over")
+			}
 		case ack.StopsEscalation():
 			p.Ownership = s.t("Acknowledged by %s at %s via %s", ack.By, s.clock(ack.At), s.via(ack.Via))
 		default:
@@ -371,14 +374,16 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	switch {
 	case silenced:
 		p.Escalation = s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By)
+	case g.Status == "firing" && deviceAcknowledged(g.Ack):
+		p.Escalation = s.t("The device acknowledgement pauses new escalations.")
 	case g.Status == "firing" && g.Ack.StopsEscalation():
 		p.Escalation = s.t("New escalations are paused while this alert is acknowledged.")
 	}
 	p.PhoneCancellation, p.PhoneCancellationPending = s.pushoverCancellation(g, tl)
-	if g.Ack == nil || g.Ack.Via != "pushover" {
+	if !deviceAcknowledged(g.Ack) {
 		for _, e := range slices.Backward(tl.Events) {
 			if e.Kind == "acknowledged" && e.Via == "pushover" {
-				p.EarlierPhoneAck = s.t("Earlier Pushover device acknowledgement at %s", s.clock(e.At))
+				p.PhoneAcknowledgement = s.t("Earlier Pushover device acknowledgement at %s", s.clock(e.At))
 				break
 			}
 		}
@@ -390,7 +395,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	p.AgentRun = s.latestAgentRun(tl, g.Status)
 	if g.Status == "firing" {
 		p.PeopleDelivery, p.PeopleDeliveryFailed = s.peopleDelivery(tl)
-		if g.Ack.StopsEscalation() {
+		if claimed(g.Ack) {
 			p.Handover = currentHandover(tl, g.Ack)
 		}
 	}

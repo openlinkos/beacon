@@ -59,7 +59,13 @@ func (s *Server) yesNoLabel(v string) string {
 type alertRow struct {
 	Title, Href, Severity, SeverityTone, State, StateTone, Service, Since, When string
 	Acked, Silenced                                                             bool
+	DeviceResponse                                                              string
 }
+
+func deviceAcknowledged(ack *store.Ack) bool { return ack != nil && ack.Via == "pushover" }
+
+// claimed marks the console's human work queue. A device can pause paging without taking ownership.
+func claimed(ack *store.Ack) bool { return ack.StopsEscalation() && !deviceAcknowledged(ack) }
 
 type listPage[R any] struct {
 	shell
@@ -85,7 +91,7 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 			}},
 		{Param: "severity", Title: s.t("Severity"), Value: func(g bridge.GroupView) string { return g.Severity }, Order: config.Severities, Label: s.severity},
 		{Param: "service", Title: s.t("Service"), Value: func(g bridge.GroupView) string { return g.Service }},
-		{Param: "acknowledged", Title: s.t("Acknowledged"), Value: func(g bridge.GroupView) string { return s.yesNo(g.Ack.StopsEscalation()) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
+		{Param: "acknowledged", Title: s.t("Acknowledged"), Value: func(g bridge.GroupView) string { return s.yesNo(claimed(g.Ack)) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
 		{Param: "silenced", Title: s.t("Silenced"), Value: func(g bridge.GroupView) string { return s.yesNo(silenced(g)) }, Order: []string{"yes", "no"}, Label: s.yesNoLabel},
 	}
 	match := func(g bridge.GroupView, q string) bool {
@@ -101,7 +107,10 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Count = l.Total
 	for _, g := range kept {
 		row := alertRow{Title: g.Title, Href: link.AlertPath(g.ID), Severity: s.severity(g.Severity), SeverityTone: tone(g.Severity),
-			Service: g.Service, Since: s.clock(g.StartsAt), Acked: g.Ack.StopsEscalation(), Silenced: silenced(g)}
+			Service: g.Service, Since: s.clock(g.StartsAt), Acked: claimed(g.Ack), Silenced: silenced(g)}
+		if deviceAcknowledged(g.Ack) {
+			row.DeviceResponse = s.t("Pushover device acknowledged")
+		}
 		if g.Status == "firing" {
 			row.State, row.StateTone, row.When = s.t("Firing"), "danger", s.dur(now.Sub(g.StartsAt))
 		} else {

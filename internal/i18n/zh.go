@@ -60,6 +60,9 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Pushover reported a device acknowledgement":                        "Pushover 已报告设备回应",
 	"Pushover reported a device acknowledgement at %s":                  "Pushover 已于 %s 报告设备回应",
 	"Earlier Pushover device acknowledgement at %s":                     "Pushover 曾于 %s 报告设备回应",
+	"Pushover device acknowledged":                                      "Pushover 设备已回应",
+	"Awaiting a person to take over":                                    "等待值班人员接手",
+	"The device acknowledgement pauses new escalations.":                "设备回应后，Beacon 暂停发起新的升级通知。",
 
 	// Console session scope.
 	"Name or machine": "名称或机器",

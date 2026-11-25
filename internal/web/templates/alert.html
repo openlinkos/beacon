@@ -14,7 +14,7 @@
       </div>{{end}}
       {{if .When}}<p class="ol-hint">{{.When}}</p>{{end}}
       {{if .Ownership}}<p>{{.Ownership}}</p>{{end}}
-      {{if .EarlierPhoneAck}}<p><a class="ol-hint" href="#timeline">{{.EarlierPhoneAck}}</a></p>{{end}}
+      {{if .PhoneAcknowledgement}}<p><a class="ol-hint" href="#timeline">{{.PhoneAcknowledgement}}</a></p>{{end}}
       {{if .Escalation}}<p class="ol-hint" id="escalation-effect">{{.Escalation}}</p>{{end}}
       {{if .PhoneCancellation}}<div class="ol-cluster"><p id="pushover-cancellation"><a class="{{if .PhoneCancellationPending}}ol-status ol-status-warning{{else}}ol-hint{{end}}" href="#timeline">{{if .PhoneCancellationPending}}<span class="ol-dot" aria-hidden="true"></span>{{end}}{{.PhoneCancellation}}</a></p>
         {{if .PhoneRefresh}}<a class="ol-btn ol-btn-ghost ol-btn-xs" href="{{.PhoneRefresh}}">{{.L.RefreshStatus}}</a>{{end}}
