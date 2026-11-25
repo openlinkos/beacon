@@ -431,7 +431,7 @@ func (s *Service) PutIf(ctx context.Context, who Actor, kind, key string, value 
 	return s.putIf(ctx, who, kind, key, value, note, version, nil)
 }
 
-// PublishStatusPageIf saves a page at the reviewed configuration and maintenance revisions.
+// PublishStatusPageIf saves a page at the reviewed configuration and status content revisions.
 func (s *Service) PublishStatusPageIf(ctx context.Context, who Actor, key string, value json.RawMessage, note string, version int64, maintenance uint64) (store.ConfigChange, error) {
 	return s.putIf(ctx, who, KindStatus, key, value, note, version, &maintenance)
 }

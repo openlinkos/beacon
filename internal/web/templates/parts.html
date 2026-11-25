@@ -59,3 +59,28 @@
 {{define "agent-custom-scopes"}}<fieldset class="ol-field bc-custom-scopes"><legend class="ol-label">{{.L.CustomScopes}}</legend><p class="ol-hint">{{.L.CustomScopesHint}}</p><div class="ol-cluster">{{range .ScopeOptions}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="scopes" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-mono">{{.Label}}</span></label>{{end}}</div></fieldset>{{end}}
 
 {{define "agent-form-script"}}<script defer src="/static/beacon-agent-form.js?v={{.Version}}"></script>{{end}}
+{{define "status-publication-announcements"}}
+{{with .Announcements}}
+<section class="ol-stack" aria-labelledby="status-publication-maintenance">
+  <h3 id="status-publication-maintenance" class="ol-label">{{$.MaintenanceHeading}}</h3>
+  <ul class="ol-list">
+    {{range .}}<li>
+      <p class="ol-cell-title ol-break">{{.Title}}</p>
+      {{with .Description}}<p class="ol-text-pre ol-break">{{.}}</p>{{end}}
+      <dl class="ol-dl ol-dl-stack"><dt>{{$.Starts}}</dt><dd>{{.Starts}}</dd><dt>{{$.Ends}}</dt><dd>{{.Ends}} <span class="ol-badge">{{.Status}}</span></dd></dl>
+    </li>{{end}}
+  </ul>
+</section>
+{{end}}
+{{if .Notes}}
+<section class="ol-stack" aria-labelledby="status-publication-notes">
+  <h3 id="status-publication-notes" class="ol-label">{{.NotesHeading}}</h3>
+  <ul class="ol-list">
+    {{range .Notes}}<li>
+      <p class="ol-cell-title ol-break">{{.Title}}</p>
+      <p class="ol-text-pre ol-break">{{.Text}}</p>
+      <p class="ol-hint">{{.Time}}</p>
+    </li>{{end}}
+  </ul>
+</section>
+{{end}}{{end}}
