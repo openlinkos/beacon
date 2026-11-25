@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f063b9b4
+sourceHash: sha256-66694272
 ---
 
 # MCP 工具
@@ -86,8 +86,8 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `read_file` | `machines:ssh` | 文本文件的若干行（`machine`、`path`、`offset`、`limit`：默认 2000 行，最多 10,000 行），每行是行号、一个制表符和这一行内容，和 `cat -n` 一样；超过 2000 字符的行会截断。结果里写明文件共有多少行、后面还有没有 |
 | `write_file` | `machines:ssh` | 写入整个文件（`machine`、`path`、最多 1 MiB 的 `content`），需要时创建目录；已有的文件保持原来的属主和权限 |
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
-| `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）：谁、在哪里、做了什么、什么时候、退出码 |
-| `get_session` | `sessions:read` 或 `machines:ssh` | 会话的文字记录（`id`）：命令的全部输出，或者交互 shell 的每条命令及其输出和退出码 |
+| `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）。Beacon 先按凭据的机器范围筛选，再应用条数限制。仅有 `status:read` 权限时返回会话元数据 |
+| `get_session` | `sessions:read` 或 `machines:ssh` | 有权读取的会话的文字记录（`id`），包含命令的全部输出，或交互 shell 每条命令的输出和退出码。`page` 字段指向控制台的登录入口 |
 | `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
 | `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。可选的 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `machine_history` | `status:read` 或 `machines:ssh` | 读取 `name` 的设置历史。用 `before`（不含该版本）和 `limit` 翻页 |
@@ -97,7 +97,7 @@ bearer_token_env_var = "BEACON_TOKEN"
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
 | `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
 
-调用方拥有 `sessions:read` 或 `machines:ssh` 时，会话列表、告警证据和时间线才包含命令正文和签名回放链接。只有 `status:read` 的调用方仍可在这些位置读取会话元数据。
+调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和签名回放链接。只有 `status:read` 的调用方仍可在这些位置读取会话元数据。
 
 ## 管理分享链接 {#manage-share-links}
 

@@ -117,11 +117,13 @@ In an incident outcome, `verification` shows the latest recorded on-demand check
 | `GET /api/v1/machines/{name}/file` | `machines:ssh` | Lines of a text file, numbered (`path`, `offset`, `limit`: 2000 lines by default) |
 | `PUT /api/v1/machines/{name}/file` | `machines:ssh` | Write a whole file, at most 1 MiB, making its directory if needed |
 | `PATCH /api/v1/machines/{name}/file` | `machines:ssh` | Replace an exact string, once or everywhere (`old_string`, `new_string`, `replace_all`); refused if the file changed since it was read |
-| `GET /api/v1/sessions` | `status:read` or `machines:ssh` | Sessions on machines, newest first, by `machine` and `agent` (`limit`, 50 by default, at most 1000): who, where, what, when, the exit status |
+| `GET /api/v1/sessions` | `status:read` or `machines:ssh` | Sessions on visible machines, newest first, with filters for `machine` and `agent` (`limit`, 50 by default, at most 1000). Readers with `status:read` alone receive metadata |
 | `GET /api/v1/sessions/{id}` | `sessions:read` or `machines:ssh` | A session's transcript: a command's output, or an interactive shell's commands with their output and exit status |
 | `GET /api/v1/sessions/{id}/recording` | `sessions:read` or `machines:ssh` | The recording, asciicast v3, to replay with asciinema |
 
-The session list, alert evidence and timeline include command text and signed replay links only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the session metadata there.
+Machine-restricted credentials see sessions from the current enrolments they are allowed to access. Beacon applies those restrictions before `limit`. A transcript or recording outside the caller's access returns the same `404 session.not_found` as an unknown session. The `page` field sends people to sign in to the console.
+
+Alert evidence and timeline include command text and signed replay links only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the session metadata there.
 
 ## Manage share links
 

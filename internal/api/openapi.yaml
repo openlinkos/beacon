@@ -518,7 +518,7 @@ components:
         bytes_in: {type: integer}
         bytes_out: {type: integer}
         recording: {type: string}
-        page: {type: string, format: uri, description: "The session's page for people, with its replay: a signed link that needs no token, valid for pages.link_ttl; set when public_url is. docs/guide/console.md"}
+        page: {type: string, format: uri, description: "Sign in to the console to open this session and its replay. Provided when public_url is configured and the caller may read the session."}
     Transcript:
       allOf:
         - {$ref: "#/components/schemas/Session"}
@@ -1676,7 +1676,7 @@ paths:
   /sessions:
     get:
       summary: Sessions on machines, newest first
-      description: "Scope: status:read or machines:ssh"
+      description: "Scope: status:read or machines:ssh. Machine restrictions apply before the limit. A credential with status:read alone sees session metadata on the machines it may see."
       parameters:
         - {name: machine, in: query, schema: {type: string}}
         - {name: agent, in: query, schema: {type: string}}
@@ -1694,7 +1694,7 @@ paths:
   /sessions/{id}:
     get:
       summary: A session's transcript
-      description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status."
+      description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status. A session outside the credential's machine access returns session.not_found."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
@@ -1707,7 +1707,7 @@ paths:
   /sessions/{id}/recording:
     get:
       summary: A session's recording, to replay with asciinema
-      description: "Scope: sessions:read or machines:ssh"
+      description: "Scope: sessions:read or machines:ssh. A session outside the credential's machine access returns session.not_found."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:

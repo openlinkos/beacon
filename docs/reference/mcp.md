@@ -82,8 +82,8 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `read_file` | `machines:ssh` | Lines of a text file (`machine`, `path`, `offset`, `limit`: 2000 lines by default, at most 10,000), each as its number, a tab and the line, like `cat -n`; lines over 2000 characters are cut. The answer says how many lines the file has and whether more follow |
 | `write_file` | `machines:ssh` | Write a whole file (`machine`, `path`, `content` of at most 1 MiB), making its directory if needed; an existing file keeps its owner and mode |
 | `edit_file` | `machines:ssh` | Replace an exact string in a text file (`machine`, `path`, `old_string`, `new_string`, `replace_all`). `old_string` must occur once unless `replace_all` is set; refused, rather than overwrite, if the file changed meanwhile |
-| `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default): who, where, what, when, the exit status |
-| `get_session` | `sessions:read` or `machines:ssh` | A session's transcript (`id`): a command's whole output, or an interactive shell's commands with their output and exit status |
+| `list_sessions` | `status:read` or `machines:ssh` | Sessions through the SSH channel and the tools, newest first (`machine`, `agent`, `limit`, 50 by default). Beacon applies the credential's machine restrictions before the limit. Readers with `status:read` alone receive metadata |
+| `get_session` | `sessions:read` or `machines:ssh` | A visible session's transcript (`id`), with the full output of a command or the output and exit status of each interactive shell command. The `page` field leads to console sign-in |
 | `add_machine` | `machines:write` | Add a machine, pinning its host key (`name`, `address`, `user`, `critical`, `note`, `replace`); `address: connector` for one behind NAT, with `connector_key` and optionally `host_key`. The result says what the machine needs |
 | `update_machine` | `machines:write` | Change a machine's note, whether it is critical, and the account on it (`name`, and `note`, `critical`, `user`, each optional). A field left out stays. The optional `if_version` guards against concurrent edits. The host key and the address stay |
 | `machine_history` | `status:read` or `machines:ssh` | Read the settings history for `name`. Use `before` (exclusive) and `limit` to page |
@@ -93,7 +93,7 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
 | `resume_ssh` | `machines:write` | Let agents reach machines again |
 
-The session list, alert evidence and timeline contain command text and signed replay links only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read session metadata there.
+Alert evidence and timeline contain command text and signed replay links only with `sessions:read` or `machines:ssh`. Callers with only `status:read` can still read session metadata there.
 
 ## Manage share links
 

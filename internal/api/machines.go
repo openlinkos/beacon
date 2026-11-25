@@ -8,6 +8,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/sshgate"
+	"github.com/openlinkos/beacon/internal/store"
 )
 
 // The SSH channel's routes: machines, the tools that work on them, sessions, the pause switch.
@@ -253,7 +254,7 @@ func (s *Server) editFile(w http.ResponseWriter, r *http.Request, who bridge.Act
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, p store.Principal) {
 	q := r.URL.Query()
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -264,21 +265,16 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, who bridge
 		}
 		limit = n
 	}
-	ss, err := s.SSH.Sessions(sshgate.SessionFilter{Machine: q.Get("machine"), Agent: q.Get("agent"), Limit: limit})
+	ss, err := s.SSH.SessionsFor(p, sshgate.SessionFilter{Machine: q.Get("machine"), Agent: q.Get("agent"), Limit: limit})
 	if err != nil {
 		s.gateError(w, err)
 		return
 	}
-	if !s.Bridge.MayReadSession(who) {
-		for i := range ss {
-			ss[i].Page, ss[i].Command = "", ""
-		}
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": ss})
 }
 
-func (s *Server) getSession(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
-	t, err := s.SSH.Session(r.PathValue("id"))
+func (s *Server) getSession(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	t, err := s.SSH.SessionFor(p, r.PathValue("id"))
 	if err != nil {
 		s.gateError(w, err)
 		return
@@ -286,8 +282,8 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request, _ bridge.Act
 	writeJSON(w, http.StatusOK, t)
 }
 
-func (s *Server) getRecording(w http.ResponseWriter, r *http.Request, _ bridge.Actor) {
-	rc, err := s.SSH.Recording(r.PathValue("id"))
+func (s *Server) getRecording(w http.ResponseWriter, r *http.Request, p store.Principal) {
+	rc, err := s.SSH.RecordingFor(p, r.PathValue("id"))
 	if err != nil {
 		s.gateError(w, err)
 		return
