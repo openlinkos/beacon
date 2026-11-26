@@ -6,7 +6,7 @@ With the API, they read alerts and their evidence, leave notes, have the probes 
 
 Every operation here is also an [MCP tool](mcp.md) that calls the same method. A credential that works here works for MCP too, and the SSH channel signs the same agent in by its key.
 
-The contract, with every field, is the OpenAPI document: `internal/api/openapi.yaml` in the repository, or `GET /api/v1/openapi.yaml` on a running Beacon.
+The contract, with every field, is the OpenAPI document: `internal/api/openapi.yaml` in the repository, or `GET /api/v1/openapi.yaml` on a running Beacon. Every operation in the specification is tagged under one of six domains (`Incidents`, `Monitoring`, `Machines & SSH`, `Status & Maintenance`, `Identity & Agents`, `Governance`), and any authenticated credential can call `GET /api/v1/capabilities` to discover its live permissions, enabled subsystems and matching MCP tools, resources and prompts.
 
 ## Getting a credential
 
@@ -128,7 +128,7 @@ The caller's machine selection also limits session records in the alert evidence
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/ssh` | `status:read` | The SSH channel's state (paused or not), its host key, and the certificate authority's key that machines trust |
+| `GET /api/v1/ssh` | `status:read` or `machines:ssh` | The SSH channel's state (paused or not), its host key, and the certificate authority's key that machines trust |
 | `POST /api/v1/ssh/pause` | `machines:write` | Close every agent's session on machines and refuse new ones |
 | `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
@@ -237,6 +237,8 @@ Account and Agent administration requires an owner account, an independent token
 | `GET /api/v1/ssh-keys` | `machines:ssh` | The caller's own SSH keys; an agent's are its agent's, whichever of its credentials asks, and a key the agent registered itself says through which (`via`: `token:NAME` or `grant:ID`) |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | Register a public key: `key` (an `authorized_keys` line) and `comment`. An agent's key belongs to the credential it came with: it works while that token or OAuth sign-in does, and is removed with it. A key belongs to one agent or token, never to a machine's connector (`key.exists`) |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
+| `GET /api/v1/agents` | owner or person (never an agent) | List visible agents with owner, preset, effective scopes and machine access (`?owner=` for administrators) |
+| `GET /api/v1/agents/{name}` | owner or person (never an agent) | Read one agent's effective scopes, machine access, tokens, OAuth grants and SSH keys |
 | `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machines`, `expires`. Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
 | `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes` or `machines`. A field left out stays. Custom scopes follow the same rule. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed. An unknown name, including a legacy token, is `agent.not_found` |
 
@@ -262,6 +264,7 @@ When the credential store is enabled, these operations let an agent use its [fix
 
 | Route | Scope | What |
 | --- | --- | --- |
+| `GET /api/v1/capabilities` | any | Structured capability catalogue across all six domains, evaluated for the caller's scopes and enabled server subsystems, including matching MCP tools, resources and prompts |
 | `GET /api/v1/token` | any | The caller: who it is (`actor`, `user`, `agent`, `preset`), its credential (`token`, or `oauth` with the `client`), what it may do now, machines, SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
 | `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token, nor for an OAuth access token, which its client refreshes |
 | `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`), or any agent's: the pause switch for one agent, whose open sessions on machines made with it are closed at once. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the centre only (`token.not_revocable`) |

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-703a0e30
+sourceHash: sha256-4ffd092c
 ---
 
 # MCP 工具
@@ -50,6 +50,46 @@ bearer_token_env_var = "BEACON_TOKEN"
 - **失败次数太多**。一个地址在 10 分钟内失败 20 次后被锁定，得到的也是 401，因为 MCP 的库没有 429。正文会写明这个地址已被锁定、还要等多久（`too many failed sign-ins from this address; try again in 9 minutes`）。响应也带 `Retry-After`：和 [REST API](api.md) 用 `auth.too_many_failures` 报告的是同一段等待。
 - **server 自带的说明**。它告诉 Agent 每组工具是做什么的，以及写工具要怎样谨慎地用。
 - **缺少作用域**。每个凭据都能看到全部工具，但调用时缺少所需的作用域会被拒绝。消息里写明缺的是哪个。对 Agent，还会说明它的预设在所有者角色范围内允许什么（`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`）。
+
+## 能力发现、运维域、资源与提示词 {#capabilities}
+
+Beacon 将所有操作归入六个标准运维域——`incidents`、`monitoring`、`machines`、`status`、`identity` 与 `governance`——统一贯穿 MCP 工具、OpenAPI 标签、`GET /api/v1/capabilities` 以及控制台的 **MCP 与 API** 视图。每个注册的 MCP 工具都附带结构化 `_meta` 元数据（`domain`、`access`、`rest`、`scopes`），客户端无需解析自然语言即可判断访问级别与 REST 对等路径。
+
+新会话建议首先调用 `describe_capabilities`，一次获取当前调用方身份、有效作用域、主机范围、已启用子系统以及每个操作的实时可用状态。
+
+| 工具 | 作用域 | 做什么 |
+| --- | --- | --- |
+| `describe_capabilities` | 不限 | 返回当前调用方的实时能力目录：身份、有效作用域、主机范围、已启用子系统、六大运维域及逐项可用性、MCP 资源与运维提示词 |
+
+### MCP 资源 {#resources}
+
+通过 MCP `resources/list`、`resources/templates/list` 和 `resources/read` 暴露的只读快照与资源模板，执行与工具完全一致的权限校验：
+
+| URI | 作用域 | 返回内容 |
+| --- | --- | --- |
+| `beacon://capabilities` | 不限 | 与 `describe_capabilities` 相同的 JSON 能力目录 |
+| `beacon://overview` | `status:read` | 告警链路健康、人工通知配置、触发中数量与 API 额度 |
+| `beacon://alerts/firing` | `status:read` | 当前触发中的告警组 |
+| `beacon://machines` | `status:read` 或 `machines:ssh` | 已登记机器、连接器状态与 SSH 配置 |
+| `beacon://silences` | `status:read` | 生效中和待生效的静默 |
+| `beacon://maintenance` | `status:read` | 进行中、计划中和近期结束的维护窗口 |
+| `beacon://alerts/{id}/evidence` | `status:read` | 单个告警组的完整诊断证据 |
+| `beacon://alerts/{id}/timeline` | `status:read` | 单个告警组的时间线 |
+| `beacon://sessions/{id}` | `sessions:read` 或 `machines:ssh` | 单个 SSH 会话的文字记录与命令索引 |
+| `beacon://status/{name}` | `status:read` | 单个公开状态页的计算 JSON（启用状态页时提供） |
+| `beacon://config/{kind}` | `status:read` 或 `config:write` | 指定分类的配置项：`locations`、`heartbeats`、`resources`、`targets`、`modules` 或 `status_pages`（启用配置库时提供） |
+
+### MCP 提示词 {#prompts}
+
+通过 MCP `prompts/list` 和 `prompts/get` 暴露的复用运维剧本：
+
+| 提示词 | 参数 | 运维域 | 用途 |
+| --- | --- | --- | --- |
+| `triage_alert` | `alert_id`（必填） | `incidents` | 串联 `get_evidence`、`get_timeline`、`check_machine_ssh`、只读排查与交接备注的故障分诊流程 |
+| `verify_recovery` | `alert_id`（必填）、`summary`（可选） | `incidents` | 发起绑定轮次的 `probe_now` 多地复测并记录结构化验证备注 |
+| `fleet_health` | — | `monitoring` | 巡检触发中告警、检测点覆盖、机器连接器、SSH 通道状态与近期维护 |
+| `shift_handover` | `window`（可选，默认 `12h`） | `incidents` | 汇总未闭环告警、近期故障轮次、变更事件、SSH 会话与后续维护，生成值班交接单 |
+| `onboard_monitor` | `service`（必填）、`url`（必填） | `monitoring` | 读取现有配置并通过乐观锁版本校验安全提交 `put_config` 变更 |
 
 ## 告警 {#alerts}
 
@@ -105,6 +145,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_machines` | `status:read` 或 `machines:ssh` | 机器列表、你能否到达每台机器，以及给 Agent 自己的 ssh、scp 和 rsync 用的一段 `ssh_config` 和一行 `known_hosts` |
+| `get_ssh_status` | `status:read` 或 `machines:ssh` | SSH 通道状态（是否暂停及暂停时间）、通道主机密钥以及机器信任的 CA 公钥 |
 | `check_machine_ssh` | `machines:ssh` | 检查有权访问的已登记机器 `machine` 的连接路径、固定主机密钥和证书验证，返回观察结果与审计 ID |
 | `run_command` | `machines:ssh` | 在机器上执行一条 shell 命令（`machine`、`command`、`cwd`、`stdin`、`timeout` 秒数，默认 120，最多 600），以机器上的用户身份、不分配终端：退出码、stdout 和 stderr 都是纯文本。某一路输出超过 30,000 字符时，保留开头和结尾，中间用一行说明截掉了多少；`get_session` 能取到全部 |
 | `search_files` | `machines:ssh` | 在一台已登记的 `machine` 上，从明确指定的绝对路径 `directory` 搜索字面文本 `query`，区分大小写，`limit` 可选。返回路径、行号、摘录和会话 ID |
@@ -176,6 +217,8 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
 | `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
+| `list_agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、生效作用域与主机范围（管理员可按 `owner` 筛选） |
+| `get_agent` | 成员本人或管理员（禁止 Agent 调用） | 按 `name` 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
 | `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
 | `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器（`name`，以及可选的 `preset`、`scopes`、`machines`）。不填的字段保持原样。自定义 scope 的规则与 `create_agent` 相同。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许 |
 | `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |

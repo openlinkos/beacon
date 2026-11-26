@@ -36,7 +36,7 @@ AI 编程 Agent 已经很会做运维活：读日志、找出配置里错的那�
 
 ## 功能
 
-- **MCP 服务器**（`/mcp`）提供[运维工具](docs/zh/reference/mcp.md)，涵盖告警（`list_alerts`、`get_alert`、`ack_alert`、`silence_alert` 等）、处理告警（`get_evidence`、`get_timeline`、`add_note`、`list_changes`、`probe_now`）、机器（`list_machines`、`update_machine`、`run_command`、`read_file`、`write_file`、`edit_file`、`list_sessions`、`get_session` 等）、维护和状态页、配置、成员和 Agent 自己的 SSH 密钥（`list_users`、`invite_user`、`create_agent`、`update_agent`、`add_ssh_key` 等），以及 Agent 自己的令牌（`whoami`、`renew_token`）。每个工具在 `/api/v1` 下都有对应的 REST 接口。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 登录。
+- **MCP 服务器**（`/mcp`）按六大运维域（`incidents`、`monitoring`、`machines`、`status`、`identity`、`governance`）组织，提供实时能力发现（`describe_capabilities`、`GET /api/v1/capabilities`）、工具 `_meta` 元数据、只读 `beacon://` MCP 资源与模板、运维剧本提示词（`triage_alert`、`verify_recovery`、`fleet_health`、`shift_handover`、`onboard_monitor`）以及 [60+ 运维工具](docs/zh/reference/mcp.md)，覆盖告警、证据、按需重测、SSH 主机与文件编辑、状态页、配置、成员、Agent 与令牌。Claude Code 和 Codex 通过浏览器用 MCP 的 OAuth 2.1 登录，每个工具在 `/api/v1` 下都有对应的 REST 接口和带域标签的 OpenAPI 规范。
 - **SSH 通道**（17002 端口）：`ssh`、`scp`、`sftp`、`rsync` 和 `ssh -L` 到任何登记过的机器，用户名就是机器名；NAT 后面的机器用普通的 `ssh -R` 自己连出来。
 - **检测程序**（`beacon-probe`）：和 Blackbox Exporter 兼容的检测并给出失败原因，主机指标和心跳，断网时先存进磁盘队列；检测目标和模块由中心下发，改检测内容不用重新部署。
 - **告警路由**，不需要 Alertmanager：分组、抑制、静默和死信开关都在服务里；vmalert 像发给 Alertmanager 一样把告警发给 Beacon。

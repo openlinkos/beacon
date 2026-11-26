@@ -47,6 +47,46 @@ Any other client that speaks MCP over HTTP connects in one of these two ways. Wh
 - **The server's instructions.** They tell the agent what each group of tools is for, and how to use the write tools with care.
 - **A missing scope.** A credential sees every tool, but a call without the scope it needs is refused. The message names the scope. For an agent, it also says what its preset within its owner's role allows (`alice / claude-code may not use the config:write scope: its preset (oncall) within its owner's role allows status:read, sessions:read, alerts:write, machines:ssh; …`).
 
+## Capability discovery, domains, resources and prompts {#capabilities}
+
+Beacon organises all operations into six canonical domains — `incidents`, `monitoring`, `machines`, `status`, `identity` and `governance` — shared across MCP tools, OpenAPI tags, `GET /api/v1/capabilities` and the console's **MCP & API** view. Every registered MCP tool carries structured `_meta` fields (`domain`, `access`, `rest` and `scopes`) so clients can inspect access level and REST parity without parsing prose.
+
+Call `describe_capabilities` first in a new session to discover your active scopes, effective machine scope, enabled server subsystems and which operations are currently available to your credential.
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `describe_capabilities` | any | Live capability catalogue for the caller: identity, active scopes, machine scope, enabled subsystems, all six operational domains with per-operation availability, MCP resources and operational prompts |
+
+### MCP resources {#resources}
+
+Read-only snapshots and templates exposed via MCP `resources/list`, `resources/templates/list` and `resources/read`, enforcing the same scope checks as tools:
+
+| URI | Scope | What it returns |
+| --- | --- | --- |
+| `beacon://capabilities` | any | Same JSON payload as `describe_capabilities` |
+| `beacon://overview` | `status:read` | Bridge readiness, configured human routes, firing counts and API budget |
+| `beacon://alerts/firing` | `status:read` | Currently firing alert groups |
+| `beacon://machines` | `status:read` or `machines:ssh` | Enrolled machines, connector state and SSH config |
+| `beacon://silences` | `status:read` | Active and pending silences |
+| `beacon://maintenance` | `status:read` | Active, planned and recent maintenance windows |
+| `beacon://alerts/{id}/evidence` | `status:read` | Full diagnostic evidence for one alert group |
+| `beacon://alerts/{id}/timeline` | `status:read` | Chronological event timeline for one alert group |
+| `beacon://sessions/{id}` | `sessions:read` or `machines:ssh` | Transcript and command index for one SSH session |
+| `beacon://status/{name}` | `status:read` | Computed public status page JSON (when status pages are enabled) |
+| `beacon://config/{kind}` | `status:read` or `config:write` | Configuration items for `locations`, `heartbeats`, `resources`, `targets`, `modules` or `status_pages` (when configuration storage is enabled) |
+
+### MCP prompts {#prompts}
+
+Reusable operational playbooks exposed via MCP `prompts/list` and `prompts/get`:
+
+| Prompt | Arguments | Domain | Purpose |
+| --- | --- | --- | --- |
+| `triage_alert` | `alert_id` (required) | `incidents` | Guided diagnostic workflow using `get_evidence`, `get_timeline`, `check_machine_ssh`, read-only inspection and handover notes |
+| `verify_recovery` | `alert_id` (required), `summary` (optional) | `incidents` | Run episode-bound `probe_now` across locations and record a structured verification note |
+| `fleet_health` | — | `monitoring` | Audit firing alerts, probe readiness, machine connectors, SSH channel posture and upcoming maintenance |
+| `shift_handover` | `window` (optional, default `12h`) | `incidents` | Summarise open alerts, recent episodes, deployments, SSH sessions and upcoming maintenance for the next shift |
+| `onboard_monitor` | `service` (required), `url` (required) | `monitoring` | Inspect existing configuration and safely stage an optimistic-concurrency `put_config` change |
+
 ## Alerts
 
 | Tool | Scope | What it does |
@@ -101,6 +141,7 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_machines` | `status:read` or `machines:ssh` | The machines, whether you reach each, and an `ssh_config` block with a `known_hosts` line for the agent's own ssh, scp and rsync |
+| `get_ssh_status` | `status:read` or `machines:ssh` | The SSH channel state (paused or active, pause time), channel host key and the certificate authority public key machines trust |
 | `check_machine_ssh` | `machines:ssh` | Check the registered route, pinned host key and certificate authentication for an enrolled `machine` you may reach. Returns the observation and audit ID |
 | `run_command` | `machines:ssh` | Run a shell command on a machine (`machine`, `command`, `cwd`, `stdin`, `timeout` in seconds, 120 by default, at most 600), as its user, without a terminal: exit code, stdout and stderr as plain text. A stream over 30,000 characters keeps its start and end, with a line saying how much was cut; `get_session` reads what was retained |
 | `search_files` | `machines:ssh` | Find literal, case-sensitive text on one enrolled `machine` under an explicit absolute `directory`, with `query` and optional `limit`. Returns paths, line numbers, excerpts and the session ID |
@@ -172,6 +213,8 @@ The public status pages are made from the alert groups and the maintenance windo
 | --- | --- | --- |
 | `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used |
 | `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only |
+| `list_agents` | owner or person (never an agent) | List agents with their owner, preset, effective scopes and machine access (optional `owner` filter for administrators) |
+| `get_agent` | owner or person (never an agent) | Inspect one agent by `name`, including its effective scopes, machine access, tokens, OAuth grants and SSH keys |
 | `create_agent` | any credential; the bridge decides | Make an agent (`name`, `owner`, `preset`, `scopes`, `machines`, `expires`). Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns a token, its secret shown once |
 | `update_agent` | any credential; the bridge decides | Change an agent's preset, custom scopes or machines (`name`, and `preset`, `scopes`, `machines`, each optional). A field left out stays. Custom scopes follow the same rule as `create_agent`. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed |
 | `add_ssh_key` | `machines:ssh` | Register your own public key for the SSH channel (`key`, an `authorized_keys` line; `comment`), so that your own ssh, scp, sftp and rsync reach the machines you may reach; `list_machines` then gives the `ssh_config` block. The key belongs to the credential you call with (`via`): it works while that token or OAuth sign-in does and is removed with it. Shown to the person you act for, and echoed to the alert chat |

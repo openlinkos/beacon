@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4ef8ab3e
+sourceHash: sha256-ff1c836a
 ---
 
 # REST API
@@ -10,7 +10,7 @@ REST API 面向通过 HTTP 使用 Beacon 的脚本、机器人和 Agent。这一
 
 这里的每个操作也都是一个 [MCP 工具](mcp.md)，调用的是同一个方法。在这里能用的凭据，在 MCP 上也能用；SSH 通道则凭密钥让同一个 Agent 登录。
 
-列有每个字段的正式约定是 OpenAPI 文档：仓库里的 `internal/api/openapi.yaml`，或者运行中的 Beacon 上的 `GET /api/v1/openapi.yaml`。
+列有每个字段的正式约定是 OpenAPI 文档：仓库里的 `internal/api/openapi.yaml`，或者运行中的 Beacon 上的 `GET /api/v1/openapi.yaml`。规范中的所有操作均按六大运维域标记（`Incidents`、`Monitoring`、`Machines & SSH`、`Status & Maintenance`、`Identity & Agents`、`Governance`）；任何已认证凭据都可以调用 `GET /api/v1/capabilities` 获取当前权限边界、已启用子系统以及对应的 MCP 工具、资源与提示词。
 
 ## 获取凭据 {#getting-a-credential}
 
@@ -132,7 +132,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/ssh` | `status:read` | SSH 通道的状态（是否暂停）、它的主机密钥，以及机器信任的 CA 公钥 |
+| `GET /api/v1/ssh` | `status:read` 或 `machines:ssh` | SSH 通道的状态（是否暂停）、它的主机密钥，以及机器信任的 CA 公钥 |
 | `POST /api/v1/ssh/pause` | `machines:write` | 关掉所有 Agent 在机器上的会话，并拒绝新会话 |
 | `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器 |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
@@ -241,6 +241,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不会是机器的连接器密钥（`key.exists`） |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
+| `GET /api/v1/agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、有效作用域与主机范围（管理员可用 `?owner=` 筛选） |
+| `GET /api/v1/agents/{name}` | 成员本人或管理员（禁止 Agent 调用） | 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
 | `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
 | `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
 
@@ -266,6 +268,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
+| `GET /api/v1/capabilities` | 不限 | 六大运维域的结构化能力目录，按调用方作用域与已启用子系统实时计算，并包含对应 MCP 工具、资源与提示词 |
 | `GET /api/v1/token` | 不限 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），用的什么凭据（`token`，或带 `client` 的 `oauth`），现在能做什么、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否续期以及何时可以续期；从不返回密钥本身 |
 | `POST /api/v1/token/renew` | 不限 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，它由客户端刷新 |
 | `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一个能上机器的令牌（`machines:ssh`），或任何 Agent 的令牌：只针对一个 Agent 的暂停开关，它用这个令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销（`token.not_revocable`） |

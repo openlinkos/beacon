@@ -4,6 +4,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Organise Beacon's REST API, OpenAPI tags, MCP server and console around six canonical operational domains (`incidents`, `monitoring`, `machines`, `status`, `identity`, `governance`). Add live capability discovery (`GET /api/v1/capabilities`, `describe_capabilities`, `/console/api/v1/capabilities`), MCP tool `_meta` annotations (`domain`, `access`, `rest`, `scopes`), read-only `beacon://` MCP resources and templates, and five operational MCP prompts (`triage_alert`, `verify_recovery`, `fleet_health`, `shift_handover`, `onboard_monitor`).
+- Add REST and MCP parity endpoints for inspecting agents (`GET /api/v1/agents`, `GET /api/v1/agents/{name}`, `list_agents`, `get_agent`) and the SSH channel (`get_ssh_status`), and allow `machines:ssh` credentials to read `GET /api/v1/ssh`.
+- Overhaul the public landing page (`/`) into a full bilingual open-source showcase with an autonomous incident loop walkthrough, four capability pillars, team-vs-agent workflow highlights, copyable MCP/REST quick-connect commands and a published status page directory — keeping zero inline scripts and strict CSP.
+- Redesign the public status pages (`/status`, `/status/{name}`) and the React operations workspace (`/workspace/`) on a unified architectural slate and obsidian design system with cobalt and Beacon ember accents, light/dark/system theme switching, `⌘K` quick jump, split-screen sign-in, an interactive **MCP & API** capability hub (`/workspace/capabilities`), copyable code blocks, tabular probe matrices and a dark terminal replay theatre.
+- Align the server-rendered console fallback and `/oauth/authorize` consent styles (`beacon.css`) with the unified design system.
+
 ## 0.3.0
 
 ### rc.49 (2026-11-26)

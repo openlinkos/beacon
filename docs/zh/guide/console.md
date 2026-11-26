@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9b0af60a
+sourceHash: sha256-8590de66
 ---
 
 # 运维控制台
@@ -18,7 +18,7 @@ Agent 通过 [REST API](../reference/api.md) 和 [MCP 工具](../reference/mcp.m
 
 控制台由 Beacon 自己提供，在 `public_url` 下的 17001 端口、与 API 和 MCP 并排的 `/console` 上。站点根路径 `/` 是公开的（[发布状态页](status-pages.md)）。
 
-发布版本中的 `/console` 默认进入 `/workspace/` 上的 React 控制台。概览、告警、成员、Agent、机器、监控、配置和回放使用同一套导航和账号权限。静态前端与会话 API 由同一个容器提供。
+发布版本中的 `/console` 默认进入 `/workspace/` 上的 React 控制台。概览、告警、成员、Agent、**MCP 与 API** 能力中心（`/workspace/capabilities`）、机器、监控、配置和回放使用同一套导航、浅色/深色/跟随系统主题切换、`⌘K` 快速跳转与账号权限。静态前端与会话 API 由同一个容器提供。若站点根路径 `/` 未挂载默认公开状态页，则会呈现介绍 Beacon 多地共识探测、SSH 通道、MCP 服务及已发布状态页的产品首页。
 
 ## 登录 {#signing-in}
 
@@ -53,7 +53,7 @@ Agent 通过 [REST API](../reference/api.md) 和 [MCP 工具](../reference/mcp.m
 - **故障处置**打开当前告警、每轮故障的历史、Agent 投递与执行，以及 CI 和 Flux 上报的变更。
 - **监控**打开服务检测、静默与维护、公开状态页。**监控项**页面可以直接跳转到服务、心跳和资源。
 - **SSH 访问**打开机器登记与连接指引，以及当前身份可查看的会话和录像。
-- **成员与 Agent**打开成员与角色，以及你管理的 Agent 和委托权限。
+- **成员与 Agent**打开成员与角色、你管理的 Agent 和委托权限，以及展示六大运维域、实时 MCP 工具/资源/提示词与可复制 Claude Code / Codex 接入命令的 **MCP 与 API** 能力中心。
 - **管理**打开配置及其历史、访问令牌、审计日志和已启用的团队凭据。
 
 | 页面 | 显示什么 |

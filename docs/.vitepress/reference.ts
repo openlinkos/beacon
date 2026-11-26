@@ -63,7 +63,7 @@ const scopes = (): string[] => {
 /** The MCP server's tools. */
 const tools = (): string[] =>
   goFiles('internal/mcpserver').flatMap((src) =>
-    [...src.matchAll(/mcp\.AddTool\(\w+, &mcp\.Tool\{Name: "([a-z_]+)"/g)].map((m) => m[1]),
+    [...src.matchAll(/(?:mcp\.AddTool|registerTool)\(\w+, &mcp\.Tool\{Name: "([a-z_]+)"/g)].map((m) => m[1]),
   );
 
 /** The commands a binary's `switch args[0]` (or `switch verb`) takes: the commands of `beacon`,

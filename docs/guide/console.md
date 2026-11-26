@@ -14,7 +14,7 @@ To give colleagues their own accounts, [invite your team](people.md).
 
 Beacon serves the console itself, at `/console` on port 17001, beside the API and MCP, under `public_url`. The site's root `/` is public ([Publish a status page](status-pages.md)).
 
-In a release build, `/console` opens the React console at `/workspace/`. The overview, alerts, people, agents, machines, monitoring, configuration and replay use one navigation layout and the same account permissions. Beacon serves the built frontend and its session API in one container.
+In a release build, `/console` opens the React console at `/workspace/`. The overview, alerts, people, agents, **MCP & API** capability hub (`/workspace/capabilities`), machines, monitoring, configuration and replay use one navigation layout, light/dark/system theme switching, `⌘K` quick jump, and the same account permissions. Beacon serves the built frontend and its session API in one container. When no default public status page sits at `/`, the root renders a public product showcase introducing Beacon's probing, SSH channel, MCP server and published status pages.
 
 ## Sign in {#signing-in}
 
@@ -49,7 +49,7 @@ Use the **Overview** to check what needs attention. The sidebar groups the rest 
 - **Incident response** opens live alerts, the history of individual incidents, Agent deliveries, and the changes reported by CI and Flux.
 - **Monitoring** opens service checks, maintenance and silences, and public status pages. The **Monitors** page links directly to services, heartbeats and resources.
 - **SSH access** opens machine registration and connection instructions, and the sessions and replays available to your identity.
-- **People and agents** opens members and roles, and the agents and delegated access you manage.
+- **People and agents** opens members and roles, the agents and delegated access you manage, and the **MCP & API** hub showing live operational domains, tools, resources, prompts and copyable Claude Code / Codex connection commands.
 - **Administration** opens configuration and its history, access tokens, the audit log, and team credentials when enabled.
 
 | Page | What it shows |
