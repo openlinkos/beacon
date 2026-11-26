@@ -231,6 +231,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 		_, _ = w.Write(openAPI)
 	})
+	s.registerCapabilities(mux)
 	s.registerConfig(mux)
 	s.registerCredentials(mux)
 	mux.Handle("GET /api/v1/bridge", s.with("status:read", s.bridgeSummary))
@@ -251,7 +252,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/silences/{id}", s.with("alerts:write", s.expireSilence))
 	mux.Handle("GET /api/v1/audit", s.withPrincipal("status:read", s.audit))
 
-	mux.Handle("GET /api/v1/ssh", s.with("status:read", s.sshState))
+	mux.Handle("GET /api/v1/ssh", s.with("status:read|machines:ssh", s.sshState))
 	mux.Handle("POST /api/v1/ssh/pause", s.with("machines:write", s.sshPause(true)))
 	mux.Handle("POST /api/v1/ssh/resume", s.with("machines:write", s.sshPause(false)))
 	mux.Handle("GET /api/v1/machines", s.with("status:read|machines:ssh", s.listMachines))

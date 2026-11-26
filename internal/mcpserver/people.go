@@ -38,6 +38,15 @@ type (
 		OK          bool   `json:"ok"`
 		Fingerprint string `json:"fingerprint"`
 	}
+	listAgentsIn struct {
+		Owner string `json:"owner,omitempty" jsonschema:"only this owner's agents; omitted returns your own agents or all agents for an administrator"`
+	}
+	agentsOut struct {
+		Agents []bridge.AgentView `json:"agents"`
+	}
+	agentNameIn struct {
+		Name string `json:"name" jsonschema:"the agent's name"`
+	}
 	createAgentIn struct {
 		Name     string   `json:"name" jsonschema:"the agent's name: 2 to 40 lower-case letters, digits, dots, dashes and underscores"`
 		Owner    string   `json:"owner" jsonschema:"whose agent; a person makes agents for themself when this is left out"`
@@ -55,7 +64,7 @@ type (
 )
 
 func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "list_users", Title: "List people", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
+	registerTool(s, &mcp.Tool{Name: "list_users", Title: "List people", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
 		Description: "The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used. Needs a standalone token with accounts:write."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, usersOut, error) {
 			who, err := need(ctx, "accounts:write")
@@ -66,7 +75,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, usersOut{Users: users, Invitations: invs}, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "invite_user", Title: "Invite a person",
+	registerTool(s, &mcp.Tool{Name: "invite_user", Title: "Invite a person",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
 		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write. Recorded and echoed to the alert chat (without the link)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in inviteIn) (*mcp.CallToolResult, bridge.LinkView, error) {
@@ -78,7 +87,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, l, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_ssh_keys", Title: "Your SSH keys", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
+	registerTool(s, &mcp.Tool{Name: "list_ssh_keys", Title: "Your SSH keys", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
 		Description: "The public keys you sign in to Beacon's SSH channel with, for your own ssh, scp, sftp and rsync."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, keysOut, error) {
 			who, err := need(ctx, "machines:ssh")
@@ -89,7 +98,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, keysOut{Keys: keys}, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "add_ssh_key", Title: "Register your SSH key",
+	registerTool(s, &mcp.Tool{Name: "add_ssh_key", Title: "Register your SSH key",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Register your public key for Beacon's SSH channel, so that your own ssh, scp, sftp and rsync reach the machines you may reach (list_machines gives the ssh_config block). Give the public key only; your private key never leaves your machine. A key belongs to one agent. Shown to the person you act for and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in addKeyIn) (*mcp.CallToolResult, bridge.SSHKeyView, error) {
@@ -101,7 +110,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, k, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "remove_ssh_key", Title: "Remove your SSH key",
+	registerTool(s, &mcp.Tool{Name: "remove_ssh_key", Title: "Remove your SSH key",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Remove one of your public keys from Beacon's SSH channel, by its fingerprint. Echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in removeKeyIn) (*mcp.CallToolResult, okKeyOut, error) {
@@ -115,7 +124,31 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, okKeyOut{OK: true, Fingerprint: in.Fingerprint}, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "create_agent", Title: "Make an agent",
+	registerTool(s, &mcp.Tool{Name: "list_agents", Title: "List agents",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
+		Description: "List delegated agents you own (or all agents for a standalone owner credential), with their preset, effective scopes, machines, tokens, OAuth grants and SSH keys."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in listAgentsIn) (*mcp.CallToolResult, agentsOut, error) {
+			p, err := caller(ctx)
+			if err != nil {
+				return nil, agentsOut{}, err
+			}
+			agents, err := b.Agents(bridge.ActorOf(p, "mcp"), in.Owner)
+			return nil, agentsOut{Agents: agents}, err
+		})
+
+	registerTool(s, &mcp.Tool{Name: "get_agent", Title: "Get an agent",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
+		Description: "Inspect one delegated agent's preset, wanted and effective scopes, machines, tokens, OAuth grants and SSH keys. Requires being the agent's owner or a standalone owner credential."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in agentNameIn) (*mcp.CallToolResult, bridge.AgentView, error) {
+			p, err := caller(ctx)
+			if err != nil {
+				return nil, bridge.AgentView{}, err
+			}
+			v, err := b.Agent(bridge.ActorOf(p, "mcp"), in.Name)
+			return nil, v, err
+		})
+
+	registerTool(s, &mcp.Tool{Name: "create_agent", Title: "Make an agent",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
 		Description: "Make an agent for a person, and a token when expires is set (such as 90d). The secret is shown once. preset is readonly, oncall, operator or custom. Custom scopes are people's scopes, only for a person or a legacy token with accounts:write (never an agent), within the owner's role and within what you yourself may do. You never give an agent a scope or a machine you do not hold. Recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in createAgentIn) (*mcp.CallToolResult, bridge.AgentCreated, error) {
@@ -142,7 +175,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, out, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "update_agent", Title: "Change an agent",
+	registerTool(s, &mcp.Tool{Name: "update_agent", Title: "Change an agent",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. You never give an agent a scope or a machine you do not hold; narrowing an agent stays allowed. Empty machines means all machines. Recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in updateAgentIn) (*mcp.CallToolResult, bridge.AgentView, error) {

@@ -27,6 +27,19 @@ info:
     name: Apache-2.0
 servers:
   - url: /api/v1
+tags:
+  - name: Incidents
+    description: Live alert groups, multi-location evidence, timelines, notes, acknowledgements, silences, change events and retained incident history.
+  - name: Monitoring
+    description: On-demand probing across locations plus versioned configuration for locations, targets, modules, heartbeats, expiring resources and status page definitions.
+  - name: Machines & SSH
+    description: Enrolled hosts (direct or behind NAT), SSH readiness checks, command execution, file operations, recorded sessions and the SSH pause switch.
+  - name: Status & Maintenance
+    description: Public status pages with 90-day component history and scheduled maintenance windows.
+  - name: Identity & Agents
+    description: Self-introspection, live capability discovery, delegated agents, SSH keys, token lifecycle and team accounts.
+  - name: Governance
+    description: Hash-chained audit log, revocable view-only share links and owner-delegated team service credentials.
 components:
   securitySchemes:
     token:
@@ -1157,6 +1170,7 @@ security:
 paths:
   /team-credentials:
     get:
+      tags: [Governance]
       summary: List team credential metadata
       description: "Scope: secrets:use. Agents see only live grants. Available when credentials.enabled is true."
       responses:
@@ -1172,6 +1186,7 @@ paths:
         "503": {description: The credential store cannot be verified}
   /team-credentials/{id}/use:
     post:
+      tags: [Governance]
       summary: Send one authenticated HTTPS request to the credential's fixed endpoint
       description: "Scope: secrets:use for agents with a live grant. Sends a GET after auditing it."
       parameters:
@@ -1191,12 +1206,34 @@ paths:
         "503": {description: The credential store cannot be verified}
   /openapi.yaml:
     get:
+      tags: [Identity & Agents]
       summary: This description
       security: []
       responses:
         "200": {description: The OpenAPI document}
+  /capabilities:
+    get:
+      tags: [Identity & Agents]
+      summary: Discover Beacon domains, enabled features, MCP resources/prompts and caller-available operations
+      description: "Any authenticated credential. Returns the caller's resolved identity, active server features, six operational domains with per-operation availability, and the MCP resource and prompt catalog."
+      responses:
+        "200":
+          description: Live capability and domain discovery document
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [caller, features, domains, resources, prompts]
+                properties:
+                  caller: {type: object}
+                  features: {type: object}
+                  domains: {type: array, items: {type: object}}
+                  resources: {type: array, items: {type: object}}
+                  prompts: {type: array, items: {type: object}}
+        default: {$ref: "#/components/responses/Error"}
   /bridge:
     get:
+      tags: [Incidents]
       summary: Alerting pipeline health, notification configuration, and alerts firing by severity
       description: "Scope: status:read"
       responses:
@@ -1239,6 +1276,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts:
     get:
+      tags: [Incidents]
       summary: Alert groups
       description: "Scope: status:read. Resolved groups are kept for seven days."
       parameters:
@@ -1257,6 +1295,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}:
     get:
+      tags: [Incidents]
       summary: One alert group
       description: "Scope: status:read"
       parameters:
@@ -1270,6 +1309,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}/ack:
     post:
+      tags: [Incidents]
       summary: Acknowledge a firing alert group
       description: "Scope: alerts:write. An Agent acknowledgement leaves human escalation in effect. A person's or a standalone credential's acknowledgement pauses escalation for the configured acknowledgement timeout."
       parameters:
@@ -1292,6 +1332,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}/evidence:
     get:
+      tags: [Incidents]
       summary: The evidence for an alert group, in one answer
       description: >-
         Scope: status:read. Per probe location, the result at the end of the window, since when it fails and why
@@ -1311,6 +1352,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}/timeline:
     get:
+      tags: [Incidents]
       summary: An alert group's timeline
       description: >-
         Scope: status:read. Started, notification submissions, acknowledgements, notes, silences, agents woken, the
@@ -1327,6 +1369,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}/notes:
     post:
+      tags: [Incidents]
       summary: Leave a note on an alert group
       description: >-
         Scope: alerts:write. What was found or done, at most 2000 characters, on a firing or resolved group. The card
@@ -1352,6 +1395,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /alerts/{id}/agent-runs/{delivery}:
     put:
+      tags: [Incidents]
       summary: Report an on-call programme's execution
       description: >-
         Scope: alerts:report. The credential's principal must be the reporter bound to the hook delivery and still
@@ -1382,6 +1426,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /agent-hooks/{name}/first-drill:
     get:
+      tags: [Incidents]
       summary: Check the active hook and critical chat configuration for a first drill
       description: >-
         Scope: alerts:report. Only the reporter assigned to the named hook can check it. Describes the loaded
@@ -1398,6 +1443,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /incident-episodes:
     get:
+      tags: [Incidents]
       summary: List incidents by start time
       description: "Scope: status:read. Retained open and resolved alert episodes ordered by start time. No combination of recorded observations proves unattended repair."
       parameters:
@@ -1447,6 +1493,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /incident-outcomes:
     get:
+      tags: [Incidents]
       summary: List resolved incident outcomes
       description: "Scope: status:read. Private history of resolved alert episodes, newest first."
       parameters:
@@ -1471,6 +1518,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /incident-outcomes/{id}:
     get:
+      tags: [Incidents]
       summary: Get one resolved incident outcome
       description: "Scope: status:read. Use this summary's group, started_at and audit_until to query related audit records."
       parameters:
@@ -1488,6 +1536,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /changes:
     get:
+      tags: [Incidents]
       summary: Change events, newest first
       description: >-
         Scope: status:read. Deployments, configuration changes and Flux events, which senders post to the gateway
@@ -1511,6 +1560,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /silences:
     get:
+      tags: [Incidents]
       summary: Active and pending silences
       description: "Scope: status:read"
       responses:
@@ -1524,6 +1574,7 @@ paths:
                   silences: {type: array, items: {type: object}}
         default: {$ref: "#/components/responses/Error"}
     post:
+      tags: [Incidents]
       summary: Silence a firing alert group
       description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group."
       requestBody:
@@ -1547,6 +1598,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /silences/{id}:
     delete:
+      tags: [Incidents]
       summary: End a silence now
       description: "Scope: alerts:write"
       parameters:
@@ -1556,6 +1608,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /audit:
     get:
+      tags: [Governance]
       summary: The audit log, newest first, with filters
       description: "Scope: status:read. The audit log is an event table with a hash chain; entries
         are kept for the retention the storage configuration sets and can be filtered by who did
@@ -1601,8 +1654,9 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /ssh:
     get:
+      tags: [Machines & SSH]
       summary: The SSH channel's state, its host key and the key machines trust
-      description: "Scope: status:read"
+      description: "Scope: status:read or machines:ssh"
       responses:
         "200":
           description: State
@@ -1612,6 +1666,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /ssh/pause:
     post:
+      tags: [Machines & SSH]
       summary: Pause agents' access to machines, closing what is open
       description: "Scope: machines:write"
       responses:
@@ -1623,6 +1678,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /ssh/resume:
     post:
+      tags: [Machines & SSH]
       summary: Resume agents' access to machines
       description: "Scope: machines:write"
       responses:
@@ -1634,6 +1690,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines:
     get:
+      tags: [Machines & SSH]
       summary: Machines, and an ssh configuration for the ones the caller reaches
       description: "Scope: status:read or machines:ssh"
       responses:
@@ -1644,6 +1701,7 @@ paths:
               schema: {$ref: "#/components/schemas/Machines"}
         default: {$ref: "#/components/responses/Error"}
     post:
+      tags: [Machines & SSH]
       summary: Add a machine, pinning its host key
       description: "Scope: machines:write. The machine then needs the returned key in its TrustedUserCAKeys file. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
       requestBody:
@@ -1685,6 +1743,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}:
     patch:
+      tags: [Machines & SSH]
       summary: Change a machine's note, whether it is critical, and the account on it
       description: "Scope: machines:write. The host key and the address stay. A field left out stays as it is."
       parameters:
@@ -1709,6 +1768,7 @@ paths:
               schema: {$ref: "#/components/schemas/Machine"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Machines & SSH]
       summary: Forget a machine; its sessions stay on record
       description: "Scope: machines:write"
       parameters:
@@ -1718,6 +1778,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/history:
     get:
+      tags: [Machines & SSH]
       summary: List metadata revisions for the current registration
       description: "Scope: status:read or machines:ssh. Only the account, critical flag and note are recorded."
       parameters:
@@ -1733,6 +1794,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/restore:
     post:
+      tags: [Machines & SSH]
       summary: Restore earlier machine metadata as a new version
       description: "Scope: machines:write. The target must belong to the current registration and if_version must match the current metadata version. The address and keys stay."
       parameters:
@@ -1757,6 +1819,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/run:
     post:
+      tags: [Machines & SSH]
       summary: Run a command on a machine
       description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record."
       parameters:
@@ -1783,6 +1846,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/check:
     post:
+      tags: [Machines & SSH]
       summary: Check an enrolled machine's SSH handshake
       description: "Scope: machines:ssh, with access to this machine. Uses the registered route and pinned host key. Attempts certificate authentication without opening a machine session."
       parameters:
@@ -1796,6 +1860,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/search:
     post:
+      tags: [Machines & SSH]
       summary: Search a project directory for literal text
       description: "Scope: machines:ssh. Searches one reachable enrolled machine as its operating-system user, within fixed traversal, byte, result and time limits. Each call is recorded as a session."
       parameters:
@@ -1821,6 +1886,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/file:
     get:
+      tags: [Machines & SSH]
       summary: Read lines of a text file
       description: "Scope: machines:ssh"
       parameters:
@@ -1836,6 +1902,7 @@ paths:
               schema: {$ref: "#/components/schemas/FileView"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Machines & SSH]
       summary: Write a file, making its directory if needed
       description: "Scope: machines:ssh. At most 1 MiB."
       parameters:
@@ -1859,6 +1926,7 @@ paths:
               schema: {$ref: "#/components/schemas/Written"}
         default: {$ref: "#/components/responses/Error"}
     patch:
+      tags: [Machines & SSH]
       summary: Replace an exact string in a text file
       description: "Scope: machines:ssh. old_string must occur once, or set replace_all. Fails if the file changed after it was read."
       parameters:
@@ -1885,6 +1953,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /sessions:
     get:
+      tags: [Machines & SSH]
       summary: Sessions on machines, newest first
       description: "Scope: status:read or machines:ssh. Machine restrictions apply before the limit. A credential with status:read alone sees session metadata on the machines it may see."
       parameters:
@@ -1903,6 +1972,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /sessions/{id}:
     get:
+      tags: [Machines & SSH]
       summary: A session's transcript
       description: "Scope: sessions:read or machines:ssh. A command's output, or an interactive shell's commands with their output and exit status. A session outside the credential's machine access returns session.not_found."
       parameters:
@@ -1916,6 +1986,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /sessions/{id}/recording:
     get:
+      tags: [Machines & SSH]
       summary: A session's recording, to replay with asciinema
       description: "Scope: sessions:read or machines:ssh. A session outside the credential's machine access returns session.not_found. For an authorised session, a replay that is not available returns session.recording_unavailable."
       parameters:
@@ -1928,6 +1999,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /share-links/{kind}/{id}:
     post:
+      tags: [Governance]
       summary: Create a signed alert or session link
       description: "Scope: accounts:write from a standalone credential. Creating a session share also requires sessions:read or machines:ssh and access to the enrolment. An alert link opens its current incident, and a session link opens the session and its recording. Anyone holding the URL may open that page before expiry."
       parameters:
@@ -1947,6 +2019,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /share-links/{kind}/{id}/revoke:
     post:
+      tags: [Governance]
       summary: Revoke all outstanding links for one resource
       description: "Scope: accounts:write from a standalone credential. This invalidates all signed links for the alert group's incidents or for the session and its recording."
       parameters:
@@ -1965,6 +2038,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config:
     get:
+      tags: [Monitoring]
       summary: "The whole configuration: locations, heartbeats, resources, target sets, modules"
       description: "Scope: status:read or config:write"
       responses:
@@ -1972,6 +2046,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/locations:
     get:
+      tags: [Monitoring]
       summary: Probe locations, by id
       description: "Scope: status:read or config:write"
       responses:
@@ -1979,6 +2054,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/locations/{id}:
     get:
+      tags: [Monitoring]
       summary: One probe location, as PUT takes it
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/ID"}]
@@ -1990,6 +2066,7 @@ paths:
               schema: {$ref: "#/components/schemas/Location"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a probe location
       description: "Scope: config:write. The whole configuration is checked (config.invalid says what fails) and takes effect at once."
       parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2002,6 +2079,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a probe location
       description: "Scope: config:write. Refused while a target set is named after it alone."
       parameters: [{$ref: "#/components/parameters/ID"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2010,6 +2088,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/heartbeats:
     get:
+      tags: [Monitoring]
       summary: Heartbeats, by name
       description: "Scope: status:read or config:write"
       responses:
@@ -2017,6 +2096,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/heartbeats/{name}:
     get:
+      tags: [Monitoring]
       summary: One heartbeat, as PUT takes it
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/Name"}]
@@ -2028,6 +2108,7 @@ paths:
               schema: {$ref: "#/components/schemas/Heartbeat"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a heartbeat
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2040,6 +2121,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a heartbeat
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2048,6 +2130,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/resources:
     get:
+      tags: [Monitoring]
       summary: Expiring resources, by name
       description: "Scope: status:read or config:write"
       responses:
@@ -2055,6 +2138,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/resources/{name}:
     get:
+      tags: [Monitoring]
       summary: One resource, as PUT takes it
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/Name"}]
@@ -2066,6 +2150,7 @@ paths:
               schema: {$ref: "#/components/schemas/Resource"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a resource
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2078,6 +2163,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a resource
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2086,6 +2172,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/targets:
     get:
+      tags: [Monitoring]
       summary: Probe target sets, by name, with who probes each
       description: "Scope: status:read or config:write"
       responses:
@@ -2093,6 +2180,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/targets/{name}:
     get:
+      tags: [Monitoring]
       summary: One target set's groups, as PUT takes them
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/SetName"}]
@@ -2104,6 +2192,7 @@ paths:
               schema: {type: array, items: {$ref: "#/components/schemas/TargetGroup"}}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a target set
       description: "Scope: config:write. Probes get the change on their next fetch, within a minute."
       parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2116,6 +2205,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a target set
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/SetName"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2124,6 +2214,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/targets/{name}/groups/{group}/machine:
     put:
+      tags: [Monitoring]
       summary: Set or clear a target group's response machine
       description: >-
         Scopes: config:write and machines:write. The caller must also have SSH access to the selected
@@ -2160,6 +2251,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/modules:
     get:
+      tags: [Monitoring]
       summary: Probe modules, by name
       description: "Scope: status:read or config:write"
       responses:
@@ -2167,6 +2259,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/modules/{name}:
     get:
+      tags: [Monitoring]
       summary: One probe module, as PUT takes it
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/Name"}]
@@ -2178,6 +2271,7 @@ paths:
               schema: {$ref: "#/components/schemas/Module"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a probe module
       description: "Scope: config:write. The module file keeps its other modules and their comments."
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2190,6 +2284,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a probe module
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2198,6 +2293,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/status_pages:
     get:
+      tags: [Monitoring]
       summary: The public status pages, by name
       description: "Scope: status:read or config:write"
       responses:
@@ -2205,6 +2301,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/status_pages/{name}:
     get:
+      tags: [Monitoring]
       summary: One status page's definition, as PUT takes it
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/Name"}]
@@ -2216,6 +2313,7 @@ paths:
               schema: {$ref: "#/components/schemas/StatusPageDefinition"}
         default: {$ref: "#/components/responses/Error"}
     put:
+      tags: [Monitoring]
       summary: Add or replace a status page
       description: >-
         Scope: config:write. The page is checked with the rest of the configuration; components whose services no probe
@@ -2230,6 +2328,7 @@ paths:
         "200": {$ref: "#/components/responses/ConfigChange"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Monitoring]
       summary: Remove a status page
       description: "Scope: config:write"
       parameters: [{$ref: "#/components/parameters/Name"}, {$ref: "#/components/parameters/Note"}, {$ref: "#/components/parameters/IfVersion"}]
@@ -2238,6 +2337,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/history:
     get:
+      tags: [Monitoring]
       summary: Changes to the configuration, newest first, without their values
       description: "Scope: status:read or config:write. The latest 10,000 are kept."
       parameters:
@@ -2257,6 +2357,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/history/{version}:
     get:
+      tags: [Monitoring]
       summary: One change, with every item's value before and after
       description: "Scope: status:read or config:write"
       parameters: [{$ref: "#/components/parameters/Version"}]
@@ -2265,6 +2366,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /machines/{name}/connector:
     put:
+      tags: [Machines & SSH]
       summary: Set or change the key a machine behind NAT connects out with
       description: "Scope: machines:write. The machine must have been added with the address connector. A connection made with the old key is closed; the machine reconnects with the new one. Audited and echoed to the chat."
       parameters:
@@ -2288,6 +2390,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /config/history/{version}/revert:
     post:
+      tags: [Monitoring]
       summary: Undo one change, as a new change
       description: "Scope: config:write. Every item the change touched gets its value from before; config.conflict when a later change touched one of them."
       parameters: [{$ref: "#/components/parameters/Version"}, {$ref: "#/components/parameters/Note"}]
@@ -2296,6 +2399,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /token:
     get:
+      tags: [Identity & Agents]
       summary: "The caller's own token: what it may do, when it expires, whether it may renew itself"
       description: "Any scope: the token itself is the credential."
       responses:
@@ -2307,6 +2411,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /token/renew:
     post:
+      tags: [Identity & Agents]
       summary: Give the caller's token a new secret before it expires
       description: >-
         Any scope. The token keeps its name, scopes, subject, machines and SSH keys and expires its lifetime from
@@ -2323,6 +2428,7 @@ paths:
               schema: {$ref: "#/components/schemas/Renewed"}
   /tokens/{name}:
     delete:
+      tags: [Identity & Agents]
       summary: Revoke a token that reaches machines
       description: >-
         Scope: machines:write. The pause switch for one agent: its open sessions on machines are closed and
@@ -2344,7 +2450,24 @@ paths:
                   name: {type: string}
         default: {$ref: "#/components/responses/Error"}
   /agents:
+    get:
+      tags: [Identity & Agents]
+      summary: List delegated agents visible to the caller
+      description: "Requires a person account (lists their own agents) or a standalone administration token with accounts:write (lists all agents, optionally filtered by owner)."
+      parameters:
+        - {name: owner, in: query, schema: {type: string}, description: "Optional owner username filter"}
+      responses:
+        "200":
+          description: Agents visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents: {type: array, items: {$ref: "#/components/schemas/Agent"}}
+        default: {$ref: "#/components/responses/Error"}
     post:
+      tags: [Identity & Agents]
       summary: Make an agent
       description: >-
         Any credential may call; the bridge decides. A person makes agents for themself; an owner
@@ -2382,7 +2505,21 @@ paths:
               schema: {$ref: "#/components/schemas/AgentCreated"}
         default: {$ref: "#/components/responses/Error"}
   /agents/{name}:
+    get:
+      tags: [Identity & Agents]
+      summary: Get one delegated agent
+      description: "Inspect an agent's preset, wanted and effective scopes, machines, tokens, OAuth grants and SSH keys. Requires being the agent's owner or a standalone credential with accounts:write."
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The agent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Agent"}
+        default: {$ref: "#/components/responses/Error"}
     patch:
+      tags: [Identity & Agents]
       summary: Change an agent's preset, custom scopes or machines
       description: >-
         Any credential may call; the bridge decides (the agent's owner, or accounts:write). A field left
@@ -2417,6 +2554,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /users:
     get:
+      tags: [Identity & Agents]
       summary: The people who sign in to Beacon, and the invitations not yet used
       description: "Scope: accounts:write, held by a standalone administration token."
       responses:
@@ -2432,6 +2570,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /users/invitations:
     post:
+      tags: [Identity & Agents]
       summary: Invite a person
       description: >-
         Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 24 hours, with which the person joins with the role,
@@ -2456,6 +2595,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /users/{name}:
     patch:
+      tags: [Identity & Agents]
       summary: Change a person's role, display name or contact, or disable or enable them
       description: >-
         Scope: accounts:write, held by a standalone administration token. A lowered role or a disabled account limits the person's sessions and agents
@@ -2484,6 +2624,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /users/{name}/reset:
     post:
+      tags: [Identity & Agents]
       summary: Make a password reset link for a person
       description: >-
         Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 30 minutes, with which the person chooses a new
@@ -2500,6 +2641,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /ssh-keys:
     get:
+      tags: [Identity & Agents]
       summary: The caller's own SSH keys
       description: "Scope: machines:ssh. An agent's keys are its agent's, whichever of its credentials calls."
       responses:
@@ -2513,6 +2655,7 @@ paths:
                   keys: {type: array, items: {$ref: "#/components/schemas/SSHKey"}}
         default: {$ref: "#/components/responses/Error"}
     post:
+      tags: [Identity & Agents]
       summary: Register a public key for the SSH channel
       description: >-
         Scope: machines:ssh. The caller's own key (an agent's goes to its agent), so that its own ssh, scp,
@@ -2537,6 +2680,7 @@ paths:
               schema: {$ref: "#/components/schemas/SSHKey"}
         default: {$ref: "#/components/responses/Error"}
     delete:
+      tags: [Identity & Agents]
       summary: Remove one of the caller's SSH keys
       description: >-
         Scope: machines:ssh. Connections signed in with the key are closed. Audited (ssh_key_remove) and
@@ -2556,6 +2700,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /probe-now:
     post:
+      tags: [Monitoring]
       summary: Have every location probe a target again, now
       description: >-
         Scope: alerts:write. Every location that has the target assigned probes it at once with its usual module and
@@ -2604,6 +2749,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /status/{name}:
     get:
+      tags: [Status & Maintenance]
       summary: A public status page, as its public JSON has it
       description: >-
         Scope: status:read. The same as GET /status/<name>.json, which needs no token: the overall state, each
@@ -2621,6 +2767,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /maintenance:
     get:
+      tags: [Status & Maintenance]
       summary: The maintenance windows, the latest to start first
       description: "Scope: status:read. Ended and called-off ones are kept for 91 days"
       responses:
@@ -2634,6 +2781,7 @@ paths:
                   maintenance: {type: array, items: {$ref: "#/components/schemas/Maintenance"}}
         default: {$ref: "#/components/responses/Error"}
     post:
+      tags: [Status & Maintenance]
       summary: Plan a maintenance window
       description: >-
         Scope: maintenance:write. The status pages show it ahead of time and while it lasts, on the components the services
@@ -2663,6 +2811,7 @@ paths:
         default: {$ref: "#/components/responses/Error"}
   /maintenance/{id}:
     delete:
+      tags: [Status & Maintenance]
       summary: End a maintenance window now, or call it off
       description: >-
         Scope: maintenance:write. Its silences end and the pages say so; one that has ended already is maintenance.ended, an

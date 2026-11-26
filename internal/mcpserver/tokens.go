@@ -24,7 +24,7 @@ func caller(ctx context.Context) (store.Principal, error) {
 }
 
 func addTokenTools(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "whoami", Title: "Who you are to Beacon", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
+	registerTool(s, &mcp.Tool{Name: "whoami", Title: "Who you are to Beacon", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
 		Description: "Who you are to Beacon and what you may do: the name the audit log gives you (the person you act for and your agent's name), your preset and the scopes it gives you now within that person's role, the machines you reach, your SSH keys, and your credential: a token (when it expires, its lifetime, whether and when it may renew itself) or an OAuth sign-in (which your client refreshes)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, bridge.TokenView, error) {
 			who, err := caller(ctx)
@@ -35,7 +35,7 @@ func addTokenTools(s *mcp.Server, b *bridge.Bridge) {
 			return nil, v, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "renew_token", Title: "Renew your token",
+	registerTool(s, &mcp.Tool{Name: "renew_token", Title: "Renew your token",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
 		Description: "Give your token a new secret, expiring its lifetime from now, with the same name, scopes, machines and keys. The secret is shown once: store it where your harness reads it. The old secret keeps working for ten minutes. At most once a day; enrolled machines' tokens cannot (enroll -rotate replaces them). Recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, bridge.Renewed, error) {
@@ -53,7 +53,7 @@ type revokeIn struct {
 }
 
 func addRevokeTool(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "revoke_token", Title: "Revoke an agent's token",
+	registerTool(s, &mcp.Tool{Name: "revoke_token", Title: "Revoke an agent's token",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Revoke a token that reaches machines (machines:ssh), or any agent's token: what it has open on machines is closed at once and its requests are refused from now on. " +
 			"The pause switch for one agent. Needs machines:write. The tokens of probes, hosts, heartbeats, the rule engine, change senders and " +

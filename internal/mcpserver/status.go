@@ -60,7 +60,7 @@ func addStatusTools(s *mcp.Server, b *bridge.Bridge, st *status.Service) {
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 
 	if st != nil {
-		mcp.AddTool(s, &mcp.Tool{Name: "get_status_page", Title: "Get a status page", Annotations: read,
+		registerTool(s, &mcp.Tool{Name: "get_status_page", Title: "Get a status page", Annotations: read,
 			Description: "A public status page as its JSON shows it (GET /status/<name>.json): the overall state, each component's state now and its 90 days of history, the incidents (active, then the last 30 days) with their public updates, and the maintenance windows."},
 			func(ctx context.Context, _ *mcp.CallToolRequest, in statusIn) (*mcp.CallToolResult, *status.Page, error) {
 				if _, err := need(ctx, "status:read"); err != nil {
@@ -74,7 +74,7 @@ func addStatusTools(s *mcp.Server, b *bridge.Bridge, st *status.Service) {
 			})
 	}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_maintenance", Title: "List maintenance windows", Annotations: read,
+	registerTool(s, &mcp.Tool{Name: "list_maintenance", Title: "List maintenance windows", Annotations: read,
 		Description: "The maintenance windows planned through Beacon, the latest to start first, ended ones included for 90 days: services, when, title, who planned them, and their silences."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, maintenanceOut, error) {
 			if _, err := need(ctx, "status:read"); err != nil {
@@ -83,7 +83,7 @@ func addStatusTools(s *mcp.Server, b *bridge.Bridge, st *status.Service) {
 			return nil, maintenanceOut{Maintenance: b.MaintenanceWindows()}, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "schedule_maintenance", Title: "Plan a maintenance window",
+	registerTool(s, &mcp.Tool{Name: "schedule_maintenance", Title: "Plan a maintenance window",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
 		Description: "Plan work on some services: the public status pages show it ahead of time and while it lasts, and the services' alerts are silenced for the window (at most 7 days, starting within 90). It cannot start in the past."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in scheduleIn) (*mcp.CallToolResult, store.Maintenance, error) {
@@ -104,7 +104,7 @@ func addStatusTools(s *mcp.Server, b *bridge.Bridge, st *status.Service) {
 			return nil, m, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "end_maintenance", Title: "End a maintenance window",
+	registerTool(s, &mcp.Tool{Name: "end_maintenance", Title: "End a maintenance window",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "End a maintenance window now, or call it off before it begins: its silences end and the status pages say so."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in maintenanceIDIn) (*mcp.CallToolResult, store.Maintenance, error) {

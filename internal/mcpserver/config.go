@@ -98,7 +98,7 @@ func configActor(ctx context.Context) (configdb.Actor, error) {
 func addConfigTools(s *mcp.Server, c *configdb.Service) {
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_config", Title: "Get the configuration", Annotations: read, OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "get_config", Title: "Get the configuration", Annotations: read, OutputSchema: object,
 		Description: "What Beacon monitors, in the shapes of its files: probe locations, heartbeats, expiring resources, probe target sets (with who probes each), probe modules and the public status pages, with the version in force. kind narrows it to one list, kind and key to one item."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in configIn) (*mcp.CallToolResult, configdb.View, error) {
 			if _, err := need(ctx, "status:read", "config:write"); err != nil {
@@ -108,7 +108,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, v, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "put_config", Title: "Add or replace a configuration item", OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "put_config", Title: "Add or replace a configuration item", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Add or replace one location, heartbeat, resource, target set, module or status page. The whole configuration is checked as its files always were and the change takes effect at once; the result is the change, with its version and the values before and after."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in putConfigIn) (*mcp.CallToolResult, store.ConfigChange, error) {
@@ -124,7 +124,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, ch, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "set_target_machine", Title: "Set a response machine for a target group", OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "set_target_machine", Title: "Set a response machine for a target group", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Set or clear an HTTP target group's response machine. Pass the configuration version and group index from get_config, and the machine name and registration from list_machines. The probes and labels stay in force. Requires config:write, machines:write and SSH access to the previous and new machines, if any."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in targetMachineIn) (*mcp.CallToolResult, store.ConfigChange, error) {
@@ -136,7 +136,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, ch, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_config", Title: "Remove a configuration item", OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "delete_config", Title: "Remove a configuration item", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
 		Description: "Remove one location, heartbeat, resource, target set, module or status page. A location cannot go while a target set is named after it alone."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in deleteConfigIn) (*mcp.CallToolResult, store.ConfigChange, error) {
@@ -148,7 +148,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, ch, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_config_changes", Title: "List configuration changes", Annotations: read, OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "list_config_changes", Title: "List configuration changes", Annotations: read, OutputSchema: object,
 		Description: "Changes to the configuration, newest first: version, when, who, through what, why, and which items they added, changed or removed. get_config_change has the values."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in configChangesIn) (*mcp.CallToolResult, configChangesOut, error) {
 			if _, err := need(ctx, "status:read", "config:write"); err != nil {
@@ -161,7 +161,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, configChangesOut{Changes: list}, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "get_config_change", Title: "Get a configuration change", Annotations: read, OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "get_config_change", Title: "Get a configuration change", Annotations: read, OutputSchema: object,
 		Description: "One change to the configuration, with every item's value before and after."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in versionIn) (*mcp.CallToolResult, store.ConfigChange, error) {
 			if _, err := need(ctx, "status:read", "config:write"); err != nil {
@@ -171,7 +171,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 			return nil, ch, err
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "revert_config_change", Title: "Revert a configuration change", OutputSchema: object,
+	registerTool(s, &mcp.Tool{Name: "revert_config_change", Title: "Revert a configuration change", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), OpenWorldHint: t(false)},
 		Description: "Undo one change, as a new change: every item it touched gets its value from before. Refused when a later change touched one of them; revert that first."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in revertIn) (*mcp.CallToolResult, store.ConfigChange, error) {

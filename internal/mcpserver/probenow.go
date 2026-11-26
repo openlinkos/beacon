@@ -23,7 +23,7 @@ type probeNowIn struct {
 }
 
 func addProbeNowTools(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "probe_now", Title: "Probe a target again, now",
+	registerTool(s, &mcp.Tool{Name: "probe_now", Title: "Probe a target again, now",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(true)},
 		Description: "Have every location that probes a target probe it again at once, and see each location's answer within the wait: " +
 			"ok, the failure reason (dns, connect, timeout, tls, http_status, …), duration, HTTP status, attempts and certificate expiry; " +

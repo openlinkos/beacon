@@ -18,7 +18,7 @@ type shareLinkRevoked struct {
 }
 
 func addShareLinkTools(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "create_share_link", Title: "Create a share link",
+	registerTool(s, &mcp.Tool{Name: "create_share_link", Title: "Create a share link",
 		Description: "Make a bearer link for the current alert episode or one SSH session. Hand it only to people allowed to read the page. Requires a standalone token with accounts:write. The audit and chat omit the URL.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input shareLinkInput) (*mcp.CallToolResult, bridge.SharedLink, error) {
@@ -29,7 +29,7 @@ func addShareLinkTools(s *mcp.Server, b *bridge.Bridge) {
 			shared, err := b.CreateShareLink(ctx, who, input.Kind, input.ID)
 			return nil, shared, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "revoke_share_links", Title: "Revoke share links",
+	registerTool(s, &mcp.Tool{Name: "revoke_share_links", Title: "Revoke share links",
 		Description: "Invalidate all outstanding bearer links for one alert group or SSH session. Requires a standalone token with accounts:write.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), OpenWorldHint: t(false)}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input shareLinkInput) (*mcp.CallToolResult, shareLinkRevoked, error) {

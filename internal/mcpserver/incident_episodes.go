@@ -19,7 +19,7 @@ type incidentEpisodesIn struct {
 }
 
 func addIncidentEpisodeTool(s *mcp.Server, b *bridge.Bridge) {
-	mcp.AddTool(s, &mcp.Tool{Name: "list_incident_episodes", Title: "List incidents by start time",
+	registerTool(s, &mcp.Tool{Name: "list_incident_episodes", Title: "List incidents by start time",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
 		Description: "List retained alert episodes by start time, including those still open. Hook acceptance, programme reports, human participation and verification are separate observations. Unclassified records remain unknown."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in incidentEpisodesIn) (*mcp.CallToolResult, bridge.IncidentEpisodePage, error) {

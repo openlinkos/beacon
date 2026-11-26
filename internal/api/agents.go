@@ -16,11 +16,13 @@ import (
 // and within what the caller itself may do.
 
 func init() {
-	Routes = append(Routes, "POST /api/v1/agents", "PATCH /api/v1/agents/{name}")
+	Routes = append(Routes, "GET /api/v1/agents", "POST /api/v1/agents", "GET /api/v1/agents/{name}", "PATCH /api/v1/agents/{name}")
 }
 
 func (s *Server) registerAgents(mux *http.ServeMux) {
+	mux.Handle("GET /api/v1/agents", s.with("", s.listAgents))
 	mux.Handle("POST /api/v1/agents", s.with("", s.createAgent))
+	mux.Handle("GET /api/v1/agents/{name}", s.with("", s.getAgent))
 	mux.Handle("PATCH /api/v1/agents/{name}", s.with("", s.updateAgent))
 }
 
@@ -53,6 +55,24 @@ func (s *Server) agentError(w http.ResponseWriter, err error, notFound string) {
 		s.Log.Error("agent operation failed", "err", err)
 		writeError(w, http.StatusBadGateway, "upstream", err.Error())
 	}
+}
+
+func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	agents, err := s.Bridge.Agents(who, strings.TrimSpace(r.URL.Query().Get("owner")))
+	if err != nil {
+		s.agentError(w, err, "agent.not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
+}
+
+func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	v, err := s.Bridge.Agent(who, r.PathValue("name"))
+	if err != nil {
+		s.agentError(w, err, "agent.not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
