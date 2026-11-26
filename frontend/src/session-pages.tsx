@@ -49,7 +49,15 @@ function Replay({ src, failure }: { src: string; failure: string }) {
       element?.replaceChildren()
     }
   }, [src])
-  return <><div className="replay" ref={container} />{error && <p role="alert">{failure}</p>}</>
+  return (
+    <div className="replay-theatre">
+      <div className="replay-chrome" aria-hidden="true">
+        <span /><span /><span />
+      </div>
+      <div className="replay" ref={container} />
+      {error && <p className="operation-error" role="alert">{failure}</p>}
+    </div>
+  )
 }
 
 export type SessionsData = {

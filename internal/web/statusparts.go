@@ -112,9 +112,10 @@ func marks(brand string) (template.HTML, template.HTML) {
 	return template.HTML(ringsMark), template.HTML(ringsHero) //nolint:gosec // G203: constant markup
 }
 
-// statusIcons are the icons the status pages draw.
+// statusIcons are the icons the status pages and public landing page draw.
 var statusIcons = []string{"languages", "chevron-down", "circle-check", "triangle-alert", "circle-x", "wrench", "circle-help",
-	"bot", "user", "arrow-left", "menu", "activity", "calendar", "clock", "external-link", "log-in"}
+	"bot", "user", "users", "arrow-left", "arrow-right", "arrow-up-right", "menu", "activity", "calendar", "clock",
+	"external-link", "log-in", "terminal", "server", "shield-check", "globe", "zap", "book-open", "layers", "signal"}
 
 // statusSprite is the hidden <svg> of the status pages' icons, from the vendored set.
 var statusSprite = func() template.HTML {

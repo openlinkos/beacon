@@ -1,21 +1,29 @@
-/* Beacon's console layout and page patterns, built from the vendored design-system primitives. */
+/* Beacon's console layout and page patterns — unified architectural slate & obsidian palette. */
 
-[data-console] {
-  --bc-canvas: light-dark(#fbfaf7, #151a22);
-  --bc-nav: light-dark(#f3f1ec, #1b212b);
-  --bc-border: light-dark(#e2dfd7, #323b49);
-  --bc-ink: light-dark(#202633, #ecf0f7);
-  --bc-muted: light-dark(#535b66, #aeb9ca);
-  --bc-brand: light-dark(#96390e, #ffad85);
-  --bc-brand-bg: light-dark(#f9e9e0, #3a241d);
-  --bc-surface-raised: light-dark(#fff, #202833);
-  --bc-page-gutter: clamp(1.5rem, 3.15vw, 3.75rem);
-  --ol-size-sidebar: 14rem;
-  --ol-size-topbar: 3.25rem;
+:root {
+  --bc-canvas: light-dark(#f8fafc, #080c14);
+  --bc-nav: light-dark(#f1f5f9, #0d1320);
+  --bc-border: light-dark(#e2e8f0, #1e293b);
+  --bc-ink: light-dark(#0f172a, #f1f5f9);
+  --bc-muted: light-dark(#64748b, #94a3b8);
+  --bc-brand: light-dark(#2563eb, #60a5fa);
+  --bc-brand-bg: light-dark(rgba(37, 99, 235, 0.1), rgba(59, 130, 246, 0.16));
+  --bc-ember: light-dark(#f97316, #fb923c);
+  --bc-surface-raised: light-dark(#ffffff, #111827);
+  --ol-color-accent: var(--bc-brand);
+  --ol-color-accent-solid: light-dark(#2563eb, #3b82f6);
+  --ol-color-bg: var(--bc-canvas);
+  --ol-color-bg-subtle: var(--bc-nav);
   --ol-color-surface: var(--bc-surface-raised);
   --ol-color-border: var(--bc-border);
   --ol-color-fg: var(--bc-ink);
   --ol-color-fg-muted: var(--bc-muted);
+}
+
+[data-console] {
+  --bc-page-gutter: clamp(1.5rem, 3.15vw, 3.75rem);
+  --ol-size-sidebar: 14.5rem;
+  --ol-size-topbar: 3.35rem;
   color: var(--bc-ink);
 }
 
@@ -47,7 +55,12 @@
   border: 1px solid var(--bc-border);
   border-radius: 0.625rem;
   background: var(--bc-surface-raised);
-  color: var(--bc-brand);
+  color: var(--bc-ink);
+}
+
+.bc-brand-mark .ol-brand-accent,
+.bc-auth-brand .ol-brand-accent {
+  fill: var(--bc-ember);
 }
 
 [data-console] .ol-brand .bc-brand-mark svg {
@@ -159,21 +172,35 @@
 
 /* The overview has one focal band and one working surface. Rows carry the rest. */
 .bc-health {
-  --bc-signal-ink: #f4f8f9;
-  --bc-signal-muted: #bbd0d2;
-  --bc-signal-hairline: #477077;
-  --bc-signal-accent: #9cdbca;
+  --bc-signal-ink: #f1f5f9;
+  --bc-signal-muted: #94a3b8;
+  --bc-signal-hairline: rgba(148, 163, 184, 0.22);
+  --bc-signal-accent: #34d399;
   display: grid;
   gap: 1.25rem;
   align-items: center;
-  padding: clamp(1rem, 2.3vw, 1.625rem);
+  padding: clamp(1.125rem, 2.3vw, 1.75rem);
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.875rem;
   color: var(--bc-signal-ink);
-  background: #163139;
+  background:
+    radial-gradient(540px 220px at 10% 0%, rgba(59, 130, 246, 0.22), transparent 68%),
+    linear-gradient(155deg, #0b1120 0%, #0f172a 60%, #111c33 100%);
+  box-shadow: 0 12px 32px -12px rgba(15, 23, 42, 0.35);
 }
 
-.bc-health[data-tone="warning"] { --bc-signal-accent: #f4cf91; }
-.bc-health[data-tone="danger"] { --bc-signal-accent: #ffbf9d; }
+.bc-health[data-tone="warning"] {
+  --bc-signal-accent: #fbbf24;
+  background:
+    radial-gradient(540px 220px at 10% 0%, rgba(245, 158, 11, 0.22), transparent 68%),
+    linear-gradient(155deg, #0b1120 0%, #0f172a 60%, #1c1a17 100%);
+}
+.bc-health[data-tone="danger"] {
+  --bc-signal-accent: #f87171;
+  background:
+    radial-gradient(540px 220px at 10% 0%, rgba(239, 68, 68, 0.24), transparent 68%),
+    linear-gradient(155deg, #0b1120 0%, #0f172a 60%, #1f1419 100%);
+}
 .bc-health-state {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -724,5 +751,19 @@
 .bc-share-links [hidden],
 .bc-ssh-command [hidden] { display: none; }
 
-.bc-auth-brand { display: inline-flex; align-items: center; gap: 0.5rem; margin-block-end: 1.25rem; text-decoration: none; color: var(--ol-color-fg); font-weight: 700; }
+.bc-auth-brand { display: inline-flex; align-items: center; gap: 0.5rem; margin-block-end: 1.25rem; text-decoration: none; color: var(--bc-ink); font-weight: 700; }
 .bc-auth-brand svg { inline-size: 1.8rem; block-size: 1.8rem; }
+
+/* OAuth consent and standalone console entry cards */
+.ol-auth-shell {
+  background:
+    radial-gradient(640px 320px at 50% 0%, var(--bc-brand-bg), transparent 70%),
+    var(--bc-canvas);
+}
+
+.ol-auth-card {
+  border-color: var(--bc-border);
+  border-radius: 0.875rem;
+  background: var(--bc-surface-raised);
+  box-shadow: 0 16px 40px -16px rgba(15, 23, 42, 0.14);
+}

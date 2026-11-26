@@ -30,7 +30,7 @@ export function workspaceHref(href: string) {
       /^\/console\/alerts\/[^/?#]+(?:\/episodes\/[^/?#]+|\/share-links)?(?:\?|#|$)/.test(href)) {
     return base + href.slice('/console/'.length)
   }
-  if (/^\/console\/(?:sign-in|setup|join|reset|account|people|agents|machines|monitors|sessions|maintenance|silences|status-pages|credentials|tokens|config|hooks|audit|changes|incident-outcomes|incident-episodes)(?:[/?#]|$)/.test(href) &&
+  if (/^\/console\/(?:sign-in|setup|join|reset|account|people|agents|capabilities|machines|monitors|sessions|maintenance|silences|status-pages|credentials|tokens|config|hooks|audit|changes|incident-outcomes|incident-episodes)(?:[/?#]|$)/.test(href) &&
       !/^\/console\/sessions\/[^/]+\/recording(?:[?#]|$)/.test(href)) return base + href.slice('/console/'.length)
   return href
 }

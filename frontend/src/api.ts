@@ -2,13 +2,91 @@ export type Tone = 'danger' | 'warning' | 'success' | 'info' | ''
 export type Label = (key: string) => string
 export type LinkTarget = { K: string; V: string; Href: string }
 
+export type NavItem = {
+  Key: string
+  Label: string
+  Href: string
+  Icon: string
+  Count: string
+}
+
 export type WorkspaceSession = {
   language: string
   name: string
+  whoMeta: string
+  whoScopes: string
   csrf: string
   docs: string
+  repo: string
+  issues: string
+  version: string
+  mcpEndpoint: string
+  openApiHref: string
+  homeHref: string
+  sshChannel: { Text: string; Tone: Tone; Href: string }
   labels: Record<string, string>
-  navigation: { Label: string; Items: { Key: string; Label: string; Href: string; Count: string }[] }[]
+  navigation: { Label: string; Items: NavItem[] }[]
+}
+
+export type CapabilitiesData = {
+  caller: {
+    actor: string
+    user?: string
+    agent?: string
+    preset?: string
+    scopes: string[]
+    machine_scope: string
+    machines?: string[]
+    person: boolean
+    standalone: boolean
+  }
+  features: {
+    ssh: boolean
+    ssh_paused: boolean
+    config: boolean
+    status: boolean
+    probe_now: boolean
+    team_credentials: boolean
+    share_links: boolean
+    mcp_endpoint?: string
+    openapi_url?: string
+    docs_url?: string
+  }
+  domains: {
+    id: string
+    title: string
+    tag: string
+    summary: string
+    workflow: string
+    operations: {
+      tool: string
+      rest: string
+      domain: string
+      access: 'read' | 'write' | 'destructive'
+      scopes: string[]
+      scope_mode?: string
+      summary: string
+      available: boolean
+      unavailable_reason?: string
+    }[]
+  }[]
+  resources: {
+    uri: string
+    template?: boolean
+    name: string
+    title: string
+    domain: string
+    scopes: string[]
+    description: string
+    available: boolean
+  }[]
+  prompts: {
+    name: string
+    title: string
+    domain: string
+    description: string
+    arguments?: { name: string; description: string; required: boolean }[]
+  }[]
 }
 
 export type Metric = {

@@ -69,10 +69,10 @@ export function Facts({ rows }: { rows?: Pair[] | null }) {
 
 export function Table({ columns, rows, empty }: { columns: string[]; rows: ReactNode[][]; empty?: string }) {
   if (!rows.length) return empty ? <p className="empty">{empty}</p> : null
-  return <table className="resource-table">
+  return <div className="table-scroll"><table className="resource-table">
     <thead><tr>{columns.map((column, index) => <th key={index} scope="col">{column}</th>)}</tr></thead>
     <tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i} data-label={i ? columns[i] : undefined}>{cell}</td>)}</tr>)}</tbody>
-  </table>
+  </table></div>
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {

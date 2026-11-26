@@ -46,7 +46,7 @@ func registerWorkspaceFiles(mux *http.ServeMux, files fs.FS) {
 		_, _ = w.Write(index)
 	}
 	for _, route := range []string{
-		"/workspace/{$}", "/workspace/alerts", "/workspace/alerts/{id}", "/workspace/alerts/{id}/episodes/{episode}", "/workspace/sessions/{id}",
+		"/workspace/{$}", "/workspace/alerts", "/workspace/alerts/{id}", "/workspace/alerts/{id}/episodes/{episode}", "/workspace/sessions/{id}", "/workspace/capabilities",
 	} {
 		mux.HandleFunc("GET "+route, entry)
 	}

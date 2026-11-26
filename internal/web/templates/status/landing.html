@@ -1,12 +1,103 @@
-{{/* The page at / when no status page is shown there: what this is, the status pages it serves, and the way into the console. */}}
+{{/* The flagship public landing page at / when no default status page sits at the root. */}}
+{{define "nav"}}{{with .Landing}}<a href="#capabilities">{{.NavFeatures}}</a><a href="#workflow">{{.NavWorkflow}}</a><a href="#connect">{{.NavConnect}}</a>{{if $.Pages}}<a href="#status-pages">{{.NavStatus}}</a>{{end}}{{end}}{{end}}
+
 {{define "content"}}
 <section class="ol-hero bc-landing-hero" aria-labelledby="hero-title">
-  <div class="ol-hero-body">
-    <h1 class="ol-hero-title" id="hero-title">{{.Name}}</h1>
-    {{if or .SignIn .Pages}}<div class="ol-hero-actions">
-      {{- with .SignIn}}<a class="ol-btn ol-btn-primary ol-btn-lg" href="{{.URL}}">{{icon "log-in"}}{{.Title}}</a>{{end}}
-      {{- range .Pages}}<a class="ol-btn ol-btn-secondary ol-btn-lg bc-landing-page" href="{{.URL}}">{{.Title}}</a>{{end}}
+  <div class="bc-landing-grid">
+    <div class="ol-hero-body bc-landing-copy">
+      {{with .Landing}}<span class="bc-eyebrow"><span class="bc-live-dot" aria-hidden="true"></span><span>{{.Badge}}</span></span>{{end}}
+      <h1 class="ol-hero-title" id="hero-title">{{.Name}}</h1>
+      <p class="bc-landing-lead">{{.Description}}</p>
+      {{with .Landing}}<p class="bc-landing-sub">{{.Subline}}</p>{{end}}
+      <div class="ol-hero-actions bc-landing-actions">
+        {{- with .SignIn}}<a class="ol-btn ol-btn-primary ol-btn-lg" href="{{.URL}}">{{icon "log-in"}}{{.Title}}</a>{{end}}
+        {{- range .Pages}}<a class="ol-btn ol-btn-secondary ol-btn-lg bc-landing-page" href="{{.URL}}">{{.Title}}</a>{{end}}
+        {{- with .Landing}}{{if .DocsURL}}<a class="ol-btn ol-btn-ghost ol-btn-lg bc-landing-docs" href="{{.DocsURL}}">{{iconSm "book-open"}}{{.DocsLabel}}</a>{{end}}{{end}}
+      </div>
+      {{with .Landing}}<ul class="bc-spec-strip" aria-label="{{.Badge}}">
+        {{range .Specs}}<li>{{iconSm "circle-check"}}<span>{{.}}</span></li>{{end}}
+      </ul>{{end}}
+    </div>
+
+    {{with .Landing}}<div class="bc-terminal-card" aria-label="{{.LoopTitle}}">
+      <div class="bc-terminal-head">
+        <div class="bc-terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <span class="bc-terminal-title">{{.LoopTitle}}</span>
+        <span class="bc-terminal-pill"><span class="bc-live-dot" aria-hidden="true"></span>{{.LoopTag}}</span>
+      </div>
+      <ol class="bc-loop-list">
+        {{range .LoopSteps}}<li class="bc-loop-item">
+          <span class="bc-loop-num">{{.Number}}</span>
+          <span class="bc-loop-badge bc-tone-{{.Tone}}">{{.Badge}}</span>
+          <p class="bc-loop-text">{{.Text}}</p>
+        </li>{{end}}
+      </ol>
     </div>{{end}}
   </div>
 </section>
+
+{{with .Landing}}
+<section class="ol-site-section bc-landing-section" id="capabilities" aria-labelledby="capabilities-title">
+  <div class="ol-site-section-header bc-section-intro">
+    <h2 class="ol-site-section-title" id="capabilities-title">{{.PillarsTitle}}</h2>
+    <p class="ol-site-section-description">{{.PillarsLead}}</p>
+  </div>
+  <div class="bc-bento">
+    {{range .Pillars}}<article class="bc-bento-card">
+      <div class="bc-bento-head">
+        <span class="bc-icon-tile">{{icon .Icon}}</span>
+        <span class="bc-tag">{{.Tag}}</span>
+      </div>
+      <h3>{{.Title}}</h3>
+      <p>{{.Text}}</p>
+    </article>{{end}}
+  </div>
+</section>
+
+<section class="ol-site-section bc-landing-section" id="workflow" aria-labelledby="workflow-title">
+  <div class="ol-site-section-header bc-section-intro">
+    <h2 class="ol-site-section-title" id="workflow-title">{{.DualTitle}}</h2>
+    <p class="ol-site-section-description">{{.DualLead}}</p>
+  </div>
+  <div class="bc-dual-grid">
+    {{range .Audiences}}<article class="bc-audience-card">
+      <div class="bc-audience-eyebrow">{{iconSm .Icon}}<span>{{.Eyebrow}}</span></div>
+      <h3>{{.Title}}</h3>
+      <p class="bc-audience-lead">{{.Lead}}</p>
+      <ul class="bc-check-list">
+        {{range .Points}}<li>{{iconSm "circle-check"}}<span>{{.}}</span></li>{{end}}
+      </ul>
+    </article>{{end}}
+  </div>
+</section>
+
+<section class="ol-site-section bc-landing-section" id="connect" aria-labelledby="connect-title">
+  <div class="ol-site-section-header bc-section-intro">
+    <h2 class="ol-site-section-title" id="connect-title">{{.ConnectTitle}}</h2>
+    <p class="ol-site-section-description">{{.ConnectLead}}</p>
+  </div>
+  <div class="bc-connect-grid">
+    {{range .Snippets}}<article class="bc-snippet-card">
+      <div class="bc-snippet-head">
+        <span class="bc-snippet-title">{{iconSm .Icon}}<span>{{.Title}}</span></span>
+        <span class="bc-snippet-label">{{.Label}}</span>
+      </div>
+      <pre class="bc-snippet-code"><code>{{.Code}}</code></pre>
+    </article>{{end}}
+  </div>
+</section>
+{{end}}
+
+{{if .Pages}}{{with .Landing}}<section class="ol-site-section bc-landing-section" id="status-pages" aria-labelledby="status-pages-title">
+  <div class="ol-site-section-header bc-section-intro">
+    <h2 class="ol-site-section-title" id="status-pages-title">{{.PagesTitle}}</h2>
+    <p class="ol-site-section-description">{{.PagesLead}}</p>
+  </div>
+  <div class="bc-pages-grid">
+    {{range $.Pages}}<a class="bc-page-card" href="{{.URL}}">
+      <span class="bc-page-card-head">{{iconSm "globe"}}<strong>{{.Title}}</strong></span>
+      <span class="bc-page-card-link"><span>{{$.Landing.OpenPageLabel}}</span>{{iconSm "arrow-up-right"}}</span>
+    </a>{{end}}
+  </div>
+</section>{{end}}{{end}}
 {{end}}

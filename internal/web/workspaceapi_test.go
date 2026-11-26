@@ -129,6 +129,29 @@ func TestWorkspaceSessionAndIncidentMutations(t *testing.T) {
 	if page := duty.get(path + "/episodes/" + before.Episode); !strings.Contains(page.body, input.Text) {
 		t.Fatal("the note did not appear on the exact incident")
 	}
+
+	// Capability discovery is available to any signed-in workspace user over same-origin.
+	if a := e.browser().get(root + "/capabilities"); a.code != http.StatusUnauthorized {
+		t.Fatalf("anonymous workspace capabilities status %d", a.code)
+	}
+	duty.headers["Sec-Fetch-Site"] = "cross-site"
+	if a := duty.get(root + "/capabilities"); a.code != http.StatusForbidden {
+		t.Fatalf("cross-site workspace capabilities status %d", a.code)
+	}
+	delete(duty.headers, "Sec-Fetch-Site")
+	caps := duty.get(root + "/capabilities")
+	var capsBody struct {
+		Caller  struct{ Actor string } `json:"caller"`
+		Domains []struct {
+			ID string `json:"id"`
+		} `json:"domains"`
+		Resources []struct{ URI string }  `json:"resources"`
+		Prompts   []struct{ Name string } `json:"prompts"`
+	}
+	if caps.code != http.StatusOK || json.Unmarshal([]byte(caps.body), &capsBody) != nil ||
+		capsBody.Caller.Actor != "workspace-duty" || len(capsBody.Domains) != 6 || len(capsBody.Resources) == 0 || len(capsBody.Prompts) == 0 {
+		t.Fatalf("workspace capabilities: %d %s", caps.code, caps.body)
+	}
 }
 
 func TestWorkspaceAssetsAndDeepLinks(t *testing.T) {
@@ -144,6 +167,7 @@ func TestWorkspaceAssetsAndDeepLinks(t *testing.T) {
 		cache string
 	}{
 		{"/workspace/", 200, "no-cache"},
+		{"/workspace/capabilities", 200, "no-cache"},
 		{"/workspace/alerts/example/episodes/id", 200, "no-cache"},
 		{"/workspace/assets/app.js", 200, "immutable"},
 		{"/workspace/assets/missing.js", 404, "no-store"},

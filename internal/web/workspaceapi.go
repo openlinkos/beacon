@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/openlinkos/beacon/internal/api"
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -16,6 +17,7 @@ import (
 func (s *Server) registerWorkspaceAPI(at func(method, path string, h http.HandlerFunc)) {
 	const root = "/api/v1"
 	at("GET", root+"/session", s.workspace("", s.workspaceSession))
+	at("GET", root+"/capabilities", s.workspace("", s.workspaceCapabilities))
 	at("GET", root+"/overview", s.workspace("status:read", s.workspaceOverview))
 	at("GET", root+"/alerts", s.workspace("status:read", s.workspaceAlerts))
 	at("GET", root+"/alerts/{id}", s.workspace("status:read", s.workspaceIncident))
@@ -57,14 +59,63 @@ func workspaceError(w http.ResponseWriter, status int, code, message string) {
 
 func (s *Server) workspaceSession(w http.ResponseWriter, r *http.Request, v *viewer) {
 	sh := s.shellFor(r, v, "", "")
+	nav := make([]navGroup, len(sh.Nav))
+	mcpItem := navItem{Key: "capabilities", Label: s.t("MCP & API"), Href: "/workspace/capabilities", Icon: "layers"}
+	inserted := false
+	for i, group := range sh.Nav {
+		items := append([]navItem(nil), group.Items...)
+		if !inserted && group.Label == s.t("People and agents") {
+			items = append(items, mcpItem)
+			inserted = true
+		}
+		nav[i] = navGroup{Label: group.Label, Items: items}
+	}
+	if !inserted {
+		nav = append(nav, navGroup{Label: s.t("MCP & API"), Items: []navItem{mcpItem}})
+	}
+	baseURL := s.publicBaseURL(r)
 	workspaceJSON(w, http.StatusOK, struct {
-		Language   string            `json:"language"`
-		Name       string            `json:"name"`
-		CSRF       string            `json:"csrf"`
-		Docs       string            `json:"docs"`
-		Navigation []navGroup        `json:"navigation"`
-		Labels     map[string]string `json:"labels"`
-	}{sh.Lang, sh.Who, v.Session.CSRF, sh.Project.Docs, sh.Nav, s.workspaceLabels()})
+		Language    string            `json:"language"`
+		Name        string            `json:"name"`
+		WhoMeta     string            `json:"whoMeta"`
+		WhoScopes   string            `json:"whoScopes"`
+		CSRF        string            `json:"csrf"`
+		Docs        string            `json:"docs"`
+		Repo        string            `json:"repo"`
+		Issues      string            `json:"issues"`
+		Version     string            `json:"version"`
+		MCPEndpoint string            `json:"mcpEndpoint"`
+		OpenAPIHref string            `json:"openApiHref"`
+		HomeHref    string            `json:"homeHref"`
+		SSHChannel  sideStatus        `json:"sshChannel"`
+		Navigation  []navGroup        `json:"navigation"`
+		Labels      map[string]string `json:"labels"`
+	}{
+		Language: sh.Lang, Name: sh.Who, WhoMeta: sh.WhoMeta, WhoScopes: sh.WhoScopes,
+		CSRF: v.Session.CSRF, Docs: sh.Project.Docs, Repo: sh.Project.Repo, Issues: sh.Project.Issues,
+		Version: sh.Project.Version, MCPEndpoint: baseURL + "/mcp", OpenAPIHref: "/api/v1/openapi.yaml",
+		HomeHref: "/", SSHChannel: sh.Side, Navigation: nav, Labels: s.workspaceLabels(),
+	})
+}
+
+func (s *Server) workspaceFeatures(r *http.Request) api.Features {
+	baseURL := s.publicBaseURL(r)
+	return api.Features{
+		SSH:             s.SSH != nil,
+		SSHPaused:       s.SSH != nil && s.SSH.Paused(),
+		Config:          s.Config != nil,
+		Status:          s.Status != nil,
+		ProbeNow:        s.Bridge != nil && s.Bridge.CanProbeNow(),
+		TeamCredentials: s.Credentials != nil || s.CredentialsConfigured,
+		ShareLinks:      s.Bridge != nil && s.Bridge.AlertPage("probe") != "",
+		MCPEndpoint:     baseURL + "/mcp",
+		OpenAPIURL:      baseURL + "/api/v1/openapi.yaml",
+		DocsURL:         docsURL(s.Lang),
+	}
+}
+
+func (s *Server) workspaceCapabilities(w http.ResponseWriter, r *http.Request, v *viewer) {
+	workspaceJSON(w, http.StatusOK, api.BuildCapabilities(v.Principal, s.workspaceFeatures(r)))
 }
 
 func (s *Server) workspaceLabels() map[string]string {
@@ -91,6 +142,22 @@ func (s *Server) workspaceLabels() map[string]string {
 		"failed":  s.t("That did not work; the log says why."), "saved": s.t("Saved"),
 		"location": s.t("Location"), "result": s.t("Result"), "reason": s.t("Reason"), "target": s.t("Target"),
 		"replay": s.t("Replay"), "openHistory": s.t("Open incident history"),
+		// Workspace navigation, theme, command palette and MCP/API capability hub.
+		"theme": s.t("Theme"), "themeLight": s.t("Light"), "themeDark": s.t("Dark"), "themeSystem": s.t("System"),
+		"quickJump": s.t("Quick jump"), "jumpPlaceholder": s.t("Jump to a section or tool…"), "noJumpResults": s.t("No matching sections."),
+		"copy": s.t("Copy"), "copied": s.t("Copied"), "copyFailed": s.t("Copy failed"),
+		"mcpHub": s.t("MCP & API"), "mcpHubSubtitle": s.t("Structured operational domains, live MCP tools, resources, prompts and your active permission boundaries."),
+		"domains": s.t("Domains"), "tools": s.t("Tools"), "resources": s.t("MCP Resources"), "prompts": s.t("MCP Prompts"),
+		"available": s.t("Available"), "restricted": s.t("Restricted"), "availableOnly": s.t("Available to me"), "allDomains": s.t("All domains"),
+		"connectAgent": s.t("Connect an AI agent"), "openApiSpec": s.t("OpenAPI specification"),
+		"callerIdentity": s.t("Active caller"), "activeScopes": s.t("Active scopes"), "enabledFeatures": s.t("Enabled subsystems"),
+		"machineScope": s.t("Machine scope"), "allMachines": s.t("All machines"), "noMachines": s.t("No machines"),
+		"accessRead": s.t("Read"), "accessWrite": s.t("Write"), "accessDestructive": s.t("Destructive"),
+		"restEndpoint": s.t("REST endpoint"), "mcpTool": s.t("MCP tool"), "workflow": s.t("Workflow"),
+		"publicHome": s.t("Public home"), "backHome": s.t("Back to home"),
+		"signInHeadline": s.t("Human & AI operations infrastructure"),
+		"signInTagline":  s.t("Sign in to see your services, alerts and servers, and everything your agents did on them."),
+		"highlightProbe": s.t("Multi-location consensus"), "highlightSSH": s.t("5-min SSH certificates"), "highlightMCP": s.t("Native MCP + OAuth 2.1"),
 	}
 }
 
