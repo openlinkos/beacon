@@ -167,8 +167,8 @@ importers:
   .:
     devDependencies:
       '@openlinkos/vitepress-theme':
-        specifier: 0.8.0-rc.2
-        version: 0.8.0-rc.2(vitepress@1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3))(vue@3.5.44)
+        specifier: 0.8.0-rc.3
+        version: 0.8.0-rc.3(vitepress@1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3))(vue@3.5.44)
       vitepress:
         specifier: 1.6.4
         version: 1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3)
@@ -445,12 +445,12 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@openlinkos/ui@0.8.0-rc.2':
-    resolution: {integrity: sha512-e6y0VjngyeSpdZAW7fiweRJze1EkGZCm2Vt3gEidAky7LTA4XtMGjOUur8VLIr1EeoiUPfqnbL9FZvQPvK8dXQ==}
+  '@openlinkos/ui@0.8.0-rc.3':
+    resolution: {integrity: sha512-jmoaeB4CM1tqaBEUzTfkN9no+LI/zg+lsgGjTQx0RNIHA3z3ciRyM6CO0F0PC22SAjRJZcSt4edHFA/ApCpKhw==}
     engines: {node: '>=22.13'}
 
-  '@openlinkos/vitepress-theme@0.8.0-rc.2':
-    resolution: {integrity: sha512-DHjVoS4RKYAs6GafYeTV5xOjK7Y0vrSdS+aGGqImzcN0MTgJ40p/9R1wVpggNs/rKWTvrtlQU90qJrRaIVpu5Q==}
+  '@openlinkos/vitepress-theme@0.8.0-rc.3':
+    resolution: {integrity: sha512-ajm46zI6VgazuE28fRYujYhEv3SOsVpYYynTtlCMu+xFkU0+zZJ5xZf3u+UPZomDmacJAy3Wk14j2AvcXGsfZQ==}
     engines: {node: '>=22.13'}
     peerDependencies:
       vitepress: ^1.6.4
@@ -1224,11 +1224,11 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@openlinkos/ui@0.8.0-rc.2': {}
+  '@openlinkos/ui@0.8.0-rc.3': {}
 
-  '@openlinkos/vitepress-theme@0.8.0-rc.2(vitepress@1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3))(vue@3.5.44)':
+  '@openlinkos/vitepress-theme@0.8.0-rc.3(vitepress@1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3))(vue@3.5.44)':
     dependencies:
-      '@openlinkos/ui': 0.8.0-rc.2
+      '@openlinkos/ui': 0.8.0-rc.3
       vitepress: 1.6.4(@algolia/client-search@5.61.0)(postcss@8.5.32)(search-insights@2.17.3)
       vue: 3.5.44
 
