@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/binary"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +38,7 @@ func writtenSeries(t *testing.T, body string) []string {
 		t.Fatalf("forwarded body: %v", err)
 	}
 	var out []string
-	_, err = filterWrite(raw, func(s textSample) string {
+	_, err = filterWrite(raw, nil, func(s textSample) string {
 		var kv []string
 		for _, l := range s.labels {
 			kv = append(kv, l[0]+"="+l[1])
@@ -104,7 +105,7 @@ func TestRemoteWriteIsWrittenAgain(t *testing.T) {
 	e := newEnv(t, false)
 	body := writeRequest(
 		[]string{"__name__", "node_load1", "instance", "a"},
-		[]string{"__name__", "node_load1", "job", "probe", "job", "beacon"},                           // a label twice
+		[]string{"__name__", "node_load1", "instance", "a", "instance", "b"},                          // a label twice
 		[]string{"__name__", "node_load1", "__name__", heartbeatMetric, "heartbeat", "worker-backup"}, // the name twice
 		[]string{"__name__", heartbeatMetric, "heartbeat", "worker-backup"},
 		[]string{"__name__", heartbeatMetric, "heartbeat", "edge-backup"},
@@ -137,4 +138,51 @@ func TestRemoteWriteIsWrittenAgain(t *testing.T) {
 	code(t, e.write(e.host, string(snappyLiterals([]byte{0x0b, 0xff}))), http.StatusBadRequest, "bad_input")
 	// an empty body is an empty request
 	code(t, e.write(e.host, ""), http.StatusNoContent, "")
+}
+
+// TestRemoteWriteIsVersionOne: the gateway reads Prometheus' remote write version 1 only. A request whose
+// Content-Type names another protocol, as remote write 2.0's does, is refused with 415 and nothing is
+// stored, so that the sender is told rather than its samples lost.
+func TestRemoteWriteIsVersionOne(t *testing.T) {
+	e := newEnv(t, false)
+	body := writeRequest([]string{"__name__", "node_load1"})
+	for _, ct := range []string{"", "application/x-protobuf", "application/x-protobuf;proto=prometheus.WriteRequest", `application/x-protobuf; proto="prometheus.WriteRequest"`} {
+		code(t, e.write(e.host, body, "Content-Type", ct), http.StatusNoContent, "")
+	}
+	before := len(e.vm.reqs)
+	for _, ct := range []string{"application/x-protobuf;proto=io.prometheus.write.v2.Request", "application/x-protobuf; PROTO=io.prometheus.write.v2.Request", "application/x-protobuf;proto=example.Other"} {
+		code(t, e.write(e.host, body, "Content-Type", ct), http.StatusUnsupportedMediaType, "write.protocol")
+	}
+	if len(e.vm.reqs) != before {
+		t.Fatal("a refused request reached VictoriaMetrics")
+	}
+}
+
+// TestRemoteWriteIsBounded: one request holds at most maxWriteBytes once decompressed, and at most the
+// longest snappy block of that compressed.
+func TestRemoteWriteIsBounded(t *testing.T) {
+	e := newEnv(t, false)
+	before := len(e.vm.reqs)
+	code(t, e.write(e.host, string(snappyLiterals(make([]byte, maxWriteBytes+1)))), http.StatusBadRequest, "import.too_large")
+	code(t, e.write(e.host, strings.Repeat("x", maxWriteBody+1)), http.StatusBadRequest, "import.too_large")
+	if len(e.vm.reqs) != before {
+		t.Fatal("a refused request reached VictoriaMetrics")
+	}
+	if n := len(snappyLiterals(make([]byte, maxWriteBytes))); n > maxWriteBody {
+		t.Fatalf("a block of %d bytes compressed is longer than %d", n, maxWriteBody)
+	}
+	// a body that does not say its length is read as far as the limit
+	unsized := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/v1/write", io.MultiReader(strings.NewReader(body)))
+		r.Header.Set("Authorization", "Bearer "+e.host)
+		r.Header.Set("Content-Encoding", "snappy")
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, r)
+		return rec
+	}
+	code(t, unsized(strings.Repeat("x", maxWriteBody+1)), http.StatusBadRequest, "import.too_large")
+	code(t, unsized(writeRequest([]string{"__name__", "node_load1"})), http.StatusNoContent, "")
+	if _, fwd := e.vm.last(); !slices.Equal(writtenSeries(t, fwd), []string{"__name__=node_load1"}) {
+		t.Fatalf("forwarded %q", writtenSeries(t, fwd))
+	}
 }

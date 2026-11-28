@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2a668dd9
+sourceHash: sha256-23b4f847
 ---
 
 # 数据来源
@@ -41,7 +41,7 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签和 `job="host"`。主机自己的抓取程序设的 `job` 会被替换，所以它各个抓取任务的序列靠 `instance` 区分。
 
-remote write 用的是 Prometheus 的协议第 1 版，snappy 压缩，Prometheus 和 vmagent 就是这样发的。网关读每个请求（解压后最多 32 MiB），把它放行的序列重新写一遍再转发。VictoriaMetrics 自己的协议（zstd）会被拒绝，返回 `write.encoding`（415），vmagent 收到后会改回 Prometheus 的协议。
+remote write 用的是 Prometheus 的协议第 1 版，snappy 压缩，Prometheus 和 vmagent 就是这样发的。网关读每个请求（解压后最多 16 MiB），把它放行的序列重新写一遍再转发，写时去掉网关自己设置的标签。vmagent 的请求默认最多 8 MiB（`-remoteWrite.maxBlockSize`）；更大的请求会被拒绝，返回 `import.too_large`（400），发送方会丢掉它，所以这个设置不要超过 16 MiB。VictoriaMetrics 自己的协议（zstd）会被拒绝，返回 `write.encoding`（415），vmagent 收到后会改回 Prometheus 的协议。remote write 2.0（`Content-Type: application/x-protobuf;proto=io.prometheus.write.v2.Request`），以及第 1 版以外的任何协议，会被拒绝，返回 `write.protocol`（415），其中的样本一个也不存。请把发送方配置成第 1 版，即 Prometheus 的默认值（`protobuf_message: prometheus.WriteRequest`）。
 
 ## 心跳 {#heartbeats}
 
@@ -57,17 +57,19 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
 
 在装了检测程序的机器上，任务改为把同样一行写进检测程序的 textfile 目录。这个样本只对目录分给这台机器的心跳算数：心跳的 `machine` 是这个检测点的位置，或者主机令牌登记时的名字。没有写 `machine` 的心跳只能由它自己的心跳令牌写入。心跳本身、它的 `max_age` 和级别写在目录里（[心跳](catalogue.md#heartbeats)）。
 
-检测程序只从 textfile 目录发送它自己的行：检测结果（`probe_…`）和心跳以外的 Beacon 指标（`beacon_…`）只由检测程序自己报告，目录里的这些行会被略过。
+检测程序只从 textfile 目录发送它自己的行：检测结果（`probe_…`）和心跳以外的 Beacon 指标（`beacon_…`）只由检测程序自己报告，规则引擎留给自己的指标名（带冒号的名字、`ALERTS` 和 `ALERTS_FOR_STATE`）也不归它，目录里的这些行会被略过。没有 `job` 的行由它加上 `job`；网关无论如何都会设置 `job`。
 
 ## 网关放行什么 {#what-the-gateway-passes}
 
 检测点、主机和心跳发来的每个样本，网关都在 VictoriaMetrics 之前先读一遍，只放行说得清楚自己是什么的：
 
 - **普通的文本格式。** 一行是 `name{label="value",…} value [timestamp]`，指标名写在大括号前面，标签名不加引号。VictoriaMetrics 还认大括号里带引号的指标名，以及代替前面指标名的 `__name__` 标签；网关两种都不放行。超过 64 KiB 的行不算样本。
-- **每个标签只写一次。** 同一个标签写了两次的样本或 remote write 序列不放行。
+- **每个标签只写一次。** 同一个标签写了两次的样本或 remote write 序列不放行，除非这个标签由网关自己设置（`job`；检测点还有 `location`、`region`、`network` 和 `host`，主机还有 `host`，心跳还有 `heartbeat`、`source` 和 `sender`）：网关的值会把它们全部替换掉。
+- **最多 64 个标签。** 指标名之外标签超过 64 个的样本或 remote write 序列不放行。
 - **心跳归它的机器。** 检测点或主机只能为目录里 `machine` 是这个检测点位置或这台主机的心跳写 `beacon_heartbeat_last_success_timestamp_seconds`。
+- **不用规则引擎的名字。** 检测点或主机不能写名字里带冒号的指标（记录规则的系列都是这样，如 `beacon:service_down`、`beacon:heartbeat_last_success`），也不能写 `ALERTS` 或 `ALERTS_FOR_STATE`，vmalert 靠它们恢复告警。主机自己的记录规则的系列，请在发送前改名，或改在中心记录。
 
-检测点或主机发来的、不放行的样本被丢弃，导入的其余部分照常写入，`beacon_gateway_samples_dropped_total` 按机器（`subject`）和原因（`reason`：`syntax`、`name_label`、`labels` 或 `heartbeat`）计数。每种情况第一次出现时写日志。心跳令牌的导入里有这样的行，整个导入被拒绝：别的指标或 `__name__` 标签返回 `heartbeat.metric`，其余返回 `bad_input`。
+检测点或主机发来的、不放行的样本被丢弃，导入的其余部分照常写入，`beacon_gateway_samples_dropped_total` 按机器（`subject`）和原因（`reason`：`syntax`、`name_label`、`labels`、`too_many_labels`、`heartbeat` 或 `reserved`）计数。每种情况第一次出现时写日志。心跳令牌的导入里有这样的行，整个导入被拒绝：别的指标或 `__name__` 标签返回 `heartbeat.metric`，其余返回 `bad_input`。
 
 ## 规则引擎 {#the-rule-engine}
 

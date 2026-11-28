@@ -59,24 +59,25 @@ tests:
               description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
 
-  # One location alone does not raise a certificate's alert: of the earliest expiry each location sees, the
-  # second earliest counts. A service only one location checks has that location's.
-  - name: a certificate expiring needs two locations to agree
+  # The warning is the earliest expiry any location sees, so that one location's certificate (one CDN node's) is
+  # seen. The critical alert needs two locations to agree when two or more check the service: of the earliest
+  # expiry each location sees, the second earliest counts. A service only one location checks has that location's.
+  - name: a certificate expiring warns from one location and is critical when two agree
     interval: 5m
     input_series:
-      # app: one location sees 3 days, the other 60 days: nothing
+      # app: one location sees 3 days, the other 60 days: a warning, at 3 days
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",failure_domain="origin-1",location="edge-1",instance="https://app.example.com/"}'
         values: '946944000x5'   # in 3 days
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",failure_domain="origin-1",location="cn-1",instance="https://app.example.com/"}'
         values: '951868800x5'   # in 60 days
-      # api: two of three locations see 5 days: critical, at what they agree on
+      # api: two of three locations see 5 days: critical, at what they agree on, and no warning
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="edge-1",instance="https://api.example.com/"}'
         values: '947116800x5'   # in 5 days
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="cn-1",instance="https://api.example.com/"}'
         values: '947116800x5'
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="de-1",instance="https://api.example.com/"}'
         values: '951868800x5'
-      # www: one location sees 3 days on one of its targets, the other 10 days: a warning, at 10 days
+      # www: one location sees 3 days on one of its targets and 60 on another, the other 10 days: a warning, at 3 days
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="www.example.com",failure_domain="origin-3",location="edge-1",instance="https://www.example.com/"}'
         values: '946944000x5'   # in 3 days
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="www.example.com",failure_domain="origin-3",location="edge-1",instance="https://www.example.com/a"}'
@@ -86,10 +87,28 @@ tests:
       # solo: checked from one location only, which sees 5 days: critical
       - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="solo.example.com",failure_domain="origin-4",location="edge-1",instance="https://solo.example.com/"}'
         values: '947116800x5'   # in 5 days
+      # pair: of its two locations one sees 5 days, the other 10: a warning, at 5 days, as both must agree
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="pair.example.com",failure_domain="origin-5",location="edge-1",instance="https://pair.example.com/"}'
+        values: '947116800x5'   # in 5 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="pair.example.com",failure_domain="origin-5",location="cn-1",instance="https://pair.example.com/"}'
+        values: '947548800x5'   # in 10 days
+      # fine: every location sees 20 days or more: nothing
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="fine.example.com",failure_domain="origin-6",location="edge-1",instance="https://fine.example.com/"}'
+        values: '948412800x5'   # in 20 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="fine.example.com",failure_domain="origin-6",location="cn-1",instance="https://fine.example.com/"}'
+        values: '951868800x5'
     alert_rule_test:
       - eval_time: 10m
         alertname: CertificateExpiring
         exp_alerts:
+          - exp_labels:
+              service: app.example.com
+              failure_domain: origin-1
+              severity: warning
+            exp_annotations:
+              summary: The certificate of app.example.com expires in 2d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
           - exp_labels:
               service: api.example.com
               failure_domain: origin-2
@@ -103,7 +122,7 @@ tests:
               failure_domain: origin-3
               severity: warning
             exp_annotations:
-              summary: The certificate of www.example.com expires in 9d 23h 50m 0s
+              summary: The certificate of www.example.com expires in 2d 23h 50m 0s
               description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
           - exp_labels:
@@ -112,6 +131,14 @@ tests:
               severity: critical
             exp_annotations:
               summary: The certificate of solo.example.com expires in 4d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
+          - exp_labels:
+              service: pair.example.com
+              failure_domain: origin-5
+              severity: warning
+            exp_annotations:
+              summary: The certificate of pair.example.com expires in 4d 23h 50m 0s
               description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
 
@@ -216,4 +243,37 @@ tests:
             exp_annotations:
               summary: nas-backup has not succeeded for 2h 0m 0s
               description: The job behind heartbeat nas-backup did not report success within its max_age. Check whether it ran, and whether it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md
+
+  # The alerts read the recorded beacon:heartbeat_last_success only as the rule engine records it, without a job.
+  # A series of that name with a job came through the gateway from a machine, which the gateway no longer passes:
+  # it neither raises HeartbeatStale nor stands in for a heartbeat that never reported.
+  - name: a heartbeat's recorded success counts only from the rule engine
+    interval: 5m
+    input_series:
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{job="heartbeat",heartbeat="nas-backup",source="heartbeat",sender="nas-backup"}'
+        values: '946684800+300x330'
+      - series: 'beacon:heartbeat_last_success{job="probe",heartbeat="nas-backup",location="edge-1",region="overseas",network="BGP",host="edge-1"}'
+        values: '0x330'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="nas-backup",severity="warning"}'
+        values: '7200x330'
+      - series: 'beacon:heartbeat_last_success{job="host",heartbeat="db-dump",host="worker-1"}'
+        values: '946684800+300x330'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="db-dump",severity="critical"}'
+        values: '7200x330'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: HeartbeatStale
+        exp_alerts: []
+      - eval_time: 26h
+        alertname: HeartbeatMissing
+        exp_alerts:
+          - exp_labels:
+              heartbeat: db-dump
+              severity: critical
+              service: db-dump
+              failure_domain: db-dump
+            exp_annotations:
+              summary: db-dump has never reported
+              description: Heartbeat db-dump is in the catalogue, but no success has been reported in 31 days. Check that the job ends with beacon-heartbeat, or pushes with its token.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md

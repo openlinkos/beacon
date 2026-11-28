@@ -33,7 +33,7 @@ On `/metrics` (job `beacon` in the reference scrape configuration):
 | `beacon_gateway_alerts_capped_total` | `token` | Alerts dropped from an `alerts:send` post beyond the first 200 |
 | `beacon_router_alerts_capped_total` | `sender`, `reason` | New firing alerts from an `alerts:send` token dropped because it held 500 firing alerts (`alerts`) or 50 groups (`groups`) |
 | `beacon_gateway_alerts_dropped_total` | `token` | Alerts dropped from an `alerts:send` token because only the rule engine sends the Watchdog and alerts of severity `none` |
-| `beacon_gateway_samples_dropped_total` | `subject`, `reason` | Samples from a probe or a host the gateway dropped: not in the plain text format (`syntax`), naming the metric with `__name__` (`name_label`), giving a label twice (`labels`), or a heartbeat the catalogue does not give that machine (`heartbeat`) |
+| `beacon_gateway_samples_dropped_total` | `subject`, `reason` | Samples from a probe or a host the gateway dropped: not in the plain text format (`syntax`), naming the metric with `__name__` (`name_label`), giving a label twice (`labels`), with more than 64 labels (`too_many_labels`), a heartbeat the catalogue does not give that machine (`heartbeat`), or a name the rule engine keeps for itself (`reserved`) |
 | `beacon_probe_now_requests_open` | | Probe-on-demand requests waiting for locations to answer |
 | `beacon_probe_now_requests_total` | | Probe-on-demand requests made by agents |
 | `beacon_probe_now_answers_total` | `location` | Answers from locations to a probe-on-demand request |
@@ -72,7 +72,7 @@ The probe agent sends these with every push, so they are per location:
 
 The reference rules are four files, and each group says which metric it watches. Recording rules in `deploy/rules/probes.yml` (the `beacon:` series) carry the intermediate steps, and the alerts build on them. There, a location counts as failing once it has failed for 3 minutes, and a service's availability over a day is `avg_over_time(beacon:service_up[1d])`.
 
-Each rule selects its input by `job`: probe results from `job="probe"`, the catalogue's metrics and the gateway's own counts from `job="beacon"`, a probe's queue from `job=~"probe|host"`, a heartbeat's success from `job=~"heartbeat|probe|host"`. They need the centre scraped under the job names of `deploy/metrics/scrape.yml`.
+Each rule selects its input by `job`: probe results from `job="probe"`, the catalogue's metrics and the gateway's own counts from `job="beacon"`, a probe's queue from `job=~"probe|host"`, a heartbeat's success from `job=~"heartbeat|probe|host"`, and the recorded `beacon:` series from `job=""`, as vmalert records them without a job. They need the centre scraped under the job names of `deploy/metrics/scrape.yml`, and vmalert without an external `job` label.
 
 ### Service availability
 
@@ -92,7 +92,7 @@ Each rule selects its input by `job`: probe results from `job="probe"`, the cata
 | Alert | Severity | For | When |
 | --- | --- | --- | --- |
 | `ResourceExpiring` | `warning`, then `critical` | — | A resource in the catalogue expires within 30 days; critical within 7 |
-| `CertificateExpiring` | `warning`, then `critical` | — | The certificate expiry that at least two locations see is within 14 days, or the one location's for a service only one location checks; critical within 7 (Let's Encrypt renews 30 days ahead, so renewal has failed twice over) |
+| `CertificateExpiring` | `warning`, then `critical` | — | The earliest certificate expiry any location sees is within 14 days (Let's Encrypt renews 30 days ahead, so renewal has failed twice over); critical within 7 as at least two locations see it, or the one location's for a service only one location checks |
 | `HeartbeatStale` | the heartbeat's own `severity` | — | A job has not reported success within its `max_age` |
 | `HeartbeatMissing` | the heartbeat's own `severity` | 1d | A heartbeat in the catalogue has never reported (a new one gets a day to succeed once) |
 

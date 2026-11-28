@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -176,13 +177,14 @@ func code(t *testing.T, rec *httptest.ResponseRecorder, want int, errCode string
 
 func TestProbeWriteIsLabelledByTheGateway(t *testing.T) {
 	e := newEnv(t, false)
-	// the probe tries to pass its own extra_label: the gateway drops the client's query entirely
+	// the probe tries to pass its own extra_label: the gateway drops the client's query entirely, and
+	// leaves out the labels it sets itself
 	body := writeRequest([]string{"__name__", "probe_success", "location", "evil"})
 	rec := e.do("POST", "/api/v1/write?extra_label=location=evil", e.probe, body)
 	code(t, rec, http.StatusNoContent, "")
 	r, fwd := e.vm.last()
-	if r.URL.Path != "/prefix/api/v1/write" || fwd != body {
-		t.Fatalf("forwarded %s %q", r.URL.Path, fwd)
+	if got := writtenSeries(t, fwd); r.URL.Path != "/prefix/api/v1/write" || !slices.Equal(got, []string{"__name__=probe_success"}) {
+		t.Fatalf("forwarded %s %q", r.URL.Path, got)
 	}
 	got := r.URL.Query()["extra_label"]
 	want := []string{"location=cdn-pre-us1", "region=overseas", "network=CN2 GIA", "host=cdn-pre-us1", "job=probe"}

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9c8405c6
+sourceHash: sha256-8d4ccb7d
 ---
 
 # REST API
@@ -294,7 +294,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | Prometheus 文本格式的样本（`beacon-probe` 推送的就是这种），以及心跳；打上令牌的主体和种类（`job`）标签，一次导入最多 200,000 个样本。网关不放行的行会被丢弃（[数据来源](sources.md#what-the-gateway-passes)） |
-| `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write 第 1 版，snappy 压缩；解压后最多 32 MiB |
+| `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write 第 1 版，snappy 压缩；解压后最多 16 MiB |
 | `GET /api/v1/targets` | `probe:write` | 这个检测点要检测的目标 |
 | `GET /api/v1/modules` | `probe:write` | 检测模块文件，逐字节原样返回 |
 | `GET /api/v1/agent` | `probe:write` | 检测点的设置：它的 id、检测超时和重试次数 |
@@ -399,9 +399,10 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `location.inactive` | 403 | 网关：检测点不在目录里，或者它的机器已经到期 |
 | `changes.too_many` | 429 | 网关：这个令牌这一分钟发了超过 60 个变更事件 |
 | `alerts.too_many` | 429 | 网关：这个 `alerts:send` 令牌这一分钟发告警超过 120 次 |
-| `import.too_large` | 400 | 网关：这次导入的样本或文本超过一次导入的上限（200,000 个样本、64 MiB；心跳为 100 个样本、64 KiB） |
+| `import.too_large` | 400 | 网关：这次导入的样本或文本超过一次导入的上限（200,000 个样本、64 MiB；心跳为 100 个样本、64 KiB），或一个 remote write 请求解压后超过 16 MiB |
 | `heartbeat.metric` | 400 | 网关：心跳令牌发了 `beacon_heartbeat_last_success_timestamp_seconds` 以外的指标，或者用 `__name__` 标签写指标名 |
 | `write.encoding` | 415 | 网关：remote write 不是用 snappy 压缩的，例如 VictoriaMetrics 自己的协议；vmagent 收到这个回答会改用 Prometheus 的协议 |
+| `write.protocol` | 415 | 网关：remote write 用的不是第 1 版协议，例如 remote write 2.0（`proto=io.prometheus.write.v2.Request`）；其中的样本一个也不存 |
 | `heartbeat.unnamed` | 403 | 网关：心跳令牌没有登记心跳名字；用 `beacon enroll heartbeat <name>` 登记 |
 | `request.not_found` | 404 | 网关：没有这个检测请求，或者它已经过期 |
 | `exercise.invalid_receipt` | 400 | 网关：演练响应凭据对此检测点或目标无效，或已经过期 |

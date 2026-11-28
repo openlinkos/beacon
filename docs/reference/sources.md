@@ -37,7 +37,7 @@ The results use the Blackbox Exporter's metric names (`probe_success`, `probe_du
 
 A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host` and `job="host"`. The `job` a host's own scraper sets is replaced, so series from its scrape jobs stay apart by `instance`.
 
-Remote write is Prometheus' protocol, version 1, compressed with snappy, as Prometheus and vmagent send it. The gateway reads each request, at most 32 MiB once decompressed, and passes on the series it lets through, written again. VictoriaMetrics' own protocol (zstd) is refused with `write.encoding` (415), on which vmagent goes back to Prometheus' protocol.
+Remote write is Prometheus' protocol, version 1, compressed with snappy, as Prometheus and vmagent send it. The gateway reads each request, at most 16 MiB once decompressed, and passes on the series it lets through, written again without the labels it sets itself. vmagent's requests are at most 8 MiB by default (`-remoteWrite.maxBlockSize`); a larger request is refused with `import.too_large` (400), and the sender drops it, so keep that setting at 16 MiB or below. VictoriaMetrics' own protocol (zstd) is refused with `write.encoding` (415), on which vmagent goes back to Prometheus' protocol. Remote write 2.0 (`Content-Type: application/x-protobuf;proto=io.prometheus.write.v2.Request`), or any protocol other than version 1, is refused with `write.protocol` (415) and nothing of it is stored. Configure the sender for version 1, Prometheus' default (`protobuf_message: prometheus.WriteRequest`).
 
 ## Heartbeats
 
@@ -53,17 +53,19 @@ The token writes that heartbeat and nothing else. The gateway labels the sample 
 
 On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. That sample counts only for a heartbeat the catalogue gives that machine: its `machine` is the probe's location, or the name the host's token was enrolled for. A heartbeat that names no machine is written by its own heartbeat token alone. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalogue.md#heartbeats)).
 
-The agent sends from the textfile directory only lines of its own: it leaves out probe results (`probe_…`) and Beacon's metrics (`beacon_…`) other than the heartbeat, which the agent alone reports.
+The agent sends from the textfile directory only lines of its own: it leaves out probe results (`probe_…`) and Beacon's metrics (`beacon_…`) other than the heartbeat, which the agent alone reports, and the names the rule engine keeps for itself (any with a colon, `ALERTS` and `ALERTS_FOR_STATE`). It adds `job` to a line that has none; the gateway sets `job` in any case.
 
 ## What the gateway passes
 
 The gateway reads each sample a probe, a host or a heartbeat sends before VictoriaMetrics does, and passes it only when it says plainly what it is:
 
 - **The plain text format.** A line is `name{label="value",…} value [timestamp]`, with the metric's name before the braces and plain label names. VictoriaMetrics also reads a name quoted inside the braces, or a `__name__` label in place of the name before them; the gateway passes neither. A line longer than 64 KiB is not a sample.
-- **Each label once.** A sample or a remote-write series that gives a label twice is not passed.
+- **Each label once.** A sample or a remote-write series that gives a label twice is not passed, unless the gateway sets that label itself (`job`, and `location`, `region`, `network` and `host` for a probe, `host` for a host, `heartbeat`, `source` and `sender` for a heartbeat): the gateway's value replaces them all.
+- **At most 64 labels.** A sample or a remote-write series with more labels besides its name is not passed.
 - **A heartbeat for its machine.** A probe or a host writes `beacon_heartbeat_last_success_timestamp_seconds` only for a heartbeat whose `machine` in the catalogue is that probe's location or that host.
+- **None of the rule engine's names.** A probe or a host writes no metric whose name has a colon, which the recording rules' series have (`beacon:service_down`, `beacon:heartbeat_last_success`), nor `ALERTS` or `ALERTS_FOR_STATE`, from which vmalert restores its alerts. Rename a host's own recording rules' series before they are sent, or record them on the centre.
 
-From a probe or a host, what is not passed is dropped, the rest of the import goes on, and `beacon_gateway_samples_dropped_total` counts it by machine (`subject`) and `reason`: `syntax`, `name_label`, `labels` or `heartbeat`. The first of each is logged. A heartbeat token's import with such a line is refused whole: `heartbeat.metric` for another metric or a `__name__` label, `bad_input` otherwise.
+From a probe or a host, what is not passed is dropped, the rest of the import goes on, and `beacon_gateway_samples_dropped_total` counts it by machine (`subject`) and `reason`: `syntax`, `name_label`, `labels`, `too_many_labels`, `heartbeat` or `reserved`. The first of each is logged. A heartbeat token's import with such a line is refused whole: `heartbeat.metric` for another metric or a `__name__` label, `bad_input` otherwise.
 
 ## The rule engine
 

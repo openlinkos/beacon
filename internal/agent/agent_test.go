@@ -313,11 +313,19 @@ func TestQueueLimitAndCache(t *testing.T) {
 	}
 }
 
+// TestWriteTextLine: a textfile line gets the job label unless it gives one of its own (the gateway would
+// drop a line with job twice from an older one), and the agent's timestamp.
 func TestWriteTextLine(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{`x 1`, `x{job="node"} 1 0`},
 		{`x{a="b"} 2`, `x{a="b",job="node"} 2 0`},
 		{`x{} 3`, `x{job="node"} 3 0`},
+		{`backup_jobs{job="nightly"} 3`, `backup_jobs{job="nightly"} 3 0`},
+		{`backup_jobs{a="b", job = "nightly"} 3`, `backup_jobs{a="b", job = "nightly"} 3 0`},
+		{`x{a="job=\"y\"",jobs="z"} 4`, `x{a="job=\"y\"",jobs="z",job="node"} 4 0`},
+		{`x{a="b c"} 5`, `x{a="b c",job="node"} 5 0`},
+		{`x{a="b",} 6`, `x{a="b",job="node"} 6 0`},
+		{`x 7 1793436000000`, `x{job="node"} 7 0`},
 	} {
 		var w bytes.Buffer
 		writeTextLine(&w, c.in, "node", time.UnixMilli(0))

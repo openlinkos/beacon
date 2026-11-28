@@ -156,6 +156,35 @@ tests:
               description: plain.example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 
+  # The recorded series count only as the rule engine records them, without a job. A series of a recorded name
+  # with a job came through the gateway from a machine, which the gateway no longer passes: failing locations
+  # made up that way neither raise a partial outage nor turn the service down.
+  - name: recorded series count only from the rule engine
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="edge-2",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="probe",service="example.com",severity="critical",failure_domain="origin-1",location="cn-1",region="mainland"}'
+        values: '1x25'
+      - series: 'beacon:probe_failing{job="probe",host="edge-3",service="example.com",severity="critical",failure_domain="origin-1",location="ghost-1",region="overseas"}'
+        values: '1x25'
+      - series: 'beacon:probe_failing{job="probe",host="edge-3",service="example.com",severity="critical",failure_domain="origin-1",location="ghost-2",region="overseas"}'
+        values: '1x25'
+      - series: 'beacon:service_failing_locations{job="host",host="worker-1",service="example.com",severity="critical",failure_domain="origin-1"}'
+        values: '4x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ServiceDegraded
+        exp_alerts: []
+    metricsql_expr_test:
+      - expr: beacon:service_up{job=""}
+        eval_time: 16m
+        exp_samples:
+          - labels: '{__name__="beacon:service_up",service="example.com",severity="critical",failure_domain="origin-1"}'
+            value: 1
+
   - name: fewer than half failing is a partial outage, a warning
     interval: 1m
     input_series:
