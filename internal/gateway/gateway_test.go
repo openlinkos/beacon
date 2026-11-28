@@ -65,6 +65,7 @@ type env struct {
 	reader  string
 	flux    string
 	human   string
+	auth    *api.Auth // the Auth the gateway was given, which the API shares
 }
 
 func newEnv(t *testing.T, withAM bool) *env {
@@ -134,7 +135,8 @@ resources:
 	now := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // cdn-pre-cn1 expired on 11-02
 	e.board = probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return c }, Targets: func() *targets.Set { return set },
 		Metrics: e.m, Now: func() time.Time { return now }})
-	e.h = Handler(Deps{Auth: &api.Auth{Store: st, Now: func() time.Time { return now }}, Catalog: func() *catalog.Catalog { return c },
+	e.auth = &api.Auth{Store: st, Now: func() time.Time { return now }}
+	e.h = Handler(Deps{Auth: e.auth, Catalog: func() *catalog.Catalog { return c },
 		Targets: func() *targets.Set { return set }, Modules: func() []byte { return []byte("modules: {}\n") }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
 		Metrics: e.m, Now: func() time.Time { return now }, Requests: e.board})
 	return e

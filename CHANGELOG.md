@@ -5,7 +5,9 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 ## Unreleased
 
 - Count only secrets Beacon did not issue as failed attempts: a valid credential refused for its scope, or because its owner is disabled, no longer locks its address out. During a lockout, a credential that already worked from that address is still checked, while others wait unread. IPv6 clients are counted by their /64, and a full table of failures makes room without forgetting the addresses it is locking out.
+- Keep a separate failure count for the metrics gateway, so failures on the API never stop monitoring data and the reverse.
 - Lock a username only for the addresses that got its password wrong. The person can still sign in from an address that has not.
+- Check the rule engine's token under the gateway's lockout, count wrong guesses at it, and compare it in constant time.
 
 ## 0.3.0
 
