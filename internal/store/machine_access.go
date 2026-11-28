@@ -43,10 +43,37 @@ const CriticalGrantTTL = 30 * 24 * time.Hour
 
 // MachineAccess is a credential's machine access: Access, Machines named (critical ones, with AccessAll)
 // and when the access to a named machine ends (none: it does not).
+//
+// The names are stored under machine_names. Versions before machine access was explicit read a list
+// under machines, where an empty list meant every machine; Older keeps that key holding a name no machine
+// can have (NoMachineName), so that such a version, run on this database, reaches no machine with any
+// credential. The old key is read only by the one-time move (MigrateMachineAccess).
 type MachineAccess struct {
 	Access       string               `json:"machine_access,omitempty"`
-	Machines     []string             `json:"machines,omitempty"`
+	Machines     []string             `json:"machine_names,omitempty"`
 	MachineUntil map[string]time.Time `json:"machine_until,omitempty"`
+	Older        olderMachines        `json:"machines"`
+}
+
+// NoMachineName is the one machine older versions find on every stored credential: MachineName never
+// matches it, so it names no machine there is.
+const NoMachineName = "(none: upgrade Beacon)"
+
+// olderMachines is the machines key as older versions read it: always written as [NoMachineName],
+// whatever the access is, and never read back.
+type olderMachines struct{}
+
+var olderMachinesJSON, _ = json.Marshal([]string{NoMachineName})
+
+func (olderMachines) MarshalJSON() ([]byte, error) { return olderMachinesJSON, nil }
+
+func (*olderMachines) UnmarshalJSON([]byte) error { return nil }
+
+// storedBefore is a credential as versions before explicit machine access stored it: the machines it
+// named, an empty list meaning every machine. Access is set on everything written since.
+type storedBefore struct {
+	Access   string   `json:"machine_access"`
+	Machines []string `json:"machines"`
 }
 
 // AllAccess is AccessAll, naming the critical machines names.
@@ -397,11 +424,20 @@ type MachineAccessChange struct {
 	Ended  []string // TidyMachineAccess: the named machines whose access ended
 }
 
-func migratedAccess(old MachineAccess, critical []string) MachineAccess {
-	if len(old.Machines) == 0 { // an empty list used to reach every machine
-		return AllAccess(critical...)
+// migratedAccess is the explicit access of a credential stored as raw before access was explicit. A list
+// that holds NoMachineName was written since, and read by an older version: it reaches no machine.
+func migratedAccess(raw []byte, critical []string) (MachineAccess, error) {
+	var old storedBefore
+	if err := json.Unmarshal(raw, &old); err != nil {
+		return MachineAccess{}, err
 	}
-	return NamedAccess(old.Machines...)
+	switch {
+	case slices.Contains(old.Machines, NoMachineName):
+		return NamedAccess(), nil
+	case len(old.Machines) == 0: // an empty list used to reach every machine
+		return AllAccess(critical...), nil
+	}
+	return NamedAccess(old.Machines...), nil
 }
 
 // MigrateMachineAccess makes the machine access of credentials from before it was explicit explicit,
@@ -456,7 +492,9 @@ func (s *Store) MigrateMachineAccess() ([]MachineAccessChange, error) {
 			if !people { // a machine's or a service's token: it never reached a machine
 				t.MachineAccess = NamedAccess()
 			} else {
-				t.MachineAccess = migratedAccess(t.MachineAccess, critical)
+				if t.MachineAccess, fail = migratedAccess(v, critical); fail != nil {
+					return false
+				}
 				if fail = record(MachineAccessChange{Kind: "token", Name: t.Name, Access: t.MachineAccess}); fail != nil {
 					return false
 				}
@@ -475,7 +513,9 @@ func (s *Store) MigrateMachineAccess() ([]MachineAccessChange, error) {
 			if a.Access != "" {
 				return true
 			}
-			a.MachineAccess = migratedAccess(a.MachineAccess, critical)
+			if a.MachineAccess, fail = migratedAccess(v, critical); fail != nil {
+				return false
+			}
 			puts = append(puts, put{bucketAgents, bytesClone(k), a})
 			fail = record(MachineAccessChange{Kind: "agent", Name: a.Name, Access: a.MachineAccess})
 			return fail == nil
@@ -491,7 +531,9 @@ func (s *Store) MigrateMachineAccess() ([]MachineAccessChange, error) {
 			if g.Access != "" {
 				return true
 			}
-			g.MachineAccess = migratedAccess(g.MachineAccess, critical)
+			if g.MachineAccess, fail = migratedAccess(v, critical); fail != nil {
+				return false
+			}
 			puts = append(puts, put{bucketGrants, bytesClone(k), g})
 			fail = record(MachineAccessChange{Kind: "grant", Name: g.ID, Access: g.MachineAccess})
 			return fail == nil

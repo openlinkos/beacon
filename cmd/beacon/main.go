@@ -244,6 +244,16 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// migrateMachineAccess makes the machine access of credentials from before it was explicit explicit, once
+// (store.MigrateMachineAccess), and logs each change for people to review.
+func migrateMachineAccess(st *store.Store, log *slog.Logger) error {
+	moved, err := st.MigrateMachineAccess()
+	for _, c := range moved {
+		log.Warn("machine access made explicit; review whether it should keep reaching these machines", "kind", c.Kind, "name", c.Name, "access", c.Access.String())
+	}
+	return err
+}
+
 func serve(args []string, stderr io.Writer) int {
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
 	// Take SIGHUP from the first instant: a deployment that reloads right after starting the service
@@ -275,13 +285,13 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
-	// once: credentials from before machine access was explicit keep reaching what they reached
-	if moved, err := st.MigrateMachineAccess(); err != nil {
-		log.Error("cannot start", "err", err)
-		return 1
-	} else {
-		for _, c := range moved {
-			log.Warn("machine access made explicit; review whether it should keep reaching these machines", "kind", c.Kind, "name", c.Name, "access", c.Access.String())
+	// once: credentials from before machine access was explicit keep reaching what they reached. With
+	// high availability it waits for the leader lease (below), so that it runs under the write guard;
+	// until then, a credential not yet moved reaches no machine.
+	if !cfg.HA.Enabled {
+		if err := migrateMachineAccess(st, log); err != nil {
+			log.Error("cannot start", "err", err)
+			return 1
 		}
 	}
 	sec := cfg.Secrets
@@ -485,13 +495,18 @@ func serve(args []string, stderr io.Writer) int {
 			return 1
 		}
 		st.SetWriteGuard(lease.CheckWrite)
+		single = func(fn func(context.Context)) {
+			go ha.Single(ctx, lease, fn)
+		}
+		single(func(context.Context) {
+			if err := migrateMachineAccess(st, log); err != nil {
+				log.Error("machine access could not be made explicit; credentials not yet moved reach no machine until it is tried again, when this instance next takes the lease", "err", err)
+			}
+		})
 		// while this instance waits, a token from its cache is read again from the database before it
 		// is accepted, so that one the primary revoked stops here at once too
 		st.RecheckTokens(func() bool { return !lease.Leader() })
 		waitLease = lease.GoRun(ctx)
-		single = func(fn func(context.Context)) {
-			go ha.Single(ctx, lease, fn)
-		}
 		// the standby's token cache and catalogue are a snapshot of its start; refresh on taking
 		// over, and while it waits. Writes check the lease row inside the transaction.
 		go func() {
