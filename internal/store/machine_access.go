@@ -425,14 +425,18 @@ func (s *Store) MigrateMachineAccess() ([]MachineAccessChange, error) {
 			critical = append(critical, m)
 		}
 		critical = compactNames(critical)
+		// The audit entries are written after the walks: a PostgreSQL transaction runs no other statement
+		// while a Range has its rows open.
+		var entries []*events.Event
 		record := func(c MachineAccessChange) error {
 			out = append(out, c)
 			detail := "machine access made explicit: " + c.Access.String()
 			if c.Kind == "account" {
 				detail = "critical machines named: " + strings.Join(c.Access.Machines, ", ")
 			}
-			return s.audit.AppendTx(raw, &events.Event{Time: now, Actor: "beacon", Via: "migration", Action: "machine_access_migrate",
+			entries = append(entries, &events.Event{Time: now, Actor: "beacon", Via: "migration", Action: "machine_access_migrate",
 				Object: c.Kind + ":" + c.Name, Detail: detail})
+			return nil
 		}
 		type put struct {
 			bucket, key []byte
@@ -520,6 +524,11 @@ func (s *Store) MigrateMachineAccess() ([]MachineAccessChange, error) {
 				return err
 			}
 		}
+		for _, e := range entries {
+			if err := s.audit.AppendTx(raw, e); err != nil {
+				return err
+			}
+		}
 		return tx.Put(bucketMeta, metaMachineAccess, []byte(now.Format(time.RFC3339Nano)))
 	})
 	s.tokenMu.Unlock()
@@ -543,12 +552,14 @@ func (s *Store) TidyMachineAccess(now time.Time) ([]MachineAccessChange, error) 
 	s.tokenMu.Lock()
 	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		out = nil
-		var fail error
 		type put struct {
 			bucket, key []byte
 			v           any
 		}
 		var puts []put
+		// The audit entries are written after the walks: a PostgreSQL transaction runs no other statement
+		// while a Range has its rows open.
+		var entries []*events.Event
 		tidy := func(bucket, key []byte, kind, name string, a *MachineAccess, v any) bool {
 			ended := a.expired(now)
 			if len(ended) == 0 {
@@ -558,9 +569,9 @@ func (s *Store) TidyMachineAccess(now time.Time) ([]MachineAccessChange, error) 
 			puts = append(puts, put{bucket, bytesClone(key), v})
 			c := MachineAccessChange{Kind: kind, Name: name, Access: *a, Ended: ended}
 			out = append(out, c)
-			fail = s.audit.AppendTx(raw, &events.Event{Time: now.UTC(), Actor: "beacon", Via: "ssh", Action: "machine_access_end",
+			entries = append(entries, &events.Event{Time: now.UTC(), Actor: "beacon", Via: "ssh", Action: "machine_access_end",
 				Object: kind + ":" + name, Detail: "access ended to " + strings.Join(ended, ", ") + "; now " + a.String()})
-			return fail == nil
+			return true
 		}
 		tx.Range(bucketTokens, kv.Range{}, func(k, v []byte) bool {
 			t := new(Token)
@@ -593,15 +604,17 @@ func (s *Store) TidyMachineAccess(now time.Time) ([]MachineAccessChange, error) 
 			a.CriticalMachines, a.CriticalUntil = named.Machines, named.MachineUntil
 			return ok
 		})
-		if fail != nil {
-			return fail
-		}
 		for _, p := range puts {
 			b, err := json.Marshal(p.v)
 			if err != nil {
 				return err
 			}
 			if err := tx.Put(p.bucket, p.key, b); err != nil {
+				return err
+			}
+		}
+		for _, e := range entries {
+			if err := s.audit.AppendTx(raw, e); err != nil {
 				return err
 			}
 		}

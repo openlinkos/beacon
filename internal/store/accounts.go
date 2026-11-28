@@ -730,13 +730,21 @@ func (s *Store) pendingLinks(kind string) []AccountLink {
 	var out []AccountLink
 	now := s.now()
 	_ = s.db.View(func(tx kv.Tx) error {
+		var links []AccountLink
 		tx.Range(bucketLinks, kv.Range{}, func(_, v []byte) bool {
 			var l AccountLink
-			if json.Unmarshal(v, &l) == nil && l.Kind == kind && now.Before(l.Expires) && linkMakerMay(tx, l, now) == nil {
-				out = append(out, l)
+			if json.Unmarshal(v, &l) == nil && l.Kind == kind && now.Before(l.Expires) {
+				links = append(links, l)
 			}
 			return true
 		})
+		// The makers are read after the walk: a PostgreSQL transaction runs no other statement while a
+		// Range has its rows open.
+		for _, l := range links {
+			if linkMakerMay(tx, l, now) == nil {
+				out = append(out, l)
+			}
+		}
 		return nil
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
