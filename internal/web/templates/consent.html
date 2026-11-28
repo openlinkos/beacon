@@ -1,6 +1,8 @@
 {{define "content"}}<h1 class="ol-auth-title">{{.Heading}}</h1>
       {{if .Broken}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Broken}}</p></div></div>
       {{else}}
+      {{if .Provenance}}<div class="ol-alert ol-alert-info" role="note">{{icon "shield-alert"}}<div class="ol-alert-body"><p>{{.Provenance}}</p></div></div>{{end}}
+      {{if .RedirectWarning}}<div class="ol-alert ol-alert-warning" role="alert">{{icon "globe"}}<div class="ol-alert-body"><p><strong>{{.RedirectWarning}}</strong></p></div></div>{{end}}
       {{if .Error}}<div class="ol-alert ol-alert-danger" role="alert">{{icon "circle-alert"}}<div class="ol-alert-body"><p>{{.Error}}</p></div></div>{{end}}
       <form method="post" action="/oauth/authorize" class="ol-stack">
         <input type="hidden" name="csrf" value="{{.CSRF}}">

@@ -947,6 +947,10 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Beacon does not know this client: a client registers itself, or names its metadata document, before it sends you here.":                                                                                             "Beacon 不认识这个客户端：客户端要先注册自己，或给出它的元数据文档，才能把你送到这里。",
 	"The client asked to send you back to an address it did not register, so Beacon stops here.":                                                                                                                         "客户端要求把你送回一个它没有登记过的地址，所以 Beacon 到此为止。",
 	"An OAuth client acts as one of a person's agents, so it is allowed by a person signed in with their account, not with a token. Sign out, sign in with your username and password, and start again from the client.": "OAuth 客户端作为某个成员的 Agent 行事，所以要由用账号（而不是令牌）登录的成员来允许。请退出登录，用用户名和密码登录，然后从客户端重新开始。",
+	// the consent page: where what a client says about itself comes from, and where the answer goes
+	"Its name and where it sends you are what a document on %s says. Allow it only if you expect a client from that site.":                                                       "它的名称和回调地址来自 %s 上的一份文档。只有你确实在等这个网站的客户端时才允许。",
+	"It registered itself with Beacon at %s and chose its own name: anyone can register a client under any name. Allow it only if you started this sign-in yourself, just now.":  "它于 %s 在 Beacon 自行注册，名称也是它自己起的：任何人都能用任何名称注册客户端。只有这次登录确实是你刚刚亲自发起的才允许。",
+	"Whatever you answer, Beacon sends you, with the code that signs the client in, to the website %s, not to a program on this computer. Allow it only if you trust that site.": "无论你怎么选，Beacon 都会把你连同让客户端登录的授权码送到网站 %s，而不是这台电脑上的程序。只有你信任这个网站时才允许。",
 	// The console's capability zones, the overview and the silences page.
 	"%d in force or planned":           "%d 个生效或计划中",
 	"%d things need attention":         "有 %d 件事需要处理",

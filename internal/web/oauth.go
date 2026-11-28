@@ -36,6 +36,11 @@ type consentPage struct {
 	AllMachines        bool
 	Error, Broken      string
 	SignedInAs, Return string
+
+	// Provenance says where what the client says about itself comes from: who registered it and when,
+	// or the host of its metadata document. RedirectWarning says, prominently, that the answer goes to a
+	// website rather than to a program on this computer.
+	Provenance, RedirectWarning string
 }
 
 var consentTmpl = parse("consent.html")
@@ -73,23 +78,52 @@ func (s *Server) consentLabels() consentLabels {
 	}
 }
 
-// problem answers an authorization request that failed its checks: back to the client when its redirect
-// URI is known good, on a page otherwise.
-func (s *Server) oauthProblem(w http.ResponseWriter, r *http.Request, p *oauth.Problem) {
-	if p.Redirect != "" {
-		http.Redirect(w, r, p.RedirectURL(s.OAuth.Issuer(r)), http.StatusSeeOther) //nolint:gosec // G710: the client's registered redirect URI, checked by Parse
+// oauthProblem answers an authorization request that failed its checks. It sends the error back to the
+// client only when the client's redirect URI is known good and the person signed in has allowed this
+// client before (RFC 9700 section 4.11.2: no automatic redirect to a URI nobody has trusted yet);
+// otherwise it shows the person a page and sends nothing anywhere.
+func (s *Server) oauthProblem(w http.ResponseWriter, r *http.Request, v *viewer, q oauth.Request, p *oauth.Problem) {
+	if p.Redirect != "" && s.allowedBefore(v, q.ClientID) {
+		http.Redirect(w, r, p.RedirectURL(s.OAuth.Issuer(r)), http.StatusSeeOther) //nolint:gosec // G710: the client's registered redirect URI, checked by Parse, of a client the person allowed
 		return
 	}
 	s.oauthBroken(w, r, p)
 }
 
+// allowedBefore reports whether the person signed in has a grant for this client that has not ended:
+// one of their agents' OAuth sign-ins.
+func (s *Server) allowedBefore(v *viewer, clientID string) bool {
+	if v == nil || !v.person() || clientID == "" {
+		return false
+	}
+	now := s.now()
+	for _, a := range s.Store.Agents(v.Account.Username) {
+		for _, g := range s.Store.Grants(a.Name) {
+			if g.Client == clientID && now.Before(g.Expires) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// authorizeParams are the parameters of an authorization request, taken from a form as they came, for
+// signing in and coming back to the question.
+func authorizeParams(f url.Values) url.Values {
+	out := url.Values{}
+	for _, k := range []string{"response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "resource"} {
+		if v := f.Get(k); v != "" {
+			out.Set(k, v)
+		}
+	}
+	return out
+}
+
+// authorize is the authorization request. The person signs in first, before the request is read: so
+// nothing is fetched for a client (its metadata document) and nothing is sent to its redirect URI for a
+// request nobody signed in to.
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	headers(w)
-	q, problem := s.OAuth.Parse(r, r.URL.Query())
-	if problem != nil {
-		s.oauthProblem(w, r, problem)
-		return
-	}
 	v := s.viewer(r)
 	if v == nil {
 		toSignIn(w, r)
@@ -98,6 +132,11 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	if !v.person() {
 		s.message(w, r, v, http.StatusForbidden, s.t("Sign in with your account"),
 			s.t("An OAuth client acts as one of a person's agents, so it is allowed by a person signed in with their account, not with a token. Sign out, sign in with your username and password, and start again from the client."))
+		return
+	}
+	q, problem := s.OAuth.Parse(r, r.URL.Query())
+	if problem != nil {
+		s.oauthProblem(w, r, v, q, problem)
 		return
 	}
 	s.consentForm(w, r, v, q, http.StatusOK, s.consentDefaults(v, q))
@@ -111,11 +150,12 @@ type consentChoice struct {
 	Problem       string
 }
 
-// consentDefaults are what the consent form starts with: the person's agent for this client, or one
-// named after it; the strongest preset the client asked for within the person's role (or the role's
-// own); all machines; 30 days.
+// consentDefaults are what the consent form starts with: the person's agent made for this client, or a
+// new name after the client's (never an existing agent made for another client, or for none: the name
+// is the client's own say); the strongest preset the client asked for within the person's role (or the
+// role's own); all machines; 30 days.
 func (s *Server) consentDefaults(v *viewer, q oauth.Request) consentChoice {
-	c := consentChoice{Duration: 1, Agent: store.AgentName(q.ClientName)}
+	c := consentChoice{Duration: 1}
 	role := v.Account.Role
 	found := false
 	for _, a := range s.Store.Agents(v.Account.Username) { // the person's agent for this client: the one named after it, or another
@@ -123,11 +163,8 @@ func (s *Server) consentDefaults(v *viewer, q oauth.Request) consentChoice {
 			c.Agent, found = a.Name, true
 		}
 	}
-	if a, ok := s.Store.Agent(c.Agent); ok && a.Owner != v.Account.Username {
-		c.Agent = c.Agent + "-" + v.Account.Username
-		if len(c.Agent) > 40 {
-			c.Agent = c.Agent[:40]
-		}
+	if !found {
+		c.Agent = s.newAgentName(store.AgentName(q.ClientName), v.Account.Username)
 	}
 	c.Preset = store.PresetFor(role)
 	if asked := q.Presets(); len(asked) > 0 {
@@ -150,6 +187,44 @@ func (s *Server) consentDefaults(v *viewer, q oauth.Request) consentChoice {
 	return c
 }
 
+// newAgentName is a name for a new agent after base that no agent has: base; base-username when someone
+// else has base; then base-2 and on.
+func (s *Server) newAgentName(base, username string) string {
+	fit := func(n string) string {
+		if len(n) > 40 {
+			n = strings.TrimRight(n[:40], "-._")
+		}
+		return n
+	}
+	candidates := []string{base}
+	if a, ok := s.Store.Agent(base); ok && a.Owner != username {
+		candidates = append(candidates, fit(base+"-"+username))
+	}
+	for i := 2; i <= 99; i++ {
+		candidates = append(candidates, fit(base+"-"+strconv.Itoa(i)))
+	}
+	for _, n := range candidates {
+		if _, taken := s.Store.Agent(n); !taken {
+			return n
+		}
+	}
+	return ""
+}
+
+// consentProvenance says where what the client says about itself comes from, and whether the answer
+// goes to a website: the client's name is its own say, so the page shows what Beacon knows besides.
+func (s *Server) consentProvenance(page *consentPage, q oauth.Request) {
+	switch {
+	case q.Document():
+		page.Provenance = s.t("Its name and where it sends you are what a document on %s says. Allow it only if you expect a client from that site.", q.DocumentHost())
+	case !q.Registered.IsZero():
+		page.Provenance = s.t("It registered itself with Beacon at %s and chose its own name: anyone can register a client under any name. Allow it only if you started this sign-in yourself, just now.", s.clock(q.Registered))
+	}
+	if !q.RedirectLocal() {
+		page.RedirectWarning = s.t("Whatever you answer, Beacon sends you, with the code that signs the client in, to the website %s, not to a program on this computer. Allow it only if you trust that site.", q.FormAction())
+	}
+}
+
 func (s *Server) consentForm(w http.ResponseWriter, r *http.Request, v *viewer, q oauth.Request, status int, c consentChoice) {
 	name := q.ClientName
 	page := consentPage{shell: s.bare(r, s.t("Allow %s", name)), L: s.consentLabels(), Heading: s.t("%s wants to use Beacon as you", name),
@@ -157,6 +232,7 @@ func (s *Server) consentForm(w http.ResponseWriter, r *http.Request, v *viewer, 
 		AgentName: c.Agent, Presets: s.presetOptions(v.Account.Role, c.Preset), AllMachines: len(c.Machines) == 0, Error: c.Problem,
 		SignedInAs: s.t("Signed in as %s (%s).", v.Account.DisplayName, v.Account.Username),
 		Return:     s.t("Whatever you answer, Beacon sends you back to %s.", q.FormAction())}
+	s.consentProvenance(&page, q)
 	page.CSRF = v.Session.CSRF
 	reused, isReused := s.Store.Agent(c.Agent)
 	isReused = isReused && reused.Owner == v.Account.Username
@@ -192,14 +268,9 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		s.oauthBroken(w, r, &oauth.Problem{Code: "invalid_request"})
 		return
 	}
-	q, problem := s.OAuth.Parse(r, r.PostForm)
-	if problem != nil {
-		s.oauthProblem(w, r, problem)
-		return
-	}
 	v := s.viewer(r)
 	if v == nil { // the sign-in ended meanwhile: sign in, and see the question again
-		http.Redirect(w, r, consolePath("/sign-in")+"?next="+url.QueryEscape("/oauth/authorize?"+q.Fields().Encode()), http.StatusSeeOther)
+		http.Redirect(w, r, consolePath("/sign-in")+"?next="+url.QueryEscape("/oauth/authorize?"+authorizeParams(r.PostForm).Encode()), http.StatusSeeOther)
 		return
 	}
 	if !sameOrigin(r) || !equal(r.PostForm.Get(csrfField), v.Session.CSRF) {
@@ -209,6 +280,11 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	if !v.person() {
 		s.message(w, r, v, http.StatusForbidden, s.t("Sign in with your account"),
 			s.t("An OAuth client acts as one of a person's agents, so it is allowed by a person signed in with their account, not with a token. Sign out, sign in with your username and password, and start again from the client."))
+		return
+	}
+	q, problem := s.OAuth.Parse(r, r.PostForm)
+	if problem != nil {
+		s.oauthProblem(w, r, v, q, problem)
 		return
 	}
 	f := r.PostForm

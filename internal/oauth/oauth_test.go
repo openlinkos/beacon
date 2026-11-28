@@ -541,17 +541,17 @@ func TestFlowChecks(t *testing.T) {
 			t.Errorf("%v: %d %q", bad, code, hd.Get("Location"))
 		}
 	}
-	// a wrong resource, no PKCE, plain PKCE: back to the client with the error
+	// a wrong resource, no PKCE, plain PKCE: bob has never allowed this client, so Beacon stops at its
+	// own page and sends nothing to the client's redirect URI
 	wrong := authorizeQuery(client, redirect, "s1", challenge(verifier), "")
 	wrong.Set("resource", "https://other.example.com/mcp")
 	noPKCE := authorizeQuery(client, redirect, "s2", "", "")
 	plain := authorizeQuery(client, redirect, "s3", challenge(verifier), "")
 	plain.Set("code_challenge_method", "plain")
-	for want, bad := range map[string]url.Values{"invalid_target": wrong, "invalid_request": noPKCE, "invalid_request ": plain} {
-		code, _, hd := br.do(http.MethodGet, "/oauth/authorize?"+bad.Encode(), nil)
-		to, _ := url.Parse(hd.Get("Location"))
-		if code != http.StatusSeeOther || to.Query().Get("error") != strings.TrimSpace(want) || to.Query().Get("state") != bad.Get("state") || to.Query().Get("iss") != b.url {
-			t.Errorf("%s: %d %q", want, code, hd.Get("Location"))
+	badRequests := map[string]url.Values{"invalid_target": wrong, "invalid_request": noPKCE, "invalid_request ": plain}
+	for want, bad := range badRequests {
+		if code, body, hd := br.do(http.MethodGet, "/oauth/authorize?"+bad.Encode(), nil); code != http.StatusBadRequest || hd.Get("Location") != "" || !strings.Contains(body, "This sign-in cannot go on") {
+			t.Errorf("%s before any consent: %d %q", want, code, hd.Get("Location"))
 		}
 	}
 
@@ -688,6 +688,14 @@ func TestFlowChecks(t *testing.T) {
 	exchange.Set("code", to.Query().Get("code"))
 	_, tok = token(t, b, exchange)
 	readerAccess := tok["access_token"].(string)
+	// bob has allowed this client now: its errors go back to it
+	for want, bad := range badRequests {
+		code, _, hd := br.do(http.MethodGet, "/oauth/authorize?"+bad.Encode(), nil)
+		to, _ := url.Parse(hd.Get("Location"))
+		if code != http.StatusSeeOther || to.Query().Get("error") != strings.TrimSpace(want) || to.Query().Get("state") != bad.Get("state") || to.Query().Get("iss") != b.url {
+			t.Errorf("%s once allowed: %d %q", want, code, hd.Get("Location"))
+		}
+	}
 	_, page, _ = br.do(http.MethodGet, "/oauth/authorize?"+q.Encode(), nil)
 	form = url.Values{}
 	for _, m := range hiddenRe.FindAllStringSubmatch(page, -1) {
