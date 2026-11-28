@@ -467,6 +467,9 @@ func serve(args []string, stderr io.Writer) int {
 			return 1
 		}
 		st.SetWriteGuard(lease.CheckWrite)
+		// while this instance waits, a token from its cache is read again from the database before it
+		// is accepted, so that one the primary revoked stops here at once too
+		st.RecheckTokens(func() bool { return !lease.Leader() })
 		waitLease = lease.GoRun(ctx)
 		single = func(fn func(context.Context)) {
 			go ha.Single(ctx, lease, fn)

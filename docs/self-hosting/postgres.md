@@ -125,7 +125,7 @@ Both instances need:
 - the same secrets;
 - the recordings in one bucket.
 
-The `ha` and `ssh.recordings` keys are in the [configuration reference](../reference/config.md). The load balancer in front sends traffic to whichever answers `/healthz` with 200.
+The `ha` and `ssh.recordings` keys are in the [configuration reference](../reference/config.md). The load balancer in front sends traffic to whichever answers `/healthz` with 200. A request that reaches the standby all the same has its token read from the database before it is accepted, so a token revoked or changed on the primary takes effect there at once.
 
 ## What next {#what-next}
 

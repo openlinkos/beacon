@@ -264,6 +264,7 @@ type Store struct {
 	mu      sync.RWMutex     // the token cache
 	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
 	tokens  map[string]Token // by hash
+	recheck func() bool      // read a cached token again before accepting it (issued.go)
 }
 
 // Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
@@ -782,7 +783,11 @@ func (s *Store) VerifyToken(secret string) (Token, bool) {
 	if !ok {
 		t, ok = s.byOldHash(h)
 	}
+	recheck := s.recheck
 	s.mu.RUnlock()
+	if ok && recheck != nil && recheck() {
+		t, ok = s.rechecked(t, h)
+	}
 	if !ok || !s.now().Before(t.Expires) {
 		return Token{}, false
 	}

@@ -8,6 +8,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Keep a separate failure count for the metrics gateway, so failures on the API never stop monitoring data and the reverse.
 - Lock a username only for the addresses that got its password wrong. The person can still sign in from an address that has not.
 - Check the rule engine's token under the gateway's lockout, count wrong guesses at it, and compare it in constant time.
+- On a standby of a primary/standby pair, read each token from the database before accepting it, so a revocation on the primary takes effect at once.
 
 ## 0.3.0
 
