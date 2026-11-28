@@ -1358,4 +1358,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Workflow":              "推荐流程",
 	"Public home":           "公开首页",
 	"Back to home":          "返回首页",
+
+	// The SSH channel: the recording limit, shell transcripts
+	"Beacon closed this session when its recording reached its size limit.": "录像达到大小上限，Beacon 关闭了这个会话。",
+	"The shell's commands and exit statuses are split by marks in its output, which programs in the session can also print: a guide only. The recording keeps what was typed and printed.": "shell 的命令和退出码按输出中的标记切分，会话里的程序也能打印这些标记，只能作参考。录像保留了键入和输出的原始内容。",
 }

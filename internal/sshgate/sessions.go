@@ -14,14 +14,18 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// Transcript is a session as an agent reads it back: the record, plus what a command printed (cleaned
-// of terminal codes) or, for an interactive shell, each command with its output and exit status. Page
-// is the session's replay URL.
+// Transcript is a session as an agent reads it back: the record, plus what a command was sent and printed
+// (cleaned of terminal codes) or, for an interactive shell, each command with its output and exit status.
+// A shell's commands are told apart by the shell-integration marks in its output, which any program the
+// shell runs can print too, so CommandsAdvisory says they are a guide; the recording, with what was typed
+// and the raw output, is the record. Page is the session's replay URL.
 type Transcript struct {
 	store.SessionRecord
+	Stdin                 string    `json:"stdin,omitempty"`
 	Stdout                string    `json:"stdout,omitempty"`
 	Stderr                string    `json:"stderr,omitempty"`
 	Commands              []Command `json:"commands,omitempty"`
+	CommandsAdvisory      bool      `json:"commands_advisory,omitempty"`
 	Truncated             bool      `json:"truncated,omitempty"` // the recording or structured text exceeded its capture limit
 	Page                  string    `json:"page,omitempty"`
 	RecordingAvailable    *bool     `json:"recording_available,omitempty"`
@@ -196,7 +200,8 @@ func (g *Gate) transcript(ctx context.Context, r store.SessionRecord, page strin
 		t.TranscriptState = store.EvidenceUnavailable
 		return t
 	}
-	t.Stdout, t.Stderr, t.Commands, t.Truncated = saved.Stdout, saved.Stderr, saved.Commands, saved.Truncated
+	t.Stdin, t.Stdout, t.Stderr, t.Commands, t.Truncated = saved.Stdin, saved.Stdout, saved.Stderr, saved.Commands, saved.Truncated
+	t.CommandsAdvisory = len(t.Commands) > 0
 	return t
 }
 

@@ -37,13 +37,20 @@ func script(body string, args ...string) string {
 	return "sh -c " + quote(body) + " beacon " + strings.Join(q, " ")
 }
 
-type writerFunc func([]byte)
+// writerFunc takes what a command prints; an error stops the copy.
+type writerFunc func([]byte) error
 
-func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
+func (f writerFunc) Write(p []byte) (int, error) {
+	if err := f(p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
 
 // execute runs command on the machine as one recorded session and returns its transcript. Label is what
 // the record calls it (the command itself, or "read /etc/hosts" for a file tool). A command still
-// running at the timeout is sent SIGKILL and abandoned; its transcript has no exit status.
+// running at the timeout is sent SIGKILL and abandoned; its transcript has no exit status. So is one whose
+// recording reaches its cap, which returns an error saying so, with the session filed as far as it went.
 func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, label, command string, stdin []byte,
 	timeout time.Duration) (Transcript, bool, error) {
 	if err := g.requireLeader(); err != nil {
@@ -64,14 +71,15 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		return Transcript{}, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	s := g.newSession(who, m, conn+"-1")
+	s.stop = cancel
 	if err := s.start(kind, label); err != nil {
 		_ = sess.Close()
 		return Transcript{}, false, err
 	}
-	sess.Stdout = writerFunc(func(p []byte) { s.output(p, false) })
-	sess.Stderr = writerFunc(func(p []byte) { s.output(p, true) })
+	sess.Stdout = writerFunc(func(p []byte) error { return s.recorded(s.output(p, false)) })
+	sess.Stderr = writerFunc(func(p []byte) error { return s.recorded(s.output(p, true)) })
 	if stdin != nil {
-		sess.Stdin = teeReader{bytes.NewReader(stdin), s.input}
+		sess.Stdin = recordedReader{bytes.NewReader(stdin), s.input}
 	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(command) }()
@@ -96,7 +104,11 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		exit = &n
 	}
 	t := s.finish(exit, true)
-	if !timedOut && exit == nil {
+	switch {
+	case t.Stopped == store.StoppedRecordingLimit:
+		return t, false, fmt.Errorf("%w (%d MiB) in session %s; limit what the command prints (head, tail, grep) or copy large files with scp or rsync",
+			ErrRecordingLimit, maxRecording>>20, t.ID)
+	case !timedOut && exit == nil:
 		return t, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	return t, timedOut, nil

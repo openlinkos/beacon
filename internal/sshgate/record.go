@@ -13,8 +13,13 @@ import (
 	"time"
 )
 
-// maxRecording caps one recording; output beyond it still flows, unrecorded, and the transcript says so.
-const maxRecording = 16 << 20
+// maxRecording caps one recording. Nothing passes unrecorded: the event that does not fit is neither
+// recorded nor passed on, and the session is closed, its recording ending with a marker that says so.
+// The last recordingReserve bytes are kept for that marker and the exit status.
+const (
+	maxRecording     = 16 << 20
+	recordingReserve = 1 << 10
+)
 
 // recorder writes a session as asciicast v3: a header line, then [interval, code, data] events, the
 // interval counted from the previous event. Codes: o output, i input, r resize, m marker (a command
@@ -35,7 +40,7 @@ func newRecorder(w io.WriteCloser, cols, rows int, command, title string, now fu
 	hdr, _ := json.Marshal(map[string]any{"version": 3, "term": map[string]any{"cols": cols, "rows": rows, "type": "xterm-256color"},
 		"timestamp": now().Unix(), "command": command, "title": title})
 	r := &recorder{f: w, last: now(), now: now}
-	r.write(append(hdr, '\n'))
+	r.write(append(hdr, '\n'), false)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -69,13 +74,21 @@ func (r *recorder) close() error {
 	return r.err
 }
 
-func (r *recorder) write(b []byte) {
-	if r.full || r.err != nil || r.f == nil {
-		return
+// write adds b to the recording and reports false when it does not fit: the recording is full. Last
+// events may use the reserve. A recording that failed to write takes nothing more, and says so at close.
+func (r *recorder) write(b []byte, last bool) bool {
+	if r.err != nil || r.f == nil {
+		return true
 	}
-	if r.written+int64(len(b)) > maxRecording {
+	limit := int64(maxRecording - recordingReserve)
+	if last {
+		limit = maxRecording
+	} else if r.full {
+		return false
+	}
+	if r.written+int64(len(b)) > limit {
 		r.full = true
-		return
+		return false
 	}
 	n, err := r.f.Write(b)
 	r.written += int64(n)
@@ -83,21 +96,39 @@ func (r *recorder) write(b []byte) {
 		err = io.ErrShortWrite
 	}
 	r.err = err
+	return true
 }
 
-func (r *recorder) event(code, data string) {
+// event records one event and reports false when the recording is full: what it records must not pass.
+func (r *recorder) event(code, data string) bool {
+	return r.add(code, data, false)
+}
+
+// final records one of the last events of a session: the exit status, or the marker that the
+// recording is full. They fit in the reserve.
+func (r *recorder) final(code, data string) {
+	r.add(code, data, true)
+}
+
+func (r *recorder) add(code, data string, last bool) bool {
 	if r == nil {
-		return
+		return true
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.full || r.err != nil || r.f == nil {
-		return
+	if r.err != nil || r.f == nil {
+		return true
+	}
+	if r.full && !last {
+		return false
 	}
 	now := r.now()
 	b, _ := json.Marshal([]any{math.Round(now.Sub(r.last).Seconds()*1e6) / 1e6, code, data})
+	if !r.write(append(b, '\n'), last) {
+		return false
+	}
 	r.last = now
-	r.write(append(b, '\n'))
+	return true
 }
 
 // truncated reports whether the recording reached its cap.

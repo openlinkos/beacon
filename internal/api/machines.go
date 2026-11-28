@@ -30,6 +30,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrEvidenceUnavailable, http.StatusServiceUnavailable, "ssh.evidence_unavailable"},
 		{sshgate.ErrSSHCheckUnavailable, http.StatusServiceUnavailable, "ssh.check_unavailable"},
 		{sshgate.ErrSearchUnavailable, http.StatusServiceUnavailable, "ssh.search_unavailable"},
+		{sshgate.ErrRecordingLimit, http.StatusRequestEntityTooLarge, "ssh.recording_limit"},
 		{sshgate.ErrNoMachine, http.StatusNotFound, "machine.not_found"},
 		{sshgate.ErrMachineVersion, http.StatusNotFound, "machine.version_not_found"},
 		{sshgate.ErrMachineChanged, http.StatusConflict, "machine.changed"},
