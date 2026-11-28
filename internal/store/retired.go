@@ -6,18 +6,19 @@ import (
 	"github.com/openlinkos/beacon/internal/kv"
 )
 
-// Retired secrets: the hashes of tokens that were revoked (enroll -rotate revokes a machine's old token)
-// or replaced by a renewal, kept for RetiredFor. A client that has not swapped its token file yet keeps
-// sending the old secret; it is refused like any secret that does not work, but the lockouts do not
-// count it as a guess (Issued), so its retries cannot lock out the new token at the same address.
-// Nothing is accepted with a retired secret.
+// Retired secrets: the hashes of tokens that were revoked, replaced by enroll -rotate or a renewal, or
+// went with their agent, and of the OAuth access and refresh tokens of sign-ins that ended, kept for
+// RetiredFor. A client that has not swapped its token file yet keeps sending the old secret, and an MCP
+// client whose sign-in ended keeps retrying its tokens; such a secret is refused like any secret that does
+// not work, but the lockouts do not count it as a guess (Issued), so its retries cannot lock out the new
+// token, or the person, at the same address. Nothing is accepted with a retired secret.
 
 // bucketRetired holds the retired hashes: the key is the hash, the value the time it stops counting as
 // issued (RFC 3339).
 var bucketRetired = []byte("retired_tokens")
 
-// RetiredFor is how long a revoked or replaced token secret, or an expired one, still counts as one
-// Beacon issued.
+// RetiredFor is how long a revoked or replaced token secret, an OAuth token whose sign-in ended, or an
+// expired one, still counts as one Beacon issued.
 const RetiredFor = 7 * 24 * time.Hour
 
 // retire records hashes as retired until until, inside a write, and forgets the ones that have lapsed.

@@ -192,18 +192,43 @@ func putAgent(tx kv.Tx, a Agent) error {
 
 // CreateAgent stores a new agent.
 func (s *Store) CreateAgent(a Agent) (Agent, error) {
+	return s.createAgent(a, nil, nil)
+}
+
+// createAgent stores a new agent with keys for the SSH channel, each under AddAgentSSHKey's rule, and
+// writes what record gives in the same transaction.
+func (s *Store) createAgent(a Agent, keys []SSHKey, record func(Agent) []AuditEntry) (Agent, error) {
 	a.Created = s.now().UTC()
 	a.MachineAccess = a.normal()
 	a.Scopes = compactNames(a.Scopes)
 	a.SSHKeys = nil
-	err := s.db.Update(func(tx kv.Tx) error {
+	for _, k := range keys {
+		if !slices.ContainsFunc(a.SSHKeys, func(x SSHKey) bool { return x.Fingerprint == k.Fingerprint }) {
+			a.SSHKeys = append(a.SSHKeys, k)
+		}
+	}
+	if len(a.SSHKeys) > MaxSSHKeys {
+		return Agent{}, fmt.Errorf("an agent holds at most %d keys; remove one first", MaxSSHKeys)
+	}
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		if err := checkAgent(tx, a); err != nil {
 			return err
 		}
 		if _, taken := getAgent(tx, a.Name); taken {
 			return fmt.Errorf("%w: an agent is called %q already", ErrExists, a.Name)
 		}
-		return putAgent(tx, a)
+		for _, k := range a.SSHKeys {
+			if err := checkSSHKeyOwner(tx, k.Fingerprint, "agent "+a.Name); err != nil {
+				return err
+			}
+		}
+		if err := putAgent(tx, a); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(a))
+		}
+		return nil
 	})
 	if err != nil {
 		return Agent{}, err
@@ -315,7 +340,7 @@ func (s *Store) DeleteAgent(name string) error {
 		if err := retire(tx, now, until, hashes...); err != nil { // its harness may still send them (retired.go)
 			return err
 		}
-		if err := deleteGrants(tx, func(g Grant) bool { return g.Agent == name }); err != nil {
+		if err := deleteGrants(tx, now, func(g Grant) bool { return g.Agent == name }); err != nil {
 			return err
 		}
 		return tx.Delete(bucketAgents, []byte(name))
@@ -344,6 +369,10 @@ func (s *Store) DeleteAgent(name string) error {
 // stored and cannot be shown again. The token is called after the agent (name, name-2, …); what it may
 // do is the agent's.
 func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (string, Token, error) {
+	return s.createAgentToken(agent, ttl, by, nil)
+}
+
+func (s *Store) createAgentToken(agent string, ttl time.Duration, by string, record func(Token) []AuditEntry) (string, Token, error) {
 	if _, ok := s.Agent(agent); !ok {
 		return "", Token{}, fmt.Errorf("%w: no agent %q", ErrNotFound, agent)
 	}
@@ -358,7 +387,7 @@ func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (st
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var t Token
-	err = s.db.Update(func(tx kv.Tx) error {
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		if _, ok := getAgent(tx, agent); !ok { // deleted meanwhile
 			return fmt.Errorf("%w: no agent %q", ErrNotFound, agent)
 		}
@@ -368,7 +397,13 @@ func (s *Store) CreateAgentToken(agent string, ttl time.Duration, by string) (st
 		}
 		t = Token{Name: name, Hash: hashToken(secret), Agent: agent, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
 		b, _ := json.Marshal(t)
-		return tx.Put(bucketTokens, []byte(name), b)
+		if err := tx.Put(bucketTokens, []byte(name), b); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(t))
+		}
+		return nil
 	})
 	if err != nil {
 		return "", Token{}, err
@@ -444,8 +479,12 @@ const MaxSSHKeys = 20
 // AddAgentSSHKey gives an agent a key for the SSH channel. A key belongs to one principal and is never a
 // machine's connector key; adding a key the agent holds already is no change.
 func (s *Store) AddAgentSSHKey(agent string, k SSHKey) (Agent, error) {
+	return s.addAgentSSHKey(agent, k, nil)
+}
+
+func (s *Store) addAgentSSHKey(agent string, k SSHKey, record Record[Agent]) (Agent, error) {
 	var out Agent
-	err := s.db.Update(func(tx kv.Tx) error {
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		if err := checkSSHKeyOwner(tx, k.Fingerprint, "agent "+agent); err != nil {
 			return err
 		}
@@ -453,14 +492,21 @@ func (s *Store) AddAgentSSHKey(agent string, k SSHKey) (Agent, error) {
 		if !ok {
 			return ErrNotFound
 		}
+		before := a
 		if !slices.ContainsFunc(a.SSHKeys, func(x SSHKey) bool { return x.Fingerprint == k.Fingerprint }) {
 			if len(a.SSHKeys) >= MaxSSHKeys {
 				return fmt.Errorf("an agent holds at most %d keys; remove one first", MaxSSHKeys)
 			}
-			a.SSHKeys = append(a.SSHKeys, k)
+			a.SSHKeys = append(slices.Clip(a.SSHKeys), k)
 		}
 		out = a
-		return putAgent(tx, a)
+		if err := putAgent(tx, a); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(before, a))
+		}
+		return nil
 	})
 	return out, err
 }

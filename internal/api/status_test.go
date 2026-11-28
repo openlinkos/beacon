@@ -56,12 +56,13 @@ func TestStatusRoutes(t *testing.T) {
 		t.Errorf("maintenance:write is needed: %d %v", code, out)
 	}
 	code, out = c.do("POST", "/api/v1/maintenance", agent, body)
-	if code != 201 || out["title"] != "Hub upgrade" || out["created_by"] != "claude-oncall" || len(out["silences"].([]any)) != 1 {
+	if code != 201 || out["title"] != "Hub upgrade" || out["created_by"] != "claude-oncall" || len(out["silences"].([]any)) != 1 || out["by_agent"] != true {
 		t.Fatalf("plan: %d %v", code, out)
 	}
 	id, _ := out["id"].(string)
-	if len(e.AM.Created) != 1 || e.AM.Created[0]["service"] != "hub-example-com" {
-		t.Errorf("silences: %v", e.AM.Created)
+	// a token's window is an agent's: its silences are recorded and mute nothing
+	if len(e.AM.Created) != 0 || len(e.AM.Agents) != 1 || e.AM.Agents[0]["service"] != "hub-example-com" {
+		t.Errorf("silences: %v, recorded only %v", e.AM.Created, e.AM.Agents)
 	}
 	if !strings.Contains(strings.Join(e.Bot.Texts, "\n"), `claude-oncall planned maintenance "Hub upgrade" of hub-example-com`) {
 		t.Errorf("echo: %v", e.Bot.Texts)

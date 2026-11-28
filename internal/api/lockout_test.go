@@ -130,17 +130,12 @@ func TestLockoutTablesKeepLocks(t *testing.T) {
 }
 
 // TestUsernameLockoutSparesOtherAddresses checks that wrong passwords for a username lock it only for
-// the addresses that got it wrong: its owner, signing in from where they signed in before, still can.
+// the addresses that got it wrong: its owner, signing in from elsewhere, still can.
 func TestUsernameLockoutSparesOtherAddresses(t *testing.T) {
 	e, a := lockoutAuth(t)
 	people(t, e)
-	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	a.Now = func() time.Time { return now }
 	const right = "correct horse battery"
 	wrong, own, second := from("198.51.100.40"), from("203.0.113.40"), from("2001:db8:40::1")
-	if _, err := a.SignIn(own, "alice", right); err != nil {
-		t.Fatal(err)
-	}
 	for i := range maxUserFails {
 		if _, err := a.SignIn(wrong, "alice", fmt.Sprintf("wrong %d", i)); !errors.Is(err, store.ErrBadCredentials) {
 			t.Fatalf("wrong password %d: %v", i, err)
@@ -153,20 +148,17 @@ func TestUsernameLockoutSparesOtherAddresses(t *testing.T) {
 		t.Error("UserBlockedFor does not name the lockout for the address that got it wrong")
 	}
 	if _, blocked := a.UserBlockedFor(own, "Alice"); blocked {
-		t.Error("UserBlockedFor names a lockout for the person's own address")
+		t.Error("UserBlockedFor names a lockout for an address that never got it wrong")
 	}
 	if acc, err := a.SignIn(own, "alice", right); err != nil || acc.Username != "alice" {
 		t.Fatalf("the person from their own address: %+v %v", acc, err)
 	}
-	// while the username is locked, another address has only a few tries of its own, each after the
-	// username's backoff
+	// while the username is locked, another address has only a few tries of its own
 	for i := range maxUserAddrFails {
-		now = now.Add(userBackoffMax)
 		if _, err := a.SignIn(second, "alice", fmt.Sprintf("other %d", i)); !errors.Is(err, store.ErrBadCredentials) {
 			t.Fatalf("try %d from a second address: %v", i, err)
 		}
 	}
-	now = now.Add(userBackoffMax)
 	if _, err := a.SignIn(second, "alice", right); !errors.Is(err, ErrBlocked) {
 		t.Errorf("a second address after its tries: %v", err)
 	}
@@ -175,64 +167,38 @@ func TestUsernameLockoutSparesOtherAddresses(t *testing.T) {
 	}
 }
 
-// TestUsernameBackoffSlowsGuessesFromEverywhere checks that once a username is locked, wrong passwords
-// for it from ever new addresses wait longer and longer, whichever address sends them, while the
-// person's own address signs in at once; and that the backoff ends when the guessing stops.
-func TestUsernameBackoffSlowsGuessesFromEverywhere(t *testing.T) {
+// TestGuessesFromManyAddressesLeaveThePersonIn checks that however many addresses keep getting a locked
+// username's password wrong, the person signs in at once from an address that has not, whether or not
+// they signed in from it before, and after a restart; each guessing address is held to its own few tries.
+func TestGuessesFromManyAddressesLeaveThePersonIn(t *testing.T) {
 	e, a := lockoutAuth(t)
 	people(t, e)
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	a.Now = func() time.Time { return now }
 	const right = "correct horse battery"
-	own := from("203.0.113.60")
-	if _, err := a.SignIn(own, "alice", right); err != nil {
-		t.Fatal(err)
+	guessers := make([]*http.Request, 16)
+	for i := range guessers {
+		guessers[i] = from(netip.AddrFrom4([4]byte{198, 18, 0, byte(i + 1)}).String())
 	}
-	next := 0
-	fresh := func() *http.Request {
-		next++
-		return from(netip.AddrFrom4([4]byte{198, 18, byte(next >> 8), byte(next)}).String())
-	}
-	for i := range maxUserFails {
-		if _, err := a.SignIn(fresh(), "alice", fmt.Sprintf("wrong %d", i)); !errors.Is(err, store.ErrBadCredentials) {
-			t.Fatalf("wrong password %d: %v", i, err)
+	for round := range maxUserAddrFails + 2 {
+		for i, r := range guessers {
+			_, err := a.SignIn(r, "alice", fmt.Sprintf("guess %d", round))
+			if want := store.ErrBadCredentials; round >= maxUserAddrFails && !errors.Is(err, ErrBlocked) || round < maxUserAddrFails && !errors.Is(err, want) {
+				t.Errorf("round %d from guessing address %d: %v", round, i, err)
+			}
 		}
-	}
-	// the username is locked now: each new address waits its turn, and every wrong password doubles it
-	wait := userBackoffStart
-	for i := range 8 {
-		r := fresh()
-		if _, err := a.SignIn(r, "alice", "guess"); !errors.Is(err, ErrBlocked) {
-			t.Fatalf("guess %d from a new address before its turn: %v", i, err)
+		person := from(netip.AddrFrom4([4]byte{203, 0, 113, byte(60 + round)}).String())
+		if _, blocked := a.UserBlockedFor(person, "alice"); blocked {
+			t.Errorf("round %d: the person's address is named as locked", round)
 		}
-		if d, blocked := a.UserBlockedFor(r, "alice"); !blocked || d != wait {
-			t.Fatalf("guess %d: the wait is %v (%v), want %v", i, d, blocked, wait)
+		if acc, err := a.SignIn(person, "alice", right); err != nil || acc.Username != "alice" {
+			t.Fatalf("round %d: the person from an address new to Beacon: %+v %v", round, acc, err)
 		}
-		if _, err := a.SignIn(own, "alice", right); err != nil {
-			t.Fatalf("the person's own address during the backoff: %v", err)
-		}
-		now = now.Add(wait)
-		if _, err := a.SignIn(r, "alice", "guess"); !errors.Is(err, store.ErrBadCredentials) {
-			t.Fatalf("guess %d in its turn: %v", i, err)
-		}
-		wait = min(2*wait, userBackoffMax)
+		now = now.Add(time.Second)
 	}
-	if wait != userBackoffMax {
-		t.Fatalf("the backoff stopped growing at %v", wait)
-	}
-	// attempts sent together: only the first is checked
-	now = now.Add(wait)
-	r1, r2 := fresh(), fresh()
-	if _, err := a.SignIn(r1, "alice", "together"); !errors.Is(err, store.ErrBadCredentials) {
-		t.Fatalf("the first of two at once: %v", err)
-	}
-	if _, err := a.SignIn(r2, "alice", "together"); !errors.Is(err, ErrBlocked) {
-		t.Errorf("the second of two at once: %v", err)
-	}
-	// the guessing stops: after the window, a new address is not held back
-	now = now.Add(failWindow)
-	if _, err := a.SignIn(fresh(), "alice", right); err != nil {
-		t.Errorf("a new address after the guessing stopped: %v", err)
+	restarted := &Auth{Store: e.Store, IP: clientip.New(nil, false), Now: a.Now}
+	if _, err := restarted.SignIn(from("203.0.113.90"), "alice", right); err != nil {
+		t.Errorf("the person after a restart: %v", err)
 	}
 }
 
@@ -249,10 +215,9 @@ func TestRotatedTokenIsNotLockedOutByItsPredecessor(t *testing.T) {
 	if _, _, err := a.CheckToken(r, old); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Store.RevokeToken("host-edge-1"); err != nil { // enroll -rotate
-		t.Fatal(err)
-	}
-	fresh, _, err := e.Store.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
+	// enroll -rotate: the new token replaces the old one in one write
+	fresh, _, err := e.Store.CreateSubjectTokenRecorded("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root", true,
+		func(*store.Token, store.Token) []store.AuditEntry { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

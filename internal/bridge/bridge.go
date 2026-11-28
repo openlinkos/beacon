@@ -555,9 +555,12 @@ func (b *Bridge) HandleAction(ctx context.Context, a feishu.Action) feishu.Respo
 	return feishu.Response{Toast: toast, ToastKind: "success", Card: card}
 }
 
+// ack records who's acknowledgement on the group. Only a person's pauses notifications to people and
+// cancels a pending Pushover emergency (store.PausesPeople); an agent's or a token's is recorded beside a
+// person's without replacing it.
 func (b *Bridge) ack(g *store.Group, who Actor, note string) {
 	a := store.Ack{By: who.Name, Via: who.Via, Note: note, At: b.now(), Kind: actorKind(who)}
-	if a.Kind == "agent" && g.Ack.StopsEscalation() {
+	if !a.StopsEscalation() && g.Ack.StopsEscalation() {
 		rememberAck(g, a)
 		return
 	}
@@ -565,7 +568,7 @@ func (b *Bridge) ack(g *store.Group, who Actor, note string) {
 		rememberAck(g, *g.Ack)
 	}
 	g.Ack = &a
-	if a.Kind != "agent" {
+	if a.StopsEscalation() {
 		b.queuePushoverCancellation(g)
 	}
 }
@@ -601,10 +604,10 @@ func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, w
 	return nil
 }
 
-// createSilence makes a silence in the router: a person's mutes what it matches, an agent's is only
-// recorded, so that people are still notified.
+// createSilence makes a silence in the router: a person's mutes what it matches, an agent's or a token's
+// is only recorded, so that people are still notified.
 func (b *Bridge) createSilence(ctx context.Context, labels map[string]string, start, end time.Time, who Actor, comment string) (string, error) {
-	if actorKind(who) != "agent" {
+	if pausesPeople(who) {
 		return b.d.AM.CreateSilence(ctx, labels, start, end, who.Name, comment)
 	}
 	as, ok := b.d.AM.(AgentSilencer)
@@ -615,14 +618,14 @@ func (b *Bridge) createSilence(ctx context.Context, labels map[string]string, st
 }
 
 // markSilence marks a group silenced. A person's silence pauses escalation and cancels a pending
-// Pushover emergency; an agent's does neither, as its acknowledgement does not.
+// Pushover emergency; an agent's or a token's does neither, as its acknowledgement does not.
 func (b *Bridge) markSilence(g *store.Group, silence store.Silence, who Actor) {
 	silence.Kind = actorKind(who)
 	g.Silence = &silence
 	if g.Ack == nil {
 		b.ack(g, who, "")
 	}
-	if silence.Kind == "agent" {
+	if !store.PausesPeople(silence.Kind) {
 		return
 	}
 	b.queuePushoverCancellation(g)
@@ -1158,7 +1161,7 @@ func (b *Bridge) acknowledge(ctx context.Context, id string, who Actor, note str
 	_ = b.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "ack", Target: g.ID, Detail: note})
 	b.submitNewPushoverCancellation(ctx, &g)
 	text := b.t("%s acknowledged \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
-	if actorKind(who) == "agent" {
+	if !pausesPeople(who) { // recorded as an agent's is: people are still notified
 		text = b.t("%s recorded an Agent acknowledgement for \"%s\" via %s", who.Name, b.title(&g), b.viaName(who.Via))
 	}
 	b.echo(ctx, text+noteSuffix(b, note))

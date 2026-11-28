@@ -147,7 +147,7 @@ func (s *Server) silencesPage(w http.ResponseWriter, r *http.Request, v *viewer)
 		}
 		if g, ok := alerts[x.ID]; ok {
 			it.Alert, it.AlertHref = g.Title, link.AlertPath(g.ID)
-			if g.Silence.Kind == "agent" && it.Left != "" { // recorded only: it keeps nobody from being paged
+			if !store.PausesPeople(g.Silence.Kind) && it.Left != "" { // recorded only: it keeps nobody from being paged
 				it.State, it.Tone = s.t("Agent's silence: people are still notified"), "warning"
 			}
 		}

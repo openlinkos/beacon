@@ -99,6 +99,9 @@ func TestEnroll(t *testing.T) {
 	if _, ok := st.VerifyToken(out.Secret); ok {
 		t.Error("the old token must stop working after a rotation")
 	}
+	if !st.Issued(out.Secret) { // retired: a machine still sending it is not guessing (store.Issued)
+		t.Error("the rotated-out token no longer counts as one Beacon issued")
+	}
 	if _, err := c.Enroll(ctx, EnrollRequest{Kind: "probe", Subject: "cdn-gone"}); err == nil || !strings.Contains(err.Error(), "not active") {
 		t.Errorf("an unknown or expired location: %v", err)
 	}

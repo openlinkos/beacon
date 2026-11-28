@@ -113,7 +113,7 @@ Delivery of the alert itself never waits for the hook.
 
 ## Take over an alert
 
-Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. An acknowledgement by an identified Agent leaves that escalation in effect, and so does an Agent's silence. A silence by a person still pauses it. An Agent's silence is recorded and shown on the card and the alert page, but it mutes no alert and does not cancel a Pushover emergency. A person can silence the alert or end the Agent's silence.
+Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. Only a person stops it: someone signed in to the console with their account, an on-call person on a card or the phone, or the command line on the host. An acknowledgement, silence or maintenance window made with an Agent's credential leaves that escalation in effect, and so does one made with a standalone token, whether through REST, MCP or the console. A silence by a person still pauses it. An Agent's or a token's silence is recorded and shown on the card and the alert page as an Agent's, but it mutes no alert and does not cancel a Pushover emergency. A person can silence the alert or end that silence.
 
 An earlier Pushover emergency can repeat while cancellation is pending. The response panel shows when Pushover confirms cancellation or when the retry window expires. Beacon requests cancellation for the original [emergency receipt](https://pushover.net/api/receipts). A separate emergency on a later incident has its own receipt. An older receipt with an unverified provider route appears as unconfirmed.
 
@@ -182,7 +182,7 @@ A note tells everyone what was wrong, what was done and what remains. Send it wi
 - The chat hears each one.
 - The audit log keeps them all. A note is at most 2000 characters, and a group keeps its latest 100.
 
-The reference Agent uses notes and leaves acknowledgement and silencing to the person on call. An identified Agent's `ack_alert` call records its response, and a person's acknowledgement pauses escalation for `ack_ttl`. Standalone credentials and stored acknowledgements of unknown origin keep their earlier behaviour and pause escalation. A note that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
+The reference Agent uses notes and leaves acknowledgement and silencing to the person on call. An Agent's `ack_alert` call records its response, and so does one made with a standalone token. A person's acknowledgement pauses escalation for `ack_ttl`. Stored acknowledgements from before Beacon recorded who made them keep their earlier behaviour and pause escalation. A note that begins with `public:` also appears as an incident update on the [status pages](status-pages.md).
 
 ## Change events {#change-events}
 

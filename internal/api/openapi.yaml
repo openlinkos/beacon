@@ -921,7 +921,7 @@ components:
         silences: {type: array, items: {type: string}, description: "One per service, with the comment maintenance: <title>"}
         ended: {type: string, format: date-time, description: When it was ended early}
         cancelled: {type: boolean, description: Called off before it began}
-        by_agent: {type: boolean, description: "Scheduled by an agent: its silences mute nothing, so people are still paged, and the status pages announce it without covering what happens meanwhile"}
+        by_agent: {type: boolean, description: "Scheduled by an agent or a standalone token, not a person: its silences mute nothing, so people are still paged, and the status pages announce it without covering what happens meanwhile"}
     Config:
       type: object
       description: The configuration, or one kind of it, with the version in force
@@ -1328,7 +1328,7 @@ paths:
     post:
       tags: [Incidents]
       summary: Acknowledge a firing alert group
-      description: "Scope: alerts:write. An Agent acknowledgement leaves human escalation in effect. A person's or a standalone credential's acknowledgement pauses escalation for the configured acknowledgement timeout."
+      description: "Scope: alerts:write. An acknowledgement made with an agent's credential or a standalone token is recorded and leaves human escalation in effect. Only a person's acknowledgement (in the console with an account, on a card, or on the host's command line) pauses escalation, for the configured acknowledgement timeout."
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -1594,7 +1594,7 @@ paths:
     post:
       tags: [Incidents]
       summary: Silence a firing alert group
-      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group. An agent's silence is recorded but mutes nothing, so people are still notified."
+      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group. A silence made with an agent's credential or a standalone token is recorded but mutes nothing, so people are still notified; only a person's silence mutes alerts."
       requestBody:
         required: true
         content:
@@ -2436,8 +2436,8 @@ paths:
         now; the secret it had keeps working for ten minutes, so a client can swap its token file without a race.
         At most once every 24 hours (token.too_soon, 429); never for an enrolled machine's token, which
         `beacon enroll -rotate` replaces, nor for an OAuth access token, which its client refreshes
-        (token.not_renewable, 403). Audited (token_renew) and echoed to the
-        alert chat.
+        (token.not_renewable, 403). Renewed only with its audit entry (token_renew; audit.not_recorded, 503,
+        otherwise, and the token keeps its secret), and echoed to the alert chat.
       responses:
         "200":
           description: The new secret, shown once, and the token

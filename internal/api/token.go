@@ -87,6 +87,8 @@ func (s *Server) tokenError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "token.not_renewable", err.Error())
 	case errors.Is(err, store.ErrNotFound): // revoked between the check and the call
 		writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
+	case errors.Is(err, bridge.ErrUnrecorded):
+		writeError(w, http.StatusServiceUnavailable, "audit.not_recorded", err.Error())
 	default:
 		s.Log.Error("token operation failed", "err", err)
 		writeError(w, http.StatusBadGateway, "upstream", err.Error())

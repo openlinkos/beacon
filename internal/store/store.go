@@ -171,9 +171,16 @@ type Ack struct {
 	Kind string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
 }
 
-// StopsEscalation reports whether the acknowledgement pauses notifications to people.
-// Standalone and older unclassified acknowledgements retain their original behaviour.
-func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
+// StopsEscalation reports whether the acknowledgement pauses notifications to people: only a person's
+// does (PausesPeople).
+func (a *Ack) StopsEscalation() bool { return a != nil && PausesPeople(a.Kind) }
+
+// PausesPeople reports whether an acknowledgement, silence or maintenance window made by an actor of this
+// kind pauses notifications to people. Only a person's does: one made in the console with an account, by
+// an on-call person on a card or on the phone, or on the host's command line. An agent's does not, and
+// neither does any token's: both are recorded and shown, and people are still notified. An older record
+// that names no kind keeps the behaviour it had.
+func PausesPeople(kind string) bool { return kind == "person" || kind == "" }
 
 // Notification records a provider submission outcome, independently of human acknowledgement.
 type Notification struct {
@@ -193,10 +200,10 @@ type Silence struct {
 	Kind  string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
 }
 
-// Pauses reports whether the silence holds at now and pauses notifications to people. An agent's
-// silence never does, as an agent's acknowledgement does not.
+// Pauses reports whether the silence holds at now and pauses notifications to people. Only a person's
+// silence does (PausesPeople), as only a person's acknowledgement does.
 func (s *Silence) Pauses(now time.Time) bool {
-	return s != nil && s.Kind != "agent" && now.Before(s.Until)
+	return s != nil && PausesPeople(s.Kind) && now.Before(s.Until)
 }
 
 // Firing reports whether the group is firing.
@@ -645,7 +652,7 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 }
 
 // createToken makes a token, replacing one of the same name with replace (as RevokeToken would, in the
-// same transaction), and writes what record gives in that transaction.
+// same transaction: the secrets replaced are retired), and writes what record gives in that transaction.
 func (s *Store) createToken(name, subject string, scopes []string, ttl time.Duration, by string, replace bool,
 	record func(old *Token, t Token) []AuditEntry) (string, Token, error) {
 	if !tokenNameRe.MatchString(name) {
@@ -679,8 +686,10 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var old *Token
+	var gone []string
+	until := now.Add(RetiredFor)
 	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
-		old = nil
+		old, gone = nil, nil
 		if v := tx.Get(bucketTokens, []byte(name)); v != nil {
 			if !replace {
 				return fmt.Errorf("a token named %q exists; revoke it first", name)
@@ -689,7 +698,11 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 			if err := json.Unmarshal(v, &was); err != nil {
 				return err
 			}
-			old = &was
+			old, gone = &was, retiredHashes(was, now)
+			// the machine may still send the secret it had until it takes the new one (retired.go)
+			if err := retire(tx, now, until, gone...); err != nil {
+				return err
+			}
 			if err := deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "token:"+name }); err != nil {
 				return err
 			}
@@ -714,6 +727,7 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 	}
 	s.tokens[t.Hash] = t
 	s.mu.Unlock()
+	s.noteRetired(until, gone...)
 	return secret, t, nil
 }
 
@@ -888,8 +902,8 @@ type SilenceRecord struct {
 	EndsAt    time.Time `json:"endsAt"`
 	CreatedBy string    `json:"createdBy"`
 	Comment   string    `json:"comment"`
-	// ByAgent marks an agent's silence: it is kept and listed, but it mutes nothing, so that people
-	// are still notified of what it matches.
+	// ByAgent marks a silence that is not a person's (an agent's or a token's, PausesPeople): it is kept
+	// and listed, but it mutes nothing, so that people are still notified of what it matches.
 	ByAgent bool `json:"byAgent,omitempty"`
 }
 

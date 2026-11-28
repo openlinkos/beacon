@@ -237,7 +237,7 @@ Nothing but the token itself is needed: both routes take any scope. An interacti
 - **No race.** The old secret stays valid for ten minutes after a renewal, so a client can swap its token file and a process that read the file a moment before keeps working.
 - **At most once a day.** A token renews itself at most once every 24 hours (`token.too_soon`, `429`).
 - **Not for machines, nor for OAuth.** The tokens of enrolled machines (probe, host, heartbeat) never renew themselves: `beacon enroll … -rotate` replaces them (`token.not_renewable`, `403`). Nor does an OAuth access token, which its client refreshes.
-- **On record.** Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-oncall renewed itself; expires 2027-01-31"). `beacon token list` shows each token's lifetime and last renewal.
+- **On record.** Every renewal is in the audit log (`token_renew`) and echoed to the alert chat ("Token claude-oncall renewed itself; expires 2027-01-31"). When the audit log cannot be written, the token is not renewed and keeps its secret (`audit.not_recorded`, `503`): try again later. `beacon token list` shows each token's lifetime and last renewal.
 - **SSH sign-in is by key** and is not touched by a renewal: the token keeps its identity, and only its secret and expiry change.
 
 ### Renew from a harness

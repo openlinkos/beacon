@@ -237,11 +237,15 @@ func putGrant(tx kv.Tx, g Grant) error {
 	return tx.Put(bucketGrants, []byte(g.ID), v)
 }
 
-// deleteGrants deletes the grants that match, with their access tokens and the keys added with them.
-func deleteGrants(tx kv.Tx, match func(Grant) bool) error {
+// deleteGrants deletes the grants that match, with their access tokens and the keys added with them. Their
+// refresh and access tokens are retired at now (retired.go): the client may go on sending them for a while,
+// and its retries are not guesses.
+func deleteGrants(tx kv.Tx, now time.Time, match func(Grant) bool) error {
 	gone := map[string]bool{}
+	var hashes []string
 	for _, g := range grants(tx, match) {
 		gone[g.ID] = true
+		hashes = append(append(hashes, g.Refresh), g.Spent...)
 		if err := tx.Delete(bucketGrants, []byte(g.ID)); err != nil {
 			return err
 		}
@@ -254,28 +258,40 @@ func deleteGrants(tx kv.Tx, match func(Grant) bool) error {
 			return err
 		}
 	}
-	return deleteAccess(tx, func(a accessRecord) bool { return gone[a.Grant] })
+	access, err := deleteAccess(tx, func(a accessRecord) bool { return gone[a.Grant] })
+	if err != nil {
+		return err
+	}
+	for h, a := range access {
+		if now.Before(a.Expires.Add(RetiredFor)) {
+			hashes = append(hashes, h)
+		}
+	}
+	return retire(tx, now, now.Add(RetiredFor), hashes...)
 }
 
-func deleteAccess(tx kv.Tx, match func(accessRecord) bool) error {
-	var keys [][]byte
+// deleteAccess deletes the access tokens that match, and those that do not read, and returns them by
+// hash. The walk only collects; the deletes come after it.
+func deleteAccess(tx kv.Tx, match func(accessRecord) bool) (map[string]accessRecord, error) {
+	gone := map[string]accessRecord{}
 	tx.Range(bucketAccess, kv.Range{}, func(k, v []byte) bool {
 		var a accessRecord
 		if json.Unmarshal(v, &a) != nil || match(a) {
-			keys = append(keys, append([]byte(nil), k...))
+			gone[string(k)] = a
 		}
 		return true
 	})
-	for _, k := range keys {
-		if err := tx.Delete(bucketAccess, k); err != nil {
-			return err
+	for k := range gone {
+		if err := tx.Delete(bucketAccess, []byte(k)); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return gone, nil
 }
 
-// issue makes an access token for g, and a new refresh token if refresh, and stores them. Expired access
-// tokens are forgotten on the way.
+// issue makes an access token for g, and a new refresh token if refresh, and stores them. An access token
+// that expired is kept for RetiredFor, so that a client still sending it is known to hold one Beacon issued
+// (Issued), and forgotten on the way after that.
 func (s *Store) issue(tx kv.Tx, g *Grant, refresh bool) (Issued, error) {
 	now := s.now().UTC()
 	access, err := newSecretWith(AccessPrefix)
@@ -293,7 +309,7 @@ func (s *Store) issue(tx kv.Tx, g *Grant, refresh bool) (Issued, error) {
 		}
 		out.Refresh, g.Refresh = r, hashToken(r)
 	}
-	if err := deleteAccess(tx, func(a accessRecord) bool { return !now.Before(a.Expires) }); err != nil {
+	if _, err := deleteAccess(tx, func(a accessRecord) bool { return !now.Before(a.Expires.Add(RetiredFor)) }); err != nil {
 		return Issued{}, err
 	}
 	v, _ := json.Marshal(accessRecord{Grant: g.ID, Expires: out.AccessExpires})
@@ -360,10 +376,10 @@ func (s *Store) RefreshGrant(refresh, client string) (Issued, error) {
 		}
 		if g.Refresh != h { // replaced already: someone else has it
 			replayed, gone = true, g
-			return deleteGrants(tx, func(x Grant) bool { return x.ID == g.ID })
+			return deleteGrants(tx, now, func(x Grant) bool { return x.ID == g.ID })
 		}
 		if !now.Before(g.Expires) {
-			_ = deleteGrants(tx, func(x Grant) bool { return x.ID == g.ID })
+			_ = deleteGrants(tx, now, func(x Grant) bool { return x.ID == g.ID })
 			return ErrBadGrant
 		}
 		if _, ok := agentPrincipal(tx, g.Agent, now); !ok { // the agent is gone, or its owner disabled
@@ -410,11 +426,12 @@ func (s *Store) Grant(id string) (Grant, bool) {
 
 // RevokeGrant revokes a grant with its tokens.
 func (s *Store) RevokeGrant(id string) error {
+	now := s.now()
 	return s.db.Update(func(tx kv.Tx) error {
 		if len(grants(tx, func(g Grant) bool { return g.ID == id })) == 0 {
 			return ErrNotFound
 		}
-		return deleteGrants(tx, func(g Grant) bool { return g.ID == id })
+		return deleteGrants(tx, now, func(g Grant) bool { return g.ID == id })
 	})
 }
 
@@ -423,13 +440,14 @@ func (s *Store) RevokeGrant(id string) error {
 func (s *Store) RevokeCode(codeHash string) (Grant, bool) {
 	var gone Grant
 	found := false
+	now := s.now()
 	_ = s.db.Update(func(tx kv.Tx) error {
 		gs := grants(tx, func(g Grant) bool { return g.Code == codeHash })
 		if len(gs) == 0 {
 			return nil
 		}
 		gone, found = gs[0], true
-		return deleteGrants(tx, func(g Grant) bool { return g.Code == codeHash })
+		return deleteGrants(tx, now, func(g Grant) bool { return g.Code == codeHash })
 	})
 	return gone, found
 }
@@ -441,6 +459,7 @@ func (s *Store) RevokeOAuthToken(secret, client string) (Grant, bool) {
 	h := hashToken(secret)
 	var g Grant
 	found := false
+	now := s.now()
 	_ = s.db.Update(func(tx kv.Tx) error {
 		switch {
 		case strings.HasPrefix(secret, AccessPrefix):
@@ -453,14 +472,14 @@ func (s *Store) RevokeOAuthToken(secret, client string) (Grant, bool) {
 				return nil
 			}
 			g, found = gs[0], true
-			return deleteGrants(tx, func(x Grant) bool { return x.ID == a.Grant })
+			return deleteGrants(tx, now, func(x Grant) bool { return x.ID == a.Grant })
 		case strings.HasPrefix(secret, RefreshPrefix):
 			gs := grants(tx, func(x Grant) bool { return x.Refresh == h || slices.Contains(x.Spent, h) })
 			if len(gs) == 0 || gs[0].Client != client {
 				return nil
 			}
 			g, found = gs[0], true
-			return deleteGrants(tx, func(x Grant) bool { return x.ID == gs[0].ID })
+			return deleteGrants(tx, now, func(x Grant) bool { return x.ID == gs[0].ID })
 		}
 		return nil
 	})

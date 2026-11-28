@@ -455,7 +455,7 @@ func (s *Store) SetPassword(username, password, keep string) error {
 			return ErrNotFound
 		}
 		a.PasswordHash, a.PasswordChanged = hash, s.now().UTC()
-		if err := newPasswordEnds(tx, username); err != nil {
+		if err := newPasswordEnds(tx, username, s.now()); err != nil {
 			return err
 		}
 		return putAccount(tx, a)
@@ -469,8 +469,9 @@ func (s *Store) SetPassword(username, password, keep string) error {
 
 // newPasswordEnds ends what a new password for username ends besides the console sessions: the OAuth
 // sign-ins of the person's agents (with their access tokens and the SSH keys added through them), and
-// the reset links for the account. The agents' own tokens stay: a person revokes those on purpose.
-func newPasswordEnds(tx kv.Tx, username string) error {
+// the reset links for the account. The agents' own tokens stay: a person revokes those on purpose. The
+// OAuth tokens that end are retired at now (deleteGrants).
+func newPasswordEnds(tx kv.Tx, username string, now time.Time) error {
 	agents := map[string]bool{}
 	tx.Range(bucketAgents, kv.Range{}, func(_, v []byte) bool {
 		var a Agent
@@ -479,7 +480,7 @@ func newPasswordEnds(tx kv.Tx, username string) error {
 		}
 		return true
 	})
-	if err := deleteGrants(tx, func(g Grant) bool { return agents[g.Agent] }); err != nil {
+	if err := deleteGrants(tx, now, func(g Grant) bool { return agents[g.Agent] }); err != nil {
 		return err
 	}
 	return deleteLinks(tx, func(l AccountLink) bool { return l.Kind == LinkReset && l.User == username })
@@ -837,6 +838,10 @@ func (s *Store) withdrawLink(id string, kinds ...string) (AccountLink, error) {
 // Join creates an account with a setup or invitation link, which it uses up: the first owner with the
 // setup link (only while there is no account), or someone with the role an invitation names.
 func (s *Store) Join(code, username, displayName, password string) (Account, error) {
+	return s.join(code, username, displayName, password, nil)
+}
+
+func (s *Store) join(code, username, displayName, password string, record func(Account) []AuditEntry) (Account, error) {
 	if err := ValidUsername(username); err != nil {
 		return Account{}, err
 	}
@@ -853,7 +858,7 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	}
 	now := s.now().UTC()
 	var a Account
-	err = s.db.Update(func(tx kv.Tx) error {
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		l, ok := getLink(tx, code)
 		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) {
 			return ErrBadLink
@@ -880,7 +885,13 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 		if err := putAccount(tx, a); err != nil {
 			return err
 		}
-		return tx.Delete(bucketLinks, []byte(l.Hash))
+		if err := tx.Delete(bucketLinks, []byte(l.Hash)); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(a))
+		}
+		return nil
 	})
 	if err != nil {
 		return Account{}, err
@@ -939,7 +950,7 @@ func (s *Store) ResetAccount(code, password string) (Account, []SSHKey, error) {
 		if err := tx.Delete(bucketLinks, []byte(cur.Hash)); err != nil {
 			return err
 		}
-		if err := newPasswordEnds(tx, acc.Username); err != nil {
+		if err := newPasswordEnds(tx, acc.Username, now); err != nil {
 			return err
 		}
 		return deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "user:"+acc.Username })

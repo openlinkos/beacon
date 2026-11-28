@@ -401,7 +401,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 
 	registerTool(s, &mcp.Tool{Name: "ack_alert", Title: "Acknowledge an alert",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Acknowledge a firing alert group and say what is being done in the note. An Agent acknowledgement leaves human escalation in effect. A person's acknowledgement or a standalone token acknowledgement pauses escalation for the configured acknowledgement timeout."},
+		Description: "Acknowledge a firing alert group and say what is being done in the note. An acknowledgement made here, with an agent's credential or a standalone token, is recorded and leaves human escalation in effect. Only a person's acknowledgement (in the console, on a card or on the host) pauses escalation, for the configured acknowledgement timeout."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in ackIn) (*mcp.CallToolResult, bridge.GroupView, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {
@@ -413,7 +413,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 
 	registerTool(s, &mcp.Tool{Name: "silence_alert", Title: "Silence an alert",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Silence a firing alert group for a while (at most 24h) with a required comment; it also acknowledges the group. A person's silence stops notifications for every alert in the group until it ends. An agent's silence is recorded and shown, but people are still notified, as after an agent's acknowledgement."},
+		Description: "Silence a firing alert group for a while (at most 24h) with a required comment; it also acknowledges the group. A silence made here, with an agent's credential or a standalone token, is recorded and shown, but people are still notified, as after such an acknowledgement. Only a person's silence stops notifications for every alert in the group until it ends."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in silenceIn) (*mcp.CallToolResult, bridge.GroupView, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {
