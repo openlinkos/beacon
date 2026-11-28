@@ -236,9 +236,19 @@ func (g *gateway) labels(t store.Token) ([][2]string, string) {
 	return [][2]string{{"host", t.Subject}, {"job", "host"}}, ""
 }
 
-// machineCheck is what a probe or a host may not write (imports.go): a heartbeat's sample, unless the
-// catalogue gives that heartbeat to the token's machine (its location, or its host). A heartbeat that
-// names no machine is written by its own heartbeat token alone.
+// names are the names of labels.
+func names(labels [][2]string) []string {
+	out := make([]string, len(labels))
+	for i, l := range labels {
+		out[i] = l[0]
+	}
+	return out
+}
+
+// machineCheck is what a probe or a host may not write (imports.go): a name the rule engine keeps for
+// itself (reservedName), and a heartbeat's sample unless the catalogue gives that heartbeat to the
+// token's machine (its location, or its host). A heartbeat that names no machine is written by its own
+// heartbeat token alone.
 func (g *gateway) machineCheck(t store.Token) func(textSample) string {
 	mine := map[string]bool{}
 	for _, h := range g.Catalog().Heartbeats {
@@ -247,6 +257,9 @@ func (g *gateway) machineCheck(t store.Token) func(textSample) string {
 		}
 	}
 	return func(s textSample) string {
+		if reservedName(s.name) {
+			return dropReserved
+		}
 		if s.name != heartbeatMetric {
 			return ""
 		}
@@ -262,12 +275,12 @@ func (g *gateway) machineCheck(t store.Token) func(textSample) string {
 func (g *gateway) dropped(t store.Token) func(reason string) {
 	return func(reason string) {
 		if g.Metrics != nil {
-			g.Metrics.Inc("beacon_gateway_samples_dropped_total", "Samples from probes and hosts the gateway dropped: not in the plain text format, naming their metric with __name__, giving a label twice, or a heartbeat the catalogue does not give the machine",
+			g.Metrics.Inc("beacon_gateway_samples_dropped_total", "Samples from probes and hosts the gateway dropped: not in the plain text format, naming their metric with __name__, giving a label twice, with more than 64 labels, a heartbeat the catalogue does not give the machine, or a name the rule engine keeps for itself",
 				metrics.Labels("subject", t.Subject, "reason", reason))
 		}
 		if _, seen := g.dropLogged.LoadOrStore(t.Subject+"\x00"+reason, true); !seen && g.Log != nil {
 			g.Log.Warn("gateway dropping samples", "subject", t.Subject, "token", t.Name, "reason", reason,
-				"see", "beacon_gateway_samples_dropped_total; a heartbeat counts from a probe or a host only when the catalogue names that machine for it")
+				"see", "beacon_gateway_samples_dropped_total; a heartbeat counts from a probe or a host only when the catalogue names that machine for it, and names with a colon, ALERTS and ALERTS_FOR_STATE are the rule engine's")
 		}
 	}
 }
@@ -287,11 +300,15 @@ func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 		fail(w, http.StatusUnsupportedMediaType, "write.encoding", "send remote write compressed with snappy, Prometheus' protocol, not with Content-Encoding "+strconv.Quote(enc))
 		return
 	}
-	compressed, err := io.ReadAll(r.Body)
+	if proto := writeProtocol(r.Header.Get("Content-Type")); proto != "" {
+		fail(w, http.StatusUnsupportedMediaType, "write.protocol", "send remote write version 1 ("+writeV1+"), not "+strconv.Quote(proto[:min(len(proto), 100)]))
+		return
+	}
+	compressed, err := readBody(w, r, maxWriteBody)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			fail(w, http.StatusBadRequest, "import.too_large", "the body is larger than "+strconv.FormatInt(tooLarge.Limit>>20, 10)+" MiB; send less at once")
+			fail(w, http.StatusBadRequest, "import.too_large", "a remote-write request holds at most "+strconv.Itoa(maxWriteBytes>>20)+" MiB once decompressed; send less at once")
 		} else {
 			fail(w, http.StatusBadRequest, "bad_input", "the body could not be read: "+err.Error())
 		}
@@ -302,14 +319,15 @@ func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 		raw, err = snappyDecode(compressed, maxWriteBytes)
 	}
 	if err == nil {
-		raw, err = filterWrite(raw, g.machineCheck(t), g.dropped(t))
+		raw, err = filterWrite(raw, names(labels), g.machineCheck(t), g.dropped(t))
 	}
 	if refused(w, err) {
 		return
 	}
-	body := snappyLiterals(raw)
-	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
-	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	body := literalBlock(raw) // read as it is sent, not copied once more
+	n := blockLen(body)
+	r.Body, r.ContentLength = io.NopCloser(&body), int64(n)
+	r.Header.Set("Content-Length", strconv.Itoa(n))
 	r.Header.Set("Content-Encoding", "snappy")
 	r.Header.Set("Content-Type", "application/x-protobuf")
 	r.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
@@ -322,6 +340,23 @@ func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 	g.lastWrite[t.Subject] = g.Now()
 	g.mu.Unlock()
 	g.vm.ServeHTTP(w, r)
+}
+
+// readBody reads a request's body of at most limit bytes: at once, into a buffer of its length, when the
+// request says how long it is, rather than into one that grows (and is copied) as it is read.
+func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
+	body := http.MaxBytesReader(w, r.Body, limit)
+	switch {
+	case r.ContentLength < 0:
+		return io.ReadAll(body)
+	case r.ContentLength > limit:
+		return nil, &http.MaxBytesError{Limit: limit}
+	}
+	b := make([]byte, r.ContentLength)
+	if _, err := io.ReadFull(body, b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // active is the token's location when it is in the catalogue and its machine has not expired; otherwise
@@ -388,7 +423,7 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 		for _, l := range labels {
 			q.Add("extra_label", l[0]+"="+l[1])
 		}
-		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples, check: g.machineCheck(t), drop: g.dropped(t)})
+		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples, forced: names(labels), check: g.machineCheck(t), drop: g.dropped(t)})
 		if refused(w, err) {
 			return
 		}
@@ -401,12 +436,13 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 			fail(w, http.StatusForbidden, "heartbeat.unnamed", "this heartbeat token names no heartbeat; enrol the heartbeat with beacon enroll heartbeat NAME and send with its token")
 			return
 		}
-		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, check: heartbeatOnly, refuse: heartbeatRefusal})
+		labels := [][2]string{{"job", "heartbeat"}, {"heartbeat", t.Subject}, {"source", "heartbeat"}, {"sender", t.Subject}}
+		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, forced: names(labels), check: heartbeatOnly, refuse: heartbeatRefusal})
 		if refused(w, err) {
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(b))
-		for _, l := range [][2]string{{"job", "heartbeat"}, {"heartbeat", t.Subject}, {"source", "heartbeat"}, {"sender", t.Subject}} {
+		for _, l := range labels {
 			q.Add("extra_label", l[0]+"="+l[1])
 		}
 	}

@@ -34,15 +34,17 @@ groups:
           description: "Renew {{ $labels.resource }}, or let it lapse on purpose; then put the new date in the catalogue (catalog/resources.yaml, or through the API) so that this alert ends."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
 
-      # Reported once for a certificate, not once per location, and only when two locations agree: of the earliest
-      # expiry each location sees, the second earliest (bottomk 2, then max), so that no one location raises it
-      # alone. A service that only one location checks has that location's.
+      # Reported once for a certificate, not once per location. The warning is the earliest expiry any location
+      # sees, so that one CDN node's certificate running out is seen too. The critical alert needs two locations
+      # to agree when two or more check the service: of the earliest expiry each location sees, the second
+      # earliest (bottomk 2, then max), so that no one location raises it alone; a service that only one location
+      # checks has that location's. While the critical alert fires, the warning does not.
       # Let's Encrypt renews 30 days ahead: 14 days left means renewal has failed twice over.
       - alert: CertificateExpiring
         expr: |
-          (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) < 14 * 86400
-          and
-          (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) >= 7 * 86400
+          (min by (service, failure_domain) (probe_ssl_earliest_cert_expiry{job="probe"}) - time()) < 14 * 86400
+          unless on (service, failure_domain)
+          (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) < 7 * 86400
         labels:
           severity: warning
         annotations:
@@ -63,14 +65,16 @@ groups:
     interval: 1m
     rules:
       # A heartbeat may arrive as a steady series (the probe agent's textfile directory) or as one pushed sample,
-      # so the last value within 31 days counts, not the current one.
+      # so the last value within 31 days counts, not the current one. What this records has no job, which the
+      # gateway sets on everything a machine writes, so the alerts read it with job="" (and the gateway passes
+      # no machine's name with a colon in any case).
       - record: beacon:heartbeat_last_success
         expr: max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{job=~"heartbeat|probe|host"}[31d]))
 
       # at the heartbeat's own severity, from the catalogue
       - alert: HeartbeatStale
         expr: |
-          (time() - beacon:heartbeat_last_success)
+          (time() - beacon:heartbeat_last_success{job=""})
           > on (heartbeat) group_left (severity)
           max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds{job="beacon"})
         labels:
@@ -85,7 +89,7 @@ groups:
       - alert: HeartbeatMissing
         expr: |
           max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds{job="beacon"})
-          unless on (heartbeat) beacon:heartbeat_last_success
+          unless on (heartbeat) beacon:heartbeat_last_success{job=""}
         for: 1d
         labels:
           service: "{{ $labels.heartbeat }}"

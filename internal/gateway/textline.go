@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"slices"
 	"strconv"
 )
 
@@ -28,16 +29,41 @@ func (s textSample) label(name string) (string, bool) {
 	return "", false
 }
 
-// duplicate reports whether some label is given twice (VictoriaMetrics would keep the last).
-func (s textSample) duplicate() bool {
-	for i := range s.labels {
-		for j := range i {
-			if s.labels[i][0] == s.labels[j][0] {
-				return true
+// duplicate reports whether some label is given twice (VictoriaMetrics keeps the last), other than one
+// of forced: the gateway sets those itself on whatever passes, after the sample's own, so that whichever
+// the sample gives is replaced. It is meant for at most maxLabels labels, but takes time in proportion to
+// their number however many there are.
+func (s textSample) duplicate(forced []string) bool {
+	if len(s.labels) <= 16 { // a few: compared with each other, without allocating
+		for i := range s.labels {
+			for j := range i {
+				if s.labels[i][0] == s.labels[j][0] && !slices.Contains(forced, s.labels[i][0]) {
+					return true
+				}
 			}
 		}
+		return false
+	}
+	seen := make(map[string]bool, len(s.labels))
+	for _, l := range s.labels {
+		if seen[l[0]] && !slices.Contains(forced, l[0]) {
+			return true
+		}
+		seen[l[0]] = true
 	}
 	return false
+}
+
+// tooManyLabels reports whether the sample has more than maxLabels labels besides its name (__name__,
+// in remote write).
+func (s textSample) tooManyLabels() bool {
+	n := 0
+	for _, l := range s.labels {
+		if l[0] != "__name__" {
+			n++
+		}
+	}
+	return n > maxLabels
 }
 
 // parseSample reads one line (without its line break) in the plain form, or reports that it is not one.

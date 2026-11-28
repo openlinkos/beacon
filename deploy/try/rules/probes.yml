@@ -14,28 +14,28 @@ groups:
           ) == bool 0
 
       - record: beacon:service_reporting
-        expr: count by (service, severity, failure_domain) (beacon:probe_failing)
+        expr: count by (service, severity, failure_domain) (beacon:probe_failing{job=""})
       - record: beacon:service_failing_locations
-        expr: sum by (service, severity, failure_domain) (beacon:probe_failing)
+        expr: sum by (service, severity, failure_domain) (beacon:probe_failing{job=""})
 
       # 1 = down: every location that reports the service fails it (here: the one)
       - record: beacon:service_down
         expr: |
-          (beacon:service_failing_locations >= bool 1)
-          * (beacon:service_failing_locations >= bool beacon:service_reporting)
+          (beacon:service_failing_locations{job=""} >= bool 1)
+          * (beacon:service_failing_locations{job=""} >= bool beacon:service_reporting{job=""})
 
       - record: beacon:service_up
-        expr: 1 - beacon:service_down
+        expr: 1 - beacon:service_down{job=""}
 
       - alert: ServiceDown
-        expr: beacon:service_down{severity!=""} == 1
+        expr: beacon:service_down{job="",severity!=""} == 1
         for: 20s
         annotations:
           summary: "{{ $labels.service }} is down"
           description: "{{ $labels.service }} has failed from every probe location that reports it (the try environment has one, edge-1, and its waits are shortened). The card lists the location's result and why it failed."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
       - alert: ServiceDown
-        expr: beacon:service_down{severity=""} == 1
+        expr: beacon:service_down{job="",severity=""} == 1
         for: 20s
         labels:
           severity: critical

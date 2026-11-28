@@ -19,16 +19,20 @@ import (
 // that the import is refused with 400 import.too_large: 400 so that a probe agent drops the batch, as it
 // does with other refusals it cannot fix, rather than queue it for ever.
 //
-// Every sample line must be in the plain form (textline.go), name its metric only before the braces and
-// give each label once. A probe's or a host's line that is not, or that its token may not write (a
-// heartbeat the catalogue does not give its machine), is dropped and counted, and the rest go on; a
-// heartbeat token's import is refused whole.
+// Every sample line must be in the plain form (textline.go), name its metric only before the braces,
+// have at most maxLabels labels and give each label once, but for the labels the gateway sets itself. A
+// probe's or a host's line that is not, or that its token may not write (a heartbeat the catalogue does
+// not give its machine, a name the rule engine keeps for itself), is dropped and counted, and the rest go
+// on; a heartbeat token's import is refused whole.
 const (
 	maxImportBytes      = 64 << 20
 	maxImportSamples    = 200_000
 	maxHeartbeatBytes   = 64 << 10
 	maxHeartbeatSamples = 100
 	maxImportLine       = 64 << 10 // no sample line is longer; a longer one is not a sample
+	// maxLabels is the most labels a sample has besides its name: more than any series needs, and few
+	// enough that checking them costs little.
+	maxLabels = 64
 
 	// heartbeatMetric is the one metric a heartbeat token writes, and the one a probe or a host writes
 	// only for the heartbeats of its machine.
@@ -37,12 +41,22 @@ const (
 
 // Why a sample does not pass.
 const (
-	dropSyntax    = "syntax"     // not in the plain form, or longer than any sample
-	dropNameLabel = "name_label" // names its metric with a __name__ label
-	dropLabels    = "labels"     // gives a label twice
-	dropHeartbeat = "heartbeat"  // a heartbeat the catalogue does not give the writer's machine
-	dropMetric    = "metric"     // a heartbeat token's metric other than its heartbeat's
+	dropSyntax    = "syntax"          // not in the plain form, or longer than any sample
+	dropNameLabel = "name_label"      // names its metric with a __name__ label
+	dropLabels    = "labels"          // gives a label twice
+	dropTooMany   = "too_many_labels" // has more than maxLabels labels
+	dropHeartbeat = "heartbeat"       // a heartbeat the catalogue does not give the writer's machine
+	dropReserved  = "reserved"        // a name the rule engine keeps for itself (reservedName)
+	dropMetric    = "metric"          // a heartbeat token's metric other than its heartbeat's
 )
+
+// reservedName reports whether a metric's name is one the rule engine keeps for what it writes itself: a
+// name with a colon (by convention a recording rule's, such as beacon:service_down), or vmalert's ALERTS
+// and ALERTS_FOR_STATE, from which it restores its alerts' state on a restart. The rules read these as
+// the rule engine wrote them, so no machine writes them.
+func reservedName(name string) bool {
+	return strings.Contains(name, ":") || name == "ALERTS" || name == "ALERTS_FOR_STATE"
+}
 
 // importError is why an import is refused, with its code; the proxy's error handler answers it as 400.
 type importError struct{ code, msg string }
@@ -53,6 +67,9 @@ func (e *importError) Error() string { return e.msg }
 type importLimits struct {
 	bytes   int64
 	samples int
+	// forced are the labels the gateway sets on what passes, whatever the sample gives: a sample may
+	// give one of them twice (duplicate).
+	forced []string
 	// check says why a well-formed sample may not pass, or "" when it may.
 	check func(textSample) string
 	// refuse, when set, refuses the whole import for a line that does not pass, with the error it makes
@@ -163,7 +180,9 @@ func (s *samples) line(chunk []byte) ([]byte, *importError) {
 		reason = dropSyntax
 	case hasLabel(smp, "__name__"):
 		reason = dropNameLabel
-	case smp.duplicate():
+	case smp.tooManyLabels():
+		reason = dropTooMany
+	case smp.duplicate(s.lim.forced):
 		reason = dropLabels
 	case s.lim.check != nil:
 		reason = s.lim.check(smp)
@@ -212,6 +231,8 @@ func heartbeatRefusal(reason string, s textSample, line []byte) *importError {
 		return &importError{"heartbeat.metric", "a heartbeat token writes only " + heartbeatMetric + ", named before the braces and not with a __name__ label"}
 	case dropLabels:
 		return &importError{"bad_input", "a sample gives the same label twice"}
+	case dropTooMany:
+		return &importError{"bad_input", "a sample has more than " + strconv.Itoa(maxLabels) + " labels"}
 	}
 	return &importError{"bad_input", "a line is not a sample of the Prometheus text format, name{label=\"value\"} value [timestamp]: " +
 		strconv.Quote(string(line[:min(len(line), 100)]))}

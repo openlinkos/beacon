@@ -123,3 +123,25 @@ probes_run_total 3
 		t.Fatalf("textfile %q, want %q", got, want)
 	}
 }
+
+// TestTextfileLeavesTheRuleEngineItsOwn: a textfile holds no name the rule engine keeps for what it
+// writes itself: a recording rule's (with a colon), ALERTS or ALERTS_FOR_STATE.
+func TestTextfileLeavesTheRuleEngineItsOwn(t *testing.T) {
+	dir := t.TempDir()
+	body := `beacon:heartbeat_last_success{heartbeat="nas"} 1793436000
+beacon:service_failing_locations{service="git"} 0
+job:backup_bytes:sum 1
+ALERTS{alertname="ServiceDown"} 1
+ALERTS_FOR_STATE{alertname="ServiceDown"} 1793436000
+ALERTS_SEEN 1
+backup_last_size_bytes 1024
+`
+	if err := os.WriteFile(filepath.Join(dir, "x.prom"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := (&Collector{TextfileDir: dir}).Textfile()
+	want := []string{"ALERTS_SEEN 1", "backup_last_size_bytes 1024"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("textfile %q, want %q", got, want)
+	}
+}

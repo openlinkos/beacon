@@ -2,7 +2,10 @@
 
 ## What it means
 
-The certificate the probe locations see for the service (`probe_ssl_earliest_cert_expiry`) runs out within 14 days (warning) or 7 days (critical), as at least two locations see it; a service only one location checks alerts on that one. A single location that sees an earlier expiry than the others raises nothing on its own: check what that location is served, a CDN node or a resolver answering differently. Automatic renewal has not happened: Let's Encrypt renews 30 days ahead, so 14 days left means it has failed more than once.
+A certificate the probe locations see for the service (`probe_ssl_earliest_cert_expiry`) runs out soon. Automatic renewal has not happened: Let's Encrypt renews 30 days ahead, so 14 days left means it has failed more than once.
+
+- **Warning:** the earliest expiry any one location sees is within 14 days. One location is enough, so that the certificate of one CDN node, or of one address in a rotation, is seen too. If the others see a later date, check what that location is served: a CDN node, or a resolver answering differently.
+- **Critical:** within 7 days, as at least two locations see it when two or more check the service; a service only one location checks is critical on that one. While one location alone sees fewer than 7 days, the alert stays a warning, with that location's date.
 
 ## What to check
 

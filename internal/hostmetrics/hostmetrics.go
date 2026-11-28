@@ -207,19 +207,23 @@ var promLineRe = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [-+0-
 const HeartbeatMetric = "beacon_heartbeat_last_success_timestamp_seconds"
 
 // ownMetric reports whether a sample line names one of the probe's results (probe_…) or a metric of
-// Beacon's own (beacon_…) other than a heartbeat: those come from the agent alone, never from a textfile.
+// Beacon's own (beacon_…) other than a heartbeat, which come from the agent alone, or a name the rule
+// engine keeps for itself (one with a colon, a recording rule's, or ALERTS and ALERTS_FOR_STATE): none of
+// them comes from a textfile.
 func ownMetric(line string) bool {
 	name := line
 	if i := strings.IndexAny(line, "{ "); i >= 0 {
 		name = line[:i]
 	}
-	return strings.HasPrefix(name, "probe_") || strings.HasPrefix(name, "beacon_") && name != HeartbeatMetric
+	return strings.HasPrefix(name, "probe_") || strings.HasPrefix(name, "beacon_") && name != HeartbeatMetric ||
+		strings.Contains(name, ":") || name == "ALERTS" || name == "ALERTS_FOR_STATE"
 }
 
 // Textfile returns the sample lines of the *.prom files in the textfile directory (comments and anything
 // that does not look like a sample are dropped, so one broken file cannot break the whole scrape). A
-// line naming a probe's result or a metric of Beacon's own other than a heartbeat is dropped too, so
-// that whatever can write the directory cannot make up what the agent itself reports.
+// line naming a probe's result, a metric of Beacon's own other than a heartbeat or one of the rule
+// engine's is dropped too, so that whatever can write the directory cannot make up what the agent itself
+// reports or what the rules work out.
 func (c *Collector) Textfile() []string {
 	if c.TextfileDir == "" {
 		return nil

@@ -432,23 +432,61 @@ func writeSample(w *bytes.Buffer, name string, base map[string]string, extra str
 	w.WriteString("} " + strconv.FormatFloat(v, 'g', -1, 64) + " " + strconv.FormatInt(at.UnixMilli(), 10) + "\n")
 }
 
-// writeTextLine adds the job label and a timestamp to a sample line from a textfile.
+// writeTextLine writes a sample line from a textfile (hostmetrics.Textfile: a name, perhaps labels in
+// braces, whose values hold no closing brace, a value and perhaps a timestamp) with the job label, unless
+// the line gives one of its own, and the timestamp at in place of its own.
 func writeTextLine(w *bytes.Buffer, line, job string, at time.Time) {
-	f := strings.Fields(line)
-	if len(f) < 2 {
+	series, rest := line, ""
+	if i := strings.IndexAny(line, "{ "); i >= 0 {
+		series, rest = line[:i], line[i:]
+	}
+	labels := ""
+	if strings.HasPrefix(rest, "{") {
+		end := strings.IndexByte(rest, '}')
+		if end < 0 {
+			return
+		}
+		labels, rest = strings.TrimSpace(rest[1:end]), rest[end+1:]
+	}
+	f := strings.Fields(rest)
+	if len(f) == 0 {
 		return
 	}
-	series, value := f[0], f[1]
-	if i := strings.IndexByte(series, '{'); i >= 0 {
-		inner := strings.TrimSuffix(series[i+1:], "}")
-		if inner != "" {
-			inner += ","
+	if !givesLabel(labels, "job") {
+		if labels != "" && !strings.HasSuffix(labels, ",") {
+			labels += ","
 		}
-		series = series[:i] + "{" + inner + `job="` + job + `"}`
-	} else {
-		series += `{job="` + job + `"}`
+		labels += `job="` + job + `"`
 	}
-	w.WriteString(series + " " + value + " " + strconv.FormatInt(at.UnixMilli(), 10) + "\n")
+	w.WriteString(series + "{" + labels + "} " + f[0] + " " + strconv.FormatInt(at.UnixMilli(), 10) + "\n")
+}
+
+// givesLabel reports whether labels, as they are inside a sample's braces (a="b",c="d"), give the label
+// called name.
+func givesLabel(labels, name string) bool {
+	for s := labels; ; {
+		s = strings.TrimLeft(s, " \t,")
+		eq := strings.IndexByte(s, '=')
+		if eq < 0 {
+			return false
+		}
+		if strings.TrimSpace(s[:eq]) == name {
+			return true
+		}
+		if s = strings.TrimLeft(s[eq+1:], " \t"); !strings.HasPrefix(s, `"`) {
+			return false
+		}
+		i := 1
+		for ; i < len(s) && s[i] != '"'; i++ {
+			if s[i] == '\\' {
+				i++
+			}
+		}
+		if i >= len(s) {
+			return false
+		}
+		s = s[i+1:]
+	}
 }
 
 // ---- Pushing and the queue

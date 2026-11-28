@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0e679cf3
+sourceHash: sha256-b010dc91
 ---
 
 # 指标与告警规则 {#metrics-and-alert-rules}
@@ -37,7 +37,7 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 | `beacon_gateway_alerts_capped_total` | `token` | `alerts:send` 令牌一次发送中前 200 条之外被丢弃的告警 |
 | `beacon_router_alerts_capped_total` | `sender`、`reason` | `alerts:send` 令牌已有 500 条正在告警（`alerts`）或 50 个告警组（`groups`）时被丢弃的新告警 |
 | `beacon_gateway_alerts_dropped_total` | `token` | 因只有规则引擎能发 Watchdog 和级别为 `none` 的告警，而从 `alerts:send` 令牌丢弃的告警 |
-| `beacon_gateway_samples_dropped_total` | `subject`、`reason` | 网关丢弃的检测点或主机样本：不是普通文本格式（`syntax`）、用 `__name__` 写指标名（`name_label`）、同一标签写了两次（`labels`），或目录没有分给这台机器的心跳（`heartbeat`） |
+| `beacon_gateway_samples_dropped_total` | `subject`、`reason` | 网关丢弃的检测点或主机样本：不是普通文本格式（`syntax`）、用 `__name__` 写指标名（`name_label`）、同一标签写了两次（`labels`）、标签超过 64 个（`too_many_labels`）、目录没有分给这台机器的心跳（`heartbeat`），或规则引擎留给自己的指标名（`reserved`） |
 | `beacon_probe_now_requests_open` | | 等检测点应答的按需检测请求 |
 | `beacon_probe_now_requests_total` | | Agent 发起的按需检测请求 |
 | `beacon_probe_now_answers_total` | `location` | 检测点对按需检测请求的应答 |
@@ -76,7 +76,7 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 
 参考规则是四个文件，每组说明自己看哪个指标。`deploy/rules/probes.yml` 里的记录规则（`beacon:` 系列）承载中间步骤，告警建立在它们之上。在那里，一个位置持续失败 3 分钟才算失败，一个服务一天的可用率是 `avg_over_time(beacon:service_up[1d])`。
 
-每条规则都按 `job` 选取输入：检测结果取 `job="probe"`，目录的指标和网关自己的计数取 `job="beacon"`，检测程序的队列取 `job=~"probe|host"`，心跳的成功取 `job=~"heartbeat|probe|host"`。所以中心要按 `deploy/metrics/scrape.yml` 里的抓取任务名来抓取。
+每条规则都按 `job` 选取输入：检测结果取 `job="probe"`，目录的指标和网关自己的计数取 `job="beacon"`，检测程序的队列取 `job=~"probe|host"`，心跳的成功取 `job=~"heartbeat|probe|host"`，记录下来的 `beacon:` 系列取 `job=""`，因为 vmalert 记录时不带 job。所以中心要按 `deploy/metrics/scrape.yml` 里的抓取任务名来抓取，vmalert 也不要加名为 `job` 的外部标签。
 
 ### 服务可用性 {#service-availability}
 
@@ -96,7 +96,7 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 | 告警 | 级别 | 持续 | 何时 |
 | --- | --- | --- | --- |
 | `ResourceExpiring` | `warning`，之后 `critical` | — | 目录里的资源 30 天内到期；7 天内转紧急 |
-| `CertificateExpiring` | `warning`，之后 `critical` | — | 至少两个位置看到的证书到期时间在 14 天内，只有一个位置检测的服务按那一个位置算；7 天内转紧急（Let's Encrypt 提前 30 天续期，14 天意味着续期已两次落空） |
+| `CertificateExpiring` | `warning`，之后 `critical` | — | 任一位置看到的最早证书到期时间在 14 天内（Let's Encrypt 提前 30 天续期，14 天意味着续期已两次落空）；至少两个位置看到 7 天内到期时转紧急，只有一个位置检测的服务按那一个位置算 |
 | `HeartbeatStale` | 心跳自己的 `severity` | — | 任务没有在它的 `max_age` 内上报成功 |
 | `HeartbeatMissing` | 心跳自己的 `severity` | 1d | 目录里的心跳从未上报（新的心跳有一天先成功一次） |
 
