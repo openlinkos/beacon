@@ -804,6 +804,8 @@ func (b *Bridge) ClaimToken(ctx context.Context, who Actor, token, owner, agent,
 	switch {
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrExists):
 		return AgentView{}, err
+	case errors.Is(err, store.ErrClaimWidens):
+		return AgentView{}, fmt.Errorf("%w: %w", ErrBadInput, err)
 	case err != nil:
 		return AgentView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}

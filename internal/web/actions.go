@@ -148,6 +148,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("The current password is wrong.")
 	case "not_legacy":
 		return s.t("Only a legacy token, with people's scopes and no agent yet, is claimed.")
+	case "claim_wider":
+		return s.t("That preset gives more than the token may do now; keep its scopes or choose less.")
 	}
 	return s.t("That did not work; the log says why.")
 }

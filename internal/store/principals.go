@@ -467,6 +467,9 @@ func (s *Store) RemoveAgentSSHKey(agent, fingerprint string) (Agent, error) {
 	return out, err
 }
 
+// ErrClaimWidens means a claim names a preset that asks for more than the token may do now.
+var ErrClaimWidens = errors.New("a claim never widens what a token may do")
+
 // Legacy reports whether a token is a legacy one: not an agent's, and with only people's scopes, so
 // that it can be claimed as an agent. A machine's token is never legacy.
 func Legacy(t Token) bool {
@@ -502,6 +505,13 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 		}
 		if preset == "" {
 			preset = ClosestPreset(t.Scopes)
+		}
+		// A preset named on the claim may narrow the token, never widen it: every scope it asks for must
+		// be one the token holds now. Custom keeps the token's own scopes.
+		if preset != PresetCustom {
+			if extra := slices.DeleteFunc(PresetScopes(preset), func(sc string) bool { return slices.Contains(t.Scopes, sc) }); len(extra) > 0 {
+				return fmt.Errorf("%w: preset %s gives more than token %s may do now (%s); leave the preset out to keep what it may do", ErrClaimWidens, preset, name, strings.Join(extra, ", "))
+			}
 		}
 		existing, ok := getAgent(tx, agentName)
 		switch {

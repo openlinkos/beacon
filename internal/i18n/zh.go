@@ -881,6 +881,7 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Keep its scopes (custom)": "保留原权限范围（自定义）",
 	"Make it an agent of a person: it keeps its secret and expiry, and may do from then on what the agent's preset allows within that person's role.": "把它归为某个成员的 Agent：它保留原有的密钥和到期时间，此后能做的事由 Agent 的预设决定，且不超出这个成员的角色。",
 	"Only a legacy token, with people's scopes and no agent yet, is claimed.":                                                                         "只有旧令牌（只带成员权限范围、还不属于任何 Agent）才能归入。",
+	"That preset gives more than the token may do now; keep its scopes or choose less.":                                                               "这个预设超出了令牌现在能做的事；请保留原权限范围，或选择更低的预设。",
 	"People's agents have their tokens on the Agents page. Machines' tokens are made with beacon enroll and beacon token create on the host and revoked there, since they keep monitoring running. A legacy token, from before accounts, keeps working; an owner can claim it as an agent of a person.": "成员的 Agent 的令牌在“Agent”页面。机器的令牌在主机上用 beacon enroll 和 beacon token create 创建，也在那里吊销，因为它们维持着监控。有账号之前的旧令牌仍然可用；所有者可以把它归为某个成员的 Agent。",
 	// the console: what is monitored, and the status pages
 	"Monitors":                      "监控项",

@@ -642,6 +642,16 @@ func TestLegacyTokens(t *testing.T) {
 	if !strings.Contains(toks.body, "Legacy") || !strings.Contains(toks.body, `action="/console/tokens/claude-code/claim"`) {
 		t.Fatalf("the tokens page: %s", toks.body)
 	}
+	// the claim offers no preset beyond the token's scopes, and refuses one sent anyway
+	if strings.Contains(toks.body, `<option value="oncall"`) || strings.Contains(toks.body, `<option value="operator"`) {
+		t.Errorf("the claim offers a preset wider than the token: %s", toks.body)
+	}
+	if a := alice.post("/console/tokens/claude-code/claim", url.Values{"owner": {"bob"}, "agent": {"claude-code"}, "preset": {"oncall"}}); !strings.Contains(a.header.Get("Location"), "claim_wider") {
+		t.Fatalf("a widening claim: %q", a.header.Get("Location"))
+	}
+	if p, _ := e.st.Authenticate(legacy); p.Agent != "" {
+		t.Fatalf("a refused claim made an agent: %+v", p)
+	}
 	if a := alice.post("/console/tokens/claude-code/claim", url.Values{"owner": {"bob"}, "agent": {"claude-code"}, "preset": {"custom"}}); !strings.Contains(a.header.Get("Location"), "claimed") {
 		t.Fatalf("claim: %q", a.header.Get("Location"))
 	}
