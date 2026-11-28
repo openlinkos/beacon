@@ -54,7 +54,7 @@ type Operation struct {
 	Domain            string   `json:"domain"`
 	Access            string   `json:"access"` // read, write, destructive
 	Scopes            []string `json:"scopes"`
-	ScopeMode         string   `json:"scope_mode,omitempty"` // any (default), all, standalone_admin, owner_or_self
+	ScopeMode         string   `json:"scope_mode,omitempty"` // any (default), all, standalone_admin, owner_or_self, person
 	Summary           string   `json:"summary"`
 	Available         bool     `json:"available"`
 	UnavailableReason string   `json:"unavailable_reason,omitempty"`
@@ -225,7 +225,7 @@ var opDefs = []opDef{
 	{tool: "set_machine_connector", rest: "PUT /api/v1/machines/{name}/connector", domain: DomainMachines, access: "write", scopes: []string{"machines:write"}, feature: "ssh", summary: "Set or rotate the outbound SSH public key for a NAT connector machine."},
 	{tool: "remove_machine", rest: "DELETE /api/v1/machines/{name}", domain: DomainMachines, access: "destructive", scopes: []string{"machines:write"}, feature: "ssh", summary: "Unenrol a machine while keeping its recorded session history."},
 	{tool: "pause_ssh", rest: "POST /api/v1/ssh/pause", domain: DomainMachines, access: "destructive", scopes: []string{"machines:write"}, feature: "ssh", summary: "Emergency brake: immediately close open agent SSH sessions and refuse new ones."},
-	{tool: "resume_ssh", rest: "POST /api/v1/ssh/resume", domain: DomainMachines, access: "write", scopes: []string{"machines:write"}, feature: "ssh", summary: "Re-enable agent SSH access after pause_ssh."},
+	{tool: "resume_ssh", rest: "POST /api/v1/ssh/resume", domain: DomainMachines, access: "write", scopes: []string{"machines:write"}, scopeMode: "person", feature: "ssh", summary: "Re-enable agent SSH access after pause_ssh; a person, or beacon on the host, resumes it."},
 
 	// Status Pages & Maintenance
 	{tool: "get_status_page", rest: "GET /api/v1/status/{name}", domain: DomainStatus, access: "read", scopes: []string{"status:read"}, feature: "status", summary: "Fetch a public status page's current state, 90-day component history, incidents and maintenance."},
@@ -395,6 +395,14 @@ func evaluateOp(p store.Principal, f Features, op opDef) (bool, string) {
 		}
 		if !p.Person() && !p.Has("accounts:write") {
 			return false, "requires a person account or a standalone credential with accounts:write"
+		}
+		return true, ""
+	case "person":
+		if !p.Person() {
+			return false, "requires a person signed in, or beacon on the host"
+		}
+		if len(op.scopes) > 0 && !slices.ContainsFunc(op.scopes, p.Has) {
+			return false, "requires scope " + strings.Join(op.scopes, " or ")
 		}
 		return true, ""
 	case "all":

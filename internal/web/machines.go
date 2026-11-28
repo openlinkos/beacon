@@ -426,6 +426,10 @@ func (s *Server) machineErr(w http.ResponseWriter, r *http.Request, path string,
 	switch {
 	case errors.Is(err, sshgate.ErrExists):
 		code = "machine.exists"
+	case errors.Is(err, sshgate.ErrAlias):
+		code = "machine.alias"
+	case errors.Is(err, sshgate.ErrForbidden):
+		code = "machine.forbidden"
 	case errors.Is(err, sshgate.ErrUnreachable):
 		code = "machine.unreachable"
 	case errors.Is(err, sshgate.ErrBadInput):

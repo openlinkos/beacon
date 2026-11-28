@@ -122,7 +122,8 @@ func (s *Store) startMachineHistory(tx kv.Tx, m *Machine, action, via string) er
 }
 
 // RegisterMachine atomically starts a new history when a machine is enrolled or explicitly replaced.
-// previous is the registration as read before any host key discovery, or nil for a new machine.
+// previous is the registration as read before any host key discovery, or nil for a new machine. A machine
+// that would be another's second record is refused (ErrMachineAlias, machine_alias.go).
 func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machine, error) {
 	err := s.db.Update(func(tx kv.Tx) error {
 		old, err := machineIn(tx, m.Name)
@@ -133,6 +134,9 @@ func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machi
 			return ErrExists
 		case previous != nil && (err != nil || old != *previous):
 			return ErrConflict
+		}
+		if err := checkAlias(tx, m); err != nil {
+			return err
 		}
 		return s.startMachineHistory(tx, &m, "registered", via)
 	})
@@ -157,7 +161,8 @@ func recordMachineRevision(tx kv.Tx, m *Machine, rev MachineRevision) error {
 }
 
 // UpdateMachineIdentity mutates the current registration in a write transaction. A caller can
-// install connector or host keys alongside metadata updates without writing a stale machine back.
+// install connector or host keys alongside metadata updates without writing a stale machine back. A
+// change that makes the machine another's second record is refused (ErrMachineAlias).
 func (s *Store) UpdateMachineIdentity(name string, same func(Machine) bool, change func(*Machine)) (Machine, error) {
 	var m Machine
 	err := s.db.Update(func(tx kv.Tx) error {
@@ -170,6 +175,9 @@ func (s *Store) UpdateMachineIdentity(name string, same func(Machine) bool, chan
 			return ErrConflict
 		}
 		change(&m)
+		if err := checkAlias(tx, m); err != nil {
+			return err
+		}
 		return writeMachine(tx, m)
 	})
 	return m, err

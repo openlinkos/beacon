@@ -37,6 +37,8 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrForbidden, http.StatusForbidden, "machine.forbidden"},
 		{sshgate.ErrUnreachable, http.StatusBadGateway, "machine.unreachable"},
 		{sshgate.ErrExists, http.StatusConflict, "machine.exists"},
+		{sshgate.ErrAlias, http.StatusConflict, "machine.alias"},
+		{sshgate.ErrResumeByPerson, http.StatusForbidden, "ssh.resume_forbidden"},
 		{sshgate.ErrNoFile, http.StatusNotFound, "file.not_found"},
 		{sshgate.ErrNotRegular, http.StatusBadRequest, "file.not_regular"},
 		{sshgate.ErrBinary, http.StatusUnsupportedMediaType, "file.binary"},

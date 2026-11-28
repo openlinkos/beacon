@@ -83,6 +83,12 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("The SSH channel is off.")
 	case "machine.exists":
 		return s.t("A machine with this name exists already.")
+	case "machine.alias":
+		return s.t("Another machine has this address or host key, so nothing was added. One machine has one record; a machine cloned from another's image needs host keys of its own.")
+	case "machine.forbidden":
+		return s.t("You may not make this change to machines. A critical machine takes an owner; root, or an address on Beacon's own host, takes beacon machine on the host.")
+	case "ssh.resume_forbidden":
+		return s.t("Only a person, or beacon ssh resume on the host, resumes SSH access.")
 	case "machine.unreachable":
 		return s.t("The machine could not be reached, so nothing was added.")
 	case "machine.not_found":
@@ -245,7 +251,10 @@ func (s *Server) probeNow(w http.ResponseWriter, r *http.Request, v *viewer) {
 
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *viewer) {
 	return func(w http.ResponseWriter, r *http.Request, v *viewer) {
-		if err := s.SSH.SetPaused(r.Context(), v.gate(), paused); err != nil {
+		if err := s.SSH.SetPaused(r.Context(), v.gate(), paused); errors.Is(err, sshgate.ErrResumeByPerson) {
+			back(w, r, consolePath("/machines"), "error", "ssh.resume_forbidden")
+			return
+		} else if err != nil {
 			s.failed(w, r, consolePath("/machines"), "pause", err)
 			return
 		}

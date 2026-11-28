@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,7 +168,7 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 		return Added{}, fmt.Errorf("%w: a machine's name is its host name: lower case letters, digits and dashes", ErrBadInput)
 	}
 	if in.User == "" {
-		in.User = "beacon"
+		in.User = defaultUser
 	}
 	if !store.ValidMachineUser(in.User) {
 		return Added{}, fmt.Errorf("%w: user %q is not an account name", ErrBadInput, in.User)
@@ -182,18 +183,29 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		addr = net.JoinHostPort(addr, "22")
 	}
-	if h, _, _ := net.SplitHostPort(addr); h == "" {
-		return Added{}, fmt.Errorf("%w: address is a host name or address, optionally with :port", ErrBadInput)
+	h, port, _ := net.SplitHostPort(addr)
+	if n, err := strconv.Atoi(port); h == "" || err != nil || n < 1 || n > 65535 {
+		return Added{}, fmt.Errorf("%w: address is a host name or address, optionally with :port (1 to 65535)", ErrBadInput)
 	}
 	old, exists := g.d.Store.Machine(in.Name)
 	if err := g.mayRegister(who, in, old, exists); err != nil {
 		return Added{}, err
 	}
+	local := cli(who) || g.d.LocalMachines
+	if !local && localHost(h) {
+		return Added{}, errLocal(addr)
+	}
 	if exists && !in.Replace {
 		return Added{}, fmt.Errorf("%w (%s at %s); add it with replace to pin its host key again", ErrExists, old.Name, old.Address)
 	}
-	k, err := g.hostKey(ctx, addr)
+	if why := g.d.Store.MachineAlias(store.Machine{Name: in.Name, Address: addr}); why != "" { // before Beacon dials it
+		return Added{}, aliasError(why)
+	}
+	k, err := g.hostKey(ctx, addr, local)
 	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return Added{}, err
+		}
 		return Added{}, fmt.Errorf("%w: %s: %v", ErrUnreachable, addr, err) //nolint:errorlint // one wrapped error is enough
 	}
 	m := store.Machine{Name: in.Name, Address: addr, User: in.User, HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))),
@@ -224,7 +236,7 @@ func (g *Gate) registerMachine(who Actor, m, old store.Machine, exists bool) (st
 	if errors.Is(err, store.ErrExists) && !exists {
 		return m, fmt.Errorf("%w (%s)", ErrExists, m.Name)
 	}
-	return m, machineVersionError(m.Name, err)
+	return m, registrationError(m.Name, err)
 }
 
 var (
@@ -326,7 +338,7 @@ func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 var errGotKey = errors.New("host key received")
 
 // hostKey asks the machine at addr for its host key, preferring Ed25519.
-func (g *Gate) hostKey(ctx context.Context, addr string) (ssh.PublicKey, error) {
+func (g *Gate) hostKey(ctx context.Context, addr string, local bool) (ssh.PublicKey, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	nc, err := g.d.Dial(ctx, "tcp", addr)
@@ -334,6 +346,9 @@ func (g *Gate) hostKey(ctx context.Context, addr string) (ssh.PublicKey, error) 
 		return nil, err
 	}
 	defer func() { _ = nc.Close() }()
+	if !local && reachedLocal(nc) { // a name for this host's own address
+		return nil, errLocal(addr)
+	}
 	if dl, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(dl)
 	}

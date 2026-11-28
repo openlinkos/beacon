@@ -673,7 +673,7 @@ func addMachineTools(s *mcp.Server, g SSH) {
 
 	registerTool(s, &mcp.Tool{Name: "resume_ssh", Title: "Resume agents' access to machines",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Let agents reach machines again after pause_ssh."},
+		Description: "Let agents reach machines again after pause_ssh. Only a person, or beacon ssh resume on the host, resumes: an agent or a token is refused."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, okOut, error) {
 			who, err := gate(ctx, "machines:write")
 			if err != nil {

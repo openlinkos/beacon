@@ -3,6 +3,7 @@ package sshgate
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -36,11 +37,41 @@ func (e *env) token(t *testing.T, name string, access store.MachineAccess) Actor
 	return Actor{Name: name, Via: "api", Key: "token:" + name}
 }
 
+// route is where the channel's dialler takes an address in the tests: to, a test machine's sshd on
+// loopback, answering from a documentation address unless local.
+type route struct {
+	to    string
+	local bool
+}
+
+// routes has the channel dial the addresses given at the test machines, as if they were machines
+// elsewhere; any other address is dialled as it is. Call it before anything dials.
+func (e *env) routes(r map[string]route) {
+	var d net.Dialer
+	e.g.d.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		rt, ok := r[addr]
+		if !ok {
+			return d.DialContext(ctx, network, addr)
+		}
+		nc, err := d.DialContext(ctx, network, rt.to)
+		if err != nil || rt.local {
+			return nc, err
+		}
+		return elsewhere{nc}, nil
+	}
+}
+
+// elsewhere is a connection to a test machine that says it reached a documentation address.
+type elsewhere struct{ net.Conn }
+
+func (elsewhere) RemoteAddr() net.Addr { return &net.TCPAddr{IP: net.IPv4(192, 0, 2, 10), Port: 22} }
+
 // TestMachineWritesNeedAllMachines: a credential that names the machines it reaches uses them and never
 // changes a machine, the ones it names included; a credential with access to all machines changes those
 // that are not critical.
 func TestMachineWritesNeedAllMachines(t *testing.T) {
 	e := setup(t)
+	e.routes(map[string]route{"box.example.net:22": {to: e.tg.addr}})
 	ctx := context.Background()
 	if err := e.st.PutMachine(store.Machine{Name: "db", Address: "db.example.com:22", User: "beacon", HostKey: "ssh-ed25519 AAAA"}); err != nil {
 		t.Fatal(err)
@@ -94,7 +125,7 @@ func TestMachineWritesNeedAllMachines(t *testing.T) {
 	if _, err := e.g.Update(ctx, wide, "box", MachineUpdate{Note: &other}); err != nil {
 		t.Fatalf("a note by a credential with all machines: %v", err)
 	}
-	if _, err := e.g.Add(ctx, wide, MachineInput{Name: "box", Address: e.tg.addr, Replace: true}); err != nil {
+	if _, err := e.g.Add(ctx, wide, MachineInput{Name: "box", Address: "box.example.net", Replace: true}); err != nil {
 		t.Fatalf("re-pinning by a credential with all machines: %v", err)
 	}
 	// but marks no machine critical, and changes no critical machine
@@ -204,7 +235,7 @@ func TestConnectorBoundToKeyAndRegistration(t *testing.T) {
 	cli := Actor{Name: "cli:root", Via: "cli"}
 	who := Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}
 	ck := signer(t)
-	e.addConnector(t, "nat", ck, authorized(e.tg.hostKey))
+	e.addConnector(t, "nat", ck, authorized(e.nat.hostKey))
 	cl := e.connectOut(t, "nat", ck)
 	waitFor(t, "the connector", func() bool { return e.g.connectors.get("nat") != nil })
 	if _, err := e.g.Run(ctx, who, "nat", RunInput{Command: "true"}); err != nil {
@@ -212,7 +243,7 @@ func TestConnectorBoundToKeyAndRegistration(t *testing.T) {
 	}
 
 	// registered again: the connection signed in to the old registration ends
-	if _, err := e.g.Add(ctx, cli, MachineInput{Name: "nat", Address: store.ConnectorAddress, Replace: true, HostKey: authorized(e.tg.hostKey)}); err != nil {
+	if _, err := e.g.Add(ctx, cli, MachineInput{Name: "nat", Address: store.ConnectorAddress, Replace: true, HostKey: authorized(e.nat.hostKey)}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the old connection to close", func() bool { return closed(cl) })
@@ -234,7 +265,7 @@ func TestConnectorBoundToKeyAndRegistration(t *testing.T) {
 	// made a dialled machine: its connector ends
 	cl = e.connectOut(t, "nat", ck)
 	waitFor(t, "the connector", func() bool { return e.g.connectors.get("nat") != nil })
-	if _, err := e.g.Add(ctx, cli, MachineInput{Name: "nat", Address: e.tg.addr, Replace: true}); err != nil {
+	if _, err := e.g.Add(ctx, cli, MachineInput{Name: "nat", Address: e.nat.addr, Replace: true}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the connector of a dialled machine to close", func() bool { return closed(cl) })

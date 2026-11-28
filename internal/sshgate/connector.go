@@ -368,13 +368,18 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 		return "", err
 	}
 	sameConnector := func(cur store.Machine) bool { return c.bound(cur) && cur.HostKey == "" }
+	fp := ssh.FingerprintSHA256(k)
 	m, err = g.d.Store.UpdateMachineIdentity(c.name, sameConnector, func(cur *store.Machine) {
 		cur.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
 	})
+	if errors.Is(err, store.ErrMachineAlias) { // the connector forwards another machine's sshd
+		g.d.Log.Warn("connector machine's host key not pinned: another machine has it", "machine", c.name, "fingerprint", fp, "err", err)
+		_ = g.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "ssh", Action: "machine_host_key_refused", Target: c.name, Detail: fp + ": " + err.Error()})
+		return "", registrationError(c.name, err)
+	}
 	if err != nil {
 		return "", err
 	}
-	fp := ssh.FingerprintSHA256(k)
 	g.d.Log.Info("connector machine's host key pinned", "machine", c.name, "fingerprint", fp)
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "ssh", Action: "machine_host_key", Target: c.name, Detail: fp})
 	g.post(ctx, i18n.T(g.d.Lang, "Beacon pinned the host key of machine %s through its connector: %s", c.name, fp))
@@ -501,6 +506,9 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	if in.HostKey != "" {
 		k, err := parseHostKey(in.HostKey)
 		if err != nil {
+			return Added{}, err
+		}
+		if err := g.mayGiveHostKey(who, k); err != nil {
 			return Added{}, err
 		}
 		m.HostKey = k

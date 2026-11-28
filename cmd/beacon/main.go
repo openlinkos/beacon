@@ -294,6 +294,11 @@ func serve(args []string, stderr io.Writer) int {
 			return 1
 		}
 	}
+	// machines recorded twice before Beacon refused it: a second name reaches the machine past its
+	// critical mark, its account and its access, so people should remove one
+	for _, alias := range st.MachineAliases() {
+		log.Warn("one machine has two records; remove the one that should not be there", "machines", alias)
+	}
 	sec := cfg.Secrets
 	var bot *notify.GroupBot // the chat's custom bot: plain messages and echoes
 	if sec.FeishuWebhookURL != "" {

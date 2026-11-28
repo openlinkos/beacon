@@ -55,6 +55,10 @@ type Deps struct {
 	Now     func() time.Time
 	// Dial connects to machines; nil uses a net.Dialer. Tests replace it.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// LocalMachines lets whoever may add a machine add one at a loopback or link-local address, as
+	// beacon on the host may (machine_writes.go). Tests whose machines listen on loopback set it; the
+	// service never does.
+	LocalMachines bool
 	// PublicAddress (host:port) is where agents and connector machines reach the channel; it goes into
 	// the setup machine add prints for a machine behind NAT. May be empty.
 	PublicAddress string
@@ -306,10 +310,31 @@ func (g *Gate) PausedSince() time.Time {
 	return g.d.Store.Time(PauseKey)
 }
 
-// SetPaused pauses or resumes access. Pausing closes every open client connection and tool call.
+// ErrResumeByPerson is the answer to an agent or a token that asks to resume the channel.
+var ErrResumeByPerson = errors.New("only a person, or beacon ssh resume on the host, resumes SSH access")
+
+// mayResume reports whether who may resume the channel: a person, read afresh, or beacon on the host.
+// Whoever may pause it may pause it; a pause an agent cannot undo is what makes it a brake.
+func (g *Gate) mayResume(who Actor) error {
+	if cli(who) {
+		return nil
+	}
+	if p, ok := g.principal(who); ok && p.Person() {
+		return nil
+	}
+	return ErrResumeByPerson
+}
+
+// SetPaused pauses or resumes access. Pausing closes every open client connection and tool call;
+// resuming takes a person or beacon on the host (mayResume).
 func (g *Gate) SetPaused(ctx context.Context, who Actor, paused bool) error {
 	if g == nil {
 		return ErrDisabled
+	}
+	if !paused {
+		if err := g.mayResume(who); err != nil {
+			return err
+		}
 	}
 	var t time.Time
 	if paused {

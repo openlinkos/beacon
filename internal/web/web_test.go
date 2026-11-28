@@ -174,7 +174,7 @@ func newEnvWithProbe(t *testing.T, lang i18n.Lang, board *probenow.Board) *env {
 	}
 
 	dir := t.TempDir()
-	gate, err := sshgate.New(sshgate.Deps{Store: st, HostKey: keySigner(t), CA: keySigner(t), Dir: dir, Lang: lang, Pages: pages, Bot: e.bot,
+	gate, err := sshgate.New(sshgate.Deps{Store: st, HostKey: keySigner(t), CA: keySigner(t), Dir: dir, Lang: lang, Pages: pages, Bot: e.bot, LocalMachines: true, // the machines listen on loopback
 		Now: func() time.Time { return e.now }})
 	if err != nil {
 		t.Fatal(err)

@@ -385,8 +385,16 @@ func TestScopes(t *testing.T) {
 	if page := m.get("/console/machines?done=paused"); !strings.Contains(page.body, `action="/console/machines/resume"`) || !strings.Contains(page.body, "Paused") {
 		t.Error("the paused channel does not offer to resume")
 	}
-	if a := m.post("/console/machines/resume", nil); a.code != http.StatusSeeOther || e.srv.SSH.Paused() || !audited(e.st, "operator", "ssh_resume") {
-		t.Errorf("resuming: %d", a.code)
+	// a token pauses, and only a person resumes
+	if a := m.post("/console/machines/resume", nil); a.header.Get("Location") != "/console/machines?error=ssh.resume_forbidden" || !e.srv.SSH.Paused() || audited(e.st, "operator", "ssh_resume") {
+		t.Errorf("a token resumes: %d %q", a.code, a.header.Get("Location"))
+	}
+	if page := m.get("/console/machines?error=ssh.resume_forbidden"); !strings.Contains(page.body, "Only a person, or beacon ssh resume on the host, resumes SSH access.") {
+		t.Error("the refusal is not explained")
+	}
+	alice := e.owner()
+	if a := alice.post("/console/machines/resume", nil); a.code != http.StatusSeeOther || e.srv.SSH.Paused() || !audited(e.st, "alice", "ssh_resume") {
+		t.Errorf("a person resumes: %d %q", a.code, a.header.Get("Location"))
 	}
 	tokens := m.get("/console/tokens")
 	if !strings.Contains(tokens.body, `action="/console/tokens/agent-1/revoke"`) || strings.Contains(tokens.body, `action="/console/tokens/probe-edge-1/revoke"`) {
@@ -400,7 +408,7 @@ func TestScopes(t *testing.T) {
 	if a := m.post("/console/tokens/agent-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=forbidden" {
 		t.Errorf("a token revokes a stronger token: %d %q", a.code, a.header.Get("Location"))
 	}
-	carol := e.invite(e.owner(), "carol", "operator")
+	carol := e.invite(alice, "carol", "operator")
 	if a := carol.post("/console/tokens/agent-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=forbidden" {
 		t.Errorf("an operator revokes a token that reaches a critical machine she does not: %d %q", a.code, a.header.Get("Location"))
 	}
