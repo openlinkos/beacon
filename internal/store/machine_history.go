@@ -90,6 +90,9 @@ func writeMachine(tx kv.Tx, m Machine) error {
 		if holder := keyHolder(tx, fp); holder != "" {
 			return fmt.Errorf("%w: the key %s belongs to %s", ErrExists, fp, holder)
 		}
+		if other, ok := machineByConnectorKey(tx, fp); ok && other.Name != m.Name {
+			return fmt.Errorf("%w: the key %s is machine %s's connector key", ErrExists, fp, other.Name)
+		}
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -201,8 +204,10 @@ func (s *Store) MachineMetadataHistory(name string, before int64, limit int) (Ma
 }
 
 // PatchMachineMetadata applies an edit or copies an older snapshot under the expected version. The
-// returned before and after, and the new revision, describe the same atomic update.
-func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, restore int64, actor, via string) (Machine, Machine, error) {
+// returned before and after, and the new revision, describe the same atomic update. check, if given,
+// decides in the same transaction whether the change from before to after may be made; its error is
+// returned and nothing is written.
+func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, restore int64, actor, via string, check func(before, after Machine) error) (Machine, Machine, error) {
 	var before, after Machine
 	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		var err error
@@ -234,6 +239,11 @@ func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, r
 		}
 		if after.metadata() == before.metadata() {
 			return nil
+		}
+		if check != nil {
+			if err := check(before, after); err != nil {
+				return err
+			}
 		}
 		if after.HistoryStart == 0 { // installations that already had machines gain a baseline before the first edit
 			base := before

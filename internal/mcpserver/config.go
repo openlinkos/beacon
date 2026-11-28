@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/status"
@@ -90,9 +91,15 @@ type (
 	}
 )
 
+// configActor is who changes the configuration, held to their principal: a change of a service's
+// response machine needs what set_target_machine needs.
 func configActor(ctx context.Context) (configdb.Actor, error) {
-	who, err := need(ctx, "config:write")
-	return configdb.Actor{Name: who.Name, Via: who.Via}, err
+	p, err := needPrincipal(ctx, "config:write")
+	if err != nil {
+		return configdb.Actor{}, err
+	}
+	who := bridge.ActorOf(p, "mcp")
+	return configdb.Actor{Name: who.Name, Via: who.Via, Principal: &p}, nil
 }
 
 func addConfigTools(s *mcp.Server, c *configdb.Service) {

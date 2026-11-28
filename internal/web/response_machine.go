@@ -172,7 +172,7 @@ func (s *Server) responseMachine(w http.ResponseWriter, r *http.Request, v *view
 		show(http.StatusBadRequest, s.t("Choose an enrolled machine from the current list."))
 		return
 	}
-	_, err = s.Config.SetTargetMachineIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, set, index,
+	_, err = s.Config.SetTargetMachineIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console", Principal: &v.Principal}, set, index,
 		binding, "Change designated machine for "+svc, version)
 	switch {
 	case errors.Is(err, configdb.ErrConflict), errors.Is(err, configdb.ErrNotFound):

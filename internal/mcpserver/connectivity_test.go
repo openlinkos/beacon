@@ -28,7 +28,7 @@ func TestMachineSSHCheckRESTAndMCP(t *testing.T) {
 	}
 	secret := e.Token(t, "checks", "machines:ssh")
 	if _, err := e.Store.UpdateToken("checks", func(tok *store.Token) error {
-		tok.Machines = []string{"inside"}
+		tok.MachineAccess = store.NamedAccess("inside")
 		return nil
 	}); err != nil {
 		t.Fatal(err)

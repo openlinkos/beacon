@@ -20,7 +20,7 @@ func TestCapabilitiesAndAgentReadRoutes(t *testing.T) {
 	people(t, e)
 	cli := bridge.Actor{Name: "cli:root", Via: "cli"}
 	created, err := e.Bridge.CreateAgent(context.Background(), cli, bridge.AgentInput{
-		Name: "oncall-bot", Owner: "alice", Preset: "oncall", Machines: []string{"edge-1"}, TTL: time.Hour,
+		Name: "oncall-bot", Owner: "alice", Preset: "oncall", Machines: store.NamedAccess("edge-1"), TTL: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)

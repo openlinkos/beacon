@@ -108,6 +108,9 @@ func TestIncidentHistoryIsPrivateAndRevisitable(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	owner := e.owner()
 	e.invite(owner, "archive-reader", "viewer")
+	if _, _, err := e.st.SetCriticalMachines("archive-reader", store.NamedAccess("edge-1")); err != nil { // edge-1 is critical
+		t.Fatal(err)
+	}
 	e.now = e.now.Add(time.Minute)
 	if _, err := e.b.AddNote(context.Background(), e.id, bridge.ActorOf(store.Principal{User: "alice", Agent: "duty"}, "mcp"), "first episode notes"); err != nil {
 		t.Fatal(err)

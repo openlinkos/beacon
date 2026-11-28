@@ -18,7 +18,7 @@ func TestMachineHistoryLegacyAndIdentity(t *testing.T) {
 		t.Fatalf("before first edit: %+v %v", h, err)
 	}
 	newUser, critical := "ops", true
-	_, after, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{User: &newUser, Critical: &critical}, 0, "alice", "console")
+	_, after, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{User: &newUser, Critical: &critical}, 0, "alice", "console", nil)
 	if err != nil || after.MetadataVersion <= 1 || after.Registration() != original.Registration() {
 		t.Fatalf("first edit: %+v %v", after, err)
 	}
@@ -32,27 +32,27 @@ func TestMachineHistoryLegacyAndIdentity(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, restored, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &after.MetadataVersion}, baseline, "alice", "console")
+	_, restored, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &after.MetadataVersion}, baseline, "alice", "console", nil)
 	if err != nil || restored.metadata() != original.metadata() || restored.ConnectorKey != "new" || restored.ConnectorFingerprint != "new-fp" || restored.HostKey != "new-host" || restored.Address != ConnectorAddress {
 		t.Fatalf("restore must only copy metadata: %+v %v", restored, err)
 	}
 	if restored.MetadataVersion <= after.MetadataVersion {
 		t.Fatal("restore did not make a fresh revision")
 	}
-	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &after.MetadataVersion}, baseline, "alice", "console"); !errors.Is(err, ErrConflict) {
+	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &after.MetadataVersion}, baseline, "alice", "console", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale restore: %v", err)
 	}
 	if err := s.DeleteMachine(original.Name); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &restored.MetadataVersion}, baseline, "alice", "console"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &restored.MetadataVersion}, baseline, "alice", "console", nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("restore on a deleted registration: %v", err)
 	}
 	fresh, err := s.RegisterMachine(original, nil, "api")
 	if err != nil || fresh.MetadataVersion <= restored.MetadataVersion || fresh.Registration() == original.Registration() {
 		t.Fatalf("re-enrolment: %+v %v", fresh, err)
 	}
-	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &fresh.MetadataVersion}, baseline, "alice", "console"); !errors.Is(err, ErrMachineVersion) {
+	if _, _, err := s.PatchMachineMetadata(original.Name, MachineMetadataUpdate{IfVersion: &fresh.MetadataVersion}, baseline, "alice", "console", nil); !errors.Is(err, ErrMachineVersion) {
 		t.Fatalf("restore across enrolments: %v", err)
 	}
 	h, err = s.MachineMetadataHistory(original.Name, 0, 10)
@@ -70,7 +70,7 @@ func TestMachineHistoryConcurrentEdit(t *testing.T) {
 	results := make(chan error, 2)
 	for _, note := range []string{"first", "second"} {
 		go func() {
-			_, _, e := s.PatchMachineMetadata(m.Name, MachineMetadataUpdate{Note: &note, IfVersion: &m.MetadataVersion}, 0, "alice", "api")
+			_, _, e := s.PatchMachineMetadata(m.Name, MachineMetadataUpdate{Note: &note, IfVersion: &m.MetadataVersion}, 0, "alice", "api", nil)
 			results <- e
 		}()
 	}

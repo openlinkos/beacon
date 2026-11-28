@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/sshgate"
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -57,22 +57,6 @@ type PauseRequest struct {
 
 // ParseSSHKey reads an authorized_keys line into what a token keeps.
 func ParseSSHKey(line string) (store.SSHKey, error) { return store.ParseSSHKey(line) }
-
-func machineNames(in []string) ([]string, error) {
-	var out []string
-	for _, m := range in {
-		m = strings.TrimSpace(m)
-		if m == "" || m == "all" {
-			continue
-		}
-		if !store.MachineName.MatchString(m) {
-			return nil, fmt.Errorf("machine %q: names are lower case letters, digits and dashes", m)
-		}
-		out = append(out, m)
-	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
-}
 
 func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.Request) string, decode func(http.ResponseWriter, *http.Request, any) bool) {
 	who := func(r *http.Request) sshgate.Actor { return sshgate.Actor{Name: actor(r), Via: "cli"} }
@@ -145,23 +129,23 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 		if !decode(w, r, &in) {
 			return
 		}
-		names, err := machineNames(in.Machines)
-		if err != nil {
-			fail(w, http.StatusBadRequest, err)
-			return
-		}
+		var before string
 		tok, err := s.UpdateToken(r.PathValue("name"), func(t *store.Token) error {
 			if t.Agent != "" {
-				return fmt.Errorf("token %s is agent %s's: the agent's machines are set on the console's Agents page", t.Name, t.Agent)
+				return fmt.Errorf("token %s is agent %s's: set the agent's machines with beacon agent machines", t.Name, t.Agent)
 			}
-			t.Machines = names
+			access, err := machineAccess(s, in.Machines, t.MachineAccess)
+			if err != nil {
+				return err
+			}
+			before, t.MachineAccess = t.String(), access
 			return nil
 		})
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_machines", Target: tok.Name, Detail: strings.Join(names, ",")})
+		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_machines", Target: tok.Name, Detail: before + " -> " + tok.String()})
 		if m != nil {
 			m.Recheck()
 		}
@@ -244,8 +228,11 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 
 // info is a token as the socket shows it.
 func info(t store.Token) TokenInfo {
-	ti := TokenInfo{Name: t.Name, Scopes: t.Scopes, Subject: t.Subject, Created: t.Created, CreatedBy: t.CreatedBy, Expires: t.Expires, Machines: t.Machines,
+	ti := TokenInfo{Name: t.Name, Scopes: t.Scopes, Subject: t.Subject, Created: t.Created, CreatedBy: t.CreatedBy, Expires: t.Expires,
 		Lifetime: store.FormatTTL(t.Lifetime), Renewed: t.Renewed, Agent: t.Agent}
+	if t.Agent == "" {
+		ti.MachineAccessView = bridge.AccessView(t.MachineAccess)
+	}
 	for _, k := range t.SSHKeys {
 		ti.SSHKeys = append(ti.SSHKeys, k.Fingerprint)
 	}
@@ -266,7 +253,8 @@ func (c *Client) RemoveSSHKey(ctx context.Context, token, fingerprint string) (T
 	return out, err
 }
 
-// SetTokenMachines sets the machines a token reaches; none means all.
+// SetTokenMachines sets the machines a token reaches, as the command line writes them
+// (store.ParseMachineList): all, or names; none when empty.
 func (c *Client) SetTokenMachines(ctx context.Context, token string, machines []string) (TokenInfo, error) {
 	var out TokenInfo
 	err := c.do(ctx, http.MethodPut, "/v1/tokens/"+token+"/machines", MachinesRequest{Machines: machines}, &out)

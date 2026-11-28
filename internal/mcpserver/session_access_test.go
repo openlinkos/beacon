@@ -65,7 +65,7 @@ func TestSessionAccessKeepsCredentialMachineCeilings(t *testing.T) {
 	metadata := e.Token(t, "scoped-metadata", "status:read")
 	for _, name := range []string{"scoped-reader", "scoped-metadata"} {
 		if _, err := e.Store.UpdateToken(name, func(tok *store.Token) error {
-			tok.Machines = []string{"edge-one"}
+			tok.MachineAccess = store.NamedAccess("edge-one")
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -180,7 +180,7 @@ func TestSessionAccessKeepsCredentialMachineCeilings(t *testing.T) {
 		t.Errorf("a metadata-only credential read a session transcript (HTTP %d)", status)
 	}
 	if _, err := e.Store.UpdateAgent("operator", func(a *store.Agent) error {
-		a.Machines = []string{"edge-two"}
+		a.MachineAccess = store.NamedAccess("edge-two")
 		return nil
 	}); err != nil {
 		t.Fatal(err)

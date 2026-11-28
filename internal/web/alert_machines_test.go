@@ -16,6 +16,7 @@ import (
 	"github.com/openlinkos/beacon/internal/config"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
@@ -24,6 +25,9 @@ func TestIncidentFirstKeySetupKeepsMachineAndEpisode(t *testing.T) {
 	owner := e.owner()
 	oncall := e.invite(owner, "first-duty", "oncall")
 	reader := e.invite(owner, "incident-reader", "viewer")
+	if _, _, err := e.st.SetCriticalMachines("first-duty", store.NamedAccess("edge-1")); err != nil { // edge-1 is critical
+		t.Fatal(err)
+	}
 	g, _ := e.st.Group(e.id)
 	g.Alerts[0].Labels = map[string]string{"machine": "edge-1"}
 	if err := e.st.PutGroup(g); err != nil {
@@ -115,6 +119,9 @@ func TestAlertLinksOnlyExplicitEnrolledMachines(t *testing.T) {
 	owner := e.owner()
 	oncall := e.invite(owner, "duty", "oncall")
 	viewer := e.invite(owner, "info", "viewer")
+	if _, _, err := e.st.SetCriticalMachines("duty", store.NamedAccess("edge-1")); err != nil { // edge-1 is critical
+		t.Fatal(err)
+	}
 	path := link.AlertPath(e.id)
 	machine := "/console/machines/edge-1"
 	// The fixture already names a host and has a related session on it. Neither is a navigation

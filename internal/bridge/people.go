@@ -35,6 +35,9 @@ type UserView struct {
 	LastSignIn   time.Time `json:"last_sign_in,omitzero"`
 	Disabled     bool      `json:"disabled"`
 	Agents       []string  `json:"agents,omitempty"`
+	// The person's own machine access: every machine for an owner; every machine that is not critical,
+	// and the critical machines named on the account, for anyone else.
+	MachineAccessView
 }
 
 // LinkView is a one-time link: an invitation, the setup link or a password reset. URL, with the code, is
@@ -71,26 +74,27 @@ type AgentTokenView struct {
 
 // GrantView is one of an agent's OAuth grants.
 type GrantView struct {
-	ID       string    `json:"id"`
-	Client   string    `json:"client"`
-	Scope    string    `json:"scope"`
-	Preset   string    `json:"preset"`             // what the person allowed it, within what the agent may do
-	Machines []string  `json:"machines,omitempty"` // the machines allowed; none: the agent's
+	ID     string `json:"id"`
+	Client string `json:"client"`
+	Scope  string `json:"scope"`
+	Preset string `json:"preset"` // what the person allowed it, within what the agent may do
+	MachineAccessView
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used,omitzero"`
 	Expires  time.Time `json:"expires"`
 }
 
 // AgentView is an agent as its owner sees it: what its preset asks for (Wanted) and what it may do now
-// (Scopes, within its owner's role), its machines, keys and credentials.
+// (Scopes, within its owner's role), its machine access (as it was given; never more than its owner
+// reaches), keys and credentials.
 type AgentView struct {
-	Name      string           `json:"name"`
-	Owner     string           `json:"owner"`
-	Actor     string           `json:"actor"`
-	Preset    string           `json:"preset"`
-	Wanted    []string         `json:"wanted"`
-	Scopes    []string         `json:"scopes"`
-	Machines  []string         `json:"machines,omitempty"`
+	Name   string   `json:"name"`
+	Owner  string   `json:"owner"`
+	Actor  string   `json:"actor"`
+	Preset string   `json:"preset"`
+	Wanted []string `json:"wanted"`
+	Scopes []string `json:"scopes"`
+	MachineAccessView
 	SSHKeys   []SSHKeyView     `json:"ssh_keys,omitempty"`
 	Tokens    []AgentTokenView `json:"tokens,omitempty"`
 	Grants    []GrantView      `json:"grants,omitempty"`
@@ -116,13 +120,16 @@ type AgentCreated struct {
 }
 
 // AgentInput makes an agent. Owner defaults to the person making it; Preset to the strongest their role
-// allows; TTL is its first token's lifetime (zero: no token, as for an OAuth client).
+// allows; TTL is its first token's lifetime (zero: no token, as for an OAuth client). Machines is its
+// machine access, none unless given; a critical machine named in it is reached for
+// store.CriticalGrantTTL unless it gives an end, or Forever names the machine.
 type AgentInput struct {
 	Name     string
 	Owner    string
 	Preset   string
 	Scopes   []string // PresetCustom only; see checkCustom
-	Machines []string
+	Machines store.MachineAccess
+	Forever  []string
 	SSHKeys  []string // authorized_keys lines
 	TTL      time.Duration
 }
@@ -199,60 +206,6 @@ func (b *Bridge) mayManage(who Actor, owner string) bool {
 	return ok && p.Person() && p.User == owner
 }
 
-// withinCaller reports whether who may give an agent these scopes and machines. The command line may.
-// Anyone else is read afresh: every scope must be one they hold, and when they reach only some machines
-// the agent must name some of those and no others. An empty machine list reaches every machine. It
-// changes nothing.
-func (b *Bridge) withinCaller(who Actor, scopes, machines []string) error {
-	if who.Via == "cli" && who.Key == "" {
-		return nil
-	}
-	caller, ok := b.caller(who)
-	if !ok {
-		return fmt.Errorf("%w: you cannot grant a scope you do not hold", ErrForbidden)
-	}
-	for _, sc := range scopes {
-		if !caller.Has(sc) {
-			return fmt.Errorf("%w: you cannot grant %s; you do not hold it", ErrForbidden, sc)
-		}
-	}
-	if len(caller.Machines) == 0 {
-		return nil
-	}
-	if len(machines) == 0 {
-		return fmt.Errorf("%w: you cannot grant all machines; you reach only %s", ErrForbidden, strings.Join(caller.Machines, ", "))
-	}
-	for _, m := range machines {
-		if !slices.Contains(caller.Machines, m) {
-			return fmt.Errorf("%w: you cannot grant machine %s; you do not reach it", ErrForbidden, m)
-		}
-	}
-	return nil
-}
-
-// grantWidens reports whether the resulting scopes or machines give an agent something it did not
-// already have. An empty machine list reaches every machine, so it widens an agent that was limited.
-func grantWidens(before store.Agent, scopes, machines []string) bool {
-	wanted := before.Wanted()
-	for _, sc := range scopes {
-		if !slices.Contains(wanted, sc) {
-			return true
-		}
-	}
-	if len(before.Machines) == 0 {
-		return false
-	}
-	if len(machines) == 0 {
-		return true
-	}
-	for _, m := range machines {
-		if !slices.Contains(before.Machines, m) {
-			return true
-		}
-	}
-	return false
-}
-
 // checkCustom reports whether scopes may be an agent's custom scopes: at least one, each a scope of
 // people (store.PeopleScopes), each within the agent's owner's role, and, except for the command line,
 // each a scope the caller itself holds. It changes nothing.
@@ -298,7 +251,7 @@ func linkView(l store.AccountLink, u string) LinkView {
 
 func (b *Bridge) userView(a store.Account) UserView {
 	v := UserView{Username: a.Username, DisplayName: a.DisplayName, Role: a.Role, FeishuOpenID: a.FeishuOpenID, Created: a.Created,
-		CreatedBy: a.CreatedBy, LastSignIn: a.LastSignIn, Disabled: a.Disabled}
+		CreatedBy: a.CreatedBy, LastSignIn: a.LastSignIn, Disabled: a.Disabled, MachineAccessView: AccessView(a.MachineAccess().Live(b.now()))}
 	for _, ag := range b.d.Store.Agents(a.Username) {
 		v.Agents = append(v.Agents, ag.Name)
 	}
@@ -490,7 +443,7 @@ func (b *Bridge) ChangePassword(_ context.Context, who Actor, current, password,
 
 func (b *Bridge) agentView(a store.Agent) AgentView {
 	v := AgentView{Name: a.Name, Owner: a.Owner, Actor: a.Owner + " / " + a.Name, Preset: a.Preset, Wanted: a.Wanted(), Scopes: []string{},
-		Machines: a.Machines, Client: a.Client, Created: a.Created, CreatedBy: a.CreatedBy}
+		MachineAccessView: AccessView(a.MachineAccess), Client: a.Client, Created: a.Created, CreatedBy: a.CreatedBy}
 	if owner, ok := b.d.Store.Account(a.Owner); ok && !owner.Disabled {
 		for _, sc := range a.Wanted() {
 			if slices.Contains(store.RoleScopes(owner.Role), sc) {
@@ -505,7 +458,8 @@ func (b *Bridge) agentView(a store.Agent) AgentView {
 		v.Tokens = append(v.Tokens, AgentTokenView{Name: t.Name, Created: t.Created, Expires: t.Expires, Lifetime: store.FormatTTL(t.Lifetime), Renewed: t.Renewed})
 	}
 	for _, g := range b.d.Store.Grants(a.Name) {
-		v.Grants = append(v.Grants, GrantView{ID: g.ID, Client: g.ClientName, Scope: g.Scope, Preset: g.Preset, Machines: g.Machines, Created: g.Created, LastUsed: g.LastUsed, Expires: g.Expires})
+		v.Grants = append(v.Grants, GrantView{ID: g.ID, Client: g.ClientName, Scope: g.Scope, Preset: g.Preset, MachineAccessView: AccessView(g.MachineAccess),
+			Created: g.Created, LastUsed: g.LastUsed, Expires: g.Expires})
 	}
 	return v
 }
@@ -541,8 +495,8 @@ func (b *Bridge) Agent(who Actor, name string) (AgentView, error) {
 // CreateAgent makes an agent for a person (in.Owner; the caller when it is a person), with a first
 // token when in.TTL is set, and returns the token's secret, shown once, with the snippets that use it. A
 // person makes agents for themself; an admin for anyone. The preset may not exceed the owner's role. A
-// named preset's scopes, and the machines, must be within what the caller holds; custom scopes go
-// through checkCustom, and the machines through the same rule. The command line is exempt.
+// named preset's scopes, and the machine access, must be within what the caller may give
+// (withinCaller); custom scopes go through checkCustom. The command line is exempt.
 func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (AgentCreated, error) {
 	if in.Owner == "" {
 		if p, ok := b.caller(who); ok && p.Person() {
@@ -568,6 +522,7 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 	} else if !store.PresetWithin(in.Preset, owner.Role) {
 		return AgentCreated{}, fmt.Errorf("%w: preset %s gives more than %s's role (%s) allows; choose %s or less", ErrBadInput, in.Preset, owner.Username, owner.Role, store.PresetFor(owner.Role))
 	}
+	in.Machines = b.agentAccess(in.Machines, store.MachineAccess{}, in.Forever)
 	if err := b.withinCaller(who, grant, in.Machines); err != nil {
 		return AgentCreated{}, err
 	}
@@ -585,7 +540,7 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 		}
 		keys = append(keys, k)
 	}
-	a, err := b.d.Store.CreateAgent(store.Agent{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Scopes: in.Scopes, Machines: in.Machines, CreatedBy: who.Name})
+	a, err := b.d.Store.CreateAgent(store.Agent{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Scopes: in.Scopes, MachineAccess: in.Machines, CreatedBy: who.Name})
 	switch {
 	case errors.Is(err, store.ErrExists):
 		return AgentCreated{}, err
@@ -602,7 +557,7 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 		a = with
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_create", Target: a.Name,
-		Detail: a.Owner + " " + a.Preset + " " + machinesText(a.Machines)})
+		Detail: a.Owner + " " + a.Preset + " " + a.String()})
 	b.echo(ctx, b.t("%s made agent %s for %s (%s) via %s", who.Name, a.Name, a.Owner, b.presetName(a.Preset), b.viaName(who.Via)))
 	out := AgentCreated{Agent: b.agentView(a)}
 	if in.TTL > 0 {
@@ -611,27 +566,14 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 	return out, nil
 }
 
-// machinesWords names the machines an agent reaches, for the chat.
-func (b *Bridge) machinesWords(m []string) string {
-	if len(m) == 0 {
-		return b.t("all machines")
-	}
-	return strings.Join(m, ", ")
-}
-
-func machinesText(m []string) string {
-	if len(m) == 0 {
-		return "all machines"
-	}
-	return strings.Join(m, ",")
-}
-
 // AgentUpdate changes an agent. A nil field stays as it is. Scopes is nil to keep them; a non-nil list
 // sets the custom scopes (and is refused when it is empty). Scopes are applied only when the result is
-// custom; a preset clears them.
+// custom; a preset clears them. Machines is the new machine access; a machine it keeps keeps its end,
+// and a critical machine newly named ends as for AgentInput, unless Forever names it.
 type AgentUpdate struct {
 	Preset   *string
-	Machines *[]string
+	Machines *store.MachineAccess
+	Forever  []string
 	Scopes   []string
 }
 
@@ -657,9 +599,9 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	if up.Preset != nil && *up.Preset != "" {
 		preset = *up.Preset
 	}
-	machines := a.Machines
+	machines := a.MachineAccess
 	if up.Machines != nil {
-		machines = *up.Machines
+		machines = b.agentAccess(*up.Machines, a.MachineAccess, up.Forever)
 	}
 	scopes := a.Scopes
 	if preset == store.PresetCustom {
@@ -680,14 +622,14 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	}
 	// Only a change that gives the agent something new is held to the caller. Narrowing, or leaving it
 	// as it is, stays allowed: the caller is not granting a scope or a machine.
-	if grantWidens(a, wanted, machines) {
+	if b.grantWidens(a, wanted, machines) {
 		if err := b.withinCaller(who, wanted, machines); err != nil {
 			return AgentView{}, err
 		}
 	}
 	before := agentChangeText(a)
 	a, err := b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
-		x.Preset, x.Machines = preset, machines
+		x.Preset, x.MachineAccess = preset, machines
 		if preset == store.PresetCustom {
 			x.Scopes = scopes
 		} else {
@@ -704,7 +646,7 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	}
 	b.Recheck()
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_update", Target: name, Detail: before + " -> " + after})
-	b.echo(ctx, b.t("%s changed agent %s to %s, %s, via %s", who.Name, name, b.presetName(a.Preset), b.machinesWords(a.Machines), b.viaName(who.Via)))
+	b.echo(ctx, b.t("%s changed agent %s to %s, %s, via %s", who.Name, name, b.presetName(a.Preset), b.accessWords(a.MachineAccess), b.viaName(who.Via)))
 	return b.agentView(a), nil
 }
 
@@ -714,7 +656,7 @@ func agentChangeText(a store.Agent) string {
 	if a.Preset == store.PresetCustom && len(a.Scopes) > 0 {
 		text += " " + strings.Join(a.Scopes, ",")
 	}
-	return text + " " + machinesText(a.Machines)
+	return text + " " + a.String()
 }
 
 // NewAgentToken gives an agent another static token, for its owner or an admin.
@@ -770,7 +712,7 @@ func (b *Bridge) RevokeAgentToken(ctx context.Context, who Actor, tokenName stri
 	if !ok || !b.mayManage(who, a.Owner) {
 		return ErrForbidden
 	}
-	return b.RevokeToken(ctx, who, tokenName)
+	return b.revokeToken(ctx, who, tokenName)
 }
 
 // RevokeGrant revokes an OAuth grant, for its agent's owner or an admin.
@@ -825,53 +767,58 @@ func (b *Bridge) LegacyTokens() []store.Token {
 }
 
 // OAuthAgent makes or reuses the agent a person allows an OAuth client to act as, and says what the grant
-// may do: a new agent is made with the preset and machines allowed; an existing agent of the person's, by
-// its name, is never changed, and the grant may do no more than it may (a preset no stronger than its
-// own, machines among its own; all of them when none are named), so that allowing a client never widens
-// an agent or its other credentials. The preset may not exceed the person's role either. It returns the
-// agent and the grant's machines. Audited and echoed to the chat.
-func (b *Bridge) OAuthAgent(ctx context.Context, who Actor, clientID, clientName, name, preset string, machines []string, until time.Time) (store.Agent, []string, error) {
+// may do: a new agent is made with the preset and machine access allowed; an existing agent of the
+// person's, by its name, is never changed, and the grant may do no more than it may (a preset no
+// stronger than its own, machine access within its own), so that allowing a client never widens an agent
+// or its other credentials. The preset may not exceed the person's role, and the machine access is held
+// to the person as any other (withinCaller): only an owner names a critical machine, and it is reached for
+// store.CriticalGrantTTL at most. It returns the agent and the grant's machine access. Audited and echoed
+// to the chat.
+func (b *Bridge) OAuthAgent(ctx context.Context, who Actor, clientID, clientName, name, preset string, machines store.MachineAccess, until time.Time) (store.Agent, store.MachineAccess, error) {
 	p, ok := b.caller(who)
 	if !ok || !p.Person() {
-		return store.Agent{}, nil, fmt.Errorf("%w: a person allows a client, signed in with their account", ErrForbidden)
+		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: a person allows a client, signed in with their account", ErrForbidden)
 	}
 	owner, ok := b.d.Store.Account(p.User)
 	if !ok {
-		return store.Agent{}, nil, ErrForbidden
+		return store.Agent{}, store.MachineAccess{}, ErrForbidden
 	}
 	if !store.PresetWithin(preset, owner.Role) {
-		return store.Agent{}, nil, fmt.Errorf("%w: preset %s gives more than your role (%s) allows", ErrBadInput, preset, owner.Role)
+		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: preset %s gives more than your role (%s) allows", ErrBadInput, preset, owner.Role)
 	}
 	a, exists := b.d.Store.Agent(name)
+	machines = b.agentAccess(machines, store.MachineAccess{}, nil)
+	for m, end := range machines.MachineUntil {
+		if end.After(until) { // never beyond the sign-in itself
+			machines.MachineUntil[m] = until.UTC()
+		}
+	}
+	if err := b.withinCaller(who, store.PresetScopes(preset), machines); err != nil {
+		return store.Agent{}, store.MachineAccess{}, err
+	}
 	var err error
 	switch {
 	case exists && a.Owner != p.User:
-		return store.Agent{}, nil, fmt.Errorf("%w: agent %s is someone else's; choose another name", store.ErrExists, name)
+		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: agent %s is someone else's; choose another name", store.ErrExists, name)
 	case exists:
 		if a.Preset != store.PresetCustom && !store.PresetAtMost(preset, a.Preset) {
-			return store.Agent{}, nil, fmt.Errorf("%w: agent %s may do only what %s allows; choose that or less, or change the agent first", ErrBadInput, name, a.Preset)
+			return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: agent %s may do only what %s allows; choose that or less, or change the agent first", ErrBadInput, name, a.Preset)
 		}
-		if len(a.Machines) > 0 {
-			if len(machines) == 0 {
-				machines = slices.Clone(a.Machines)
-			}
-			for _, m := range machines {
-				if !slices.Contains(a.Machines, m) {
-					return store.Agent{}, nil, fmt.Errorf("%w: agent %s does not reach machine %s", ErrBadInput, name, m)
-				}
-			}
+		critical := b.d.Store.CriticalMachines()
+		if !machines.Within(a.Live(b.now()), func(m string) bool { return critical[m] }) {
+			return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: agent %s reaches %s; allow that or less, or change the agent first", ErrBadInput, name, a.Live(b.now()).Summary())
 		}
 	default:
-		a, err = b.d.Store.CreateAgent(store.Agent{Name: name, Owner: p.User, Preset: preset, Machines: machines, Client: clientID, CreatedBy: who.Name})
+		a, err = b.d.Store.CreateAgent(store.Agent{Name: name, Owner: p.User, Preset: preset, MachineAccess: machines, Client: clientID, CreatedBy: who.Name})
 	}
 	if err != nil {
 		if errors.Is(err, store.ErrExists) {
-			return store.Agent{}, nil, err
+			return store.Agent{}, store.MachineAccess{}, err
 		}
-		return store.Agent{}, nil, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
+		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "oauth_allow", Target: a.Name,
-		Detail: clientName + " " + preset + " " + machinesText(machines) + " until " + until.UTC().Format(time.DateOnly)})
+		Detail: clientName + " " + preset + " " + machines.String() + " until " + until.UTC().Format(time.DateOnly)})
 	b.echo(ctx, b.t("%s allowed %s to use Beacon as agent %s (%s) until %s", who.Name, clean(clientName, maxShort, false), a.Name, b.presetName(preset), until.In(b.d.Config.Location).Format(time.DateOnly)))
 	return a, machines, nil
 }

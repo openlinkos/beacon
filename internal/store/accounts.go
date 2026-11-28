@@ -62,7 +62,9 @@ func ValidRole(role string) bool { return slices.Contains(Roles, role) }
 
 // Account is a person. Username is how they sign in and how the audit log names them; it never changes.
 // PasswordHash is the argon2id hash of their password in the PHC string form. FeishuOpenID is a contact
-// field for the cards, never used to sign in.
+// field for the cards, never used to sign in. CriticalMachines are the critical machines a person who is
+// not an owner reaches (an owner reaches all of them), each until CriticalUntil says, if it does: only
+// an owner or the command line names them (SetCriticalMachines).
 type Account struct {
 	Username        string    `json:"username"`
 	DisplayName     string    `json:"display_name"`
@@ -75,6 +77,33 @@ type Account struct {
 	PasswordChanged time.Time `json:"password_changed,omitzero"`
 	Disabled        bool      `json:"disabled,omitempty"`
 	SSHKeys         []SSHKey  `json:"ssh_keys,omitempty"`
+
+	CriticalMachines []string             `json:"critical_machines,omitempty"`
+	CriticalUntil    map[string]time.Time `json:"critical_until,omitempty"`
+}
+
+// CriticalAccess is the critical machines named on the account, as a MachineAccess of their own.
+func (a Account) CriticalAccess() MachineAccess {
+	return MachineAccess{Access: AccessNamed, Machines: a.CriticalMachines, MachineUntil: a.CriticalUntil}.normal()
+}
+
+// MachineAccess is the person's own machine access: every machine for an owner, every machine that is not
+// critical and the critical machines named on the account for anyone else.
+func (a Account) MachineAccess() MachineAccess { return accountAccess(a) }
+
+// SetCriticalMachines names the critical machines a person who is not an owner reaches (named: none of
+// them), each until the access says. It returns the account before and after.
+func (s *Store) SetCriticalMachines(username string, named MachineAccess) (before, after Account, err error) {
+	named = named.normal()
+	if err := named.check(); err != nil {
+		return Account{}, Account{}, err
+	}
+	after, err = s.UpdateAccount(username, func(a *Account) error {
+		before = *a
+		a.CriticalMachines, a.CriticalUntil = named.Machines, named.MachineUntil
+		return nil
+	})
+	return before, after, err
 }
 
 // Account errors.

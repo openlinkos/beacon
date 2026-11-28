@@ -102,7 +102,7 @@ func TestRenewTokenDoesNotResurrectARevokedToken(t *testing.T) {
 		t.Fatal("renewed a token the other instance revoked")
 	}
 	if _, err := two.UpdateToken("revoked-then-renewed", func(t *Token) error {
-		t.Machines = []string{"edge-1"}
+		t.MachineAccess = NamedAccess("edge-1")
 		return nil
 	}); err == nil {
 		t.Fatal("updated a token the other instance revoked")

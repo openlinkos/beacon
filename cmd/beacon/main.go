@@ -5,7 +5,7 @@
 //	beacon check-config [-config path]          validate the configuration, its files and the database
 //	beacon config import DIR [-dry-run] | config export DIR | config history | config revert VERSION
 //	beacon setup | user list|invite|disable|enable|role|reset | agent add|list|remove
-//	beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines a,b]
+//	beacon token create NAME -scopes a,b [-expires 365d] [-ssh-key KEY|@FILE] [-machines all|a,b]
 //	beacon token list | token revoke NAME
 //	beacon token ssh-key NAME add KEY|@FILE | remove FINGERPRINT; token machines NAME a,b|all
 //	beacon machine add NAME HOST[:PORT]|connector | machine connector NAME -key KEY | machine list | machine remove NAME | machine ca
@@ -84,17 +84,22 @@ func usage(w io.Writer) {
   beacon user list | user invite -role oncall [-note TEXT]
                                               people, and a one-time link that invites someone
   beacon user disable NAME | user enable NAME | user role NAME ROLE | user reset NAME
-  beacon agent add NAME -owner USER [-preset oncall] [-machines a,b] [-expires 365d] [-ssh-key KEY|@FILE]
+  beacon user machines NAME a,b|none          the critical machines a person who is not an owner reaches
+  beacon agent add NAME -owner USER [-preset oncall] [-machines all|a,b] [-expires 365d] [-ssh-key KEY|@FILE]
                                               an agent of USER and its token, with the commands that use it
   beacon agent list | agent remove NAME
+  beacon agent machines NAME all|a,b|none     the machines an agent reaches
   beacon token claim NAME -owner USER [-agent NAME] [-preset P]
                                               make a legacy token an agent of USER
   beacon token create NAME -scopes status:read,alerts:write [-expires 365d]
-         [-ssh-key KEY|@FILE] [-machines a,b]   keys for the SSH channel; the machines it reaches
+         [-ssh-key KEY|@FILE] [-machines all|a,b]
+                                              keys for the SSH channel; the machines it reaches (none by default)
   beacon token list
   beacon token revoke NAME
   beacon token ssh-key NAME add KEY|@FILE | token ssh-key NAME remove FINGERPRINT
-  beacon token machines NAME a,b|all
+  beacon token machines NAME all|a,b|none     all: every machine that is not critical, machines added later
+                                              included; a critical machine only when named (name@72h,
+                                              name@2026-12-31, name@never; 30 days by default)
   beacon machine add NAME HOST[:PORT] [-user beacon] [-critical] [-note TEXT] [-replace]
                                               pin a machine's host key; prints what the machine needs
   beacon machine add NAME connector -key KEY|@FILE [-host-key KEY|@FILE] [...]
@@ -270,6 +275,15 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+	// once: credentials from before machine access was explicit keep reaching what they reached
+	if moved, err := st.MigrateMachineAccess(); err != nil {
+		log.Error("cannot start", "err", err)
+		return 1
+	} else {
+		for _, c := range moved {
+			log.Warn("machine access made explicit; review whether it should keep reaching these machines", "kind", c.Kind, "name", c.Name, "access", c.Access.String())
+		}
+	}
 	sec := cfg.Secrets
 	var bot *notify.GroupBot // the chat's custom bot: plain messages and echoes
 	if sec.FeishuWebhookURL != "" {
@@ -743,7 +757,7 @@ func token(args []string, stdout, stderr io.Writer) int {
 		scopes := fs.String("scopes", "status:read", "comma-separated scopes: "+strings.Join(store.Scopes, ", "))
 		expires := fs.String("expires", "365d", "lifetime, such as 90d or 720h")
 		sshKey := fs.String("ssh-key", "", "a public key for the SSH channel (an authorized_keys line), or @FILE")
-		machines := fs.String("machines", "", "comma-separated machines the token reaches through the SSH channel; all when empty")
+		machines := fs.String("machines", "", "the machines the token reaches through the SSH channel: all, or names (name@72h, name@2026-12-31 or name@never for an end); none when empty")
 		if err := fs.Parse(args[2:]); err != nil {
 			return 2
 		}
@@ -782,17 +796,17 @@ func token(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tSCOPES\tEXPIRES\tLIFETIME\tRENEWED\tCREATED BY")
+		fmt.Fprintln(tw, "NAME\tSCOPES\tMACHINES\tEXPIRES\tLIFETIME\tRENEWED\tCREATED BY")
 		for _, t := range list {
 			renewed := "-"
 			if !t.Renewed.IsZero() {
 				renewed = t.Renewed.Local().Format(time.DateOnly)
 			}
-			scopes := strings.Join(t.Scopes, ",")
+			scopes, machines := strings.Join(t.Scopes, ","), t.MachineAccess().String()
 			if t.Agent != "" { // what it may do is its agent's: beacon agent list
-				scopes = "agent " + t.Agent + "'s"
+				scopes, machines = "agent "+t.Agent+"'s", "agent "+t.Agent+"'s"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, scopes, t.Expires.Format(time.DateOnly), t.Lifetime, renewed, t.CreatedBy)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, scopes, machines, t.Expires.Format(time.DateOnly), t.Lifetime, renewed, t.CreatedBy)
 		}
 		_ = tw.Flush()
 		return 0

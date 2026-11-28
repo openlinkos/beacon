@@ -26,20 +26,20 @@ var (
 // what the agent was given, and Scopes what it may do now (the preset within its owner's role).
 // Credential is token, or oauth for an access token a person allowed an OAuth client (Client) to hold.
 type TokenView struct {
-	Name         string    `json:"name"`
-	Actor        string    `json:"actor"`
-	User         string    `json:"user,omitempty"`
-	Agent        string    `json:"agent,omitempty"`
-	Preset       string    `json:"preset,omitempty"`
-	Credential   string    `json:"credential"`
-	Client       string    `json:"client,omitempty"`
-	Scopes       []string  `json:"scopes"`
-	Subject      string    `json:"subject,omitempty"`
-	Machines     []string  `json:"machines,omitempty"` // the explicitly selected machines, if any
-	MachineScope string    `json:"machine_scope"`      // all, listed or none; the operation still needs its scope
-	SSHKeys      []string  `json:"ssh_keys,omitempty"` // fingerprints of the keys it signs in with
-	Created      time.Time `json:"created,omitzero"`
-	Expires      time.Time `json:"expires"`
+	Name         string   `json:"name"`
+	Actor        string   `json:"actor"`
+	User         string   `json:"user,omitempty"`
+	Agent        string   `json:"agent,omitempty"`
+	Preset       string   `json:"preset,omitempty"`
+	Credential   string   `json:"credential"`
+	Client       string   `json:"client,omitempty"`
+	Scopes       []string `json:"scopes"`
+	Subject      string   `json:"subject,omitempty"`
+	MachineScope string   `json:"machine_scope"` // all, listed or none; the operation still needs its scope
+	MachineAccessView
+	SSHKeys []string  `json:"ssh_keys,omitempty"` // fingerprints of the keys it signs in with
+	Created time.Time `json:"created,omitzero"`
+	Expires time.Time `json:"expires"`
 	// Lifetime is what the token was created with, as `token create -expires` takes it (365d, 12h); a
 	// renewal makes it expire this long from then.
 	Lifetime string    `json:"lifetime"`
@@ -49,6 +49,18 @@ type TokenView struct {
 	Renewable   bool      `json:"renewable"`
 	RenewableAt time.Time `json:"renewable_at,omitzero"`
 	Via         string    `json:"via"` // how the caller reached Beacon: api or mcp
+}
+
+// MachineScope is the machine access in the older words of whoami: all (every machine that is not
+// critical, and the critical machines in machines), listed (only those in machines) or none.
+func MachineScope(a store.MachineAccess) string {
+	switch {
+	case a.IsAll():
+		return "all"
+	case a.None():
+		return "none"
+	}
+	return "listed"
 }
 
 // Renewed is the answer to a renewal: the new secret, shown once, and when the old one stops working.
@@ -61,14 +73,8 @@ type Renewed struct {
 // credentialView describes the principal p, which came with the token t (zero for an OAuth access token).
 func (b *Bridge) credentialView(p store.Principal, t store.Token, via string) TokenView {
 	v := TokenView{Name: p.Token, Actor: p.Name(), User: p.User, Agent: p.Agent, Preset: p.Preset, Credential: "token",
-		Scopes: slices.Clone(p.Scopes), Subject: p.Subject, Machines: p.Machines, Expires: p.Expires, Via: via}
-	v.MachineScope = "all"
-	switch {
-	case p.MachineScopeEmpty():
-		v.MachineScope = "none"
-	case len(p.Machines) > 0:
-		v.MachineScope = "listed"
-	}
+		Scopes: slices.Clone(p.Scopes), Subject: p.Subject, MachineAccessView: AccessView(p.MachineAccess), Expires: p.Expires, Via: via}
+	v.MachineScope = MachineScope(p.MachineAccess)
 	if p.Grant != "" {
 		v.Name, v.Credential, v.Client, v.Lifetime = p.Agent, "oauth", p.Client, store.FormatTTL(store.AccessTTL)
 		if g, ok := b.d.Store.Grant(p.Grant); ok {

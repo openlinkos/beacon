@@ -25,11 +25,13 @@ const userUsage = `user list
 user invite -role viewer|oncall|operator|owner [-note TEXT]
 user disable NAME | user enable NAME
 user role NAME viewer|oncall|operator|owner
+user machines NAME a,b|none     (the critical machines a person who is not an owner reaches; name@72h for an end)
 user reset NAME`
 
-const agentUsage = `agent add NAME -owner USER [-preset readonly|oncall|operator] [-machines a,b] [-expires 365d] [-ssh-key KEY|@FILE]
+const agentUsage = `agent add NAME -owner USER [-preset readonly|oncall|operator] [-machines all|a,b] [-expires 365d] [-ssh-key KEY|@FILE]
 agent add NAME -owner USER -scopes a,b    (custom scopes, still within USER's role)
 agent list
+agent machines NAME all|a,b|none          (name@72h, name@2026-12-31 or name@never: when its access to a machine ends)
 agent remove NAME`
 
 // announceSetup writes, while Beacon has no account, a one-time link to make the first one (an owner,
@@ -113,7 +115,7 @@ func userCmd(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "USERNAME\tDISPLAY NAME\tROLE\tSTATUS\tLAST SIGN-IN\tAGENTS")
+		fmt.Fprintln(tw, "USERNAME\tDISPLAY NAME\tROLE\tSTATUS\tLAST SIGN-IN\tMACHINES\tAGENTS")
 		for _, u := range out.Users {
 			status, last := "enabled", "-"
 			if u.Disabled {
@@ -122,7 +124,7 @@ func userCmd(args []string, stdout, stderr io.Writer) int {
 			if !u.LastSignIn.IsZero() {
 				last = u.LastSignIn.Local().Format(time.DateTime)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Username, u.DisplayName, u.Role, status, last, strings.Join(u.Agents, ","))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", u.Username, u.DisplayName, u.Role, status, last, u.MachineAccess().String(), strings.Join(u.Agents, ","))
 		}
 		_ = tw.Flush()
 		if len(out.Invitations) > 0 {
@@ -174,6 +176,18 @@ func userCmd(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "%s is %s now; their sessions and agents follow at once\n", u.Username, u.Role)
 		return 0
+	case "machines":
+		if len(args) != 3 {
+			fmt.Fprintln(stderr, "user machines NAME a,b|none")
+			return 2
+		}
+		u, err := c.SetUserMachines(ctx, args[1], strings.Split(args[2], ","))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s reaches %s\n", u.Username, u.MachineAccess().String())
+		return 0
 	case "reset":
 		if len(args) != 2 {
 			fmt.Fprintln(stderr, "user reset NAME")
@@ -205,7 +219,7 @@ func agentCmd(args []string, stdout, stderr io.Writer) int {
 		owner := fs.String("owner", "", "the person the agent acts for")
 		preset := fs.String("preset", "", "what it may do: "+strings.Join(store.Presets, ", ")+"; the strongest the owner's role allows by default")
 		scopes := fs.String("scopes", "", "comma-separated scopes instead of a preset (custom), within the owner's role")
-		machines := fs.String("machines", "", "comma-separated machines it reaches through the SSH channel; all when empty")
+		machines := fs.String("machines", "", "the machines it reaches through the SSH channel: all, or names (name@72h, name@2026-12-31 or name@never for an end); none when empty")
 		expires := fs.String("expires", "365d", "its token's lifetime, such as 90d or 720h")
 		sshKey := fs.String("ssh-key", "", "a public key for the SSH channel (an authorized_keys line), or @FILE")
 		pos, ok := positional(fs, args[1:])
@@ -261,13 +275,25 @@ func agentCmd(args []string, stdout, stderr io.Writer) int {
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "AGENT\tOWNER\tPRESET\tMAY DO\tMACHINES\tTOKENS\tOAUTH\tKEYS")
 		for _, a := range list {
-			m := "all"
-			if len(a.Machines) > 0 {
-				m = strings.Join(a.Machines, ",")
-			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\n", a.Name, a.Owner, a.Preset, strings.Join(a.Scopes, ","), m, len(a.Tokens), len(a.Grants), len(a.SSHKeys))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\n", a.Name, a.Owner, a.Preset, strings.Join(a.Scopes, ","), a.MachineAccess().String(), len(a.Tokens), len(a.Grants), len(a.SSHKeys))
 		}
 		_ = tw.Flush()
+		return 0
+	case "machines":
+		if len(args) != 3 {
+			fmt.Fprintln(stderr, agentUsage)
+			return 2
+		}
+		c, ok := dial(stderr)
+		if !ok {
+			return 1
+		}
+		a, err := c.SetAgentMachines(ctx, args[1], strings.Split(args[2], ","))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "agent %s: machines %s\n", a.Actor, a.MachineAccess().String())
 		return 0
 	case "remove":
 		if len(args) != 2 {

@@ -126,7 +126,7 @@ func TestCheckDrillUsesCurrentPermissionsAndEnrolment(t *testing.T) {
 	expectedReporter = "drill-reporter"
 	write(reportFile, reporter)
 	if _, err := env.Store.UpdateAgent("drill-agent", func(a *store.Agent) error {
-		a.Machines = nil
+		a.MachineAccess = store.AllAccess()
 		return nil
 	}); err != nil {
 		t.Fatal(err)

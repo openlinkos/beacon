@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -131,12 +132,19 @@ const GroupKey = `{}:{alertname="ServiceDown",service="hub-example-com"}`
 // GroupID returns the id of the group New fires.
 func GroupID() string { return bridge.GroupID(GroupKey) }
 
-// Token creates a token with scopes and returns its secret.
+// Token creates a token with scopes and returns its secret. A token with people's scopes is given access
+// to all machines that are not critical, as beacon token create -machines all gives it; tests of a
+// narrower access set it themselves.
 func (e *Env) Token(t *testing.T, name string, scopes ...string) string {
 	t.Helper()
 	secret, _, err := e.Store.CreateToken(name, scopes, time.Hour, "test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if slices.ContainsFunc(scopes, func(sc string) bool { return slices.Contains(store.PeopleScopes, sc) }) {
+		if _, err := e.Store.UpdateToken(name, func(tok *store.Token) error { tok.MachineAccess = store.AllAccess(); return nil }); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return secret
 }

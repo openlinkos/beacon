@@ -269,11 +269,22 @@ func (e *env) get(path, token string) (int, string, http.Header) {
 	return rec.Code, string(b), rec.Header()
 }
 
+// token makes a token with scopes; one with people's scopes reaches all machines, the critical ones
+// enrolled now named, as a token from before machine access was explicit was moved to.
 func (e *env) token(name string, scopes ...string) string {
 	e.t.Helper()
 	secret, _, err := e.st.CreateToken(name, scopes, time.Hour, "test")
 	if err != nil {
 		e.t.Fatal(err)
+	}
+	if slices.ContainsFunc(scopes, func(sc string) bool { return slices.Contains(store.PeopleScopes, sc) }) {
+		var critical []string
+		for m := range e.st.CriticalMachines() {
+			critical = append(critical, m)
+		}
+		if _, err := e.st.UpdateToken(name, func(t *store.Token) error { t.MachineAccess = store.AllAccess(critical...); return nil }); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	return secret
 }

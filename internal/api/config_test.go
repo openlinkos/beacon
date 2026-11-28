@@ -173,7 +173,7 @@ func TestImportedTargetMachineRoute(t *testing.T) {
 	writer := e.Token(t, "operator", "config:write", "machines:write", "machines:ssh")
 	restricted := e.Token(t, "restricted", "config:write", "machines:write", "machines:ssh")
 	if _, err := e.Store.UpdateToken("restricted", func(t *store.Token) error {
-		t.Machines = []string{"app-2"}
+		t.MachineAccess = store.NamedAccess("app-2")
 		return nil
 	}); err != nil {
 		t.Fatal(err)

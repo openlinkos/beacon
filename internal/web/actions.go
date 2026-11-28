@@ -280,7 +280,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	page := consolePath("/config/history/") + strconv.FormatInt(n, 10)
-	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, n, r.PostForm.Get("note"))
+	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.name(), Via: "console", Principal: &v.Principal}, n, r.PostForm.Get("note"))
 	switch {
 	case errors.Is(err, configdb.ErrNotFound):
 		s.missing(w, r, v)

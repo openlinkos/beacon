@@ -86,11 +86,18 @@ func TestLockMCPUpdateMachine(t *testing.T) {
 		t.Fatal("a refused update changed the machine")
 	}
 	op := connect(t, u, e.Token(t, "op-script", "status:read", "machines:write"))
-	if res, text := call(t, op, "update_machine", map[string]any{"name": "edge-1", "note": "moved", "critical": true}); res.IsError {
+	// a token marks no machine critical: an owner or beacon on the host does
+	if res, text := call(t, op, "update_machine", map[string]any{"name": "edge-1", "note": "moved", "critical": true}); !res.IsError || !strings.Contains(text, "owner") {
+		t.Errorf("a token marks a machine critical: %v %s", res.IsError, text)
+	}
+	if m, _ := e.Store.Machine("edge-1"); m != before {
+		t.Fatalf("a refused update changed the machine: %+v", m)
+	}
+	if res, text := call(t, op, "update_machine", map[string]any{"name": "edge-1", "note": "moved"}); res.IsError {
 		t.Fatalf("update_machine: %s", text)
 	}
 	m, _ := e.Store.Machine("edge-1")
-	if m.Note != "moved" || !m.Critical || m.HostKey != before.HostKey || m.User != "beacon" {
+	if m.Note != "moved" || m.Critical || m.HostKey != before.HostKey || m.User != "beacon" {
 		t.Errorf("after update_machine: %+v", m)
 	}
 	found := false

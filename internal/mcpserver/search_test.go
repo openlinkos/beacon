@@ -38,7 +38,7 @@ func TestFileSearchRESTAndMCPUseCredentialMachineCeilings(t *testing.T) {
 	}
 	static := e.Token(t, "scoped-search", "machines:ssh")
 	if _, err := e.Store.UpdateToken("scoped-search", func(tok *store.Token) error {
-		tok.Machines = []string{"allowed"}
+		tok.MachineAccess = store.NamedAccess("allowed")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestFileSearchRESTAndMCPUseCredentialMachineCeilings(t *testing.T) {
 		})
 	}
 	if _, err := e.Store.UpdateToken("scoped-search", func(token *store.Token) error {
-		token.Machines = []string{"outside"}
+		token.MachineAccess = store.NamedAccess("outside")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestFileSearchRESTAndMCPUseCredentialMachineCeilings(t *testing.T) {
 		t.Fatalf("REST reused a stale token machine selection: %d %s", code, out)
 	}
 	if _, err := e.Store.UpdateAgent("searcher", func(agent *store.Agent) error {
-		agent.Machines = []string{"outside"}
+		agent.MachineAccess = store.NamedAccess("outside")
 		return nil
 	}); err != nil {
 		t.Fatal(err)

@@ -67,11 +67,11 @@ func TestAgentGrantStaysWithinCaller(t *testing.T) {
 
 	held := append(append([]string{}, store.RoleScopes("operator")...), "accounts:write")
 	boxed := e.Token(t, "boxed", held...)
-	if _, err := e.Store.UpdateToken("boxed", func(tok *store.Token) error { tok.Machines = []string{"edge-1"}; return nil }); err != nil {
+	if _, err := e.Store.UpdateToken("boxed", func(tok *store.Token) error { tok.MachineAccess = store.NamedAccess("edge-1"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	audits = len(e.Store.AuditLog(1000))
-	code, out = c.do("POST", "/api/v1/agents", boxed, `{"name":"everywhere","owner":"alice","preset":"operator"}`)
+	code, out = c.do("POST", "/api/v1/agents", boxed, `{"name":"everywhere","owner":"alice","preset":"operator","machine_access":"all"}`)
 	if code != 403 || out["code"] != "auth.scope" || !strings.Contains(out["error"].(string), "all machines") {
 		t.Fatalf("a limited caller grants every machine: %d %v", code, out)
 	}
@@ -81,11 +81,11 @@ func TestAgentGrantStaysWithinCaller(t *testing.T) {
 	if len(e.Store.AuditLog(1000)) != audits {
 		t.Fatal("the refusal was audited")
 	}
-	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "local", Owner: "alice", Preset: "operator", Machines: []string{"edge-1"}}); err != nil {
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "local", Owner: "alice", Preset: "operator", Machines: store.NamedAccess("edge-1")}); err != nil {
 		t.Fatal(err)
 	}
 	audits = len(e.Store.AuditLog(1000))
-	code, out = c.do("PATCH", "/api/v1/agents/local", boxed, `{"machines":[]}`)
+	code, out = c.do("PATCH", "/api/v1/agents/local", boxed, `{"machine_access":"all"}`)
 	if code != 403 || out["code"] != "auth.scope" || !strings.Contains(out["error"].(string), "all machines") {
 		t.Fatalf("a limited caller widens machines to all: %d %v", code, out)
 	}

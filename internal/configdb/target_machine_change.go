@@ -38,9 +38,9 @@ func (s *Service) ChangeTargetMachine(ctx context.Context, p store.Principal, vi
 		return store.ConfigChange{}, ErrNotFound
 	}
 	for _, binding := range []*targets.MachineBinding{groups[group].Machine, in.Machine} {
-		if binding != nil && (p.MachineScopeEmpty() || !p.Reaches(binding.Name)) {
+		if binding != nil && !p.Reaches(binding.Name) {
 			return store.ConfigChange{}, ErrTargetMachineScope
 		}
 	}
-	return s.SetTargetMachineIf(ctx, Actor{Name: p.Name(), Via: via}, set, group, in.Machine, in.Note, in.IfVersion)
+	return s.SetTargetMachineIf(ctx, Actor{Name: p.Name(), Via: via, Principal: &p}, set, group, in.Machine, in.Note, in.IfVersion)
 }

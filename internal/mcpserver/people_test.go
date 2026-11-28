@@ -35,7 +35,7 @@ func TestKeyAndPeopleTools(t *testing.T) {
 	if _, err := e.Bridge.Join(ctx, code, "alice", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "claude-code", Owner: "alice", Preset: "oncall", TTL: 30 * 24 * time.Hour})
+	out, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "claude-code", Owner: "alice", Preset: "oncall", Machines: store.AllAccess(), TTL: 30 * 24 * time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,9 @@ package sshgate
 // requests. Beacon binds no port for the forward; it records that the machine is reachable through this
 // connection and, when an agent targets the machine, opens a forwarded-tcpip channel back to the address
 // the machine itself forwarded, never one of Beacon's choosing, and runs its usual client handshake over
-// it, with the pinned host key and a certificate. One connection per machine; the newest wins.
+// it, with the pinned host key and a certificate. One connection per machine; the newest wins. A
+// connection is bound to the key it signed in with and to the machine's registration then: once either
+// changes (a new key, the machine registered again or made a dialled one) it carries nothing more.
 
 import (
 	"context"
@@ -45,13 +47,16 @@ const (
 	connectorUser      = "beacon-connector"
 )
 
-// connector is one machine's connection out to the channel.
+// connector is one machine's connection out to the channel: fingerprint is the key it signed in with,
+// registration the machine's registration it signed in to.
 type connector struct {
-	g     *Gate
-	name  string
-	sc    *ssh.ServerConn
-	since time.Time
-	from  string
+	g            *Gate
+	name         string
+	sc           *ssh.ServerConn
+	since        time.Time
+	from         string
+	fingerprint  string
+	registration string
 
 	mu        sync.Mutex
 	addr      string // the address the machine asked Beacon to bind, echoed in every forwarded-tcpip open
@@ -59,6 +64,12 @@ type connector struct {
 	forwarded bool
 	learnMu   sync.Mutex  // one host key probe at a time
 	checking  atomic.Bool // one pending machine SSH check per connector
+}
+
+// bound reports whether the connection still belongs to the machine as m has it now: a connector
+// machine, with the key the connection signed in with, in the registration it signed in to.
+func (c *connector) bound(m store.Machine) bool {
+	return m.Name == c.name && m.Connector() && m.ConnectorFingerprint == c.fingerprint && m.Registration() == c.registration
 }
 
 func (c *connector) setForward(addr string, port uint32) {
@@ -145,14 +156,20 @@ func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions
 		return nil, errors.New("unknown key")
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {
-		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name}}, nil
+		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name, "connector_key": fp}}, nil
 	}
 	return nil, errors.New("unknown key")
 }
 
 // serveConnector handles a machine's connection out to the channel until it ends.
 func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request, name string) {
-	c := &connector{g: g, name: name, sc: sc, since: g.now().UTC(), from: sc.RemoteAddr().String()}
+	c := &connector{g: g, name: name, sc: sc, since: g.now().UTC(), from: sc.RemoteAddr().String(), fingerprint: sc.Permissions.Extensions["connector_key"]}
+	if m, ok := g.d.Store.Machine(name); ok && m.Connector() && c.fingerprint != "" && m.ConnectorFingerprint == c.fingerprint {
+		c.registration = m.Registration()
+	} else { // its key changed, or the machine went, while it signed in
+		g.d.Log.Warn("connector signed in with a key the machine no longer has; closed", "machine", name, "from", c.from)
+		return
+	}
 	go func() { // a connector carries no channels: no sessions, no forwarded ports of its own
 		for ch := range chans {
 			_ = ch.Reject(ssh.Prohibited, "a connector connection carries no channels; agents reach the machine through Beacon")
@@ -183,6 +200,14 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 				if r.WantReply {
 					_ = r.Reply(false, []byte("one forward per connection"))
 				}
+				continue
+			}
+			if m, ok := g.d.Store.Machine(name); !ok || !c.bound(m) {
+				if r.WantReply {
+					_ = r.Reply(false, []byte("the machine's connector key or registration changed; connect again"))
+				}
+				g.d.Log.Warn("connector's key or registration changed before it forwarded; closed", "machine", name, "from", c.from)
+				_ = sc.Close()
 				continue
 			}
 			port := p.Port
@@ -332,6 +357,9 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 	if !ok {
 		return "", ErrNoMachine
 	}
+	if !c.bound(m) {
+		return "", ErrDisconnected
+	}
 	if m.HostKey != "" {
 		return m.HostKey, nil
 	}
@@ -339,9 +367,7 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sameConnector := func(cur store.Machine) bool {
-		return cur.Connector() && cur.HistoryStart == m.HistoryStart && cur.ConnectorFingerprint == m.ConnectorFingerprint && cur.HostKey == ""
-	}
+	sameConnector := func(cur store.Machine) bool { return c.bound(cur) && cur.HostKey == "" }
 	m, err = g.d.Store.UpdateMachineIdentity(c.name, sameConnector, func(cur *store.Machine) {
 		cur.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
 	})
@@ -360,6 +386,10 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 func (g *Gate) connect(ctx context.Context, m *store.Machine) (net.Conn, error) {
 	c := g.connectors.get(m.Name)
 	if c == nil {
+		return nil, fmt.Errorf("%w (%s)", ErrDisconnected, m.Name)
+	}
+	if !c.bound(*m) { // signed in with a key, or to a registration, the machine no longer has
+		_ = c.sc.Close()
 		return nil, fmt.Errorf("%w (%s)", ErrDisconnected, m.Name)
 	}
 	if m.HostKey == "" {
@@ -416,8 +446,9 @@ func (c *chanConn) Close() error {
 
 // ---- adding connector machines and their keys
 
-// parseConnectorKey reads the public key a machine connects out with and refuses one a token holds.
-func (g *Gate) parseConnectorKey(line string) (key, fingerprint string, err error) {
+// parseConnectorKey reads the public key machine connects out with and refuses one a token holds, or
+// another machine connects with.
+func (g *Gate) parseConnectorKey(machine, line string) (key, fingerprint string, err error) {
 	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(line)))
 	if err != nil {
 		return "", "", fmt.Errorf("%w: connector_key is not a public key in the authorized_keys form (ssh-ed25519 AAAA…): %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
@@ -428,6 +459,9 @@ func (g *Gate) parseConnectorKey(line string) (key, fingerprint string, err erro
 	fp := ssh.FingerprintSHA256(k)
 	if holder := g.d.Store.KeyHolder(fp); holder != "" {
 		return "", "", fmt.Errorf("%w: the key %s belongs to %s; a machine's connector key is its own", ErrBadInput, fp, holder)
+	}
+	if other, ok := g.d.Store.MachineByConnectorKey(fp); ok && other.Name != machine {
+		return "", "", fmt.Errorf("%w: the key %s is machine %s's connector key; each machine connects with a key of its own (a cloned image shares the old one: make a new key on the machine)", ErrBadInput, fp, other.Name)
 	}
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))), fp, nil
 }
@@ -447,13 +481,16 @@ func parseHostKey(line string) (string, error) {
 // first time it connects with the key registered here.
 func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Added, error) {
 	old, exists := g.d.Store.Machine(in.Name)
+	if err := g.mayRegister(who, in, old, exists); err != nil {
+		return Added{}, err
+	}
 	if exists && !in.Replace {
 		return Added{}, fmt.Errorf("%w (%s at %s); add it with replace to change its keys", ErrExists, old.Name, old.Address)
 	}
 	m := store.Machine{Name: in.Name, Address: store.ConnectorAddress, User: in.User, Critical: in.Critical,
 		Note: strings.TrimSpace(in.Note), Added: g.now().UTC(), AddedBy: who.Name}
 	if in.ConnectorKey != "" {
-		key, fp, err := g.parseConnectorKey(in.ConnectorKey)
+		key, fp, err := g.parseConnectorKey(in.Name, in.ConnectorKey)
 		if err != nil {
 			return Added{}, err
 		}
@@ -468,9 +505,8 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 		}
 		m.HostKey = k
 	}
-	keyChanged := exists && old.ConnectorFingerprint != m.ConnectorFingerprint
-	if m.HostKey == "" && !keyChanged { // connected already, with the key being registered: pin the host key now
-		if c := g.connectors.get(in.Name); c != nil {
+	if m.HostKey == "" && m.ConnectorFingerprint != "" { // connected already, with the key being registered: pin the host key now
+		if c := g.connectors.get(in.Name); c != nil && c.fingerprint == m.ConnectorFingerprint {
 			if k, err := c.probe(ctx); err == nil {
 				m.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
 			}
@@ -481,7 +517,7 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	if err != nil {
 		return Added{}, err
 	}
-	if keyChanged { // the connection signed in with the old key ends; the machine reconnects with the new one
+	if exists { // the connection signed in to the old registration ends; the machine connects again to this one
 		g.connectors.close(in.Name)
 	}
 	detail := "connector " + m.ConnectorFingerprint
@@ -504,15 +540,20 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	if !ok {
 		return MachineView{}, fmt.Errorf("%w called %q", ErrNoMachine, name)
 	}
+	if err := g.mayChange(who, machineChange{critical: m.Critical}); err != nil {
+		return MachineView{}, err
+	}
 	if !m.Connector() {
 		return MachineView{}, fmt.Errorf("%w: %s is dialled at %s, not a connector machine; add it with the address %s to make it one", ErrBadInput, name, m.Address, store.ConnectorAddress)
 	}
-	k, fp, err := g.parseConnectorKey(key)
+	k, fp, err := g.parseConnectorKey(name, key)
 	if err != nil {
 		return MachineView{}, err
 	}
 	changed := false
-	sameRegistration := func(cur store.Machine) bool { return cur.Connector() && cur.HistoryStart == m.HistoryStart }
+	sameRegistration := func(cur store.Machine) bool {
+		return cur.Connector() && cur.Registration() == m.Registration() && cur.Critical == m.Critical
+	}
 	m, err = g.d.Store.UpdateMachineIdentity(name, sameRegistration, func(cur *store.Machine) {
 		changed = cur.ConnectorFingerprint != fp
 		cur.ConnectorKey, cur.ConnectorFingerprint = k, fp
@@ -527,6 +568,13 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	g.post(ctx, i18n.T(g.d.Lang, "%s set the connector key of machine %s", who.Name, name))
 	t, _ := g.principal(who)
 	return g.view(m, t), nil
+}
+
+// TrustOneAccount is the shell line that has the machine's sshd trust Beacon's certificate authority for
+// the one account Beacon signs in as, and for no other (root included), appending (>>) or writing (>)
+// sshd's drop-in file. A change of the account in Beacon then takes this line run again on the machine.
+func TrustOneAccount(user, redirect string) string {
+	return fmt.Sprintf("printf 'Match User %s\\n  TrustedUserCAKeys /etc/ssh/beacon_ca.pub\\nMatch all\\n' %s /etc/ssh/sshd_config.d/beacon.conf\n", user, redirect)
 }
 
 // ConnectorSetup is what a machine behind NAT needs on its side, as machine add prints it.
@@ -570,8 +618,8 @@ func (g *Gate) connectorSetup(m store.Machine) *ConnectorSetup {
 	var sb strings.Builder
 	sb.WriteString(note)
 	fmt.Fprintf(&sb, "echo '%s' > /etc/ssh/beacon_ca.pub\n", g.CAPublicKey())
-	sb.WriteString("echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf\n")
-	sb.WriteString("echo 'PerSourcePenaltyExemptList 127.0.0.1,::1' >> /etc/ssh/sshd_config.d/beacon.conf\n")
+	sb.WriteString("echo 'PerSourcePenaltyExemptList 127.0.0.1,::1' > /etc/ssh/sshd_config.d/beacon.conf\n")
+	sb.WriteString(TrustOneAccount(m.User, ">>"))
 	fmt.Fprintf(&sb, "id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n", m.User, m.User)
 	sb.WriteString("systemctl reload ssh\n")
 	fmt.Fprintf(&sb, "echo '%s' > %s\n", kh, connectorHostsPath)

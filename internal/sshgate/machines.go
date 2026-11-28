@@ -52,7 +52,7 @@ type MachineView struct {
 func (g *Gate) view(m store.Machine, t store.Principal) MachineView {
 	v := MachineView{Name: m.Name, Version: m.MetadataVersion, Address: m.Address, User: m.User, HostKey: fingerprint(m.HostKey), Critical: m.Critical,
 		Note: m.Note, Added: m.Added, AddedBy: m.AddedBy, Reachable: t.Reaches(m.Name), Registration: m.Registration()}
-	if v.Reachable && !t.MachineScopeEmpty() && t.Has("config:write") && t.Has("machines:write") {
+	if v.Reachable && t.Has("config:write") && t.Has("machines:write") {
 		v.MonitorRegistration = v.Registration
 	}
 	if m.Connector() {
@@ -133,8 +133,9 @@ func (g *Gate) ConnectionConfig(who Actor, address, machine string) (config, kno
 }
 
 // MachineInput adds a machine. Address is host or host:port (22 by default), or "connector" for a
-// machine behind NAT that connects out to the channel itself; User defaults to beacon. Replace pins the
-// machine's host key again, after it was reinstalled, say. ConnectorKey is the public key a connector
+// machine behind NAT that connects out to the channel itself; User defaults to beacon. Replace registers
+// the machine again, pinning its host key again after it was reinstalled, say; like every other change
+// of a machine it takes access to all machines (machine_writes.go). ConnectorKey is the public key a connector
 // machine signs in with, and HostKey its sshd's host key, which Beacon otherwise learns the first time
 // the machine connects; both are for connector machines only.
 type MachineInput struct {
@@ -185,6 +186,9 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 		return Added{}, fmt.Errorf("%w: address is a host name or address, optionally with :port", ErrBadInput)
 	}
 	old, exists := g.d.Store.Machine(in.Name)
+	if err := g.mayRegister(who, in, old, exists); err != nil {
+		return Added{}, err
+	}
 	if exists && !in.Replace {
 		return Added{}, fmt.Errorf("%w (%s at %s); add it with replace to pin its host key again", ErrExists, old.Name, old.Address)
 	}
@@ -197,6 +201,9 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	m, err = g.registerMachine(who, m, old, exists)
 	if err != nil {
 		return Added{}, err
+	}
+	if exists { // a connector it had, signed in to the old registration, ends
+		g.connectors.close(in.Name)
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
@@ -278,7 +285,8 @@ func (g *Gate) applyMachineMetadata(ctx context.Context, who Actor, name string,
 	if g == nil {
 		return MachineView{}, ErrDisabled
 	}
-	before, m, err := g.d.Store.PatchMachineMetadata(name, in, restore, who.Name, who.Via)
+	check := func(before, after store.Machine) error { return g.mayEdit(who, before, after) }
+	before, m, err := g.d.Store.PatchMachineMetadata(name, in, restore, who.Name, who.Via, check)
 	if err != nil {
 		return MachineView{}, machineVersionError(name, err)
 	}
@@ -298,7 +306,8 @@ func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 	if g == nil {
 		return ErrDisabled
 	}
-	if err := g.d.Store.DeleteMachine(name); err != nil {
+	check := func(m store.Machine) error { return g.mayChange(who, machineChange{critical: m.Critical}) }
+	if err := g.d.Store.DeleteMachineIf(name, check); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("%w called %q", ErrNoMachine, name)
 		}

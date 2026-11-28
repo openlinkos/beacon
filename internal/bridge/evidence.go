@@ -332,7 +332,7 @@ func (b *Bridge) Evidence(ctx context.Context, id, before string) (Evidence, err
 func (b *Bridge) EvidenceFor(ctx context.Context, p store.Principal, id, before string) (Evidence, error) {
 	access := b.d.Store.SessionAccess(p)
 	ev, err := b.readEvidence(ctx, id, before, &access)
-	if err != nil || p.MachineScopeEmpty() {
+	if err != nil || p.NoMachines() {
 		return ev, err
 	}
 	for _, binding := range ev.MonitorMachines {

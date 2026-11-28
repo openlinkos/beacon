@@ -16,6 +16,9 @@ func TestConsoleSessionMachineScope(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	owner := e.owner()
 	reader := e.invite(owner, "shift-reader", "viewer")
+	if _, _, err := e.st.SetCriticalMachines("shift-reader", store.NamedAccess("edge-1")); err != nil { // edge-1 is critical
+		t.Fatal(err)
+	}
 	selected, _ := e.st.Machine("edge-1")
 	outside, _ := e.st.Machine("edge-2")
 	first, _ := e.st.Session(sessionID)
@@ -36,7 +39,7 @@ func TestConsoleSessionMachineScope(t *testing.T) {
 	scoped := e.token(restrictedName, "status:read", "sessions:read")
 	selectMachine := func(machine string) {
 		t.Helper()
-		if _, err := e.st.UpdateToken(restrictedName, func(t *store.Token) error { t.Machines = []string{machine}; return nil }); err != nil {
+		if _, err := e.st.UpdateToken(restrictedName, func(t *store.Token) error { t.MachineAccess = store.NamedAccess(machine); return nil }); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -93,7 +93,7 @@ type pending struct {
 	Request
 	Agent    string
 	Preset   string
-	Machines []string
+	Machines store.MachineAccess
 	Until    time.Time // when the grant ends
 	Expires  time.Time // when the code does
 }
@@ -536,10 +536,10 @@ func hashCode(code string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// Code issues the authorization code for an allowed request, for agent with preset and machines (none:
-// the agent's) until the given time, and returns where to send the person: the client's redirect URI with the code, the state and
-// the issuer (RFC 9207).
-func (s *Server) Code(r *http.Request, q Request, agent, preset string, machines []string, until time.Time) (string, error) {
+// Code issues the authorization code for an allowed request, for agent with preset and machine access
+// (within the agent's) until the given time, and returns where to send the person: the client's redirect
+// URI with the code, the state and the issuer (RFC 9207).
+func (s *Server) Code(r *http.Request, q Request, agent, preset string, machines store.MachineAccess, until time.Time) (string, error) {
 	code, err := randomCode()
 	if err != nil {
 		return "", err
@@ -715,7 +715,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	// Every grant gets a refresh token, valid as long as the person allowed on the consent page: MCP
 	// clients refresh by themselves, and Claude Code does not ask for offline_access.
-	in, err := s.Store.CreateGrant(store.Grant{Agent: p.Agent, Client: p.ClientID, ClientName: p.ClientName, Scope: scope, Preset: p.Preset, Machines: p.Machines, Expires: p.Until, Code: h}, true)
+	in, err := s.Store.CreateGrant(store.Grant{Agent: p.Agent, Client: p.ClientID, ClientName: p.ClientName, Scope: scope, Preset: p.Preset, MachineAccess: p.Machines, Expires: p.Until, Code: h}, true)
 	if err != nil {
 		s.log().Error("oauth: issuing tokens failed", "err", err)
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the agent this code was for is gone")

@@ -81,12 +81,8 @@ func (s *Server) tokenRow(t store.Token, v *viewer) tokenRow {
 			row.Agent = a.Owner + " / " + a.Name
 		}
 	}
-	switch {
-	case !t.Has("machines:ssh"):
-	case len(t.Machines) == 0:
-		row.Machines = s.t("All machines")
-	default:
-		row.Machines = strings.Join(t.Machines, ", ")
+	if t.Agent == "" && (t.Has("machines:ssh") || t.Has("machines:write")) {
+		row.Machines = s.accessText(t.Live(s.now()))
 	}
 	for _, k := range t.SSHKeys {
 		row.Keys = append(row.Keys, k.Fingerprint)

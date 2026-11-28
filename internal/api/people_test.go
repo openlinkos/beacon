@@ -45,7 +45,7 @@ func people(t *testing.T, e *testutil.Env) (agentToken string) {
 	if _, err := e.Bridge.Join(ctx, u.Query().Get("code"), "bob", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := e.Bridge.CreateAgent(ctx, bridge.Actor{Name: "cli:root", Via: "cli"}, bridge.AgentInput{Name: "codex", Owner: "bob", Preset: "oncall", TTL: 30 * 24 * time.Hour})
+	out, err := e.Bridge.CreateAgent(ctx, bridge.Actor{Name: "cli:root", Via: "cli"}, bridge.AgentInput{Name: "codex", Owner: "bob", Preset: "oncall", Machines: store.AllAccess(), TTL: 30 * 24 * time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}

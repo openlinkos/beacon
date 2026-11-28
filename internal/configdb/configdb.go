@@ -70,10 +70,14 @@ var (
 )
 
 // Actor is who changes the configuration: a token's name or the person at the command line, and how
-// (api, mcp, cli; start and signal when the service imports its files itself).
+// (api, mcp, cli; start and signal when the service imports its files itself). Principal is what a
+// change through the API, MCP or the console is held to: one that changes a service's response machine
+// needs what the dedicated route needs (machine_bindings.go). The command line and Beacon itself have
+// none.
 type Actor struct {
-	Name string
-	Via  string
+	Name      string
+	Via       string
+	Principal *store.Principal
 }
 
 // Poster sends a plain message to the alert chat.
@@ -227,6 +231,11 @@ func (s *Service) commitChecked(ctx context.Context, who Actor, action, note str
 	st := build(next)
 	if st.problem != nil {
 		return store.ConfigChange{}, fmt.Errorf("%w: %w", ErrInvalid, st.problem)
+	}
+	if who.Principal != nil {
+		if err := s.checkBindings(*who.Principal, cur.Targets, st.Targets); err != nil {
+			return store.ConfigChange{}, err
+		}
 	}
 	items := diff(cur.entries, next)
 	st.consoleTargets = maps.Clone(cur.consoleTargets)

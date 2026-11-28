@@ -446,10 +446,9 @@ func (s *Server) machineErr(w http.ResponseWriter, r *http.Request, path string,
 
 // dialSetup is what a machine Beacon dials needs, as root, before agents use it.
 func dialSetup(ca, user string) string {
-	return fmt.Sprintf("echo '%s' > /etc/ssh/beacon_ca.pub\n"+
-		"echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf\n"+
-		"id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n"+
-		"systemctl reload ssh\n", ca, user, user)
+	return fmt.Sprintf("echo '%s' > /etc/ssh/beacon_ca.pub\n", ca) + sshgate.TrustOneAccount(user, ">") +
+		fmt.Sprintf("id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n"+
+			"systemctl reload ssh\n", user, user)
 }
 
 func (s *Server) addedMachine(w http.ResponseWriter, r *http.Request, v *viewer, a sshgate.Added) {

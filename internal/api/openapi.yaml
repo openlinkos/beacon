@@ -59,7 +59,7 @@ components:
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
-            token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
+            token.too_soon, token.not_renewable, token.not_found, token.not_revocable, token.forbidden, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
             audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
@@ -2429,13 +2429,17 @@ paths:
   /tokens/{name}:
     delete:
       tags: [Identity & Agents]
-      summary: Revoke a token that reaches machines
+      summary: Delete a token that reaches machines
       description: >-
-        Scope: machines:write. The pause switch for one agent: its open sessions on machines are closed and
-        its requests are refused from now on. Only a token with machines:ssh, or an agent's token, may be
-        revoked here (token.not_revocable, 403): the tokens of probes, hosts, heartbeats, the rule engine, change
-        senders and metrics readers stay with `beacon token revoke` on the host, so that no alert
-        is lost by a click. Audited (revoke_token) and echoed to the alert chat.
+        Scope: machines:write, with access to all machines (a credential that names its machines deletes
+        no token: token.forbidden, 403). Deletes the token: its open sessions on machines are closed and its
+        requests are refused from now on; an agent keeps its other credentials. Only a token with
+        machines:ssh, or an agent's token, may be deleted here (token.not_revocable, 403): the tokens of
+        probes, hosts, heartbeats, the rule engine, change senders and metrics readers stay with
+        `beacon token revoke` on the host, so that no alert is lost by a click. A token of its own is
+        deleted only by a caller holding every scope it holds and reaching every machine it reaches; an
+        agent's token by the agent itself, or by a person (token.forbidden, 403). Audited (revoke_token)
+        and echoed to the alert chat.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:

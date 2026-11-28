@@ -215,6 +215,9 @@ func setup(t *testing.T, scopes ...string) *env {
 	if _, _, err := st.CreateToken("claude-code", scopes, 24*time.Hour, "test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.AllAccess(); return nil }); err != nil {
+		t.Fatal(err)
+	}
 	e.giveKey(t, "claude-code", e.agentKey)
 	m := store.Machine{Name: "box", Address: e.tg.addr, User: "beacon",
 		HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(e.tg.hostKey.PublicKey())))}
@@ -505,13 +508,13 @@ func TestRefusals(t *testing.T) {
 	if code != 1 || !strings.Contains(errOut, "no such machine") || !strings.Contains(errOut, "box") {
 		t.Errorf("unknown machine: %q %d", errOut, code)
 	}
-	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.Machines = []string{"other"}; return nil }); err != nil {
+	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.NamedAccess("other"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := e.run(t, "box", "true"); code != 1 || !strings.Contains(errOut, "may not reach") {
 		t.Errorf("forbidden: %q %d", errOut, code)
 	}
-	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.Machines = nil; return nil }); err != nil {
+	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.AllAccess(); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.client(t, "box", signer(t)); err == nil {
@@ -685,7 +688,7 @@ func TestPrune(t *testing.T) {
 
 func TestUpdateMachine(t *testing.T) {
 	e := setup(t)
-	who := Actor{Name: "op", Via: "api"}
+	who := Actor{Name: "cli:op", Via: "cli"}
 	before, ok := e.st.Machine("box")
 	if !ok {
 		t.Fatal("no box")
@@ -722,7 +725,7 @@ func TestUpdateMachine(t *testing.T) {
 	}
 	found := false
 	for _, a := range e.st.AuditLog(20) {
-		if a.Action == "machine_update" && a.Target == "box" && a.Via == "api" && strings.Contains(a.Detail, "moved") && strings.Contains(a.Detail, "ops") {
+		if a.Action == "machine_update" && a.Target == "box" && a.Via == "cli" && strings.Contains(a.Detail, "moved") && strings.Contains(a.Detail, "ops") {
 			found = true
 		}
 	}

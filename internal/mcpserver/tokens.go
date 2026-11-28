@@ -53,11 +53,11 @@ type revokeIn struct {
 }
 
 func addRevokeTool(s *mcp.Server, b *bridge.Bridge) {
-	registerTool(s, &mcp.Tool{Name: "revoke_token", Title: "Revoke an agent's token",
+	registerTool(s, &mcp.Tool{Name: "revoke_token", Title: "Delete a token",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Revoke a token that reaches machines (machines:ssh), or any agent's token: what it has open on machines is closed at once and its requests are refused from now on. " +
-			"The pause switch for one agent. Needs machines:write. The tokens of probes, hosts, heartbeats, the rule engine, change senders and " +
-			"metrics readers cannot be revoked here (they are revoked on the host), so that no alert is lost."},
+		Description: "Delete a token that reaches machines (machines:ssh), or an agent's token: what it has open on machines is closed at once and its requests are refused from now on; an agent keeps its other credentials. " +
+			"Needs machines:write and access to all machines. A token of its own is deleted only by a caller holding every scope it holds and reaching every machine it reaches; an agent's token only by that agent or a person. " +
+			"The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers cannot be deleted here (they are revoked on the host), so that no alert is lost."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in revokeIn) (*mcp.CallToolResult, okOut, error) {
 			who, err := gate(ctx, "machines:write")
 			if err != nil {
