@@ -62,7 +62,7 @@ components:
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
+            audit.unavailable, audit.not_recorded, incident.not_found, incident.unavailable, incident.changed,
             credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
             share.not_found, share.unavailable]
         docs:

@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/events"
@@ -271,7 +272,9 @@ type Store struct {
 	mu      sync.RWMutex     // the token cache
 	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
 	tokens  map[string]Token // by hash
-	recheck func() bool      // read a cached token again before accepting it (issued.go)
+	recheck func() bool      // read a cached token again before accepting it (recheck.go)
+
+	auditFailed atomic.Pointer[func(AuditEntry, error)] // audit_failure.go
 }
 
 // Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
@@ -1080,6 +1083,9 @@ func (s *Store) Audit(e AuditEntry) error {
 	_, err := s.audit.Append(events.Event{
 		Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
 	})
+	if err != nil {
+		s.reportAuditFailure(e, err)
+	}
 	return err
 }
 

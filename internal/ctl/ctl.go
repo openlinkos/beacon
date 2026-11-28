@@ -89,6 +89,9 @@ type Service interface {
 	Time(key string) time.Time
 }
 
+// errUnrecorded answers a token that was not made because its audit entry could not be written.
+var errUnrecorded = errors.New("the audit log cannot be written now, so no token was made; try again once it can")
+
 // DrillKey is where the drill's end is stored.
 const DrillKey = "drill"
 
@@ -188,7 +191,11 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 				return
 			}
 		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name, Detail: strings.Join(tok.Scopes, ",")})
+		if err := s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name, Detail: strings.Join(tok.Scopes, ",")}); err != nil {
+			_ = s.RevokeToken(tok.Name) // not made without its record
+			fail(w, http.StatusServiceUnavailable, errUnrecorded)
+			return
+		}
 		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})
 	})
 	mux.HandleFunc("POST /v1/enroll", func(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +238,11 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 		if exists {
 			action = "enroll_rotate"
 		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: action, Target: tok.Name, Detail: scope})
+		if err := s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: action, Target: tok.Name, Detail: scope}); err != nil {
+			_ = s.RevokeToken(tok.Name) // not made without its record; enrolling again makes a new one
+			fail(w, http.StatusServiceUnavailable, errUnrecorded)
+			return
+		}
 		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})
 	})
 	mux.HandleFunc("DELETE /v1/tokens/{name}", func(w http.ResponseWriter, r *http.Request) {

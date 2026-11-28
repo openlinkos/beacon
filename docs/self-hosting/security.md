@@ -14,7 +14,7 @@ Beacon holds what agents never see:
 - **An agent acts for one person, and never beyond them.** It signs in by MCP's OAuth or a scoped token. What it may do, its preset within its owner's role, is decided afresh on every request. So a demoted owner narrows its agents at once. [Agents](../guide/people.md#agents).
 - **A machine's token writes only as its own subject**, and an expired machine cannot write. The rule engine's alerts need the rules token.
 - **Tokens are stored as SHA-256 hashes**, carry scopes and expire. Failed attempts are limited per address.
-- **Every write is on record.** Each change through the API, MCP, a card or the command line lands in the audit log, echoed to the alert chat ([Who the audit log names](../guide/people.md#who-the-audit-log-names)).
+- **Every write is on record.** Each change through the API, MCP, a card or the command line lands in the audit log, echoed to the alert chat ([Who the audit log names](../guide/people.md#who-the-audit-log-names)). When the audit log cannot be written, a new agent, token or SSH key is withdrawn and refused (`audit.not_recorded`). A change that takes access away goes ahead. Every entry that could not be written is logged at ERROR and counted in `beacon_audit_write_failures_total`.
 
 ## The SSH channel
 

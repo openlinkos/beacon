@@ -13,6 +13,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Require `feishu.encrypt_key_file` for HTTP card callbacks, and take each signed callback once and only within 5 minutes of its timestamp. **Operators using `callback: http`**: turn on encryption for the app's callbacks and set the key before upgrading; `beacon check-config` refuses the configuration without it. The long connection is unchanged.
 - Check whether a caller may manage agents before looking up an agent's name, so the answer for another person's agent and for a name no agent has is the same. A key someone else holds is refused as already registered, without naming the holder. Revoking a token the caller may not revoke here answers like a token that does not exist (`token.not_found`).
 - Name the command line in the audit log by the operating system user that connected to the admin socket, keeping a different name sent by the command only as a claim beside it.
+- Report every audit entry that cannot be written: log it at ERROR and count it in `beacon_audit_write_failures_total`. Withdraw and refuse a new agent, agent token, SSH key or command-line token whose audit entry cannot be written (`audit.not_recorded`, 503).
 
 ## 0.3.0
 

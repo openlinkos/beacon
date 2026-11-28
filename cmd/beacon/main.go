@@ -282,6 +282,10 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	m := metrics.New(version.Version)
+	st.OnAuditFailure(func(e store.AuditEntry, err error) {
+		log.Error("audit entry not written", "action", e.Action, "target", e.Target, "via", e.Via, "err", err)
+		m.Inc("beacon_audit_write_failures_total", "Audit entries that could not be written after the change they record", "")
+	})
 	catalog.Register(m, cdb.Catalog)
 	m.Register("beacon_token_expiry_timestamp_seconds", "When an API or gateway token expires", "gauge", func() []metrics.Sample {
 		var out []metrics.Sample

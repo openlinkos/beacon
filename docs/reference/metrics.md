@@ -39,6 +39,7 @@ On `/metrics` (job `beacon` in the reference scrape configuration):
 | `beacon_location_in_rotation` | `location`, `rotation`, `role` | Whether a location's CDN node is among its cluster's DNS answers |
 | `beacon_rotation_unknown_address` | `rotation`, `address` | An answer that belongs to no location in the catalogue |
 | `beacon_token_expiry_timestamp_seconds` | `token`, `subject` | When an API or gateway token expires |
+| `beacon_audit_write_failures_total` | | Audit entries that could not be written after the change they record; any increase calls for a look at storage |
 | `go_goroutines`, `go_memstats_heap_inuse_bytes`, `go_memstats_sys_bytes`, `process_resident_memory_bytes` | | The process |
 
 ## The probes' results

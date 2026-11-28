@@ -621,8 +621,11 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 		}
 		a = with
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_create", Target: a.Name,
-		Detail: a.Owner + " " + a.Preset + " " + machinesText(a.Machines)})
+	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_create", Target: a.Name,
+		Detail: a.Owner + " " + a.Preset + " " + machinesText(a.Machines)}); err != nil {
+		_ = b.d.Store.DeleteAgent(a.Name) // not made without its record
+		return AgentCreated{}, err
+	}
 	b.echo(ctx, b.t("%s made agent %s for %s (%s) via %s", who.Name, a.Name, a.Owner, b.presetName(a.Preset), b.viaName(who.Via)))
 	out := AgentCreated{Agent: b.agentView(a)}
 	if in.TTL > 0 {
@@ -748,8 +751,11 @@ func (b *Bridge) issueAgentToken(ctx context.Context, who Actor, a store.Agent, 
 	if err != nil {
 		return AgentCreated{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_token", Target: t.Name,
-		Detail: a.Name + " expires " + t.Expires.UTC().Format(time.DateOnly)})
+	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_token", Target: t.Name,
+		Detail: a.Name + " expires " + t.Expires.UTC().Format(time.DateOnly)}); err != nil {
+		_ = b.d.Store.RevokeToken(t.Name) // not issued without its record
+		return AgentCreated{}, err
+	}
 	b.echo(ctx, b.t("%s gave agent %s a token, expires %s, via %s", who.Name, a.Name, t.Expires.In(b.d.Config.Location).Format(time.DateOnly), b.viaName(who.Via)))
 	tv := AgentTokenView{Name: t.Name, Created: t.Created, Expires: t.Expires, Lifetime: store.FormatTTL(t.Lifetime)}
 	a, _ = b.d.Store.Agent(a.Name)
@@ -987,6 +993,7 @@ func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment 
 	if p, ok := b.caller(who); ok && p.Agent != "" && p.Agent == owner.agent.Name && who.Cred != "" {
 		k.Via = who.Cred // an agent's own key lives as long as the credential it added it with
 	}
+	had := b.ownerHasKey(owner, k.Fingerprint)
 	var holder string
 	switch {
 	case owner.account != nil:
@@ -1005,9 +1012,44 @@ func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment 
 	if err != nil {
 		return SSHKeyView{}, err
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "ssh_key_add", Target: holder, Detail: k.Fingerprint + " " + k.Comment})
+	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "ssh_key_add", Target: holder, Detail: k.Fingerprint + " " + k.Comment}); err != nil {
+		if !had { // not added without its record
+			b.dropKey(owner, k.Fingerprint)
+		}
+		return SSHKeyView{}, err
+	}
 	b.echo(ctx, b.t("%s added SSH key %s to %s via %s", who.Name, k.Fingerprint, holder, b.viaName(who.Via)))
 	return SSHKeyView(k), nil
+}
+
+// ownerHasKey reports whether the key's owner holds the key with this fingerprint already.
+func (b *Bridge) ownerHasKey(owner sshKeyOwner, fp string) bool {
+	has := func(keys []store.SSHKey) bool {
+		return slices.ContainsFunc(keys, func(k store.SSHKey) bool { return k.Fingerprint == fp })
+	}
+	switch {
+	case owner.account != nil:
+		a, ok := b.d.Store.Account(owner.account.Username)
+		return ok && has(a.SSHKeys)
+	case owner.token != "":
+		t, ok := b.token(owner.token)
+		return ok && has(t.SSHKeys)
+	default:
+		a, ok := b.d.Store.Agent(owner.agent.Name)
+		return ok && has(a.SSHKeys)
+	}
+}
+
+// dropKey takes a key just added from its owner again.
+func (b *Bridge) dropKey(owner sshKeyOwner, fp string) {
+	switch {
+	case owner.account != nil:
+		_ = b.d.Store.RemoveAccountSSHKey(owner.account.Username, fp)
+	case owner.token != "":
+		_, _ = b.d.Store.RemoveTokenSSHKey(owner.token, fp)
+	default:
+		_, _ = b.d.Store.RemoveAgentSSHKey(owner.agent.Name, fp)
+	}
 }
 
 // RemoveSSHKey takes a key, by its fingerprint, from an agent or from the caller.
