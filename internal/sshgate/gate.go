@@ -112,6 +112,7 @@ var (
 
 	ErrEvidenceUnavailable = errors.New("cannot start an SSH session while its evidence cannot be stored")
 	ErrRecordingLimit      = errors.New("the session reached its recording limit and Beacon closed it")
+	ErrRecordingFailed     = errors.New("the session's recording could not be written, and Beacon closed it")
 )
 
 // PauseKey is where the start of a pause is stored; zero when the channel runs.

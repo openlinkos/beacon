@@ -454,6 +454,9 @@ func TestSessionEvidenceExplainsIndependentCaptureStates(t *testing.T) {
 		{"closed at the recording limit", func(r *store.SessionRecord) {
 			r.RecordingState, r.TranscriptState, r.Stopped = store.EvidenceTruncated, store.EvidenceComplete, store.StoppedRecordingLimit
 		}, []string{"Beacon closed this session when its recording reached its size limit."}, true},
+		{"closed when the recording failed", func(r *store.SessionRecord) {
+			r.RecordingState, r.TranscriptState, r.Stopped = store.EvidenceUnavailable, store.EvidenceComplete, store.StoppedRecordingFailed
+		}, []string{"Beacon closed this session when its recording could not be written."}, false},
 		{"failed replay", func(r *store.SessionRecord) {
 			r.RecordingState, r.TranscriptState = store.EvidenceUnavailable, store.EvidenceComplete
 		}, []string{"Beacon could not save a usable recording.", "systemctl restart relay"}, false},

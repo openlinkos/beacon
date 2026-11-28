@@ -626,7 +626,7 @@ components:
         recording: {type: string}
         recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
-        stopped: {type: string, enum: [recording_limit], description: "Beacon closed the session itself: recording_limit when its recording reached its 16 MiB limit"}
+        stopped: {type: string, enum: [recording_limit, recording_failed], description: "Beacon closed the session itself: recording_limit when its recording reached its 16 MiB limit (of the bytes that passed), recording_failed when its recording could not be written"}
         page: {type: string, format: uri, description: "Sign in to the console to open this session and its replay. Provided when public_url is configured and the caller may read the session."}
     Transcript:
       allOf:
@@ -1837,7 +1837,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Run a command on a machine
-      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record, and ssh.recording_limit, having stopped the command, when its recording reached its 16 MiB limit."
+      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record or, having stopped the command, cannot write it; and ssh.recording_limit, having stopped the command, when its recording reached its 16 MiB limit."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:

@@ -463,7 +463,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 
 func sessionToolError(err error) error {
 	switch {
-	case errors.Is(err, sshgate.ErrEvidenceUnavailable):
+	case errors.Is(err, sshgate.ErrEvidenceUnavailable), errors.Is(err, sshgate.ErrRecordingFailed):
 		return fmt.Errorf("ssh.evidence_unavailable: %w", err)
 	case errors.Is(err, sshgate.ErrSearchUnavailable):
 		return fmt.Errorf("ssh.search_unavailable: %w", err)
