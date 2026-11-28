@@ -559,7 +559,7 @@ func serve(args []string, stderr io.Writer) int {
 		}
 		socket.Handle("/v1/drill", ctl.DrillHandler(st, br.RecordDrill))
 		socket.Handle("/", ctl.Handler(st, active, machines))
-		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second}
+		cs := &http.Server{Handler: socket, ReadHeaderTimeout: 5 * time.Second, ConnContext: ctl.ConnContext} // the audit log names the peer's user
 		go func() { _ = cs.Serve(ln) }()
 		defer func() { _ = cs.Close() }()
 	} else if !errors.Is(err, errors.ErrUnsupported) {

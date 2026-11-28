@@ -24,7 +24,8 @@ import (
 // Path is where the socket lives in the data directory.
 func Path(dataDir string) string { return filepath.Join(dataDir, "ctl.sock") }
 
-// UserHeader carries the name of the person running the command, for the audit log.
+// UserHeader carries the name of the person running the command, as the client sees it. The audit log
+// names the user the operating system says connected, where it can tell (cliActor).
 const UserHeader = "X-Status-User"
 
 // Info describes the running service.
@@ -116,15 +117,6 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func fail(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]string{"error": err.Error()})
-}
-
-// cliActor is who runs a command, for the audit log: cli:<user>, as the client names the user.
-func cliActor(r *http.Request) string {
-	name := r.Header.Get(UserHeader)
-	if !userRe.MatchString(name) {
-		name = "unknown"
-	}
-	return "cli:" + name
 }
 
 // Handler serves the socket's API. active reports whether a probe location exists and its machine has
