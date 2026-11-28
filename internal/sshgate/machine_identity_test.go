@@ -145,15 +145,20 @@ func TestCriticalMarkRechecks(t *testing.T) {
 
 func ecdsaKey(t *testing.T) string {
 	t.Helper()
+	return authorized(ecdsaSigner(t))
+}
+
+func ecdsaSigner(t *testing.T) ssh.Signer {
+	t.Helper()
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pk, err := ssh.NewPublicKey(&k.PublicKey)
+	s, err := ssh.NewSignerFromKey(k)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pk)))
+	return s
 }
 
 // TestNewMachinesAccountAndAddress: a new machine's account other than beacon takes a person or the

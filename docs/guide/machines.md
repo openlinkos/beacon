@@ -49,7 +49,7 @@ The CA's private key lets whoever holds it into every machine that trusts it. Ke
 
 ## Add a machine {#add-a-machine}
 
-1. **On the centre**, name the machine and its address. Beacon connects once to port 22 (or `HOST:PORT`), pins the machine's host key and prints what the machine needs:
+1. **On the centre**, name the machine and its address. Beacon connects to port 22 (or `HOST:PORT`) once for each kind of host key (Ed25519, ECDSA, RSA), pins the machine's Ed25519 key when it has one, keeps the others on record and prints what the machine needs:
 
    ```bash
    docker exec beacon beacon machine add edge-1 edge-1.example.net -note "Los Angeles edge node"
@@ -93,7 +93,7 @@ Other options and commands:
 - `machine add … -replace` pins a new host key after a reinstall.
 - `machine remove NAME` forgets a machine, and keeps its sessions on record. On the machine, remove `/etc/ssh/beacon_ca.pub` and the `Match User` block as well, so that nobody can add it again and reach it.
 
-One machine has one record: Beacon refuses a machine at another machine's address or with its host key (`machine.alias`), whoever adds it. A machine cloned from another's image shares that machine's host keys until it gets its own (`rm /etc/ssh/ssh_host_*; ssh-keygen -A`, then reload sshd). A machine on Beacon's own host, at a loopback or link-local address or `localhost`, is added only with `beacon machine add` on the host. When Beacon starts, it logs any machine recorded twice before this was refused; remove the record that should not be there.
+One machine has one record: Beacon refuses a machine at another machine's address or with any host key another machine is known by (`machine.alias`), whoever adds it. A machine is known by every host key it offered when it was added, whichever one is pinned; a machine added before Beacon asked for them all is known by its pinned key alone until it is added again with `-replace`. A machine cloned from another's image shares that machine's host keys until it gets its own (`rm /etc/ssh/ssh_host_*; ssh-keygen -A`, then reload sshd). A machine on Beacon's own host, at a loopback or link-local address or `localhost`, is added only with `beacon machine add` on the host. When Beacon starts, it logs any machine recorded twice before this was refused; remove the record that should not be there.
 
 The console does the same for someone with `machines:write` and access to all machines, on **Machines**: a credential that names its machines adds, changes and removes none ([Changing machines](../reference/permissions.md#changing-machines)). **Add a machine** takes the name, the address (`host` or `host:port`, or behind NAT), the account (`beacon` when left out), whether it is critical, a note, and, for a machine behind NAT, the key it connects out with and an optional host key. The page then shows, once, what the machine needs: the same lines the command prints. A machine's page edits the note, the critical flag and the account, pins the host key again (and shows the old and new fingerprints), and, for one behind NAT, changes the key it connects out with. **Remove the machine** asks for the machine's name, typed in full. The machine is forgotten, an open connector closes, and its sessions stay on record.
 
@@ -185,7 +185,7 @@ Some machines Beacon cannot reach: behind NAT, behind a firewall that lets conne
 
    You will see `added edge-9 as a connector machine (user beacon): it connects out to Beacon with ssh -R; …` and a script for the machine. The script sets up the CA and the `beacon` account as for any machine, then a `beacon-connector` user and a systemd unit with `Restart=always`.
 
-   The machine's host key is pinned like any other's. Give it with `-host-key`, or let Beacon learn it at the first connection (the audit log and the chat say so).
+   The machine's host key is pinned like any other's. Give it with `-host-key`, or let Beacon learn it at the first connection (the audit log and the chat say so). Through a connector Beacon learns only an Ed25519 key; for a machine without one, a person or `beacon machine` on the host gives its host key. Before the first session, Beacon asks the machine's SSH server through the connector for its other host keys and records them (`machine_host_key`); it refuses the machine when another machine is known by one of them, or when the given key is not among them (`machine_host_key_refused`).
 
    Each machine connects out with a key of its own: Beacon refuses a key another machine has already. A machine cloned from an image carries its original's key, so make a new one on the clone. A connection carries its machine only while the machine has the key and the registration it signed in with. Adding the machine again, changing its key or making it a machine Beacon dials closes the connection, and the unit connects again.
 
@@ -208,7 +208,7 @@ What the channel guarantees here is in the [security model](../self-hosting/secu
 
 2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link for a signed-in reader.
 
-When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it. The audit log records the refusal as `ssh_refused`, with the machine and the reason, once a minute for the same identity, machine and reason. A sign-in with a registered key whose holder may not sign in now is recorded the same way, its reason beginning `key sign-in:`.
+When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it. The audit log records the refusal as `ssh_refused`, with the machine and the reason, once a minute for the same identity, machine and reason.
 
 ## Next
 

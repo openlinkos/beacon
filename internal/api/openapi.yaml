@@ -1721,7 +1721,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Add a machine, pinning its host key
-      description: "Scope: machines:write, with access to all machines; a critical machine needs an owner, an account other than beacon (or, registering again, than the one it had) a person, and root or an address on Beacon's own host (loopback, unspecified, link-local, localhost) beacon on the host: machine.forbidden otherwise. A machine at another machine's address, or with its host key, is refused with machine.alias; so is a host key a connector learns that another machine has. A host key given for a machine behind NAT is an Ed25519 key unless a person gives it. The machine then needs the returned key in its TrustedUserCAKeys file, within a Match User block for its account. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
+      description: "Scope: machines:write, with access to all machines; a critical machine needs an owner, an account other than beacon (or, registering again, than the one it had) a person, and root or an address on Beacon's own host (loopback, unspecified, link-local, localhost) beacon on the host: machine.forbidden otherwise. Beacon asks the machine for a host key of each kind (Ed25519, ECDSA, RSA), one connection each, and pins the Ed25519 key when there is one. A machine at another machine's address, or with any of the host keys another machine is known by, is refused with machine.alias; so are host keys a connector carries that another machine has. A host key given for a machine behind NAT is an Ed25519 key unless a person gives it, and Beacon learns only an Ed25519 key through a connector. Made only with its audit entry (audit.not_recorded, 503, otherwise). The machine then needs the returned key in its TrustedUserCAKeys file, within a Match User block for its account. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
       requestBody:
         required: true
         content:
@@ -2386,7 +2386,7 @@ paths:
     put:
       tags: [Machines & SSH]
       summary: Set or change the key a machine behind NAT connects out with
-      description: "Scope: machines:write. The machine must have been added with the address connector. A connection made with the old key is closed; the machine reconnects with the new one. Audited and echoed to the chat."
+      description: "Scope: machines:write. The machine must have been added with the address connector. A connection made with the old key is closed; the machine reconnects with the new one. Made only with its audit entry (audit.not_recorded, 503, otherwise), and echoed to the chat."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:

@@ -513,9 +513,11 @@ func remoteIP(c net.Conn) string {
 // pause switch, revocation and the checks every minute that the instance holding the lease runs.
 func (g *Gate) Serve(ctx context.Context, ln net.Listener) error {
 	cfg := &ssh.ServerConfig{
-		PublicKeyCallback:         g.publicKey,
-		VerifiedPublicKeyCallback: g.verifiedKey,
-		ServerVersion:             "SSH-2.0-Beacon",
+		PublicKeyCallback: g.publicKey,
+		VerifiedPublicKeyCallback: func(_ ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
+			return p, nil
+		},
+		ServerVersion: "SSH-2.0-Beacon",
 	}
 	cfg.AddHostKey(g.d.HostKey)
 	context.AfterFunc(ctx, func() {
@@ -571,10 +573,6 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 		if failedHandshake(rc, err) {
 			g.fail(addr)
 		}
-		return
-	}
-	if sc.Permissions.Extensions["refused"] != "" { // verifiedKey refuses these; never let one through
-		_ = sc.Close()
 		return
 	}
 	_ = nc.SetDeadline(time.Time{})

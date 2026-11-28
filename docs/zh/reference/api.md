@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-8d4ccb7d
+sourceHash: sha256-16ad5a85
 ---
 
 # REST API
@@ -136,7 +136,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | `POST /api/v1/ssh/pause` | `machines:write` | 关掉所有 Agent 在机器上的会话，并拒绝新会话 |
 | `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器。只有人能恢复通道；Agent 或令牌的凭据得到 `ssh.resume_forbidden`（主机上的 `beacon ssh resume` 也能恢复） |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
-| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置。这一条和下面每一种修改机器的操作都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（改成 `root` 只能由主机上的 `beacon`），新机器的 `user` 不是 `beacon` 时也一样；Beacon 自己主机上的地址（回环、链路本地、`localhost`）需要主机上的 `beacon`，否则为 `machine.forbidden`。在另一台机器的地址上、或用它的主机密钥添加，返回 `machine.alias`（[修改机器](permissions.md#changing-machines)） |
+| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置。这一条和下面每一种修改机器的操作都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（改成 `root` 只能由主机上的 `beacon`），新机器的 `user` 不是 `beacon` 时也一样；Beacon 自己主机上的地址（回环、链路本地、`localhost`）需要主机上的 `beacon`，否则为 `machine.forbidden`。在另一台机器的地址上、或用另一台机器名下的任何一把主机密钥添加，返回 `machine.alias`（[修改机器](permissions.md#changing-machines)）。只和审计条目一起写入（否则为 `audit.not_recorded`），下面的连接器密钥和经连接器学到的主机密钥也一样 |
 | `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。可用 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `GET /api/v1/machines/{name}/history` | `status:read` 或 `machines:ssh` | 查看当前设置版本和变更历史。用 `before`（不含该版本）及 `limit`（默认 30，最多 100）翻页 |
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
@@ -340,7 +340,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `share.not_found` | 404 | 找不到该告警组或 SSH 会话 |
 | `share.unavailable` | 503 | Beacon 暂时无法创建或撤销签名链接 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
-| `audit.not_recorded` | 503 | 给出权限的改动（Agent、令牌、SSH 密钥、邀请、重设链接、提升角色、重新启用账号、放宽 Agent）因为审计条目写不进去而被撤回或没有做。存储恢复后重试 |
+| `audit.not_recorded` | 503 | 给出权限的改动（Agent、令牌、SSH 密钥、邀请、重设链接、提升角色、重新启用账号、放宽 Agent、添加或重新添加机器、连接器密钥）因为审计条目写不进去而被撤回或没有做。存储恢复后重试 |
 | `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
 | `incident.unavailable` | 500 | 无法读取故障摘要 |
 | `incident.changed` | 409 | 正在验证的这次故障已被同一告警组的新一轮故障替代 |

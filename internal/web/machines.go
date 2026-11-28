@@ -442,6 +442,8 @@ func (s *Server) machineErr(w http.ResponseWriter, r *http.Request, path string,
 		code = "machine.version_not_found"
 	case errors.Is(err, sshgate.ErrMachineChanged):
 		code = "machine.changed"
+	case errors.Is(err, store.ErrUnrecorded):
+		code = "not_recorded"
 	default:
 		s.log().Error("console machine action failed", "err", err)
 	}

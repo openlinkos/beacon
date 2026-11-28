@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e6a77b8b
+sourceHash: sha256-74d8614b
 ---
 
 # 常见问题
@@ -159,6 +159,8 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `beacon: the machine cannot be reached: edge-1: dial tcp …`（`machine.unreachable`） | Beacon 连不上机器的 SSH 端口 | 机器宕了，或者它的防火墙不让中心连进来 |
 | `… ssh: handshake failed: ssh: unable to authenticate …`（`machine.unreachable`） | 机器的 sshd 不接受 Beacon 的证书 | 执行 `machine add` 打印的那几行：`/etc/ssh/beacon_ca.pub`、为机器账户写 `TrustedUserCAKeys` 的 `Match User` 段、`beacon` 账户、`systemctl reload ssh`。在 Beacon 里改过账户的机器，要为新账户写 `Match User` 那一行 |
 | `… ssh: handshake failed: ssh: host key mismatch`（`machine.unreachable`） | 机器的主机密钥和 Beacon 固定的不一样，比如重装过系统 | 先弄清楚为什么变了，再执行 `beacon machine add NAME HOST -replace` |
+| `… its host keys could not be learned: another machine has this address or host key: machine edge-1 has …`（`machine.unreachable`） | NAT 后面机器的连接器转发的是 Beacon 已有的某台机器的 SSH 服务，或者一个带着那台机器某把主机密钥的服务 | 查清连接器转发的是什么。从另一台机器的镜像克隆出来的机器需要自己的主机密钥（`rm /etc/ssh/ssh_host_*; ssh-keygen -A`，再重新加载 sshd） |
+| `… its host keys could not be learned: the machine offers no Ed25519 host key through its connector …`（`machine.unreachable`） | NAT 后面的机器没有 Ed25519 主机密钥，而经连接器学到的其他类型密钥 Beacon 一律不固定 | 给出它的主机密钥，即机器上 `/etc/ssh/ssh_host_ecdsa_key.pub` 的内容：在主机上执行 `beacon machine add NAME connector -replace -host-key "ecdsa-sha2-nistp256 AAAA…"`，或者由人在控制台重新添加 |
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
 | `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |
 | `beacon: machine settings changed; reload the current version and try again`（`machine.changed`） | 连接打开以后，机器被重新添加，或者它的账号、密钥变了 | 重新连接；用多路复用连接（`ControlMaster`）时，先关掉主连接（`ssh -O exit`） |

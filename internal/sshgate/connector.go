@@ -146,66 +146,26 @@ func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
 // in as its machine. The other identities can open sessions on allowed machines.
 //
 // A key whose credential may not sign in (it lacks machines:ssh, or it is revoked, expired or its owner
-// disabled) is marked refused here and refused by verifiedKey, once the client has signed with it: only
-// then is the refusal audited, so that offering someone's public key alone puts nothing on record.
+// disabled) is refused when it is offered, before the client signs, with the answer a key Beacon does
+// not know gets: the SSH port tells no one which keys Beacon knows.
 func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 	fp := ssh.FingerprintSHA256(k)
 	if p, ok := g.d.Store.PrincipalBySSHKey(fp); ok {
 		if !p.Has("machines:ssh") {
-			return refusedKey(p.Name(), p.Key(), fp, refusedNoSSH), nil
+			return nil, errUnknownKey
 		}
 		return &ssh.Permissions{Extensions: map[string]string{"principal": p.Key(), "name": p.Name(), "cred": "key:" + fp}}, nil
 	}
-	if holder := g.d.Store.KeyHolder(fp); holder != "" { // an inactive principal's key is still theirs
-		return refusedKey(g.holderName(holder), holder, fp, refusedInactive), nil
+	if g.d.Store.KeyHolder(fp) != "" { // an inactive principal's key is still theirs
+		return nil, errUnknownKey
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {
 		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name, "connector_key": fp}}, nil
 	}
-	return nil, errors.New("unknown key")
+	return nil, errUnknownKey
 }
 
-// Why a key's credential may not sign in, as the audit log says it.
-const (
-	refusedNoSSH    = "key sign-in: no machines:ssh"
-	refusedInactive = "key sign-in: credential inactive"
-)
-
-// refusedKey marks the sign-in of a known key whose credential may not sign in.
-func refusedKey(name, principal, fp, why string) *ssh.Permissions {
-	return &ssh.Permissions{Extensions: map[string]string{"refused": why, "name": name, "principal": principal, "cred": "key:" + fp}}
-}
-
-// holderName is how the audit log names a key's holder (store.Store.KeyHolder): an agent with its owner,
-// as for a live agent, a person or a token by name.
-func (g *Gate) holderName(holder string) string {
-	kind, name, _ := strings.Cut(holder, " ")
-	if kind == "agent" {
-		if a, ok := g.d.Store.Agent(name); ok && a.Owner != "" {
-			return a.Owner + " / " + name
-		}
-	}
-	return name
-}
-
-// verifiedKey runs once the client has signed with a key publicKey took: a refused one is audited, with
-// the limits of every refused connection (refuseAudit), and refused.
-func (g *Gate) verifiedKey(cm ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
-	if p == nil {
-		return nil, errors.New("unknown key")
-	}
-	if why := p.Extensions["refused"]; why != "" {
-		who := Actor{Name: p.Extensions["name"], Via: "ssh", Key: p.Extensions["principal"], Cred: p.Extensions["cred"]}
-		g.refuseAudit(who, cm.User(), errKeyRefused{why})
-		return nil, errors.New("unknown key")
-	}
-	return p, nil
-}
-
-// errKeyRefused is a refused key sign-in, with the reason the audit log gives.
-type errKeyRefused struct{ why string }
-
-func (e errKeyRefused) Error() string { return e.why }
+var errUnknownKey = errors.New("unknown key")
 
 // serveConnector handles a machine's connection out to the channel until it ends.
 func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request, name string) {
@@ -282,13 +242,15 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 				// The machine's client registers this forward only after it has read the reply
 				// (golang.org/x/crypto/ssh's Listen). A probe opened in that gap is refused and
 				// not kept for Accept, so one try could miss the host key until an agent connected.
+				// A host key given at machine add has the machine's others asked for before the
+				// first session instead (connect).
 				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), 2*hostKeysWait)
 					defer cancel()
 					delay := 20 * time.Millisecond
 					var err error
 					for {
-						if _, err = g.learnHostKey(ctx, c); err == nil {
+						if _, err = g.learnHostKey(ctx, c); err == nil || errors.As(err, new(hostKeyRefused)) || errors.Is(err, store.ErrUnrecorded) {
 							return
 						}
 						if g.connectors.get(name) != c { // replaced, or the machine was removed
@@ -298,7 +260,7 @@ func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, r
 						select {
 						case <-ctx.Done():
 							timer.Stop()
-							g.d.Log.Warn("connector machine's host key could not be learned", "machine", name, "err", err)
+							g.d.Log.Warn("connector machine's host keys could not be learned", "machine", name, "err", err)
 							return
 						case <-timer.C:
 						}
@@ -377,25 +339,43 @@ func (c *connector) open() (net.Conn, error) {
 	return &chanConn{Channel: ch, name: c.name}, nil
 }
 
-// probe asks the machine's sshd, through the connector, for its host key.
-func (c *connector) probe(ctx context.Context) (ssh.PublicKey, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+// hostKeys asks the machine's sshd, through the connector, for a host key of each kind (probeHostKeys).
+func (c *connector) hostKeys(ctx context.Context) (hostKeySet, error) {
+	ctx, cancel := context.WithTimeout(ctx, hostKeysWait)
 	defer cancel()
-	nc, err := c.open()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = nc.Close() }()
-	if dl, ok := ctx.Deadline(); ok {
-		_ = nc.SetDeadline(dl)
-	}
-	return probeHostKey(nc, c.name)
+	return probeHostKeys(func() (net.Conn, error) {
+		nc, err := c.open()
+		if err != nil {
+			return nil, err
+		}
+		if dl, ok := ctx.Deadline(); ok {
+			_ = nc.SetDeadline(dl)
+		}
+		return nc, nil
+	}, c.name)
 }
 
-// learnHostKey pins the machine's host key through its connector the first time it connects: the
-// connector signed in with the key the operator installed on the machine, so the sshd it forwards is the
-// machine's own. It is audited and echoed to the chat, for people to confirm; -host-key at machine add
-// avoids trusting that first connection.
+// hostKeyRefused is a connector machine's host keys that Beacon does not record (learnHostKey): asking
+// again changes nothing until the machine or its record does.
+type hostKeyRefused struct{ error }
+
+func (e hostKeyRefused) Unwrap() error { return e.error }
+
+var (
+	errNoEd25519 = errors.New("the machine offers no Ed25519 host key through its connector, and Beacon pins no other kind it learns there;" +
+		" a person, or beacon machine on the host, gives its host key with machine add")
+	errNotPinned = errors.New("the machine's sshd, through its connector, does not offer the host key pinned for it")
+)
+
+// learnHostKey asks the machine's sshd, through its connector, for its host keys the first time it
+// connects, and records them (store.Machine.HostKeys), so that it can be told from every other machine
+// by any of them: a machine that another machine's keys show is the same is refused, audited as
+// machine_host_key_refused. A host key not given at machine add is pinned, Ed25519 only: the connector
+// signed in with the key the operator installed on the machine, so the sshd it forwards is the
+// machine's own, but whoever runs the connector chooses what it forwards, and could otherwise hide
+// another record's key. A pinned key is audited with the change and echoed to the chat, for people to
+// confirm; -host-key at machine add avoids trusting that first connection. A key given there must be
+// one the machine offers.
 func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 	c.learnMu.Lock()
 	defer c.learnMu.Unlock()
@@ -406,34 +386,56 @@ func (g *Gate) learnHostKey(ctx context.Context, c *connector) (string, error) {
 	if !c.bound(m) {
 		return "", ErrDisconnected
 	}
-	if m.HostKey != "" {
+	if m.HostKeys != "" {
 		return m.HostKey, nil
 	}
-	k, err := c.probe(ctx)
+	keys, err := c.hostKeys(ctx)
 	if err != nil {
 		return "", err
 	}
-	sameConnector := func(cur store.Machine) bool { return c.bound(cur) && cur.HostKey == "" }
-	fp := ssh.FingerprintSHA256(k)
-	m, err = g.d.Store.UpdateMachineIdentity(c.name, sameConnector, func(cur *store.Machine) {
-		cur.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
+	pin := m.HostKey
+	switch {
+	case pin == "" && keys[0].Type() != ssh.KeyAlgoED25519:
+		return "", g.refuseHostKeys(c.name, keys, errNoEd25519)
+	case pin == "":
+		pin = keys.pinned()
+	case !keys.has(pin):
+		return "", g.refuseHostKeys(c.name, keys, errNotPinned)
+	}
+	same := func(cur store.Machine) bool { return c.bound(cur) && cur.HostKey == m.HostKey && cur.HostKeys == "" }
+	var detail string
+	learned, err := g.d.Store.UpdateMachineIdentityRecorded(c.name, same, func(cur *store.Machine) {
+		cur.HostKey, cur.HostKeys = pin, keys.lines()
+	}, func(_, after store.Machine) []store.AuditEntry {
+		detail = keyFingerprints(after)
+		return []store.AuditEntry{{Actor: "beacon", Via: "ssh", Action: "machine_host_key", Target: c.name, Detail: detail}}
 	})
 	if errors.Is(err, store.ErrMachineAlias) { // the connector forwards another machine's sshd
-		g.d.Log.Warn("connector machine's host key not pinned: another machine has it", "machine", c.name, "fingerprint", fp, "err", err)
-		_ = g.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "ssh", Action: "machine_host_key_refused", Target: c.name, Detail: fp + ": " + err.Error()})
-		return "", registrationError(c.name, err)
+		return "", g.refuseHostKeys(c.name, keys, registrationError(c.name, err))
 	}
 	if err != nil {
 		return "", err
 	}
-	g.d.Log.Info("connector machine's host key pinned", "machine", c.name, "fingerprint", fp)
-	_ = g.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "ssh", Action: "machine_host_key", Target: c.name, Detail: fp})
+	if m.HostKey != "" {
+		g.d.Log.Info("connector machine's host keys recorded", "machine", c.name, "fingerprints", detail)
+		return learned.HostKey, nil
+	}
+	fp := fingerprint(learned.HostKey)
+	g.d.Log.Info("connector machine's host key pinned", "machine", c.name, "fingerprint", fp, "fingerprints", detail)
 	g.post(ctx, i18n.T(g.d.Lang, "Beacon pinned the host key of machine %s through its connector: %s", c.name, fp))
-	return m.HostKey, nil
+	return learned.HostKey, nil
 }
 
-// connect returns a connection to a connector machine's sshd, learning its host key first if it is not
-// pinned yet. It fails fast when the connector is not connected.
+// refuseHostKeys records nothing of the host keys a connector forwards, and says why in the log and the
+// audit log.
+func (g *Gate) refuseHostKeys(name string, keys hostKeySet, why error) error {
+	g.d.Log.Warn("connector machine's host keys not recorded", "machine", name, "fingerprints", keys.fingerprints(), "err", why)
+	_ = g.d.Store.Audit(store.AuditEntry{Actor: "beacon", Via: "ssh", Action: "machine_host_key_refused", Target: name, Detail: keys.fingerprints() + ": " + why.Error()})
+	return hostKeyRefused{why}
+}
+
+// connect returns a connection to a connector machine's sshd, learning its host keys first if they are
+// not recorded yet. It fails fast when the connector is not connected.
 func (g *Gate) connect(ctx context.Context, m *store.Machine) (net.Conn, error) {
 	c := g.connectors.get(m.Name)
 	if c == nil {
@@ -443,10 +445,10 @@ func (g *Gate) connect(ctx context.Context, m *store.Machine) (net.Conn, error) 
 		_ = c.sc.Close()
 		return nil, fmt.Errorf("%w (%s)", ErrDisconnected, m.Name)
 	}
-	if m.HostKey == "" {
+	if m.HostKeys == "" {
 		k, err := g.learnHostKey(ctx, c)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s: its host key could not be learned: %v", ErrUnreachable, m.Name, err) //nolint:errorlint // one wrapped error is enough
+			return nil, fmt.Errorf("%w: %s: its host keys could not be learned: %v", ErrUnreachable, m.Name, err) //nolint:errorlint // one wrapped error is enough
 		}
 		m.HostKey = k
 	}
@@ -559,15 +561,23 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 		}
 		m.HostKey = k
 	}
-	if m.HostKey == "" && m.ConnectorFingerprint != "" { // connected already, with the key being registered: pin the host key now
+	if m.ConnectorFingerprint != "" { // connected already, with the key being registered: ask for its host keys now (learnHostKey)
 		if c := g.connectors.get(in.Name); c != nil && c.fingerprint == m.ConnectorFingerprint {
-			if k, err := c.probe(ctx); err == nil {
-				m.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k)))
+			if keys, err := c.hostKeys(ctx); err == nil {
+				switch {
+				case m.HostKey == "" && keys[0].Type() == ssh.KeyAlgoED25519:
+					m.HostKey, m.HostKeys = keys.pinned(), keys.lines()
+				case m.HostKey != "" && keys.has(m.HostKey):
+					m.HostKeys = keys.lines()
+				}
 			}
 		}
 	}
 	var err error
-	m, err = g.registerMachine(who, m, old, exists)
+	m, err = g.registerMachine(who, m, old, exists, func(_, m store.Machine) []store.AuditEntry {
+		detail := strings.Join(strings.Fields("connector "+m.ConnectorFingerprint+" "+keyFingerprints(m)), " ")
+		return []store.AuditEntry{{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: detail}}
+	})
 	if err != nil {
 		return Added{}, err
 	}
@@ -577,11 +587,6 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	if exists { // what was open on the machine it replaces closes
 		g.Recheck()
 	}
-	detail := "connector " + m.ConnectorFingerprint
-	if m.HostKey != "" {
-		detail += " " + fingerprint(m.HostKey)
-	}
-	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: strings.TrimSpace(detail)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, store.ConnectorAddress))
 	if m.Critical && (!exists || !old.Critical) {
 		g.postCriticalNames(ctx, m.Name)
@@ -614,9 +619,11 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	sameRegistration := func(cur store.Machine) bool {
 		return cur.Connector() && cur.Registration() == m.Registration() && cur.Critical == m.Critical
 	}
-	m, err = g.d.Store.UpdateMachineIdentity(name, sameRegistration, func(cur *store.Machine) {
+	m, err = g.d.Store.UpdateMachineIdentityRecorded(name, sameRegistration, func(cur *store.Machine) {
 		changed = cur.ConnectorFingerprint != fp
 		cur.ConnectorKey, cur.ConnectorFingerprint = k, fp
+	}, func(_, _ store.Machine) []store.AuditEntry {
+		return []store.AuditEntry{{Actor: who.Name, Via: who.Via, Action: "machine_connector", Target: name, Detail: fp}}
 	})
 	if err != nil {
 		return MachineView{}, machineVersionError(name, err)
@@ -625,7 +632,6 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 		g.connectors.close(name)
 		g.Recheck()
 	}
-	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_connector", Target: name, Detail: fp})
 	g.post(ctx, i18n.T(g.d.Lang, "%s set the connector key of machine %s", who.Name, name))
 	t, _ := g.principal(who)
 	return g.view(m, t), nil
