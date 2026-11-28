@@ -69,21 +69,16 @@ type Gate struct {
 	d   Deps
 	key ssh.Signer // the throwaway key every certificate is issued for
 
-	mu    sync.Mutex
-	open  map[uint64]tracked // what is open on the channel: agent connections, tool calls
-	seq   atomic.Uint64
-	fails map[string]*window
-	echo  *echoer
+	mu   sync.Mutex
+	open map[uint64]tracked // what is open on the channel: agent connections, tool calls
+	seq  atomic.Uint64
+	adm  *admission // the SSH port's limits before sign-in, and the audit of refused connections
+	echo *echoer
 
 	connectors *connectorSet // machines behind NAT connected out to the channel (connector.go)
 
 	leaderMu sync.Mutex
 	leader   func() bool // nil means always leader (no HA)
-}
-
-type window struct {
-	n     int
-	start time.Time
 }
 
 // Actor is who uses the channel: Name as the audit log names it (a person, "person / agent", or a token's
@@ -116,16 +111,13 @@ var (
 	ErrNoSession   = errors.New("no such session")
 
 	ErrEvidenceUnavailable = errors.New("cannot start an SSH session while its evidence cannot be stored")
+	ErrRecordingLimit      = errors.New("the session reached its recording limit and Beacon closed it")
 )
 
 // PauseKey is where the start of a pause is stored; zero when the channel runs.
 const PauseKey = "ssh_paused"
 
-const (
-	certValidity = 5 * time.Minute
-	maxFails     = 20
-	failWindow   = 10 * time.Minute
-)
+const certValidity = 5 * time.Minute
 
 // New creates the channel.
 func New(d Deps) (*Gate, error) {
@@ -146,7 +138,7 @@ func New(d Deps) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}, leader: d.Leader}
+	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, adm: newAdmission(), connectors: &connectorSet{by: map[string]*connector{}}, leader: d.Leader}
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
 		g.registerConnectorMetrics(m)
@@ -209,17 +201,20 @@ func newID(t time.Time) string {
 }
 
 // tracked is something open on the channel: how to close it, who has it open and on which machine.
+// Pinned is the machine as it was when the work began, which it must still be; nil for a connection
+// refused from the start, which only answers with its refusal.
 type tracked struct {
 	close   func()
 	who     Actor
 	machine string
+	pinned  *store.Machine
 }
 
 // track remembers how to close something who has open on machine, until the returned function is called.
-func (g *Gate) track(closer func(), who Actor, machine string) func() {
+func (g *Gate) track(closer func(), who Actor, machine string, pinned *store.Machine) func() {
 	id := g.seq.Add(1)
 	g.mu.Lock()
-	g.open[id] = tracked{close: closer, who: who, machine: machine}
+	g.open[id] = tracked{close: closer, who: who, machine: machine, pinned: pinned}
 	g.mu.Unlock()
 	return func() {
 		g.mu.Lock()
@@ -231,8 +226,9 @@ func (g *Gate) track(closer func(), who Actor, machine string) func() {
 // Recheck closes at once what is open on the channel (connections and tool calls) for whoever may no
 // longer reach its machine: a token revoked or expired, an agent deleted or given fewer machines or a
 // weaker preset, an OAuth grant revoked, an account disabled or demoted so that its agents lose
-// machines:ssh, a key removed. Beacon calls it after each such change, and every minute (Tidy) for what
-// expired. It reports how many it closed.
+// machines:ssh, a key removed; and on a machine that is gone or no longer the one it was opened on (added
+// again, another account, address or host key). Beacon calls it after each such change, and every minute
+// (Tidy) for what expired. It reports how many it closed.
 func (g *Gate) Recheck() int {
 	if g == nil {
 		return 0
@@ -245,7 +241,7 @@ func (g *Gate) Recheck() int {
 	g.mu.Unlock()
 	n := 0
 	for _, t := range items {
-		if !g.still(t.who, t.machine) {
+		if !g.still(t) {
 			t.close()
 			n++
 		}
@@ -256,16 +252,47 @@ func (g *Gate) Recheck() int {
 	return n
 }
 
-// still reports whether who may still reach machine with the credential it came with.
-func (g *Gate) still(who Actor, machine string) bool {
+// still reports whether what is open may stay open: the channel runs here, and who may still reach the
+// machine, as it was, with the credential it came with.
+func (g *Gate) still(t tracked) bool {
+	if g.Paused() || g.requireLeader() != nil {
+		return false
+	}
+	who := t.who
 	if who.Key == "" { // the command line
 		return true
 	}
+	if t.pinned != nil {
+		return g.stillCheck(who, *t.pinned) == nil
+	}
 	p, ok := g.principal(who)
-	if !ok || !p.Reaches(machine) {
+	if !ok || !p.Reaches(t.machine) {
 		return false
 	}
 	return who.Cred == "" || g.d.Store.CredentialLive(who.Cred, p)
+}
+
+// sameMachine reports whether cur is still the machine that was when work on it began: the same enrolment,
+// account, address, host key and connector key. A host key a connector machine's first connection pinned
+// since counts as the same: only that can fill an empty one within an enrolment.
+func sameMachine(was, cur store.Machine) bool {
+	return cur.Registration() == was.Registration() && cur.User == was.User && cur.Address == was.Address &&
+		(cur.HostKey == was.HostKey || was.HostKey == "" && was.Connector()) &&
+		cur.ConnectorFingerprint == was.ConnectorFingerprint
+}
+
+// closeAll closes everything open on the channel and reports how many.
+func (g *Gate) closeAll() int {
+	g.mu.Lock()
+	closers := make([]func(), 0, len(g.open))
+	for _, c := range g.open {
+		closers = append(closers, c.close)
+	}
+	g.mu.Unlock()
+	for _, c := range closers {
+		c()
+	}
+	return len(closers)
 }
 
 // Paused reports whether access through the SSH channel is paused.
@@ -294,15 +321,7 @@ func (g *Gate) SetPaused(ctx context.Context, who Actor, paused bool) error {
 	action := "ssh_resume"
 	if paused {
 		action = "ssh_pause"
-		g.mu.Lock()
-		closers := make([]func(), 0, len(g.open))
-		for _, c := range g.open {
-			closers = append(closers, c.close)
-		}
-		g.mu.Unlock()
-		for _, c := range closers {
-			c()
-		}
+		g.closeAll()
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: action})
 	if paused {
@@ -453,27 +472,6 @@ func (g *Gate) dial(ctx context.Context, m store.Machine, who Actor, conn string
 
 // ---- the SSH listener for agents
 
-func (g *Gate) blocked(ip string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	w := g.fails[ip]
-	return w != nil && g.now().Sub(w.start) < failWindow && w.n >= maxFails
-}
-
-func (g *Gate) fail(ip string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	w := g.fails[ip]
-	if w == nil || g.now().Sub(w.start) >= failWindow {
-		w = &window{start: g.now()}
-		g.fails[ip] = w
-	}
-	w.n++
-	if len(g.fails) > 10000 {
-		g.fails = map[string]*window{ip: w}
-	}
-}
-
 func remoteIP(c net.Conn) string {
 	host, _, err := net.SplitHostPort(c.RemoteAddr().String())
 	if err != nil {
@@ -482,9 +480,12 @@ func remoteIP(c net.Conn) string {
 	return host
 }
 
-// Serve answers SSH connections on ln until it is closed: agents', whose user name is the machine they
-// want, and connector machines', which sign in as themselves (connector.go).
-func (g *Gate) Serve(ln net.Listener) error {
+// Serve answers SSH connections on ln until ln is closed or ctx ends: agents', whose user name is the
+// machine they want, and connector machines', which sign in as themselves (connector.go). Ctx is this
+// instance's hold on the channel: when it ends (the HA lease is lost, or Beacon stops), ln is closed, and
+// so is everything open on the channel here, connections and tool calls alike, so that none outlives the
+// pause switch, revocation and the checks every minute that the instance holding the lease runs.
+func (g *Gate) Serve(ctx context.Context, ln net.Listener) error {
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: g.publicKey,
 		VerifiedPublicKeyCallback: func(_ ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
@@ -493,6 +494,12 @@ func (g *Gate) Serve(ln net.Listener) error {
 		ServerVersion: "SSH-2.0-Beacon",
 	}
 	cfg.AddHostKey(g.d.HostKey)
+	context.AfterFunc(ctx, func() {
+		_ = ln.Close()
+		if n := g.closeAll(); n > 0 {
+			g.d.Log.Info("closed what was open on the SSH channel: this instance stopped serving it", "count", n)
+		}
+	})
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
@@ -501,22 +508,35 @@ func (g *Gate) Serve(ln net.Listener) error {
 			}
 			return err
 		}
-		go g.serveConn(nc, cfg)
+		go g.serveConn(ctx, nc, cfg)
 	}
 }
 
-func (g *Gate) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
+func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig) {
 	defer func() { _ = nc.Close() }()
-	ip := remoteIP(nc)
-	if g.blocked(ip) {
+	stop := context.AfterFunc(ctx, func() { _ = nc.Close() })
+	defer stop()
+	if ctx.Err() != nil {
 		return
 	}
-	_ = nc.SetDeadline(g.now().Add(30 * time.Second))
-	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
+	addr := addressKey(remoteIP(nc))
+	if g.blocked(addr) {
+		g.turnedAway("blocked")
+		return
+	}
+	release, ok := g.handshake(addr)
+	if !ok {
+		g.turnedAway("busy")
+		return
+	}
+	defer release()
+	rc := &readConn{Conn: nc}
+	_ = nc.SetDeadline(g.now().Add(handshakeTimeout))
+	sc, chans, reqs, err := ssh.NewServerConn(rc, cfg)
+	release()
 	if err != nil {
-		var ae *ssh.ServerAuthError
-		if errors.As(err, &ae) {
-			g.fail(ip)
+		if failedHandshake(rc, err) {
+			g.fail(addr)
 		}
 		return
 	}
@@ -527,8 +547,19 @@ func (g *Gate) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		return
 	}
 	who := Actor{Name: sc.Permissions.Extensions["name"], Via: "ssh", Key: sc.Permissions.Extensions["principal"], Cred: sc.Permissions.Extensions["cred"]}
-	untrack := g.track(func() { _ = sc.Close() }, who, sc.User())
+	m, merr := g.machineFor(who, sc.User())
+	var pinned *store.Machine
+	if merr == nil {
+		pinned = &m
+	}
+	untrack := g.track(func() { _ = sc.Close() }, who, sc.User(), pinned)
 	defer untrack()
+	if merr == nil { // again, now that a pause or a revocation closes it: either may have come in between
+		merr = g.stillCheck(who, m)
+	}
+	if merr != nil {
+		g.refuseAudit(who, sc.User(), merr)
+	}
 
 	go func() {
 		for r := range reqs { // global requests: keepalives yes, remote forwarding never for agents (a token's key registers no forward)
@@ -537,10 +568,14 @@ func (g *Gate) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 			}
 		}
 	}()
-	m, merr := g.machineFor(who, sc.User())
 	c := &conn{g: g, who: who, machine: m, id: newID(g.now())}
 	defer c.close()
 	for ch := range chans {
+		if merr == nil { // each channel may still use the machine as it was when the connection opened
+			if merr = g.stillCheck(who, m); merr != nil {
+				g.refuseAudit(who, sc.User(), merr)
+			}
+		}
 		if merr != nil {
 			go refuse(ch, merr)
 			continue

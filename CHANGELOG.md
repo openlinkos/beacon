@@ -4,6 +4,15 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Bind each SSH connection to the machine as it was when it opened. Removing a machine, enrolling it again or changing its account, address or host key closes what is open on it, and a multiplexed connection opens no new session on the changed machine.
+- Check the pause switch, the credential and the machine again before every new SSH session and tool call, before an edit writes, and in the check every minute. A tool call closed this way reports why rather than a timeout.
+- Close every SSH session and tool call on an instance when it loses the HA lease.
+- Close an SSH session when its recording reaches its 16 MiB limit, so nothing passes unrecorded. The recording ends with a marker, the session's `stopped` is `recording_limit`, and REST and MCP tools return `ssh.recording_limit`. A command's transcript keeps its `stdin`.
+- Keep a shell's output in its recording as the machine sent it, shell-integration marks included. The console, REST and MCP label a shell's list of commands as a guide (`commands_advisory`).
+- Record SSH subsystems other than `sftp` as the kind `subsystem`, with the requested name kept as the command.
+- Audit refused SSH connections of signed-in identities as `ssh_refused`, with the machine and the reason, at most once a minute for each identity, machine and reason.
+- Limit connections to the SSH port that have not signed in to 64 at once and 10 per address (an IPv6 /64), count every failed handshake against its address, and make room in a full table of failures by its oldest entry. `beacon_ssh_connections_refused_total` counts the connections turned away.
+
 ## 0.3.0
 
 ### rc.50 (2026-11-27)

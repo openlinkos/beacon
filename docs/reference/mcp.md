@@ -171,6 +171,8 @@ File search skips hidden entries, symbolic links and non-regular files. It uses 
 
 Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
 
+Nothing passes a session unrecorded. A machine action whose recording reaches its 16 MiB limit is stopped and returns `ssh.recording_limit`, naming the session; the session's `stopped` is `recording_limit`. A command's transcript keeps its `stdin` as well as its output. A shell's `commands` are split by shell-integration marks in its output, which programs in the session can also print, so `commands_advisory` marks them as a guide: the recording keeps what was typed and printed.
+
 ## Manage share links
 
 Both tools take `kind` (`alert` or `session`) and `id` (the alert group ID or SSH session ID). They need a standalone credential with `accounts:write`. Creating a session share also needs a session-detail scope and access to the enrolment. The returned URL is a credential. The audit log and alert chat record the action and its target.

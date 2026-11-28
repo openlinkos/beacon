@@ -395,6 +395,7 @@ func TestSessionPage(t *testing.T) {
 		`<script src="/static/asciinema-player.min.js?v=`, `<script src="/static/beacon-player.js?v=`,
 		`<link rel="stylesheet" href="/static/asciinema-player.css?v=`, `id="player"`, `data-src="/console/sessions/` + sessionID + `/recording?s=`,
 		`data-error="The recording could not be loaded"`, "Download the recording",
+		"split by marks in its output, which programs in the session can also print: a guide only",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page lacks %q", want)
@@ -439,6 +440,9 @@ func TestSessionEvidenceExplainsIndependentCaptureStates(t *testing.T) {
 		{"truncated replay only", func(r *store.SessionRecord) {
 			r.RecordingState, r.TranscriptState = store.EvidenceTruncated, store.EvidenceUnavailable
 		}, []string{"Beacon saved only part of the recording.", "The command transcript could not be saved or loaded."}, true},
+		{"closed at the recording limit", func(r *store.SessionRecord) {
+			r.RecordingState, r.TranscriptState, r.Stopped = store.EvidenceTruncated, store.EvidenceComplete, store.StoppedRecordingLimit
+		}, []string{"Beacon closed this session when its recording reached its size limit."}, true},
 		{"failed replay", func(r *store.SessionRecord) {
 			r.RecordingState, r.TranscriptState = store.EvidenceUnavailable, store.EvidenceComplete
 		}, []string{"Beacon could not save a usable recording.", "systemctl restart relay"}, false},

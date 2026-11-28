@@ -164,6 +164,8 @@ SSH 检查返回 `200`，包含 `check_id`、`machine`、`route`（`direct` 或 
 
 如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
+没有记录的内容不会经过会话。录像达到 16 MiB 上限的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
+
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。其他拥有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 
 ## 管理分享链接 {#manage-share-links}
@@ -347,6 +349,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `ssh.check_unavailable` | 503 | Beacon 无法准备或审计机器 SSH 检查 |
 | `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录 |
 | `ssh.search_unavailable` | 503 | 登记机器缺少文件搜索所需的标准 shell 工具 |
+| `ssh.recording_limit` | 413 | 会话录像达到 16 MiB 上限，Beacon 停止了这次操作 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |

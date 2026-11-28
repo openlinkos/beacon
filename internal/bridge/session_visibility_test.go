@@ -105,6 +105,8 @@ func TestAlertViewsHonourSessionMachineSelection(t *testing.T) {
 func TestSessionAuditProjectionKeepsRecordedEvents(t *testing.T) {
 	e := newEnv(t)
 	for _, entry := range []store.AuditEntry{
+		{Action: "ssh_subsystem", Target: "edge-1", Detail: "fixture subsystem"},
+		{Action: "ssh_exec_refused", Target: "edge-1", Detail: "fixture refused command"},
 		{Action: "ssh_exec", Target: "edge-1", Detail: "fixture command"},
 		{Action: "ssh_key_add", Target: "alice", Detail: "test fingerprint"},
 	} {
@@ -117,17 +119,22 @@ func TestSessionAuditProjectionKeepsRecordedEvents(t *testing.T) {
 		{Scopes: []string{"status:read", "sessions:read"}, Machines: []string{"edge-1"}},
 	} {
 		entries := e.st.AuditLog(10)
-		if len(entries) != 2 {
+		if len(entries) != 4 {
 			t.Fatalf("audit fixture has %d entries", len(entries))
 		}
 		e.b.FilterSessionAudit(p, entries)
-		if entries[0].Detail != "test fingerprint" || entries[1].Detail != "" || entries[1].Target != "edge-1" {
-			t.Fatal("audit projection should omit session detail while keeping other activity")
+		if entries[0].Detail != "test fingerprint" {
+			t.Fatal("audit projection should keep other activity")
+		}
+		for _, entry := range entries[1:] {
+			if entry.Detail != "" || entry.Target != "edge-1" {
+				t.Fatalf("audit projection should omit session detail: %+v", entry)
+			}
 		}
 	}
 	entries := e.st.AuditLog(10)
 	e.b.FilterSessionAudit(store.Principal{Scopes: []string{"sessions:read"}}, entries)
-	if entries[1].Detail != "fixture command" {
+	if entries[1].Detail != "fixture command" || entries[3].Detail != "fixture subsystem" {
 		t.Fatal("projecting a credential's view changed underlying audit data or hid it from an unscoped reader")
 	}
 }

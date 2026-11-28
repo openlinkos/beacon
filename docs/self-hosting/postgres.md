@@ -117,7 +117,7 @@ To restore:
 
 ## A primary and a standby {#a-primary-and-a-standby}
 
-On PostgreSQL, two Beacon instances on two machines can share the state. The one holding a lease in the database is the primary. The other takes over when the lease expires, about 15 seconds after the primary stops renewing it.
+On PostgreSQL, two Beacon instances on two machines can share the state. The one holding a lease in the database is the primary. The other takes over when the lease expires, about 15 seconds after the primary stops renewing it. An instance that loses the lease closes every SSH session and tool call it has open; agents connect again, to the new primary.
 
 Both instances need:
 

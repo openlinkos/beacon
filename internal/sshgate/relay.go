@@ -46,11 +46,16 @@ type session struct {
 	cols, rows int
 	pty        bool
 
+	// stop closes the session when its recording is full; set before it starts.
+	stop func()
+
 	mu       sync.Mutex
 	started  bool
 	finished bool
+	stopped  bool // closed by Beacon: its recording reached the cap
 	cast     *recorder
 	shell    *shellLog
+	stdin    strings.Builder
 	stdout   strings.Builder
 	stderr   strings.Builder
 	cut      bool
@@ -130,52 +135,121 @@ func (s *session) parts() (*recorder, *shellLog, string) {
 	return s.cast, s.shell, s.rec.Kind
 }
 
-// input takes what the agent sends: typed into a terminal, or a command's stdin.
-func (s *session) input(p []byte) {
+// input takes what the agent sends: typed into a terminal, or a command's stdin. It reports whether p may
+// pass to the machine: not once the recording is full, which closes the session, so that nothing reaches
+// the machine unrecorded.
+func (s *session) input(p []byte) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.finished {
-		return
+		s.mu.Unlock()
+		return false
 	}
-	s.in.Add(int64(len(p)))
 	if metadataOnlyRecording(s.rec.Kind) || s.rec.Kind == "" {
-		return
+		s.in.Add(int64(len(p)))
+		s.mu.Unlock()
+		return true
 	}
-	s.cast.event("i", string(p))
-	if s.shell != nil {
-		s.shell.input(p)
+	ok := s.cast.event("i", string(p))
+	if ok {
+		s.in.Add(int64(len(p)))
+		if s.shell != nil {
+			s.shell.input(p)
+		} else if s.rec.Kind == "exec" || s.rec.Kind == "file" { // the transcript keeps a command's stdin
+			s.keep(&s.stdin, p)
+		}
+	}
+	s.mu.Unlock()
+	if !ok {
+		s.reachedLimit()
+	}
+	return ok
+}
+
+// keep adds p to one of the transcript's texts, up to maxText. s.mu is held.
+func (s *session) keep(b *strings.Builder, p []byte) {
+	room := maxText - b.Len()
+	if len(p) > room {
+		s.cut = true
+	}
+	if room > 0 {
+		b.Write(p[:min(len(p), room)])
 	}
 }
 
 // output takes what the machine sends and returns what the agent should see (an interactive shell's
-// marks removed).
-func (s *session) output(p []byte, stderr bool) []byte {
-	s.out.Add(int64(len(p)))
+// marks removed), and whether it may: not once the recording is full, which closes the session. The
+// recording keeps the bytes as the machine sent them, marks and all.
+func (s *session) output(p []byte, stderr bool) ([]byte, bool) {
 	cast, shell, kind := s.parts()
 	if metadataOnlyRecording(kind) || kind == "" {
-		return p
+		s.out.Add(int64(len(p)))
+		return p, true
 	}
+	if !cast.event("o", string(p)) {
+		s.reachedLimit()
+		return nil, false
+	}
+	s.out.Add(int64(len(p)))
 	if shell != nil && !stderr {
-		p = shell.output(p)
-	} else {
-		s.mu.Lock()
-		b := &s.stdout
-		if stderr {
-			b = &s.stderr
-		}
-		room := maxText - b.Len()
-		if len(p) > room {
-			s.cut = true
-		}
-		if room > 0 {
-			b.Write(p[:min(len(p), room)])
-		}
+		return shell.output(p), true
+	}
+	s.mu.Lock()
+	b := &s.stdout
+	if stderr {
+		b = &s.stderr
+	}
+	s.keep(b, p)
+	s.mu.Unlock()
+	return p, true
+}
+
+// recorded turns output's verdict into an error for a copy that must stop.
+func (s *session) recorded(_ []byte, ok bool) error {
+	if !ok {
+		return ErrRecordingLimit
+	}
+	return nil
+}
+
+// reachedLimit closes a session whose recording is full, once: the recording ends with a marker that says
+// so, and the record says Beacon stopped it.
+func (s *session) reachedLimit() {
+	s.mu.Lock()
+	if s.stopped || !s.cast.truncated() {
 		s.mu.Unlock()
+		return
 	}
-	if len(p) > 0 {
-		cast.event("o", string(p))
+	s.stopped = true
+	cast, stop, id := s.cast, s.stop, s.rec.ID
+	s.mu.Unlock()
+	cast.final("m", fmt.Sprintf("beacon: the recording reached its limit of %d MiB; Beacon closed the session", maxRecording>>20))
+	s.g.d.Log.Warn("SSH session reached its recording limit; closed", "session", id, "limit_mib", maxRecording>>20)
+	if stop != nil {
+		stop()
 	}
-	return p
+}
+
+// recordedReader passes on what the recording took and stops at the first read it did not.
+type recordedReader struct {
+	r io.Reader
+	f func([]byte) bool
+}
+
+func (t recordedReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if n > 0 && !t.f(p[:n]) {
+		return 0, ErrRecordingLimit
+	}
+	return n, err
+}
+
+// subsystemKind is the kind of session a subsystem request opens: sftp, or any other subsystem, whose
+// name, the client's, stays out of the kinds that the audit log, the metrics and the chat go by.
+func subsystemKind(name string) string {
+	if name == "sftp" {
+		return "sftp"
+	}
+	return "subsystem"
 }
 
 // finish files the session: the transcript next to the recording, the record, the audit log, the chat.
@@ -187,14 +261,17 @@ func (s *session) finish(exit *int, reachedTarget bool) Transcript {
 	}
 	s.finished = true
 	rec, cast, shell, cut := s.rec, s.cast, s.shell, s.cut
-	raw, stderr := s.stdout.String(), s.stderr.String()
+	raw, stderr, stdin := s.stdout.String(), s.stderr.String(), s.stdin.String()
+	if s.stopped {
+		rec.Stopped = store.StoppedRecordingLimit
+	}
 	s.mu.Unlock()
 
 	rec.Ended = s.g.now().UTC()
 	rec.Exit = exit
 	rec.BytesIn, rec.BytesOut = s.in.Load(), s.out.Load()
 	if exit != nil && rec.RecordingState != store.EvidenceMetadataOnly {
-		cast.event("x", fmt.Sprint(*exit))
+		cast.final("x", fmt.Sprint(*exit))
 	}
 	if err := cast.close(); err != nil {
 		rec.RecordingState = store.EvidenceUnavailable
@@ -209,13 +286,14 @@ func (s *session) finish(exit *int, reachedTarget bool) Transcript {
 	t := Transcript{textTruncated: cut}
 	if shell != nil {
 		t.Commands, t.textTruncated = shell.done()
+		t.CommandsAdvisory = len(t.Commands) > 0
 		rec.Commands = len(t.Commands)
 		if len(t.Commands) == 0 {
 			rec.TranscriptState = store.EvidenceMetadataOnly
 		}
 	} else if rec.Kind == "exec" || rec.Kind == "file" {
 		t.raw = raw
-		t.Stdout, t.Stderr = clean(raw), clean(stderr)
+		t.Stdin, t.Stdout, t.Stderr = clean(stdin), clean(raw), clean(stderr)
 	}
 	t.Truncated = t.textTruncated || cast.truncated()
 	if rec.TranscriptState != store.EvidenceMetadataOnly {
@@ -260,26 +338,17 @@ func short(s string, n int) string {
 	return s
 }
 
-type teeReader struct {
-	r io.Reader
-	f func([]byte)
-}
-
-func (t teeReader) Read(p []byte) (int, error) {
-	n, err := t.r.Read(p)
-	if n > 0 {
-		t.f(p[:n])
-	}
-	return n, err
-}
-
-// relay copies src to dst through f, which may change what passes.
-func relay(dst io.Writer, src io.Reader, f func([]byte) []byte) {
+// relay copies src to dst through f, which may change what passes, or stop it.
+func relay(dst io.Writer, src io.Reader, f func([]byte) ([]byte, bool)) {
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			if out := f(buf[:n]); len(out) > 0 {
+			out, ok := f(buf[:n])
+			if !ok {
+				return
+			}
+			if len(out) > 0 {
 				if _, werr := dst.Write(out); werr != nil {
 					return
 				}
@@ -309,6 +378,15 @@ func (c *conn) session(nc ssh.NewChannel) {
 		return
 	}
 	s := c.g.newSession(c.who, c.machine, c.next())
+	// When the recording is full, stop ends the operation on the machine, then tells the agent why;
+	// stopping is held meanwhile, so that the end of the agent's output does not overtake the reason.
+	var stopping sync.Mutex
+	s.stop = func() {
+		stopping.Lock()
+		defer stopping.Unlock()
+		_ = tch.Close()
+		_, _ = fmt.Fprintf(ach.Stderr(), "beacon: %v (%d MiB)\n", ErrRecordingLimit, maxRecording>>20)
+	}
 	// The target can close as soon as it accepts a short command. Keep that close behind
 	// the acknowledgement of any request already sent to it.
 	var replyMu sync.Mutex
@@ -345,8 +423,12 @@ func (c *conn) session(nc ssh.NewChannel) {
 				}
 			case "window-change":
 				var p struct{ Cols, Rows, Wpx, Hpx uint32 }
-				if cast, _, _ := s.parts(); ssh.Unmarshal(payload, &p) == nil {
-					cast.event("r", fmt.Sprintf("%dx%d", p.Cols, p.Rows))
+				if cast, _, _ := s.parts(); ssh.Unmarshal(payload, &p) == nil && !cast.event("r", fmt.Sprintf("%dx%d", p.Cols, p.Rows)) {
+					s.reachedLimit()
+					if r.WantReply {
+						_ = r.Reply(false, nil)
+					}
+					continue
 				}
 			case "shell":
 				startErr = s.start("shell", "")
@@ -360,7 +442,7 @@ func (c *conn) session(nc ssh.NewChannel) {
 			case "subsystem":
 				var p struct{ Name string }
 				_ = ssh.Unmarshal(payload, &p)
-				startErr = s.start(p.Name, p.Name)
+				startErr = s.start(subsystemKind(p.Name), short(p.Name, 100))
 			}
 			if startErr != nil {
 				replyMu.Lock()
@@ -413,7 +495,7 @@ func (c *conn) session(nc ssh.NewChannel) {
 		defer close(inputDone)
 		select {
 		case <-admitted:
-			_, _ = io.Copy(tch, teeReader{ach, s.input})
+			_, _ = io.Copy(tch, recordedReader{ach, s.input})
 			_ = tch.CloseWrite()
 		case <-requestsDone:
 			_ = tch.Close()
@@ -424,11 +506,13 @@ func (c *conn) session(nc ssh.NewChannel) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		relay(ach.Stderr(), tch.Stderr(), func(p []byte) []byte { return s.output(p, true) })
+		relay(ach.Stderr(), tch.Stderr(), func(p []byte) ([]byte, bool) { return s.output(p, true) })
 	}()
-	relay(ach, tch, func(p []byte) []byte { return s.output(p, false) })
+	relay(ach, tch, func(p []byte) ([]byte, bool) { return s.output(p, false) })
 	wg.Wait()
+	stopping.Lock()
 	_ = ach.CloseWrite()
+	stopping.Unlock()
 	close(copied)
 	<-done
 	_ = tch.Close()

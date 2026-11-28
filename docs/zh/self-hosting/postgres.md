@@ -121,7 +121,7 @@ docker compose exec -T postgres pg_dump -U beacon -Fc beacon > /opt/beacon-backu
 
 ## 主备两台 {#a-primary-and-a-standby}
 
-用 PostgreSQL 时，两台机器上的两个 Beacon 实例可以共用状态。在数据库里持有租约的是主。主停止续约、租约过期后（约 15 秒），另一台接手。
+用 PostgreSQL 时，两台机器上的两个 Beacon 实例可以共用状态。在数据库里持有租约的是主。主停止续约、租约过期后（约 15 秒），另一台接手。失去租约的实例会关闭它开着的所有 SSH 会话和工具调用；Agent 重新连接时连到新的主。
 
 两个实例都要有：
 

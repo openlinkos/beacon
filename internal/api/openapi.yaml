@@ -54,7 +54,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, agent_hook.not_found, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, ssh.recording_limit, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
@@ -344,7 +344,7 @@ components:
                   phase: {type: string, enum: [before, during, after], description: "Whether it began before the group started (a possible cause), while it fired, or after it resolved"}
                   shell_commands:
                     type: array
-                    description: "A shell's last 20 commands, with their exit statuses (commands counts them all; get_session has the rest and their output)"
+                    description: "A shell's last 20 commands, with their exit statuses (commands counts them all; get_session has the rest and their output). Split by shell-integration marks in the output: a guide only"
                     items: {$ref: "#/components/schemas/ShellCommand"}
                   page: {type: string, format: uri, description: "The signed link to the session's page, with its replay, for people"}
         links:
@@ -615,7 +615,7 @@ components:
         credential: {type: string, description: Public key fingerprint or the ID of the credential used}
         via: {type: string, enum: [ssh, mcp, api]}
         machine: {type: string}
-        kind: {type: string, enum: [exec, shell, sftp, forward, file]}
+        kind: {type: string, enum: [exec, shell, sftp, subsystem, forward, file], description: "subsystem: any subsystem other than sftp, whose requested name is the command"}
         command: {type: string}
         started: {type: string, format: date-time}
         ended: {type: string, format: date-time}
@@ -626,14 +626,17 @@ components:
         recording: {type: string}
         recording_state: {$ref: "#/components/schemas/SessionEvidenceState"}
         transcript_state: {$ref: "#/components/schemas/SessionEvidenceState"}
+        stopped: {type: string, enum: [recording_limit], description: "Beacon closed the session itself: recording_limit when its recording reached its 16 MiB limit"}
         page: {type: string, format: uri, description: "Sign in to the console to open this session and its replay. Provided when public_url is configured and the caller may read the session."}
     Transcript:
       allOf:
         - {$ref: "#/components/schemas/Session"}
         - type: object
           properties:
+            stdin: {type: string, description: What a command or a file tool was sent, up to 1 MiB}
             stdout: {type: string}
             stderr: {type: string}
+            commands_advisory: {type: boolean, description: "The shell's commands and exit statuses are split by shell-integration marks in its output, which programs in the session can also print: a guide only. The recording keeps what was typed and printed"}
             truncated: {type: boolean, description: A configured output or recording limit was reached; use the specific evidence states for each artifact}
             recording_available: {type: boolean, description: This instance opened the recording during the authorised detail read}
             recording_publication: {type: string, enum: [pending, uploaded], description: Known local state of publication to shared storage}
@@ -1821,7 +1824,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Run a command on a machine
-      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record."
+      description: "Scope: machines:ssh. Runs as the machine's user, in sh without a terminal. Beacon returns ssh.evidence_unavailable if it cannot start the required session record, and ssh.recording_limit, having stopped the command, when its recording reached its 16 MiB limit."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:

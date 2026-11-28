@@ -50,6 +50,8 @@ func (e *echoer) line(r store.SessionRecord) string {
 		return i18n.T(lang, "used a shell for %s, %d commands", took, r.Commands)
 	case "sftp":
 		return i18n.T(lang, "transferred files")
+	case "subsystem":
+		return i18n.T(lang, "opened SSH subsystem `%s`", cmd)
 	case "forward":
 		return i18n.T(lang, "forwarded a port to %s", cmd)
 	case "file":

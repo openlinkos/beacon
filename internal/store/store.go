@@ -944,7 +944,7 @@ type SessionRecord struct {
 	Credential string    `json:"credential,omitempty"` // public key fingerprint, token name or grant ID
 	Via        string    `json:"via"`                  // ssh, mcp or api
 	Machine    string    `json:"machine"`
-	Kind       string    `json:"kind"` // exec, shell, sftp, forward or file
+	Kind       string    `json:"kind"` // exec, shell, sftp, subsystem, forward or file
 	Command    string    `json:"command,omitempty"`
 	Started    time.Time `json:"started"`
 	Ended      time.Time `json:"ended,omitzero"`
@@ -960,7 +960,12 @@ type SessionRecord struct {
 
 	RecordingState  EvidenceState `json:"recording_state,omitempty"`
 	TranscriptState EvidenceState `json:"transcript_state,omitempty"`
+	// Stopped says Beacon closed the session itself, and why: StoppedRecordingLimit.
+	Stopped string `json:"stopped,omitempty"`
 }
+
+// StoppedRecordingLimit is the Stopped of a session closed when its recording reached its cap.
+const StoppedRecordingLimit = "recording_limit"
 
 // PutSession stores a session record. IDs begin with the start time, so they sort by it.
 func (s *Store) PutSession(r SessionRecord) error {

@@ -26,9 +26,12 @@ What the channel does:
 - Machines trust only Beacon's certificate authority.
 - Every connection gets a certificate valid for five minutes, which names the account on the machine.
 - Only the machines an agent may reach are connected to.
-- When access ends, what the agent has open closes. This is checked again every minute.
+- When access ends, what the agent has open closes. This is checked again every minute, and before every new session and tool call. Access ends with the pause switch, with the credential, and when the machine is removed, enrolled again or given another account.
+- When an instance loses the HA lease, everything open on its channel closes, so nothing escapes the checks the new primary runs.
 - Each machine's host key is pinned.
-- Every session is recorded, with a replay.
+- Every session is recorded, with a replay. Nothing passes unrecorded: a session whose recording reaches 16 MiB is closed. A shell's list of commands, split by marks a program can also print, is a guide; the recording is the record.
+- Refused connections of signed-in identities go to the audit log as `ssh_refused`, limited so that they cannot flood it.
+- Before sign-in, the port holds at most 64 connections, 10 from one address (an IPv6 address counts by its /64), each for at most 30 seconds. An address with 20 failed handshakes in 10 minutes is turned away until the 10 minutes are up. A connection closed before it sends anything, such as a port check, does not count.
 
 Equally deliberate is what it does not do:
 

@@ -176,6 +176,8 @@ func (s *Server) kind(kind string) string {
 		return s.t("interactive shell")
 	case "sftp":
 		return s.t("file transfer")
+	case "subsystem":
+		return s.t("SSH subsystem")
 	case "forward":
 		return s.t("forwarded port")
 	case "file":
@@ -1001,6 +1003,9 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	if !rec.Ended.IsZero() {
 		p.Ended, p.Duration = s.clock(rec.Ended), s.dur(rec.Ended.Sub(rec.Started))
 	}
+	if tr.Stdin != "" {
+		p.Outputs = append(p.Outputs, kv{"stdin", tr.Stdin})
+	}
 	if tr.Stdout != "" {
 		p.Outputs = append(p.Outputs, kv{"stdout", tr.Stdout})
 	}
@@ -1010,7 +1015,13 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	recording, transcript := sessionEvidence(rec)
 	p.RecordingState, p.TranscriptState = s.sessionEvidenceBadge(recording), s.sessionEvidenceBadge(transcript)
 	p.RecordingNote = s.recordingHint(recording)
+	if rec.Stopped == store.StoppedRecordingLimit {
+		p.RecordingNote = s.t("Beacon closed this session when its recording reached its size limit.")
+	}
 	p.TranscriptNote = s.transcriptHint(rec, transcript, len(p.Commands) == 0 && len(p.Outputs) == 0)
+	if tr.CommandsAdvisory || len(tr.Commands) > 0 {
+		p.TranscriptNote = strings.TrimSpace(p.TranscriptNote + " " + s.t("The shell's commands and exit statuses are split by marks in its output, which programs in the session can also print: a guide only. The recording keeps what was typed and printed."))
+	}
 	if tr.RecordingAvailable != nil && *tr.RecordingAvailable {
 		p.Recording = s.recordingLink(link.RecordingPath(rec.ID), a)
 	} else if !p.Open && (recording == store.EvidenceComplete || recording == store.EvidenceTruncated || recording == "") {

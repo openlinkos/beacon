@@ -484,6 +484,9 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	if keyChanged { // the connection signed in with the old key ends; the machine reconnects with the new one
 		g.connectors.close(in.Name)
 	}
+	if exists { // what was open on the machine it replaces closes
+		g.Recheck()
+	}
 	detail := "connector " + m.ConnectorFingerprint
 	if m.HostKey != "" {
 		detail += " " + fingerprint(m.HostKey)
@@ -522,6 +525,7 @@ func (g *Gate) SetConnector(ctx context.Context, who Actor, name, key string) (M
 	}
 	if changed {
 		g.connectors.close(name)
+		g.Recheck()
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_connector", Target: name, Detail: fp})
 	g.post(ctx, i18n.T(g.d.Lang, "%s set the connector key of machine %s", who.Name, name))
