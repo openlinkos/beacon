@@ -239,7 +239,7 @@ func (s *Server) toast(done string) (string, string) {
 	case "machine_unchanged":
 		return s.t("The machine already has those settings."), "success"
 	case "password":
-		return s.t("Password changed; your other sign-ins ended"), "success"
+		return s.t("Password changed; your other console sign-ins and your agents' OAuth sign-ins ended"), "success"
 	case "role":
 		return s.t("Role changed"), "success"
 	case "disabled":
@@ -248,6 +248,8 @@ func (s *Server) toast(done string) (string, string) {
 		return s.t("Account enabled"), "success"
 	case "withdrawn":
 		return s.t("Invitation withdrawn"), "success"
+	case "link_withdrawn":
+		return s.t("Link withdrawn"), "success"
 	case "saved":
 		return s.t("Saved"), "success"
 	case "status_page_created":

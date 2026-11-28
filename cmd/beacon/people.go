@@ -184,7 +184,7 @@ func userCmd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stderr, "With this link %s chooses a new password, once, until %s; their sign-ins end then:\n", l.User, l.Expires.Local().Format(time.DateTime))
+		fmt.Fprintf(stderr, "With this link %s chooses a new password, once, until %s. Their console sign-ins and their agents' OAuth sign-ins end then; their agents' tokens keep working unless revoked:\n", l.User, l.Expires.Local().Format(time.DateTime))
 		fmt.Fprintln(stdout, l.URL)
 		return 0
 	}

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-42c00ad2
+sourceHash: sha256-2bca2d94
 ---
 
 # 命令行
@@ -65,7 +65,7 @@ docker exec beacon beacon token list
 | `invite` | `-role`、`-note` | 一个加入某个角色的一次性链接。`-role` 取 `viewer`、`oncall`、`operator`、`owner` 之一；`-note` 写明给谁 |
 | `disable` NAME、`enable` NAME | | 停用或恢复某人的登录 |
 | `role` NAME ROLE | | 改角色；其会话和 Agent 随即跟上 |
-| `reset` NAME | | 选择新密码的一次性链接；其登录随即全部结束 |
+| `reset` NAME | | 选择新密码的一次性链接；届时其在控制台的登录和其 Agent 的 OAuth 登录都会结束，其 Agent 的令牌除非吊销仍然有效 |
 
 **`beacon agent`** —— 成员名下的 Agent：
 
@@ -87,7 +87,7 @@ docker exec beacon beacon token list
 | `ssh-key` NAME `add` KEY | | 给令牌加一把公钥（`@FILE` 从文件读） |
 | `ssh-key` NAME `remove` FINGERPRINT | | 删除令牌的一把密钥 |
 | `machines` NAME a,b | | 令牌经通道能到达的机器；`all` 为全部 |
-| `claim` NAME | `-owner`、`-agent`、`-preset` | 把一枚旧式令牌归为某个成员的 Agent。`-owner` 指名所有者；`-agent` 指名 Agent（默认用令牌自己的名字）；`-preset` 取 `readonly`、`oncall`、`operator` 或 `custom`（保留原 scope） |
+| `claim` NAME | `-owner`、`-agent`、`-preset` | 把一枚旧式令牌归为某个成员的 Agent。`-owner` 指名所有者；`-agent` 指名 Agent（默认用令牌自己的名字）；`-preset` 取 `readonly`、`oncall`、`operator` 或 `custom`（保留原 scope），不能取要求令牌没有的 scope 的预设 |
 
 ### beacon machine, ssh
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -27,6 +28,7 @@ type tokenRow struct {
 	Name, Subject, Created, CreatedBy, Expires, Renewed, Machines, Revoke, Agent, AgentHref, Claim, Closest string
 	Scopes, Keys                                                                                            []string
 	Expired, Self, Legacy                                                                                   bool
+	ClaimPresets                                                                                            []option // the presets a claim may name: none beyond the token's scopes
 }
 
 type tokensPage struct {
@@ -64,7 +66,11 @@ func (s *Server) tokens(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Count = num(len(all))
 	_, from, to := s.page(len(all), r.URL.Query(), consolePath("/tokens"), &p.List)
 	for _, t := range all[from:to] {
-		p.Rows = append(p.Rows, s.tokenRow(t, v))
+		row := s.tokenRow(t, v)
+		if row.Claim != "" {
+			row.ClaimPresets = row.Options(p)[1:]
+		}
+		p.Rows = append(p.Rows, row)
 	}
 	s.render(w, tokensTmpl, p)
 }
@@ -100,10 +106,14 @@ func (s *Server) tokenRow(t store.Token, v *viewer) tokenRow {
 	return row
 }
 
-// Options lists the presets for a claim, the token's closest (custom: keep its scopes) selected.
+// Options lists the presets for a claim, the token's closest (custom: keep its scopes) selected. A
+// preset that asks for a scope the token does not hold is left out: a claim never widens a token.
 func (r tokenRow) Options(p tokensPage) []option {
 	out := []option{{Value: store.PresetCustom, Label: p.L.KeepScopes, Selected: r.Closest == store.PresetCustom}}
 	for _, o := range p.Presets {
+		if slices.ContainsFunc(store.PresetScopes(o.Value), func(sc string) bool { return !slices.Contains(r.Scopes, sc) }) {
+			continue
+		}
 		o.Selected = o.Value == r.Closest
 		out = append(out, o)
 	}
@@ -114,6 +124,8 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request, v *viewer) {
 	f := r.PostForm
 	_, err := s.Bridge.ClaimToken(r.Context(), v.actor(), r.PathValue("name"), f.Get("owner"), strings.TrimSpace(f.Get("agent")), f.Get("preset"))
 	switch {
+	case errors.Is(err, store.ErrClaimWidens):
+		back(w, r, consolePath("/tokens"), "error", "claim_wider")
 	case errors.Is(err, store.ErrExists):
 		back(w, r, consolePath("/tokens"), "error", "taken")
 	case errors.Is(err, store.ErrNotFound):

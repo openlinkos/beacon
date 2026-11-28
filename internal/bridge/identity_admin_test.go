@@ -23,7 +23,7 @@ func TestIdentityAdministrationRequiresOwnAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	account, _ := e.Store.AccountPrincipal("alice")
-	token, _ := e.Store.Authenticate(e.Token(t, "owner-script", "accounts:write"))
+	token, _ := e.Store.Authenticate(e.Token(t, "owner-script", store.PeopleScopes...))
 	for _, admin := range []bridge.Actor{cli, bridge.ActorOf(account, "console"), bridge.ActorOf(token, "api")} {
 		if _, err := e.Bridge.Invite(ctx, admin, "owner", "test invitation"); err != nil {
 			t.Fatalf("%s could not invite an owner: %v", admin.Via, err)

@@ -49,7 +49,7 @@ export function Credentials({ data: p }: { data: CredentialsData }) {
   </>
 }
 
-type TokenRow = Text & { Scopes: string[] | null; Keys: string[] | null; Expired: boolean; Legacy: boolean }
+type TokenRow = Text & { Scopes: string[] | null; Keys: string[] | null; Expired: boolean; Legacy: boolean; ClaimPresets: Pick[] | null }
 type TokensData = { L: Text; List: ListData; Rows: TokenRow[] | null; Owners: Pick[] | null; Presets: Pick[] | null }
 
 export function Tokens({ data: p }: { data: TokensData }) {
@@ -70,7 +70,7 @@ export function Tokens({ data: p }: { data: TokensData }) {
           <p>{l.ClaimHint}</p>
           <Field label={l.Owner}><Select name="owner" options={p.Owners} /></Field>
           <Field label={l.AgentName}><input name="agent" /></Field>
-          <Field label={l.Preset}><Select name="preset" options={[{ Value: '', Label: l.KeepScopes, On: true, Help: '' }, ...(p.Presets ?? [])]} /></Field>
+          <Field label={l.Preset}><Select name="preset" options={[{ Value: '', Label: l.KeepScopes, On: true, Help: '' }, ...(row.ClaimPresets ?? [])]} /></Field>
         </Action>}
         {row.Revoke && <Action action={row.Revoke} label={l.Revoke} danger><p>{l.RevokeHint}</p></Action>}
       </details>,

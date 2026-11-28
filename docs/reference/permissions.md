@@ -27,6 +27,10 @@ An agent never does more than its owner's role allows. It may use a scope when i
 
 Owner accounts, standalone administration tokens and the local command line administer accounts. An Agent identity cannot use `accounts:write` for account or Agent administration, including when an older custom scope contains it.
 
+A standalone token is held to the roles its own scopes cover. It invites someone, makes a person's password reset link or changes a person (role, disabling, display name, contact) only when it holds every scope of that person's role, and gives a role only when it holds every scope of the role. A token with `accounts:write` alone invites, resets and changes nobody; one with an on-call person's scopes and `accounts:write` reaches viewers and on-call people. Only a token with every scope of an owner reaches owners. The local command line is not limited, and an owner account holds every scope already. Withdrawing a pending link only takes access away, so any credential that administers accounts may.
+
+An invitation or a reset link is checked again when it is opened and when it is used: it works only while whoever made it could still make it under these rules.
+
 | Preset | Scopes it asks for | Whose agents get it |
 | --- | --- | --- |
 | `readonly` | `status:read`, `sessions:read` | the strongest a viewer's agents may have |
@@ -52,7 +56,7 @@ People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine
 | `incidents:write` | operator and above | Reserved for incidents written by hand; no route takes it yet |
 | `machines:write` | operator and above | Adding, changing and removing machines, connector keys, pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
-| `accounts:write` | owner account or standalone administration token | Managing people and everyone's agents |
+| `accounts:write` | owner account or standalone administration token | Managing people, within the roles the credential's own scopes cover, and everyone's agents |
 | `secrets:use` | owner; custom agents only | Listing and using the team credentials explicitly granted to that agent |
 | `alerts:report` | standalone token or custom agent of an owner | Reporting execution for the deliveries assigned to this reporter in `agents[].reporter` |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |

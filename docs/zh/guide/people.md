@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-602f5aa3
+sourceHash: sha256-e2c604d8
 ---
 
 # 邀请你的团队
@@ -59,6 +59,8 @@ sourceHash: sha256-602f5aa3
 
 **People**页列出尚未使用的邀请，**Withdraw**可以撤回一条。告警群会听到有人受邀、有人加入，但永远不会听到链接本身。
 
+邀请链接和重设链接只在生成它的人仍然有权生成时才有效：仍在启用的所有者、未过期且具备相应 scope 的令牌，或者命令行。停用或降级这个人、吊销这个令牌，都会撤回他们生成的链接。旧版 Beacon 生成的链接没有记录是谁生成的，已不再有效：请重新生成。
+
 用户名：
 
 - 是 2 到 32 个小写字母、数字、点、连字符和下划线，以字母或数字开头；
@@ -71,8 +73,18 @@ sourceHash: sha256-602f5aa3
 
 密码至少 10 个字符，不能是用户名，也不能是最常见的那批密码。没有别的规则。Beacon 只保存它的 argon2id 哈希，比较在常数时间内完成。
 
-- **改自己的密码**：打开控制台侧栏底部菜单里的**Your account**。输入当前密码和新密码。你的其他登录会全部结束。
-- **忘记密码**由所有者重置：**People**页上的**Password reset link**，或在中心上执行 `beacon user reset bob`。它打印一条只显示一次、只生效一次、有效期 30 分钟的链接。对方用它设置新密码，其所有登录随之结束。
+- **改自己的密码**：打开控制台侧栏底部菜单里的**Your account**。输入当前密码和新密码。
+- **忘记密码**由所有者重置：**People**页上的**Password reset link**，或在中心上执行 `beacon user reset bob`。它打印一条只显示一次、只生效一次、有效期 30 分钟的链接。对方用它设置新密码。
+
+无论哪种方式设置了新密码，以下都会结束：
+
+- 此人在控制台的其他登录；
+- 此人的 Agent 的 OAuth 登录（Claude Code、Codex 等需要重新登录），连同它们在机器上打开着的一切和经这些登录添加的 SSH 密钥；
+- 发给此人的其他重设链接。
+
+此人的 Agent 的令牌仍然有效。重设页面会列出这些令牌，勾选**Also revoke these tokens now**会在设置新密码时一并吊销；否则请到 Agent 的页面吊销。重设还会撤回此人生成的邀请链接和重设链接。
+
+**People**页列出尚未使用的重设链接，**Withdraw**可以撤回一条。
 
 ## 改角色、停用某个成员 {#change-a-role-disable-someone}
 
@@ -84,7 +96,9 @@ docker exec beacon beacon user disable bob         # bob 被停用
 docker exec beacon beacon user enable bob          # bob 被重新启用
 ```
 
-调低角色会立刻收紧此人的登录和他的 Agent。停用某人会结束其登录、停下其 Agent、关闭这些 Agent 在机器上打开着的一切。控制台上没有人能停用自己。
+调低角色会立刻收紧此人的登录和他的 Agent。停用某人会结束其登录、停下其 Agent、关闭这些 Agent 在机器上打开着的一切。两者都会撤回此人生成的邀请链接和重设链接。控制台上没有人能停用自己。
+
+带 `accounts:write` 的独立令牌只能邀请、重设、修改其所持 scope 覆盖该角色全部 scope 的成员，也只能授予这样的角色。只有 `accounts:write` 的令牌谁都管不了。所有者和命令行不受此限（[角色、预设与权限](../reference/permissions.md#presets)）。
 
 `beacon user list` 列出所有人，带角色、状态、最近登录和 Agent。后面是尚未使用的邀请。
 
@@ -202,7 +216,7 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 
 预设取 scope 恰与令牌一致的那个，没有完全一致的就用 custom。所以认领永远不会放宽令牌能做的事。
 
-- `-preset` 可以另选预设。
+- `-preset` 可以另选更窄的预设。要求令牌没有的 scope 的预设会被拒绝。
 - `-agent` 把令牌加到此人已有的某个 Agent 上。该 Agent 当前能做的超出令牌的，会被拒绝。
 
 机器的令牌永远不会被标为 Legacy，也永远不被认领：检测点、主机、心跳、规则引擎、变更来源、读指标的令牌都是。
@@ -223,7 +237,7 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 
 `ROLE` 是 `viewer`、`oncall`、`operator` 或 `owner`。预设是 `readonly`、`oncall`、`operator` 或 `custom`。每个子命令和参数见命令行参考：[命令行](../reference/cli.md)。
 
-同样的操作在 REST API 的 `/api/v1/users` 和 `/api/v1/agents` 下（[REST API](../reference/api.md#people-and-ssh-keys)）。以所有者账号或独立管理令牌管理成员账号需要 `accounts:write`。Agent 凭据可以在现有 SSH 权限内管理自己的 SSH 密钥。改角色、停用成员和重置密码不经 MCP 提供。
+同样的操作在 REST API 的 `/api/v1/users` 和 `/api/v1/agents` 下（[REST API](../reference/api.md#people-and-ssh-keys)）。以所有者账号或独立管理令牌管理成员账号需要 `accounts:write`。Agent 凭据可以在现有 SSH 权限内管理自己的 SSH 密钥。改角色、停用成员和重置密码不经 MCP 提供。列出和撤回待用的链接经 MCP 提供：`list_users` 和 `withdraw_link`。
 
 ## 安全 {#security}
 

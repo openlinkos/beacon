@@ -28,6 +28,10 @@
           <label class="ol-label" for="again">{{.L.Again}}</label>
           <input class="ol-input ol-input-lg" id="again" name="again" type="password" autocomplete="new-password" required minlength="10" maxlength="1024">
         </div>
+        {{if .Tokens}}<div class="ol-field">
+          <p class="ol-hint">{{.TokensNote}}</p>
+          <label class="ol-check"><input class="ol-checkbox" type="checkbox" name="revoke_tokens" value="1"><span>{{.L.RevokeTokens}}</span></label>
+        </div>{{end}}
         <button class="ol-btn ol-btn-primary ol-btn-lg ol-btn-block" type="submit">{{icon "user-check"}}{{.L.Submit}}</button>
       </form>
       {{end}}{{end}}

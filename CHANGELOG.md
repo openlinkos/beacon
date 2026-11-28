@@ -12,6 +12,14 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Record SSH subsystems other than `sftp` as the kind `subsystem`, with the requested name kept as the command.
 - Audit refused SSH connections of signed-in identities as `ssh_refused`, with the machine and the reason, at most once a minute for each identity, machine and reason.
 - Limit connections to the SSH port that have not signed in to 64 at once and 10 per address (an IPv6 /64), count every failed handshake against its address, and make room in a full table of failures by its oldest entry. `beacon_ssh_connections_refused_total` counts the connections turned away.
+- Make invitations and password reset links work only while whoever made them could still make them. Disabling or demoting a person, or revoking a token, withdraws the links they made. Links made by an earlier version no longer work; make new ones.
+- Limit a standalone token with `accounts:write` to people and roles whose scopes it holds when it invites, makes a reset link or changes a person. The command line on the host is not limited.
+- End the OAuth sign-ins of a person's agents and the other reset links for them when the person gets a new password. A reset also withdraws the links the person made. The reset page names the agents' tokens that keep working and can revoke them.
+- List and withdraw pending password reset links on the **People** page, through `GET /api/v1/users` and `DELETE /api/v1/users/links/{id}`, and with the MCP tools `list_users` and `withdraw_link`.
+- Refuse a token claim whose preset asks for more than the token holds.
+- Ask the person to sign in before Beacon reads an authorization request, and fetch a client ID metadata document only then. Send an authorization error to the client only when the person has allowed that client before.
+- Offer on the consent page, by default, only an agent made for that client. Show where the client's description comes from, and warn when the answer goes to a website.
+- Make room for a new client registration when the table is full by forgetting the oldest one never used, and count registrations per IPv6 /64.
 
 ## 0.3.0
 

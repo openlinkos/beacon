@@ -253,6 +253,35 @@ func grantWidens(before store.Agent, scopes, machines []string) bool {
 	return false
 }
 
+// linkMaker is who makes an invitation or a reset link, as the link records it: the command line, or
+// the principal the caller is. The link works only while that principal could still make it.
+func linkMaker(who Actor) store.LinkMaker {
+	if who.Via == "cli" && who.Key == "" {
+		return store.LinkMaker{Name: who.Name, Key: store.LinkCLI}
+	}
+	return store.LinkMaker{Name: who.Name, Key: who.Key}
+}
+
+// withinRole reports whether who may act on an account with role, or give someone that role: the
+// command line may; anyone else, read afresh, must hold every scope the role gives. So a token with
+// accounts:write but less than an owner's scopes cannot invite an owner, reset an owner's password or
+// change an owner. It changes nothing.
+func (b *Bridge) withinRole(who Actor, role string) error {
+	if who.Via == "cli" && who.Key == "" {
+		return nil
+	}
+	caller, ok := b.caller(who)
+	if !ok {
+		return ErrForbidden
+	}
+	for _, sc := range store.RoleScopes(role) {
+		if !caller.Has(sc) {
+			return fmt.Errorf("%w: the %s role gives %s, which you do not hold", ErrForbidden, role, sc)
+		}
+	}
+	return nil
+}
+
 // checkCustom reports whether scopes may be an agent's custom scopes: at least one, each a scope of
 // people (store.PeopleScopes), each within the agent's owner's role, and, except for the command line,
 // each a scope the caller itself holds. It changes nothing.
@@ -335,12 +364,18 @@ func (b *Bridge) User(who Actor, username string) (UserView, error) {
 	return b.userView(a), nil
 }
 
-// Invite makes an invitation to join with role, valid for a day; the link is shown only now.
+// Invite makes an invitation to join with role, valid for a day; the link is shown only now. The caller
+// must hold every scope of the role (withinRole), and the invitation works only while it still does.
 func (b *Bridge) Invite(ctx context.Context, who Actor, role, note string) (LinkView, error) {
 	if !b.admin(who) {
 		return LinkView{}, fmt.Errorf("%w: inviting people needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
-	code, l, err := b.d.Store.CreateInvitation(role, note, who.Name)
+	if store.ValidRole(role) {
+		if err := b.withinRole(who, role); err != nil {
+			return LinkView{}, err
+		}
+	}
+	code, l, err := b.d.Store.CreateInvitation(role, note, linkMaker(who))
 	if err != nil {
 		return LinkView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
@@ -351,20 +386,62 @@ func (b *Bridge) Invite(ctx context.Context, who Actor, role, note string) (Link
 
 // WithdrawInvitation deletes a pending invitation.
 func (b *Bridge) WithdrawInvitation(ctx context.Context, who Actor, id string) error {
-	if !b.admin(who) {
-		return ErrForbidden
-	}
-	l, err := b.d.Store.WithdrawInvitation(id)
+	return b.withdraw(ctx, who, id, b.d.Store.WithdrawInvitation)
+}
+
+// WithdrawLink deletes a pending invitation or password reset link, by its ID (LinkView.ID), for an
+// admin. Withdrawing only takes access away, so any admin may.
+func (b *Bridge) WithdrawLink(ctx context.Context, who Actor, id string) (LinkView, error) {
+	var gone store.AccountLink
+	err := b.withdraw(ctx, who, id, func(id string) (store.AccountLink, error) {
+		l, err := b.d.Store.WithdrawLink(id)
+		gone = l
+		return l, err
+	})
 	if err != nil {
+		return LinkView{}, err
+	}
+	return linkView(gone, ""), nil
+}
+
+func (b *Bridge) withdraw(ctx context.Context, who Actor, id string, del func(string) (store.AccountLink, error)) error {
+	if !b.admin(who) {
+		return fmt.Errorf("%w: withdrawing a link needs an owner account or a standalone token with accounts:write", ErrForbidden)
+	}
+	l, err := del(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("%w: no pending link %q", store.ErrNotFound, id)
+		}
 		return err
+	}
+	if l.Kind == store.LinkReset {
+		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_reset_withdraw", Target: l.User, Detail: id})
+		b.echo(ctx, b.t("%s withdrew a password reset link for %s via %s", who.Name, l.User, b.viaName(who.Via)))
+		return nil
 	}
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_invite_withdraw", Target: id, Detail: l.Role})
 	b.echo(ctx, b.t("%s withdrew an invitation via %s", who.Name, b.viaName(who.Via)))
 	return nil
 }
 
+// ResetLinks lists the password reset links that still work, the newest first; for an admin only. Their
+// codes are never shown again.
+func (b *Bridge) ResetLinks(who Actor) ([]LinkView, error) {
+	if !b.admin(who) {
+		return nil, fmt.Errorf("%w: listing reset links needs an owner account or a standalone token with accounts:write", ErrForbidden)
+	}
+	out := []LinkView{}
+	for _, l := range b.d.Store.ResetLinks() {
+		out = append(out, linkView(l, ""))
+	}
+	return out, nil
+}
+
 // UpdateUser changes someone's role, display name or contact, or disables or enables them. A lowered role
-// or a disabled account limits their sessions and agents at once; Beacon always keeps an enabled owner.
+// or a disabled account limits their sessions and agents at once, and withdraws the links they made;
+// Beacon always keeps an enabled owner. The caller must hold every scope of the account's role, and of
+// the role it is given (withinRole).
 func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch UserChange) (UserView, error) {
 	if !b.admin(who) {
 		return UserView{}, fmt.Errorf("%w: changing people needs an owner account or a standalone token with accounts:write", ErrForbidden)
@@ -372,6 +449,14 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 	before, ok := b.d.Store.Account(username)
 	if !ok {
 		return UserView{}, fmt.Errorf("%w: no account %q", store.ErrNotFound, username)
+	}
+	if err := b.withinRole(who, before.Role); err != nil {
+		return UserView{}, err
+	}
+	if ch.Role != nil && store.ValidRole(*ch.Role) {
+		if err := b.withinRole(who, *ch.Role); err != nil {
+			return UserView{}, err
+		}
 	}
 	a, err := b.d.Store.UpdateAccount(username, func(a *store.Account) error {
 		if ch.Role != nil {
@@ -418,12 +503,19 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 	return b.userView(a), nil
 }
 
-// ResetLink makes a one-time link, valid 30 minutes, with which username chooses a new password.
+// ResetLink makes a one-time link, valid 30 minutes, with which username chooses a new password. The
+// caller must hold every scope of the account's role (withinRole), and the link works only while it
+// still does.
 func (b *Bridge) ResetLink(ctx context.Context, who Actor, username string) (LinkView, error) {
 	if !b.admin(who) {
 		return LinkView{}, fmt.Errorf("%w: resetting a password needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
-	code, l, err := b.d.Store.CreateResetLink(username, who.Name)
+	if a, ok := b.d.Store.Account(username); ok {
+		if err := b.withinRole(who, a.Role); err != nil {
+			return LinkView{}, err
+		}
+	}
+	code, l, err := b.d.Store.CreateResetLink(username, linkMaker(who))
 	if err != nil {
 		return LinkView{}, err
 	}
@@ -462,15 +554,48 @@ func (b *Bridge) Join(ctx context.Context, code, username, displayName, password
 	return a, nil
 }
 
-// Reset gives an account a new password with a reset link and ends its sessions.
-func (b *Bridge) Reset(ctx context.Context, code, password string) (store.Account, error) {
+// Reset gives an account a new password with a reset link (store.Reset): its console sessions and the
+// OAuth sign-ins of its agents end, with what those had open on machines. With revokeTokens the tokens of
+// its agents are revoked too; otherwise they keep working.
+func (b *Bridge) Reset(ctx context.Context, code, password string, revokeTokens bool) (store.Account, error) {
 	a, err := b.d.Store.Reset(code, password)
 	if err != nil {
 		return store.Account{}, err
 	}
+	var revoked []string
+	if revokeTokens {
+		for _, t := range b.PersonTokens(a.Username) {
+			if b.d.Store.RevokeToken(t.Name) == nil {
+				b.d.Store.DeleteConsoleSessions(t.Name)
+				revoked = append(revoked, t.Name)
+			}
+		}
+	}
+	b.Recheck()
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: a.Username, Via: "console", Action: "user_reset", Target: a.Username})
 	b.echo(ctx, b.t("%s chose a new password with a reset link", a.Username))
+	for _, name := range revoked {
+		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: a.Username, Via: "console", Action: "revoke_token", Target: name, Detail: "with a password reset"})
+	}
+	if len(revoked) > 0 {
+		b.echo(ctx, b.t("%s revoked the tokens of their agents with the reset: %s", a.Username, strings.Join(revoked, ", ")))
+	}
 	return a, nil
+}
+
+// PersonTokens lists the static tokens of a person's agents that have not expired: what a new password
+// leaves working.
+func (b *Bridge) PersonTokens(username string) []store.Token {
+	var out []store.Token
+	now := b.now()
+	for _, ag := range b.d.Store.Agents(username) {
+		for _, t := range b.d.Store.AgentTokens(ag.Name) {
+			if now.Before(t.Expires) {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
 }
 
 // ChangePassword changes the caller's own password; the console session keep stays signed in.
@@ -482,6 +607,7 @@ func (b *Bridge) ChangePassword(_ context.Context, who Actor, current, password,
 	if err := b.d.Store.ChangePassword(p.User, current, password, keep); err != nil {
 		return err
 	}
+	b.Recheck() // the OAuth sign-ins of their agents ended, and so does what those had open on machines
 	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_password", Target: p.User})
 	return nil
 }
@@ -804,6 +930,8 @@ func (b *Bridge) ClaimToken(ctx context.Context, who Actor, token, owner, agent,
 	switch {
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrExists):
 		return AgentView{}, err
+	case errors.Is(err, store.ErrClaimWidens):
+		return AgentView{}, fmt.Errorf("%w: %w", ErrBadInput, err)
 	case err != nil:
 		return AgentView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}

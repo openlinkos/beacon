@@ -61,7 +61,7 @@ People's own accounts and their agents ([Invite your team](../guide/people.md)).
 | `invite` | `-role`, `-note` | A one-time link to join as a role. `-role` is one of `viewer`, `oncall`, `operator`, `owner`; `-note` says who it is for |
 | `disable` NAME, `enable` NAME | | Stop or restore someone's sign-in |
 | `role` NAME ROLE | | Change the role; their sessions and agents follow at once |
-| `reset` NAME | | A one-time link to choose a new password; their sign-ins end then |
+| `reset` NAME | | A one-time link to choose a new password; their console sign-ins and their agents' OAuth sign-ins end then, and their agents' tokens keep working unless revoked |
 
 **`beacon agent`** — a person's agents:
 
@@ -83,7 +83,7 @@ Credentials with scopes by name, for machines and for experts. Agents' tokens co
 | `ssh-key` NAME `add` KEY | | Add a public key to a token (`@FILE` reads it from a file) |
 | `ssh-key` NAME `remove` FINGERPRINT | | Remove one of a token's keys |
 | `machines` NAME a,b | | The machines a token reaches through the channel; `all` for every machine |
-| `claim` NAME | `-owner`, `-agent`, `-preset` | Make a legacy token an agent of a person. `-owner` names the person; `-agent` names the agent (the token's own name by default); `-preset` is `readonly`, `oncall`, `operator` or `custom` (it keeps its scopes) |
+| `claim` NAME | `-owner`, `-agent`, `-preset` | Make a legacy token an agent of a person. `-owner` names the person; `-agent` names the agent (the token's own name by default); `-preset` is `readonly`, `oncall`, `operator` or `custom` (it keeps its scopes), never one that asks for a scope the token does not hold |
 
 ### beacon machine, ssh
 

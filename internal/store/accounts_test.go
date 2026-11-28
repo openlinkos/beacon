@@ -52,7 +52,7 @@ func owner(t *testing.T, s *Store, name string) Account {
 // invite adds a person with role.
 func invite(t *testing.T, s *Store, name, role string) Account {
 	t.Helper()
-	code, _, err := s.CreateInvitation(role, "", "test")
+	code, _, err := s.CreateInvitation(role, "", LinkMaker{Name: "test", Key: LinkCLI})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,11 +147,11 @@ func TestSetupAndInvitations(t *testing.T) {
 		t.Errorf("a setup link with accounts: %v", err)
 	}
 
-	inv, l, err := s.CreateInvitation("oncall", "Bob, on call from Monday", "alice")
+	inv, l, err := s.CreateInvitation("oncall", "Bob, on call from Monday", LinkMaker{Name: "alice", Key: "user:alice"})
 	if err != nil || l.Role != "oncall" || !l.Expires.Equal(now.Add(24*time.Hour)) {
 		t.Fatalf("invitation: %+v %v", l, err)
 	}
-	if _, _, err := s.CreateInvitation("root", "", "alice"); err == nil {
+	if _, _, err := s.CreateInvitation("root", "", LinkMaker{Name: "alice", Key: "user:alice"}); err == nil {
 		t.Error("an invitation with an unknown role")
 	}
 	if got := s.Invitations(); len(got) != 1 || got[0].Note != "Bob, on call from Monday" {
@@ -164,14 +164,14 @@ func TestSetupAndInvitations(t *testing.T) {
 	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired invitation: %v", err)
 	}
-	inv, l, _ = s.CreateInvitation("viewer", "", "alice")
+	inv, l, _ = s.CreateInvitation("viewer", "", LinkMaker{Name: "alice", Key: "user:alice"})
 	if _, err := s.WithdrawInvitation(l.ID()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Join(inv, "bob", "", "another long password"); !errors.Is(err, ErrBadLink) {
 		t.Errorf("a withdrawn invitation: %v", err)
 	}
-	inv, _, _ = s.CreateInvitation("viewer", "", "alice")
+	inv, _, _ = s.CreateInvitation("viewer", "", LinkMaker{Name: "alice", Key: "user:alice"})
 	if b, err := s.Join(inv, "bob", "", "another long password"); err != nil || b.Role != "viewer" || b.CreatedBy != "alice" {
 		t.Errorf("bob: %+v %v", b, err)
 	}
@@ -251,11 +251,11 @@ func TestSignInAndAccounts(t *testing.T) {
 	}
 
 	// a reset link: one-time, 30 minutes, ends the sessions
-	code, l, err := s.CreateResetLink("bob", "alice")
+	code, l, err := s.CreateResetLink("bob", LinkMaker{Name: "alice", Key: "user:alice"})
 	if err != nil || l.User != "bob" || !l.Expires.Equal(now.Add(30*time.Minute)) {
 		t.Fatalf("reset link: %+v %v", l, err)
 	}
-	if _, _, err := s.CreateResetLink("nobody", "alice"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.CreateResetLink("nobody", LinkMaker{Name: "alice", Key: "user:alice"}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a reset link for nobody: %v", err)
 	}
 	if _, err := s.Reset(code, "short"); err == nil {
@@ -267,7 +267,7 @@ func TestSignInAndAccounts(t *testing.T) {
 	if _, err := s.Reset(code, "reset to this one again"); !errors.Is(err, ErrBadLink) {
 		t.Errorf("a reset link twice: %v", err)
 	}
-	code, _, _ = s.CreateResetLink("alice", "alice")
+	code, _, _ = s.CreateResetLink("alice", LinkMaker{Name: "alice", Key: "user:alice"})
 	*now = now.Add(31 * time.Minute)
 	if _, err := s.Reset(code, "too late for this"); !errors.Is(err, ErrLinkExpired) || !errors.Is(err, ErrBadLink) {
 		t.Errorf("an expired reset link: %v", err)

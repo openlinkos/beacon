@@ -685,7 +685,7 @@ func (s *Store) Tokens() []Token {
 	return out
 }
 
-// RevokeToken deletes the token called name.
+// RevokeToken deletes the token called name, with the links it made.
 func (s *Store) RevokeToken(name string) error {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
@@ -701,6 +701,11 @@ func (s *Store) RevokeToken(name string) error {
 		}
 		hash = t.Hash
 		if err := tx.Delete(bucketTokens, []byte(name)); err != nil {
+			return err
+		}
+		// the invitations and reset links it made go with it, so that a later token of the same name
+		// does not inherit them
+		if err := deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "token:"+name }); err != nil {
 			return err
 		}
 		return dropKeys(tx, "token:"+name) // the keys an agent added with this token go with it

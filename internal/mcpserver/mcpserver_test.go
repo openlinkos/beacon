@@ -107,7 +107,7 @@ func TestMCP(t *testing.T) {
 
 	read := connect(t, srv.URL, e.Token(t, "reader", "status:read"))
 	tools, err := read.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 54 {
+	if err != nil || len(tools.Tools) != 55 {
 		t.Fatalf("tools: %d %v", len(tools.Tools), err)
 	}
 	for _, tool := range tools.Tools {

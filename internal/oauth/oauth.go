@@ -293,11 +293,31 @@ func (s *Server) client(r *http.Request) netip.Addr {
 	return netip.Addr{}
 }
 
-// allowRegister counts a registration from the request's address: registerLimit in registerWindow.
+// registrant is what registrations are counted by: an IPv4 address, or the /64 an IPv6 address is in,
+// the block one host usually holds.
+func registrant(ip netip.Addr) netip.Addr {
+	ip = ip.Unmap()
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.Addr()
+		}
+	}
+	return ip
+}
+
+// allowRegister counts a registration from the request's address (registrant): registerLimit in
+// registerWindow.
 func (s *Server) allowRegister(r *http.Request) bool {
-	ip := s.client(r)
+	ip := registrant(s.client(r))
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.regs) > 10000 { // forget the windows that are over first, and all of them only if that is not enough
+		for k, w := range s.regs {
+			if s.now().Sub(w.start) >= registerWindow {
+				delete(s.regs, k)
+			}
+		}
+	}
 	if s.regs == nil || len(s.regs) > 10000 {
 		s.regs = map[netip.Addr]*window{}
 	}
@@ -394,6 +414,7 @@ type Request struct {
 	ClientID    string
 	ClientName  string
 	ClientURI   string
+	Registered  time.Time // when a client that registered itself did so; none for a metadata document's
 	RedirectURI string
 	State       string
 	Challenge   string
@@ -478,6 +499,9 @@ func (s *Server) Parse(r *http.Request, v url.Values) (Request, *Problem) {
 		return q, &Problem{Code: "invalid_client", Description: "The client is unknown to Beacon: " + err.Error()}
 	}
 	q.ClientName, q.ClientURI = c.Name, c.URI
+	if !q.Document() {
+		q.Registered = c.Created
+	}
 	q.RedirectGiven = q.RedirectURI != ""
 	if q.RedirectURI == "" && len(c.RedirectURIs) == 1 {
 		q.RedirectURI = c.RedirectURIs[0]
@@ -513,6 +537,30 @@ func (s *Server) Parse(r *http.Request, v url.Values) (Request, *Problem) {
 	}
 	q.Offline = slices.Contains(q.Scopes, OfflineAccess)
 	return q, nil
+}
+
+// Document reports whether the client is known by a client ID metadata document (its client_id is an
+// https URL) rather than by a registration.
+func (q Request) Document() bool { return strings.HasPrefix(q.ClientID, "https://") }
+
+// DocumentHost is the host that serves the client's metadata document, which says what the client is
+// called; empty for a registered client.
+func (q Request) DocumentHost() string {
+	if !q.Document() {
+		return ""
+	}
+	u, err := url.Parse(q.ClientID)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+// RedirectLocal reports whether the answer goes back to this computer (a loopback address, where a
+// native client listens) rather than to a website.
+func (q Request) RedirectLocal() bool {
+	u, err := url.Parse(q.RedirectURI)
+	return err == nil && loopback(u.Hostname())
 }
 
 // Fields are the request's parameters, for the consent form to carry on.
@@ -560,7 +608,7 @@ func (s *Server) Code(r *http.Request, q Request, agent, preset string, machines
 	}
 	s.codes[hashCode(code)] = &pending{Request: q, Agent: agent, Preset: preset, Machines: machines, Until: until, Expires: now.Add(codeTTL)}
 	s.mu.Unlock()
-	if !strings.HasPrefix(q.ClientID, "https://") {
+	if !q.Document() {
 		s.Store.UseClient(q.ClientID)
 	}
 	return withParams(q.RedirectURI, url.Values{"code": {code}, "state": {q.State}, "iss": {s.Issuer(r)}}), nil

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ff1c836a
+sourceHash: sha256-0173aaba
 ---
 
 # REST API
@@ -234,12 +234,15 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 管理成员账号和 Agent 身份需要所有者账号、持有 `accounts:write` 的独立管理令牌，或本机管理命令行。即使旧的自定义权限含有 `accounts:write`，Agent 凭据也不能管理这些身份。有 SSH 权限的 Agent 可以管理自己的 SSH 密钥。重设密码没有 MCP 工具。
 
+令牌只能邀请、重设或修改其所持 scope 覆盖该角色全部 scope 的成员，也只能授予这样的角色；否则返回 `auth.scope`（[角色、预设与权限](permissions.md#presets)）。
+
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `GET /api/v1/users` | `accounts:write` | 成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent；从不包括密码或它的哈希）和尚未使用的邀请 |
+| `GET /api/v1/users` | `accounts:write` | 成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent；从不包括密码或它的哈希）、尚未使用的邀请，以及尚未使用的重设密码链接（`reset_links`），都不带链接的 code |
 | `POST /api/v1/users/invitations` | `accounts:write` | 邀请一个人，带 `role` 和 `note`：一个一次性链接，24 小时内有效，只在应答里出现 |
 | `PATCH /api/v1/users/{name}` | `accounts:write` | 修改成员的 `role`、`display_name` 或 `feishu_open_id`（联系信息，从不用于登录），或设置 `disabled`；立即作用于他的会话和 Agent。Beacon 始终保留一个启用的所有者（`user.last_owner`） |
-| `POST /api/v1/users/{name}/reset` | `accounts:write` | 一个一次性的重设密码链接，30 分钟内有效，只在应答里出现 |
+| `POST /api/v1/users/{name}/reset` | `accounts:write` | 一个一次性的重设密码链接，30 分钟内有效，只在应答里出现。设置新密码会结束此人在控制台的登录和其 Agent 的 OAuth 登录 |
+| `DELETE /api/v1/users/links/{id}` | `accounts:write` | 按 `id` 撤回一条待用的邀请或重设链接（没有待用的链接时返回 `link.not_found`） |
 | `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不会是机器的连接器密钥（`key.exists`） |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
@@ -380,6 +383,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `token.not_revocable` | 403 | 这个令牌既不能上机器，也不属于任何 Agent；机器和服务的令牌要在中心上用 `beacon token revoke` 吊销 |
 | `user.not_found` | 404 | 没有这个名字的成员 |
 | `user.last_owner` | 409 | 这样改会让 Beacon 没有启用的所有者；先让另一个人成为所有者 |
+| `link.not_found` | 404 | 没有这个 ID 的待用邀请或重设链接 |
 | `key.not_found` | 404 | 调用者没有这个指纹的 SSH 密钥 |
 | `key.exists` | 409 | 这个密钥属于另一个 Agent 或令牌，或者是某台机器的连接器密钥 |
 | `agent.not_found` | 404 | 没有这个名字的 Agent。旧式令牌不是 Agent，这条路径也不会放大它的权限 |

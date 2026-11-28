@@ -202,6 +202,47 @@ func TestClaimToken(t *testing.T) {
 	}
 }
 
+// TestClaimTokenPresetNeverWidens: a preset named on a claim gives the token nothing it may not do now.
+// One beyond its scopes is refused and changes nothing; one within them narrows it.
+func TestClaimTokenPresetNeverWidens(t *testing.T) {
+	s, _ := openTest(t)
+	owner(t, s, "alice")
+	secret, _, _ := s.CreateToken("reader", []string{"status:read", "sessions:read"}, 24*time.Hour, "cli:root")
+	for _, preset := range []string{"oncall", "operator"} {
+		if _, _, err := s.ClaimToken("reader", "alice", "", preset, "alice"); err == nil || !strings.Contains(err.Error(), "more than token reader may do") {
+			t.Errorf("claimed with %s: %v", preset, err)
+		}
+	}
+	if _, ok := s.Agent("reader"); ok {
+		t.Error("a refused claim made an agent")
+	}
+	if p, ok := s.Authenticate(secret); !ok || p.Agent != "" || p.Has("alerts:write") {
+		t.Errorf("a refused claim changed the token: %+v %v", p, ok)
+	}
+
+	// a custom token claimed under a named preset: only one within its scopes
+	_, _, _ = s.CreateToken("odd", []string{"status:read", "alerts:write"}, 24*time.Hour, "cli:root")
+	if _, _, err := s.ClaimToken("odd", "alice", "", "oncall", "alice"); err == nil {
+		t.Error("an odd token claimed as on call, which adds sessions:read and machines:ssh")
+	}
+	if _, _, err := s.ClaimToken("odd", "alice", "", "readonly", "alice"); err == nil {
+		t.Error("an odd token claimed as read only, which adds sessions:read")
+	}
+	a, _, err := s.ClaimToken("odd", "alice", "", PresetCustom, "alice")
+	if err != nil || a.Preset != PresetCustom || !slices.Equal(a.Scopes, []string{"alerts:write", "status:read"}) {
+		t.Errorf("custom claim: %+v %v", a, err)
+	}
+
+	// a narrower preset is allowed
+	secret, _, _ = s.CreateToken("wide", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh"}, 24*time.Hour, "cli:root")
+	if a, _, err := s.ClaimToken("wide", "alice", "", "readonly", "alice"); err != nil || a.Preset != "readonly" {
+		t.Fatalf("a narrower claim: %+v %v", a, err)
+	}
+	if p, _ := s.Authenticate(secret); p.Has("alerts:write") || !p.Has("status:read") {
+		t.Errorf("the narrowed token: %v", p.Scopes)
+	}
+}
+
 func TestGrants(t *testing.T) {
 	s, now := openTest(t)
 	owner(t, s, "alice")

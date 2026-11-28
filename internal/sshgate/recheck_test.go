@@ -147,7 +147,7 @@ func TestRecheckClosesSessions(t *testing.T) {
 	if _, err := e.st.Join(code, "alice", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
-	inv, _, _ := e.st.CreateInvitation("operator", "", "alice")
+	inv, _, _ := e.st.CreateInvitation("operator", "", store.LinkMaker{Name: "alice", Key: "user:alice"})
 	if _, err := e.st.Join(inv, "bob", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}

@@ -15,12 +15,16 @@ Claude Code signs in to Beacon through the browser, with MCP's OAuth. You add Be
 
 The browser opens Beacon's consent page, **Claude Code wants to use Beacon as you**. If you were not signed in to the console, you sign in first. The page asks four things:
 
-- **Agent name**: `claude-code`, or your existing agent for Claude Code. The same name later reuses that agent. Another person's agent's name is refused. So when someone else already has a `claude-code`, the form offers `claude-code-alice`.
+- **Agent name**: the agent you made earlier for this client, or a new name after it, such as `claude-code`. The form never offers an agent made for another client, or by hand, even one with the client's name: you may type its name to reuse it. The same name later reuses that agent. Another person's agent's name is refused. So when someone else already has a `claude-code`, the form offers `claude-code-alice`, and when you have one made otherwise, `claude-code-2`.
 - **What it may do**: the presets within your role. The strongest is chosen, or the strongest the client asked for. For an agent you reuse, none is stronger than the agent's own. You may choose less.
 - **Machines**: all of them, or only the ones you tick. For an agent you reuse, only among its own.
 - **For how long**: 1 day, 30 days or 90 days; 30 by default.
 
 The foot of the page says where Beacon sends you back to: a `localhost` port on your machine, where Claude Code is listening.
+
+The client's name is what the client says about itself. So the top of the page says what Beacon knows besides: the host of the metadata document that described the client (`claude.ai` for Claude Code), or when the client registered itself. When the answer goes to a website rather than to a program on your machine, a warning names the site. Allow only a client you started signing in yourself.
+
+A request with something wrong in it stops at Beacon's own page and sends nothing to the client. Only a client you have already allowed hears of its errors at its redirect address.
 
 - **Allow** makes the agent, or reuses yours as it is. It sends Claude Code a one-time code, which Claude Code exchanges for its tokens. `/mcp` then shows `beacon` connected.
 - **Deny** tells Claude Code you said no.
