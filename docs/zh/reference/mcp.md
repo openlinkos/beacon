@@ -175,6 +175,8 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 
 如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
+没有记录的内容不会经过会话。录像达到 16 MiB 上限的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
+
 ## 管理分享链接 {#manage-share-links}
 
 两个工具均接受 `kind`（`alert` 或 `session`）和 `id`（告警组 ID 或 SSH 会话 ID）。它们需要具有 `accounts:write` 的独立凭据。生成会话分享还需要会话详情作用域，以及对应机器登记的访问权限。请将返回的 URL 视为凭据。审计日志和值班群记录操作及目标。

@@ -157,11 +157,13 @@ The agent's ssh fails, or a tool such as `run_command` returns an error. The cha
 | `… ssh: handshake failed: ssh: host key mismatch` (`machine.unreachable`) | The machine's host key is not the one Beacon pinned, after a reinstall for instance | Check why it changed, then `beacon machine add NAME HOST -replace` |
 | `beacon: the machine's connector is not connected; …` (`machine.disconnected`) | A machine behind NAT is not connected to the channel | On the machine, `systemctl status beacon-connector`; `beacon machine list` shows `disconnected` |
 | `beacon: the SSH channel is not configured` (`ssh.disabled`) | `ssh.ca_key_file` is not set | [Turn it on](../guide/machines.md#turn-it-on) |
+| `beacon: machine settings changed; reload the current version and try again` (`machine.changed`) | The machine was enrolled again, or its account or keys changed, since the connection opened | Connect again; with a multiplexed connection (`ControlMaster`), close the master first (`ssh -O exit`) |
+| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)` (`ssh.recording_limit`) | The session's input and output reached the recording's 16 MiB limit | Copy large files with `scp` or `rsync`; keep long output short with `head`, `tail` or `grep` |
 
 Two more cases:
 
 - **Every agent fails on one machine at once**, after a run of failed attempts. OpenSSH's penalties (9.8 and later) may have caught the centre's address, from which every agent arrives. Add `PerSourcePenaltyExemptList` with the centre's address to the machine's `beacon.conf` ([Add a machine](../guide/machines.md#add-a-machine)).
-- **Connections close without an answer.** After 20 failed sign-ins within 10 minutes from one address, the channel closes that address's connections without an answer for the rest of those 10 minutes.
+- **Connections close without an answer.** After 20 failed handshakes within 10 minutes from one address, the channel closes that address's connections without an answer for the rest of those 10 minutes. It does the same while 64 connections, or 10 from that address, have yet to sign in. An IPv6 address counts by its /64. `beacon_ssh_connections_refused_total` counts such connections by reason.
 
 ### The agent's credential is refused
 

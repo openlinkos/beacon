@@ -160,6 +160,8 @@ For file search, send `{"directory":"/srv/example","query":"upstream refused","l
 
 Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
 
+Nothing passes a session unrecorded. A machine action whose recording reaches its 16 MiB limit is stopped and returns `ssh.recording_limit`, naming the session; the session's `stopped` is `recording_limit`. A command's transcript keeps its `stdin` as well as its output. A shell's `commands` are split by shell-integration marks in its output, which programs in the session can also print, so `commands_advisory` marks them as a guide: the recording keeps what was typed and printed.
+
 Alert evidence and timeline include command text and links to the signed-in session page only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the permitted session metadata there.
 
 ## Manage share links
@@ -343,6 +345,7 @@ Each sends with a token of its own:
 | `ssh.check_unavailable` | 503 | Beacon could not prepare or audit the machine SSH check |
 | `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
 | `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
+| `ssh.recording_limit` | 413 | The session's recording reached its 16 MiB limit, and Beacon stopped the operation |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |

@@ -138,12 +138,16 @@ Either way, with the same credentials:
 
 Beacon keeps a session record for commands, shells, transfers, forwarded ports and each tool call. Capture depends on the session type.
 
-- **The recording** captures terminal activity when supported. An available asciicast v3 file under `data_dir/recordings/` replays on the session's page.
-- **The transcript** keeps command and tool output, or the individual commands and exit statuses from a shell with usable command integration.
+- **The recording** captures terminal activity when supported, input and output as they passed. An available asciicast v3 file under `data_dir/recordings/` replays on the session's page.
+- **The transcript** keeps a command's input and output, a tool's, or the individual commands and exit statuses from a shell with usable command integration.
 - **SFTP and port forwards** keep connection metadata. The console shows recording and transcript capture status independently, including incomplete captures and storage failures.
 - **The alert chat** hears one line per agent and machine, with a **Replay** link that uses the reader’s Beacon account.
 
 Sessions are kept for `ssh.keep` (180 days), then deleted.
+
+A session's recording holds at most 16 MiB. Nothing passes unrecorded: when the next input or output would not fit, Beacon closes the session and tells the agent why on stderr. The recording ends with a marker, and the session is marked as stopped at the limit. A tool call stopped this way returns `ssh.recording_limit`. Copy large files with `scp` or `rsync`, and keep long output short with `head`, `tail` or `grep`.
+
+A shell's commands and exit statuses are split by the shell-integration marks in its output. Any program the shell runs can print such marks, so the list is a guide, labelled as such (`commands_advisory`). The recording keeps what was typed and the output as the machine sent it, marks included.
 
 A session without a terminal, such as a tool call or `ssh host command`, sends lines ending in a bare `\n`. The replay shows them as a terminal would, with `\r\n`. The file and the transcript keep what was sent.
 
@@ -152,6 +156,8 @@ A session without a terminal, such as a tool call or `ssh host command`, sends l
 `beacon ssh pause` closes every open session at once, and refuses new ones until `beacon ssh resume`. `ssh status` says which.
 
 To stop one agent rather than all, revoke its credentials or delete it on its page, or run `beacon token revoke NAME`. What it has open on machines closes at once. [Stop an agent, pause everything](stop.md) lists every switch that does the same.
+
+A connection stays bound to the machine as it was when it opened. Removing the machine, adding it again, or changing its account closes what is open on it, and a multiplexed connection opens no new session on the changed machine.
 
 ## Machines behind NAT {#machines-behind-nat}
 
@@ -192,7 +198,7 @@ What the channel guarantees here is in the [security model](../self-hosting/secu
 
 2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link for a signed-in reader.
 
-When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it.
+When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it. The audit log records the refusal as `ssh_refused`, with the machine and the reason, once a minute for the same identity, machine and reason.
 
 ## Next
 

@@ -132,7 +132,7 @@ Agent 用在 Beacon 上登记的自己的密钥登录 SSH 通道。登录用的�
 
 机器只信任 Beacon 的 CA。Agent 的 `ssh`、`scp`、`sftp`、`rsync` 和 `ssh -L` 原样可用。MCP 工具（`run_command`、`read_file`、`write_file`、`edit_file`）走的也是这条路。
 
-每次会话都录成 asciicast v3，可以回放。交互 shell 借助 shell 集成标记，拆成一条条命令和退出码。告警群也会收到执行了什么。
+每次会话都录成 asciicast v3，可以回放，没有记录的内容一律不放行。交互 shell 借助 shell 集成标记，拆成一条条命令和退出码，只作参考；录像保留了实际经过的内容。告警群也会收到执行了什么。
 
 `beacon ssh pause` 立刻关掉所有会话，在 `ssh resume` 之前拒绝新会话。某个 Agent 的访问一结束，它打开着的一切立即关闭。访问结束指的是：凭据被吊销或过期、Agent 被删除或收窄、它的所有者被停用或降级。
 

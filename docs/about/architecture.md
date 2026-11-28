@@ -128,7 +128,7 @@ The certificate:
 
 The machine trusts only Beacon's certificate authority. The agent's `ssh`, `scp`, `sftp`, `rsync` and `ssh -L` go through unchanged. The MCP tools (`run_command`, `read_file`, `write_file`, `edit_file`) take the same path.
 
-Every session is recorded as asciicast v3 for replay. An interactive shell is broken down into its commands and their exit statuses, through shell-integration marks. The alert chat hears what ran.
+Every session is recorded as asciicast v3 for replay, and nothing passes unrecorded. An interactive shell is broken down into its commands and their exit statuses, through shell-integration marks, as a guide; the recording keeps what passed. The alert chat hears what ran.
 
 `beacon ssh pause` closes every session at once, and refuses new ones until `ssh resume`. When one agent's access ends, what that agent has open closes at once. Access ends when a credential is revoked or expires, the agent is deleted or narrowed, or its owner is disabled or demoted.
 

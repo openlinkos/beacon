@@ -161,11 +161,13 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `… ssh: handshake failed: ssh: host key mismatch`（`machine.unreachable`） | 机器的主机密钥和 Beacon 固定的不一样，比如重装过系统 | 先弄清楚为什么变了，再执行 `beacon machine add NAME HOST -replace` |
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
 | `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |
+| `beacon: machine settings changed; reload the current version and try again`（`machine.changed`） | 连接打开以后，机器被重新添加，或者它的账号、密钥变了 | 重新连接；用多路复用连接（`ControlMaster`）时，先关掉主连接（`ssh -O exit`） |
+| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)`（`ssh.recording_limit`） | 会话的输入和输出达到录像的 16 MiB 上限 | 大文件用 `scp` 或 `rsync` 复制；长输出用 `head`、`tail` 或 `grep` 截短 |
 
 还有两种情况：
 
 - **所有 Agent 同时连不上同一台机器**，此前连续失败过几次。可能是 OpenSSH 的惩罚机制（9.8 及以后的版本）限制了中心的地址，而所有 Agent 都从这个地址连过来。在机器的 `beacon.conf` 里加上带中心地址的 `PerSourcePenaltyExemptList`（见[添加机器](../guide/machines.md#add-a-machine)）。
-- **连接不应答，直接被关闭**。同一个地址 10 分钟内登录失败 20 次后，通道在这 10 分钟剩下的时间里，对这个地址的连接一律不应答、直接关闭。
+- **连接不应答，直接被关闭**。同一个地址 10 分钟内握手失败 20 次后，通道在这 10 分钟剩下的时间里，对这个地址的连接一律不应答、直接关闭。尚未登录的连接达到 64 个，或者来自这个地址的达到 10 个时，也是如此。IPv6 地址按 /64 计。`beacon_ssh_connections_refused_total` 按原因统计这类连接。
 
 ### Agent 的凭据被拒绝 {#the-agents-credential-is-refused}
 

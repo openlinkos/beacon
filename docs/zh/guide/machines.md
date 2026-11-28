@@ -142,12 +142,16 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
 
 Beacon 为命令、shell、文件传输、端口转发和每次工具调用保留会话记录。采集内容取决于会话类型。
 
-- **录像**在会话支持时采集终端活动。`data_dir/recordings/` 下可用的 asciicast v3 文件可在会话页面回放。
-- **文字记录**保留命令和工具的输出，或具备可用命令集成的 shell 中每条命令及其退出状态。
+- **录像**在会话支持时采集终端活动，输入和输出都按原样记录。`data_dir/recordings/` 下可用的 asciicast v3 文件可在会话页面回放。
+- **文字记录**保留命令或工具的输入和输出，或具备可用命令集成的 shell 中每条命令及其退出状态。
 - **SFTP 和端口转发**保留连接信息。控制台分别显示录像和文字记录的采集状态，包括采集不完整和存储故障。
 - **告警群**里每个 Agent 在每台机器上一条消息，附 **Replay** 链接，读者用自己的 Beacon 账号查看。
 
 会话保留 `ssh.keep`（180 天），之后删除。
+
+一个会话的录像最多 16 MiB。没有记录的内容一律不放行：下一段输入或输出放不进录像时，Beacon 关闭会话，并在 stderr 上告诉 Agent 原因。录像以一个标记结尾，会话记为在上限处停止。这样停下的工具调用返回 `ssh.recording_limit`。大文件用 `scp` 或 `rsync` 复制，长输出用 `head`、`tail` 或 `grep` 截短。
+
+shell 的命令和退出状态按输出里的 shell 集成标记切分。shell 运行的任何程序都能打印这种标记，所以这份列表只作参考，并如此标明（`commands_advisory`）。录像保留键入的内容和机器原样送出的输出，标记也在其中。
 
 没有终端的会话，例如工具调用或 `ssh 主机 命令`，送来的行以单独的 `\n` 结尾。回放时按终端的显示方式换成 `\r\n`。文件和文字记录保留原样。
 
@@ -156,6 +160,8 @@ Beacon 为命令、shell、文件传输、端口转发和每次工具调用保�
 `beacon ssh pause` 立刻关闭所有正在进行的会话，并拒绝新的会话，直到 `beacon ssh resume`。`ssh status` 显示当前状态。
 
 只想停下某一个 Agent，就在它的页面上吊销凭据或删除它，或者执行 `beacon token revoke NAME`。它在机器上打开着的一切立即关闭。还有哪些开关有同样的效果，见[停下 Agent，暂停一切](stop.md)。
+
+连接始终绑定在它打开时的那台机器上。删除机器、重新添加机器或修改它的登录账号，都会关闭在它上面打开着的一切；多路复用的连接也不会在改动后的机器上打开新会话。
 
 ## NAT 后面的机器 {#machines-behind-nat}
 
@@ -196,7 +202,7 @@ Beacon 为命令、shell、文件传输、端口转发和每次工具调用保�
 
 2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接，读者登录后按权限查看。
 
-通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。
+通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。审计日志把拒绝记为 `ssh_refused`，带上机器和原因；同一身份、机器和原因每分钟记一次。
 
 ## 下一步 {#next}
 
