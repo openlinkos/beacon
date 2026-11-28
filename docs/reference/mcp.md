@@ -157,7 +157,7 @@ An outcome's `agent_deliveries` gives the hook status and any programme report f
 | `set_machine_connector` | `machines:write` | Set or change the key a machine behind NAT connects out with (`name`, `key`); a connection made with the old key is closed |
 | `remove_machine` | `machines:write` | Forget a machine (`name`); its sessions stay on record |
 | `pause_ssh` | `machines:write` | Stop every agent's access to machines now: open sessions are closed and new ones refused until `resume_ssh` |
-| `resume_ssh` | `machines:write` | Let agents reach machines again |
+| `resume_ssh` | `machines:write` | Let agents reach machines again. Only a person, or `beacon ssh resume` on the host, resumes: an agent or a token is refused |
 
 `check_machine_ssh` opens no remote session. Only `status: ready` indicates that the host key matched and the machine accepted Beacon's certificate. See [the API's machine section](api.md#machines-and-sessions) for these observations. For the first agent setup, use `run_command` with `hostname` after the check to verify command execution and inspect its session.
 
@@ -190,7 +190,7 @@ What Beacon monitors, in the shapes of its files ([Monitor a service](../guide/m
 | --- | --- | --- |
 | `get_config` | `status:read` or `config:write` | The configuration with the version in force; `kind` narrows it to one list, `kind` and `key` to one item |
 | `put_config` | `config:write` | Add or replace one item (`kind`, `key`, `value`, `note`, `if_version`). The whole configuration is checked and the change takes effect at once; the result is the change, with its version and the values before and after |
-| `set_target_machine` | `config:write` and `machines:write` | Set or clear the response machine of an HTTP target group (`set`, zero-based `group`, `if_version`, optional `note`, and `machine` from `list_machines` or `clear: true`). Requires SSH access to the previous and selected machines, when present |
+| `set_target_machine` | `config:write` and `machines:write` | Set or clear the response machine of an HTTP target group (`set`, zero-based `group`, `if_version`, optional `note`, and `machine` from `list_machines` or `clear: true`). Requires access to all machines, and SSH access to the previous and selected machines, when present |
 | `delete_config` | `config:write` | Remove one item (`kind`, `key`, `note`, `if_version`) |
 | `list_config_changes` | `status:read` or `config:write` | Changes, newest first (`kind`, `key`, `before`, `limit`, 20 by default, at most 200): version, when, who, through what, why, and the items added, changed or removed |
 | `get_config_change` | `status:read` or `config:write` | One change (`version`), with every item's value before and after |

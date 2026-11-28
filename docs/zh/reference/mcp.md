@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-95b74be4
+sourceHash: sha256-11c9fa69
 ---
 
 # MCP 工具
@@ -161,7 +161,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | `set_machine_connector` | `machines:write` | 设置或更换 NAT 后面的机器连出来用的密钥（`name`、`key`）；用旧密钥建立的连接会被关掉 |
 | `remove_machine` | `machines:write` | 移除一台机器（`name`）；它的会话记录保留 |
 | `pause_ssh` | `machines:write` | 立刻停止所有 Agent 上机器：关掉打开的会话，在 `resume_ssh` 之前拒绝新会话 |
-| `resume_ssh` | `machines:write` | 让 Agent 重新能上机器 |
+| `resume_ssh` | `machines:write` | 让 Agent 重新能上机器。只有人，或主机上的 `beacon ssh resume`，才能恢复：Agent 或令牌会被拒绝 |
 
 `check_machine_ssh` 不会打开远程会话。仅 `status: ready` 表示主机密钥匹配且机器接受了 Beacon 的证书。[API 的机器一节](api.md#machines-and-sessions)说明了这些检查结果。首次设置 Agent 时，检查后用 `run_command` 执行 `hostname`，确认命令执行成功并查看该会话。
 
@@ -194,7 +194,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `get_config` | `status:read` 或 `config:write` | 配置和当前生效的版本；给 `kind` 只看一个列表，给 `kind` 和 `key` 只看一项 |
 | `put_config` | `config:write` | 添加或替换一项（`kind`、`key`、`value`、`note`、`if_version`）。整个配置都要校验，修改立即生效；结果是这次修改，带版本号和改前改后的值 |
-| `set_target_machine` | `config:write` 和 `machines:write` | 指定或清除 HTTP 目标分组的响应机器。传入 `set`、从零开始的 `group`、`if_version`，以及从 `list_machines` 取得的 `machine` 或 `clear: true`。可附加 `note`。已有或新选机器均要求 SSH 权限 |
+| `set_target_machine` | `config:write` 和 `machines:write` | 指定或清除 HTTP 目标分组的响应机器。传入 `set`、从零开始的 `group`、`if_version`，以及从 `list_machines` 取得的 `machine` 或 `clear: true`。可附加 `note`。要求能访问全部机器，并对已有或新选机器有 SSH 权限 |
 | `delete_config` | `config:write` | 删除一项（`kind`、`key`、`note`、`if_version`） |
 | `list_config_changes` | `status:read` 或 `config:write` | 修改记录，新的在前（`kind`、`key`、`before`、`limit`，默认 20，最多 200）：版本、时间、谁、通过什么途径、为什么，以及增加、修改或删除了哪些项 |
 | `get_config_change` | `status:read` 或 `config:write` | 一次修改（`version`），带每一项改前和改后的值 |

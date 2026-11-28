@@ -46,10 +46,17 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Bind each connector connection to the key and registration it signed in with, and refuse a connector key another machine already has.
 - Require access to all machines, and every scope and machine the token holds, to delete a token through the API, MCP or the console; an agent's token is deleted by that agent or a person (`token.forbidden`).
 - Hold a put, delete or revert of a target set that changes a response machine to what the dedicated route requires.
+- Keep one record per machine: refuse a machine at another machine's address or with its host key, whoever adds it (`machine.alias`), and pin no host key through a connector that another machine already has (audited as `machine_host_key_refused`). Beacon logs at start any machine recorded twice before; remove the record that should not be there.
+- Require a person or the command line for a new machine reached as an account other than `beacon`, as for a change of account, and the command line for a machine at a loopback, unspecified or link-local address or at `localhost`, however the address is written or resolved. A host key given for a connector machine by an agent or a token must be Ed25519.
+- Leave resuming the SSH channel to a person or `beacon ssh resume` on the host. Pausing is unchanged; an agent's or a token's resume is refused with `ssh.resume_forbidden`.
+- Give the tokens, agents and OAuth sign-ins that name a machine an end when it becomes critical: they keep it 30 days at the latest, each change audited (`machine_access_critical`) and the credentials listed in the alert chat.
+- Compare a target set's response machines by the group they answer for (file, targets and labels) rather than its position, and require access to all machines for every change of one.
 - Ask again on the consent page when no machine is ticked, and offer critical machines to owners only, apart and unticked, behind a confirmation.
 - Show each credential's machine access in the console, `beacon token list`, `beacon agent list`, `beacon user list`, whoami, the agent views and the capabilities.
 
 **Upgrade note.** On its first start, Beacon moves every token, agent and OAuth sign-in that named no machines to `all`, naming every machine marked critical at the time; lists that named machines stay as they were, and each person who is not an owner gets the critical machines of the time named on their account. Each change is logged and audited (`machine_access_migrate`). Review the credentials moved to `all` and their named critical machines, and narrow those that should reach less (`beacon token machines`, `beacon agent machines`, `beacon user machines`). Scripts that created agents or tokens without machines, or that sent an empty machine list to mean every machine, now give none. Then run the `Match User` line of the machine setup (the machines guide, Add a machine) on each machine, so that it trusts Beacon's certificates for its one account.
+
+**Going back.** Machine access is stored where older versions do not read it, and the key they read names no machine there is: downgrading below this version leaves every token, agent and OAuth sign-in without SSH machines until you upgrade again, and credentials the older version makes or changes reach no machine afterwards until they are given access. Run both instances of a primary/standby pair on the same version; the move runs on the instance that holds the leader lease.
 
 ## 0.3.0
 

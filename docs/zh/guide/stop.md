@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-cdfe128b
+sourceHash: sha256-4ff1954c
 ---
 
 # 停下 Agent，暂停一切
@@ -35,7 +35,7 @@ Beacon 每分钟还会检查一遍期间过期的凭据。所以过了有效期�
 
 ## 暂停整条通道 {#pause-the-whole-channel}
 
-暂停 SSH 通道可以同时停止人和 Agent 的访问。通道会关闭正在进行的客户端会话，并拒绝新会话，直到恢复。可以从命令行、控制台的**机器**页、API 或 MCP 暂停和恢复。
+暂停 SSH 通道可以同时停止人和 Agent 的访问。通道会关闭正在进行的客户端会话，并拒绝新会话，直到恢复。可以从命令行、控制台的**机器**页、API 或 MCP 暂停。只有人（在控制台上）或主机上的 `beacon ssh resume` 能恢复：Agent 或令牌来恢复会被拒绝，返回 `ssh.resume_forbidden`，所以 Agent 撤不掉这道刹车。
 
 ```bash
 docker exec beacon beacon ssh pause     # 恢复是 ssh resume
@@ -49,7 +49,7 @@ docker exec beacon beacon ssh pause     # 恢复是 ssh resume
 - MCP 工具和 API 也被同样的话拒绝；
 - 监控不受影响：检测点照常汇报，告警照常到达。
 
-暂停记入审计日志。API 路由是 `POST /api/v1/ssh/pause` 和 `/resume`，MCP 工具是 `pause_ssh`。两者都要 `machines:write`，并都回显到告警群，所以通道暂停不会没人注意到。
+暂停记入审计日志。API 路由是 `POST /api/v1/ssh/pause` 和 `/resume`，MCP 工具是 `pause_ssh` 和 `resume_ssh`。两者都要 `machines:write`，恢复还要是人，并都回显到告警群，所以通道暂停不会没人注意到。
 
 暂停是整个机群的刹车。上面的开关只停一个 Agent，不停别人。
 

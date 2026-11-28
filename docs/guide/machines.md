@@ -87,11 +87,13 @@ If the machine's OpenSSH supports `PerSourcePenaltyExemptList` (introduced in 9.
 
 Other options and commands:
 
-- `-user` names another account than `beacon`. Only a person or `beacon` on the host changes it later, and `root` only `beacon` on the host.
-- `-critical` marks the machine as critical. A credential with access to all machines does not reach a critical machine unless it names it; owners reach it. Only an owner or `beacon` on the host marks a machine critical, or changes or removes a critical one.
+- `-user` names another account than `beacon`. Only a person or `beacon` on the host adds a machine with another account or changes it later, and `root` only `beacon` on the host.
+- `-critical` marks the machine as critical. A credential with access to all machines does not reach a critical machine unless it names it; owners reach it. Only an owner or `beacon` on the host marks a machine critical, or changes or removes a critical one. Credentials that named the machine before it became critical keep it for 30 days at the latest ([Machine access](../reference/permissions.md#machine-access)).
 - `machine list` shows every machine.
 - `machine add … -replace` pins a new host key after a reinstall.
-- `machine remove NAME` forgets a machine, and keeps its sessions on record.
+- `machine remove NAME` forgets a machine, and keeps its sessions on record. On the machine, remove `/etc/ssh/beacon_ca.pub` and the `Match User` block as well, so that nobody can add it again and reach it.
+
+One machine has one record: Beacon refuses a machine at another machine's address or with its host key (`machine.alias`), whoever adds it. A machine cloned from another's image shares that machine's host keys until it gets its own (`rm /etc/ssh/ssh_host_*; ssh-keygen -A`, then reload sshd). A machine on Beacon's own host, at a loopback or link-local address or `localhost`, is added only with `beacon machine add` on the host. When Beacon starts, it logs any machine recorded twice before this was refused; remove the record that should not be there.
 
 The console does the same for someone with `machines:write` and access to all machines, on **Machines**: a credential that names its machines adds, changes and removes none ([Changing machines](../reference/permissions.md#changing-machines)). **Add a machine** takes the name, the address (`host` or `host:port`, or behind NAT), the account (`beacon` when left out), whether it is critical, a note, and, for a machine behind NAT, the key it connects out with and an optional host key. The page then shows, once, what the machine needs: the same lines the command prints. A machine's page edits the note, the critical flag and the account, pins the host key again (and shows the old and new fingerprints), and, for one behind NAT, changes the key it connects out with. **Remove the machine** asks for the machine's name, typed in full. The machine is forgotten, an open connector closes, and its sessions stay on record.
 
@@ -155,7 +157,7 @@ A session without a terminal, such as a tool call or `ssh host command`, sends l
 
 ## Pause, or stop one agent
 
-`beacon ssh pause` closes every open session at once, and refuses new ones until `beacon ssh resume`. `ssh status` says which.
+`beacon ssh pause` closes every open session at once, and refuses new ones until `beacon ssh resume`. `ssh status` says which. Anyone with `machines:write` may pause the channel; only a person, or `beacon ssh resume` on the host, resumes it.
 
 To stop one agent rather than all, revoke its credentials or delete it on its page, or run `beacon token revoke NAME`. What it has open on machines closes at once. [Stop an agent, pause everything](stop.md) lists every switch that does the same.
 
