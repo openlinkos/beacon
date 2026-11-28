@@ -405,7 +405,7 @@ func (s *Server) lockedOut(r *http.Request, username string) string {
 		if d, ok := s.Auth.BlockedFor(r); ok {
 			wait = d
 		}
-		if d, ok := s.Auth.UserBlockedFor(username); ok && d > wait {
+		if d, ok := s.Auth.UserBlockedFor(r, username); ok && d > wait {
 			wait = d
 		}
 	}

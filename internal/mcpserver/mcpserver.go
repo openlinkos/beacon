@@ -95,11 +95,11 @@ func Handler(b *bridge.Bridge, g SSH, a *api.Auth, log *slog.Logger, opts ...Opt
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log})
 	verify := func(_ context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
-		if d, blocked := a.BlockedFor(r); blocked {
+		p, d, err := a.Check(r, token)
+		if errors.Is(err, api.ErrBlocked) {
 			return nil, lockoutError{wait: d}
 		}
-		p, ok := a.Authenticate(r, token)
-		if !ok {
+		if err != nil {
 			return nil, auth.ErrInvalidToken
 		}
 		return &auth.TokenInfo{Scopes: p.Scopes, Expiration: p.Expires, UserID: p.Key(), Extra: map[string]any{principalKey: p}}, nil
