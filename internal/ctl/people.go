@@ -84,6 +84,8 @@ func PeopleHandler(p People) http.Handler {
 			code = http.StatusConflict
 		case errors.Is(err, bridge.ErrBadInput), errors.Is(err, bridge.ErrForbidden):
 			code = http.StatusBadRequest
+		case errors.Is(err, bridge.ErrUnrecorded):
+			code = http.StatusServiceUnavailable
 		}
 		fail(w, code, err)
 	}

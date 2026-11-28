@@ -57,7 +57,7 @@ A link works once, and none works once Beacon has an account. From then on, peop
 
 **People** lists the invitations not yet used, and **Withdraw** ends one. The chat hears that someone was invited and that someone joined, never the link.
 
-An invitation or a reset link works only while whoever made it could still make it: an enabled owner, an unexpired token with the scopes for it, or the command line. Disabling or demoting the person, or revoking the token, withdraws the links they made. A link from an older Beacon, which does not record who made it, no longer works: make a new one.
+An invitation or a reset link works only while whoever made it could still make it: an enabled owner, an unexpired token with the scopes and the machine access for it ([below](#change-a-role-disable-someone)), or the command line. Disabling or demoting the person, or revoking the token, withdraws the links they made. A link from an older Beacon, which does not record who made it, no longer works: make a new one.
 
 A username:
 
@@ -80,6 +80,8 @@ A new password, chosen either way, ends:
 - the OAuth sign-ins of the person's agents (Claude Code, Codex and the like sign in again), with what they have open on machines and the SSH keys they added;
 - the other reset links for the person.
 
+A reset link also removes the person's own SSH keys, and what was open with them closes: someone else may have held the account, and a key they registered would outlast the new password. The person adds their keys again afterwards. Changing your own password keeps your keys.
+
 The tokens of the person's agents keep working. The reset page names them, and **Also revoke these tokens now** revokes them with the new password. Otherwise revoke them on the agent's page. A reset also withdraws the invitations and reset links the person made.
 
 **People** lists the reset links not yet used, and **Withdraw** ends one.
@@ -96,7 +98,13 @@ docker exec beacon beacon user enable bob          # bob is enabled
 
 A lower role limits the person's sign-ins and their agents at once. Disabling someone ends their sign-ins, stops their agents and closes what those agents have open on machines. Either withdraws the invitations and reset links the person made. Nobody disables themself on the console.
 
-A standalone token with `accounts:write` invites, resets and changes only people whose role's scopes it holds, and gives only such roles. A token with `accounts:write` alone reaches nobody. Owners and the command line are not limited ([Roles, presets and scopes](../reference/permissions.md#presets)).
+A standalone token with `accounts:write` invites, resets and changes only people whose role's scopes it holds, and gives only such roles. It must also reach what the role reaches:
+
+- the owner role reaches every machine, critical ones included, so only an owner or the command line invites an owner, makes an owner's reset link, or changes an owner, and no token does;
+- the on-call and operator roles reach every machine that is not critical, so a token gives them, or acts on people who have them, only with access to all machines;
+- a person with critical machines named on their account is reset or changed only by an owner or the command line.
+
+A token with `accounts:write` alone reaches nobody. Owners and the command line are not limited ([Roles, presets and scopes](../reference/permissions.md#presets)).
 
 `beacon user list` shows everyone, with their role, status, last sign-in and agents. The invitations not yet used follow.
 
@@ -130,7 +138,7 @@ The console's **Agents** page lists your agents; an owner sees everyone's. Each 
 - lists its OAuth sign-ins, tokens and keys, and revokes or removes any of them;
 - deletes the agent with all its credentials.
 
-People make and manage their own agents. An owner manages anyone's.
+People make and manage their own agents. An owner manages anyone's. A new token for an agent, or a key added to it, comes from its owner, an owner, the command line, or a standalone token that holds every scope the agent's preset asks for and reaches every machine the agent does, its critical machines included: a credential never carries more than whoever made it holds.
 
 ## Connect Claude Code {#connect-claude-code}
 
@@ -140,7 +148,7 @@ Claude Code signs in through the browser, with MCP's OAuth. It reaches machines 
 
 Each OAuth sign-in keeps what you allowed as a ceiling of its own. The client may do what its sign-in's preset and machines allow, within what the agent may do, within your role. This is read afresh on every request.
 
-On the consent page, the machines are all those that are not critical, or only those you tick. **Only these** with nothing ticked is asked again, never taken for all. Critical machines are offered to owners alone, in a list of their own and unticked; ticking one takes a confirmation, and the sign-in reaches it for 30 days at most.
+On the consent page, the machines are all those that are not critical, or only those you tick. **Only these** with nothing ticked is asked again, never taken for all. Critical machines are offered to owners alone, in a list of their own and unticked; ticking one takes a confirmation, and the sign-in reaches it for 30 days at most, and never longer than a reused agent does. A reused agent that reaches no machine that is not critical is allowed with the critical machines you tick, or with none; the page says so.
 
 Allowing a client never changes an existing agent. So it never widens another client's sign-in, the agent's tokens or its keys. To give an agent you reuse more, change the agent on its page first, then sign in again from the client.
 

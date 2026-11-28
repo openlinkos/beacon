@@ -93,8 +93,9 @@ func TestPeopleRoutes(t *testing.T) {
 	if code, out := c.do("POST", "/api/v1/alerts/"+testutil.GroupID()+"/notes", agent, `{"text": "x"}`); code != 403 || !strings.Contains(out["error"].(string), "within its owner's role allows status:read, sessions:read") {
 		t.Errorf("a demoted owner's agent: %d %v", code, out)
 	}
-	if code, out := c.do("PATCH", "/api/v1/users/alice", owner, `{"disabled": true}`); code != 409 || out["code"] != "user.last_owner" {
-		t.Errorf("the last owner disabled: %d %v", code, out)
+	// an owner is acted on only by an owner or the command line, never by a token
+	if code, out := c.do("PATCH", "/api/v1/users/alice", owner, `{"disabled": true}`); code != 403 || out["code"] != "auth.scope" || !strings.Contains(out["error"].(string), "owner role") {
+		t.Errorf("an owner disabled by a token: %d %v", code, out)
 	}
 	if code, out := c.do("PATCH", "/api/v1/users/nobody", owner, `{"disabled": true}`); code != 404 || out["code"] != "user.not_found" {
 		t.Errorf("nobody: %d %v", code, out)

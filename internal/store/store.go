@@ -636,6 +636,13 @@ func (s *Store) CreateToken(name string, scopes []string, ttl time.Duration, by 
 
 // CreateSubjectToken is CreateToken for a token that speaks for subject (see Token).
 func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, Token, error) {
+	return s.createToken(name, subject, scopes, ttl, by, false, nil)
+}
+
+// createToken makes a token, replacing one of the same name with replace (as RevokeToken would, in the
+// same transaction), and writes what record gives in that transaction.
+func (s *Store) createToken(name, subject string, scopes []string, ttl time.Duration, by string, replace bool,
+	record func(old *Token, t Token) []AuditEntry) (string, Token, error) {
 	if !tokenNameRe.MatchString(name) {
 		return "", Token{}, fmt.Errorf("token name %q: use lower case letters, digits, dots, dashes and underscores", name)
 	}
@@ -666,16 +673,40 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 	b, _ := json.Marshal(t)
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
-	err = s.db.Update(func(tx kv.Tx) error {
-		if tx.Get(bucketTokens, []byte(name)) != nil {
-			return fmt.Errorf("a token named %q exists; revoke it first", name)
+	var old *Token
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		old = nil
+		if v := tx.Get(bucketTokens, []byte(name)); v != nil {
+			if !replace {
+				return fmt.Errorf("a token named %q exists; revoke it first", name)
+			}
+			var was Token
+			if err := json.Unmarshal(v, &was); err != nil {
+				return err
+			}
+			old = &was
+			if err := deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "token:"+name }); err != nil {
+				return err
+			}
+			if err := dropKeys(tx, "token:"+name); err != nil {
+				return err
+			}
 		}
-		return tx.Put(bucketTokens, []byte(name), b)
+		if err := tx.Put(bucketTokens, []byte(name), b); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(old, t))
+		}
+		return nil
 	})
 	if err != nil {
 		return "", Token{}, err
 	}
 	s.mu.Lock()
+	if old != nil {
+		delete(s.tokens, old.Hash)
+	}
 	s.tokens[t.Hash] = t
 	s.mu.Unlock()
 	return secret, t, nil
@@ -735,15 +766,23 @@ func (s *Store) UpdateToken(name string, change func(*Token) error) (Token, erro
 }
 
 func (s *Store) updateToken(name string, change func(kv.Tx, *Token) error) (Token, error) {
+	return s.updateTokenRecorded(name, change, nil)
+}
+
+func (s *Store) updateTokenRecorded(name string, change func(kv.Tx, *Token) error, record Record[Token]) (Token, error) {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var t Token
-	err := s.db.Update(func(tx kv.Tx) error {
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		v := tx.Get(bucketTokens, []byte(name))
 		if v == nil {
 			return ErrNotFound
 		}
 		if err := json.Unmarshal(v, &t); err != nil {
+			return err
+		}
+		var before Token
+		if err := json.Unmarshal(v, &before); err != nil {
 			return err
 		}
 		if t.Lifetime == 0 {
@@ -764,7 +803,13 @@ func (s *Store) updateToken(name string, change func(kv.Tx, *Token) error) (Toke
 		if err != nil {
 			return err
 		}
-		return tx.Put(bucketTokens, []byte(name), b)
+		if err := tx.Put(bucketTokens, []byte(name), b); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(before, t))
+		}
+		return nil
 	})
 	if err != nil {
 		return Token{}, err

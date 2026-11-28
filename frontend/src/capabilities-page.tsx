@@ -89,12 +89,15 @@ export function CapabilitiesHub({ session, t }: { session: WorkspaceSession; t: 
     { label: 'Team Credentials', on: data.features.team_credentials },
   ]
 
-  // all: every machine that is not critical, and the critical machines named beside it
-  const machineScopeLabel = data.caller.machine_scope === 'all'
-    ? [t('allMachines'), ...(data.caller.machines ?? [])].join(' + ')
-    : data.caller.machine_scope === 'none'
-      ? t('noMachines')
-      : (data.caller.machines ?? []).join(', ')
+  // every: an owner's own access, every machine with the critical ones; all: every machine that is not
+  // critical, and the critical machines named beside it
+  const machineScopeLabel = data.caller.machine_access === 'every'
+    ? t('everyMachine')
+    : data.caller.machine_scope === 'all'
+      ? [t('allMachines'), ...(data.caller.machines ?? [])].join(' + ')
+      : data.caller.machine_scope === 'none'
+        ? t('noMachines')
+        : (data.caller.machines ?? []).join(', ')
 
   return (
     <div className="hub-stack">

@@ -56,10 +56,10 @@ func (b *Bridge) mayRevokeAny(who Actor) error {
 }
 
 // mayRevoke reports whether who may delete t (mayRevokeAny holds already). An agent's token: the agent
-// itself, a person (one with machines:write: an operator or an owner, who may stop any agent's
-// credential at once), or an admin who manages agents; never another agent or another token. A token
-// of its own: only one within the caller, every scope it holds held by the caller and its machine
-// access within the caller's, so that nobody deletes a credential stronger than their own.
+// itself, its owner, or an admin who may manage that owner (mayManage), as on the agent's page; never
+// another person's, another agent or another token. A token of its own: only one within the caller,
+// every scope it holds held by the caller and its machine access within the caller's, so that nobody
+// deletes a credential stronger than their own.
 func (b *Bridge) mayRevoke(who Actor, t store.Token) error {
 	if cliActor(who) {
 		return nil
@@ -69,12 +69,12 @@ func (b *Bridge) mayRevoke(who Actor, t store.Token) error {
 		return ErrForbidden
 	}
 	if t.Agent != "" {
-		if p.Agent == t.Agent || p.Person() {
+		if p.Agent == t.Agent {
 			return nil
 		}
 		a, ok := b.d.Store.Agent(t.Agent)
 		if !ok || !b.mayManage(who, a.Owner) {
-			return fmt.Errorf("%w: token %s is agent %s's; a person, or the agent itself, deletes it", ErrForbidden, t.Name, t.Agent)
+			return fmt.Errorf("%w: token %s is agent %s's; the agent itself, its owner or an owner deletes it", ErrForbidden, t.Name, t.Agent)
 		}
 		return nil
 	}

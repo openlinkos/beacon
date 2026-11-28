@@ -123,7 +123,7 @@ func TestLinksFollowTheirMaker(t *testing.T) {
 	p, _ := e.Store.Authenticate(e.Token(t, "people-script", store.PeopleScopes...))
 	script := bridge.ActorOf(p, "api")
 
-	inv, err := e.Bridge.Invite(ctx, script, "owner", "")
+	inv, err := e.Bridge.Invite(ctx, script, "operator", "")
 	if err != nil {
 		t.Fatal(err)
 	}

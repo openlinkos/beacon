@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -94,16 +95,7 @@ func (a Account) MachineAccess() MachineAccess { return accountAccess(a) }
 // SetCriticalMachines names the critical machines a person who is not an owner reaches (named: none of
 // them), each until the access says. It returns the account before and after.
 func (s *Store) SetCriticalMachines(username string, named MachineAccess) (before, after Account, err error) {
-	named = named.normal()
-	if err := named.check(); err != nil {
-		return Account{}, Account{}, err
-	}
-	after, err = s.UpdateAccount(username, func(a *Account) error {
-		before = *a
-		a.CriticalMachines, a.CriticalUntil = named.Machines, named.MachineUntil
-		return nil
-	})
-	return before, after, err
+	return s.SetCriticalMachinesRecorded(username, named, nil)
 }
 
 // Account errors.
@@ -355,8 +347,12 @@ func owners(tx kv.Tx, except string) int {
 // password (SetPassword does). A change that would leave no enabled owner is refused. A role lowered or
 // an account disabled limits its sessions and its agents at once: they are read afresh on every request.
 func (s *Store) UpdateAccount(username string, change func(*Account) error) (Account, error) {
+	return s.updateAccount(username, change, nil)
+}
+
+func (s *Store) updateAccount(username string, change func(*Account) error, record Record[Account]) (Account, error) {
 	var out Account
-	err := s.db.Update(func(tx kv.Tx) error {
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		a, ok := getAccount(tx, username)
 		if !ok {
 			return ErrNotFound
@@ -385,7 +381,13 @@ func (s *Store) UpdateAccount(username string, change func(*Account) error) (Acc
 			}
 		}
 		out = a
-		return putAccount(tx, a)
+		if err := putAccount(tx, a); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(prev, a))
+		}
+		return nil
 	})
 	if err != nil {
 		return Account{}, err
@@ -544,13 +546,15 @@ type LinkMaker struct {
 // linkMakerMay reports whether whoever made l could make it now, read afresh in tx: ErrLinkWithdrawn
 // when not. The command line always could. A person must be enabled, and a token of its own must exist
 // and not have expired; either must hold accounts:write and every scope of the role the link gives, or
-// of the role the account it resets has now. A link that names no maker was made before Beacon recorded
-// makers, and is refused: who made it cannot be checked.
+// of the role the account it resets has now, and reach what that role reaches (RoleWithin). A link that
+// names no maker was made before Beacon recorded makers, and is refused: who made it cannot be checked.
 func linkMakerMay(tx kv.Tx, l AccountLink, now time.Time) error {
 	if l.Kind == LinkSetup || l.Maker == LinkCLI {
 		return nil
 	}
 	var scopes []string
+	var access MachineAccess
+	owner := false
 	kind, name, _ := strings.Cut(l.Maker, ":")
 	switch kind {
 	case "user":
@@ -558,23 +562,24 @@ func linkMakerMay(tx kv.Tx, l AccountLink, now time.Time) error {
 		if !ok || a.Disabled {
 			return ErrLinkWithdrawn
 		}
-		scopes = RoleScopes(a.Role)
+		scopes, access, owner = RoleScopes(a.Role), accountAccess(a), a.Role == "owner"
 	case "token":
 		var t Token
 		if name == "" || !decodeKey(tx, bucketTokens, []byte(name), &t) || t.Agent != "" || !now.Before(t.Expires) {
 			return ErrLinkWithdrawn
 		}
-		scopes = t.Scopes
+		scopes, access = t.Scopes, t.Live(now)
 	default:
 		return ErrLinkWithdrawn
 	}
 	role := l.Role
+	var named MachineAccess
 	if l.Kind == LinkReset {
 		a, ok := getAccount(tx, l.User)
 		if !ok {
 			return ErrBadLink
 		}
-		role = a.Role
+		role, named = a.Role, a.CriticalAccess().Live(now)
 	}
 	if !slices.Contains(scopes, "accounts:write") {
 		return ErrLinkWithdrawn
@@ -583,6 +588,39 @@ func linkMakerMay(tx kv.Tx, l AccountLink, now time.Time) error {
 		if !slices.Contains(scopes, sc) {
 			return ErrLinkWithdrawn
 		}
+	}
+	if RoleWithin(role, named, owner, access) != nil {
+		return ErrLinkWithdrawn
+	}
+	return nil
+}
+
+// Why RoleWithin refuses.
+var (
+	// ErrOwnerRole means the role is owner, which reaches every machine, critical ones included.
+	ErrOwnerRole = errors.New("the owner role reaches every machine, critical ones included; only an owner, or beacon on the host, gives it or acts on an owner")
+	// ErrRoleMachines means the role reaches every machine that is not critical.
+	ErrRoleMachines = errors.New("the role reaches every machine that is not critical, so giving it, or acting on someone who has it, needs access to all machines")
+	// ErrNamedCritical means the person reaches critical machines named on their account.
+	ErrNamedCritical = errors.New("the person reaches critical machines named on their account; only an owner, or beacon on the host, acts on them")
+)
+
+// RoleWithin reports whether a caller may give someone role, or act on a person with role and the
+// critical machines named (live) on their account, as far as machines go (the scopes are checked
+// besides): the owner role, which reaches every machine, critical ones included, only an owner; a role
+// that reaches machines (machines:ssh) only a caller with access to all machines; a person with critical
+// machines named only an owner, who alone names them. owner says whether the caller is an owner, a
+// person; access is the caller's machine access. The command line is not asked.
+func RoleWithin(role string, named MachineAccess, owner bool, access MachineAccess) error {
+	switch {
+	case owner:
+		return nil
+	case role == "owner":
+		return ErrOwnerRole
+	case slices.Contains(RoleScopes(role), "machines:ssh") && !access.IsAll():
+		return ErrRoleMachines
+	case len(named.Machines) > 0:
+		return ErrNamedCritical
 	}
 	return nil
 }
@@ -613,14 +651,14 @@ func hashLink(code string) string {
 // createLink stores a link and returns its code, which is not stored. A link expired longer than
 // expiredLinkKeep is forgotten on the way, and so is a row that no longer reads. One that has only just
 // expired stays, so opening it still says it expired after a newer link was made.
-func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx) error) (string, AccountLink, error) {
+func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx) error, record func(AccountLink) []AuditEntry) (string, AccountLink, error) {
 	code, err := randomID(32)
 	if err != nil {
 		return "", AccountLink{}, err
 	}
 	now := s.now().UTC()
 	l.Hash, l.Created, l.Expires = hashLink(code), now, now.Add(ttl)
-	err = s.db.Update(func(tx kv.Tx) error {
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		if check != nil {
 			if err := check(tx); err != nil {
 				return err
@@ -638,7 +676,13 @@ func (s *Store) createLink(l AccountLink, ttl time.Duration, check func(tx kv.Tx
 			_ = tx.Delete(bucketLinks, k)
 		}
 		v, _ := json.Marshal(l)
-		return tx.Put(bucketLinks, []byte(l.Hash), v)
+		if err := tx.Put(bucketLinks, []byte(l.Hash), v); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(l))
+		}
+		return nil
 	})
 	if err != nil {
 		return "", AccountLink{}, err
@@ -654,35 +698,42 @@ func (s *Store) CreateSetupLink() (string, AccountLink, error) {
 			return ErrHasAccounts
 		}
 		return nil
-	})
+	}, nil)
 }
 
 // CreateInvitation makes a link with which someone joins with role.
 func (s *Store) CreateInvitation(role, note string, by LinkMaker) (string, AccountLink, error) {
+	return s.CreateInvitationRecorded(role, note, by, nil)
+}
+
+// invitation is the link CreateInvitation stores, checked.
+func invitation(role, note string, by LinkMaker) (AccountLink, error) {
 	if by.Key == "" {
-		return "", AccountLink{}, errors.New("a link names who made it")
+		return AccountLink{}, errors.New("a link names who made it")
 	}
 	if !ValidRole(role) {
-		return "", AccountLink{}, fmt.Errorf("unknown role %q; roles are %s", role, strings.Join(Roles, ", "))
+		return AccountLink{}, fmt.Errorf("unknown role %q; roles are %s", role, strings.Join(Roles, ", "))
 	}
 	note = strings.TrimSpace(note)
 	if utf8.RuneCountInString(note) > 200 || strings.ContainsFunc(note, unicode.IsControl) {
-		return "", AccountLink{}, errors.New("the note is at most 200 characters on one line")
+		return AccountLink{}, errors.New("the note is at most 200 characters on one line")
 	}
-	return s.createLink(AccountLink{Kind: LinkInvite, Role: role, Note: note, CreatedBy: by.Name, Maker: by.Key}, InviteTTL, nil)
+	return AccountLink{Kind: LinkInvite, Role: role, Note: note, CreatedBy: by.Name, Maker: by.Key}, nil
 }
 
 // CreateResetLink makes a link with which username chooses a new password.
 func (s *Store) CreateResetLink(username string, by LinkMaker) (string, AccountLink, error) {
-	if by.Key == "" {
-		return "", AccountLink{}, errors.New("a link names who made it")
-	}
-	return s.createLink(AccountLink{Kind: LinkReset, User: username, CreatedBy: by.Name, Maker: by.Key}, ResetTTL, func(tx kv.Tx) error {
+	return s.CreateResetLinkRecorded(username, by, nil)
+}
+
+// resetCheck refuses a reset link for an account that does not exist.
+func resetCheck(username string) func(tx kv.Tx) error {
+	return func(tx kv.Tx) error {
 		if _, ok := getAccount(tx, username); !ok {
 			return ErrNotFound
 		}
 		return nil
-	})
+	}
 }
 
 // Link returns the link whose code this is, if it is of kind, has not been used or expired, and whoever
@@ -837,24 +888,33 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	return a, nil
 }
 
-// Reset gives an account a new password with a reset link, which it uses up, while whoever made the link
-// could still make it. It ends what SetPassword ends (the console sessions, the OAuth sign-ins of the
-// person's agents, the reset links for the account) and withdraws the invitations and reset links the
-// person made. Their agents' tokens keep working.
+// Reset gives an account a new password with a reset link (ResetAccount), and returns the account.
 func (s *Store) Reset(code, password string) (Account, error) {
+	a, _, err := s.ResetAccount(code, password)
+	return a, err
+}
+
+// ResetAccount gives an account a new password with a reset link, which it uses up, while whoever made
+// the link could still make it. It ends what SetPassword ends (the console sessions, the OAuth sign-ins
+// of the person's agents, the reset links for the account), withdraws the invitations and reset links
+// the person made, and removes the person's own SSH keys, which it returns: a reset is for an account
+// someone else may have held, and a key registered meanwhile would outlast the new password. Their
+// agents' tokens keep working.
+func (s *Store) ResetAccount(code, password string) (Account, []SSHKey, error) {
 	l, err := s.Link(LinkReset, code)
 	if err != nil {
-		return Account{}, err
+		return Account{}, nil, err
 	}
 	if err := CheckPassword(l.User, password); err != nil {
-		return Account{}, err
+		return Account{}, nil, err
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
-		return Account{}, err
+		return Account{}, nil, err
 	}
 	now := s.now().UTC()
 	var a Account
+	var keys []SSHKey
 	err = s.db.Update(func(tx kv.Tx) error {
 		cur, ok := getLink(tx, code)
 		if !ok || cur.Kind != LinkReset {
@@ -870,7 +930,8 @@ func (s *Store) Reset(code, password string) (Account, error) {
 		if !ok {
 			return ErrBadLink
 		}
-		acc.PasswordHash, acc.PasswordChanged = hash, now
+		keys = acc.SSHKeys
+		acc.PasswordHash, acc.PasswordChanged, acc.SSHKeys = hash, now, nil
 		a = acc
 		if err := putAccount(tx, acc); err != nil {
 			return err
@@ -884,8 +945,8 @@ func (s *Store) Reset(code, password string) (Account, error) {
 		return deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "user:"+acc.Username })
 	})
 	if err != nil {
-		return Account{}, err
+		return Account{}, nil, err
 	}
 	s.DeleteAccountSessions(a.Username, "")
-	return a, nil
+	return a, keys, nil
 }

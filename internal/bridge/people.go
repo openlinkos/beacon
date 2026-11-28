@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -239,11 +240,14 @@ func linkMaker(who Actor) store.LinkMaker {
 }
 
 // withinRole reports whether who may act on an account with role, or give someone that role: the
-// command line may; anyone else, read afresh, must hold every scope the role gives. So a token with
-// accounts:write but less than an owner's scopes cannot invite an owner, reset an owner's password or
-// change an owner. It changes nothing.
-func (b *Bridge) withinRole(who Actor, role string) error {
-	if who.Via == "cli" && who.Key == "" {
+// command line may; anyone else, read afresh, must hold every scope the role gives, and reach what the
+// role reaches (store.RoleWithin). acc is the account acted on, whose critical machines count too; nil
+// for an invitation. So a token with accounts:write but less than an owner's scopes cannot invite an
+// owner, reset an owner's password or change an owner; only an owner gives or acts on the owner role, or
+// acts on someone with critical machines named; and a role that reaches machines is given or acted on
+// only by a caller with access to all machines. It changes nothing.
+func (b *Bridge) withinRole(who Actor, role string, acc *store.Account) error {
+	if cliActor(who) {
 		return nil
 	}
 	caller, ok := b.caller(who)
@@ -254,6 +258,46 @@ func (b *Bridge) withinRole(who Actor, role string) error {
 		if !caller.Has(sc) {
 			return fmt.Errorf("%w: the %s role gives %s, which you do not hold", ErrForbidden, role, sc)
 		}
+	}
+	var named store.MachineAccess
+	if acc != nil {
+		named = acc.CriticalAccess().Live(b.now())
+	}
+	switch err := store.RoleWithin(role, named, caller.Owner(), caller.MachineAccess); {
+	case errors.Is(err, store.ErrRoleMachines):
+		return fmt.Errorf("%w: the %s role reaches every machine that is not critical, so giving it, or acting on someone who has it, needs access to all machines; this credential reaches only the machines it names", ErrForbidden, role)
+	case errors.Is(err, store.ErrNamedCritical):
+		return fmt.Errorf("%w: %s reaches critical machines named on their account (%s); only an owner, or beacon on the host, acts on them", ErrForbidden, acc.Username, strings.Join(named.Machines, ", "))
+	case err != nil:
+		return fmt.Errorf("%w: %v", ErrForbidden, err) //nolint:errorlint // one wrapped error is enough
+	}
+	return nil
+}
+
+// mayEquip reports whether who may give agent a a new credential (a token) or an SSH key: its owner, a
+// person; beacon on the host; or a caller, read afresh, that holds every scope the agent's preset asks
+// for and whose machine access covers the agent's, the critical machines it names included. So a new
+// credential never carries more than whoever made it holds, now or after the owner's role changes. It
+// changes nothing.
+func (b *Bridge) mayEquip(who Actor, a store.Agent) error {
+	if cliActor(who) {
+		return nil
+	}
+	p, ok := b.caller(who)
+	if !ok {
+		return ErrForbidden
+	}
+	if p.Person() && p.User == a.Owner {
+		return nil
+	}
+	for _, sc := range a.Wanted() {
+		if !p.Has(sc) {
+			return fmt.Errorf("%w: agent %s may use %s, which you do not hold; its owner, an owner, or beacon on the host gives it a credential", ErrForbidden, a.Name, sc)
+		}
+	}
+	critical := b.d.Store.CriticalMachines()
+	if !a.Live(b.now()).Within(p.MachineAccess, func(m string) bool { return critical[m] }) {
+		return fmt.Errorf("%w: agent %s reaches machines you do not (%s); its owner, an owner, or beacon on the host gives it a credential", ErrForbidden, a.Name, a.Live(b.now()).Summary())
 	}
 	return nil
 }
@@ -341,21 +385,26 @@ func (b *Bridge) User(who Actor, username string) (UserView, error) {
 }
 
 // Invite makes an invitation to join with role, valid for a day; the link is shown only now. The caller
-// must hold every scope of the role (withinRole), and the invitation works only while it still does.
+// must hold every scope of the role and reach what it reaches (withinRole), and the invitation works
+// only while it still does. It is made with its audit entry, or not at all (ErrUnrecorded).
 func (b *Bridge) Invite(ctx context.Context, who Actor, role, note string) (LinkView, error) {
 	if !b.admin(who) {
 		return LinkView{}, fmt.Errorf("%w: inviting people needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	if store.ValidRole(role) {
-		if err := b.withinRole(who, role); err != nil {
+		if err := b.withinRole(who, role, nil); err != nil {
 			return LinkView{}, err
 		}
 	}
-	code, l, err := b.d.Store.CreateInvitation(role, note, linkMaker(who))
-	if err != nil {
+	code, l, err := b.d.Store.CreateInvitationRecorded(role, note, linkMaker(who), func(l store.AccountLink) []store.AuditEntry {
+		return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_invite", Target: l.ID(), Detail: role + " " + l.Note}}
+	})
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return LinkView{}, unrecorded("user_invite", role)
+	case err != nil:
 		return LinkView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_invite", Target: l.ID(), Detail: role + " " + l.Note})
 	b.echo(ctx, b.t("%s invited someone to join as %s via %s", who.Name, b.roleName(role), b.viaName(who.Via)))
 	return linkView(l, b.consoleURL("/join", code)), nil
 }
@@ -417,7 +466,9 @@ func (b *Bridge) ResetLinks(who Actor) ([]LinkView, error) {
 // UpdateUser changes someone's role, display name or contact, or disables or enables them. A lowered role
 // or a disabled account limits their sessions and agents at once, and withdraws the links they made;
 // Beacon always keeps an enabled owner. The caller must hold every scope of the account's role, and of
-// the role it is given (withinRole).
+// the role it is given, and reach what those reach (withinRole). A raised role or an enabled account is
+// written with its audit entry, or not at all (ErrUnrecorded); an account that changed meanwhile is
+// refused, to be looked at again.
 func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch UserChange) (UserView, error) {
 	if !b.admin(who) {
 		return UserView{}, fmt.Errorf("%w: changing people needs an owner account or a standalone token with accounts:write", ErrForbidden)
@@ -426,15 +477,19 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 	if !ok {
 		return UserView{}, fmt.Errorf("%w: no account %q", store.ErrNotFound, username)
 	}
-	if err := b.withinRole(who, before.Role); err != nil {
+	if err := b.withinRole(who, before.Role, &before); err != nil {
 		return UserView{}, err
 	}
 	if ch.Role != nil && store.ValidRole(*ch.Role) {
-		if err := b.withinRole(who, *ch.Role); err != nil {
+		if err := b.withinRole(who, *ch.Role, &before); err != nil {
 			return UserView{}, err
 		}
 	}
-	a, err := b.d.Store.UpdateAccount(username, func(a *store.Account) error {
+	recorded := map[string]bool{} // the entries written with the change
+	a, err := b.d.Store.UpdateAccountRecorded(username, func(a *store.Account) error {
+		if a.Role != before.Role || a.Disabled != before.Disabled || !slices.Equal(a.CriticalMachines, before.CriticalMachines) {
+			return fmt.Errorf("%w: %s changed meanwhile; look again and retry", ErrBadInput, username)
+		}
 		if ch.Role != nil {
 			a.Role = *ch.Role
 		}
@@ -452,9 +507,22 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 			a.FeishuOpenID = id
 		}
 		return nil
+	}, func(prev, after store.Account) []store.AuditEntry {
+		var out []store.AuditEntry
+		if store.RoleRaised(prev.Role, after.Role) {
+			out = append(out, store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_role", Target: username, Detail: prev.Role + " -> " + after.Role})
+			recorded["user_role"] = true
+		}
+		if prev.Disabled && !after.Disabled {
+			out = append(out, store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_enable", Target: username})
+			recorded["user_enable"] = true
+		}
+		return out
 	})
 	switch {
-	case errors.Is(err, store.ErrLastOwner), errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrUnrecorded):
+		return UserView{}, unrecorded("user_change", username)
+	case errors.Is(err, store.ErrLastOwner), errors.Is(err, store.ErrNotFound), errors.Is(err, ErrBadInput):
 		return UserView{}, err
 	case err != nil:
 		return UserView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
@@ -462,7 +530,9 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 	b.Recheck() // a lowered role or a disabled account limits the agents at once
 	via := b.viaName(who.Via)
 	if a.Role != before.Role {
-		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_role", Target: username, Detail: before.Role + " -> " + a.Role})
+		if !recorded["user_role"] {
+			_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_role", Target: username, Detail: before.Role + " -> " + a.Role})
+		}
 		b.echo(ctx, b.t("%s changed the role of %s to %s via %s", who.Name, username, b.roleName(a.Role), via))
 	}
 	if a.Disabled != before.Disabled {
@@ -470,7 +540,9 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 		if a.Disabled {
 			action, text = "user_disable", b.t("%s disabled %s via %s", who.Name, username, via)
 		}
-		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: action, Target: username})
+		if !recorded[action] {
+			_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: action, Target: username})
+		}
 		b.echo(ctx, text)
 	}
 	if a.DisplayName != before.DisplayName || a.FeishuOpenID != before.FeishuOpenID {
@@ -480,22 +552,27 @@ func (b *Bridge) UpdateUser(ctx context.Context, who Actor, username string, ch 
 }
 
 // ResetLink makes a one-time link, valid 30 minutes, with which username chooses a new password. The
-// caller must hold every scope of the account's role (withinRole), and the link works only while it
-// still does.
+// caller must hold every scope of the account's role and reach what the person reaches (withinRole), and
+// the link works only while it still does. It is made with its audit entry, or not at all
+// (ErrUnrecorded).
 func (b *Bridge) ResetLink(ctx context.Context, who Actor, username string) (LinkView, error) {
 	if !b.admin(who) {
 		return LinkView{}, fmt.Errorf("%w: resetting a password needs an owner account or a standalone token with accounts:write", ErrForbidden)
 	}
 	if a, ok := b.d.Store.Account(username); ok {
-		if err := b.withinRole(who, a.Role); err != nil {
+		if err := b.withinRole(who, a.Role, &a); err != nil {
 			return LinkView{}, err
 		}
 	}
-	code, l, err := b.d.Store.CreateResetLink(username, linkMaker(who))
-	if err != nil {
+	code, l, err := b.d.Store.CreateResetLinkRecorded(username, linkMaker(who), func(store.AccountLink) []store.AuditEntry {
+		return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_reset_link", Target: username}}
+	})
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return LinkView{}, unrecorded("user_reset_link", username)
+	case err != nil:
 		return LinkView{}, err
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_reset_link", Target: username})
 	b.echo(ctx, b.t("%s made a password reset link for %s via %s", who.Name, username, b.viaName(who.Via)))
 	return linkView(l, b.consoleURL("/reset", code)), nil
 }
@@ -530,11 +607,11 @@ func (b *Bridge) Join(ctx context.Context, code, username, displayName, password
 	return a, nil
 }
 
-// Reset gives an account a new password with a reset link (store.Reset): its console sessions and the
-// OAuth sign-ins of its agents end, with what those had open on machines. With revokeTokens the tokens of
-// its agents are revoked too; otherwise they keep working.
+// Reset gives an account a new password with a reset link (store.ResetAccount): its console sessions and
+// the OAuth sign-ins of its agents end, its own SSH keys are removed, and what those had open on machines
+// is closed. With revokeTokens the tokens of its agents are revoked too; otherwise they keep working.
 func (b *Bridge) Reset(ctx context.Context, code, password string, revokeTokens bool) (store.Account, error) {
-	a, err := b.d.Store.Reset(code, password)
+	a, keys, err := b.d.Store.ResetAccount(code, password)
 	if err != nil {
 		return store.Account{}, err
 	}
@@ -555,6 +632,14 @@ func (b *Bridge) Reset(ctx context.Context, code, password string, revokeTokens 
 	}
 	if len(revoked) > 0 {
 		b.echo(ctx, b.t("%s revoked the tokens of their agents with the reset: %s", a.Username, strings.Join(revoked, ", ")))
+	}
+	var removed []string
+	for _, k := range keys {
+		removed = append(removed, k.Fingerprint)
+		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: a.Username, Via: "console", Action: "ssh_key_remove", Target: a.Username, Detail: k.Fingerprint + " with a password reset"})
+	}
+	if len(removed) > 0 {
+		b.echo(ctx, b.t("The reset removed the SSH keys of %s: %s", a.Username, strings.Join(removed, ", ")))
 	}
 	return a, nil
 }
@@ -768,13 +853,20 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	}
 	// Only a change that gives the agent something new is held to the caller. Narrowing, or leaving it
 	// as it is, stays allowed: the caller is not granting a scope or a machine.
-	if b.grantWidens(a, wanted, machines) {
+	widens := b.grantWidens(a, wanted, machines)
+	if widens {
 		if err := b.withinCaller(who, wanted, machines); err != nil {
 			return AgentView{}, err
 		}
 	}
+	// A change that widens is written with its audit entry, or not at all; one that narrows is recorded
+	// afterwards, and goes ahead whatever the audit log says. The agent checked above must be the one
+	// changed: one that changed meanwhile is refused, to be looked at again.
 	before := agentChangeText(a)
-	a, err = b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
+	a, err = b.d.Store.UpdateAgentRecorded(name, func(x *store.Agent) error {
+		if agentChangeText(*x) != before {
+			return fmt.Errorf("agent %s changed meanwhile; look again and retry", name)
+		}
 		x.Preset, x.MachineAccess = preset, machines
 		if preset == store.PresetCustom {
 			x.Scopes = scopes
@@ -782,8 +874,16 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 			x.Scopes = nil
 		}
 		return nil
+	}, func(_, x store.Agent) []store.AuditEntry {
+		if !widens || agentChangeText(x) == before {
+			return nil
+		}
+		return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_update", Target: name, Detail: before + " -> " + agentChangeText(x)}}
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return AgentView{}, unrecorded("agent_update", name)
+	case err != nil:
 		return AgentView{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
 	after := agentChangeText(a)
@@ -791,7 +891,9 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 		return b.agentView(a), nil
 	}
 	b.Recheck()
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_update", Target: name, Detail: before + " -> " + after})
+	if !widens {
+		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_update", Target: name, Detail: before + " -> " + after})
+	}
 	b.echo(ctx, b.t("%s changed agent %s to %s, %s, via %s", who.Name, name, b.presetName(a.Preset), b.accessWords(a.MachineAccess), b.viaName(who.Via)))
 	return b.agentView(a), nil
 }
@@ -805,10 +907,14 @@ func agentChangeText(a store.Agent) string {
 	return text + " " + a.String()
 }
 
-// NewAgentToken gives an agent another static token, for its owner or an admin.
+// NewAgentToken gives an agent another static token, for its owner, or an admin who holds what the
+// agent may use (mayEquip).
 func (b *Bridge) NewAgentToken(ctx context.Context, who Actor, name string, ttl time.Duration) (AgentCreated, error) {
 	a, err := b.manageableAgent(who, name)
 	if err != nil {
+		return AgentCreated{}, err
+	}
+	if err := b.mayEquip(who, a); err != nil {
 		return AgentCreated{}, err
 	}
 	return b.issueAgentToken(ctx, who, a, ttl)
@@ -938,6 +1044,9 @@ func (b *Bridge) OAuthAgent(ctx context.Context, who Actor, clientID, clientName
 			machines.MachineUntil[m] = until.UTC()
 		}
 	}
+	if exists && a.Owner == p.User { // never beyond the reused agent's own access to a machine
+		machines = capEnds(machines, a.Live(b.now()))
+	}
 	if err := b.withinCaller(who, store.PresetScopes(preset), machines); err != nil {
 		return store.Agent{}, store.MachineAccess{}, err
 	}
@@ -962,10 +1071,35 @@ func (b *Bridge) OAuthAgent(ctx context.Context, who Actor, clientID, clientName
 		}
 		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "oauth_allow", Target: a.Name,
-		Detail: clientName + " " + preset + " " + machines.String() + " until " + until.UTC().Format(time.DateOnly)})
+	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "oauth_allow", Target: a.Name,
+		Detail: clientName + " " + preset + " " + machines.String() + " until " + until.UTC().Format(time.DateOnly)}); err != nil {
+		if !exists {
+			_ = b.d.Store.DeleteAgent(a.Name) // not made without its record
+		}
+		return store.Agent{}, store.MachineAccess{}, err // and no sign-in either: no code is issued
+	}
 	b.echo(ctx, b.t("%s allowed %s to use Beacon as agent %s (%s) until %s", who.Name, clean(clientName, maxShort, false), a.Name, b.presetName(preset), until.In(b.d.Config.Location).Format(time.DateOnly)))
 	return a, machines, nil
+}
+
+// capEnds gives every machine access names an end no later than within's for it, where within names the
+// machine with an end: a sign-in of a reused agent reaches a machine for as long as the agent does, at
+// most.
+func capEnds(access, within store.MachineAccess) store.MachineAccess {
+	out := store.MachineAccess{Access: access.Access, Machines: slices.Clone(access.Machines), MachineUntil: maps.Clone(access.MachineUntil)}
+	for _, m := range out.Machines {
+		limit := within.Until(m)
+		if !within.Names(m) || limit.IsZero() {
+			continue
+		}
+		if end := out.Until(m); end.IsZero() || end.After(limit) {
+			if out.MachineUntil == nil {
+				out.MachineUntil = map[string]time.Time{}
+			}
+			out.MachineUntil[m] = limit
+		}
+	}
+	return out
 }
 
 // OAuthReplayed records that an authorization code or a refresh token was sent again after it was used,
@@ -1049,11 +1183,19 @@ func (b *Bridge) SSHKeys(who Actor, agent string) ([]SSHKeyView, error) {
 	return out, nil
 }
 
-// AddSSHKey gives an agent or the caller a public key for the SSH channel.
+// AddSSHKey gives an agent or the caller a public key for the SSH channel. A key for an agent, other than
+// by the agent itself, is added by its owner, or an admin who holds what the agent may use (mayEquip).
 func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment string) (SSHKeyView, error) {
 	owner, err := b.keyOwner(who, agent)
 	if err != nil {
 		return SSHKeyView{}, err
+	}
+	if owner.account == nil && owner.token == "" {
+		if p, ok := b.caller(who); !ok || p.Agent != owner.agent.Name {
+			if err := b.mayEquip(who, owner.agent); err != nil {
+				return SSHKeyView{}, err
+			}
+		}
 	}
 	k, err := store.ParseSSHKey(line)
 	if err != nil {
