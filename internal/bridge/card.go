@@ -174,7 +174,7 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 	switch {
 	case !firing:
 		colour = feishu.Green
-	case g.Ack.StopsEscalation(), g.Silence != nil && g.Silence.Until.After(now):
+	case g.Ack.StopsEscalation(), g.Silence.Pauses(now):
 		colour = feishu.Yellow
 	case g.Severity == "critical":
 		colour = feishu.Red
@@ -230,8 +230,11 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 			state = append(state, b.t("Note: %s", g.Ack.Note))
 		}
 	}
-	if g.Silence != nil && now.Before(g.Silence.Until) {
+	switch {
+	case g.Silence.Pauses(now):
 		state = append(state, b.t("Silenced until %s by %s", b.clock(g.Silence.Until), g.Silence.By))
+	case g.Silence != nil && now.Before(g.Silence.Until):
+		state = append(state, b.t("Silenced by agent %s until %s; people are still notified", g.Silence.By, b.clock(g.Silence.Until)))
 	}
 	if !g.Buzzed.IsZero() {
 		state = append(state, b.t("Buzzed in Feishu at %s", b.clock(g.Buzzed)))
@@ -270,7 +273,7 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 		if !g.Ack.StopsEscalation() {
 			acts = append(acts, feishu.Button(b.t("Acknowledge"), "primary_filled", val("ack")))
 		}
-		if g.Silence == nil || now.After(g.Silence.Until) {
+		if !g.Silence.Pauses(now) { // a person may still silence what an agent has
 			acts = append(acts,
 				feishu.Button(b.t("Silence 1h"), "default", val("silence", "d", "1h")),
 				feishu.Button(b.t("Silence 4h"), "default", val("silence", "d", "4h")),

@@ -181,7 +181,7 @@ The audit log, the chat's echoes and the sessions on machines name each actor th
 | A person | `alice` |
 | An agent of theirs, whatever credential it used | `alice / claude-code` |
 | A legacy or machine token | By its name |
-| The command line on the centre | `cli:` and the operating system's user |
+| The command line on the centre | `cli:` and the operating system's user that connected to the admin socket, as Linux and macOS report it. A different name sent by the command is kept beside it as a claim: `cli:root (claims alice)` |
 | Beacon itself | `beacon` |
 
 Entries made before keep the names they had. The full table is in the permissions reference ([Roles, presets and scopes](../reference/permissions.md)).

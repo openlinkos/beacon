@@ -9,15 +9,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
-	"github.com/openlinkos/beacon/internal/clientip"
 	"github.com/openlinkos/beacon/internal/configdb"
 	"github.com/openlinkos/beacon/internal/secrets"
 	"github.com/openlinkos/beacon/internal/sshgate"
@@ -30,186 +27,6 @@ var openAPI []byte
 
 // OpenAPI is the API description served at /api/v1/openapi.yaml.
 func OpenAPI() []byte { return openAPI }
-
-// Auth checks bearer tokens and people's passwords, and limits failed attempts per client address and,
-// for passwords, per username.
-type Auth struct {
-	Store *store.Store
-	IP    *clientip.Resolver
-	Now   func() time.Time
-
-	mu        sync.Mutex
-	fails     map[netip.Addr]*window
-	userFails map[string]*window
-}
-
-type window struct {
-	n     int
-	start time.Time
-}
-
-const (
-	maxFails   = 20
-	failWindow = 10 * time.Minute
-	// maxUserFails is how many wrong passwords one username takes in failWindow, from anywhere, before
-	// its sign-ins are refused for the rest of the window.
-	maxUserFails = 10
-)
-
-// ErrBlocked means too many sign-ins failed recently, from this address or for this username.
-var ErrBlocked = errors.New("too many failed sign-ins; try again in a few minutes")
-
-func (a *Auth) now() time.Time {
-	if a.Now != nil {
-		return a.Now()
-	}
-	return time.Now()
-}
-
-func (a *Auth) client(r *http.Request) netip.Addr {
-	if a.IP != nil {
-		ip, _ := a.IP.ClientIP(r)
-		return ip
-	}
-	return netip.Addr{}
-}
-
-// BlockedFor reports how much of the lockout is left, and whether there is one: how long the client
-// must wait before trying again.
-func (a *Auth) BlockedFor(r *http.Request) (time.Duration, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.left(a.fails[a.client(r)], maxFails)
-}
-
-// Blocked reports whether the client has failed too often recently.
-func (a *Auth) Blocked(r *http.Request) bool {
-	_, blocked := a.BlockedFor(r)
-	return blocked
-}
-
-// left is the time until the window that locked out with limit failures ends.
-func (a *Auth) left(w *window, limit int) (time.Duration, bool) {
-	if w == nil {
-		return 0, false
-	}
-	if left := failWindow - a.now().Sub(w.start); w.n >= limit && left > 0 {
-		return left, true
-	}
-	return 0, false
-}
-
-// WaitWords says a lockout's wait as a person reads it: "a minute", "9 minutes". Errors carry it so
-// a client knows how long to wait before trying again.
-func WaitWords(d time.Duration) string {
-	minutes := int((d + time.Minute - 1) / time.Minute)
-	if minutes <= 1 {
-		return "a minute"
-	}
-	return strconv.Itoa(minutes) + " minutes"
-}
-
-// RetryAfter is a lockout's wait in whole seconds, rounded up, for the Retry-After header.
-// The gateway answers its lockouts the same way the API does, so it shares these words.
-func RetryAfter(d time.Duration) string {
-	return strconv.Itoa(int((d + time.Second - 1) / time.Second))
-}
-
-func (a *Auth) fail(r *http.Request) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.fails == nil {
-		a.fails = map[netip.Addr]*window{}
-	}
-	ip := a.client(r)
-	w := a.fails[ip]
-	if w == nil || a.now().Sub(w.start) >= failWindow {
-		w = &window{start: a.now()}
-		a.fails[ip] = w
-	}
-	w.n++
-	if len(a.fails) > 10000 { // forget everyone rather than grow without bound
-		a.fails = map[netip.Addr]*window{ip: w}
-	}
-}
-
-// Fail counts a failed attempt from the request's client: a wrong code or refresh token on the OAuth
-// token endpoint, say.
-func (a *Auth) Fail(r *http.Request) { a.fail(r) }
-
-// Client is the request's client address, as the configured proxies give it.
-func (a *Auth) Client(r *http.Request) netip.Addr { return a.client(r) }
-
-// Verify checks a token secret for the request, counting failures. It is the machines' check, on the
-// gateway: an agent's token carries no scopes of its own there.
-func (a *Auth) Verify(r *http.Request, secret string) (store.Token, bool) {
-	if a.Blocked(r) {
-		return store.Token{}, false
-	}
-	t, ok := a.Store.VerifyToken(secret)
-	if !ok {
-		a.fail(r)
-	}
-	return t, ok
-}
-
-// Authenticate checks a bearer secret for the API, MCP and the pages, counting failures: a token or an
-// OAuth access token, resolved to who it is and what it may do now.
-func (a *Auth) Authenticate(r *http.Request, secret string) (store.Principal, bool) {
-	if a.Blocked(r) {
-		return store.Principal{}, false
-	}
-	p, ok := a.Store.Authenticate(secret)
-	if !ok {
-		a.fail(r)
-	}
-	return p, ok
-}
-
-// UserBlockedFor is BlockedFor for one username's wrong passwords, which lock it from anywhere.
-func (a *Auth) UserBlockedFor(username string) (time.Duration, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.left(a.userFails[username], maxUserFails)
-}
-
-func (a *Auth) failUser(username string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.userFails == nil {
-		a.userFails = map[string]*window{}
-	}
-	w := a.userFails[username]
-	if w == nil || a.now().Sub(w.start) >= failWindow {
-		w = &window{start: a.now()}
-		a.userFails[username] = w
-	}
-	w.n++
-	if len(a.userFails) > 10000 {
-		a.userFails = map[string]*window{username: w}
-	}
-}
-
-// SignIn checks a person's username and password, limited per address and per username like the API's
-// tokens: ErrBlocked after too many failures, store.ErrBadCredentials for a wrong username or password.
-func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
-	if len(username) > 64 {
-		username = username[:64]
-	}
-	if _, blocked := a.BlockedFor(r); blocked {
-		return store.Account{}, ErrBlocked
-	}
-	if _, blocked := a.UserBlockedFor(username); blocked {
-		return store.Account{}, ErrBlocked
-	}
-	acc, err := a.Store.SignIn(username, password)
-	if errors.Is(err, store.ErrBadCredentials) {
-		a.fail(r)
-		a.failUser(username)
-	}
-	return acc, err
-}
 
 // Server serves the API. SSH is nil when the SSH channel is off; SSHAddress is where agents reach it.
 // Config is the configuration Beacon holds (its routes are in config.go); nil leaves them out.
@@ -334,19 +151,26 @@ func (s *Server) with(scope string, h handler) http.Handler {
 // any credential.
 func (s *Server) withPrincipal(scope string, h func(w http.ResponseWriter, r *http.Request, p store.Principal)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if d, blocked := s.Auth.BlockedFor(r); blocked {
+		lockedOut := func(d time.Duration) {
 			w.Header().Set("Retry-After", RetryAfter(d))
 			writeError(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+WaitWords(d))
-			return
 		}
 		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || secret == "" {
+			if d, blocked := s.Auth.BlockedFor(r); blocked {
+				lockedOut(d)
+				return
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="beacon"`)
 			writeError(w, http.StatusUnauthorized, "auth.required", "a bearer token is required")
 			return
 		}
-		t, ok := s.Auth.Authenticate(r, strings.TrimSpace(secret))
-		if !ok {
+		t, d, err := s.Auth.Check(r, strings.TrimSpace(secret))
+		if errors.Is(err, ErrBlocked) {
+			lockedOut(d)
+			return
+		}
+		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="beacon", error="invalid_token"`)
 			writeError(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or has expired")
 			return

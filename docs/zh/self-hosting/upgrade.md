@@ -39,6 +39,10 @@ Beacon 没有要你手工执行的迁移。它打开同一个 `beacon.db`，把�
 
 旧版本有升级前的一切，没有升级之后的。
 
+### 换成子网固定的 compose 文件 {#to-a-compose-file-with-a-fixed-subnet}
+
+参考部署的 `compose.yaml` 给网络固定了子网，好让 Caddy 一直用 Beacon 信任的那个地址发 `X-Forwarded-For`。用这个文件第一次运行 `install.sh` 时，它发现旧网络没有固定子网，就重建网络。四个容器会停一下，数据卷保留。同时换上 `config.yaml` 里新的 `trusted_proxies: [172.30.17.10]`；还信任 `172.16.0.0/12` 的中心，会信任网络里的每个容器。
+
 ## 选一个版本 {#pick-a-version}
 
 - [更新日志](../changelog.md)写明每个版本改了什么。[发布页](https://github.com/openlinkos/beacon/releases)列出各个标签。预发布版带 `-rc.N`。

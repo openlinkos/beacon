@@ -129,7 +129,7 @@ docker compose exec -T postgres pg_dump -U beacon -Fc beacon > /opt/beacon-backu
 - 同样的密钥；
 - 放在同一个对象存储桶里的录像。
 
-`ha` 和 `ssh.recordings` 的字段见[配置参考](../reference/config.md)。前面的负载均衡把流量发给 `/healthz` 返回 200 的那台。
+`ha` 和 `ssh.recordings` 的字段见[配置参考](../reference/config.md)。前面的负载均衡把流量发给 `/healthz` 返回 200 的那台。请求即使到了备用实例，令牌也要先从数据库里重新读出才会被接受，所以在主实例上撤销或修改的令牌，在备用实例上也立即生效。
 
 ## 接下来 {#what-next}
 

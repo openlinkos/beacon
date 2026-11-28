@@ -185,7 +185,7 @@ SSH 通道按公钥让 Agent 登录。Agent 用手里已有的凭据、经 MCP �
 | 成员 | `alice` |
 | 其 Agent，无论它用哪份凭据 | `alice / claude-code` |
 | 遗留令牌或机器令牌 | 令牌名 |
-| 中心上的命令行 | `cli:` 加操作系统用户 |
+| 中心上的命令行 | `cli:` 加连上管理套接字的操作系统用户，由 Linux 和 macOS 报告。命令自报的名字不同时，作为自称附在后面：`cli:root (claims alice)` |
 | Beacon 自己 | `beacon` |
 
 之前的记录保持原来的名字。完整的对照表在权限参考里（[角色、预设与权限](../reference/permissions.md)）。

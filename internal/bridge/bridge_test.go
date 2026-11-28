@@ -58,12 +58,17 @@ func (f *fakeFeishu) UrgentApp(_ context.Context, id string, ids []string) error
 
 type fakeAM struct {
 	created []map[string]string
+	agent   []map[string]string // agents' silences, which mute nothing
 	expired []string
 }
 
 func (a *fakeAM) CreateSilence(_ context.Context, l map[string]string, s, e time.Time, by, c string) (string, error) {
 	a.created = append(a.created, l)
 	return fmt.Sprintf("sil-%d", len(a.created)), nil
+}
+func (a *fakeAM) CreateAgentSilence(_ context.Context, l map[string]string, s, e time.Time, by, c string) (string, error) {
+	a.agent = append(a.agent, l)
+	return fmt.Sprintf("agent-sil-%d", len(a.agent)), nil
 }
 func (a *fakeAM) ExpireSilence(_ context.Context, id string) error {
 	a.expired = append(a.expired, id)
@@ -404,6 +409,7 @@ func TestExplicitSilenceAfterAgentAcknowledgement(t *testing.T) {
 	}
 	id := GroupID(w.GroupKey)
 	who := ActorOf(store.Principal{User: "alex", Agent: "oncall"}, "mcp")
+	person := Actor{Name: "alex", Via: "console", Key: "user:alex"}
 	e.now = e.now.Add(15 * time.Minute)
 	e.b.Tick(ctx)
 	if _, err := e.b.Ack(ctx, id, who, "looking into it"); err != nil {
@@ -412,7 +418,7 @@ func TestExplicitSilenceAfterAgentAcknowledgement(t *testing.T) {
 	if len(e.push.sent) != 1 || len(e.push.cancelled) != 0 {
 		t.Fatal("an Agent acknowledgement cancelled the emergency page")
 	}
-	silenced, err := e.b.Silence(ctx, id, time.Hour, who, "explicit maintenance")
+	silenced, err := e.b.Silence(ctx, id, time.Hour, person, "explicit maintenance")
 	if err != nil || silenced.Silence == nil || len(e.push.cancelled) != 1 {
 		t.Fatalf("explicit silence did not pause the page: %+v, %v", silenced.Silence, err)
 	}

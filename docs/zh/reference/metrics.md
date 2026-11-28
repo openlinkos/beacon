@@ -44,6 +44,7 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 | `beacon_rotation_unknown_address` | `rotation`、`address` | 目录里没有位置认领的一个应答地址 |
 | `beacon_token_expiry_timestamp_seconds` | `token`、`subject` | API 或网关令牌何时过期 |
 | `beacon_ssh_connections_refused_total` | `reason` | 握手之前就被 SSH 通道关闭的连接：`blocked`（该地址握手失败太多）或 `busy`（同时进行的握手太多） |
+| `beacon_audit_write_failures_total` | | 改动已经做了、审计条目却没写进去的次数；只要增加，就该检查存储 |
 | `go_goroutines`、`go_memstats_heap_inuse_bytes`、`go_memstats_sys_bytes`、`process_resident_memory_bytes` | | 进程本身 |
 
 ## 检测结果 {#the-probes-results}

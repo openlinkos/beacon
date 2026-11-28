@@ -20,6 +20,17 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Ask the person to sign in before Beacon reads an authorization request, and fetch a client ID metadata document only then. Send an authorization error to the client only when the person has allowed that client before.
 - Offer on the consent page, by default, only an agent made for that client. Show where the client's description comes from, and warn when the answer goes to a website.
 - Make room for a new client registration when the table is full by forgetting the oldest one never used, and count registrations per IPv6 /64.
+- Count only secrets Beacon did not issue as failed attempts: a valid credential refused for its scope, or because its owner is disabled, no longer locks its address out. During a lockout, a credential that already worked from that address is still checked, while others wait unread. IPv6 clients are counted by their /64, and a full table of failures makes room without forgetting the addresses it is locking out.
+- Keep a separate failure count for the metrics gateway, so failures on the API never stop monitoring data and the reverse.
+- Lock a username only for the addresses that got its password wrong. The person can still sign in from an address that has not.
+- Check the rule engine's token under the gateway's lockout, count wrong guesses at it, and compare it in constant time.
+- On a standby of a primary/standby pair, read each token from the database before accepting it, so a revocation on the primary takes effect at once.
+- Keep notifying people after an agent's silence, as after an agent's acknowledgement. An agent's silence is recorded and shown, but it mutes no alert and does not cancel a Pushover emergency. A person's silence still pauses escalation.
+- Require `feishu.encrypt_key_file` for HTTP card callbacks, and take each signed callback once and only within 5 minutes of its timestamp. **Operators using `callback: http`**: turn on encryption for the app's callbacks and set the key before upgrading; `beacon check-config` refuses the configuration without it. The long connection is unchanged.
+- Check whether a caller may manage agents before looking up an agent's name, so the answer for another person's agent and for a name no agent has is the same. A key someone else holds is refused as already registered, without naming the holder. Revoking a token the caller may not revoke here answers like a token that does not exist (`token.not_found`).
+- Name the command line in the audit log by the operating system user that connected to the admin socket, keeping a different name sent by the command only as a claim beside it.
+- Report every audit entry that cannot be written: log it at ERROR and count it in `beacon_audit_write_failures_total`. Withdraw and refuse a new agent, agent token, SSH key or command-line token whose audit entry cannot be written (`audit.not_recorded`, 503).
+- Trust `X-Forwarded-For` in the reference deployment from Caddy alone: the compose network gets the fixed subnet `172.30.17.0/24`, Caddy the address `172.30.17.10`, and `trusted_proxies` names only that address. **Operators of the reference deployment**: take the new `compose.yaml` and `config.yaml` line together; the first `install.sh` run recreates the network, stopping the containers briefly.
 
 ## 0.3.0
 

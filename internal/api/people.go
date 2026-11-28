@@ -43,6 +43,8 @@ func (s *Server) peopleError(w http.ResponseWriter, err error, notFound string) 
 		writeError(w, http.StatusNotFound, notFound, err.Error())
 	case errors.Is(err, bridge.ErrBadInput):
 		writeError(w, http.StatusBadRequest, "bad_input", err.Error())
+	case errors.Is(err, bridge.ErrUnrecorded):
+		writeError(w, http.StatusServiceUnavailable, "audit.not_recorded", err.Error())
 	default:
 		s.Log.Error("people operation failed", "err", err)
 		writeError(w, http.StatusBadGateway, "upstream", err.Error())

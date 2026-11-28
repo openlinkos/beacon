@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openlinkos/beacon/internal/events"
@@ -183,11 +184,18 @@ type Notification struct {
 	DeviceAcknowledgedAt time.Time `json:"device_acknowledged_at,omitzero"`
 }
 
-// Silence is the silence created for a group.
+// Silence is the silence created for a group. Kind is who made it, as for an acknowledgement.
 type Silence struct {
 	ID    string    `json:"id"`
 	By    string    `json:"by"`
 	Until time.Time `json:"until"`
+	Kind  string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
+}
+
+// Pauses reports whether the silence holds at now and pauses notifications to people. An agent's
+// silence never does, as an agent's acknowledgement does not.
+func (s *Silence) Pauses(now time.Time) bool {
+	return s != nil && s.Kind != "agent" && now.Before(s.Until)
 }
 
 // Firing reports whether the group is firing.
@@ -264,6 +272,9 @@ type Store struct {
 	mu      sync.RWMutex     // the token cache
 	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
 	tokens  map[string]Token // by hash
+	recheck func() bool      // read a cached token again before accepting it (recheck.go)
+
+	auditFailed atomic.Pointer[func(AuditEntry, error)] // audit_failure.go
 }
 
 // Options is how the database is opened. The zero options beside Path (SQLite) or DSN (PostgreSQL)
@@ -787,7 +798,11 @@ func (s *Store) VerifyToken(secret string) (Token, bool) {
 	if !ok {
 		t, ok = s.byOldHash(h)
 	}
+	recheck := s.recheck
 	s.mu.RUnlock()
+	if ok && recheck != nil && recheck() {
+		t, ok = s.rechecked(t, h)
+	}
 	if !ok || !s.now().Before(t.Expires) {
 		return Token{}, false
 	}
@@ -813,6 +828,9 @@ type SilenceRecord struct {
 	EndsAt    time.Time `json:"endsAt"`
 	CreatedBy string    `json:"createdBy"`
 	Comment   string    `json:"comment"`
+	// ByAgent marks an agent's silence: it is kept and listed, but it mutes nothing, so that people
+	// are still notified of what it matches.
+	ByAgent bool `json:"byAgent,omitempty"`
 }
 
 // keepSilences is how long an ended silence stays listed.
@@ -1075,6 +1093,9 @@ func (s *Store) Audit(e AuditEntry) error {
 	_, err := s.audit.Append(events.Event{
 		Time: e.Time, Actor: e.Actor, Via: e.Via, Action: e.Action, Object: e.Target, Detail: e.Detail,
 	})
+	if err != nil {
+		s.reportAuditFailure(e, err)
+	}
 	return err
 }
 

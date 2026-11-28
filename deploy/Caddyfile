@@ -5,7 +5,7 @@
 #   $METRICS_HOST  the gateway: probes and hosts push, probes fetch their targets, heartbeats, the rule engine's
 #                  and Flux's alerts, agents' metric queries
 # Beacon limits failed sign-ins per client address, so X-Forwarded-For carries the real client address; Beacon
-# trusts it from the compose network only (trusted_proxies in config.yaml).
+# trusts it from Caddy's fixed address only (ipv4_address in compose.yaml, trusted_proxies in config.yaml).
 {
 	email {$ACME_EMAIL}
 	admin localhost:2019

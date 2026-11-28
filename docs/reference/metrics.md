@@ -40,6 +40,7 @@ On `/metrics` (job `beacon` in the reference scrape configuration):
 | `beacon_rotation_unknown_address` | `rotation`, `address` | An answer that belongs to no location in the catalogue |
 | `beacon_token_expiry_timestamp_seconds` | `token`, `subject` | When an API or gateway token expires |
 | `beacon_ssh_connections_refused_total` | `reason` | Connections to the SSH channel closed before their handshake: `blocked` (too many failed handshakes from the address) or `busy` (too many handshakes at once) |
+| `beacon_audit_write_failures_total` | | Audit entries that could not be written after the change they record; any increase calls for a look at storage |
 | `go_goroutines`, `go_memstats_heap_inuse_bytes`, `go_memstats_sys_bytes`, `process_resident_memory_bytes` | | The process |
 
 ## The probes' results

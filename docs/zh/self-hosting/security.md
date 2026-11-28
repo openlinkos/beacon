@@ -18,7 +18,7 @@ Beacon 掌握着 Agent 永远看不见的东西：
 - **Agent 替某一位成员行事，绝不超过这个人**。它以 MCP 的 OAuth 或一个带作用域的令牌登录。它能做什么，即预设在其所有者角色内的范围，每次请求都重新判定。所以所有者被降权，它的 Agent 立刻跟着收窄。见[Agent](../guide/people.md#agents)。
 - **机器的令牌只能以自己的主体写入**，过期的机器写不进任何东西。规则引擎的告警需要规则令牌。
 - **令牌只存 SHA-256 哈希**，带作用域、会过期。失败尝试按地址限流。
-- **每一次写入都有记录**。通过 API、MCP、卡片或命令行做的修改都进审计日志，并回显到告警群（见[审计日志里有谁](../guide/people.md#who-the-audit-log-names)）。
+- **每一次写入都有记录**。通过 API、MCP、卡片或命令行做的修改都进审计日志，并回显到告警群（见[审计日志里有谁](../guide/people.md#who-the-audit-log-names)）。审计日志写不进去时，新建的 Agent、令牌或 SSH 密钥会被撤回并拒绝（`audit.not_recorded`）；收回权限的改动照常进行。每条没写进去的条目都会以 ERROR 级别记入日志，并计入 `beacon_audit_write_failures_total`。
 
 ## SSH 通道 {#the-ssh-channel}
 

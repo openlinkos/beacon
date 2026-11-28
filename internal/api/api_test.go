@@ -73,8 +73,15 @@ func TestAuth(t *testing.T) {
 	for range 20 {
 		c.do("GET", "/api/v1/alerts", "lbt_wrong", "")
 	}
-	if code, out := c.do("GET", "/api/v1/alerts", read, ""); code != 429 || out["code"] != "auth.too_many_failures" {
-		t.Errorf("after many failures even a good token waits: %d %v", code, out)
+	if code, out := c.do("GET", "/api/v1/alerts", "lbt_wrong", ""); code != 429 || out["code"] != "auth.too_many_failures" {
+		t.Errorf("after many failures a bad token waits: %d %v", code, out)
+	}
+	// a token that already worked from this address is still checked; one that never did waits
+	if code, out := c.do("GET", "/api/v1/alerts", read, ""); code != 200 {
+		t.Errorf("a token that worked from here before: %d %v", code, out)
+	}
+	if code, out := c.do("GET", "/api/v1/alerts", e.Token(t, "fresh", "status:read"), ""); code != 429 || out["code"] != "auth.too_many_failures" {
+		t.Errorf("after many failures a token new here waits: %d %v", code, out)
 	}
 }
 

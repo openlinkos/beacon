@@ -101,7 +101,7 @@ Beacon 将所有操作归入六个标准运维域——`incidents`、`monitoring
 | `list_silences` | `status:read` | 生效中和待生效的静默，最先结束的在前 |
 | `list_audit` | `status:read` | 最近的写操作，带操作者和途径，新的在前（`limit`，1 到 200，默认 50） |
 | `ack_alert` | `alerts:write` | 认领一个正在触发的告警组（`id`、`note`）：升级到手机暂停 `ack_ttl` 这么久（默认 4 小时）。在备注里写明正在做什么 |
-| `silence_alert` | `alerts:write` | 静默一个正在触发的告警组（`id`、最长 24 小时的 `duration`、必填的 `comment`）；同时认领它 |
+| `silence_alert` | `alerts:write` | 静默一个正在触发的告警组（`id`、最长 24 小时的 `duration`、必填的 `comment`）；同时认领它。Agent 的静默会被记录，但仍会通知人 |
 | `expire_silence` | `alerts:write` | 立即结束一个静默（`silence_id`），它覆盖的告警重新开始通知 |
 
 ## 处理告警 {#working-an-alert}

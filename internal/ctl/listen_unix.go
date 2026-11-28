@@ -61,6 +61,9 @@ func (l *peerListener) Accept() (net.Conn, error) {
 			_ = c.Close()
 			continue
 		}
+		if err == nil {
+			return &peerConn{Conn: c, uid: uid}, nil
+		}
 		return c, nil
 	}
 }

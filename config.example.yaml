@@ -57,7 +57,8 @@ catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expir
 # invitation and reset links, the alerts' pages) and the issuer MCP clients sign in with (docs/guide/people.md).
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
-trusted_proxies: [172.16.0.0/12]
+# Name the proxy's own address, not its network: whoever else shares the network could claim any address.
+trusted_proxies: [172.30.17.10]
 language: zh                                # language of cards and chat messages: zh or en
 timezone: Asia/Shanghai                     # times on cards
 
@@ -148,7 +149,7 @@ feishu:
   domain: feishu                            # feishu (open.feishu.cn) or lark (open.larksuite.com)
   callback: websocket                       # websocket: Feishu's long connection; http: POST /hooks/feishu
   # verification_token_file: …              # http callbacks only
-  # encrypt_key_file: …                     # http callbacks, when encryption is on
+  # encrypt_key_file: …                     # http callbacks only; they must be encrypted
   chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   on_call:                                  # only they may act on cards; they are buzzed on escalation
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}

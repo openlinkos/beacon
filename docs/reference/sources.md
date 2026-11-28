@@ -72,7 +72,7 @@ Both need a `changes:write` token, at most 60 events a minute. The fields and th
 
 People act on the cards in the alert chat: acknowledge with a note, or silence for 1, 4 or 24 hours. Only the people listed in `feishu.on_call` may act.
 
-Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`). Or it uses `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), verified with the app's token. [Set up the Feishu app](../integrations/feishu.md) has the app's side.
+Feishu hands the card actions to Beacon over the long connection the service keeps (`feishu.callback: websocket`). Or it uses `POST /hooks/feishu` on port 17001 (`feishu.callback: http`), encrypted and signed with the app's Encrypt Key, each callback taken once and within 5 minutes of its timestamp. [Set up the Feishu app](../integrations/feishu.md) has the app's side.
 
 An emergency notification acknowledged in Pushover acknowledges the alert in Beacon too: Beacon follows the notification's receipt.
 

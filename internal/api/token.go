@@ -58,17 +58,16 @@ func (s *Server) renewToken(w http.ResponseWriter, r *http.Request, p store.Prin
 
 // revokeToken revokes another token: one that reaches machines (machines:ssh), or an agent's, the pause
 // switch for one agent. The tokens of machines and services stay with the admin socket
-// (bridge.Revocable).
+// (bridge.Revocable). A token the caller may not revoke gets the same answer as one that does not
+// exist (bridge.TokenRefusal).
 func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
 	name := r.PathValue("name")
-	err := s.Bridge.RevokeToken(r.Context(), who, name)
+	err := bridge.TokenRefusal(s.Bridge.RevokeToken(r.Context(), who, name), name)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "token.not_found", err.Error())
-	case errors.Is(err, bridge.ErrBadInput):
-		writeError(w, http.StatusForbidden, "token.not_revocable", err.Error())
 	default:
 		s.Log.Error("revoke token failed", "err", err)
 		writeError(w, http.StatusBadGateway, "upstream", err.Error())

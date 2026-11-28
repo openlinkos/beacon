@@ -12,8 +12,10 @@
 package gateway
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -35,7 +37,8 @@ import (
 )
 
 // Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the
-// rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope.
+// rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope. Auth checks
+// the tokens; the gateway counts failed attempts on its own (api.Auth.Separate), apart from the API's.
 type Deps struct {
 	Auth           *api.Auth
 	Catalog        func() *catalog.Catalog
@@ -68,7 +71,8 @@ var readPaths = []string{
 
 type gateway struct {
 	Deps
-	vm *httputil.ReverseProxy
+	vm        *httputil.ReverseProxy
+	rulesHash [sha256.Size]byte // of RulesToken, compared in constant time
 
 	mu        sync.Mutex
 	lastWrite map[string]time.Time // by location or host
@@ -81,7 +85,11 @@ func Handler(d Deps) http.Handler {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.Auth != nil {
+		d.Auth = d.Auth.Separate()
+	}
 	g := &gateway{Deps: d, lastWrite: map[string]time.Time{}}
+	g.rulesHash = sha256.Sum256([]byte(d.RulesToken))
 	g.vm = proxy(d.VM)
 	if d.Metrics != nil {
 		d.Metrics.Register("beacon_gateway_last_write_timestamp_seconds", "When a probe location or host last wrote through the gateway", "gauge", g.lastWrites)
@@ -158,25 +166,38 @@ func (g *gateway) with(route string, scopes []string, h handler) http.Handler {
 			fail(rec, http.StatusUnauthorized, "auth.required", "send a bearer token")
 			return
 		}
-		if d, blocked := g.Auth.BlockedFor(r); blocked {
-			rec.Header().Set("Retry-After", api.RetryAfter(d))
-			fail(rec, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+api.WaitWords(d))
+		t, wait, err := g.Auth.CheckToken(r, secret)
+		if !admitted(rec, wait, err) {
 			return
 		}
-		t, ok := g.Auth.Verify(r, secret)
-		if !ok {
-			fail(rec, http.StatusUnauthorized, "auth.invalid", "the token is unknown or expired")
-			return
-		}
-		for _, sc := range scopes {
-			if t.Has(sc) {
-				r.Body = http.MaxBytesReader(rec, r.Body, MaxBody)
-				h(rec, r, t)
-				return
-			}
-		}
-		fail(rec, http.StatusForbidden, "auth.scope", "the token lacks the scope "+strings.Join(scopes, " or "))
+		serve(rec, r, t, scopes, h)
 	})
+}
+
+// admitted answers a credential the lockout or the check refused: 429 with the wait, or 401.
+func admitted(w http.ResponseWriter, wait time.Duration, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, api.ErrBlocked):
+		w.Header().Set("Retry-After", api.RetryAfter(wait))
+		fail(w, http.StatusTooManyRequests, "auth.too_many_failures", "too many failed attempts from this address; try again in "+api.WaitWords(wait))
+	default:
+		fail(w, http.StatusUnauthorized, "auth.invalid", "the token is unknown or expired")
+	}
+	return false
+}
+
+// serve hands the request to h when the token has one of scopes.
+func serve(w http.ResponseWriter, r *http.Request, t store.Token, scopes []string, h handler) {
+	for _, sc := range scopes {
+		if t.Has(sc) {
+			r.Body = http.MaxBytesReader(w, r.Body, MaxBody)
+			h(w, r, t)
+			return
+		}
+	}
+	fail(w, http.StatusForbidden, "auth.scope", "the token lacks the scope "+strings.Join(scopes, " or "))
 }
 
 // labels are the labels the gateway puts on what the token writes, or a reason it may not write.
@@ -302,15 +323,40 @@ func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token)
 func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { g.vm.ServeHTTP(w, r) }
 
 // rulesAlerts takes alerts from the rule engine (its own bearer token) or from anyone with alerts:send.
+// The rule engine's token is checked under the same lockout as every token, and a wrong one counts.
 func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
-	secret, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if g.RulesToken != "" && secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(g.RulesToken)) == 1 {
-		rec, done := g.counted("alerts", w)
-		defer done()
+	rec, done := g.counted("alerts", w)
+	defer done()
+	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || secret == "" {
+		fail(rec, http.StatusUnauthorized, "auth.required", "send a bearer token")
+		return
+	}
+	rules := false
+	var t store.Token
+	wait, err := g.Auth.Attempt(r, secret, func() (bool, bool) {
+		if rules = g.isRulesToken(secret); rules {
+			return true, false
+		}
+		var ok bool
+		t, ok = g.Auth.Store.VerifyToken(secret)
+		return ok, !ok && g.Auth.Store.Issued(secret)
+	})
+	if !admitted(rec, wait, err) {
+		return
+	}
+	if rules {
 		g.ingestAlerts(rec, r, g.Exercise != nil)
 		return
 	}
-	g.with("alerts", []string{"alerts:send"}, g.alerts).ServeHTTP(w, r)
+	serve(rec, r, t, []string{"alerts:send"}, g.alerts)
+}
+
+// isRulesToken compares secret with the rule engine's token in constant time, through their hashes so
+// that not even the length shows.
+func (g *gateway) isRulesToken(secret string) bool {
+	h := sha256.Sum256([]byte(secret))
+	return g.RulesToken != "" && subtle.ConstantTimeCompare(h[:], g.rulesHash[:]) == 1
 }
 
 func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {

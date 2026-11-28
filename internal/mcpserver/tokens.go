@@ -63,7 +63,8 @@ func addRevokeTool(s *mcp.Server, b *bridge.Bridge) {
 			if err != nil {
 				return nil, okOut{}, err
 			}
-			if err := b.RevokeToken(ctx, bridge.Actor{Name: who.Name, Via: who.Via, Key: who.Key, Cred: who.Cred}, in.Name); err != nil {
+			err = b.RevokeToken(ctx, bridge.Actor{Name: who.Name, Via: who.Via, Key: who.Key, Cred: who.Cred}, in.Name)
+			if err := bridge.TokenRefusal(err, in.Name); err != nil {
 				return nil, okOut{}, err
 			}
 			return nil, okOut{OK: true}, nil

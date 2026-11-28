@@ -11,7 +11,7 @@ feishu:
   app_id_file: /etc/beacon/secrets/feishu-app-id
   app_secret_file: /etc/beacon/secrets/feishu-app-secret
   domain: feishu                       # 或 lark
-  callback: websocket                  # 或 http，同时要 verification_token_file（以及 encrypt_key_file）
+  callback: websocket                  # 或 http，同时要 verification_token_file 和 encrypt_key_file
   chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   on_call:                             # 只有他们能操作卡片，加急也只发给他们
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # name 显示在卡片上
@@ -76,7 +76,7 @@ Beacon 通过**企业自建应用**发卡片，并接收卡片上的按钮点击
 应用配置前，先在 Beacon 配置里选好回调方式。
 
 - **长连接（推荐）**。设置 `callback: websocket`，允许机器向飞书或 Lark 开放平台发起连接。
-- **HTTP**。设置 `callback: http`。将应用的 **Verification Token** 写入 `verification_token_file` 指向的文件。应用启用回调加密时，将 **Encrypt Key** 写入 `encrypt_key_file` 指向的文件。将文件路径填到 `feishu:` 下。飞书需要能通过你的公网域名访问 `https://status.example.com/hooks/feishu`。
+- **HTTP**。设置 `callback: http`，并为应用的回调开启加密。将应用的 **Verification Token** 写入 `verification_token_file` 指向的文件，将 **Encrypt Key** 写入 `encrypt_key_file` 指向的文件；没有 Encrypt Key 时，`beacon check-config` 拒绝 HTTP 回调。将文件路径填到 `feishu:` 下。每个回调 Beacon 只接受一次，而且签名里的时间戳要在中心时钟的 5 分钟以内，所以要保持时钟同步。飞书需要能通过你的公网域名访问 `https://status.example.com/hooks/feishu`。
 
 参考部署按下列命令应用变更。`install.sh` 会把密钥文件的属主设为 65532、权限设为 0400，校验配置，并在配置或密钥变更后重启 Beacon。
 

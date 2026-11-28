@@ -62,7 +62,7 @@ components:
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
             probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, link.not_found, key.not_found, key.exists,
             agent.not_found, agent.exists,
-            audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
+            audit.unavailable, audit.not_recorded, incident.not_found, incident.unavailable, incident.changed,
             credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
             share.not_found, share.unavailable]
         docs:
@@ -1579,7 +1579,7 @@ paths:
     post:
       tags: [Incidents]
       summary: Silence a firing alert group
-      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group."
+      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group. An agent's silence is recorded but mutes nothing, so people are still notified."
       requestBody:
         required: true
         content:
@@ -2436,9 +2436,10 @@ paths:
       description: >-
         Scope: machines:write. The pause switch for one agent: its open sessions on machines are closed and
         its requests are refused from now on. Only a token with machines:ssh, or an agent's token, may be
-        revoked here (token.not_revocable, 403): the tokens of probes, hosts, heartbeats, the rule engine, change
-        senders and metrics readers stay with `beacon token revoke` on the host, so that no alert
-        is lost by a click. Audited (revoke_token) and echoed to the alert chat.
+        revoked here: the tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics
+        readers stay with `beacon token revoke` on the host, so that no alert is lost by a click. A token
+        that does not exist and one the caller may not revoke get the same answer, token.not_found (404).
+        Audited (revoke_token) and echoed to the alert chat.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:

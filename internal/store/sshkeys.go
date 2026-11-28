@@ -84,12 +84,15 @@ func accountBySSHKey(tx kv.Tx, fp string) (Account, bool) {
 	return recordWithSSHKey(tx, bucketAccounts, fp, func(a Account) []SSHKey { return a.SSHKeys })
 }
 
+// checkSSHKeyOwner refuses a key that someone other than owner holds, or that is a machine's connector
+// key. The error says only that the key is registered, never by whom: the caller may not see that
+// account, agent, token or machine.
 func checkSSHKeyOwner(tx kv.Tx, fp, owner string) error {
 	if holder := keyHolder(tx, fp); holder != "" && holder != owner {
-		return fmt.Errorf("%w: the key %s belongs to %s", ErrExists, fp, holder)
+		return fmt.Errorf("%w: the key %s is already registered; use a key of your own", ErrExists, fp)
 	}
-	if m, ok := machineByConnectorKey(tx, fp); ok {
-		return fmt.Errorf("%w: the key %s is machine %s's connector key", ErrExists, fp, m.Name)
+	if _, ok := machineByConnectorKey(tx, fp); ok {
+		return fmt.Errorf("%w: the key %s is already registered; use a key of your own", ErrExists, fp)
 	}
 	return nil
 }

@@ -134,7 +134,7 @@ sourceHash: sha256-a549073f
 | `feishu.domain` | `feishu` 或 `lark` | `feishu` | open.feishu.cn 或 open.larksuite.com |
 | `feishu.callback` | `websocket` 或 `http` | `websocket` | 按钮回调怎么到达：飞书长连接，或 POST 到 `/hooks/feishu` |
 | `feishu.verification_token_file` | 路径 | — | Verification Token，仅 `http` 回调 |
-| `feishu.encrypt_key_file` | 路径 | — | Encrypt Key，仅开启加密的 `http` 回调 |
+| `feishu.encrypt_key_file` | 路径 | — | Encrypt Key；`http` 回调必须加密，所以必填 |
 | `feishu.chat_id` | 字符串 | 配了应用即必填 | 告警卡片发到的群 |
 | `feishu.on_call` | 列表 | 配了应用即必填 | 只有他们能在卡片上操作，加急也是加给他们 |
 | `feishu.on_call.open_id` | 字符串 | — | 某个人的 `ou_…` id |

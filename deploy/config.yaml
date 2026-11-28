@@ -7,7 +7,7 @@ listen: ":17001"
 data_dir: /var/lib/beacon
 catalog_dir: /etc/beacon/catalog              # imported at the first start; docs/guide/monitoring.md
 public_url: https://status.example.com
-trusted_proxies: [172.16.0.0/12]               # Caddy, on the compose network; it rewrites X-Forwarded-For
+trusted_proxies: [172.30.17.10]                # Caddy alone, at its fixed address on the compose network; it rewrites X-Forwarded-For
 language: en                                   # cards and chat messages: en or zh
 timezone: UTC
 
