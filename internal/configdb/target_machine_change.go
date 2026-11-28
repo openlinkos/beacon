@@ -10,7 +10,7 @@ import (
 )
 
 // ErrTargetMachineScope reports that the caller cannot change the designation with this credential.
-var ErrTargetMachineScope = errors.New("changing a response machine requires config:write, machines:write and access to the machine")
+var ErrTargetMachineScope = errors.New("changing a response machine requires config:write, machines:write, access to all machines and SSH access to the machine")
 
 // TargetMachineChange sets or clears the machine for one target group in a reviewed configuration.
 type TargetMachineChange struct {
@@ -22,8 +22,8 @@ type TargetMachineChange struct {
 
 // ChangeTargetMachine applies the same binding-only change for API and MCP credentials.
 func (s *Service) ChangeTargetMachine(ctx context.Context, p store.Principal, via, set string, group int, in TargetMachineChange) (store.ConfigChange, error) {
-	if !p.Has("config:write") || !p.Has("machines:write") {
-		return store.ConfigChange{}, ErrTargetMachineScope
+	if err := bindingScope(p); err != nil {
+		return store.ConfigChange{}, err
 	}
 	if (in.Machine != nil) == in.Clear || in.IfVersion <= 0 || group < 0 {
 		return store.ConfigChange{}, fmt.Errorf("%w: choose a machine or clear, with the current configuration version and group index", ErrBadInput)

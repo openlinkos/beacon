@@ -2233,8 +2233,8 @@ paths:
       tags: [Monitoring]
       summary: Set or clear a target group's response machine
       description: >-
-        Scopes: config:write and machines:write. The caller must also have SSH access to the selected
-        and previous machines, when present. Changes only the designation on an HTTP target group.
+        Scopes: config:write and machines:write, with access to all machines. The caller must also have SSH access to the selected
+        and previous machines, when present. Changes only the designation on an HTTP target group. A put, delete or revert of a target set that changes which group, service or probes a machine is designated for takes the same.
       parameters:
         - {$ref: "#/components/parameters/SetName"}
         - name: group
