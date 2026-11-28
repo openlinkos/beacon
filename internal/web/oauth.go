@@ -20,9 +20,15 @@ import (
 // asked for less, and they may lower it), its machines, and for how long. Allowing makes the code the
 // client exchanges for its tokens; denying tells the client so. A token's sign-in cannot allow a client:
 // an OAuth client always acts for a person.
+//
+// The machines are all those that are not critical, or only those ticked: ticking none is asked again,
+// never taken for all. Critical machines are offered only to an owner, apart and unticked, and ticking
+// one takes a confirmation; the sign-in reaches them for store.CriticalGrantTTL at most. A reused agent's
+// sign-in reaches no machine the agent does not.
 
 type consentLabels struct {
 	Agent, AgentHint, Preset, Machines, All, Some, Duration, Allow, Deny, SignedIn, SignOut, Back string
+	Critical, CriticalHint, CriticalConfirm                                                       string
 }
 
 type consentPage struct {
@@ -32,8 +38,9 @@ type consentPage struct {
 	Fields             []kv
 	AgentName          string
 	Presets, Durations []option
-	Machines           []option
+	Machines, Critical []option
 	AllMachines        bool
+	CanAll             bool
 	Error, Broken      string
 	SignedInAs, Return string
 
@@ -73,8 +80,12 @@ func (s *Server) oauthBroken(w http.ResponseWriter, r *http.Request, p *oauth.Pr
 func (s *Server) consentLabels() consentLabels {
 	return consentLabels{
 		Agent: s.t("Agent name"), AgentHint: s.t("Its name in the audit log and the chat, after yours. The same name later reuses the agent."),
-		Preset: s.t("What it may do"), Machines: s.t("Machines"), All: s.t("All machines"), Some: s.t("Only these"),
+		Preset: s.t("What it may do"), Machines: s.t("Machines"), Some: s.t("Only these"),
 		Duration: s.t("For how long"), Allow: s.t("Allow"), Deny: s.t("Deny"), SignOut: s.t("Sign out"),
+		All:             s.t("All machines that are not critical, including ones added later"),
+		Critical:        s.t("Critical machines"),
+		CriticalHint:    s.t("Critical machines are reached only when named. Tick only those this client must reach; it reaches them for %d days at most.", int(store.CriticalGrantTTL.Hours()/24)),
+		CriticalConfirm: s.t("I confirm this client may reach the critical machines ticked"),
 	}
 }
 
@@ -142,10 +153,12 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	s.consentForm(w, r, v, q, http.StatusOK, s.consentDefaults(v, q))
 }
 
-// consentChoice is what the person chose, or what the form starts with.
+// consentChoice is what the person chose, or what the form starts with: Machines the machines that are
+// not critical (all, or those ticked), Critical the critical machines ticked.
 type consentChoice struct {
 	Agent, Preset string
-	Machines      []string
+	Machines      store.MachineAccess
+	Critical      []string
 	Duration      int // index in oauth.Durations
 	Problem       string
 }
@@ -153,9 +166,10 @@ type consentChoice struct {
 // consentDefaults are what the consent form starts with: the person's agent made for this client, or a
 // new name after the client's (never an existing agent made for another client, or for none: the name
 // is the client's own say); the strongest preset the client asked for within the person's role (or the
-// role's own); all machines; 30 days.
+// role's own); all machines that are not critical (a reused agent's own, when it names them); no
+// critical machine; 30 days.
 func (s *Server) consentDefaults(v *viewer, q oauth.Request) consentChoice {
-	c := consentChoice{Duration: 1}
+	c := consentChoice{Duration: 1, Machines: store.AllAccess()}
 	role := v.Account.Role
 	found := false
 	for _, a := range s.Store.Agents(v.Account.Username) { // the person's agent for this client: the one named after it, or another
@@ -182,7 +196,10 @@ func (s *Server) consentDefaults(v *viewer, q oauth.Request) consentChoice {
 		if a.Preset != store.PresetCustom && !store.PresetAtMost(c.Preset, a.Preset) {
 			c.Preset = a.Preset
 		}
-		c.Machines = a.Machines
+		if !a.IsAll() {
+			critical := s.Store.CriticalMachines()
+			c.Machines = store.NamedAccess(slices.DeleteFunc(slices.Clone(a.Live(s.now()).Machines), func(m string) bool { return critical[m] })...)
+		}
 	}
 	return c
 }
@@ -229,7 +246,7 @@ func (s *Server) consentForm(w http.ResponseWriter, r *http.Request, v *viewer, 
 	name := q.ClientName
 	page := consentPage{shell: s.bare(r, s.t("Allow %s", name)), L: s.consentLabels(), Heading: s.t("%s wants to use Beacon as you", name),
 		Intro:     s.t("It acts as one of your agents, named %s / the name below in the audit log and the chat, and never does more than your role (%s) allows.", v.Account.Username, s.roleName(v.Account.Role)),
-		AgentName: c.Agent, Presets: s.presetOptions(v.Account.Role, c.Preset), AllMachines: len(c.Machines) == 0, Error: c.Problem,
+		AgentName: c.Agent, Presets: s.presetOptions(v.Account.Role, c.Preset), AllMachines: c.Machines.IsAll(), CanAll: true, Error: c.Problem,
 		SignedInAs: s.t("Signed in as %s (%s).", v.Account.DisplayName, v.Account.Username),
 		Return:     s.t("Whatever you answer, Beacon sends you back to %s.", q.FormAction())}
 	s.consentProvenance(&page, q)
@@ -243,13 +260,24 @@ func (s *Server) consentForm(w http.ResponseWriter, r *http.Request, v *viewer, 
 		page.Fields = append(page.Fields, kv{K: k, V: vals[0]})
 	}
 	slices.SortFunc(page.Fields, func(a, b kv) int { return strings.Compare(a.K, b.K) })
+	agentAccess := v.Principal.MachineAccess // a new agent: what the person reaches
+	if isReused {
+		agentAccess = reused.Live(s.now())
+		page.CanAll = agentAccess.IsAll() // a reused agent that names its machines: no more than those
+		page.AllMachines = page.AllMachines && page.CanAll
+	}
 	for _, m := range s.Store.Machines() {
-		if isReused && len(reused.Machines) > 0 && !slices.Contains(reused.Machines, m.Name) {
+		switch {
+		case !agentAccess.Covers(m.Name, m.Critical):
 			continue // a reused agent: no machine beyond its own
+		case m.Critical && v.Principal.Owner():
+			page.Critical = append(page.Critical, option{Value: m.Name, Label: m.Name, Selected: slices.Contains(c.Critical, m.Name)})
+		case !m.Critical:
+			page.Machines = append(page.Machines, option{Value: m.Name, Label: m.Name, Selected: !c.Machines.IsAll() && c.Machines.Names(m.Name)})
 		}
-		page.Machines = append(page.Machines, option{Value: m.Name, Label: m.Name, Selected: slices.Contains(c.Machines, m.Name)})
 	}
 	slices.SortFunc(page.Machines, func(a, b option) int { return strings.Compare(a.Value, b.Value) })
+	slices.SortFunc(page.Critical, func(a, b option) int { return strings.Compare(a.Value, b.Value) })
 	for i, d := range oauth.Durations {
 		label := s.t("%d days", int(d.Hours()/24))
 		if d.Hours() == 24 {
@@ -294,17 +322,20 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.OAuth.Denied(r, q), http.StatusSeeOther) //nolint:gosec // G710: the client's registered redirect URI, checked by Parse
 		return
 	}
-	c := consentChoice{Agent: strings.TrimSpace(f.Get("agent")), Preset: f.Get("preset")}
-	if f.Get("machines") == "some" {
-		c.Machines = f["machine"]
-	}
+	c := consentChoice{Agent: strings.TrimSpace(f.Get("agent")), Preset: f.Get("preset"), Machines: store.AllAccess()}
 	i, err := strconv.Atoi(f.Get("duration"))
 	if err != nil || i < 0 || i >= len(oauth.Durations) {
 		i = 1
 	}
 	c.Duration = i
+	access, why := s.consentMachines(v, f, &c)
+	if why != "" {
+		c.Problem = why
+		s.consentForm(w, r, v, q, http.StatusBadRequest, c)
+		return
+	}
 	until := s.now().Add(oauth.Durations[i])
-	a, machines, err := s.Bridge.OAuthAgent(r.Context(), v.actor(), q.ClientID, q.ClientName, c.Agent, c.Preset, c.Machines, until)
+	a, machines, err := s.Bridge.OAuthAgent(r.Context(), v.actor(), q.ClientID, q.ClientName, c.Agent, c.Preset, access, until)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrExists):
@@ -324,4 +355,50 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 	}
 	consentCSP(w, q)
 	http.Redirect(w, r, to, http.StatusSeeOther) //nolint:gosec // G710: the client's registered redirect URI, checked by Parse
+}
+
+// consentMachines reads the machines the person chose into c, and returns the grant's machine access, or
+// what to ask again: no machine ticked under only these, a machine that is not enrolled, a critical
+// machine ticked without the confirmation or by someone who is not an owner.
+func (s *Server) consentMachines(v *viewer, f url.Values, c *consentChoice) (store.MachineAccess, string) {
+	enrolled := map[string]store.Machine{}
+	for _, m := range s.Store.Machines() {
+		enrolled[m.Name] = m
+	}
+	var names []string
+	for _, name := range f["machine"] {
+		if m, ok := enrolled[name]; !ok || m.Critical {
+			return store.MachineAccess{}, s.t("Choose machines from the list.")
+		}
+		names = append(names, name)
+	}
+	switch f.Get("machines") {
+	case "all":
+		c.Machines = store.AllAccess()
+	case "some":
+		c.Machines = store.NamedAccess(names...)
+		if len(names) == 0 {
+			return store.MachineAccess{}, s.t("Tick at least one machine, or choose all machines that are not critical.")
+		}
+	default:
+		return store.MachineAccess{}, s.t("Choose which machines it reaches.")
+	}
+	for _, name := range f["critical"] {
+		if m, ok := enrolled[name]; !ok || !m.Critical {
+			return store.MachineAccess{}, s.t("Choose machines from the list.")
+		}
+		c.Critical = append(c.Critical, name)
+	}
+	if len(c.Critical) > 0 && !v.Principal.Owner() {
+		return store.MachineAccess{}, s.t("Only an owner gives access to critical machines.")
+	}
+	if len(c.Critical) > 0 && f.Get("critical_confirm") != "yes" {
+		return store.MachineAccess{}, s.t("Confirm that this client may reach the critical machines you ticked, or untick them.")
+	}
+	access := c.Machines
+	access.Machines = append(slices.Clone(access.Machines), c.Critical...)
+	if access.IsAll() {
+		return store.AllAccess(access.Machines...), ""
+	}
+	return store.NamedAccess(access.Machines...), ""
 }

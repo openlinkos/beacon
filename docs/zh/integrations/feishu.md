@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a79f444d
+sourceHash: sha256-ee19e29f
 ---
 
 # 配置飞书应用

@@ -36,10 +36,12 @@ type Info struct {
 // TokenRequest creates a token. SSHKeys (authorized_keys lines) sign in to the SSH channel; Machines
 // limits the machines it reaches there (none: all).
 type TokenRequest struct {
-	Name     string   `json:"name"`
-	Scopes   []string `json:"scopes"`
-	TTL      string   `json:"ttl"` // such as 365d or 720h
-	SSHKeys  []string `json:"ssh_keys,omitempty"`
+	Name    string   `json:"name"`
+	Scopes  []string `json:"scopes"`
+	TTL     string   `json:"ttl"` // such as 365d or 720h
+	SSHKeys []string `json:"ssh_keys,omitempty"`
+	// Machines is its machine access as the command line writes it (store.ParseMachineList): all, or
+	// machine names, each with @END optionally; none when empty.
 	Machines []string `json:"machines,omitempty"`
 }
 
@@ -87,6 +89,20 @@ type Service interface {
 	Audit(e store.AuditEntry) error
 	SetTime(key string, t time.Time) error
 	Time(key string) time.Time
+	CriticalMachines() map[string]bool
+}
+
+// machineAccess reads a machine access the command line sent, for a token: a critical machine newly
+// named is reached for store.CriticalGrantTTL unless it gives an end or @never; one named in before
+// keeps its end.
+func machineAccess(s Service, in []string, before store.MachineAccess) (store.MachineAccess, error) {
+	now := time.Now()
+	access, forever, err := store.ParseMachineList(strings.Join(in, ","), now)
+	if err != nil {
+		return store.MachineAccess{}, err
+	}
+	critical := s.CriticalMachines()
+	return store.WithCriticalEnds(access, before.Live(now), func(m string) bool { return critical[m] }, forever, now), nil
 }
 
 // errUnrecorded answers a token that was not made because its audit entry could not be written.
@@ -165,7 +181,7 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 			}
 			keys = append(keys, k)
 		}
-		machines, err := machineNames(in.Machines)
+		machines, err := machineAccess(s, in.Machines, store.MachineAccess{})
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -184,14 +200,15 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 			}
 			tok = with
 		}
-		if len(machines) > 0 {
-			tok, err = s.UpdateToken(tok.Name, func(t *store.Token) error { t.Machines = machines; return nil })
+		if !machines.None() {
+			tok, err = s.UpdateToken(tok.Name, func(t *store.Token) error { t.MachineAccess = machines; return nil })
 			if err != nil {
 				fail(w, http.StatusInternalServerError, err)
 				return
 			}
 		}
-		if err := s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name, Detail: strings.Join(tok.Scopes, ",")}); err != nil {
+		if err := s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "create_token", Target: tok.Name,
+			Detail: strings.Join(tok.Scopes, ",") + "; machines " + tok.String()}); err != nil {
 			_ = s.RevokeToken(tok.Name) // not made without its record
 			fail(w, http.StatusServiceUnavailable, errUnrecorded)
 			return

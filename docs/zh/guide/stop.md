@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-eaf6026b
+sourceHash: sha256-cdfe128b
 ---
 
 # 停下 Agent，暂停一切
@@ -19,7 +19,7 @@ sourceHash: sha256-eaf6026b
 
 | 开关 | 怎么扳 | 会关掉什么 |
 | --- | --- | --- |
-| 吊销令牌 | Agent 页面上的**Revoke**，或 `beacon token revoke NAME`。控制台的**Tokens**页可吊销任何能到达机器的令牌 | 令牌从下一个请求起被拒绝。用它打开的东西（连接、转发端口、工具调用）立刻关闭，Agent 用它登记的密钥一并消失 |
+| 吊销令牌 | Agent 页面上的**Revoke**，或 `beacon token revoke NAME`。控制台的**Tokens**页删除能到达机器的令牌，限持有 `machines:write`、并持有该令牌全部权限的人（[删除令牌](../reference/permissions.md#deleting-tokens)） | 令牌从下一个请求起被拒绝。用它打开的东西（连接、转发端口、工具调用）立刻关闭，Agent 用它登记的密钥一并消失 |
 | 吊销 OAuth 登录 | Agent 页面上的**Revoke**，或客户端自己登出（`claude mcp logout beacon`） | 同上，作用于这次登录打开的东西。客户端得重新登录 |
 | 删除 SSH 密钥 | `remove_ssh_key`，或 Agent 的页面 | 用这把密钥登录的连接关闭 |
 | 删除 Agent | `beacon agent remove NAME`，或它的页面 | 它的全部凭据（令牌、登录、密钥），及这些凭据打开的一切。它做过的事留在记录里 |

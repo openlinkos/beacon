@@ -111,12 +111,21 @@ func TestLockAPIMachineUpdate(t *testing.T) {
 		t.Fatal("a refused update changed the machine")
 	}
 
-	code, out := c.do("PATCH", "/api/v1/machines/edge-1", op, `{"note": "the relay, moved", "critical": true, "user": "ops"}`)
+	// a token marks no machine critical and changes no account: an owner or a person does
+	for _, body := range []string{`{"note": "the relay, moved", "critical": true}`, `{"note": "the relay, moved", "user": "ops"}`} {
+		if code, out := c.do("PATCH", "/api/v1/machines/edge-1", op, body); code != 403 || out["code"] != "machine.forbidden" {
+			t.Errorf("%s by a token: %d %v", body, code, out)
+		}
+	}
+	if m, _ := e.Store.Machine("edge-1"); m != before {
+		t.Fatalf("a refused update changed the machine: %+v", m)
+	}
+	code, out := c.do("PATCH", "/api/v1/machines/edge-1", op, `{"note": "the relay, moved"}`)
 	if code != 200 {
 		t.Fatalf("update: %d %v", code, out)
 	}
 	m, _ := e.Store.Machine("edge-1")
-	if m.Note != "the relay, moved" || !m.Critical || m.User != "ops" || m.HostKey != before.HostKey || m.Address != before.Address {
+	if m.Note != "the relay, moved" || m.Critical || m.User != "beacon" || m.HostKey != before.HostKey || m.Address != before.Address {
 		t.Errorf("after the update: %+v", m)
 	}
 	if !lockAudited(e.Store, "machine_update", "edge-1", "moved") {
@@ -126,10 +135,10 @@ func TestLockAPIMachineUpdate(t *testing.T) {
 		t.Errorf("not echoed: %v", e.Bot.Texts)
 	}
 	// only the fields given change
-	if code, _ := c.do("PATCH", "/api/v1/machines/edge-1", op, `{"critical": false}`); code != 200 {
+	if code, _ := c.do("PATCH", "/api/v1/machines/edge-1", op, `{"critical": false, "user": "beacon"}`); code != 200 {
 		t.Errorf("partial update: %d", code)
 	}
-	if m, _ := e.Store.Machine("edge-1"); m.Critical || m.Note != "the relay, moved" || m.User != "ops" {
+	if m, _ := e.Store.Machine("edge-1"); m.Critical || m.Note != "the relay, moved" || m.User != "beacon" {
 		t.Errorf("a partial update touched other fields: %+v", m)
 	}
 	if code, out := c.do("PATCH", "/api/v1/machines/edge-1", op, `{"user": "Root; rm"}`); code != 400 || out["code"] != "bad_input" {

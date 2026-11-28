@@ -81,39 +81,61 @@ func legacyMachineSelection(text string) []string {
 
 // agentMachines checks the machine choice before passing it to the bridge. An empty selection must
 // never be interpreted as a request for unrestricted access. The bridge still decides who may grant it.
-func (s *Server) agentMachines(f url.Values, existing []string) (machines []string, problem string) {
+// The form names no critical machines: those the agent names already stay, with their ends (beacon agent
+// machines on the host names or removes them).
+func (s *Server) agentMachines(f url.Values, existing store.MachineAccess) (machines store.MachineAccess, problem string) {
 	if !f.Has("machine_access_form") && !f.Has("machine_access") && !f.Has("machine") {
 		if f.Has("machines") {
-			return legacyMachineSelection(f.Get("machines")), ""
+			names := legacyMachineSelection(f.Get("machines"))
+			if slices.Contains(strings.Fields(strings.ReplaceAll(f.Get("machines"), ",", " ")), store.AccessAll) {
+				return s.keepCritical(store.AllAccess(names...), existing), ""
+			}
+			if len(names) == 0 {
+				return store.MachineAccess{}, "machine_selection"
+			}
+			return s.keepCritical(store.NamedAccess(names...), existing), ""
 		}
 		return existing, ""
 	}
 	if len(f["machine_access"]) != 1 {
-		return nil, "machine_access"
+		return store.MachineAccess{}, "machine_access"
 	}
 	switch f.Get("machine_access") {
 	case "all":
-		return nil, ""
+		return s.keepCritical(store.AllAccess(), existing), ""
 	case "selected":
 		if len(f["machine"]) == 0 {
-			return nil, "machine_selection"
+			return store.MachineAccess{}, "machine_selection"
 		}
 		known := make(map[string]bool)
 		for _, m := range s.Store.Machines() {
 			known[m.Name] = true
 		}
+		var names []string
 		for _, name := range f["machine"] {
-			if !known[name] && !slices.Contains(existing, name) {
-				return nil, "machine_unknown"
+			if !known[name] && !existing.Names(name) {
+				return store.MachineAccess{}, "machine_unknown"
 			}
-			if !slices.Contains(machines, name) {
-				machines = append(machines, name)
+			if !slices.Contains(names, name) {
+				names = append(names, name)
 			}
 		}
-		return machines, ""
+		return s.keepCritical(store.NamedAccess(names...), existing), ""
 	default:
-		return nil, "machine_access"
+		return store.MachineAccess{}, "machine_access"
 	}
+}
+
+// keepCritical keeps in access the critical machines existing names, with their ends, and the ends of
+// the machines both name.
+func (s *Server) keepCritical(access, existing store.MachineAccess) store.MachineAccess {
+	critical := s.Store.CriticalMachines()
+	for _, m := range existing.Machines {
+		if critical[m] && !access.Names(m) {
+			access.Machines = append(access.Machines, m)
+		}
+	}
+	return store.KeepEnds(access, existing)
 }
 
 type agentMachineAccess struct {
@@ -122,20 +144,39 @@ type agentMachineAccess struct {
 	CanAll           bool
 	Options          []option
 	SelectionSummary string
+	Critical         string // the critical machines the agent names, which the form keeps
 }
 
-func (s *Server) agentMachineAccess(v *viewer, current []string, editing bool) agentMachineAccess {
-	a := agentMachineAccess{L: s.agentLabels(), All: editing && len(current) == 0, Selected: len(current) > 0,
-		CanAll: len(v.Principal.Machines) == 0 || editing && len(current) == 0, SelectionSummary: s.t("%s machines selected", num(len(current)))}
+// agentMachineAccess is the machine choice for an agent whose access is current. Only a person gives
+// access to all machines; the machines offered are those the viewer reaches that are not critical, and
+// any the agent names already.
+func (s *Server) agentMachineAccess(v *viewer, current store.MachineAccess, editing bool) agentMachineAccess {
+	critical := s.Store.CriticalMachines()
+	var picked, kept []string
+	for _, m := range current.Machines {
+		if critical[m] {
+			kept = append(kept, m)
+		} else {
+			picked = append(picked, m)
+		}
+	}
+	a := agentMachineAccess{L: s.agentLabels(), All: editing && current.IsAll(), Selected: editing && !current.IsAll(),
+		CanAll: v.person() || editing && current.IsAll(), SelectionSummary: s.t("%s machines selected", num(len(picked)))}
+	if len(kept) > 0 {
+		a.Critical = s.t("Critical: %s", s.namedText(store.MachineAccess{Machines: kept, MachineUntil: current.MachineUntil}))
+	}
 	for _, m := range s.Store.Machines() {
-		selected := slices.Contains(current, m.Name)
-		if selected || len(v.Principal.Machines) == 0 || slices.Contains(v.Principal.Machines, m.Name) {
+		if m.Critical {
+			continue
+		}
+		selected := !current.IsAll() && slices.Contains(picked, m.Name)
+		if selected || v.Principal.Covers(m.Name) {
 			a.Options = append(a.Options, option{Value: m.Name, Label: m.Name, Selected: selected})
 		}
 	}
-	for _, name := range current {
+	for _, name := range picked {
 		if !slices.ContainsFunc(a.Options, func(o option) bool { return o.Value == name }) {
-			a.Options = append(a.Options, option{Value: name, Label: name, Selected: true, Help: s.t("Not registered")})
+			a.Options = append(a.Options, option{Value: name, Label: name, Selected: !current.IsAll(), Help: s.t("Not registered")})
 		}
 	}
 	return a
@@ -153,7 +194,7 @@ type agentLabels struct {
 	Agent, Owner, Preset, Scopes, Machines, Credentials, Keys, Created, Name, NameHint, Expires, Create, Tokens, Grants,
 	Client, LastUsed, Revoke, NewToken, AddKey, Key, KeyHint, Comment, Remove, Delete, DeleteHint, Save, Settings, SSHConfig, OAuth, OAuthHelp,
 	Headless, HeadlessHelp, Hooks, None, Renewed, All, NoAgents, NoTokens, NoGrants, NoKeys, Fingerprint, Added, Until, Allowed,
-	CustomScopes, CustomScopesHint, AccessRange, AllCurrentAndFuture, SelectedMachines, NoMachineOptions, PickMachines, SelectionCount string
+	CustomScopes, CustomScopesHint, AccessRange, AllCurrentAndFuture, SelectedMachines, NoMachineOptions, PickMachines, SelectionCount, CriticalKept string
 }
 
 func (s *Server) agentLabels() agentLabels {
@@ -175,9 +216,10 @@ func (s *Server) agentLabels() agentLabels {
 		Fingerprint: s.t("Fingerprint"), Added: s.t("Added"), Until: s.t("Expires"), Allowed: s.t("Allowed"),
 		CustomScopes:     s.t("Custom scopes"),
 		CustomScopesHint: s.t("Choose permissions within the owner's role and your own access."),
-		AccessRange:      s.t("Machine access"), AllCurrentAndFuture: s.t("All current and future machines"),
+		AccessRange:      s.t("Machine access"), AllCurrentAndFuture: s.t("All machines that are not critical, including ones added later"),
 		SelectedMachines: s.t("Selected machines"), NoMachineOptions: s.t("There are no machines available to select."),
 		PickMachines: s.t("Select at least one machine."), SelectionCount: s.t("%s machines selected", "{count}"),
+		CriticalKept: s.t("Critical machines it names stay as they are; beacon agent machines on the host changes them."),
 	}
 }
 
@@ -256,7 +298,7 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Presets = s.presetOptions(role, "")
 	if p.CanCreate {
-		p.MachineAccess = s.agentMachineAccess(v, nil, false)
+		p.MachineAccess = s.agentMachineAccess(v, store.MachineAccess{}, false)
 	}
 	if v.owner() && v.person() {
 		p.CanCustom = true
@@ -276,10 +318,7 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 	p.Count = num(len(list))
 	for _, a := range list {
 		row := agentRow{Name: a.Name, Href: agentHref(a.Name), Owner: a.Owner, Preset: s.presetName(a.Preset), Scopes: activeAgentScopes(a.Scopes),
-			Machines: s.t("All machines"), Credentials: s.credentials(a), Keys: num(len(a.SSHKeys)), Created: s.clock(a.Created)}
-		if len(a.Machines) > 0 {
-			row.Machines = strings.Join(a.Machines, ", ")
-		}
+			Machines: s.accessText(a.MachineAccess()), Credentials: s.credentials(a), Keys: num(len(a.SSHKeys)), Created: s.clock(a.Created)}
 		p.Rows = append(p.Rows, row)
 	}
 	s.render(w, agentsTmpl, p)
@@ -311,7 +350,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, v *viewer) 
 	if v.owner() {
 		owner = f.Get("owner")
 	}
-	machines, problem := s.agentMachines(f, nil)
+	machines, problem := s.agentMachines(f, store.MachineAccess{})
 	if problem != "" {
 		back(w, r, consolePath("/agents"), "error", problem)
 		return
@@ -372,7 +411,7 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	path := consolePath("/agents/") + url.PathEscape(a.Name)
 	p := agentPage{shell: s.shellFor(r, v, "agents", a.Name, crumb{Label: s.t("Agents"), Href: consolePath("/agents")}), L: s.agentLabels(),
-		Scopes: activeAgentScopes(a.Scopes), Expiries: s.expiryOptions(), MachineAccess: s.agentMachineAccess(v, a.Machines, true), Custom: a.Preset == store.PresetCustom,
+		Scopes: activeAgentScopes(a.Scopes), Expiries: s.expiryOptions(), MachineAccess: s.agentMachineAccess(v, a.MachineAccess(), true), Custom: a.Preset == store.PresetCustom,
 		SSHConfig: s.Bridge.SSHConfig(a.Name), SettingsAction: path + "/settings", TokenAction: path + "/tokens", KeyAction: path + "/keys",
 		RemoveKey: path + "/keys/remove", Delete: path + "/delete"}
 	role := ""
@@ -387,11 +426,7 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	p.Facts = []kvLink{{K: s.t("In the audit log"), V: a.Actor}, {K: s.t("Owner"), V: a.Owner}, {K: s.t("Preset"), V: s.presetName(a.Preset)},
 		{K: s.t("Created"), V: s.clock(a.Created) + " · " + a.CreatedBy}}
-	access := s.t("All machines")
-	if len(a.Machines) != 0 {
-		access = strings.Join(a.Machines, ", ")
-	}
-	p.Facts = append(p.Facts, kvLink{K: p.L.AccessRange, V: access})
+	p.Facts = append(p.Facts, kvLink{K: p.L.AccessRange, V: s.accessText(a.MachineAccess())})
 	if a.Preset == store.PresetCustom {
 		p.Facts = append(p.Facts, kvLink{K: s.t("Asks for"), V: strings.Join(activeAgentScopes(a.Wanted), ", ")})
 	}
@@ -404,9 +439,7 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request, v *viewer) {
 	}
 	for _, g := range a.Grants {
 		row := grantRow{Client: g.Client, Allowed: s.presetName(g.Preset), Created: s.clock(g.Created), Expires: s.clock(g.Expires), Revoke: path + "/grants/" + url.PathEscape(g.ID) + "/revoke"}
-		if len(g.Machines) > 0 {
-			row.Allowed += " · " + strings.Join(g.Machines, ", ")
-		}
+		row.Allowed += " · " + s.accessText(g.MachineAccess())
 		if !g.LastUsed.IsZero() {
 			row.LastUsed = s.clock(g.LastUsed)
 		}
@@ -433,7 +466,7 @@ func (s *Server) agentSettings(w http.ResponseWriter, r *http.Request, v *viewer
 	}
 	f := r.PostForm
 	preset := f.Get("preset")
-	machines, problem := s.agentMachines(f, a.Machines)
+	machines, problem := s.agentMachines(f, a.MachineAccess())
 	if problem != "" {
 		back(w, r, agentHref(a.Name), "error", problem)
 		return

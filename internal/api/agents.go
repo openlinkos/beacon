@@ -27,12 +27,13 @@ func (s *Server) registerAgents(mux *http.ServeMux) {
 }
 
 type agentBody struct {
-	Name     string    `json:"name"`
-	Owner    string    `json:"owner"`
-	Preset   *string   `json:"preset"`
-	Scopes   []string  `json:"scopes"`
-	Machines *[]string `json:"machines"`
-	Expires  string    `json:"expires"`
+	Name          string    `json:"name"`
+	Owner         string    `json:"owner"`
+	Preset        *string   `json:"preset"`
+	Scopes        []string  `json:"scopes"`
+	MachineAccess *string   `json:"machine_access"`
+	Machines      *[]string `json:"machines"`
+	Expires       string    `json:"expires"`
 }
 
 // agentError maps an agent operation's error. notFound is the code for an agent that does not exist;
@@ -96,8 +97,13 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, who bridge.
 		preset = *in.Preset
 	}
 	agent := bridge.AgentInput{Name: strings.TrimSpace(in.Name), Owner: in.Owner, Preset: preset, TTL: ttl}
-	if in.Machines != nil {
-		agent.Machines = *in.Machines
+	machines, err := bridge.MachineChoice(in.MachineAccess, in.Machines)
+	if err != nil {
+		s.agentError(w, err, "")
+		return
+	}
+	if machines != nil {
+		agent.Machines = *machines
 	}
 	if preset == store.PresetCustom {
 		agent.Scopes = in.Scopes
@@ -118,7 +124,12 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, who bridge.
 	if !readJSON(w, r, &in) {
 		return
 	}
-	v, err := s.Bridge.UpdateAgent(r.Context(), who, r.PathValue("name"), bridge.AgentUpdate{Preset: in.Preset, Scopes: in.Scopes, Machines: in.Machines})
+	machines, err := bridge.MachineChoice(in.MachineAccess, in.Machines)
+	if err != nil {
+		s.agentError(w, err, "agent.not_found")
+		return
+	}
+	v, err := s.Bridge.UpdateAgent(r.Context(), who, r.PathValue("name"), bridge.AgentUpdate{Preset: in.Preset, Scopes: in.Scopes, Machines: machines})
 	if err != nil {
 		s.agentError(w, err, "agent.not_found")
 		return

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2bca2d94
+sourceHash: sha256-06ec8693
 ---
 
 # 命令行
@@ -26,8 +26,8 @@ docker exec beacon beacon token list
 | `check-config` | 校验配置文件、它指名的文件和数据库里的配置，不启动。取 `-config` |
 | `config` | 数据库里的配置：[import、export、history、revert](#beacon-config) |
 | `setup` | 打印建立第一个成员（所有者）的一次性链接，30 分钟内有效 |
-| `user` | 成员：[list、invite、disable、enable、role、reset](#beacon-setup-user-agent) |
-| `agent` | 某个成员名下的 Agent：[add、list、remove](#beacon-setup-user-agent) |
+| `user` | 成员：[list、invite、disable、enable、role、machines、reset](#beacon-setup-user-agent) |
+| `agent` | 某个成员名下的 Agent：[add、list、machines、remove](#beacon-setup-user-agent) |
 | `token` | 凭据：[create、list、revoke、ssh-key、machines、claim](#beacon-token) |
 | `machine` | 机器：[add、connector、list、remove、ca](#beacon-machine-ssh) |
 | `ssh` | SSH 通道：[pause、resume、status](#beacon-machine-ssh) |
@@ -61,19 +61,23 @@ docker exec beacon beacon token list
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `list` | | 成员、角色和 Agent，以及尚未使用的邀请 |
+| `list` | | 成员、角色、能到的机器和 Agent，以及尚未使用的邀请 |
 | `invite` | `-role`、`-note` | 一个加入某个角色的一次性链接。`-role` 取 `viewer`、`oncall`、`operator`、`owner` 之一；`-note` 写明给谁 |
 | `disable` NAME、`enable` NAME | | 停用或恢复某人的登录 |
 | `role` NAME ROLE | | 改角色；其会话和 Agent 随即跟上 |
 | `reset` NAME | | 选择新密码的一次性链接；届时其在控制台的登录和其 Agent 的 OAuth 登录都会结束，其 Agent 的令牌除非吊销仍然有效 |
+| `machines` NAME LIST | | 不是 owner 的人在全部非关键机器之外还能到的关键机器。LIST 点名机器，每个可带 `@END`；`none` 全部收回。人点名的机器不给期限就不过期 |
 
 **`beacon agent`** —— 成员名下的 Agent：
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `add` NAME | `-owner`、`-preset`、`-scopes`、`-machines`、`-expires`、`-ssh-key` | 建一个成员的 Agent 和它的第一枚令牌，并打印使用它的命令片段。`-owner` 指名所有者；`-preset` 取 `readonly`、`oncall` 或 `operator`，即所有者角色所允许的最强预设；`-scopes` 用自定义 scope 代替预设；`-machines` 限定它能到达的机器；`-expires`（默认 `365d`）；`-ssh-key` 加一把通道用的公钥，可直接给钥匙或 `@FILE` |
-| `list` | | 每个 Agent：所有者、预设、可做什么、机器、令牌、OAuth 登录、密钥 |
+| `add` NAME | `-owner`、`-preset`、`-scopes`、`-machines`、`-expires`、`-ssh-key` | 建一个成员的 Agent 和它的第一枚令牌，并打印使用它的命令片段。`-owner` 指名所有者；`-preset` 取 `readonly`、`oncall` 或 `operator`，即所有者角色所允许的最强预设；`-scopes` 用自定义 scope 代替预设；`-machines` 它能到达的机器，写成机器列表（见下），缺省为一台也没有；`-expires`（默认 `365d`）；`-ssh-key` 加一把通道用的公钥，可直接给钥匙或 `@FILE` |
+| `list` | | 每个 Agent：所有者、预设、可做什么、机器访问、令牌、OAuth 登录、密钥 |
+| `machines` NAME LIST | | 设置 Agent 能到达的机器，写成机器列表（见下） |
 | `remove` NAME | | 删除一个 Agent，连同它的令牌、OAuth 登录和密钥 |
+
+**机器列表**是 `all`、`none`，或逗号分隔的机器名。`all` 是全部非关键机器，含以后接入的；跟在它后面的名字是它还能到的关键机器（`all,ca-1`）。每个名字可以带 `@END`：一段时长（`72h`、`30d`）、一个日期（`2026-12-31`）、RFC 3339 时间，或 `never`。给 Agent 或令牌新点名的关键机器，不给期限就 30 天后到期；已经点名的机器保留原来的期限。只有主机上的 `beacon` 和 owner 能点名关键机器（[机器访问](permissions.md#machine-access)）。
 
 ### beacon token
 
@@ -81,12 +85,12 @@ docker exec beacon beacon token list
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `create` NAME | `-scopes`、`-expires`、`-ssh-key`、`-machines` | 建一枚令牌。`-scopes`（默认 `status:read`），逗号分隔；`-expires`（默认 `365d`）；`-ssh-key` 一把通道用的公钥，可直接给钥匙或 `@FILE`；`-machines` 它能到达的机器，缺省为全部 |
-| `list` | | 每枚令牌：scope、到期、寿命、续期时间、谁建的 |
-| `revoke` NAME | | 立即作废一枚令牌 |
+| `create` NAME | `-scopes`、`-expires`、`-ssh-key`、`-machines` | 建一枚令牌。`-scopes`（默认 `status:read`），逗号分隔；`-expires`（默认 `365d`）；`-ssh-key` 一把通道用的公钥，可直接给钥匙或 `@FILE`；`-machines` 它能到达的机器，写成[机器列表](#beacon-setup-user-agent)，缺省为一台也没有 |
+| `list` | | 每枚令牌：scope、机器访问、到期、寿命、续期时间、谁建的 |
+| `revoke` NAME | | 立即删除一枚令牌 |
 | `ssh-key` NAME `add` KEY | | 给令牌加一把公钥（`@FILE` 从文件读） |
 | `ssh-key` NAME `remove` FINGERPRINT | | 删除令牌的一把密钥 |
-| `machines` NAME a,b | | 令牌经通道能到达的机器；`all` 为全部 |
+| `machines` NAME LIST | | 令牌经通道能到达的机器，写成[机器列表](#beacon-setup-user-agent)：`all` 为全部非关键机器，或点名机器 |
 | `claim` NAME | `-owner`、`-agent`、`-preset` | 把一枚旧式令牌归为某个成员的 Agent。`-owner` 指名所有者；`-agent` 指名 Agent（默认用令牌自己的名字）；`-preset` 取 `readonly`、`oncall`、`operator` 或 `custom`（保留原 scope），不能取要求令牌没有的 scope 的预设 |
 
 ### beacon machine, ssh
@@ -97,7 +101,7 @@ docker exec beacon beacon token list
 
 | 子命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `add` NAME HOST[:PORT] | `-user`、`-critical`、`-note`、`-replace`、`-key`、`-host-key` | 固定机器的 host key 并按地址到达它。`-user` 是机器上的账号（默认 `beacon`）；`-critical` 标记为关键机器；`-note` 写明它是什么；`-replace` 重新固定已添加机器的 host key |
+| `add` NAME HOST[:PORT] | `-user`、`-critical`、`-note`、`-replace`、`-key`、`-host-key` | 固定机器的 host key 并按地址到达它。`-user` 是机器上的账号（默认 `beacon`；它打印的配置只为这个账号信任 Beacon 的证书）；`-critical` 标记为关键机器，只有点名它的凭据和 owner 能到；`-note` 写明它是什么；`-replace` 重新固定已添加机器的 host key |
 | `add` NAME connector | 同上 | NAT 后的机器，用 `ssh -R` 向外连到 Beacon；`-key` 是它外连用的公钥，`-host-key` 它的 host key（缺省在首次连接时学习） |
 | `connector` NAME | `-key` | 设置或更换连接器机器外连用的密钥 |
 | `list` | | 每台机器：地址、账号、host key、连接器是否在线 |

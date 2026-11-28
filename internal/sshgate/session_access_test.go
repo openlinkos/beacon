@@ -140,7 +140,7 @@ func TestSessionReadersAuthoriseBeforeOpeningFiles(t *testing.T) {
 	if err != nil || string(body) != "fixture recording" {
 		t.Fatalf("legacy recording permitted by the current enrolment: %q, %v", body, err)
 	}
-	person := store.Principal{User: "alice", Scopes: []string{"sessions:read"}}
+	person := store.Principal{User: "alice", Scopes: []string{"sessions:read"}, MachineAccess: store.MachineAccess{Access: store.AccessEvery}}
 	if got, err := g.SessionFor(person, previous.ID); err != nil || got.ID != previous.ID {
 		t.Fatalf("the retained historical transcript was hidden from the unscoped person: %s, %v", got.ID, err)
 	}

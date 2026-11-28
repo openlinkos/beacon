@@ -192,9 +192,9 @@ Beacon connects once and pins the machine's host key. From now on it will refuse
 
 ```
 added edge-1 at edge-1.example.net:22 as beacon; its host key is SHA256:…
-On the machine, as root, if not done yet:
+On the machine, as root, if not done yet (Beacon's certificates are trusted for beacon alone):
   echo 'ssh-ed25519 AAAA… beacon-ca' > /etc/ssh/beacon_ca.pub
-  echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
+  printf 'Match User beacon\n  TrustedUserCAKeys /etc/ssh/beacon_ca.pub\nMatch all\n' > /etc/ssh/sshd_config.d/beacon.conf
   id beacon >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' beacon
   systemctl reload ssh
 (see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)

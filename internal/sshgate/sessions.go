@@ -330,6 +330,7 @@ func (g *Gate) Tidy(ctx context.Context) {
 		case <-flush.C:
 			g.echo.flush(ctx, false)
 		case <-recheck.C: // credentials that expired meanwhile
+			g.TidyMachineAccess()
 			g.Recheck()
 		case <-prune.C:
 			g.prune()

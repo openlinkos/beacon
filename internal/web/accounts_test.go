@@ -547,7 +547,11 @@ func TestAgentsOnTheConsole(t *testing.T) {
 	if a := bob.post("/console/agents", url.Values{"name": {"ci"}, "preset": {"operator"}, "expires": {"365d"}}); !strings.Contains(a.header.Get("Location"), "error=bad_agent") {
 		t.Errorf("a preset above the role: %q", a.header.Get("Location"))
 	}
-	a := bob.post("/console/agents", url.Values{"name": {"ci-bot"}, "preset": {"oncall"}, "machines": {"edge-1"}, "expires": {"90d"}})
+	// edge-1 is critical: only an owner names it
+	if a := bob.post("/console/agents", url.Values{"name": {"ci-bot"}, "preset": {"oncall"}, "machines": {"edge-1"}, "expires": {"90d"}}); !strings.Contains(a.header.Get("Location"), "error=forbidden") {
+		t.Fatalf("a person names a critical machine for an agent: %d %q", a.code, a.header.Get("Location"))
+	}
+	a := bob.post("/console/agents", url.Values{"name": {"ci-bot"}, "preset": {"oncall"}, "machines": {"edge-2"}, "expires": {"90d"}})
 	if a.code != http.StatusCreated {
 		t.Fatalf("new agent: %d %s", a.code, a.body)
 	}
@@ -557,7 +561,7 @@ func TestAgentsOnTheConsole(t *testing.T) {
 		t.Fatalf("the token and its snippets: %s", a.body)
 	}
 	p, ok := e.st.Authenticate(secret[1])
-	if !ok || p.Name() != "bob / ci-bot" || !p.Reaches("edge-1") || p.Reaches("edge-2") || p.Has("machines:write") {
+	if !ok || p.Name() != "bob / ci-bot" || !p.Reaches("edge-2") || p.Reaches("edge-1") || p.Has("machines:write") {
 		t.Errorf("the agent's token: %+v %v", p, ok)
 	}
 	if !e.bot.told("bob made agent ci-bot for bob (On call) via the console") || !e.bot.told("bob gave agent ci-bot a token") {
@@ -571,7 +575,7 @@ func TestAgentsOnTheConsole(t *testing.T) {
 	// the agent's page: settings, a key, revoking and deleting
 	ap := bob.get("/console/agents/ci-bot")
 	checkPage(t, "/console/agents/ci-bot", ap.body)
-	if !strings.Contains(ap.body, "bob / ci-bot") || !strings.Contains(ap.body, "edge-1") {
+	if !strings.Contains(ap.body, "bob / ci-bot") || !strings.Contains(ap.body, "edge-2") {
 		t.Errorf("agent page: %s", ap.body)
 	}
 	key := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(keySigner(t).PublicKey()))) + " laptop"
@@ -585,7 +589,10 @@ func TestAgentsOnTheConsole(t *testing.T) {
 	if len(ag.SSHKeys) != 1 || ag.SSHKeys[0].Comment != "laptop" {
 		t.Errorf("keys: %+v", ag.SSHKeys)
 	}
-	if a := bob.post("/console/agents/ci-bot/settings", url.Values{"preset": {"readonly"}, "machines": {""}}); !strings.Contains(a.header.Get("Location"), "done=saved") {
+	if a := bob.post("/console/agents/ci-bot/settings", url.Values{"preset": {"readonly"}, "machines": {""}}); !strings.Contains(a.header.Get("Location"), "error=machine_selection") {
+		t.Errorf("an empty selection: %q", a.header.Get("Location"))
+	}
+	if a := bob.post("/console/agents/ci-bot/settings", url.Values{"preset": {"readonly"}, "machines": {"all"}}); !strings.Contains(a.header.Get("Location"), "done=saved") {
 		t.Errorf("settings: %q", a.header.Get("Location"))
 	}
 	if p, _ := e.st.Authenticate(secret[1]); p.Has("alerts:write") || !p.Reaches("edge-2") && p.Has("machines:ssh") {

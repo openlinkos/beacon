@@ -213,7 +213,8 @@ export function People({ data: p }: { data: PeopleData }) {
   )
 }
 
-type MachineAccess = { All: boolean; Selected: boolean; CanAll: boolean; Options: Pick[] | null }
+// Critical names the critical machines the agent names, which the form keeps as they are
+type MachineAccess = { All: boolean; Selected: boolean; CanAll: boolean; Options: Pick[] | null; Critical?: string }
 type AgentPermissions = { L: Text; Presets: Pick[]; MachineAccess: MachineAccess; ScopeOptions: Pick[] | null; Custom?: boolean; CanCustom: boolean }
 
 function PermissionFields({ data: p }: { data: AgentPermissions }) {
@@ -247,6 +248,7 @@ function PermissionFields({ data: p }: { data: AgentPermissions }) {
           <option value="selected">{l.SelectedMachines}</option>
         </select>
       </Field>
+      {p.MachineAccess.Critical && <p className="notice" role="status">{p.MachineAccess.Critical}. {l.CriticalKept}</p>}
       {range === 'selected' && (
         <fieldset>
           <legend>{l.Machines}</legend>

@@ -41,10 +41,10 @@ type CallerCapabilities struct {
 	Agent        string   `json:"agent,omitempty"`
 	Preset       string   `json:"preset,omitempty"`
 	Scopes       []string `json:"scopes"`
-	MachineScope string   `json:"machine_scope"`
-	Machines     []string `json:"machines,omitempty"`
-	Person       bool     `json:"person"`
-	Standalone   bool     `json:"standalone"`
+	MachineScope string   `json:"machine_scope"` // all, listed or none; machine_access says the same in today's words
+	bridge.MachineAccessView
+	Person     bool `json:"person"`
+	Standalone bool `json:"standalone"`
 }
 
 // Operation describes one Beacon operation across REST and MCP, evaluated against the caller.
@@ -237,7 +237,7 @@ var opDefs = []opDef{
 	{tool: "describe_capabilities", rest: "GET /api/v1/capabilities", domain: DomainIdentity, access: "read", summary: "Discover Beacon's operational domains, enabled features, MCP resources/prompts and caller-available operations."},
 	{tool: "whoami", rest: "GET /api/v1/token", domain: DomainIdentity, access: "read", summary: "Inspect current actor identity, owner, preset, effective scopes, machine boundaries and credential expiry."},
 	{tool: "renew_token", rest: "POST /api/v1/token/renew", domain: DomainIdentity, access: "write", summary: "Rotate your static token for a new secret with a 10-minute grace window (at most once per day)."},
-	{tool: "revoke_token", rest: "DELETE /api/v1/tokens/{name}", domain: DomainIdentity, access: "destructive", scopes: []string{"machines:write"}, summary: "Immediately revoke an agent or SSH-capable token and close its active sessions."},
+	{tool: "revoke_token", rest: "DELETE /api/v1/tokens/{name}", domain: DomainIdentity, access: "destructive", scopes: []string{"machines:write"}, summary: "Delete an agent's or an SSH-capable token within your own access, and close its active sessions."},
 	{tool: "list_agents", rest: "GET /api/v1/agents", domain: DomainIdentity, access: "read", scopeMode: "owner_or_self", summary: "List delegated agents you own (or all agents for an administrator), with presets, scopes and machines."},
 	{tool: "get_agent", rest: "GET /api/v1/agents/{name}", domain: DomainIdentity, access: "read", scopeMode: "owner_or_self", summary: "Inspect one delegated agent's effective scopes, machines, tokens, OAuth grants and SSH keys."},
 	{tool: "create_agent", rest: "POST /api/v1/agents", domain: DomainIdentity, access: "write", scopeMode: "owner_or_self", summary: "Create a delegated agent bounded by owner role and caller privileges, optionally issuing a token."},
@@ -431,25 +431,16 @@ func BuildCapabilities(p store.Principal, f Features) Capabilities {
 	if scopes == nil {
 		scopes = []string{}
 	}
-	machineScope := "all"
-	var machines []string
-	switch {
-	case p.MachineScopeEmpty():
-		machineScope = "none"
-	case len(p.Machines) > 0:
-		machineScope = "listed"
-		machines = slices.Clone(p.Machines)
-	}
 	caller := CallerCapabilities{
-		Actor:        p.Name(),
-		User:         p.User,
-		Agent:        p.Agent,
-		Preset:       p.Preset,
-		Scopes:       scopes,
-		MachineScope: machineScope,
-		Machines:     machines,
-		Person:       p.Person(),
-		Standalone:   p.Agent == "" && !p.Person(),
+		Actor:             p.Name(),
+		User:              p.User,
+		Agent:             p.Agent,
+		Preset:            p.Preset,
+		Scopes:            scopes,
+		MachineScope:      bridge.MachineScope(p.MachineAccess),
+		MachineAccessView: bridge.AccessView(p.MachineAccess),
+		Person:            p.Person(),
+		Standalone:        p.Agent == "" && !p.Person(),
 	}
 
 	byDomain := make(map[string][]Operation, len(domainDefs))

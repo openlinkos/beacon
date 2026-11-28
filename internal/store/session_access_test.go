@@ -20,7 +20,7 @@ func TestMachineScopedSessionAccess(t *testing.T) {
 	}
 	scoped := s.SessionAccess(Principal{Scopes: []string{"sessions:read"}, Machines: []string{current.Name, "undated", "retired"}})
 	metadata := s.SessionAccess(Principal{Scopes: []string{"status:read"}, Machines: []string{current.Name}})
-	person := s.SessionAccess(Principal{User: "alice", Scopes: []string{"sessions:read"}})
+	person := s.SessionAccess(Principal{User: "alice", Scopes: []string{"sessions:read"}, MachineAccess: MachineAccess{Access: AccessEvery}})
 	if !scoped.Details() || metadata.Details() || !person.Details() {
 		t.Fatal("session detail permission was coupled to the machine filter")
 	}
@@ -65,7 +65,7 @@ func TestDisjointOAuthSessionAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, ok := s.Authenticate(grant.Access)
-	if !ok || !p.Has("status:read") || !p.Has("sessions:read") || p.Has("machines:ssh") || !p.MachineScopeEmpty() {
+	if !ok || !p.Has("status:read") || !p.Has("sessions:read") || p.Has("machines:ssh") || !p.NoMachines() {
 		t.Fatalf("disjoint grant was not represented independently of its read scopes: %+v", p)
 	}
 	resolved, ok := s.PrincipalWith(p.Key(), p.Cred())
@@ -74,13 +74,13 @@ func TestDisjointOAuthSessionAccess(t *testing.T) {
 	}
 	for _, q := range []Principal{p, resolved} {
 		a := s.SessionAccess(q)
-		if !q.MachineScopeEmpty() || !a.Details() || a.Visible(SessionRecord{Machine: "edge-1"}) ||
+		if !q.NoMachines() || !a.Details() || a.Visible(SessionRecord{Machine: "edge-1"}) ||
 			a.Visible(SessionRecord{Machine: "edge-2"}) {
 			t.Fatal("disjoint machine scope was treated as unlimited")
 		}
 	}
 
-	if _, err := s.UpdateAgent("fixture", func(a *Agent) error { a.Machines = []string{"edge-1"}; return nil }); err != nil {
+	if _, err := s.UpdateAgent("fixture", func(a *Agent) error { a.MachineAccess = NamedAccess("edge-1"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	m, err := s.RegisterMachine(Machine{Name: "edge-1", Added: *now}, nil, "test")
@@ -88,7 +88,7 @@ func TestDisjointOAuthSessionAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, ok = s.Authenticate(grant.Access)
-	if !ok || p.MachineScopeEmpty() || !s.SessionAccess(p).Visible(SessionRecord{Machine: m.Name, MachineRegistration: m.Registration()}) {
+	if !ok || p.NoMachines() || !s.SessionAccess(p).Visible(SessionRecord{Machine: m.Name, MachineRegistration: m.Registration()}) {
 		t.Fatal("the live credential did not reflect the newly overlapping machine scope")
 	}
 }

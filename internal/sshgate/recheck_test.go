@@ -151,7 +151,7 @@ func TestRecheckClosesSessions(t *testing.T) {
 	if _, err := e.st.Join(inv, "bob", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.st.CreateAgent(store.Agent{Name: "codex", Owner: "bob", Preset: "oncall"}); err != nil {
+	if _, err := e.st.CreateAgent(store.Agent{Name: "codex", Owner: "bob", Preset: "oncall", MachineAccess: store.AllAccess()}); err != nil {
 		t.Fatal(err)
 	}
 	_, tok, err := e.st.CreateAgentToken("codex", 24*time.Hour, "bob")
@@ -167,7 +167,7 @@ func TestRecheckClosesSessions(t *testing.T) {
 
 	// fewer machines: closed; and it may not open another
 	done = e.open(t, key)
-	if _, err := e.st.UpdateAgent("codex", func(a *store.Agent) error { a.Machines = []string{"other"}; return nil }); err != nil {
+	if _, err := e.st.UpdateAgent("codex", func(a *store.Agent) error { a.MachineAccess = store.NamedAccess("other"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	e.g.Recheck()
@@ -175,7 +175,7 @@ func TestRecheckClosesSessions(t *testing.T) {
 	if _, errOut, code := e.runWith(t, key, "true"); code != 1 || errOut == "" {
 		t.Errorf("after losing the machine: %q %d", errOut, code)
 	}
-	_, _ = e.st.UpdateAgent("codex", func(a *store.Agent) error { a.Machines = nil; return nil })
+	_, _ = e.st.UpdateAgent("codex", func(a *store.Agent) error { a.MachineAccess = store.AllAccess(); return nil })
 
 	// one token revoked of two: the agent still has a credential, its key session stays
 	done = e.open(t, key)
@@ -212,7 +212,7 @@ func TestRecheckClosesSessions(t *testing.T) {
 	if _, err := e.st.RegisterClient(store.OAuthClient{Name: "Claude Code", RedirectURIs: []string{"http://localhost:1/callback"}}); err != nil {
 		t.Fatal(err)
 	}
-	in, err := e.st.CreateGrant(store.Grant{Agent: "codex", Client: "c", ClientName: "Claude Code", Expires: time.Now().Add(time.Hour)}, false)
+	in, err := e.st.CreateGrant(store.Grant{Agent: "codex", Client: "c", ClientName: "Claude Code", MachineAccess: store.AllAccess(), Expires: time.Now().Add(time.Hour)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

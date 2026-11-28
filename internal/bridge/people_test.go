@@ -178,7 +178,7 @@ func TestCustomScopes(t *testing.T) {
 	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Scopes: []string{"status:read"}}); !errors.Is(err, bridge.ErrForbidden) {
 		t.Fatalf("an agent changes scopes: %v", err)
 	}
-	machines := []string{"edge-1"}
+	machines := store.NamedAccess("edge-1")
 	if _, err := e.Bridge.UpdateAgent(ctx, agent, "ops", bridge.AgentUpdate{Machines: &machines}); !errors.Is(err, bridge.ErrForbidden) {
 		t.Fatalf("an agent changed another agent's machines: %v", err)
 	}
@@ -253,6 +253,11 @@ func TestGrantWithinCaller(t *testing.T) {
 	e := testutil.New(t)
 	ctx := context.Background()
 	cli := bridge.Actor{Name: "cli:root", Via: "cli"}
+	for _, m := range []string{"edge-1", "edge-2"} {
+		if err := e.Store.PutMachine(store.Machine{Name: m, Address: m + ".example.com:22", User: "beacon"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	code, _, _ := e.Store.CreateSetupLink()
 	if _, err := e.Bridge.Join(ctx, code, "alice", "", "correct horse battery"); err != nil {
 		t.Fatal(err)
@@ -310,31 +315,31 @@ func TestGrantWithinCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Store.UpdateToken("boxed", func(tok *store.Token) error { tok.Machines = []string{"edge-1"}; return nil }); err != nil {
+	if _, err := e.Store.UpdateToken("boxed", func(tok *store.Token) error { tok.MachineAccess = store.NamedAccess("edge-1"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	bp, _ := e.Store.Authenticate(secret)
 	boxed := bridge.ActorOf(bp, "api")
 	audits, chats = len(e.Store.AuditLog(1000)), len(e.Bot.Texts)
-	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "everywhere", Owner: "alice", Preset: "operator"}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "all machines") {
+	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "everywhere", Owner: "alice", Preset: "operator", Machines: store.AllAccess()}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "all machines") {
 		t.Fatalf("a limited caller grants every machine: %v", err)
 	}
 	if _, ok := e.Store.Agent("everywhere"); ok {
 		t.Fatal("the refused agent was created")
 	}
-	outside := []string{"edge-2"}
+	outside := store.NamedAccess("edge-2")
 	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "elsewhere", Owner: "alice", Preset: "operator", Machines: outside}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "edge-2") {
 		t.Fatalf("a limited caller grants a machine it does not reach: %v", err)
 	}
 	quiet(t, e, audits, chats)
 	// the machines it does reach are allowed
-	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "local", Owner: "alice", Preset: "operator", Machines: []string{"edge-1"}}); err != nil {
+	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "local", Owner: "alice", Preset: "operator", Machines: store.NamedAccess("edge-1")}); err != nil {
 		t.Fatalf("a machine the caller reaches: %v", err)
 	}
 	// and it cannot later open that agent onto every machine
 	before, _ = e.Store.Agent("local")
 	audits, chats = len(e.Store.AuditLog(1000)), len(e.Bot.Texts)
-	all := []string{}
+	all := store.AllAccess()
 	if _, err := e.Bridge.UpdateAgent(ctx, boxed, "local", bridge.AgentUpdate{Machines: &all}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "all machines") {
 		t.Fatalf("a limited caller widens machines to all: %v", err)
 	}
@@ -342,7 +347,7 @@ func TestGrantWithinCaller(t *testing.T) {
 	quiet(t, e, audits, chats)
 	// widening the preset of an agent that already reaches every machine is the same refusal: the
 	// result would still reach machines the caller does not
-	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "open", Owner: "alice", Preset: "readonly"}); err != nil {
+	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "open", Owner: "alice", Preset: "readonly", Machines: store.AllAccess()}); err != nil {
 		t.Fatal(err)
 	}
 	before, _ = e.Store.Agent("open")
@@ -354,7 +359,7 @@ func TestGrantWithinCaller(t *testing.T) {
 	quiet(t, e, audits, chats)
 	// custom scopes obey the machines rule too
 	audits, chats = len(e.Store.AuditLog(1000)), len(e.Bot.Texts)
-	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "custom-all", Owner: "alice", Preset: store.PresetCustom, Scopes: []string{"status:read", "accounts:write"}}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "all machines") {
+	if _, err := e.Bridge.CreateAgent(ctx, boxed, bridge.AgentInput{Name: "custom-all", Owner: "alice", Preset: store.PresetCustom, Scopes: []string{"status:read", "accounts:write"}, Machines: store.AllAccess()}); !errors.Is(err, bridge.ErrForbidden) || !strings.Contains(err.Error(), "all machines") {
 		t.Fatalf("custom scopes with every machine: %v", err)
 	}
 	quiet(t, e, audits, chats)
@@ -362,11 +367,11 @@ func TestGrantWithinCaller(t *testing.T) {
 	// narrowing stays allowed: a preset that gives nothing the agent did not already want, and a
 	// shorter machine list, even when the caller does not hold the scopes that remain
 	if _, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{Name: "hand", Owner: "alice", Preset: store.PresetCustom,
-		Scopes: []string{"status:read", "sessions:read", "accounts:write"}, Machines: []string{"edge-1", "edge-2"}}); err != nil {
+		Scopes: []string{"status:read", "sessions:read", "accounts:write"}, Machines: store.NamedAccess("edge-1", "edge-2")}); err != nil {
 		t.Fatal(err)
 	}
 	ro := "readonly"
-	only := []string{"edge-2"}
+	only := store.NamedAccess("edge-2")
 	if _, err := e.Bridge.UpdateAgent(ctx, narrow, "hand", bridge.AgentUpdate{Preset: &ro, Machines: &only}); err != nil {
 		t.Fatalf("a preset that is not wider, and fewer machines: %v", err)
 	}
@@ -389,7 +394,7 @@ func TestGrantWithinCaller(t *testing.T) {
 	if _, err := e.Bridge.UpdateAgent(ctx, console, "own-readonly", bridge.AgentUpdate{Preset: &op, Machines: &all}); err != nil {
 		t.Fatalf("console owner widens within the role: %v", err)
 	}
-	if a, _ := e.Store.Agent("own-readonly"); a.Preset != "operator" || len(a.Machines) != 0 || len(a.Scopes) != 0 {
+	if a, _ := e.Store.Agent("own-readonly"); a.Preset != "operator" || a.Access != store.AccessAll || len(a.Machines) != 0 || len(a.Scopes) != 0 {
 		t.Fatalf("console owner result: %+v", a)
 	}
 	// someone below owner is still refused a preset above their role, as bad input, and may set their own

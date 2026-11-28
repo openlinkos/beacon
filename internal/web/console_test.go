@@ -395,14 +395,26 @@ func TestScopes(t *testing.T) {
 	if a := m.post("/console/tokens/probe-edge-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=not_revocable" {
 		t.Errorf("revoking a probe's token: %q", a.header.Get("Location"))
 	}
-	if a := m.post("/console/tokens/agent-1/revoke", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/tokens?done=revoked" {
+	// a token is deleted only by someone holding everything it holds: not by this one, which lacks
+	// machines:ssh; not by an operator who does not reach its critical machine; by one who does
+	if a := m.post("/console/tokens/agent-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=forbidden" {
+		t.Errorf("a token revokes a stronger token: %d %q", a.code, a.header.Get("Location"))
+	}
+	carol := e.invite(e.owner(), "carol", "operator")
+	if a := carol.post("/console/tokens/agent-1/revoke", nil); a.header.Get("Location") != "/console/tokens?error=forbidden" {
+		t.Errorf("an operator revokes a token that reaches a critical machine she does not: %d %q", a.code, a.header.Get("Location"))
+	}
+	if _, _, err := e.st.SetCriticalMachines("carol", store.NamedAccess("edge-1")); err != nil {
+		t.Fatal(err)
+	}
+	if a := carol.post("/console/tokens/agent-1/revoke", nil); a.code != http.StatusSeeOther || a.header.Get("Location") != "/console/tokens?done=revoked" {
 		t.Errorf("revoking: %d %q", a.code, a.header.Get("Location"))
 	}
 	names := map[string]bool{}
 	for _, tk := range e.st.Tokens() {
 		names[tk.Name] = true
 	}
-	if names["agent-1"] || !names["probe-edge-1"] || !audited(e.st, "operator", "revoke_token") || !e.bot.told("operator", "agent-1", "via the console") {
+	if names["agent-1"] || !names["probe-edge-1"] || !audited(e.st, "carol", "revoke_token") || !e.bot.told("carol", "agent-1", "via the console") {
 		t.Errorf("after revoking: %v", names)
 	}
 

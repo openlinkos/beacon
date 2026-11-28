@@ -157,11 +157,12 @@ func machine(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		fmt.Fprintf(stdout, "added %s at %s as %s; its host key is %s\n", a.Machine.Name, a.Machine.Address, a.Machine.User, a.Machine.HostKey)
-		fmt.Fprintf(stdout, "On the machine, as root, if not done yet:\n"+
+		fmt.Fprintf(stdout, "On the machine, as root, if not done yet (Beacon's certificates are trusted for %s alone):\n"+
 			"  echo '%s' > /etc/ssh/beacon_ca.pub\n"+
-			"  echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf\n"+
+			"  %s"+
 			"  id %s >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' %s\n"+
-			"  systemctl reload ssh\n(see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)\n", a.TrustedUserCAKey, a.Machine.User, a.Machine.User)
+			"  systemctl reload ssh\n(see docs/guide/machines.md for sudo and for PerSourcePenaltyExemptList)\n",
+			a.Machine.User, a.TrustedUserCAKey, sshgate.TrustOneAccount(a.Machine.User, ">"), a.Machine.User, a.Machine.User)
 		return 0
 	case "connector":
 		fs := flag.NewFlagSet("machine connector", flag.ContinueOnError)
@@ -352,10 +353,6 @@ func tokenSSH(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	machines := strings.Join(out.Machines, ",")
-	if machines == "" {
-		machines = "all"
-	}
-	fmt.Fprintf(stdout, "token %s: SSH keys %s; machines %s\n", out.Name, strings.Join(out.SSHKeys, " "), machines)
+	fmt.Fprintf(stdout, "token %s: SSH keys %s; machines %s\n", out.Name, strings.Join(out.SSHKeys, " "), out.MachineAccess().String())
 	return 0
 }

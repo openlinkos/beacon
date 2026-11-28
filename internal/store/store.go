@@ -205,8 +205,8 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 // for: the probe location of a probe:write token, the host of a host:write token, the heartbeat of a
 // heartbeat:write token.
 //
-// SSHKeys are the public keys its holder signs in to the SSH channel with, and Machines the machines it
-// may reach there (none: all of them).
+// SSHKeys are the public keys its holder signs in to the SSH channel with, and MachineAccess the machines
+// it may reach there (machine_access.go): all of them that are not critical, or the ones it names.
 //
 // Lifetime is how long it was made to last; a renewal (renew.go) gives it a new secret that expires
 // Lifetime from now, and the old secret (OldHash) stays valid until OldUntil, so that a client can swap
@@ -215,20 +215,20 @@ func (g *Group) Firing() bool { return g.Status == "firing" }
 // Agent names the agent (principals.go) whose credential the token is: then it has no scopes, machines
 // or keys of its own, and may do what the agent may.
 type Token struct {
-	Name      string        `json:"name"`
-	Hash      string        `json:"hash"`
-	Scopes    []string      `json:"scopes"`
-	Subject   string        `json:"subject,omitempty"`
-	Created   time.Time     `json:"created"`
-	CreatedBy string        `json:"created_by,omitempty"`
-	Expires   time.Time     `json:"expires"`
-	SSHKeys   []SSHKey      `json:"ssh_keys,omitempty"`
-	Machines  []string      `json:"machines,omitempty"`
-	Lifetime  time.Duration `json:"lifetime,omitempty"`
-	Renewed   time.Time     `json:"renewed,omitzero"`
-	OldHash   string        `json:"old_hash,omitempty"`
-	OldUntil  time.Time     `json:"old_until,omitzero"`
-	Agent     string        `json:"agent,omitempty"`
+	Name      string    `json:"name"`
+	Hash      string    `json:"hash"`
+	Scopes    []string  `json:"scopes"`
+	Subject   string    `json:"subject,omitempty"`
+	Created   time.Time `json:"created"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	Expires   time.Time `json:"expires"`
+	SSHKeys   []SSHKey  `json:"ssh_keys,omitempty"`
+	MachineAccess
+	Lifetime time.Duration `json:"lifetime,omitempty"`
+	Renewed  time.Time     `json:"renewed,omitzero"`
+	OldHash  string        `json:"old_hash,omitempty"`
+	OldUntil time.Time     `json:"old_until,omitzero"`
+	Agent    string        `json:"agent,omitempty"`
 }
 
 // SSHKey is a public key in the authorized_keys form (without its comment) and its SHA256 fingerprint;
@@ -241,11 +241,6 @@ type SSHKey struct {
 	// Via is the credential an agent added its own key with (Principal.Cred): the key works while that
 	// credential does, and goes with it. None when a person or the command line added it.
 	Via string `json:"via,omitempty"`
-}
-
-// Reaches reports whether the token may reach machine through the SSH channel.
-func (t Token) Reaches(machine string) bool {
-	return t.Has("machines:ssh") && (len(t.Machines) == 0 || slices.Contains(t.Machines, machine))
 }
 
 // Has reports whether the token carries scope.
@@ -666,7 +661,8 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 		return "", Token{}, err
 	}
 	now := s.now().UTC()
-	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl}
+	t := Token{Name: name, Hash: hashToken(secret), Scopes: slices.Clone(scopes), Subject: subject, Created: now, CreatedBy: by, Expires: now.Add(ttl), Lifetime: ttl,
+		MachineAccess: NamedAccess()} // no machine until it is given some
 	b, _ := json.Marshal(t)
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
@@ -758,6 +754,12 @@ func (s *Store) updateToken(name string, change func(kv.Tx, *Token) error) (Toke
 			return err
 		}
 		t.Name, t.Hash, t.Expires = name, hash, expires
+		if t.Agent == "" { // an agent's token reaches what its agent does
+			t.MachineAccess = t.normal()
+			if err := t.check(); err != nil {
+				return err
+			}
+		}
 		b, err := json.Marshal(t)
 		if err != nil {
 			return err
@@ -935,10 +937,20 @@ func (s *Store) Machines() []Machine {
 }
 
 // DeleteMachine removes the machine called name.
-func (s *Store) DeleteMachine(name string) error {
+func (s *Store) DeleteMachine(name string) error { return s.DeleteMachineIf(name, nil) }
+
+// DeleteMachineIf removes the machine called name when check, given the machine as it is in the same
+// transaction, says it may be: its error is returned and nothing is removed.
+func (s *Store) DeleteMachineIf(name string, check func(Machine) error) error {
 	return s.db.Update(func(tx kv.Tx) error {
-		if tx.Get(bucketMachines, []byte(name)) == nil {
-			return ErrNotFound
+		m, err := machineIn(tx, name)
+		if err != nil {
+			return err
+		}
+		if check != nil {
+			if err := check(m); err != nil {
+				return err
+			}
 		}
 		return tx.Delete(bucketMachines, []byte(name))
 	})
@@ -981,6 +993,9 @@ type SessionRecord struct {
 	PTY *bool `json:"pty,omitempty"`
 	// Registration is the machine's enrolment at capture. It is absent on older recordings.
 	MachineRegistration string `json:"machine_registration,omitempty"`
+	// Critical says the machine was critical when the session started: only those who reach critical
+	// machines see it.
+	Critical bool `json:"critical,omitempty"`
 
 	RecordingState  EvidenceState `json:"recording_state,omitempty"`
 	TranscriptState EvidenceState `json:"transcript_state,omitempty"`

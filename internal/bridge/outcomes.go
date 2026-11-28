@@ -21,7 +21,7 @@ var (
 // IncidentOutcomesFor returns retained outcomes with related sessions within the machine selection.
 func (b *Bridge) IncidentOutcomesFor(p store.Principal, query OutcomeQuery) (OutcomePage, error) {
 	page, err := b.incidentOutcomes(query)
-	if err == nil && (len(p.Machines) != 0 || p.MachineScopeEmpty()) {
+	if err == nil && p.MachinesLimited() {
 		access := b.d.Store.SessionAccess(p)
 		for i := range page.Outcomes {
 			b.filterOutcomeSessions(access, &page.Outcomes[i])
@@ -33,7 +33,7 @@ func (b *Bridge) IncidentOutcomesFor(p store.Principal, query OutcomeQuery) (Out
 // IncidentOutcomeFor returns one outcome and the related sessions within the machine selection.
 func (b *Bridge) IncidentOutcomeFor(p store.Principal, id string) (OutcomeResult, error) {
 	result, err := b.IncidentOutcome(id)
-	if err == nil && (len(p.Machines) != 0 || p.MachineScopeEmpty()) {
+	if err == nil && p.MachinesLimited() {
 		b.filterOutcomeSessions(b.d.Store.SessionAccess(p), &result.Outcome)
 	}
 	return result, err

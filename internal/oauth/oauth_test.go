@@ -165,6 +165,9 @@ func (br *browser) consent(authURL string, choices url.Values) (*url.URL, string
 	if m := regexp.MustCompile(`name="preset" value="([^"]+)" checked`).FindStringSubmatch(page); m != nil {
 		form.Set("preset", m[1])
 	}
+	if m := regexp.MustCompile(`name="machines" value="([^"]+)" checked`).FindStringSubmatch(page); m != nil {
+		form.Set("machines", m[1])
+	}
 	for k, v := range choices {
 		form[k] = v
 	}
@@ -703,6 +706,7 @@ func TestFlowChecks(t *testing.T) {
 	}
 	form.Set("decision", "allow")
 	form.Set("agent", "reader")
+	form.Set("machines", "all")
 	form.Set("preset", "oncall")
 	if code, body, _ := br.do(http.MethodPost, "/oauth/authorize", form); code != http.StatusBadRequest || !strings.Contains(body, "That did not work") {
 		t.Errorf("a stronger preset for a read-only agent: %d", code)

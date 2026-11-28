@@ -129,7 +129,7 @@ func TestEvidenceReturnsOnlyCurrentDesignatedMachineWithinScope(t *testing.T) {
 	allowed := e.Token(t, "allowed", "status:read", "machines:ssh")
 	outside := e.Token(t, "other-machine", "status:read", "machines:ssh")
 	if _, err := e.Store.UpdateToken("other-machine", func(tok *store.Token) error {
-		tok.Machines = []string{"app-2"}
+		tok.MachineAccess = store.NamedAccess("app-2")
 		return nil
 	}); err != nil {
 		t.Fatal(err)

@@ -22,7 +22,9 @@ Each role may do what the one above it may, and more:
 | Operator | Also add and remove machines, pause agents, schedule maintenance | + `maintenance:write`, `incidents:write`, `machines:write` |
 | Owner | Also change the configuration, invite people, set roles, manage every agent | + `config:write`, `accounts:write` |
 
-The console, the command line and the API speak of roles. The scopes stay underneath, as the [REST API](../reference/api.md#scopes) lists them. A role is read again on every request, so a change takes effect at once, for the person and for their agents. Beacon always keeps at least one enabled owner, and refuses the change that would leave it without one.
+The console, the command line and the API speak of roles. The scopes stay underneath, as the [REST API](../reference/api.md#scopes) lists them.
+
+Machines marked critical are the exception to "everything". An owner reaches every machine and sees every session. Anyone else reaches, and sees the sessions of, every machine that is not critical, and only the critical machines an owner named on their account with `beacon user machines NAME ca-1,ca-2` (`none` takes them away). [Machine access](../reference/permissions.md#machine-access) has the rules. A role is read again on every request, so a change takes effect at once, for the person and for their agents. Beacon always keeps at least one enabled owner, and refuses the change that would leave it without one.
 
 ## The first owner {#the-first-owner}
 
@@ -104,7 +106,7 @@ An agent is a program that acts for one person, its owner. It may be Claude Code
 
 - a **name**: 2 to 40 lower-case letters, digits, dots, dashes and underscores, unique in Beacon. The audit log names it `owner / name`.
 - a **preset** (below);
-- the **machines** it may reach through the SSH channel: all of them, or a list;
+- the **machines** it may reach through the SSH channel: all of them that are not critical (machines added later included), or the ones it names, and never more than its owner reaches. With neither it reaches none. A critical machine is reached only when named;
 - its **SSH keys**;
 - its **credentials**: tokens (`lbt_…`) for headless agents and CI, OAuth sign-ins for interactive clients.
 
@@ -118,13 +120,13 @@ An agent may do what its preset asks for **and** its owner's role allows, worked
 
 - No preset gives `config:write` or `accounts:write`.
 - A preset above the owner's role is refused when the agent is made or changed.
-- A caller never gives an agent a scope or a machine it does not hold itself.
+- A caller never gives an agent a scope or a machine it does not hold itself. Only a person gives access to all machines, and only an owner names a critical machine; an owner's critical machines for an agent end after 30 days unless another end is given.
 - A **custom** agent lists scopes of its own instead, still within the owner's role and within what the caller may do. An owner who is a person sets them in the console; a person or a legacy token with `accounts:write` sets them through the API and MCP; the command line does too (`beacon agent add … -scopes status:read,config:write`). An agent never sets them, even one that holds `accounts:write`. The list is people's scopes only, and never empty. What the agent may do stays the intersection with its owner's role, read again on every request.
 
 The console's **Agents** page lists your agents; an owner sees everyone's. Each agent's page:
 
 - shows what it may do now;
-- changes its preset and machines, and, for an owner who is a person, its custom scopes;
+- changes its preset and machines, and, for an owner who is a person, its custom scopes; the critical machines it names stay as they are (`beacon agent machines` changes them);
 - lists its OAuth sign-ins, tokens and keys, and revokes or removes any of them;
 - deletes the agent with all its credentials.
 
@@ -137,6 +139,8 @@ Claude Code signs in through the browser, with MCP's OAuth. It reaches machines 
 ## What a sign-in may do {#what-a-sign-in-may-do}
 
 Each OAuth sign-in keeps what you allowed as a ceiling of its own. The client may do what its sign-in's preset and machines allow, within what the agent may do, within your role. This is read afresh on every request.
+
+On the consent page, the machines are all those that are not critical, or only those you tick. **Only these** with nothing ticked is asked again, never taken for all. Critical machines are offered to owners alone, in a list of their own and unticked; ticking one takes a confirmation, and the sign-in reaches it for 30 days at most.
 
 Allowing a client never changes an existing agent. So it never widens another client's sign-in, the agent's tokens or its keys. To give an agent you reuse more, change the agent on its page first, then sign in again from the client.
 
@@ -226,8 +230,10 @@ The commands for people and agents:
 - `beacon user role NAME ROLE`
 - `beacon user disable` and `beacon user enable NAME`
 - `beacon user reset NAME`
-- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
+- `beacon user machines NAME a,b|none`
+- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines all|a,b] [-expires 365d] [-ssh-key KEY]`
 - `beacon agent list`
+- `beacon agent machines NAME all|a,b|none`
 - `beacon agent remove NAME`
 - `beacon token claim NAME -owner USER`
 

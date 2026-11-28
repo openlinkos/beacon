@@ -35,7 +35,7 @@ func TestOpenConnectionsFollowTheirMachine(t *testing.T) {
 		{"restored settings", func(t *testing.T, e *env) {
 			m, _ := e.st.Machine("box")
 			user := "ops"
-			if _, _, err := e.st.PatchMachineMetadata("box", store.MachineMetadataUpdate{User: &user}, 0, "op", "api"); err != nil {
+			if _, _, err := e.st.PatchMachineMetadata("box", store.MachineMetadataUpdate{User: &user}, 0, "op", "api", nil); err != nil {
 				t.Fatal(err)
 			}
 			cur, _ := e.st.Machine("box")
@@ -91,7 +91,7 @@ func TestChannelsRefuseAChangedMachine(t *testing.T) {
 		t.Fatalf("first session: %v", err)
 	}
 	user := "ops" // changed as another instance would change it: nothing here closes the connection
-	if _, _, err := e.st.PatchMachineMetadata("box", store.MachineMetadataUpdate{User: &user}, 0, "op", "api"); err != nil {
+	if _, _, err := e.st.PatchMachineMetadata("box", store.MachineMetadataUpdate{User: &user}, 0, "op", "api", nil); err != nil {
 		t.Fatal(err)
 	}
 	stderr, err := runOn("true")

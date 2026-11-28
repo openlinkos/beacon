@@ -280,7 +280,7 @@ func (s *Server) addMonitor(w http.ResponseWriter, r *http.Request, v *viewer) {
 	if edit {
 		note, done = "Edit HTTP monitor ", "saved"
 	}
-	_, err = s.Config.SetConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, previous,
+	_, err = s.Config.SetConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console", Principal: &v.Principal}, previous,
 		in.Scope, group, note+in.Service, version)
 	switch {
 	case errors.Is(err, configdb.ErrConsoleTargetExists):
@@ -312,7 +312,7 @@ func (s *Server) removeMonitor(w http.ResponseWriter, r *http.Request, v *viewer
 		s.showMonitorForm(w, r, v, draft, in, s.t("The configuration changed. Review the current options and save again."), http.StatusConflict)
 		return
 	}
-	if _, err := s.Config.DeleteConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console"},
+	if _, err := s.Config.DeleteConsoleTargetIf(r.Context(), configdb.Actor{Name: v.name(), Via: "console", Principal: &v.Principal},
 		in.set(), "Remove HTTP monitor "+in.Service, version); err != nil {
 		s.failed(w, r, consolePath("/monitors/")+url.PathEscape(in.Service)+"/edit", "monitor_remove", err)
 		return

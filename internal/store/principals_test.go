@@ -92,6 +92,7 @@ func TestAgentsAndPrincipals(t *testing.T) {
 	_, legacy, _ := s.CreateToken("legacy", []string{"status:read", "machines:ssh"}, 24*time.Hour, "test")
 	_, _ = s.UpdateToken(legacy.Name, func(t *Token) error {
 		t.SSHKeys = []SSHKey{{Key: "ssh-ed25519 AAAA2", Fingerprint: "SHA256:two"}}
+		t.MachineAccess = AllAccess()
 		return nil
 	})
 	if _, err := s.AddAgentSSHKey("codex", SSHKey{Fingerprint: "SHA256:two"}); !errors.Is(err, ErrExists) {
@@ -141,7 +142,7 @@ func TestClaimToken(t *testing.T) {
 	invite(t, s, "carol", "oncall")
 	secret, legacy, _ := s.CreateToken("claude-code", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh"}, 30*24*time.Hour, "cli:root")
 	_, _ = s.UpdateToken("claude-code", func(t *Token) error {
-		t.Machines = []string{"edge-1"}
+		t.MachineAccess = NamedAccess("edge-1")
 		t.SSHKeys = []SSHKey{{Key: "ssh-ed25519 AAAA", Fingerprint: "SHA256:k"}}
 		return nil
 	})
@@ -176,6 +177,7 @@ func TestClaimToken(t *testing.T) {
 
 	// a custom token stays custom, and its owner's role still limits it
 	secret, _, _ = s.CreateToken("ops-bot", []string{"status:read", "machines:ssh", "config:write"}, 30*24*time.Hour, "cli:root")
+	_, _ = s.UpdateToken("ops-bot", func(t *Token) error { t.MachineAccess = AllAccess(); return nil })
 	a, _, err = s.ClaimToken("ops-bot", "carol", "", "", "alice")
 	if err != nil || a.Preset != PresetCustom || !slices.Equal(a.Scopes, []string{"config:write", "machines:ssh", "status:read"}) {
 		t.Fatalf("custom claim: %+v %v", a, err)
@@ -193,7 +195,7 @@ func TestClaimToken(t *testing.T) {
 		t.Errorf("a status:read token into an on-call agent: %v", err)
 	}
 	_, _, _ = s.CreateToken("fourth", []string{"status:read", "sessions:read", "alerts:write", "machines:ssh"}, 24*time.Hour, "cli:root")
-	_, _ = s.UpdateToken("fourth", func(t *Token) error { t.Machines = []string{"edge-1", "edge-2"}; return nil })
+	_, _ = s.UpdateToken("fourth", func(t *Token) error { t.MachineAccess = NamedAccess("edge-1", "edge-2"); return nil })
 	if _, _, err := s.ClaimToken("fourth", "carol", "claude-code", "", "alice"); err != nil {
 		t.Errorf("into carol's own agent: %v", err)
 	}
@@ -246,7 +248,7 @@ func TestClaimTokenPresetNeverWidens(t *testing.T) {
 func TestGrants(t *testing.T) {
 	s, now := openTest(t)
 	owner(t, s, "alice")
-	if _, err := s.CreateAgent(Agent{Name: "claude-code", Owner: "alice", Preset: "oncall", Client: "lbc_x"}); err != nil {
+	if _, err := s.CreateAgent(Agent{Name: "claude-code", Owner: "alice", Preset: "oncall", Client: "lbc_x", MachineAccess: AllAccess()}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := s.RegisterClient(OAuthClient{Name: "Claude Code", RedirectURIs: []string{"http://localhost:5555/callback"}})
@@ -257,7 +259,7 @@ func TestGrants(t *testing.T) {
 		t.Fatal("the client is not found")
 	}
 
-	in, err := s.CreateGrant(Grant{Agent: "claude-code", Client: c.ID, ClientName: "Claude Code", Scope: "oncall offline_access", Expires: now.Add(30 * 24 * time.Hour), Code: "codehash"}, true)
+	in, err := s.CreateGrant(Grant{Agent: "claude-code", Client: c.ID, ClientName: "Claude Code", Scope: "oncall offline_access", MachineAccess: AllAccess(), Expires: now.Add(30 * 24 * time.Hour), Code: "codehash"}, true)
 	if err != nil || !strings.HasPrefix(in.Access, AccessPrefix) || !strings.HasPrefix(in.Refresh, RefreshPrefix) || !in.AccessExpires.Equal(now.Add(time.Hour)) {
 		t.Fatalf("grant: %+v %v", in, err)
 	}
@@ -368,11 +370,11 @@ func TestGrants(t *testing.T) {
 func TestGrantCeilings(t *testing.T) {
 	s, now := openTest(t)
 	owner(t, s, "alice")
-	if _, err := s.CreateAgent(Agent{Name: "claude-code", Owner: "alice", Preset: "operator"}); err != nil {
+	if _, err := s.CreateAgent(Agent{Name: "claude-code", Owner: "alice", Preset: "operator", MachineAccess: AllAccess()}); err != nil {
 		t.Fatal(err)
 	}
 	narrow, _ := s.CreateGrant(Grant{Agent: "claude-code", Client: "c1", Preset: "readonly", Machines: []string{"edge-1"}, Expires: now.Add(24 * time.Hour)}, true)
-	wide, _ := s.CreateGrant(Grant{Agent: "claude-code", Client: "c2", Preset: "operator", Expires: now.Add(24 * time.Hour)}, true)
+	wide, _ := s.CreateGrant(Grant{Agent: "claude-code", Client: "c2", Preset: "operator", MachineAccess: AllAccess(), Expires: now.Add(24 * time.Hour)}, true)
 	p, ok := s.Authenticate(narrow.Access)
 	if !ok || p.Has("alerts:write") || !slices.Equal(p.Machines, []string{"edge-1"}) {
 		t.Errorf("the narrow grant: %+v", p)
@@ -387,14 +389,14 @@ func TestGrantCeilings(t *testing.T) {
 		t.Errorf("the wide grant: %+v", p)
 	}
 	// the agent narrowed to another machine: the narrow grant reaches nothing
-	_, _ = s.UpdateAgent("claude-code", func(a *Agent) error { a.Machines = []string{"edge-2"}; return nil })
+	_, _ = s.UpdateAgent("claude-code", func(a *Agent) error { a.MachineAccess = NamedAccess("edge-2"); return nil })
 	if p, _ := s.Authenticate(narrow.Access); p.Has("machines:ssh") || p.Reaches("edge-1") || p.Reaches("edge-2") {
 		t.Errorf("a grant whose machines the agent lost: %+v", p)
 	}
 	if p, _ := s.Authenticate(wide.Access); !p.Reaches("edge-2") || p.Reaches("edge-1") {
 		t.Errorf("the wide grant within the agent's machines: %+v", p)
 	}
-	_, _ = s.UpdateAgent("claude-code", func(a *Agent) error { a.Machines = nil; return nil })
+	_, _ = s.UpdateAgent("claude-code", func(a *Agent) error { a.MachineAccess = AllAccess(); return nil })
 
 	// keys an agent added with a credential live and die with it
 	_, tok, _ := s.CreateAgentToken("claude-code", 24*time.Hour, "alice")

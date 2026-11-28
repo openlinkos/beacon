@@ -22,8 +22,8 @@ docker exec beacon beacon token list
 | `check-config` | Validate the configuration file, the files it names and the configuration in the database, without starting. Takes `-config` |
 | `config` | The configuration in the database: [import, export, history, revert](#beacon-config) |
 | `setup` | Print the one-time link that makes the first account, an owner, valid 30 minutes |
-| `user` | People: [list, invite, disable, enable, role, reset](#beacon-setup-user-agent) |
-| `agent` | Agents of a person: [add, list, remove](#beacon-setup-user-agent) |
+| `user` | People: [list, invite, disable, enable, role, machines, reset](#beacon-setup-user-agent) |
+| `agent` | Agents of a person: [add, list, machines, remove](#beacon-setup-user-agent) |
 | `token` | Credentials: [create, list, revoke, ssh-key, machines, claim](#beacon-token) |
 | `machine` | Machines: [add, connector, list, remove, ca](#beacon-machine-ssh) |
 | `ssh` | The SSH channel: [pause, resume, status](#beacon-machine-ssh) |
@@ -57,19 +57,23 @@ People's own accounts and their agents ([Invite your team](../guide/people.md)).
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
-| `list` | | People, their roles and agents, and invitations not yet used |
+| `list` | | People, their roles, the machines they reach and their agents, and invitations not yet used |
 | `invite` | `-role`, `-note` | A one-time link to join as a role. `-role` is one of `viewer`, `oncall`, `operator`, `owner`; `-note` says who it is for |
 | `disable` NAME, `enable` NAME | | Stop or restore someone's sign-in |
 | `role` NAME ROLE | | Change the role; their sessions and agents follow at once |
 | `reset` NAME | | A one-time link to choose a new password; their console sign-ins and their agents' OAuth sign-ins end then, and their agents' tokens keep working unless revoked |
+| `machines` NAME LIST | | The critical machines a person who is not an owner reaches, beside every machine that is not critical. LIST names machines, each with `@END` optionally; `none` takes them all away. A person's named machines do not end unless given an end |
 
 **`beacon agent`** — a person's agents:
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
-| `add` NAME | `-owner`, `-preset`, `-scopes`, `-machines`, `-expires`, `-ssh-key` | An agent of a person and its first token, with the snippets that use it. `-owner` names the person; `-preset` is `readonly`, `oncall` or `operator`, the strongest the owner's role allows; `-scopes` gives custom scopes instead of a preset; `-machines` limits the machines it reaches; `-expires` (default `365d`); `-ssh-key` adds a public key for the channel, a key or `@FILE` |
-| `list` | | Every agent: owner, preset, what it may do, machines, tokens, OAuth sign-ins, keys |
+| `add` NAME | `-owner`, `-preset`, `-scopes`, `-machines`, `-expires`, `-ssh-key` | An agent of a person and its first token, with the snippets that use it. `-owner` names the person; `-preset` is `readonly`, `oncall` or `operator`, the strongest the owner's role allows; `-scopes` gives custom scopes instead of a preset; `-machines` the machines it reaches as a machine list (below), none when left out; `-expires` (default `365d`); `-ssh-key` adds a public key for the channel, a key or `@FILE` |
+| `list` | | Every agent: owner, preset, what it may do, machine access, tokens, OAuth sign-ins, keys |
+| `machines` NAME LIST | | Set the machines an agent reaches, as a machine list (below) |
 | `remove` NAME | | Remove an agent, with its tokens, OAuth sign-ins and keys |
+
+A **machine list** is `all`, `none`, or machine names, separated by commas. `all` is every machine that is not critical, including machines added later; names after it are the critical machines it also reaches (`all,ca-1`). Each name can end in `@END`: a duration (`72h`, `30d`), a date (`2026-12-31`), a time in RFC 3339, or `never`. A critical machine newly named for an agent or a token is reached for 30 days unless an end is given; a machine named already keeps its end. Only `beacon` on the host and owners name critical machines ([Machine access](permissions.md#machine-access)).
 
 ### beacon token
 
@@ -77,12 +81,12 @@ Credentials with scopes by name, for machines and for experts. Agents' tokens co
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
-| `create` NAME | `-scopes`, `-expires`, `-ssh-key`, `-machines` | A token. `-scopes` (default `status:read`), comma-separated; `-expires` (default `365d`); `-ssh-key` a public key for the channel, a key or `@FILE`; `-machines` the machines it reaches, all when left out |
-| `list` | | Every token: scopes, expiry, lifetime, when renewed, who made it |
-| `revoke` NAME | | End a token at once |
+| `create` NAME | `-scopes`, `-expires`, `-ssh-key`, `-machines` | A token. `-scopes` (default `status:read`), comma-separated; `-expires` (default `365d`); `-ssh-key` a public key for the channel, a key or `@FILE`; `-machines` the machines it reaches, as a [machine list](#beacon-setup-user-agent), none when left out |
+| `list` | | Every token: scopes, machine access, expiry, lifetime, when renewed, who made it |
+| `revoke` NAME | | Delete a token at once |
 | `ssh-key` NAME `add` KEY | | Add a public key to a token (`@FILE` reads it from a file) |
 | `ssh-key` NAME `remove` FINGERPRINT | | Remove one of a token's keys |
-| `machines` NAME a,b | | The machines a token reaches through the channel; `all` for every machine |
+| `machines` NAME LIST | | The machines a token reaches through the channel, as a [machine list](#beacon-setup-user-agent): `all` for every machine that is not critical, or names |
 | `claim` NAME | `-owner`, `-agent`, `-preset` | Make a legacy token an agent of a person. `-owner` names the person; `-agent` names the agent (the token's own name by default); `-preset` is `readonly`, `oncall`, `operator` or `custom` (it keeps its scopes), never one that asks for a scope the token does not hold |
 
 ### beacon machine, ssh
@@ -93,7 +97,7 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 
 | Subcommand | Flags | What it does |
 | --- | --- | --- |
-| `add` NAME HOST[:PORT] | `-user`, `-critical`, `-note`, `-replace`, `-key`, `-host-key` | Pin a machine's host key and reach it at its address. `-user` is the account on the machine (default `beacon`); `-critical` marks it critical; `-note` says what it is; `-replace` pins the host key of a machine that is added already |
+| `add` NAME HOST[:PORT] | `-user`, `-critical`, `-note`, `-replace`, `-key`, `-host-key` | Pin a machine's host key and reach it at its address. `-user` is the account on the machine (default `beacon`; the setup it prints trusts Beacon's certificates for that account alone); `-critical` marks it critical, reached only by credentials that name it and by owners; `-note` says what it is; `-replace` pins the host key of a machine that is added already |
 | `add` NAME connector | the same | A machine behind NAT, which connects out to Beacon with `ssh -R`; `-key` is the public key it connects with, `-host-key` its host key (learned at its first connection when left out) |
 | `connector` NAME | `-key` | Set or change the key a connector machine connects out with |
 | `list` | | Every machine: address, account, host key, whether a connector is connected |

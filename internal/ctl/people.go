@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/store"
@@ -24,6 +26,8 @@ type People interface {
 	CreateAgent(ctx context.Context, who bridge.Actor, in bridge.AgentInput) (bridge.AgentCreated, error)
 	DeleteAgent(ctx context.Context, who bridge.Actor, name string) error
 	ClaimToken(ctx context.Context, who bridge.Actor, token, owner, agent, preset string) (bridge.AgentView, error)
+	UpdateAgent(ctx context.Context, who bridge.Actor, name string, up bridge.AgentUpdate) (bridge.AgentView, error)
+	SetCriticalMachines(ctx context.Context, who bridge.Actor, username string, named store.MachineAccess) (bridge.UserView, error)
 }
 
 // InviteRequest invites someone with a role.
@@ -32,7 +36,8 @@ type InviteRequest struct {
 	Note string `json:"note,omitempty"`
 }
 
-// AgentRequest makes an agent for Owner with a token lasting TTL (365d, 720h).
+// AgentRequest makes an agent for Owner with a token lasting TTL (365d, 720h). Machines is its machine
+// access as the command line writes it (store.ParseMachineList); none when empty.
 type AgentRequest struct {
 	Name     string   `json:"name"`
 	Owner    string   `json:"owner"`
@@ -148,18 +153,55 @@ func PeopleHandler(p People) http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		machines, err := machineNames(in.Machines)
+		machines, forever, err := store.ParseMachineList(strings.Join(in.Machines, ","), time.Now())
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
 		out, err := p.CreateAgent(r.Context(), who(r), bridge.AgentInput{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Scopes: in.Scopes,
-			Machines: machines, SSHKeys: in.SSHKeys, TTL: ttl})
+			Machines: machines, Forever: forever, SSHKeys: in.SSHKeys, TTL: ttl})
 		if err != nil {
 			peopleFail(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, out)
+	})
+	mux.HandleFunc("PUT /v1/agents/{name}/machines", func(w http.ResponseWriter, r *http.Request) {
+		var in MachinesRequest
+		if !decode(w, r, &in) {
+			return
+		}
+		machines, forever, err := store.ParseMachineList(strings.Join(in.Machines, ","), time.Now())
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		out, err := p.UpdateAgent(r.Context(), who(r), r.PathValue("name"), bridge.AgentUpdate{Machines: &machines, Forever: forever})
+		if err != nil {
+			peopleFail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("PUT /v1/users/{name}/machines", func(w http.ResponseWriter, r *http.Request) {
+		var in MachinesRequest
+		if !decode(w, r, &in) {
+			return
+		}
+		named, _, err := store.ParseMachineList(strings.Join(in.Machines, ","), time.Now())
+		if err == nil && named.IsAll() {
+			err = errors.New("a person reaches every machine that is not critical already; name the critical machines they also reach, or none")
+		}
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		out, err := p.SetCriticalMachines(r.Context(), who(r), r.PathValue("name"), named)
+		if err != nil {
+			peopleFail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("DELETE /v1/agents/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if err := p.DeleteAgent(r.Context(), who(r), r.PathValue("name")); err != nil {
@@ -241,5 +283,20 @@ func (c *Client) RemoveAgent(ctx context.Context, name string) error {
 func (c *Client) Claim(ctx context.Context, in ClaimRequest) (bridge.AgentView, error) {
 	var out bridge.AgentView
 	err := c.do(ctx, http.MethodPost, "/v1/claims", in, &out)
+	return out, err
+}
+
+// SetAgentMachines sets the machines an agent reaches, as the command line writes them
+// (store.ParseMachineList): all, or names, each with @END optionally; none when empty.
+func (c *Client) SetAgentMachines(ctx context.Context, agent string, machines []string) (bridge.AgentView, error) {
+	var out bridge.AgentView
+	err := c.do(ctx, http.MethodPut, "/v1/agents/"+url.PathEscape(agent)+"/machines", MachinesRequest{Machines: machines}, &out)
+	return out, err
+}
+
+// SetUserMachines names the critical machines a person who is not an owner reaches (none: no more).
+func (c *Client) SetUserMachines(ctx context.Context, username string, machines []string) (bridge.UserView, error) {
+	var out bridge.UserView
+	err := c.do(ctx, http.MethodPut, "/v1/users/"+url.PathEscape(username)+"/machines", MachinesRequest{Machines: machines}, &out)
 	return out, err
 }

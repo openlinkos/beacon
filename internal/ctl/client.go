@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/user"
 	"time"
+
+	"github.com/openlinkos/beacon/internal/bridge"
 )
 
 // Client talks to the running service over its socket.
@@ -83,10 +85,10 @@ type TokenInfo struct {
 	CreatedBy string    `json:"created_by"`
 	Expires   time.Time `json:"expires"`
 	SSHKeys   []string  `json:"ssh_keys,omitempty"`
-	Machines  []string  `json:"machines,omitempty"`
 	Lifetime  string    `json:"lifetime,omitempty"`
 	Renewed   time.Time `json:"renewed,omitzero"`
-	Agent     string    `json:"agent,omitempty"` // the agent whose token it is; its scopes are the agent's
+	Agent     string    `json:"agent,omitempty"` // the agent whose token it is; its scopes and machines are the agent's
+	bridge.MachineAccessView
 }
 
 func urlQuery(s string) string { return url.QueryEscape(s) }

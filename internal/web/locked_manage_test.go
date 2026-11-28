@@ -107,7 +107,14 @@ func TestLockConsoleMachineAdd(t *testing.T) {
 	if !strings.Contains(page.body, `action="/console/machines"`) {
 		t.Fatalf("the machines' page offers an operator no form to add a machine")
 	}
-	a := op.post("/console/machines", url.Values{"name": {"web-1"}, "address": {addr}, "user": {"beacon"}, "critical": {"on"}, "note": {"web " + hostile}})
+	// a token adds no critical machine: an owner, or beacon on the host, marks one
+	if a := op.post("/console/machines", url.Values{"name": {"web-0"}, "address": {addr}, "critical": {"on"}}); !lockRefused(a) {
+		t.Errorf("a token adds a critical machine: %d %q", a.code, a.header.Get("Location"))
+	}
+	if _, ok := e.st.Machine("web-0"); ok {
+		t.Fatal("a refused critical machine was added")
+	}
+	a := op.post("/console/machines", url.Values{"name": {"web-1"}, "address": {addr}, "user": {"beacon"}, "note": {"web " + hostile}})
 	if a.code != http.StatusCreated {
 		t.Fatalf("adding a dialled machine: %d %s", a.code, a.body)
 	}
@@ -118,7 +125,7 @@ func TestLockConsoleMachineAdd(t *testing.T) {
 		t.Error("the note is not escaped")
 	}
 	m, ok := e.st.Machine("web-1")
-	if !ok || m.Address != addr || !m.Critical || m.AddedBy != "operator" {
+	if !ok || m.Address != addr || m.Critical || m.AddedBy != "operator" {
 		t.Fatalf("the machine in the store: %+v %v", m, ok)
 	}
 	pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(m.HostKey))
@@ -254,9 +261,20 @@ func TestLockConsoleMachineEdit(t *testing.T) {
 		!strings.Contains(page.body, `action="/console/machines/web-1/replace"`) || !strings.Contains(page.body, `action="/console/machines/web-1/remove"`) {
 		t.Fatalf("the machine's page lacks its forms")
 	}
-	a := op.post("/console/machines/web-1/edit", url.Values{"note": {"second"}, "critical": {"on"}, "user": {"ops"}})
+	// a token marks no machine critical and changes no account
+	if a := op.post("/console/machines/web-1/edit", url.Values{"note": {"second"}, "critical": {"on"}, "user": {"ops"}}); !lockRefused(a) {
+		t.Fatalf("a token marks critical and changes the account: %d %q", a.code, a.header.Get("Location"))
+	}
+	if m, _ := e.st.Machine("web-1"); m != before {
+		t.Fatalf("a refused edit changed the machine: %+v", m)
+	}
+	a := op.post("/console/machines/web-1/edit", url.Values{"note": {"second"}, "user": {"beacon"}})
 	if a.code != http.StatusSeeOther || strings.Contains(a.header.Get("Location"), "error=") {
 		t.Fatalf("edit: %d %q", a.code, a.header.Get("Location"))
+	}
+	// an owner does both
+	if a := e.owner().post("/console/machines/web-1/edit", url.Values{"note": {"second"}, "critical": {"on"}, "user": {"ops"}}); a.code != http.StatusSeeOther || strings.Contains(a.header.Get("Location"), "error=") {
+		t.Fatalf("an owner's edit: %d %q", a.code, a.header.Get("Location"))
 	}
 	after, _ := e.st.Machine("web-1")
 	if after.Note != "second" || !after.Critical || after.User != "ops" {
@@ -331,7 +349,14 @@ func TestLockConsoleMachineRemove(t *testing.T) {
 			t.Fatal("a refused removal was audited")
 		}
 	}
-	if a := op.post("/console/machines/edge-1/remove", url.Values{"confirm": {"edge-1"}}); a.code != http.StatusSeeOther || strings.Contains(a.header.Get("Location"), "error=") {
+	// edge-1 is critical: a token does not remove it, an owner does
+	if a := op.post("/console/machines/edge-1/remove", url.Values{"confirm": {"edge-1"}}); !lockRefused(a) {
+		t.Fatalf("a token removes a critical machine: %d %q", a.code, a.header.Get("Location"))
+	}
+	if _, ok := e.st.Machine("edge-1"); !ok {
+		t.Fatal("a refused removal removed the machine")
+	}
+	if a := e.owner().post("/console/machines/edge-1/remove", url.Values{"confirm": {"edge-1"}}); a.code != http.StatusSeeOther || strings.Contains(a.header.Get("Location"), "error=") {
 		t.Fatalf("remove: %d %q", a.code, a.header.Get("Location"))
 	}
 	if _, ok := e.st.Machine("edge-1"); ok {
@@ -340,7 +365,7 @@ func TestLockConsoleMachineRemove(t *testing.T) {
 	if _, ok := e.st.Session(sessionID); !ok {
 		t.Error("removing a machine lost its sessions")
 	}
-	if !audited(e.st, "operator", "machine_remove") || !e.bot.told("operator", "edge-1") {
+	if !audited(e.st, "alice", "machine_remove") || !e.bot.told("alice", "edge-1") {
 		t.Error("removal not audited or not echoed")
 	}
 }

@@ -231,7 +231,7 @@ func (p sessionsPage) Table() sessionTable {
 	return sessionTable{L: p.L, Rows: p.Rows, Details: p.Details}
 }
 
-func machineScoped(p store.Principal) bool { return p.MachineScopeEmpty() || len(p.Machines) != 0 }
+func machineScoped(p store.Principal) bool { return p.MachinesLimited() }
 
 func (s *Server) sessionsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 	permit := s.Store.SessionAccess(v.Principal)

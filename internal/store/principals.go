@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -86,15 +87,15 @@ func ClosestPreset(scopes []string) string {
 }
 
 // Agent is a program that acts for a person: Owner. Its preset (or Scopes, for PresetCustom) says what
-// it may do, never more than its owner's role; Machines are the machines it reaches on the SSH channel
-// (none: all), and SSHKeys the keys it signs in there with. Client is the OAuth client it was made for,
-// when a person allowed one to use Beacon.
+// it may do, never more than its owner's role; MachineAccess the machines it reaches on the SSH channel
+// (machine_access.go), never more than its owner does, and SSHKeys the keys it signs in there with.
+// Client is the OAuth client it was made for, when a person allowed one to use Beacon.
 type Agent struct {
-	Name      string    `json:"name"`
-	Owner     string    `json:"owner"`
-	Preset    string    `json:"preset"`
-	Scopes    []string  `json:"scopes,omitempty"`
-	Machines  []string  `json:"machines,omitempty"`
+	Name   string   `json:"name"`
+	Owner  string   `json:"owner"`
+	Preset string   `json:"preset"`
+	Scopes []string `json:"scopes,omitempty"`
+	MachineAccess
 	SSHKeys   []SSHKey  `json:"ssh_keys,omitempty"`
 	Client    string    `json:"client,omitempty"`
 	Created   time.Time `json:"created"`
@@ -171,12 +172,7 @@ func checkAgent(tx kv.Tx, a Agent) error {
 	default:
 		return fmt.Errorf("unknown preset %q; presets are %s, or custom", a.Preset, strings.Join(Presets, ", "))
 	}
-	for _, m := range a.Machines {
-		if !MachineName.MatchString(m) {
-			return fmt.Errorf("machine %q: names are lower case letters, digits and dashes", m)
-		}
-	}
-	return nil
+	return a.check()
 }
 
 func getAgent(tx kv.Tx, name string) (Agent, bool) {
@@ -196,7 +192,7 @@ func putAgent(tx kv.Tx, a Agent) error {
 // CreateAgent stores a new agent.
 func (s *Store) CreateAgent(a Agent) (Agent, error) {
 	a.Created = s.now().UTC()
-	a.Machines = compactNames(a.Machines)
+	a.MachineAccess = a.normal()
 	a.Scopes = compactNames(a.Scopes)
 	a.SSHKeys = nil
 	err := s.db.Update(func(tx kv.Tx) error {
@@ -265,7 +261,7 @@ func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, erro
 			return err
 		}
 		a.Name, a.Owner, a.SSHKeys, a.Created, a.CreatedBy = name, owner, keys, created, by
-		a.Machines, a.Scopes = compactNames(a.Machines), compactNames(a.Scopes)
+		a.MachineAccess, a.Scopes = a.normal(), compactNames(a.Scopes)
 		if a.Preset != PresetCustom {
 			a.Scopes = nil
 		}
@@ -520,7 +516,8 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 		case ok:
 			// into an existing agent only when that gives the token nothing it could not do already
 			wider := slices.ContainsFunc(existing.Wanted(), func(sc string) bool { return !slices.Contains(t.Scopes, sc) })
-			if len(t.Machines) > 0 && (len(existing.Machines) == 0 || slices.ContainsFunc(existing.Machines, func(m string) bool { return !slices.Contains(t.Machines, m) })) {
+			critical := criticalIn(tx)
+			if !existing.Live(s.now()).Within(t.Live(s.now()), func(m string) bool { return critical[m] }) {
 				wider = true
 			}
 			if wider {
@@ -528,7 +525,7 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 			}
 			a = existing
 		default:
-			a = Agent{Name: agentName, Owner: owner, Preset: preset, Machines: compactNames(t.Machines), Created: s.now().UTC(), CreatedBy: by}
+			a = Agent{Name: agentName, Owner: owner, Preset: preset, MachineAccess: t.normal(), Created: s.now().UTC(), CreatedBy: by}
 			if preset == PresetCustom {
 				a.Scopes = compactNames(t.Scopes)
 			}
@@ -544,7 +541,7 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 		if err := putAgent(tx, a); err != nil {
 			return err
 		}
-		t.Agent, t.Scopes, t.Machines, t.SSHKeys = agentName, nil, nil, nil
+		t.Agent, t.Scopes, t.MachineAccess, t.SSHKeys = agentName, nil, MachineAccess{}, nil
 		b, _ := json.Marshal(t)
 		return tx.Put(bucketTokens, []byte(t.Name), b)
 	})
@@ -562,21 +559,24 @@ func (s *Store) ClaimToken(name, owner, agentName, preset, by string) (Agent, To
 // Principal is who acts and what it may do now: a person (User), an agent (Agent, owned by User), or a
 // token of its own (Token alone: a machine's, or a legacy token). Token or Grant is the credential the
 // request came with, if any; Expires when that credential expires (for an agent signed in by its SSH
-// key, when its last credential does). Scopes and Machines are what it may do now.
+// key, when its last credential does). Scopes and MachineAccess are what it may do now: the machine
+// access every layer allows (an agent within its owner, a grant within its agent), without named
+// machines whose access has ended.
 type Principal struct {
-	User     string    `json:"user,omitempty"`
-	Agent    string    `json:"agent,omitempty"`
-	Preset   string    `json:"preset,omitempty"`
-	Token    string    `json:"token,omitempty"`
-	Grant    string    `json:"grant,omitempty"`
-	Client   string    `json:"client,omitempty"` // the OAuth client's name, for a grant
-	Scopes   []string  `json:"scopes"`
-	Machines []string  `json:"machines,omitempty"`
-	Subject  string    `json:"subject,omitempty"`
-	Expires  time.Time `json:"expires,omitzero"`
+	User   string   `json:"user,omitempty"`
+	Agent  string   `json:"agent,omitempty"`
+	Preset string   `json:"preset,omitempty"`
+	Token  string   `json:"token,omitempty"`
+	Grant  string   `json:"grant,omitempty"`
+	Client string   `json:"client,omitempty"` // the OAuth client's name, for a grant
+	Scopes []string `json:"scopes"`
+	MachineAccess
+	Subject string    `json:"subject,omitempty"`
+	Expires time.Time `json:"expires,omitzero"`
 
-	proof             credentialProof
-	machineScopeEmpty bool
+	proof    credentialProof
+	owner    bool            // a person whose role is owner
+	critical map[string]bool // the machines critical when it was resolved
 }
 
 // Name is how the audit log, the chat and the console name the principal: the person, "person / agent"
@@ -654,17 +654,71 @@ func (s *Store) CredentialLive(cred string, p Principal) bool {
 // Has reports whether the principal may use scope now.
 func (p Principal) Has(scope string) bool { return slices.Contains(p.Scopes, scope) }
 
-// Reaches reports whether the principal may reach machine through the SSH channel.
+// Reaches reports whether the principal may reach machine through the SSH channel: it holds
+// machines:ssh and its machine access covers the machine.
 func (p Principal) Reaches(machine string) bool {
-	return p.Has("machines:ssh") && (len(p.Machines) == 0 || slices.Contains(p.Machines, machine))
+	return p.Has("machines:ssh") && p.Covers(machine)
 }
 
-// MachineScopeEmpty reports whether the credential and its agent allow no machines in common.
-// An empty Machines list otherwise allows all machines within the principal's scopes.
-func (p Principal) MachineScopeEmpty() bool { return p.machineScopeEmpty }
+// Covers reports whether the principal's machine access covers machine (machines:ssh aside): a critical
+// machine only when it names it, or when it is an owner.
+func (p Principal) Covers(machine string) bool {
+	return p.MachineAccess.Covers(machine, p.critical[machine])
+}
+
+// NoMachines reports whether the principal's machine access covers no machine at all.
+func (p Principal) NoMachines() bool { return p.None() }
+
+// MachinesLimited reports whether some enrolled or future machine is outside the principal's access:
+// anything short of an owner's, unless it is all and names every critical machine there is.
+func (p Principal) MachinesLimited() bool {
+	if p.IsEvery() {
+		return false
+	}
+	if !p.IsAll() {
+		return true
+	}
+	for m := range p.critical {
+		if !p.Names(m) {
+			return true
+		}
+	}
+	return false
+}
+
+// Critical reports whether machine was critical when the principal was resolved.
+func (p Principal) Critical(machine string) bool { return p.critical[machine] }
+
+// Owner reports whether the principal is a person whose role is owner: the only principal that reaches
+// critical machines without naming them, and that may name or mark them.
+func (p Principal) Owner() bool { return p.owner && p.Person() }
 
 // Person reports whether the principal is a person signed in to the console.
 func (p Principal) Person() bool { return p.User != "" && p.Agent == "" }
+
+// accountAccess is a person's machine access: every machine for an owner; for anyone else every machine
+// that is not critical, and the critical machines named on their account.
+func accountAccess(a Account) MachineAccess {
+	if a.Role == "owner" {
+		return MachineAccess{Access: AccessEvery}
+	}
+	return MachineAccess{Access: AccessAll, Machines: slices.Clone(a.CriticalMachines), MachineUntil: maps.Clone(a.CriticalUntil)}.normal()
+}
+
+// resolved finishes a principal: its machine access is what every layer allows now, and a principal
+// that reaches no machine holds no machines:ssh either.
+func resolved(p Principal, critical map[string]bool, now time.Time, layers ...MachineAccess) Principal {
+	live := make([]MachineAccess, len(layers))
+	for i, l := range layers {
+		live[i] = l.Live(now)
+	}
+	p.critical = critical
+	p.MachineAccess = IntersectAccess(func(m string) bool { return critical[m] }, live...)
+	if p.NoMachines() {
+		p.Scopes = slices.DeleteFunc(p.Scopes, func(s string) bool { return s == "machines:ssh" })
+	}
+	return p
+}
 
 func intersect(a, b []string) []string {
 	out := []string{}
@@ -677,8 +731,9 @@ func intersect(a, b []string) []string {
 }
 
 // agentPrincipal resolves an agent: its owner must exist and be enabled; it may do what its preset and
-// its owner's role both allow.
-func agentPrincipal(tx kv.Tx, name string) (Principal, bool) {
+// its owner's role both allow, on the machines both it and its owner reach, and within extra layers (a
+// grant's) as well.
+func agentPrincipal(tx kv.Tx, name string, now time.Time, extra ...MachineAccess) (Principal, bool) {
 	a, ok := getAgent(tx, name)
 	if !ok {
 		return Principal{}, false
@@ -687,43 +742,23 @@ func agentPrincipal(tx kv.Tx, name string) (Principal, bool) {
 	if !ok || owner.Disabled {
 		return Principal{}, false
 	}
-	return Principal{User: a.Owner, Agent: a.Name, Preset: a.Preset, Scopes: intersect(a.Wanted(), RoleScopes(owner.Role)), Machines: slices.Clone(a.Machines)}, true
+	p := Principal{User: a.Owner, Agent: a.Name, Preset: a.Preset, Scopes: intersect(a.Wanted(), RoleScopes(owner.Role))}
+	return resolved(p, criticalIn(tx), now, append([]MachineAccess{a.MachineAccess, accountAccess(owner)}, extra...)...), true
 }
 
 // grantPrincipal resolves an agent reached through one of its OAuth grants: the agent, within the
-// grant's own preset and machines.
-func grantPrincipal(tx kv.Tx, g Grant) (Principal, bool) {
-	p, ok := agentPrincipal(tx, g.Agent)
+// grant's own preset and machines. A grant and an agent with no machine in common reach none, and hold
+// no machines:ssh.
+func grantPrincipal(tx kv.Tx, g Grant, now time.Time) (Principal, bool) {
+	p, ok := agentPrincipal(tx, g.Agent, now, g.MachineAccess)
 	if !ok {
 		return Principal{}, false
 	}
 	if g.Preset != "" {
 		p.Scopes = intersect(p.Scopes, PresetScopes(g.Preset))
 	}
-	machines, none := capMachines(p.Machines, g.Machines)
-	p.Machines, p.machineScopeEmpty = machines, none
-	if none { // the agent and the grant have no machine in common: it reaches none
-		p.Scopes = slices.DeleteFunc(p.Scopes, func(s string) bool { return s == "machines:ssh" })
-	}
 	p.Grant, p.Client = g.ID, g.ClientName
 	return p, true
-}
-
-// capMachines is the machines both lists allow, where an empty list allows all; none reports that two
-// lists that each name machines have none in common.
-func capMachines(a, b []string) (machines []string, none bool) {
-	switch {
-	case len(a) == 0:
-		return slices.Clone(b), false
-	case len(b) == 0:
-		return slices.Clone(a), false
-	}
-	for _, m := range a {
-		if slices.Contains(b, m) {
-			machines = append(machines, m)
-		}
-	}
-	return machines, len(machines) == 0
 }
 
 // PrincipalWith resolves a principal by its key (Principal.Key) and the credential it came with
@@ -748,7 +783,7 @@ func (s *Store) PrincipalWith(key, cred string) (Principal, bool) {
 		if len(gs) == 0 || !now.Before(gs[0].Expires) || "agent:"+gs[0].Agent != key {
 			return nil
 		}
-		if p, ok = grantPrincipal(tx, gs[0]); ok {
+		if p, ok = grantPrincipal(tx, gs[0], now); ok {
 			p.Expires = gs[0].Expires
 		}
 		return nil
@@ -758,22 +793,44 @@ func (s *Store) PrincipalWith(key, cred string) (Principal, bool) {
 
 // AccountPrincipal resolves a person: an enabled account, which may do what its role allows.
 func (s *Store) AccountPrincipal(username string) (Principal, bool) {
-	a, ok := s.Account(username)
-	if !ok || a.Disabled {
-		return Principal{}, false
-	}
-	return Principal{User: a.Username, Scopes: RoleScopes(a.Role)}, true
+	var p Principal
+	ok := false
+	_ = s.db.View(func(tx kv.Tx) error {
+		a, found := getAccount(tx, username)
+		if found && !a.Disabled {
+			p, ok = personPrincipal(tx, a, s.now()), true
+		}
+		return nil
+	})
+	return p, ok
+}
+
+// personPrincipal is a person, who may do what their role allows on the machines they reach.
+func personPrincipal(tx kv.Tx, a Account, now time.Time) Principal {
+	p := resolved(Principal{User: a.Username, Scopes: RoleScopes(a.Role)}, criticalIn(tx), now, accountAccess(a))
+	p.owner = a.Role == "owner"
+	return p
 }
 
 // TokenPrincipal resolves a token that has been verified: an agent's, or one of its own.
 func (s *Store) TokenPrincipal(t Token) (Principal, bool) {
-	if t.Agent == "" {
-		return Principal{Token: t.Name, Scopes: slices.Clone(t.Scopes), Machines: slices.Clone(t.Machines), Subject: t.Subject, Expires: t.Expires}, true
-	}
 	var p Principal
 	ok := false
+	now := s.now()
+	if t.Agent == "" {
+		p = Principal{Token: t.Name, Scopes: slices.Clone(t.Scopes), Subject: t.Subject, Expires: t.Expires}
+		if !slices.ContainsFunc(t.Scopes, func(sc string) bool { return slices.Contains(PeopleScopes, sc) }) {
+			// a machine's or a service's token, on the gateway's hot path: it never reaches a machine
+			return resolved(p, nil, now, NamedAccess()), true
+		}
+		_ = s.db.View(func(tx kv.Tx) error {
+			p = resolved(p, criticalIn(tx), now, t.MachineAccess)
+			return nil
+		})
+		return p, true
+	}
 	_ = s.db.View(func(tx kv.Tx) error {
-		p, ok = agentPrincipal(tx, t.Agent)
+		p, ok = agentPrincipal(tx, t.Agent, now)
 		return nil
 	})
 	p.Token, p.Expires = t.Name, t.Expires
@@ -787,7 +844,7 @@ func (s *Store) AgentPrincipal(name string) (Principal, bool) {
 	ok := false
 	now := s.now()
 	_ = s.db.View(func(tx kv.Tx) error {
-		if p, ok = agentPrincipal(tx, name); !ok {
+		if p, ok = agentPrincipal(tx, name, now); !ok {
 			return nil
 		}
 		for _, g := range grants(tx, func(g Grant) bool { return g.Agent == name }) {
@@ -871,16 +928,15 @@ func (s *Store) PrincipalBySSHKey(fingerprint string) (Principal, bool) {
 			return p, true
 		}
 	}
-	var a Account
+	var p Principal
 	found := false
 	_ = s.db.View(func(tx kv.Tx) error {
-		a, found = accountBySSHKey(tx, fingerprint)
+		if a, ok := accountBySSHKey(tx, fingerprint); ok && !a.Disabled {
+			p, found = personPrincipal(tx, a, s.now()), true
+		}
 		return nil
 	})
-	if !found || a.Disabled {
-		return Principal{}, false
-	}
-	return Principal{User: a.Username, Scopes: RoleScopes(a.Role)}, true
+	return p, found
 }
 
 // AddTokenSSHKey gives a token of its own (not an agent's: AddAgentSSHKey) a key for the SSH channel,

@@ -133,7 +133,7 @@ func TestSessionAuditProjectionKeepsRecordedEvents(t *testing.T) {
 		}
 	}
 	entries := e.st.AuditLog(10)
-	e.b.FilterSessionAudit(store.Principal{Scopes: []string{"sessions:read"}}, entries)
+	e.b.FilterSessionAudit(store.Principal{Scopes: []string{"sessions:read"}, MachineAccess: store.MachineAccess{Access: store.AccessEvery}}, entries)
 	if entries[1].Detail != "fixture command" || entries[3].Detail != "fixture subsystem" {
 		t.Fatal("projecting a credential's view changed underlying audit data or hid it from an unscoped reader")
 	}
@@ -160,7 +160,7 @@ func TestSessionShareAlsoNeedsTheReadPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.st.UpdateToken("admin", func(t *store.Token) error {
-		t.Machines = []string{"other-machine"}
+		t.MachineAccess = store.NamedAccess("other-machine")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestSessionShareAlsoNeedsTheReadPermission(t *testing.T) {
 		t.Fatal("an administrative token shared a session outside its machine selection")
 	}
 	if _, err := e.st.UpdateToken("admin", func(t *store.Token) error {
-		t.Machines = []string{m.Name}
+		t.MachineAccess = store.NamedAccess(m.Name)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

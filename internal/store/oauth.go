@@ -61,24 +61,24 @@ type OAuthClient struct {
 }
 
 // Grant is what a person allowed an OAuth client to do as one of their agents: Agent, until Expires, with
-// Preset and Machines as the person chose them on the consent page: a ceiling of the grant's own, within
+// Preset and MachineAccess as the person chose them on the consent page: a ceiling of the grant's own, within
 // what the agent may do (and the agent's owner's role), so that allowing another client never widens it.
 // Refresh is the SHA-256 of its refresh token (none without offline_access), Spent those of the refresh
 // tokens it replaced, and Code that of the authorization code it came from.
 type Grant struct {
-	ID         string    `json:"id"`
-	Agent      string    `json:"agent"`
-	Client     string    `json:"client"`
-	ClientName string    `json:"client_name"`
-	Scope      string    `json:"scope"`
-	Preset     string    `json:"preset"`
-	Machines   []string  `json:"machines,omitempty"`
-	Created    time.Time `json:"created"`
-	LastUsed   time.Time `json:"last_used,omitzero"`
-	Expires    time.Time `json:"expires"`
-	Refresh    string    `json:"refresh,omitempty"`
-	Spent      []string  `json:"spent,omitempty"`
-	Code       string    `json:"code,omitempty"`
+	ID         string `json:"id"`
+	Agent      string `json:"agent"`
+	Client     string `json:"client"`
+	ClientName string `json:"client_name"`
+	Scope      string `json:"scope"`
+	Preset     string `json:"preset"`
+	MachineAccess
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"last_used,omitzero"`
+	Expires  time.Time `json:"expires"`
+	Refresh  string    `json:"refresh,omitempty"`
+	Spent    []string  `json:"spent,omitempty"`
+	Code     string    `json:"code,omitempty"`
 }
 
 // Issued is what a grant's token request gets: an access token, and a refresh token with offline_access.
@@ -290,6 +290,10 @@ func (s *Store) CreateGrant(g Grant, offline bool) (Issued, error) {
 	if !now.Before(g.Expires) {
 		return Issued{}, errors.New("a grant must end in the future")
 	}
+	g.MachineAccess = g.normal()
+	if err := g.check(); err != nil {
+		return Issued{}, err
+	}
 	var out Issued
 	err = s.db.Update(func(tx kv.Tx) error {
 		if _, ok := getAgent(tx, g.Agent); !ok {
@@ -333,7 +337,7 @@ func (s *Store) RefreshGrant(refresh, client string) (Issued, error) {
 			_ = deleteGrants(tx, func(x Grant) bool { return x.ID == g.ID })
 			return ErrBadGrant
 		}
-		if _, ok := agentPrincipal(tx, g.Agent); !ok { // the agent is gone, or its owner disabled
+		if _, ok := agentPrincipal(tx, g.Agent, now); !ok { // the agent is gone, or its owner disabled
 			return ErrBadGrant
 		}
 		g.Spent = append(g.Spent, h)
@@ -454,7 +458,7 @@ func (s *Store) verifyAccess(secret string) (Principal, bool) {
 			return nil
 		}
 		g = gs[0]
-		if p, ok = grantPrincipal(tx, g); ok {
+		if p, ok = grantPrincipal(tx, g, now); ok {
 			p.Expires = a.Expires
 			p.proof = credentialProof{kind: proofAccess, hash: h}
 		}

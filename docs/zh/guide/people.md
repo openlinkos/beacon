@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e2c604d8
+sourceHash: sha256-bedf24f1
 ---
 
 # 邀请你的团队
@@ -26,7 +26,9 @@ sourceHash: sha256-e2c604d8
 | 运维 | 还能增删机器、暂停 Agent、安排维护 | + `maintenance:write`、`incidents:write`、`machines:write` |
 | 所有者 | 还能改配置、邀请成员、定角色、管理所有 Agent | + `config:write`、`accounts:write` |
 
-控制台、命令行和 API 说的是角色。scope 在角色之下，[REST API](../reference/api.md#scopes) 里有清单。每个请求都会重读角色，所以改动立刻生效，对本人和对他的 Agent 都是。Beacon 始终保留至少一个启用状态的所有者，会让它一个所有者都不剩的改动将被拒绝。
+控制台、命令行和 API 说的是角色。scope 在角色之下，[REST API](../reference/api.md#scopes) 里有清单。
+
+标为关键的机器是“一切”的例外。owner 能到全部机器、看到全部会话。其他角色能到、并能看到会话的，是全部非关键机器，以及 owner 用 `beacon user machines NAME ca-1,ca-2` 在其账号上点名的关键机器（`none` 收回）。规则见[机器访问](../reference/permissions.md#machine-access)。每个请求都会重读角色，所以改动立刻生效，对本人和对他的 Agent 都是。Beacon 始终保留至少一个启用状态的所有者，会让它一个所有者都不剩的改动将被拒绝。
 
 ## 第一个所有者 {#the-first-owner}
 
@@ -108,7 +110,7 @@ Agent 是替某个人（它的所有者）行事的程序。可以是某人工�
 
 - 一个**名字**：2 到 40 个小写字母、数字、点、连字符和下划线，全 Beacon 唯一。审计日志记作 `所有者 / 名字`。
 - 一个**预设**（见下）；
-- 它能经 SSH 通道使用的**机器**：全部，或一组清单；
+- 它能经 SSH 通道使用的**机器**：全部非关键机器（含以后接入的），或它点名的机器，永远不超过所有者能到的。两者都没有就一台也到不了。关键机器只有点名才能到；
 - 它的 **SSH 密钥**；
 - 它的**凭据**：无界面 Agent 和 CI 用令牌（`lbt_…`），交互式客户端用 OAuth 登录。
 
@@ -122,13 +124,13 @@ Agent 是替某个人（它的所有者）行事的程序。可以是某人工�
 
 - 没有任何预设给 `config:write` 或 `accounts:write`。
 - 预设超出所有者角色的，在创建或修改 Agent 时会被拒绝。
-- 调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。
+- 调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。只有人能给出全部机器，只有 owner 能点名关键机器；owner 给 Agent 点名的关键机器，不另给期限就 30 天后到期。
 - **custom** 预设的 Agent 自行列出 scope，仍不超过所有者的角色，也不超过调用者自己能做的。以本人身份登录的所有者在控制台里设置；持有 `accounts:write` 的人或旧式令牌经 API 和 MCP 设置；命令行也可以（`beacon agent add … -scopes status:read,config:write`）。Agent 永远不能设置，哪怕它自己持有 `accounts:write`。清单只能是人的 scope，且不能为空。Agent 实际能做的，仍是与所有者角色的交集，每个请求重新读取。
 
 控制台的**Agents**页列出你的 Agent；所有者能看到所有人的。每个 Agent 的页面：
 
 - 显示它现在能做什么；
-- 修改其预设和机器；以本人身份登录的所有者还可以改自定义 scope；
+- 修改其预设和机器；以本人身份登录的所有者还可以改自定义 scope；它点名的关键机器保持不变（用 `beacon agent machines` 修改）；
 - 列出其 OAuth 登录、令牌和密钥，可吊销或删除其中任何一项；
 - 可以连同全部凭据一起删除这个 Agent。
 
@@ -141,6 +143,8 @@ Claude Code 经浏览器、用 MCP 的 OAuth 登录。它既能用 Beacon 的工
 ## 一次登录能做什么 {#what-a-sign-in-may-do}
 
 每次 OAuth 登录把你允许的东西记为它自己的上限。客户端能做的是这次登录的预设和机器允许的，再受 Agent 本身、再受你的角色约束。每次请求都重新读取。
+
+授权页上的机器，是全部非关键机器，或只是你勾选的那些。选了**只给这些**却一台没勾，会再问一次，绝不当成全部。关键机器只对 owner 显示，单独列出、默认不勾；勾选要明确确认，这次登录最多可访问它 30 天。
 
 允许一个客户端不会改变任何已有的 Agent。所以它不会放宽另一个客户端的登录、Agent 的令牌或密钥。要让一个复用的 Agent 权限更大，先在它的页面上改好 Agent，再从客户端重新登录。
 
@@ -230,8 +234,10 @@ token claude-code is agent alice / claude-code's now (oncall, may do status:read
 - `beacon user role NAME ROLE`
 - `beacon user disable` 和 `beacon user enable NAME`
 - `beacon user reset NAME`
-- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines a,b] [-expires 365d] [-ssh-key KEY]`
+- `beacon user machines NAME a,b|none`
+- `beacon agent add NAME -owner USER [-preset P] [-scopes a,b] [-machines all|a,b] [-expires 365d] [-ssh-key KEY]`
 - `beacon agent list`
+- `beacon agent machines NAME all|a,b|none`
 - `beacon agent remove NAME`
 - `beacon token claim NAME -owner USER`
 

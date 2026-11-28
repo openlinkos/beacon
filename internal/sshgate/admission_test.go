@@ -61,7 +61,7 @@ func TestSubsystemKindsAreFixed(t *testing.T) {
 func TestRefusedConnectionsAreAudited(t *testing.T) {
 	needShell(t)
 	e := setup(t)
-	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.Machines = []string{"other"}; return nil }); err != nil {
+	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.NamedAccess("other"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -71,7 +71,7 @@ func TestRefusedConnectionsAreAudited(t *testing.T) {
 	}
 	e.run(t, "db", "true")
 	e.run(t, "Not_A_Machine", "true")
-	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.Machines = nil; return nil }); err != nil {
+	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.AllAccess(); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.g.SetPaused(context.Background(), Actor{Name: "root", Via: "cli"}, true); err != nil {
@@ -102,7 +102,7 @@ func TestRefusedConnectionsAreAudited(t *testing.T) {
 	if err := e.g.SetPaused(context.Background(), Actor{Name: "root", Via: "cli"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.Machines = []string{"other"}; return nil }); err != nil {
+	if _, err := e.st.UpdateToken("claude-code", func(tk *store.Token) error { tk.MachineAccess = store.NamedAccess("other"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	e.run(t, "box", "true")

@@ -49,17 +49,23 @@ func (s *Server) registerConfig(mux *http.ServeMux) {
 		base, item := "/api/v1/config/"+k.list, "/api/v1/config/"+k.list+"/{"+k.param+"}"
 		mux.Handle("GET "+base, s.with(configRead, s.getConfig(k)))
 		mux.Handle("GET "+item, s.with(configRead, s.getConfigItem(k)))
-		mux.Handle("PUT "+item, s.with("config:write", s.putConfigItem(k)))
-		mux.Handle("DELETE "+item, s.with("config:write", s.deleteConfigItem(k)))
+		mux.Handle("PUT "+item, s.withConfigActor(s.putConfigItem(k)))
+		mux.Handle("DELETE "+item, s.withConfigActor(s.deleteConfigItem(k)))
 	}
 	mux.Handle("PUT /api/v1/config/targets/{name}/groups/{group}/machine", s.withPrincipal("config:write", s.changeTargetMachine))
 	mux.Handle("GET /api/v1/config/history", s.with(configRead, s.configHistory))
 	mux.Handle("GET /api/v1/config/history/{version}", s.with(configRead, s.configChange))
-	mux.Handle("POST /api/v1/config/history/{version}/revert", s.with("config:write", s.revertConfig))
+	mux.Handle("POST /api/v1/config/history/{version}/revert", s.withConfigActor(s.revertConfig))
 }
 
-func configActor(who bridge.Actor) configdb.Actor {
-	return configdb.Actor{Name: who.Name, Via: who.Via}
+// withConfigActor guards a configuration change with config:write and gives h the caller as the
+// configuration holds it to: with its principal, so that a change of a service's response machine needs
+// what the dedicated route needs.
+func (s *Server) withConfigActor(h func(w http.ResponseWriter, r *http.Request, who configdb.Actor)) http.Handler {
+	return s.withPrincipal("config:write", func(w http.ResponseWriter, r *http.Request, p store.Principal) {
+		who := bridge.ActorOf(p, "api")
+		h(w, r, configdb.Actor{Name: who.Name, Via: who.Via, Principal: &p})
+	})
 }
 
 // configError maps the configuration's errors to HTTP answers.
@@ -103,8 +109,8 @@ func (s *Server) getConfigItem(k configKind) handler {
 	}
 }
 
-func (s *Server) putConfigItem(k configKind) handler {
-	return func(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+func (s *Server) putConfigItem(k configKind) func(http.ResponseWriter, *http.Request, configdb.Actor) {
+	return func(w http.ResponseWriter, r *http.Request, who configdb.Actor) {
 		var v json.RawMessage
 		if !readBody(w, r, &v, 1<<20) {
 			return
@@ -113,7 +119,7 @@ func (s *Server) putConfigItem(k configKind) handler {
 		if !ok {
 			return
 		}
-		ch, err := s.Config.PutIf(r.Context(), configActor(who), k.kind, r.PathValue(k.param), v, r.URL.Query().Get("note"), ifVersion)
+		ch, err := s.Config.PutIf(r.Context(), who, k.kind, r.PathValue(k.param), v, r.URL.Query().Get("note"), ifVersion)
 		if err != nil {
 			s.configError(w, err)
 			return
@@ -122,13 +128,13 @@ func (s *Server) putConfigItem(k configKind) handler {
 	}
 }
 
-func (s *Server) deleteConfigItem(k configKind) handler {
-	return func(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+func (s *Server) deleteConfigItem(k configKind) func(http.ResponseWriter, *http.Request, configdb.Actor) {
+	return func(w http.ResponseWriter, r *http.Request, who configdb.Actor) {
 		ifVersion, ok := ifVersion(w, r)
 		if !ok {
 			return
 		}
-		ch, err := s.Config.DeleteIf(r.Context(), configActor(who), k.kind, r.PathValue(k.param), r.URL.Query().Get("note"), ifVersion)
+		ch, err := s.Config.DeleteIf(r.Context(), who, k.kind, r.PathValue(k.param), r.URL.Query().Get("note"), ifVersion)
 		if err != nil {
 			s.configError(w, err)
 			return
@@ -220,12 +226,12 @@ func (s *Server) configChange(w http.ResponseWriter, r *http.Request, _ bridge.A
 	writeJSON(w, http.StatusOK, ch)
 }
 
-func (s *Server) revertConfig(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+func (s *Server) revertConfig(w http.ResponseWriter, r *http.Request, who configdb.Actor) {
 	v, ok := version(w, r)
 	if !ok {
 		return
 	}
-	ch, err := s.Config.Revert(r.Context(), configActor(who), v, r.URL.Query().Get("note"))
+	ch, err := s.Config.Revert(r.Context(), who, v, r.URL.Query().Get("note"))
 	if err != nil {
 		s.configError(w, err)
 		return

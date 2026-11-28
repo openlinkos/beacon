@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-f9ffa80a
+sourceHash: sha256-96aaf77a
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -58,7 +58,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `machines:ssh` | oncall 及以上 | SSH 通道和它的工具，限凭据可达的机器 |
 | `maintenance:write` | operator 及以上 | 安排和结束维护窗口 |
 | `incidents:write` | operator 及以上 | 为手工写事件预留；还没有路径用它 |
-| `machines:write` | operator 及以上 | 增删改机器、连接器密钥、暂停 Agent 的访问 |
+| `machines:write` | operator 及以上 | 增删改机器和连接器密钥（需能访问全部机器）；删除不超出自己权限的令牌；暂停 Agent 的访问 |
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
 | `accounts:write` | 所有者账号或独立管理令牌 | 在凭据自身 scope 覆盖的角色内管理成员账号，以及管理所有人的 Agent |
 | `secrets:use` | owner；仅自定义 Agent | 列出和使用明确授权给该 Agent 的团队凭据 |
@@ -78,8 +78,41 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 
 `probe:write`、`host:write` 和 `heartbeat:write` 需要**主体**：令牌以之写入的检测点、主机或心跳。网关给它写入的一切打上主体标签，并把 `job` 设成令牌的种类（`probe`、`host`、`heartbeat`），取代发送方对自己的任何描述。所以一个检测点冒充不了另一个，主机冒充不了检测点，心跳令牌只能写它自己的心跳。机器已到期（目录里的 `vps` 过了日期）的令牌不能再写入。
 
-Agent 或令牌在 SSH 通道上可达的机器，是各自的一份列表。空列表表示全部。OAuth 登录的列表与 Agent 的取交集，只到达两者都允许的机器。
+### 机器访问 {#machine-access}
+
+每个独立令牌、Agent 和 OAuth 登录都写明它在 SSH 通道上能到哪些机器，而且总是明确的：
+
+| 机器访问 | 能到 |
+| --- | --- |
+| `all` | 全部非关键机器（含以后接入的），以及它点名的关键机器 |
+| `named` | 只有它点名的机器 |
+
+其他情况一台也到不了：没有给机器访问、空列表、Beacon 不认识的值，都表示没有机器。`beacon token create` 和 `beacon agent add` 建出的凭据默认没有机器，除非用 `-machines` 点名机器或写 `all`。
+
+标为**关键**的机器，只有点名它的凭据能到：只有 `all` 永远到不了关键机器。给 Agent 的凭据（Agent、独立令牌或 OAuth 登录）点名的关键机器，默认 30 天后到期，点名的人可以另给期限。命令行写成 `name@72h`、`name@2026-12-31` 或 `name@never`。人自己账号上点名的机器默认不过期。到期后下一个请求起即无权访问；一分钟内 Beacon 去掉这个名字，记入审计日志（`machine_access_end`），并关闭在它上面打开的一切。
+
+人按账号访问机器。owner 能到全部机器，包括关键机器。其他角色能到全部非关键机器，以及 owner 在其账号上点名的关键机器（`beacon user machines`）。Agent 能到的永远不超过它的所有者，OAuth 登录永远不超过它的 Agent。每一层都允许的才能到，每次请求都重新读取。
+
+谁能给出机器访问：
+
+- 只有人（不超过自己的角色）或主机上的 `beacon` 能给出 `all`。令牌和 Agent 只能点名机器，而且只能点名自己能到的。
+- 只有 owner 或主机上的 `beacon` 能点名关键机器，无论是给 Agent、令牌、OAuth 登录还是人。授权页上关键机器只对 owner 显示，单独列出、默认不勾，勾选要明确确认。
+- 不增加任何东西的修改（机器更少，或更早到期）不受调用者限制。
+
+### 修改机器 {#changing-machines}
+
+使用一台机器需要 `machines:ssh` 和对它的访问。修改机器需要 `machines:write` 并能访问全部机器，所以点名机器的凭据一台机器也改不了，包括它自己点名的。这包括添加机器、用 `replace` 重新添加、修改、恢复早期设置、移除和设置连接器密钥。
+
+标记或取消关键机器，以及对关键机器的任何修改，只能由 owner 或主机上的 `beacon machine` 来做。Beacon 登录机器所用的账号，只有人或主机上的 `beacon` 能改，改成 `root` 只有主机上的 `beacon` 能做。机器本身只为这一个账号信任 Beacon 的证书颁发机构（[添加机器](../guide/machines.md#add-a-machine)），所以在 Beacon 里改了账号，还要在机器上重新执行那一行。
+
+目标集合的响应机器（某组的 `machine`），无论经哪条路径设置、清除或移动（专门的路径、整组目标集合的 put、删除或回滚），都需要 `machines:write`，以及对改前和改后机器的 SSH 访问。
+
+### 删除令牌 {#deleting-tokens}
+
+`DELETE /api/v1/tokens/{name}`、`revoke_token` 和控制台的**令牌**页删除能连机器的令牌，或 Agent 的令牌。它们需要 `machines:write` 并能访问全部机器。独立令牌只能由持有它全部 scope、能到它能到的全部机器的调用者删除。Agent 的令牌由这个 Agent 自己、人，或管理 Agent 的管理员删除，其他 Agent 和令牌都不行。删除立即结束这个令牌；Agent 保留它的其他凭据。Agent 的所有者在 Agent 页面删除它的令牌，不需要 `machines:write`。
+
+机器访问改为明确之前的凭据保持原来能到的机器。升级后的 Beacon 第一次启动时，把没有点名机器的令牌、Agent 和 OAuth 登录改为 `all`，并点名当时所有的关键机器；已经点名机器的列表保持点名。每个不是 owner 的人，账号上点名当时的关键机器。每一项改动都记入审计日志（`machine_access_migrate`）。
 
 令牌是 `lbt_` 加 52 个字符，Beacon 只存它们的 SHA-256。令牌在创建后 1 小时到 2 年之间过期。吊销的令牌立即失效。
 
-持有者在过期前续期，至多一天一次。续期得到一个新的 secret，名字、scope、主体、机器和密钥都不变，旧 secret 还能再用十分钟。注册的机器令牌不续期，用 `beacon enroll -rotate` 换新。
+持有者在过期前续期，至多一天一次。续期得到一个新的 secret，名字、scope、主体、机器访问和密钥都不变，旧 secret 还能再用十分钟。注册的机器令牌不续期，用 `beacon enroll -rotate` 换新。

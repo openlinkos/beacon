@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ddcd6412
+sourceHash: sha256-189be193
 ---
 
 # 给 Agent 一台机器
@@ -63,7 +63,7 @@ sourceHash: sha256-ddcd6412
 
    ```
    added edge-1 at edge-1.example.net as beacon; its host key is ssh-ed25519 AAAA…
-   On the machine, as root, if not done yet:
+   On the machine, as root, if not done yet (Beacon's certificates are trusted for beacon alone):
      echo 'ssh-ed25519 AAAA… beacon-ca' > /etc/ssh/beacon_ca.pub
      ...
    ```
@@ -72,10 +72,12 @@ sourceHash: sha256-ddcd6412
 
    ```bash
    echo 'ssh-ed25519 AAAA… beacon-ca' > /etc/ssh/beacon_ca.pub   # machine add 打印的那一行；beacon machine ca 可以再打印一次
-   echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
+   printf 'Match User beacon\n  TrustedUserCAKeys /etc/ssh/beacon_ca.pub\nMatch all\n' > /etc/ssh/sshd_config.d/beacon.conf
    id beacon >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' beacon   # Beacon 证书里指定的账户
    systemctl reload ssh
    ```
+
+   `Match User` 这一段只为这一个账户信任 Beacon 的证书颁发机构。其他账户（包括 `root`）的证书，无论 Beacon 签了什么，机器自己都会拒绝。用 `-user` 添加的机器，这里写那个账户；在 Beacon 里改了账户之后，用新账户重新执行这一行。
 
 3. **只给账户干活需要的权限。** 账户能做什么，才是真正的边界。比如在 `/etc/sudoers.d/beacon` 里写：
 
@@ -85,17 +87,17 @@ sourceHash: sha256-ddcd6412
 
 确认 `sshd_config` 已包含 `/etc/ssh/sshd_config.d/*.conf`。重新加载前先运行 `sshd -t`。Debian 和 Ubuntu 的服务名是 `ssh`，RHEL 等发行版使用 `sshd`。
 
-如果机器上的 OpenSSH 支持 `PerSourcePenaltyExemptList`（9.8 引入），在 `beacon.conf` 中添加 `PerSourcePenaltyExemptList 203.0.113.7`，将示例地址换成中心的来源地址。Beacon 发起的所有连接都从这个地址到达。改完后验证配置并重新加载 sshd。
+如果机器上的 OpenSSH 支持 `PerSourcePenaltyExemptList`（9.8 引入），在 `beacon.conf` 开头、`Match` 那一行之前添加 `PerSourcePenaltyExemptList 203.0.113.7`，将示例地址换成中心的来源地址。Beacon 发起的所有连接都从这个地址到达。改完后验证配置并重新加载 sshd。
 
 其他选项和命令：
 
-- `-user` 指定 `beacon` 以外的账户。
-- `-critical` 把机器标记为关键机器，提醒在上面干活的人。
+- `-user` 指定 `beacon` 以外的账户。之后只有人或主机上的 `beacon` 能改它，改成 `root` 只有主机上的 `beacon` 能做。
+- `-critical` 把机器标记为关键机器。能访问全部机器的凭据，不点名就到不了关键机器；owner 能到。只有 owner 或主机上的 `beacon` 能标记关键机器，或修改、移除关键机器。
 - `machine list` 列出所有机器。
 - `machine add … -replace` 在重装系统后重新固定主机密钥。
 - `machine remove NAME` 移除一台机器，它的会话记录仍然保留。
 
-持有 `machines:write` 的人在控制台的 **Machines** 页做同样的事。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
+持有 `machines:write` 并能访问全部机器的人，在控制台的 **Machines** 页做同样的事：点名机器的凭据不能添加、修改或移除任何机器（[修改机器](../reference/permissions.md#changing-machines)）。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
 
 Beacon 连不进去的机器，换个方向添加：见 [NAT 后面的机器](#machines-behind-nat)。
 
@@ -131,7 +133,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
   -machines edge-1,edge-2 -ssh-key "ssh-ed25519 AAAA… agent@workstation"
 ```
 
-`-machines` 限定 Agent 能连的机器；不给就是全部。同一份凭据也用于 MCP 工具和 REST API。独立令牌的公钥和机器记在令牌上（`token ssh-key`、`token machines`）。
+`-machines` 点名 Agent 能连的机器，或写 `all`：全部非关键机器，含以后接入的。不给就一台也连不了。关键机器只有点名才能到（`-machines all,ca-1`），只有 owner 或主机上的 `beacon` 能点名；Agent 对它的访问默认 30 天后到期，可以另给期限（`ca-1@72h`、`ca-1@never`）。之后用 `beacon agent machines NAME …` 修改。同一份凭据也用于 MCP 工具和 REST API。独立令牌的公钥和机器记在令牌上（`token ssh-key`、`token machines`）。规则见[机器访问](../reference/permissions.md#machine-access)。
 
 ## 让 Agent 连上来 {#let-the-agent-connect}
 
@@ -182,6 +184,8 @@ shell 的命令和退出状态按输出里的 shell 集成标记切分。shell �
    你会看到 `added edge-9 as a connector machine (user beacon): it connects out to Beacon with ssh -R; …`，以及一段给机器用的脚本。脚本先和普通机器一样配置 CA 和 `beacon` 账户，再创建 `beacon-connector` 用户和一个带 `Restart=always` 的 systemd 单元。
 
    机器的主机密钥和其他机器一样要固定。用 `-host-key` 给出，或者让 Beacon 在第一次连接时自己学（审计日志和告警群都会说明）。
+
+   每台机器用自己的密钥连出来：别的机器已经登记的密钥，Beacon 会拒绝。从镜像克隆的机器带着原机的密钥，要在克隆机上新生成一把。一条连接只在机器仍有它登录时的密钥和登记时才承载这台机器。重新添加机器、换密钥，或把它改成 Beacon 直连的机器，都会关闭这条连接，systemd 单元会重新连上来。
 
 此后一切和普通机器相同：`ssh`、`scp`、`rsync`、工具、录像、暂停开关。
 

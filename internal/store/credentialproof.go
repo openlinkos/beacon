@@ -41,7 +41,7 @@ func (s *Store) TeamPrincipal(tx kv.Tx, p Principal) (Principal, Agent, bool) {
 		if p.User != "" && p.Agent == "" && decodeKey(tx, bucketConsole, []byte(p.proof.hash), &cs) &&
 			cs.User == p.User && now.Before(cs.Expires) {
 			if account, found := getAccount(tx, p.User); found && !account.Disabled {
-				return Principal{User: account.Username, Scopes: RoleScopes(account.Role)}, Agent{}, true
+				return personPrincipal(tx, account, now), Agent{}, true
 			}
 		}
 		return Principal{}, Agent{}, false
@@ -51,7 +51,7 @@ func (s *Store) TeamPrincipal(tx kv.Tx, p Principal) (Principal, Agent, bool) {
 			token.Agent != p.Agent || !matchesTeamToken(token, p.proof.hash, now) {
 			return Principal{}, Agent{}, false
 		}
-		current, _ = agentPrincipal(tx, token.Agent)
+		current, _ = agentPrincipal(tx, token.Agent, now)
 	case proofAccess:
 		var a accessRecord
 		if p.Agent == "" || !decodeKey(tx, bucketAccess, []byte(p.proof.hash), &a) || a.Grant != p.Grant || !now.Before(a.Expires) {
@@ -61,7 +61,7 @@ func (s *Store) TeamPrincipal(tx kv.Tx, p Principal) (Principal, Agent, bool) {
 		if len(gs) != 1 || gs[0].Agent != p.Agent || !now.Before(gs[0].Expires) {
 			return Principal{}, Agent{}, false
 		}
-		current, _ = grantPrincipal(tx, gs[0])
+		current, _ = grantPrincipal(tx, gs[0], now)
 	default:
 		return Principal{}, Agent{}, false
 	}
@@ -78,7 +78,7 @@ func matchesTeamToken(t Token, hash string, now time.Time) bool {
 
 // TeamAgent finds a delegation's recipient and live owner from the current transaction.
 func (s *Store) TeamAgent(tx kv.Tx, name string) (Principal, Agent, bool) {
-	p, ok := agentPrincipal(tx, name)
+	p, ok := agentPrincipal(tx, name, s.now())
 	if !ok {
 		return Principal{}, Agent{}, false
 	}

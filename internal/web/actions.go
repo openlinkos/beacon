@@ -114,7 +114,7 @@ func (s *Server) problem(r *http.Request, code string) string {
 	case "bad_agent":
 		return s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
 	case "machine_access":
-		return s.t("Choose all current and future machines or select specific machines.")
+		return s.t("Choose all machines that are not critical, or select specific machines.")
 	case "machine_selection":
 		return s.t("Select at least one machine.")
 	case "machine_unknown":
@@ -282,7 +282,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request, v *viewer) {
 		return
 	}
 	page := consolePath("/config/history/") + strconv.FormatInt(n, 10)
-	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.name(), Via: "console"}, n, r.PostForm.Get("note"))
+	ch, err := s.Config.Revert(r.Context(), configdb.Actor{Name: v.name(), Via: "console", Principal: &v.Principal}, n, r.PostForm.Get("note"))
 	switch {
 	case errors.Is(err, configdb.ErrNotFound):
 		s.missing(w, r, v)

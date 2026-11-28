@@ -19,7 +19,7 @@ func TestRenewToken(t *testing.T) {
 	}
 	if _, err := s.UpdateToken("claude-code", func(t *Token) error {
 		t.SSHKeys = []SSHKey{{Key: "ssh-ed25519 AAAA", Fingerprint: "SHA256:k1"}}
-		t.Machines = []string{"edge-1"}
+		t.MachineAccess = NamedAccess("edge-1")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
