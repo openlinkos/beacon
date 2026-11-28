@@ -271,7 +271,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/capabilities` | 不限 | 六大运维域的结构化能力目录，按调用方作用域与已启用子系统实时计算，并包含对应 MCP 工具、资源与提示词 |
 | `GET /api/v1/token` | 不限 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），用的什么凭据（`token`，或带 `client` 的 `oauth`），现在能做什么、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否续期以及何时可以续期；从不返回密钥本身 |
 | `POST /api/v1/token/renew` | 不限 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，它由客户端刷新 |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一个能上机器的令牌（`machines:ssh`），或任何 Agent 的令牌：只针对一个 Agent 的暂停开关，它用这个令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销（`token.not_revocable`） |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一个能上机器的令牌（`machines:ssh`），或任何 Agent 的令牌：只针对一个 Agent 的暂停开关，它用这个令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销。调用方无权吊销的令牌，和不存在的令牌得到同样的回答（`token.not_found`） |
 | `GET /api/v1/openapi.yaml` | 不需要 | OpenAPI 文档 |
 
 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。每项操作仍需要对应的作用域。
@@ -373,8 +373,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `maintenance.ended` | 409 | 维护窗口已经结束或已取消 |
 | `token.too_soon` | 429 | 令牌在 24 小时内刚续过期，仍然有效 |
 | `token.not_renewable` | 403 | 这是登记的机器的令牌，用 `beacon enroll … -rotate` 换新；或者是 OAuth 访问令牌，由它的客户端刷新 |
-| `token.not_found` | 404 | 没有这个名字的令牌可以吊销 |
-| `token.not_revocable` | 403 | 这个令牌既不能上机器，也不属于任何 Agent；机器和服务的令牌要在中心上用 `beacon token revoke` 吊销 |
+| `token.not_found` | 404 | 没有这个名字、调用方又能在这里吊销的令牌；机器和服务的令牌要在中心上用 `beacon token revoke` 吊销 |
+| `token.not_revocable` | 403 | 为旧客户端保留；现在吊销时回答 `token.not_found` |
 | `user.not_found` | 404 | 没有这个名字的成员 |
 | `user.last_owner` | 409 | 这样改会让 Beacon 没有启用的所有者；先让另一个人成为所有者 |
 | `key.not_found` | 404 | 调用者没有这个指纹的 SSH 密钥 |

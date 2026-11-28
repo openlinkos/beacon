@@ -199,6 +199,29 @@ func (b *Bridge) mayManage(who Actor, owner string) bool {
 	return ok && p.Person() && p.User == owner
 }
 
+// manageableAgent is the agent called name, for who may manage it. Permission comes before existence:
+// a caller who is not an admin gets ErrForbidden alike for another person's agent and for a name that
+// no agent has, so that the answer tells them nothing about what exists. An admin learns that an agent
+// does not exist (store.ErrNotFound).
+func (b *Bridge) manageableAgent(who Actor, name string) (store.Agent, error) {
+	if !b.admin(who) {
+		p, ok := b.caller(who)
+		if !ok || !p.Person() {
+			return store.Agent{}, ErrForbidden
+		}
+		a, found := b.d.Store.Agent(name)
+		if !found || a.Owner != p.User {
+			return store.Agent{}, fmt.Errorf("%w: you manage only your own agents, and %q is not one of them", ErrForbidden, name)
+		}
+		return a, nil
+	}
+	a, ok := b.d.Store.Agent(name)
+	if !ok {
+		return store.Agent{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
+	}
+	return a, nil
+}
+
 // withinCaller reports whether who may give an agent these scopes and machines. The command line may.
 // Anyone else is read afresh: every scope must be one they hold, and when they reach only some machines
 // the agent must name some of those and no others. An empty machine list reaches every machine. It
@@ -528,12 +551,9 @@ func (b *Bridge) Agents(who Actor, owner string) ([]AgentView, error) {
 
 // Agent returns one agent, for its owner or an admin.
 func (b *Bridge) Agent(who Actor, name string) (AgentView, error) {
-	a, ok := b.d.Store.Agent(name)
-	if !ok {
-		return AgentView{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
-	}
-	if !b.mayManage(who, a.Owner) {
-		return AgentView{}, ErrForbidden
+	a, err := b.manageableAgent(who, name)
+	if err != nil {
+		return AgentView{}, err
 	}
 	return b.agentView(a), nil
 }
@@ -577,11 +597,11 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 		if err != nil {
 			return AgentCreated{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
 		}
-		if holder := b.d.Store.KeyHolder(k.Fingerprint); holder != "" {
-			return AgentCreated{}, fmt.Errorf("%w: the key %s belongs to %s", ErrBadInput, k.Fingerprint, holder)
+		if b.d.Store.KeyHolder(k.Fingerprint) != "" {
+			return AgentCreated{}, fmt.Errorf("%w: the key %s is already registered; use a key of the agent's own", ErrBadInput, k.Fingerprint)
 		}
-		if m, ok := b.d.Store.MachineByConnectorKey(k.Fingerprint); ok {
-			return AgentCreated{}, fmt.Errorf("%w: the key %s is machine %s's connector key", ErrBadInput, k.Fingerprint, m.Name)
+		if _, ok := b.d.Store.MachineByConnectorKey(k.Fingerprint); ok {
+			return AgentCreated{}, fmt.Errorf("%w: the key %s is already registered; use a key of the agent's own", ErrBadInput, k.Fingerprint)
 		}
 		keys = append(keys, k)
 	}
@@ -642,12 +662,9 @@ type AgentUpdate struct {
 // not reach, must stay within what the caller holds. Narrowing keeps working. A refusal changes nothing
 // and is not audited. The command line is exempt.
 func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up AgentUpdate) (AgentView, error) {
-	a, ok := b.d.Store.Agent(name)
-	if !ok {
-		return AgentView{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
-	}
-	if !b.mayManage(who, a.Owner) {
-		return AgentView{}, ErrForbidden
+	a, err := b.manageableAgent(who, name)
+	if err != nil {
+		return AgentView{}, err
 	}
 	owner, ok := b.d.Store.Account(a.Owner)
 	if !ok {
@@ -686,7 +703,7 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 		}
 	}
 	before := agentChangeText(a)
-	a, err := b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
+	a, err = b.d.Store.UpdateAgent(name, func(x *store.Agent) error {
 		x.Preset, x.Machines = preset, machines
 		if preset == store.PresetCustom {
 			x.Scopes = scopes
@@ -719,12 +736,9 @@ func agentChangeText(a store.Agent) string {
 
 // NewAgentToken gives an agent another static token, for its owner or an admin.
 func (b *Bridge) NewAgentToken(ctx context.Context, who Actor, name string, ttl time.Duration) (AgentCreated, error) {
-	a, ok := b.d.Store.Agent(name)
-	if !ok {
-		return AgentCreated{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
-	}
-	if !b.mayManage(who, a.Owner) {
-		return AgentCreated{}, ErrForbidden
+	a, err := b.manageableAgent(who, name)
+	if err != nil {
+		return AgentCreated{}, err
 	}
 	return b.issueAgentToken(ctx, who, a, ttl)
 }
@@ -744,12 +758,9 @@ func (b *Bridge) issueAgentToken(ctx context.Context, who Actor, a store.Agent, 
 
 // DeleteAgent forgets an agent with all its credentials, for its owner or an admin.
 func (b *Bridge) DeleteAgent(ctx context.Context, who Actor, name string) error {
-	a, ok := b.d.Store.Agent(name)
-	if !ok {
-		return fmt.Errorf("%w: no agent %q", store.ErrNotFound, name)
-	}
-	if !b.mayManage(who, a.Owner) {
-		return ErrForbidden
+	a, err := b.manageableAgent(who, name)
+	if err != nil {
+		return err
 	}
 	if err := b.d.Store.DeleteAgent(name); err != nil {
 		return err
@@ -922,14 +933,16 @@ func (b *Bridge) keyOwner(who Actor, agent string) (sshKeyOwner, error) {
 		}
 		return sshKeyOwner{agent: a}, nil
 	}
-	a, ok := b.d.Store.Agent(agent)
-	if !ok {
-		return sshKeyOwner{}, fmt.Errorf("%w: no agent %q", store.ErrNotFound, agent)
-	}
-	if !b.mayManage(who, a.Owner) {
-		if p, ok := b.caller(who); !ok || p.Agent != agent {
+	if p, ok := b.caller(who); ok && p.Agent != "" && p.Agent == agent { // an agent's own keys
+		a, found := b.d.Store.Agent(agent)
+		if !found {
 			return sshKeyOwner{}, ErrForbidden
 		}
+		return sshKeyOwner{agent: a}, nil
+	}
+	a, err := b.manageableAgent(who, agent)
+	if err != nil {
+		return sshKeyOwner{}, err
 	}
 	return sshKeyOwner{agent: a}, nil
 }
