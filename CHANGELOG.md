@@ -4,6 +4,12 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+## 0.3.0
+
+### rc.51 (2026-11-28)
+
+This candidate tightens access control throughout Beacon: machine access, machine records, the gateway, alerts, accounts, OAuth, the SSH channel and the audit log. Read the upgrade notes at the end of this section before upgrading.
+
 - Send VictoriaMetrics basic auth when it asks for it: `victoriametrics.username` and `victoriametrics.password_file`, on every query and on what the gateway writes and reads there. A `victoriametrics.url` with credentials in it is refused; put them in those two settings.
 - Bind each SSH connection to the machine as it was when it opened. Removing a machine, enrolling it again or changing its account, address or host key closes what is open on it, and a multiplexed connection opens no new session on the changed machine.
 - Check the pause switch, the credential and the machine again before every new SSH session and tool call, before an edit writes, and in the check every minute. A tool call closed this way reports why rather than a timeout.
@@ -83,8 +89,6 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 **Upgrade note.** On its first start, Beacon moves every token, agent and OAuth sign-in that named no machines to `all`, naming every machine marked critical at the time; lists that named machines stay as they were, and each person who is not an owner gets the critical machines of the time named on their account. Each change is logged and audited (`machine_access_migrate`). Review the credentials moved to `all` and their named critical machines, and narrow those that should reach less (`beacon token machines`, `beacon agent machines`, `beacon user machines`). Scripts that created agents or tokens without machines, or that sent an empty machine list to mean every machine, now give none. Then run the `Match User` line of the machine setup (the machines guide, Add a machine) on each machine, so that it trusts Beacon's certificates for its one account.
 
 **Going back.** Machine access is stored where older versions do not read it, and the key they read names no machine there is: downgrading below this version leaves every token, agent and OAuth sign-in without SSH machines until you upgrade again, and credentials the older version makes or changes reach no machine afterwards until they are given access. Run both instances of a primary/standby pair on the same version; the move runs on the instance that holds the leader lease.
-
-## 0.3.0
 
 ### rc.50 (2026-11-27)
 
