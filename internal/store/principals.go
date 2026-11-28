@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -250,12 +251,18 @@ func (s *Store) Agents(owner string) []Agent {
 // UpdateAgent changes the agent called name with change, which cannot alter its name, owner, keys or
 // creation.
 func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, error) {
+	return s.updateAgent(name, change, nil)
+}
+
+func (s *Store) updateAgent(name string, change func(*Agent) error, record Record[Agent]) (Agent, error) {
 	var out Agent
-	err := s.db.Update(func(tx kv.Tx) error {
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		a, ok := getAgent(tx, name)
 		if !ok {
 			return ErrNotFound
 		}
+		before := a
+		before.MachineAccess, before.Scopes = a.clone(), slices.Clone(a.Scopes)
 		owner, keys, created, by := a.Owner, a.SSHKeys, a.Created, a.CreatedBy
 		if err := change(&a); err != nil {
 			return err
@@ -269,7 +276,13 @@ func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, erro
 			return err
 		}
 		out = a
-		return putAgent(tx, a)
+		if err := putAgent(tx, a); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(before, a))
+		}
+		return nil
 	})
 	return out, err
 }
@@ -942,7 +955,12 @@ func (s *Store) PrincipalBySSHKey(fingerprint string) (Principal, bool) {
 // AddTokenSSHKey gives a token of its own (not an agent's: AddAgentSSHKey) a key for the SSH channel,
 // under the same rule: a key belongs to one principal and is never a machine's connector key.
 func (s *Store) AddTokenSSHKey(name string, k SSHKey) (Token, error) {
-	return s.updateToken(name, func(tx kv.Tx, t *Token) error {
+	return s.updateToken(name, addTokenKey(name, k))
+}
+
+// addTokenKey is the change AddTokenSSHKey makes.
+func addTokenKey(name string, k SSHKey) func(kv.Tx, *Token) error {
+	return func(tx kv.Tx, t *Token) error {
 		if err := checkSSHKeyOwner(tx, k.Fingerprint, "token "+name); err != nil {
 			return err
 		}
@@ -956,7 +974,7 @@ func (s *Store) AddTokenSSHKey(name string, k SSHKey) (Token, error) {
 			t.SSHKeys = append(t.SSHKeys, k)
 		}
 		return nil
-	})
+	}
 }
 
 // RemoveTokenSSHKey takes a key, by its fingerprint, from a token of its own.

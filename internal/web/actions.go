@@ -44,6 +44,8 @@ func problemCode(err error) string {
 		return "invalid"
 	case errors.Is(err, sshgate.ErrDisabled):
 		return "ssh_off"
+	case errors.Is(err, bridge.ErrUnrecorded):
+		return "not_recorded"
 	case errors.Is(err, bridge.ErrForbidden):
 		return "forbidden"
 	case errors.Is(err, store.ErrLastOwner):
@@ -95,6 +97,8 @@ func (s *Server) problem(r *http.Request, code string) string {
 		return s.t("Type the machine's name exactly to remove it.")
 	case "not_revocable":
 		return s.t("Only tokens that reach machines, and agents' tokens, are revoked here; revoke the others with beacon token revoke on the host.")
+	case "not_recorded":
+		return s.t("The audit log cannot be written now, so nothing was changed; try again once it can.")
 	case "forbidden":
 		return s.t("That is not yours to change: people manage their own agents, owners everyone's.")
 	case "taken":

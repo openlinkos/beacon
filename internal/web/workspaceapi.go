@@ -151,7 +151,7 @@ func (s *Server) workspaceLabels() map[string]string {
 		"available": s.t("Available"), "restricted": s.t("Restricted"), "availableOnly": s.t("Available to me"), "allDomains": s.t("All domains"),
 		"connectAgent": s.t("Connect an AI agent"), "openApiSpec": s.t("OpenAPI specification"),
 		"callerIdentity": s.t("Active caller"), "activeScopes": s.t("Active scopes"), "enabledFeatures": s.t("Enabled subsystems"),
-		"machineScope": s.t("Machine scope"), "allMachines": s.t("All machines that are not critical, including ones added later"), "noMachines": s.t("No machines"),
+		"machineScope": s.t("Machine scope"), "allMachines": s.t("All machines that are not critical, including ones added later"), "noMachines": s.t("No machines"), "everyMachine": s.t("Every machine, critical ones included"),
 		"accessRead": s.t("Read"), "accessWrite": s.t("Write"), "accessDestructive": s.t("Destructive"),
 		"restEndpoint": s.t("REST endpoint"), "mcpTool": s.t("MCP tool"), "workflow": s.t("Workflow"),
 		"publicHome": s.t("Public home"), "backHome": s.t("Back to home"),

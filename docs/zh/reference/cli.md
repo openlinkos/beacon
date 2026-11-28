@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-06ec8693
+sourceHash: sha256-9740eb5a
 ---
 
 # 命令行
@@ -126,7 +126,7 @@ docker exec beacon beacon token list
 | `host` NAME | `-rotate` | 主机的令牌，推送它自己的指标 |
 | `heartbeat` NAME | `-rotate` | 任务的令牌，推送心跳 |
 
-`-rotate` 替换已注册机器的令牌。
+`-rotate` 替换已注册机器的令牌。新令牌、旧令牌的作废和审计条目一起写入：审计日志写不进去时什么都不变，旧令牌继续有效。
 
 **`beacon silence`**：
 

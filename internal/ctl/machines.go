@@ -89,10 +89,15 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		tok, err := s.AddTokenSSHKey(r.PathValue("name"), k)
+		// The key and its record are one write: a key is never added without it.
+		tok, err := s.AddTokenSSHKeyRecorded(r.PathValue("name"), k, func(_, t store.Token) []store.AuditEntry {
+			return []store.AuditEntry{{Actor: actor(r), Via: "cli", Action: "token_ssh_key_add", Target: t.Name, Detail: k.Fingerprint}}
+		})
 		if err != nil {
 			code := http.StatusBadRequest
 			switch {
+			case errors.Is(err, store.ErrUnrecorded):
+				code, err = http.StatusServiceUnavailable, errUnrecorded
 			case errors.Is(err, store.ErrNotFound):
 				code = http.StatusNotFound
 			case errors.Is(err, store.ErrExists):
@@ -101,7 +106,6 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			fail(w, code, err)
 			return
 		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_ssh_key_add", Target: tok.Name, Detail: k.Fingerprint})
 		writeJSON(w, http.StatusOK, info(tok))
 	})
 	mux.HandleFunc("DELETE /v1/tokens/{name}/ssh-keys", func(w http.ResponseWriter, r *http.Request) {
@@ -129,8 +133,14 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 		if !decode(w, r, &in) {
 			return
 		}
+		// A change that reaches more is one write with its record, or not made; one that reaches less is
+		// recorded afterwards, and goes ahead whatever the audit log says.
 		var before string
-		tok, err := s.UpdateToken(r.PathValue("name"), func(t *store.Token) error {
+		critical, widened := s.CriticalMachines(), false
+		entry := func(t store.Token) store.AuditEntry {
+			return store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_machines", Target: t.Name, Detail: before + " -> " + t.String()}
+		}
+		tok, err := s.UpdateTokenRecorded(r.PathValue("name"), func(t *store.Token) error {
 			if t.Agent != "" {
 				return fmt.Errorf("token %s is agent %s's: set the agent's machines with beacon agent machines", t.Name, t.Agent)
 			}
@@ -140,12 +150,23 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			}
 			before, t.MachineAccess = t.String(), access
 			return nil
+		}, func(was, t store.Token) []store.AuditEntry {
+			if widened = store.TokenAccessWidens(was.MachineAccess, t.MachineAccess, critical, time.Now()); !widened {
+				return nil
+			}
+			return []store.AuditEntry{entry(t)}
 		})
-		if err != nil {
+		switch {
+		case errors.Is(err, store.ErrUnrecorded):
+			fail(w, http.StatusServiceUnavailable, errUnrecorded)
+			return
+		case err != nil:
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		_ = s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: "token_machines", Target: tok.Name, Detail: before + " -> " + tok.String()})
+		if !widened {
+			_ = s.Audit(entry(tok))
+		}
 		if m != nil {
 			m.Recheck()
 		}

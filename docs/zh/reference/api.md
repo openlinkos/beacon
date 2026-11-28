@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4144b6e1
+sourceHash: sha256-5b7af80a
 ---
 
 # REST API
@@ -241,7 +241,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/users` | `accounts:write` | 成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent；从不包括密码或它的哈希）、尚未使用的邀请，以及尚未使用的重设密码链接（`reset_links`），都不带链接的 code |
 | `POST /api/v1/users/invitations` | `accounts:write` | 邀请一个人，带 `role` 和 `note`：一个一次性链接，24 小时内有效，只在应答里出现 |
 | `PATCH /api/v1/users/{name}` | `accounts:write` | 修改成员的 `role`、`display_name` 或 `feishu_open_id`（联系信息，从不用于登录），或设置 `disabled`；立即作用于他的会话和 Agent。Beacon 始终保留一个启用的所有者（`user.last_owner`） |
-| `POST /api/v1/users/{name}/reset` | `accounts:write` | 一个一次性的重设密码链接，30 分钟内有效，只在应答里出现。设置新密码会结束此人在控制台的登录和其 Agent 的 OAuth 登录 |
+| `POST /api/v1/users/{name}/reset` | `accounts:write` | 一个一次性的重设密码链接，30 分钟内有效，只在应答里出现。设置新密码会结束此人在控制台的登录和其 Agent 的 OAuth 登录，并移除此人自己的 SSH 密钥 |
 | `DELETE /api/v1/users/links/{id}` | `accounts:write` | 按 `id` 撤回一条待用的邀请或重设链接（没有待用的链接时返回 `link.not_found`） |
 | `GET /api/v1/ssh-keys` | `machines:ssh` | 调用者自己的 SSH 密钥；Agent 的密钥属于它的 Agent，无论哪个凭据来问，Agent 自己登记的密钥会写明经由哪个凭据（`via`：`token:NAME` 或 `grant:ID`） |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | 登记一个公钥：`key`（一行 `authorized_keys`）和 `comment`。Agent 的密钥属于它登记时所用的凭据：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。一个密钥只属于一个 Agent 或令牌，绝不会是机器的连接器密钥（`key.exists`） |
@@ -276,7 +276,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/capabilities` | 不限 | 六大运维域的结构化能力目录，按调用方作用域与已启用子系统实时计算，并包含对应 MCP 工具、资源与提示词 |
 | `GET /api/v1/token` | 不限 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），用的什么凭据（`token`，或带 `client` 的 `oauth`），现在能做什么、机器访问（`machine_access`：`all`、`named` 或 `none`，附 `machines`、`machine_until` 和 `machine_summary`；`machine_scope` 以 `all`、`listed` 或 `none` 说同一件事）、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否续期以及何时可以续期；从不返回密钥本身 |
 | `POST /api/v1/token/renew` | 不限 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，它由客户端刷新 |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | 删除一个能上机器的令牌（`machines:ssh`），或 Agent 的令牌；它在机器上打开着的会话立即关闭，Agent 保留它的其他凭据。调用者需要能访问全部机器（否则在查找任何令牌之前就回答 `token.forbidden`）；独立令牌只能由持有它全部 scope 和机器的调用者删除，Agent 的令牌只能由这个 Agent 或人删除（[删除令牌](permissions.md#deleting-tokens)）。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销。调用者无权删除的令牌，和不存在的令牌得到同样的回答（`token.not_found`） |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | 删除一个能上机器的令牌（`machines:ssh`），或 Agent 的令牌；它在机器上打开着的会话立即关闭，Agent 保留它的其他凭据。调用者需要能访问全部机器（否则在查找任何令牌之前就回答 `token.forbidden`）；独立令牌只能由持有它全部 scope 和机器的调用者删除，Agent 的令牌只能由这个 Agent、它的所有者或 owner 删除（[删除令牌](permissions.md#deleting-tokens)）。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销。调用者无权删除的令牌，和不存在的令牌得到同样的回答（`token.not_found`） |
 | `GET /api/v1/openapi.yaml` | 不需要 | OpenAPI 文档 |
 
 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。每项操作仍需要对应的作用域。
@@ -340,7 +340,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `share.not_found` | 404 | 找不到该告警组或 SSH 会话 |
 | `share.unavailable` | 503 | Beacon 暂时无法创建或撤销签名链接 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
-| `audit.not_recorded` | 503 | 给出权限的改动（Agent、令牌、SSH 密钥）因为审计条目写不进去而被撤回。存储恢复后重试 |
+| `audit.not_recorded` | 503 | 给出权限的改动（Agent、令牌、SSH 密钥、邀请、重设链接、提升角色、重新启用账号、放宽 Agent）因为审计条目写不进去而被撤回或没有做。存储恢复后重试 |
 | `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
 | `incident.unavailable` | 500 | 无法读取故障摘要 |
 | `incident.changed` | 409 | 正在验证的这次故障已被同一告警组的新一轮故障替代 |

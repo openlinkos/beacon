@@ -327,6 +327,8 @@ func (s *Server) agentsList(w http.ResponseWriter, r *http.Request, v *viewer) {
 // agentProblem names what went wrong with an agent's form, for the page to say (problem).
 func agentProblem(err error) string {
 	switch {
+	case errors.Is(err, bridge.ErrUnrecorded):
+		return "not_recorded"
 	case errors.Is(err, bridge.ErrForbidden):
 		return "forbidden"
 	case errors.Is(err, store.ErrExists):

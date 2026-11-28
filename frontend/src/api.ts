@@ -36,6 +36,7 @@ export type CapabilitiesData = {
     preset?: string
     scopes: string[]
     machine_scope: string
+    machine_access?: string
     machines?: string[]
     person: boolean
     standalone: boolean

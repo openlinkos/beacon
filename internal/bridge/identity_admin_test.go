@@ -24,13 +24,20 @@ func TestIdentityAdministrationRequiresOwnAuthority(t *testing.T) {
 	}
 	account, _ := e.Store.AccountPrincipal("alice")
 	token, _ := e.Store.Authenticate(e.Token(t, "owner-script", store.PeopleScopes...))
-	for _, admin := range []bridge.Actor{cli, bridge.ActorOf(account, "console"), bridge.ActorOf(token, "api")} {
+	for _, admin := range []bridge.Actor{cli, bridge.ActorOf(account, "console")} {
 		if _, err := e.Bridge.Invite(ctx, admin, "owner", "test invitation"); err != nil {
 			t.Fatalf("%s could not invite an owner: %v", admin.Via, err)
 		}
 		if _, err := e.Bridge.ResetLink(ctx, admin, "alice"); err != nil {
 			t.Fatalf("%s could not request an account reset: %v", admin.Via, err)
 		}
+	}
+	// a standalone token reaches the roles below an owner's, never an owner
+	if _, err := e.Bridge.Invite(ctx, bridge.ActorOf(token, "api"), "operator", "test invitation"); err != nil {
+		t.Fatalf("a token could not invite an operator: %v", err)
+	}
+	if _, err := e.Bridge.ResetLink(ctx, bridge.ActorOf(token, "api"), "alice"); !errors.Is(err, bridge.ErrForbidden) {
+		t.Errorf("a token made an owner's reset link: %v", err)
 	}
 	out, err := e.Bridge.CreateAgent(ctx, cli, bridge.AgentInput{
 		Name: "existing-delegate", Owner: "alice", Preset: store.PresetCustom,

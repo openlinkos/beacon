@@ -2454,7 +2454,7 @@ paths:
         hosts, heartbeats, the rule engine, change senders and metrics readers stay with
         `beacon token revoke` on the host, so that no alert is lost by a click. A token of its own is
         deleted only by a caller holding every scope it holds and reaching every machine it reaches; an
-        agent's token by the agent itself, or by a person. A token that does not exist and one the caller
+        agent's token by the agent itself, its owner, or an owner. A token that does not exist and one the caller
         may not delete get the same answer, token.not_found (404). Audited (revoke_token) and echoed to the
         alert chat.
       parameters:
@@ -2550,6 +2550,7 @@ paths:
         clears custom scopes. A caller never gives an agent a scope or a machine it does not hold itself;
         narrowing an agent stays allowed. An empty machines list names none, so the agent reaches no machine; only a person gives machine_access all, and only an owner names a critical machine. An unknown agent is agent.not_found
         (404), including a legacy token, which is not an agent and is not widened by this route.
+        A change that widens the agent is written only with its audit entry (audit.not_recorded, 503, otherwise).
         Audited (agent_update, with the preset and scopes before and after) and echoed to the alert chat.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
@@ -2616,10 +2617,12 @@ paths:
       tags: [Identity & Agents]
       summary: Invite a person
       description: >-
-        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the role (auth.scope, 403, otherwise).
-        A one-time link, valid for 24 hours, with which the person joins with the role,
+        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the role and reach what the
+        role reaches (auth.scope, 403, otherwise): a role with machines:ssh needs access to all machines, and the owner role is given only by
+        an owner or on the host, never by a token. A one-time link, valid for 24 hours, with which the person joins with the role,
         choosing their username and password. The link is in the answer only; Beacon keeps a hash of its code.
-        It works only while whoever made it could still make it. Audited (user_invite) and echoed to the alert chat, without the link.
+        It works only while whoever made it could still make it. Made only with its audit entry (audit.not_recorded, 503, otherwise);
+        audited (user_invite) and echoed to the alert chat, without the link.
       requestBody:
         required: true
         content:
@@ -2643,9 +2646,12 @@ paths:
       summary: Change a person's role, display name or contact, or disable or enable them
       description: >-
         Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the person's role and of the role
-        it gives (auth.scope, 403, otherwise). A lowered role or a disabled account limits the person's sessions and agents
+        it gives, and reach what those roles reach (auth.scope, 403, otherwise): a role with machines:ssh needs access to all machines; an
+        owner, and a person with critical machines named, are changed only by an owner or on the host, never by a token. A lowered role or a
+        disabled account limits the person's sessions and agents
         at once (their SSH sessions that may no longer reach a machine are closed) and withdraws the links they made; Beacon always keeps an
-        enabled owner (user.last_owner, 409). Audited (user_role, user_disable, user_enable, user_update) and
+        enabled owner (user.last_owner, 409). A raised role or an enabled account is written only with its audit entry
+        (audit.not_recorded, 503, otherwise). Audited (user_role, user_disable, user_enable, user_update) and
         echoed to the alert chat.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
@@ -2672,11 +2678,12 @@ paths:
       tags: [Identity & Agents]
       summary: Make a password reset link for a person
       description: >-
-        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the person's role (auth.scope, 403,
-        otherwise). A one-time link, valid for 30 minutes, with which the person chooses a new
-        password. Their console sign-ins and the OAuth sign-ins of their agents end then, with the other reset links for them, and the links
-        they made; their agents' tokens keep working unless they revoke them on the reset page. The link works only while whoever made it
-        could still make it. Not offered over MCP. Audited (user_reset_link) and echoed to the alert chat, without the link.
+        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the person's role and reach what
+        the person reaches (auth.scope, 403, otherwise), as for a change of the person. A one-time link, valid for 30 minutes, with which the
+        person chooses a new password. Their console sign-ins and the OAuth sign-ins of their agents end then, with the other reset links for
+        them, and the links they made, and their own SSH keys are removed; their agents' tokens keep working unless they revoke them on the
+        reset page. The link works only while whoever made it could still make it. Not offered over MCP. Made only with its audit entry
+        (audit.not_recorded, 503, otherwise); audited (user_reset_link) and echoed to the alert chat, without the link.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:

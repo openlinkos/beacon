@@ -149,8 +149,22 @@ func (b *Bridge) SetCriticalMachines(ctx context.Context, who Actor, username st
 		return UserView{}, fmt.Errorf("%w: no account %q", store.ErrNotFound, username)
 	}
 	named = store.KeepEnds(named, current.CriticalAccess().Live(b.now()))
-	before, after, err := b.d.Store.SetCriticalMachines(username, named)
+	// Naming a machine, or a longer end, is written with its audit entry, or not at all; taking machines
+	// away is recorded afterwards, and goes ahead whatever the audit log says.
+	widened := false
+	entry := func(before, after store.Account) store.AuditEntry {
+		return store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_machines", Target: username,
+			Detail: before.CriticalAccess().String() + " -> " + after.CriticalAccess().String()}
+	}
+	before, after, err := b.d.Store.SetCriticalMachinesRecorded(username, named, func(before, after store.Account) []store.AuditEntry {
+		if widened = store.CriticalNamesWiden(before, after, b.now()); !widened {
+			return nil
+		}
+		return []store.AuditEntry{entry(before, after)}
+	})
 	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return UserView{}, unrecorded("user_machines", username)
 	case errors.Is(err, store.ErrNotFound):
 		return UserView{}, err
 	case err != nil:
@@ -159,7 +173,9 @@ func (b *Bridge) SetCriticalMachines(ctx context.Context, who Actor, username st
 	was, is := before.CriticalAccess().String(), after.CriticalAccess().String()
 	if was != is {
 		b.Recheck()
-		_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "user_machines", Target: username, Detail: was + " -> " + is})
+		if !widened {
+			_ = b.d.Store.Audit(entry(before, after))
+		}
 		b.echo(ctx, b.t("%s set the critical machines %s reaches to %s via %s", who.Name, username, b.accessWords(after.CriticalAccess()), b.viaName(who.Via)))
 	}
 	return b.userView(after), nil

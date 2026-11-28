@@ -70,6 +70,7 @@ func TestLinksWorkOnlyWhileTheirMakerMay(t *testing.T) {
 	// a token of its own: read afresh, so a narrowed or expired token's links stop, and a revoked
 	// token's go
 	_, _, _ = s.CreateToken("admin", PeopleScopes, 2*time.Hour, "cli:root")
+	_, _ = s.UpdateToken("admin", func(t *Token) error { t.MachineAccess = AllAccess(); return nil }) // an on-call person reaches all machines
 	byToken := LinkMaker{Name: "admin", Key: "token:admin"}
 	inv, _, _ = s.CreateInvitation("oncall", "", byToken)
 	if _, err := s.Link(LinkInvite, inv); err != nil {
@@ -100,6 +101,7 @@ func TestLinksWorkOnlyWhileTheirMakerMay(t *testing.T) {
 
 	// a maker is held to the role it gives, or the role of the account it resets now
 	_, _, _ = s.CreateToken("people", []string{"accounts:write", "status:read", "sessions:read", "alerts:write", "machines:ssh"}, 2*time.Hour, "cli:root")
+	_, _ = s.UpdateToken("people", func(t *Token) error { t.MachineAccess = AllAccess(); return nil })
 	byPeople := LinkMaker{Name: "people", Key: "token:people"}
 	inv, _, _ = s.CreateInvitation("owner", "", byPeople)
 	if _, err := s.Join(inv, "eve", "", "correct horse battery"); !errors.Is(err, ErrLinkWithdrawn) {
@@ -114,6 +116,34 @@ func TestLinksWorkOnlyWhileTheirMakerMay(t *testing.T) {
 	}
 	if _, err := s.Reset(reset, "a password of eve's"); !errors.Is(err, ErrLinkWithdrawn) {
 		t.Errorf("a reset link for someone promoted beyond its maker: %v", err)
+	}
+
+	// and to what the role reaches: an on-call person reaches every machine that is not critical, so a
+	// maker narrowed to some machines, or a person with a critical machine named, withdraws the link
+	if _, err := s.UpdateAccount("bob", func(a *Account) error { a.Role = "oncall"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	inv, _, _ = s.CreateInvitation("oncall", "", byPeople)
+	reset, _, _ = s.CreateResetLink("bob", byPeople)
+	if _, err := s.Link(LinkReset, reset); err != nil {
+		t.Errorf("a reset link for an on-call person from a token reaching all machines: %v", err)
+	}
+	_, _ = s.UpdateToken("people", func(t *Token) error { t.MachineAccess = NamedAccess("box"); return nil })
+	if _, err := s.Link(LinkInvite, inv); !errors.Is(err, ErrLinkWithdrawn) {
+		t.Errorf("an on-call invitation from a token narrowed to one machine: %v", err)
+	}
+	if _, err := s.Link(LinkReset, reset); !errors.Is(err, ErrLinkWithdrawn) {
+		t.Errorf("an on-call reset link from a token narrowed to one machine: %v", err)
+	}
+	_, _ = s.UpdateToken("people", func(t *Token) error { t.MachineAccess = AllAccess(); return nil })
+	if _, _, err := s.SetCriticalMachines("bob", NamedAccess("ca")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Link(LinkReset, reset); !errors.Is(err, ErrLinkWithdrawn) {
+		t.Errorf("a token's reset link for someone with a critical machine named: %v", err)
+	}
+	if _, _, err := s.SetCriticalMachines("bob", NamedAccess()); err != nil {
+		t.Fatal(err)
 	}
 
 	// a link that names no maker, made before makers were recorded: refused, and not listed

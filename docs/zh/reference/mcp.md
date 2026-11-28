@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-95b74be4
+sourceHash: sha256-bf32f39a
 ---
 
 # MCP 工具
@@ -218,7 +218,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）、尚未使用的邀请和尚未使用的重设密码链接，都不带链接的 code |
-| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人。令牌必须持有这个角色的全部 scope |
+| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人。令牌必须持有这个角色的全部 scope；值班和运维角色还需要能访问全部机器，所有者角色只能由所有者或在中心上授予 |
 | `withdraw_link` | `accounts:write` | 按 `list_users` 给出的 `id` 撤回一条待用的邀请或重设密码链接；它立即失效 |
 | `list_agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、生效作用域与主机范围（管理员可按 `owner` 筛选） |
 | `get_agent` | 成员本人或管理员（禁止 Agent 调用） | 按 `name` 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
@@ -247,7 +247,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `whoami` | 不限 | 你在 Beacon 眼里是谁：审计日志给你的名字（`alice / claude-code`）、你代表的人、你的预设以及它在那个人的角色范围内现在给你的作用域、你能到达的机器、你的 SSH 密钥，还有你的凭据：令牌（到期时间、有效期长度、能否续期以及何时可以续期），或者由客户端自己刷新的 OAuth 登录 |
 | `renew_token` | 不限 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和 SSH 密钥都不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期，OAuth 登录也不能，它由客户端刷新 |
-| `revoke_token` | `machines:write` | 删除一个能上机器的令牌，或 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝；Agent 保留它的其他凭据。需要能访问全部机器；独立令牌只能在调用者的 scope 和机器范围内删除，Agent 的令牌只能由这个 Agent 或人删除（[删除令牌](permissions.md#deleting-tokens)）。机器和服务的令牌只能在中心上吊销 |
+| `revoke_token` | `machines:write` | 删除一个能上机器的令牌，或 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝；Agent 保留它的其他凭据。需要能访问全部机器；独立令牌只能在调用者的 scope 和机器范围内删除，Agent 的令牌只能由这个 Agent、它的所有者或 owner 删除（[删除令牌](permissions.md#deleting-tokens)）。机器和服务的令牌只能在中心上吊销 |
 
 `whoami` 的 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。
 

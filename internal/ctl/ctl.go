@@ -52,7 +52,8 @@ type TokenResponse struct {
 }
 
 // EnrollRequest gives a machine its gateway token: a probe location, a host, or a heartbeat sender.
-// An enrolled machine is enrolled again only with Rotate, which revokes its old token.
+// An enrolled machine is enrolled again only with Rotate, which replaces its old token with the new one
+// at once: the old token works until the new one is made and recorded.
 type EnrollRequest struct {
 	Kind    string `json:"kind"`    // probe, host or heartbeat
 	Subject string `json:"subject"` // the location id, host name or sender name
@@ -84,7 +85,11 @@ type Service interface {
 	CreateSubjectToken(name, subject string, scopes []string, ttl time.Duration, by string) (string, store.Token, error)
 	Tokens() []store.Token
 	UpdateToken(name string, change func(*store.Token) error) (store.Token, error)
+	UpdateTokenRecorded(name string, change func(*store.Token) error, record store.Record[store.Token]) (store.Token, error)
 	AddTokenSSHKey(name string, k store.SSHKey) (store.Token, error)
+	AddTokenSSHKeyRecorded(name string, k store.SSHKey, record store.Record[store.Token]) (store.Token, error)
+	CreateSubjectTokenRecorded(name, subject string, scopes []string, ttl time.Duration, by string, replace bool,
+		record func(old *store.Token, t store.Token) []store.AuditEntry) (string, store.Token, error)
 	RevokeToken(name string) error
 	Audit(e store.AuditEntry) error
 	SetTime(key string, t time.Time) error
@@ -105,8 +110,9 @@ func machineAccess(s Service, in []string, before store.MachineAccess) (store.Ma
 	return store.WithCriticalEnds(access, before.Live(now), func(m string) bool { return critical[m] }, forever, now), nil
 }
 
-// errUnrecorded answers a token that was not made because its audit entry could not be written.
-var errUnrecorded = errors.New("the audit log cannot be written now, so no token was made; try again once it can")
+// errUnrecorded answers a token that was not made, or a change that was not made to one, because its
+// audit entry could not be written.
+var errUnrecorded = errors.New("the audit log cannot be written now, so nothing was changed; try again once it can")
 
 // DrillKey is where the drill's end is stored.
 const DrillKey = "drill"
@@ -240,24 +246,22 @@ func Handler(s Service, active func(location string) error, m Machines) http.Han
 			fail(w, http.StatusConflict, fmt.Errorf("%s is enrolled already; enroll it with -rotate to replace its token", name))
 			return
 		}
-		if exists {
-			if err := s.RevokeToken(name); err != nil {
-				fail(w, http.StatusInternalServerError, err)
-				return
-			}
-		}
-		secret, tok, err := s.CreateSubjectToken(name, in.Subject, []string{scope}, EnrollTTL, actor(r))
-		if err != nil {
-			fail(w, http.StatusBadRequest, err)
-			return
-		}
-		action := "enroll"
-		if exists {
-			action = "enroll_rotate"
-		}
-		if err := s.Audit(store.AuditEntry{Actor: actor(r), Via: "cli", Action: action, Target: tok.Name, Detail: scope}); err != nil {
-			_ = s.RevokeToken(tok.Name) // not made without its record; enrolling again makes a new one
+		// The new token, the old one's end and the record are one write: should the record fail, nothing
+		// changes, and the machine keeps the token it has.
+		secret, tok, err := s.CreateSubjectTokenRecorded(name, in.Subject, []string{scope}, EnrollTTL, actor(r), in.Rotate,
+			func(old *store.Token, t store.Token) []store.AuditEntry {
+				action := "enroll"
+				if old != nil {
+					action = "enroll_rotate"
+				}
+				return []store.AuditEntry{{Actor: actor(r), Via: "cli", Action: action, Target: t.Name, Detail: scope}}
+			})
+		switch {
+		case errors.Is(err, store.ErrUnrecorded):
 			fail(w, http.StatusServiceUnavailable, errUnrecorded)
+			return
+		case err != nil:
+			fail(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, TokenResponse{Secret: secret, Token: tok})

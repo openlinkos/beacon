@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/openlinkos/beacon/internal/bridge"
 	"github.com/openlinkos/beacon/internal/oauth"
 	"github.com/openlinkos/beacon/internal/store"
 )
@@ -24,7 +25,8 @@ import (
 // The machines are all those that are not critical, or only those ticked: ticking none is asked again,
 // never taken for all. Critical machines are offered only to an owner, apart and unticked, and ticking
 // one takes a confirmation; the sign-in reaches them for store.CriticalGrantTTL at most. A reused agent's
-// sign-in reaches no machine the agent does not.
+// sign-in reaches no machine the agent does not, and none for longer than the agent does; a reused agent
+// that reaches no machine that is not critical is allowed with the critical machines ticked, or none.
 
 type consentLabels struct {
 	Agent, AgentHint, Preset, Machines, All, Some, Duration, Allow, Deny, SignedIn, SignOut, Back string
@@ -41,6 +43,9 @@ type consentPage struct {
 	Machines, Critical []option
 	AllMachines        bool
 	CanAll             bool
+	// NoMachines says that a reused agent reaches no machine that is not critical, so that there is
+	// nothing to choose among them: the sign-in reaches the critical machines ticked, or none.
+	NoMachines         string
 	Error, Broken      string
 	SignedInAs, Return string
 
@@ -84,7 +89,7 @@ func (s *Server) consentLabels() consentLabels {
 		Duration: s.t("For how long"), Allow: s.t("Allow"), Deny: s.t("Deny"), SignOut: s.t("Sign out"),
 		All:             s.t("All machines that are not critical, including ones added later"),
 		Critical:        s.t("Critical machines"),
-		CriticalHint:    s.t("Critical machines are reached only when named. Tick only those this client must reach; it reaches them for %d days at most.", int(store.CriticalGrantTTL.Hours()/24)),
+		CriticalHint:    s.t("Critical machines are reached only when named. Tick only those this client must reach; it reaches them for %d days at most, and never longer than the agent does.", int(store.CriticalGrantTTL.Hours()/24)),
 		CriticalConfirm: s.t("I confirm this client may reach the critical machines ticked"),
 	}
 }
@@ -278,6 +283,13 @@ func (s *Server) consentForm(w http.ResponseWriter, r *http.Request, v *viewer, 
 	}
 	slices.SortFunc(page.Machines, func(a, b option) int { return strings.Compare(a.Value, b.Value) })
 	slices.SortFunc(page.Critical, func(a, b option) int { return strings.Compare(a.Value, b.Value) })
+	if !page.CanAll && len(page.Machines) == 0 { // nothing to choose among the machines that are not critical
+		page.AllMachines = false
+		page.NoMachines = s.t("Agent %s reaches no machine that is not critical, so this sign-in reaches none of them.", c.Agent)
+		if len(page.Critical) > 0 {
+			page.NoMachines = s.t("Agent %s reaches no machine that is not critical, so this sign-in reaches only the critical machines you tick below, or none.", c.Agent)
+		}
+	}
 	for i, d := range oauth.Durations {
 		label := s.t("%d days", int(d.Hours()/24))
 		if d.Hours() == 24 {
@@ -340,6 +352,8 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, store.ErrExists):
 			c.Problem = s.t("That name is taken; choose another.")
+		case errors.Is(err, bridge.ErrUnrecorded):
+			c.Problem = s.t("The audit log cannot be written now, so nothing was changed; try again once it can.")
 		default:
 			c.Problem = s.t("That did not work: check the name (2 to 40 lower-case letters, digits, dots, dashes and underscores), the machines, and that the preset is within the owner's role.")
 		}
@@ -359,7 +373,9 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 
 // consentMachines reads the machines the person chose into c, and returns the grant's machine access, or
 // what to ask again: no machine ticked under only these, a machine that is not enrolled, a critical
-// machine ticked without the confirmation or by someone who is not an owner.
+// machine ticked without the confirmation or by someone who is not an owner. none, which the form sends
+// for a reused agent that reaches no machine that is not critical, is none of those machines: never
+// all.
 func (s *Server) consentMachines(v *viewer, f url.Values, c *consentChoice) (store.MachineAccess, string) {
 	enrolled := map[string]store.Machine{}
 	for _, m := range s.Store.Machines() {
@@ -379,6 +395,11 @@ func (s *Server) consentMachines(v *viewer, f url.Values, c *consentChoice) (sto
 		c.Machines = store.NamedAccess(names...)
 		if len(names) == 0 {
 			return store.MachineAccess{}, s.t("Tick at least one machine, or choose all machines that are not critical.")
+		}
+	case "none":
+		c.Machines = store.NamedAccess()
+		if len(names) > 0 {
+			return store.MachineAccess{}, s.t("Choose machines from the list.")
 		}
 	default:
 		return store.MachineAccess{}, s.t("Choose which machines it reaches.")

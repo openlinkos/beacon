@@ -208,7 +208,7 @@ func (s *Server) accountForm(w http.ResponseWriter, r *http.Request, status int,
 	default:
 		p.Heading, p.Title = s.t("Choose a new password"), s.t("Choose a new password")+" – Beacon"
 		if !p.Broken {
-			p.Intro = s.t("For %s. Every console sign-in of this account ends, and so does every OAuth sign-in of its agents.", l.User)
+			p.Intro = s.t("For %s. Every console sign-in of this account ends, and so does every OAuth sign-in of its agents. The account's own SSH keys are removed, and what was open with them closes: add a key again afterwards.", l.User)
 			for _, t := range s.Bridge.PersonTokens(l.User) {
 				p.Tokens = append(p.Tokens, t.Name)
 			}
@@ -566,7 +566,7 @@ func (s *Server) resetLink(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.failed(w, r, consolePath("/people"), "reset", err)
 		return
 	}
-	text := s.t("With this link %s chooses a new password, once, until %s. Their console sign-ins and the OAuth sign-ins of their agents end then.", l.User, s.clock(l.Expires))
+	text := s.t("With this link %s chooses a new password, once, until %s. Their console sign-ins and the OAuth sign-ins of their agents end then, and their own SSH keys are removed.", l.User, s.clock(l.Expires))
 	var tokens []string
 	for _, t := range s.Bridge.PersonTokens(l.User) {
 		tokens = append(tokens, t.Name)

@@ -88,7 +88,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 
 	registerTool(s, &mcp.Tool{Name: "invite_user", Title: "Invite a person",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write and every scope the role gives; the link works only while the token still could make it. Recorded and echoed to the alert chat (without the link)."},
+		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write and every scope the role gives; a role that reaches machines (on call, operator) also needs access to all machines, and the owner role is given only by an owner or on the host. The link works only while the token still could make it. Made only with its record, and echoed to the alert chat (without the link)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in inviteIn) (*mcp.CallToolResult, bridge.LinkView, error) {
 			who, err := need(ctx, "accounts:write")
 			if err != nil {
@@ -206,7 +206,7 @@ func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 
 	registerTool(s, &mcp.Tool{Name: "update_agent", Title: "Change an agent",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. You never give an agent a scope or a machine you do not hold; only a person gives access to all machines, and only an owner names a critical machine; narrowing an agent stays allowed. An empty machines list names none: the agent reaches no machine. Recorded and echoed to the alert chat."},
+		Description: "Change an agent's preset, custom scopes or machines. A field left out stays. Custom scopes follow the same rule as create_agent. You never give an agent a scope or a machine you do not hold; only a person gives access to all machines, and only an owner names a critical machine; narrowing an agent stays allowed. An empty machines list names none: the agent reaches no machine. A change that widens the agent is made only with its record; recorded and echoed to the alert chat."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in updateAgentIn) (*mcp.CallToolResult, bridge.AgentView, error) {
 			p, err := caller(ctx)
 			if err != nil {

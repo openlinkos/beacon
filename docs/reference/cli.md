@@ -122,7 +122,7 @@ Machines and the SSH channel ([Give agents a machine](../guide/machines.md)). `a
 | `host` NAME | `-rotate` | A host's token, to push its own metrics |
 | `heartbeat` NAME | `-rotate` | A job's token, to push heartbeats |
 
-`-rotate` replaces the token of a machine that is enrolled already.
+`-rotate` replaces the token of a machine that is enrolled already. The new token, the old one's end and the audit entry are written together: if the audit log cannot be written, nothing changes and the old token keeps working.
 
 **`beacon silence`**:
 

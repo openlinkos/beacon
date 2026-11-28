@@ -214,7 +214,7 @@ The public status pages are made from the alert groups and the maintenance windo
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents), the invitations not yet used and the password reset links not yet used, never with their codes |
-| `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only. The token must hold every scope of the role |
+| `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only. The token must hold every scope of the role; for the on-call and operator roles it needs access to all machines, and the owner role is given only by an owner or on the centre |
 | `withdraw_link` | `accounts:write` | Withdraw a pending invitation or password reset link by its `id`, as `list_users` gives it; it stops working at once |
 | `list_agents` | owner or person (never an agent) | List agents with their owner, preset, effective scopes and machine access (optional `owner` filter for administrators) |
 | `get_agent` | owner or person (never an agent) | Inspect one agent by `name`, including its effective scopes, machine access, tokens, OAuth grants and SSH keys |
@@ -243,7 +243,7 @@ People manage credential values and grants from their own console accounts. Use 
 | --- | --- | --- |
 | `whoami` | any | Who you are to Beacon: the name the audit log gives you (`alice / claude-code`), the person you act for, your preset and the scopes it gives you now within that person's role, the machines you reach, your SSH keys, and your credential: a token (expiry, lifetime, whether and when it may renew) or an OAuth sign-in, which your client refreshes |
 | `renew_token` | any | A new secret, expiring the token's lifetime from now, with the same name, scopes, machines and keys. Shown once; the old secret keeps working for ten minutes. At most once a day, never for an enrolled machine's token, nor for an OAuth sign-in, which its client refreshes |
-| `revoke_token` | `machines:write` | Delete a token that reaches machines, or an agent's: what it has open on machines is closed at once and its requests are refused from now on; an agent keeps its other credentials. Needs access to all machines; a token of its own only within the caller's scopes and machines, an agent's token only by that agent or a person ([Deleting tokens](permissions.md#deleting-tokens)). Machines' and services' tokens are revoked on the centre only |
+| `revoke_token` | `machines:write` | Delete a token that reaches machines, or an agent's: what it has open on machines is closed at once and its requests are refused from now on; an agent keeps its other credentials. Needs access to all machines; a token of its own only within the caller's scopes and machines, an agent's token only by that agent, its owner or an owner ([Deleting tokens](permissions.md#deleting-tokens)). Machines' and services' tokens are revoked on the centre only |
 
 `whoami` reports `machine_scope` as `all`, `listed` or `none`. In `listed`, `machines` names the effective selection. Disjoint OAuth and agent selections return `none`.
 

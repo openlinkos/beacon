@@ -19,6 +19,7 @@
           {{if .CanAll}}<label class="ol-check"><input class="ol-radio" type="radio" name="machines" value="all"{{if .AllMachines}} checked{{end}}><span>{{.L.All}}</span></label>{{end}}
           {{if .Machines}}<label class="ol-check"><input class="ol-radio" type="radio" name="machines" value="some"{{if not .AllMachines}} checked{{end}}><span>{{.L.Some}}</span></label>
           <div class="ol-cluster">{{range .Machines}}<label class="ol-check"><input class="ol-checkbox" type="checkbox" name="machine" value="{{.Value}}"{{if .Selected}} checked{{end}}><span class="ol-mono">{{.Label}}</span></label>{{end}}</div>{{end}}
+          {{if .NoMachines}}<input type="hidden" name="machines" value="none"><p class="ol-hint">{{.NoMachines}}</p>{{end}}
         </fieldset>
         {{if .Critical}}<fieldset class="ol-fieldset"><legend class="ol-label">{{.L.Critical}}</legend>
           <p class="ol-hint">{{.L.CriticalHint}}</p>
