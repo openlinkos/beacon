@@ -22,12 +22,12 @@ import (
 // beacon on the host: it is the account the machine's own sudoers cannot bound.
 //
 // One machine has one record: a machine is not added or registered again at another machine's address or
-// with its host key (store.ErrMachineAlias), so that a second name cannot reach a machine past its
-// critical mark, its account or its access. A machine at a loopback, unspecified or link-local address,
-// or at localhost, is added only by beacon on the host: Beacon's own host holds the certificate
-// authority. Beacon checks the address it was given and the one it reached. A host key given for a
-// connector machine by anyone but a person or beacon on the host is an Ed25519 key, the kind Beacon pins
-// when it learns one itself.
+// with any host key another machine is known by (store.ErrMachineAlias, host_keys.go), so that a second
+// name cannot reach a machine past its critical mark, its account or its access. A machine at a
+// loopback, unspecified or link-local address, or at localhost, is added only by beacon on the host:
+// Beacon's own host holds the certificate authority. Beacon checks the address it was given and the one
+// it reached. A host key given for a connector machine by anyone but a person or beacon on the host is an
+// Ed25519 key, the only kind Beacon pins when it learns one through a connector.
 
 // rootUser is the account only the command line may have Beacon sign certificates for.
 const rootUser = "root"
@@ -125,8 +125,8 @@ func (g *Gate) mayRegister(who Actor, in MachineInput, old store.Machine, exists
 }
 
 // mayGiveHostKey checks a host key given for a connector machine: anything but Ed25519 takes a person or
-// beacon on the host. Beacon pins an Ed25519 key when it learns one itself, as it does for every machine
-// it dials; a key of another kind may be one no other record shows, of a machine recorded already.
+// beacon on the host. Beacon pins only an Ed25519 key when it learns one through a connector; a key of
+// another kind may be one no other record shows, of a machine recorded already with its Ed25519 key.
 func (g *Gate) mayGiveHostKey(who Actor, key string) error {
 	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
 	if err != nil {

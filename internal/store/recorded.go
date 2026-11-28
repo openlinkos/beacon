@@ -101,6 +101,18 @@ func (s *Store) CreateSubjectTokenRecorded(name, subject string, scopes []string
 	return s.createToken(name, subject, scopes, ttl, by, replace, record)
 }
 
+// RegisterMachineRecorded is RegisterMachine, writing what record gives in the same transaction: given
+// the registration replaced (the zero Machine for a new one) and the new one.
+func (s *Store) RegisterMachineRecorded(m Machine, previous *Machine, via string, record Record[Machine]) (Machine, error) {
+	return s.registerMachine(m, previous, via, record)
+}
+
+// UpdateMachineIdentityRecorded is UpdateMachineIdentity, writing what record gives in the same
+// transaction.
+func (s *Store) UpdateMachineIdentityRecorded(name string, same func(Machine) bool, change func(*Machine), record Record[Machine]) (Machine, error) {
+	return s.updateMachineIdentity(name, same, change, record)
+}
+
 // grantedAccess reports whether after reaches a machine before did not, or reaches one for longer.
 func grantedAccess(before, after MachineAccess, critical func(string) bool, now time.Time) bool {
 	return !after.Live(now).Within(before.Live(now), critical)

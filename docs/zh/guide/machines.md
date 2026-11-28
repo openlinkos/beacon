@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-02d7992e
+sourceHash: sha256-cbb28957
 ---
 
 # 给 Agent 一台机器
@@ -53,7 +53,7 @@ sourceHash: sha256-02d7992e
 
 ## 添加机器 {#add-a-machine}
 
-1. **在中心上**写出机器名和地址。Beacon 连接 22 端口（或 `HOST:PORT`）一次，固定机器的主机密钥，并打印机器上要做的配置：
+1. **在中心上**写出机器名和地址。Beacon 按主机密钥的每一种类型（Ed25519、ECDSA、RSA）各连接 22 端口（或 `HOST:PORT`）一次，机器有 Ed25519 密钥时固定这把，其余的也记下，并打印机器上要做的配置：
 
    ```bash
    docker exec beacon beacon machine add edge-1 edge-1.example.net -note "Los Angeles edge node"
@@ -97,7 +97,7 @@ sourceHash: sha256-02d7992e
 - `machine add … -replace` 在重装系统后重新固定主机密钥。
 - `machine remove NAME` 移除一台机器，它的会话记录仍然保留。在机器上也删掉 `/etc/ssh/beacon_ca.pub` 和 `Match User` 那一段，这样谁也不能重新添加它再访问它。
 
-一台机器只有一条记录：不论谁来添加，Beacon 都拒绝在另一台机器的地址上、或用它的主机密钥添加机器（`machine.alias`）。从另一台机器的镜像克隆出来的机器，在生成自己的主机密钥之前（`rm /etc/ssh/ssh_host_*; ssh-keygen -A`，再重新加载 sshd），和那台机器共用主机密钥。Beacon 自己主机上的机器，即回环或链路本地地址、`localhost` 上的机器，只能在主机上用 `beacon machine add` 添加。Beacon 启动时，会在日志里列出在开始拒绝之前就被记录了两次的机器；把不该有的那条记录移除。
+一台机器只有一条记录：不论谁来添加，Beacon 都拒绝在另一台机器的地址上、或用另一台机器名下的任何一把主机密钥添加机器（`machine.alias`）。一台机器名下有它添加时出示的每一把主机密钥，不论固定的是哪一把；Beacon 开始全部询问之前添加的机器，在用 `-replace` 重新添加之前，名下只有固定的那一把。从另一台机器的镜像克隆出来的机器，在生成自己的主机密钥之前（`rm /etc/ssh/ssh_host_*; ssh-keygen -A`，再重新加载 sshd），和那台机器共用主机密钥。Beacon 自己主机上的机器，即回环或链路本地地址、`localhost` 上的机器，只能在主机上用 `beacon machine add` 添加。Beacon 启动时，会在日志里列出在开始拒绝之前就被记录了两次的机器；把不该有的那条记录移除。
 
 持有 `machines:write` 并能访问全部机器的人，在控制台的 **Machines** 页做同样的事：点名机器的凭据不能添加、修改或移除任何机器（[修改机器](../reference/permissions.md#changing-machines)）。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
 
@@ -189,7 +189,7 @@ shell 的命令和退出状态按输出里的 shell 集成标记切分。shell �
 
    你会看到 `added edge-9 as a connector machine (user beacon): it connects out to Beacon with ssh -R; …`，以及一段给机器用的脚本。脚本先和普通机器一样配置 CA 和 `beacon` 账户，再创建 `beacon-connector` 用户和一个带 `Restart=always` 的 systemd 单元。
 
-   机器的主机密钥和其他机器一样要固定。用 `-host-key` 给出，或者让 Beacon 在第一次连接时自己学（审计日志和告警群都会说明）。
+   机器的主机密钥和其他机器一样要固定。用 `-host-key` 给出，或者让 Beacon 在第一次连接时自己学（审计日志和告警群都会说明）。通过连接器，Beacon 只学 Ed25519 密钥；没有这种密钥的机器，由人或主机上的 `beacon machine` 给出主机密钥。第一个会话之前，Beacon 经连接器向机器的 SSH 服务询问它的其余主机密钥并记下（`machine_host_key`）；如果其中一把在另一台机器名下，或者给出的密钥不在其中，Beacon 拒绝这台机器（`machine_host_key_refused`）。
 
    每台机器用自己的密钥连出来：别的机器已经登记的密钥，Beacon 会拒绝。从镜像克隆的机器带着原机的密钥，要在克隆机上新生成一把。一条连接只在机器仍有它登录时的密钥和登记时才承载这台机器。重新添加机器、换密钥，或把它改成 Beacon 直连的机器，都会关闭这条连接，systemd 单元会重新连上来。
 
@@ -212,7 +212,7 @@ shell 的命令和退出状态按输出里的 shell 集成标记切分。shell �
 
 2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接，读者登录后按权限查看。
 
-通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。审计日志把拒绝记为 `ssh_refused`，带上机器和原因；同一身份、机器和原因每分钟记一次。用已登记、但持有者此刻不能登录的密钥登录，也这样记录，原因以 `key sign-in:` 开头。
+通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。审计日志把拒绝记为 `ssh_refused`，带上机器和原因；同一身份、机器和原因每分钟记一次。
 
 ## 下一步 {#next}
 

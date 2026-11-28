@@ -55,7 +55,13 @@ type target struct {
 
 func newTarget(t *testing.T, ca ssh.PublicKey) *target {
 	t.Helper()
-	tg := &target{hostKey: signer(t), home: t.TempDir()}
+	return newTargetKeys(t, ca, signer(t))
+}
+
+// newTargetKeys is a test machine whose sshd has the host keys given, the first its hostKey.
+func newTargetKeys(t *testing.T, ca ssh.PublicKey, hostKeys ...ssh.Signer) *target {
+	t.Helper()
+	tg := &target{hostKey: hostKeys[0], home: t.TempDir()}
 	checker := &ssh.CertChecker{IsUserAuthority: func(k ssh.PublicKey) bool { return bytes.Equal(k.Marshal(), ca.Marshal()) }}
 	tg.cfg = &ssh.ServerConfig{PublicKeyCallback: func(c ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 		p, err := checker.Authenticate(c, k)
@@ -67,7 +73,9 @@ func newTarget(t *testing.T, ca ssh.PublicKey) *target {
 		}
 		return p, err
 	}}
-	tg.cfg.AddHostKey(tg.hostKey)
+	for _, k := range hostKeys {
+		tg.cfg.AddHostKey(k)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -184,6 +192,7 @@ type env struct {
 	agentKey ssh.Signer
 	bot      *posted
 	dir      string
+	dbPath   string // the store's database file
 }
 
 func needShell(t *testing.T) {
@@ -198,13 +207,14 @@ func needShell(t *testing.T) {
 
 func setup(t *testing.T, scopes ...string) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	dbPath := filepath.Join(t.TempDir(), "s.db")
+	st, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ca := signer(t)
-	e := &env{st: st, tg: newTarget(t, ca.PublicKey()), nat: newTarget(t, ca.PublicKey()), agentKey: signer(t), bot: &posted{}, dir: t.TempDir()}
+	e := &env{st: st, dbPath: dbPath, tg: newTarget(t, ca.PublicKey()), nat: newTarget(t, ca.PublicKey()), agentKey: signer(t), bot: &posted{}, dir: t.TempDir()}
 	g, err := New(Deps{Store: st, HostKey: signer(t), CA: ca, Dir: e.dir, Keep: 24 * time.Hour, Bot: e.bot, Lang: i18n.EN})
 	if err != nil {
 		t.Fatal(err)

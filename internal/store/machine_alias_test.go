@@ -66,3 +66,61 @@ func TestMachineAliasRefused(t *testing.T) {
 		t.Errorf("aliases: %q", got)
 	}
 }
+
+// TestMachineAliasComparesEveryHostKey: a machine is known by every host key it offered, so no record
+// shares any of them with another, and the machines recorded twice before are listed by any of them.
+func TestMachineAliasComparesEveryHostKey(t *testing.T) {
+	s, _ := openTest(t)
+	ed := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdW4IRo2jQ8l5gDLrPqSYl7Dl1VcA3KLb5aR7Fo3uqo"
+	ec := "ecdsa-sha2-nistp256 AAAAvault"
+	other := "ecdsa-sha2-nistp256 AAAAweb"
+	if _, err := s.RegisterMachine(Machine{Name: "vault", Address: "vault.example.com:22", User: "beacon", HostKey: ec}, nil, "test"); err != nil {
+		t.Fatal(err)
+	}
+	// a machine that offers vault's ECDSA key beside the Ed25519 key it pins is vault
+	alias := Machine{Name: "alias", Address: "192.0.2.9:22", User: "beacon", HostKey: ed, HostKeys: ed + "\n" + ec}
+	if _, err := s.RegisterMachine(alias, nil, "test"); !errors.Is(err, ErrMachineAlias) {
+		t.Errorf("a machine offering vault's key: %v", err)
+	}
+	// a machine recorded with all its keys is known by each
+	if _, err := s.RegisterMachine(Machine{Name: "web", Address: "web.example.com:22", User: "beacon", HostKey: ed, HostKeys: ed + "\n" + other}, nil, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.Machine("web"); !slices.Equal(m.KnownHostKeys(), []string{ed, other}) {
+		t.Errorf("web is known by %q", m.KnownHostKeys())
+	}
+	if _, err := s.RegisterMachine(Machine{Name: "nat", Address: ConnectorAddress, User: "beacon", HostKey: other + " root@web"}, nil, "test"); !errors.Is(err, ErrMachineAlias) {
+		t.Errorf("a machine pinned with web's other key: %v", err)
+	}
+	// keys recorded later are compared too
+	if _, err := s.RegisterMachine(Machine{Name: "nat", Address: ConnectorAddress, User: "beacon", HostKey: "ssh-ed25519 AAAAnat"}, nil, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateMachineIdentity("nat", func(Machine) bool { return true }, func(m *Machine) { m.HostKeys = m.HostKey + "\n" + ec }); !errors.Is(err, ErrMachineAlias) {
+		t.Errorf("a machine whose other keys show it is vault: %v", err)
+	}
+	if m, _ := s.Machine("nat"); m.HostKeys != "" {
+		t.Errorf("the refused keys were stored: %+v", m)
+	}
+	// registering vault again in place, now with all its keys, works; with web's among them, it does not
+	v, _ := s.Machine("vault")
+	again := v
+	again.HostKeys = ec + "\nssh-ed25519 AAAAvault"
+	if _, err := s.RegisterMachine(again, &v, "test"); err != nil {
+		t.Errorf("vault registered again in place: %v", err)
+	}
+	v, _ = s.Machine("vault")
+	again = v
+	again.HostKeys = ec + "\n" + ed
+	if _, err := s.RegisterMachine(again, &v, "test"); !errors.Is(err, ErrMachineAlias) {
+		t.Errorf("vault registered again with web's key: %v", err)
+	}
+
+	// what was recorded twice before is listed by any key either is known by
+	if err := s.PutMachine(Machine{Name: "web-old", Address: "192.0.2.80:22", User: "beacon", HostKey: other}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.MachineAliases(); !slices.Equal(got, []string{"web and web-old: machine web-old has the host key " + other}) {
+		t.Errorf("aliases: %q", got)
+	}
+}

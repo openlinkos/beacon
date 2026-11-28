@@ -935,14 +935,18 @@ func (s *Store) SilenceRecords() []SilenceRecord {
 // Machine is a machine the SSH channel reaches. Address is host:port, or ConnectorAddress for a machine
 // that connects out to the channel itself (see connector.go); User is the account there, which is also
 // the principal of the certificates Beacon signs; HostKey is the key pinned when the machine was added,
-// in the authorized_keys form (empty for a connector machine whose key is not learned yet).
-// ConnectorKey is the public key a connector machine signs in with, and ConnectorFingerprint its SHA256
-// fingerprint.
+// in the authorized_keys form (empty for a connector machine whose key is not learned yet). HostKeys are
+// all the host keys the machine offered when Beacon asked it for one of each kind, HostKey among them, in
+// the authorized_keys form one a line, so that no other record is made for the machine with another of
+// its keys (machine_alias.go); empty for a machine registered before Beacon asked for them all, and for a
+// connector machine until its connector has carried the question. ConnectorKey is the public key a
+// connector machine signs in with, and ConnectorFingerprint its SHA256 fingerprint.
 type Machine struct {
 	Name                 string    `json:"name"`
 	Address              string    `json:"address"`
 	User                 string    `json:"user"`
 	HostKey              string    `json:"host_key"`
+	HostKeys             string    `json:"host_keys,omitempty"`
 	Critical             bool      `json:"critical,omitempty"`
 	Note                 string    `json:"note,omitempty"`
 	Added                time.Time `json:"added"`

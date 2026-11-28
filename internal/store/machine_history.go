@@ -126,6 +126,10 @@ func (s *Store) startMachineHistory(tx kv.Tx, m *Machine, action, via string) er
 // that would be another's second record is refused (ErrMachineAlias, machine_alias.go). A machine
 // critical now that was not gives the credentials that name it an end (critical_names.go).
 func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machine, error) {
+	return s.registerMachine(m, previous, via, nil)
+}
+
+func (s *Store) registerMachine(m Machine, previous *Machine, via string, record Record[Machine]) (Machine, error) {
 	tokens := false
 	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		old, err := machineIn(tx, m.Name)
@@ -142,6 +146,11 @@ func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machi
 		}
 		if err := s.startMachineHistory(tx, &m, "registered", via); err != nil {
 			return err
+		}
+		if record != nil {
+			if err := s.appendRecords(raw, record(old, m)); err != nil {
+				return err
+			}
 		}
 		if !m.Critical || previous != nil && old.Critical {
 			return nil
@@ -176,21 +185,31 @@ func recordMachineRevision(tx kv.Tx, m *Machine, rev MachineRevision) error {
 // install connector or host keys alongside metadata updates without writing a stale machine back. A
 // change that makes the machine another's second record is refused (ErrMachineAlias).
 func (s *Store) UpdateMachineIdentity(name string, same func(Machine) bool, change func(*Machine)) (Machine, error) {
+	return s.updateMachineIdentity(name, same, change, nil)
+}
+
+func (s *Store) updateMachineIdentity(name string, same func(Machine) bool, change func(*Machine), record Record[Machine]) (Machine, error) {
 	var m Machine
-	err := s.db.Update(func(tx kv.Tx) error {
-		var err error
-		m, err = machineIn(tx, name)
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		before, err := machineIn(tx, name)
 		if err != nil {
 			return err
 		}
-		if !same(m) {
+		if !same(before) {
 			return ErrConflict
 		}
+		m = before
 		change(&m)
 		if err := checkAlias(tx, m); err != nil {
 			return err
 		}
-		return writeMachine(tx, m)
+		if err := writeMachine(tx, m); err != nil {
+			return err
+		}
+		if record == nil {
+			return nil
+		}
+		return s.appendRecords(raw, record(before, m))
 	})
 	return m, err
 }

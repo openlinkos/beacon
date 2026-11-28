@@ -51,6 +51,7 @@ func (s *Server) gateError(w http.ResponseWriter, err error) {
 		{sshgate.ErrRecordingUnavailable, http.StatusNotFound, "session.recording_unavailable"},
 		{sshgate.ErrBadInput, http.StatusBadRequest, "bad_input"},
 		{sshgate.ErrDisconnected, http.StatusBadGateway, "machine.disconnected"},
+		{store.ErrUnrecorded, http.StatusServiceUnavailable, "audit.not_recorded"},
 	} {
 		if errors.Is(err, e.err) {
 			writeError(w, e.status, e.code, err.Error())

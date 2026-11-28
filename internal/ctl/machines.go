@@ -69,6 +69,8 @@ func machineRoutes(mux *http.ServeMux, s Service, m Machines, actor func(*http.R
 			code = http.StatusConflict
 		case errors.Is(err, sshgate.ErrUnreachable):
 			code = http.StatusBadGateway
+		case errors.Is(err, store.ErrUnrecorded):
+			code, err = http.StatusServiceUnavailable, errUnrecorded
 		}
 		fail(w, code, err)
 	}

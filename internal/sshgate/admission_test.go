@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,53 +295,64 @@ func TestIdleConnectionsLoseTheirSlotBeforeSignIn(t *testing.T) {
 	_ = cl.Close()
 }
 
-// TestRefusedKeySignInIsAudited: a key whose credential may not sign in is on record once its holder has
-// signed with it, with the limits of every refused connection; offering the public key alone is not.
-func TestRefusedKeySignInIsAudited(t *testing.T) {
+// TestRefusedKeysAnswerAsUnknown: a key whose credential may not sign in, for want of machines:ssh or of a
+// live credential, is refused when it is offered, before the client is asked to sign, as a key Beacon
+// does not know is: someone holding only the public key learns nothing, and nothing is put on record.
+func TestRefusedKeysAnswerAsUnknown(t *testing.T) {
 	e := setup(t)
 	if _, _, err := e.st.CreateToken("dashboards", []string{"status:read"}, 24*time.Hour, "test"); err != nil {
 		t.Fatal(err)
 	}
 	readOnly := signer(t)
 	e.giveKey(t, "dashboards", readOnly)
-	for range 2 {
-		if cl, err := e.client(t, "box", readOnly); err == nil {
-			_ = cl.Close()
-			t.Fatal("a key without machines:ssh signed in")
-		}
-	}
-	waitFor(t, "the audit entry", func() bool { return audited(e.st, "ssh_refused", "box", refusedNoSSH) })
 
-	e.st.SetClock(func() time.Time { return time.Now().Add(48 * time.Hour) }) // past the token's expiry
+	// offered reports whether Beacon asked the client to sign with the key, which only a key it would
+	// take is asked
+	offered := func(k ssh.Signer) bool {
+		t.Helper()
+		u := &unsigned{Signer: k}
+		if cl, err := e.client(t, "box", u); err == nil {
+			_ = cl.Close()
+			t.Fatal("a key that never signed signed in")
+		}
+		return u.asked.Load() > 0
+	}
+	if !offered(e.agentKey) { // a key Beacon takes: the client is asked to sign
+		t.Fatal("a live key was not taken when offered")
+	}
+	if offered(signer(t)) {
+		t.Error("a key Beacon does not know was taken when offered")
+	}
+	if offered(readOnly) {
+		t.Error("a key without machines:ssh was taken when offered")
+	}
+	if cl, err := e.client(t, "box", readOnly); err == nil {
+		_ = cl.Close()
+		t.Error("a key without machines:ssh signed in")
+	}
+	e.st.SetClock(func() time.Time { return time.Now().Add(48 * time.Hour) }) // past the tokens' expiry
+	if offered(e.agentKey) {
+		t.Error("an expired token's key was taken when offered")
+	}
 	if cl, err := e.client(t, "box", e.agentKey); err == nil {
 		_ = cl.Close()
-		t.Fatal("an expired token's key signed in")
-	}
-	waitFor(t, "the audit entry", func() bool { return audited(e.st, "ssh_refused", "box", refusedInactive) })
-	n := countAudit(e.st, "ssh_refused")
-
-	if cl, err := e.client(t, "box", unsigned{e.agentKey}); err == nil { // the public key, without the private one
-		_ = cl.Close()
-		t.Fatal("a key that never signed signed in")
+		t.Error("an expired token's key signed in")
 	}
 	time.Sleep(200 * time.Millisecond)
-	if got := countAudit(e.st, "ssh_refused"); got != n {
-		t.Fatalf("offering a public key alone was audited: %d entries, then %d", n, got)
-	}
-	for _, a := range e.st.AuditLog(100) {
-		if a.Action == "ssh_refused" && strings.Contains(a.Detail, refusedNoSSH) && a.Actor != "dashboards" {
-			t.Errorf("audited as %q", a.Actor)
-		}
-	}
-	if got := countAudit(e.st, "ssh_refused"); got != 2 {
-		t.Fatalf("%d refusals audited, want one per credential and reason", got)
+	if n := countAudit(e.st, "ssh_refused"); n != 0 {
+		t.Errorf("%d refused key sign-ins audited", n)
 	}
 }
 
-// unsigned offers a key it cannot sign with, as a client holding only someone's public key.
-type unsigned struct{ ssh.Signer }
+// unsigned offers a key it cannot sign with, as a client holding only someone's public key, and counts
+// the times it was asked to sign.
+type unsigned struct {
+	ssh.Signer
+	asked atomic.Int32
+}
 
-func (unsigned) Sign(io.Reader, []byte) (*ssh.Signature, error) {
+func (u *unsigned) Sign(io.Reader, []byte) (*ssh.Signature, error) {
+	u.asked.Add(1)
 	return nil, errors.New("no private key")
 }
 

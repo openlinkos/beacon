@@ -201,16 +201,18 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	if why := g.d.Store.MachineAlias(store.Machine{Name: in.Name, Address: addr}); why != "" { // before Beacon dials it
 		return Added{}, aliasError(why)
 	}
-	k, err := g.hostKey(ctx, addr, local)
+	keys, err := g.hostKeys(ctx, addr, local)
 	if err != nil {
 		if errors.Is(err, ErrForbidden) {
 			return Added{}, err
 		}
 		return Added{}, fmt.Errorf("%w: %s: %v", ErrUnreachable, addr, err) //nolint:errorlint // one wrapped error is enough
 	}
-	m := store.Machine{Name: in.Name, Address: addr, User: in.User, HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))),
+	m := store.Machine{Name: in.Name, Address: addr, User: in.User, HostKey: keys.pinned(), HostKeys: keys.lines(),
 		Critical: in.Critical, Note: strings.TrimSpace(in.Note), Added: g.now().UTC(), AddedBy: who.Name}
-	m, err = g.registerMachine(who, m, old, exists)
+	m, err = g.registerMachine(who, m, old, exists, func(_, m store.Machine) []store.AuditEntry {
+		return []store.AuditEntry{{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + keys.fingerprints()}}
+	})
 	if err != nil {
 		return Added{}, err
 	}
@@ -218,7 +220,6 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 		g.connectors.close(in.Name)
 		g.Recheck()
 	}
-	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
 	if m.Critical && (!exists || !old.Critical) {
 		g.postCriticalNames(ctx, m.Name)
@@ -230,12 +231,14 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 // MachineUpdate changes only the restorable metadata. A nil field keeps the current value.
 type MachineUpdate = store.MachineMetadataUpdate
 
-func (g *Gate) registerMachine(who Actor, m, old store.Machine, exists bool) (store.Machine, error) {
+// registerMachine registers m, in place of old when it exists, with the audit entries record gives in
+// the same transaction: without them, nothing is registered (store.ErrUnrecorded).
+func (g *Gate) registerMachine(who Actor, m, old store.Machine, exists bool, record store.Record[store.Machine]) (store.Machine, error) {
 	var previous *store.Machine
 	if exists {
 		previous = &old
 	}
-	m, err := g.d.Store.RegisterMachine(m, previous, who.Via)
+	m, err := g.d.Store.RegisterMachineRecorded(m, previous, who.Via, record)
 	if errors.Is(err, store.ErrExists) && !exists {
 		return m, fmt.Errorf("%w (%s)", ErrExists, m.Name)
 	}
@@ -356,36 +359,22 @@ func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 	return nil
 }
 
-var errGotKey = errors.New("host key received")
-
-// hostKey asks the machine at addr for its host key, preferring Ed25519.
-func (g *Gate) hostKey(ctx context.Context, addr string, local bool) (ssh.PublicKey, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+// hostKeys asks the machine at addr for a host key of each kind (probeHostKeys).
+func (g *Gate) hostKeys(ctx context.Context, addr string, local bool) (hostKeySet, error) {
+	ctx, cancel := context.WithTimeout(ctx, hostKeysWait)
 	defer cancel()
-	nc, err := g.d.Dial(ctx, "tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = nc.Close() }()
-	if !local && reachedLocal(nc) { // a name for this host's own address
-		return nil, errLocal(addr)
-	}
-	if dl, ok := ctx.Deadline(); ok {
-		_ = nc.SetDeadline(dl)
-	}
-	return probeHostKey(nc, addr)
-}
-
-// probeHostKey starts a handshake on nc and stops it as soon as the server's host key arrives.
-func probeHostKey(nc net.Conn, addr string) (ssh.PublicKey, error) {
-	var got ssh.PublicKey
-	cfg := &ssh.ClientConfig{User: "beacon",
-		HostKeyCallback: func(_ string, _ net.Addr, k ssh.PublicKey) error { got = k; return errGotKey },
-		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
-			ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}}
-	_, _, _, err := ssh.NewClientConn(nc, addr, cfg)
-	if got != nil {
-		return got, nil
-	}
-	return nil, err
+	return probeHostKeys(func() (net.Conn, error) {
+		nc, err := g.d.Dial(ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		if !local && reachedLocal(nc) { // a name for this host's own address
+			_ = nc.Close()
+			return nil, errLocal(addr)
+		}
+		if dl, ok := ctx.Deadline(); ok {
+			_ = nc.SetDeadline(dl)
+		}
+		return nc, nil
+	}, addr)
 }
