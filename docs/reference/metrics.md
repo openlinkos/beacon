@@ -30,6 +30,8 @@ On `/metrics` (job `beacon` in the reference scrape configuration):
 | `beacon_gateway_requests_total` | `route`, `code` | Requests to the metrics gateway by route and status |
 | `beacon_gateway_changes_limited_total` | | Change events refused because the token posted more than 60 in a minute |
 | `beacon_gateway_alerts_limited_total` | `token` | Alert posts refused because the `alerts:send` token posted more than 120 times in a minute |
+| `beacon_gateway_alerts_capped_total` | `token` | Alerts dropped from an `alerts:send` post beyond the first 200 |
+| `beacon_router_alerts_capped_total` | `sender`, `reason` | New firing alerts from an `alerts:send` token dropped because it held 500 firing alerts (`alerts`) or 50 groups (`groups`) |
 | `beacon_gateway_alerts_dropped_total` | `token` | Alerts dropped from an `alerts:send` token because only the rule engine sends the Watchdog and alerts of severity `none` |
 | `beacon_gateway_samples_dropped_total` | `subject`, `reason` | Samples from a probe or a host the gateway dropped: not in the plain text format (`syntax`), naming the metric with `__name__` (`name_label`), giving a label twice (`labels`), or a heartbeat the catalogue does not give that machine (`heartbeat`) |
 | `beacon_probe_now_requests_open` | | Probe-on-demand requests waiting for locations to answer |

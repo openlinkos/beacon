@@ -81,6 +81,7 @@ type gateway struct {
 	lastWrite map[string]time.Time // by location or host
 
 	dropLogged sync.Map // machine and reason of dropped samples already logged (dropped)
+	capLogged  sync.Map // alerts:send tokens whose capped posts were logged (capPost)
 
 	changeRate limiter // change events per token (limit.go)
 	alertRate  limiter // alert posts per alerts:send token (limit.go)
@@ -503,7 +504,7 @@ func (g *gateway) isRulesToken(secret string) bool {
 // alerts takes alerts from a token with alerts:send. They are the token's own: the router labels them
 // with its name (router.SenderLabel) and keeps them apart from the rule engine's; the Watchdog and alerts
 // of severity none, which only the rule engine sends, are dropped and counted; and the token posts at
-// most alertLimit times a minute (limit.go).
+// most alertLimit times a minute, each post at most alertsPerPost alerts (limit.go).
 func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.alertsLimited(w, t) {
 		return
@@ -545,7 +546,7 @@ func (g *gateway) ingest(w http.ResponseWriter, r *http.Request, sender string, 
 					metrics.Labels("token", sender))
 			}
 		}
-		in = kept
+		in = g.capPost(sender, kept)
 	}
 	if err := g.Alerts(sender, in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", err.Error())

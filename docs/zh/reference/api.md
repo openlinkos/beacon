@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-1b0eaaf9
+sourceHash: sha256-b9c1cd7d
 ---
 
 # REST API
@@ -66,7 +66,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `host:write` | 主机：推送它的指标。只能以它自己的主机身份写入 |
 | `heartbeat:write` | 心跳：推送它的样本。只能写它自己的心跳 |
 | `metrics:read` | 通过网关查询指标 |
-| `alerts:send` | 像规则引擎一样发送它自己的告警：打上令牌的名字，每分钟最多 120 次 |
+| `alerts:send` | 像规则引擎一样发送它自己的告警：打上令牌的名字，每分钟最多 120 次、每次最多 200 条，同时最多 500 条正在告警、50 个告警组 |
 | `changes:write` | 发送变更事件 |
 
 人和 Agent 不用一个个挑作用域。人的作用域来自角色。Agent 的来自预设，不超出所有者的角色，或来自所有者设定的自定义清单。只有机器的令牌和熟手用的令牌按名字指定作用域。哪个角色、哪个预设给哪些作用域，见[角色、预设与权限](permissions.md)。
@@ -301,7 +301,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/agent/requests` | `probe:write` | 按需重测：长轮询（`?wait=25s`，最长 55 秒），等待要立刻检测的目标 |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | 检测点交回某个请求的检测结果 |
 | `POST /api/v1/agent/exercise-observations` | `probe:write` | 已登记的检测点交回被分配的内置目标所返回的演练响应凭据 |
-| `POST /api/v2/alerts` | 规则令牌，或 `alerts:send` | 告警，Alertmanager API v2 的格式。`alerts:send` 令牌发的告警打上 `sender`（它的名字），每分钟最多 120 次 |
+| `POST /api/v2/alerts` | 规则令牌，或 `alerts:send` | 告警，Alertmanager API v2 的格式。`alerts:send` 令牌发的告警打上 `sender`（它的名字），每分钟最多 120 次、每次最多 200 条；它同时最多有 500 条正在告警、50 个告警组（[数据来源](sources.md#the-rule-engine)） |
 | `POST /api/v1/changes` | `changes:write` | 一个变更事件：一次部署、一次配置修改。每个令牌每分钟最多 60 个 |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux notification-controller 的事件，来自它的 `generic` provider |
 | `GET /api/v1/query`、`query_range`、`series`、`labels`、`label/{name}/values`、`metadata`、`status/{what}`、`export`、`rules`、`alerts` | `metrics:read` | 转给 VictoriaMetrics 和 vmalert 的查询，转发时去掉令牌，路径就是这条路由自己的。`{name}` 或 `{what}` 不是普通名字（字母、数字、`_`、`.`、`:`、`-`）时拒绝，返回 `bad_input` |

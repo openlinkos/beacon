@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b59dec28
+sourceHash: sha256-0e679cf3
 ---
 
 # 指标与告警规则 {#metrics-and-alert-rules}
@@ -34,6 +34,8 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 | `beacon_gateway_requests_total` | `route`、`code` | 指标网关的请求，按路径和状态码 |
 | `beacon_gateway_changes_limited_total` | | 因令牌每分钟发送超过 60 个而被拒的变更事件 |
 | `beacon_gateway_alerts_limited_total` | `token` | 因 `alerts:send` 令牌每分钟发送超过 120 次而被拒的告警请求 |
+| `beacon_gateway_alerts_capped_total` | `token` | `alerts:send` 令牌一次发送中前 200 条之外被丢弃的告警 |
+| `beacon_router_alerts_capped_total` | `sender`、`reason` | `alerts:send` 令牌已有 500 条正在告警（`alerts`）或 50 个告警组（`groups`）时被丢弃的新告警 |
 | `beacon_gateway_alerts_dropped_total` | `token` | 因只有规则引擎能发 Watchdog 和级别为 `none` 的告警，而从 `alerts:send` 令牌丢弃的告警 |
 | `beacon_gateway_samples_dropped_total` | `subject`、`reason` | 网关丢弃的检测点或主机样本：不是普通文本格式（`syntax`）、用 `__name__` 写指标名（`name_label`）、同一标签写了两次（`labels`），或目录没有分给这台机器的心跳（`heartbeat`） |
 | `beacon_probe_now_requests_open` | | 等检测点应答的按需检测请求 |
