@@ -645,7 +645,7 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 }
 
 // createToken makes a token, replacing one of the same name with replace (as RevokeToken would, in the
-// same transaction), and writes what record gives in that transaction.
+// same transaction: the secrets replaced are retired), and writes what record gives in that transaction.
 func (s *Store) createToken(name, subject string, scopes []string, ttl time.Duration, by string, replace bool,
 	record func(old *Token, t Token) []AuditEntry) (string, Token, error) {
 	if !tokenNameRe.MatchString(name) {
@@ -679,8 +679,10 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var old *Token
+	var gone []string
+	until := now.Add(RetiredFor)
 	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
-		old = nil
+		old, gone = nil, nil
 		if v := tx.Get(bucketTokens, []byte(name)); v != nil {
 			if !replace {
 				return fmt.Errorf("a token named %q exists; revoke it first", name)
@@ -689,7 +691,11 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 			if err := json.Unmarshal(v, &was); err != nil {
 				return err
 			}
-			old = &was
+			old, gone = &was, retiredHashes(was, now)
+			// the machine may still send the secret it had until it takes the new one (retired.go)
+			if err := retire(tx, now, until, gone...); err != nil {
+				return err
+			}
 			if err := deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "token:"+name }); err != nil {
 				return err
 			}
@@ -714,6 +720,7 @@ func (s *Store) createToken(name, subject string, scopes []string, ttl time.Dura
 	}
 	s.tokens[t.Hash] = t
 	s.mu.Unlock()
+	s.noteRetired(until, gone...)
 	return secret, t, nil
 }
 

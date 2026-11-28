@@ -249,10 +249,9 @@ func TestRotatedTokenIsNotLockedOutByItsPredecessor(t *testing.T) {
 	if _, _, err := a.CheckToken(r, old); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Store.RevokeToken("host-edge-1"); err != nil { // enroll -rotate
-		t.Fatal(err)
-	}
-	fresh, _, err := e.Store.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
+	// enroll -rotate: the new token replaces the old one in one write
+	fresh, _, err := e.Store.CreateSubjectTokenRecorded("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root", true,
+		func(*store.Token, store.Token) []store.AuditEntry { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

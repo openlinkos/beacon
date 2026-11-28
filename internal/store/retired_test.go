@@ -6,22 +6,28 @@ import (
 )
 
 // TestRetiredSecretsStayIssued checks that a token's secret still counts as issued for RetiredFor after
-// it was revoked (as enroll -rotate does), replaced by a renewal or expired, across a restart, and is
-// never accepted; and that a secret Beacon never issued does not.
+// it was revoked, replaced by enroll -rotate or a renewal, or expired, across a restart, and is never
+// accepted; and that a secret Beacon never issued does not.
 func TestRetiredSecretsStayIssued(t *testing.T) {
 	s, path := open(t)
 	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	s.SetClock(clock)
 
-	rotated, _, err := s.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
+	revoked, _, err := s.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RevokeToken("host-edge-1"); err != nil {
 		t.Fatal(err)
 	}
-	fresh, _, err := s.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
+	rotated, _, err := s.CreateSubjectToken("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// enroll -rotate replaces the token in one write
+	fresh, _, err := s.CreateSubjectTokenRecorded("host-edge-1", "edge-1", []string{"host:write"}, 365*24*time.Hour, "cli:root", true,
+		func(*Token, Token) []AuditEntry { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +50,7 @@ func TestRetiredSecretsStayIssued(t *testing.T) {
 	now = now.Add(2 * time.Hour) // past the renewal's grace and the short token's expiry
 	check := func(s *Store, when string, want bool) {
 		t.Helper()
-		for name, secret := range map[string]string{"rotated": rotated, "renewed": renewed, "expired": expiring, "deleted agent's": agent} {
+		for name, secret := range map[string]string{"revoked": revoked, "rotated": rotated, "renewed": renewed, "expired": expiring, "deleted agent's": agent} {
 			if got := s.Issued(secret); got != want {
 				t.Errorf("%s: the %s secret counts as issued: %v", when, name, got)
 			}
