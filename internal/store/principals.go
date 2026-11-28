@@ -315,7 +315,7 @@ func (s *Store) DeleteAgent(name string) error {
 		if err := retire(tx, now, until, hashes...); err != nil { // its harness may still send them (retired.go)
 			return err
 		}
-		if err := deleteGrants(tx, func(g Grant) bool { return g.Agent == name }); err != nil {
+		if err := deleteGrants(tx, now, func(g Grant) bool { return g.Agent == name }); err != nil {
 			return err
 		}
 		return tx.Delete(bucketAgents, []byte(name))

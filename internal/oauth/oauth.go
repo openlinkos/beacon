@@ -819,7 +819,8 @@ func pkce(verifier string) string {
 }
 
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request, id string) {
-	in, err := s.Store.RefreshGrant(r.PostForm.Get("refresh_token"), id)
+	presented := r.PostForm.Get("refresh_token")
+	in, err := s.Store.RefreshGrant(presented, id)
 	switch {
 	case errors.Is(err, store.ErrReplayed):
 		s.log().Warn("oauth: a replaced refresh token was used again; its grant is revoked", "client", id)
@@ -830,7 +831,9 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request, id string) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
 		return
 	case err != nil:
-		s.fail(r)
+		if !s.Store.Issued(presented) { // a refresh token of a sign-in that ended is no guess (store.Issued)
+			s.fail(r)
+		}
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the refresh token is unknown, expired or revoked; sign in again")
 		return
 	}
