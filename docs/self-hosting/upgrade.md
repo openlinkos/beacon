@@ -39,6 +39,12 @@ The older version then has everything up to the upgrade, and nothing after.
 
 The reference `compose.yaml` gives its network a fixed subnet, so that Caddy keeps the one address Beacon trusts for `X-Forwarded-For`. The first run of `install.sh` with that file finds the older network without it and recreates it. The four containers stop for that moment, and the volumes stay. Take the new `config.yaml` line `trusted_proxies: [172.30.17.10]` with it; a centre still trusting `172.16.0.0/12` trusts every container on the network.
 
+### To explicit machine access {#to-explicit-machine-access}
+
+The first start of a version with explicit machine access moves every credential to it, once: [Machine access](../reference/permissions.md#machine-access) says what each keeps. It stores the machines a credential names under a key older versions do not read. The key they read holds one name no machine can have, so a version from before, started on this database, reaches no machine with any token, agent or OAuth sign-in. People there reach machines as their role allows, as they did before.
+
+With high availability, run both instances of a primary/standby pair on the same version, and upgrade them together. The move runs on whichever instance first holds the leader lease. An older instance that takes the lease afterwards reaches no machine with any credential.
+
 ## Pick a version
 
 - The [changelog](../changelog.md) says what each release changes. The [releases page](https://github.com/openlinkos/beacon/releases) lists the tags. Pre-releases carry `-rc.N`.
@@ -110,7 +116,7 @@ So upgrade the centre first, and the probe locations whenever convenient. [Probe
    sudo ./install.sh
    ```
 
-2. **The database is no obstacle.** Beacon has no migrations, and records written by the newer release keep fields the older one simply does not read. Nothing is rewritten on the way back.
+2. **The database is no obstacle.** Records written by the newer release keep fields the older one simply does not read. Nothing is rewritten on the way back. One exception: going back to a version from before explicit machine access leaves every token, agent and OAuth sign-in without SSH machines until you upgrade again ([To explicit machine access](#to-explicit-machine-access)). Credentials that version creates or changes reach no machine after the next upgrade until they are given access again.
 3. **Put back the deployment files**, if you also took new ones in step 2. The copy made there restores them: `sudo cp -a /opt/beacon.bak/. /opt/beacon/`.
 4. **Beyond that**, [restore from the backup](backup.md#restore).
 

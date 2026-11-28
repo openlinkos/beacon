@@ -235,7 +235,13 @@ func TestMigrateMachineAccess(t *testing.T) {
 		raw, _ := json.Marshal(v)
 		var m map[string]any
 		_ = json.Unmarshal(raw, &m)
-		delete(m, "machine_access") // as stored before
+		// as stored before: the names under machines, no machine_access
+		delete(m, "machine_access")
+		delete(m, "machines")
+		if names, ok := m["machine_names"]; ok {
+			m["machines"] = names
+			delete(m, "machine_names")
+		}
 		raw, _ = json.Marshal(m)
 		if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucket, []byte(key), raw) }); err != nil {
 			t.Fatal(err)
@@ -369,5 +375,144 @@ func TestMachineAccessWithinAndIntersect(t *testing.T) {
 		if got := IntersectAccess(critical, tc.layers...).String(); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// olderReaches is how versions before explicit machine access read a credential's machines: an empty
+// list reaches every machine, a list the machines it names.
+func olderReaches(machines []string, machine string) bool {
+	return len(machines) == 0 || slices.Contains(machines, machine)
+}
+
+// olderCap is how those versions narrowed an agent's machines by an OAuth grant's: the machines both
+// lists allow, where an empty list allows all.
+func olderCap(a, b []string) []string {
+	switch {
+	case len(a) == 0:
+		return b
+	case len(b) == 0:
+		return a
+	}
+	var out []string
+	for _, m := range a {
+		if slices.Contains(b, m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// TestOlderVersionsReachNoMachine: what is stored reads, to a version from before machine access was
+// explicit, as a list naming one machine that cannot exist, whatever the access: such a version run on
+// this database reaches no machine with any token, agent or OAuth grant. Accounts store their named
+// critical machines under a key of their own.
+func TestOlderVersionsReachNoMachine(t *testing.T) {
+	s, _ := openTest(t)
+	owner(t, s, "alice")
+	invite(t, s, "bob", "operator")
+	machines(t, s)
+	if MachineName.MatchString(NoMachineName) {
+		t.Fatalf("%q is a machine name", NoMachineName)
+	}
+	exp := time.Hour
+	for name, access := range map[string]MachineAccess{
+		"wide": AllAccess("ca"), "nothing": NamedAccess(), "one": NamedAccess("box"), "all": AllAccess(),
+	} {
+		if _, _, err := s.CreateToken(name, []string{"machines:ssh"}, exp, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateToken(name, func(tk *Token) error { tk.MachineAccess = access; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, access := range map[string]MachineAccess{"agent-all": AllAccess("ca"), "agent-none": NamedAccess(), "agent-box": NamedAccess("box")} {
+		if _, err := s.CreateAgent(Agent{Name: name, Owner: "alice", Preset: "operator", MachineAccess: access}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, access := range []MachineAccess{AllAccess(), NamedAccess("box"), NamedAccess()} {
+		if _, err := s.CreateGrant(Grant{Agent: "agent-all", Client: "c", ClientName: "c", Preset: "operator", MachineAccess: access,
+			Expires: time.Now().Add(exp)}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.SetCriticalMachines("bob", NamedAccess("ca")); err != nil {
+		t.Fatal(err)
+	}
+
+	type older struct {
+		Agent    string   `json:"agent"`
+		Machines []string `json:"machines"`
+	}
+	read := func(bucket []byte) map[string]older {
+		out := map[string]older{}
+		_ = s.db.View(func(tx kv.Tx) error {
+			tx.Range(bucket, kv.Range{}, func(k, v []byte) bool {
+				var o older
+				if err := json.Unmarshal(v, &o); err != nil {
+					t.Errorf("%s %s: %v", bucket, k, err)
+				}
+				out[string(k)] = o
+				return true
+			})
+			return nil
+		})
+		return out
+	}
+	enrolled := []string{"box", "ca", "later"}
+	tokens, agents, grants := read(bucketTokens), read(bucketAgents), read(bucketGrants)
+	if len(tokens) != 4 || len(agents) != 3 || len(grants) != 3 {
+		t.Fatalf("stored %d tokens, %d agents, %d grants", len(tokens), len(agents), len(grants))
+	}
+	for kind, records := range map[string]map[string]older{"token": tokens, "agent": agents} {
+		for name, o := range records {
+			for _, m := range enrolled {
+				if olderReaches(o.Machines, m) {
+					t.Errorf("an older version reaches %s with %s %s (%v)", m, kind, name, o.Machines)
+				}
+			}
+		}
+	}
+	for id, g := range grants {
+		capped := olderCap(agents[g.Agent].Machines, g.Machines)
+		for _, m := range enrolled {
+			if olderReaches(capped, m) {
+				t.Errorf("an older version reaches %s with grant %s (%v)", m, id, capped)
+			}
+		}
+	}
+	_ = s.db.View(func(tx kv.Tx) error {
+		raw := tx.Get(bucketAccounts, []byte("bob"))
+		if strings.Contains(string(raw), `"machines"`) || !strings.Contains(string(raw), `"critical_machines":["ca"]`) {
+			t.Errorf("an account as stored: %s", raw)
+		}
+		return nil
+	})
+
+	// and this version reads what it wrote as it was given
+	if p, _ := s.TokenPrincipal(tokenNamed(s, "wide")); !p.Reaches("box") || !p.Reaches("ca") {
+		t.Errorf("all + ca read back: %+v", p.MachineAccess)
+	}
+	if p, _ := s.TokenPrincipal(tokenNamed(s, "one")); !p.Reaches("box") || p.Reaches("later") {
+		t.Errorf("named box read back: %+v", p.MachineAccess)
+	}
+	if p, _ := s.TokenPrincipal(tokenNamed(s, "nothing")); p.Reaches("box") || !p.NoMachines() {
+		t.Errorf("none read back: %+v", p.MachineAccess)
+	}
+
+	// a record an older version wrote back keeps the one name and loses the access: it reaches nothing
+	// here either, and a move on a database not yet moved does not take it for an empty list
+	raw := `{"name":"rewritten","hash":"` + hashToken("lbt_rewritten") + `","scopes":["machines:ssh"],"expires":"` +
+		time.Now().Add(exp).UTC().Format(time.RFC3339) + `","machines":["` + NoMachineName + `"]}`
+	if err := s.db.Update(func(tx kv.Tx) error { return tx.Put(bucketTokens, []byte("rewritten"), []byte(raw)) }); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.RefreshTokens()
+	if p, _ := s.TokenPrincipal(tokenNamed(s, "rewritten")); p.Reaches("box") || !p.NoMachines() {
+		t.Errorf("a record an older version wrote: %+v", p.MachineAccess)
+	}
+	moved, err := migratedAccess([]byte(raw), []string{"ca"})
+	if err != nil || !moved.None() {
+		t.Errorf("the move reads the one name as %s (%v)", moved, err)
 	}
 }

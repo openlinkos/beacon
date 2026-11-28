@@ -54,7 +54,7 @@ components:
         code:
           type: string
           enum: [auth.required, auth.invalid, auth.scope, auth.too_many_failures, bad_input, alert.not_found, alert.not_firing, agent_run.not_found, agent_run.conflict, agent_hook.not_found, upstream,
-            ssh.disabled, ssh.paused, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, ssh.recording_limit, machine.not_found, machine.forbidden, machine.unreachable, machine.exists,
+            ssh.disabled, ssh.paused, ssh.resume_forbidden, ssh.standby, ssh.evidence_unavailable, ssh.search_unavailable, ssh.check_unavailable, ssh.recording_limit, machine.not_found, machine.forbidden, machine.unreachable, machine.exists, machine.alias,
             machine.changed, machine.version_not_found,
             file.not_found, file.not_regular, file.binary, file.too_large, file.changed, edit.no_match, edit.ambiguous,
             session.not_found, session.recording_unavailable,
@@ -1698,7 +1698,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Resume agents' access to machines
-      description: "Scope: machines:write"
+      description: "Scope: machines:write, and a person: an agent's or a token's credential gets ssh.resume_forbidden. beacon ssh resume on the host resumes it too."
       responses:
         "200":
           description: State
@@ -1721,7 +1721,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Add a machine, pinning its host key
-      description: "Scope: machines:write, with access to all machines; a critical machine needs an owner, and an account other than the one it had a person (root: beacon on the host), machine.forbidden otherwise. The machine then needs the returned key in its TrustedUserCAKeys file, within a Match User block for its account. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
+      description: "Scope: machines:write, with access to all machines; a critical machine needs an owner, an account other than beacon (or, registering again, than the one it had) a person, and root or an address on Beacon's own host (loopback, unspecified, link-local, localhost) beacon on the host: machine.forbidden otherwise. A machine at another machine's address, or with its host key, is refused with machine.alias; so is a host key a connector learns that another machine has. A host key given for a machine behind NAT is an Ed25519 key unless a person gives it. The machine then needs the returned key in its TrustedUserCAKeys file, within a Match User block for its account. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
       requestBody:
         required: true
         content:
@@ -2235,8 +2235,8 @@ paths:
       tags: [Monitoring]
       summary: Set or clear a target group's response machine
       description: >-
-        Scopes: config:write and machines:write. The caller must also have SSH access to the selected
-        and previous machines, when present. Changes only the designation on an HTTP target group.
+        Scopes: config:write and machines:write, with access to all machines. The caller must also have SSH access to the selected
+        and previous machines, when present. Changes only the designation on an HTTP target group. A put, delete or revert of a target set that changes which group, service or probes a machine is designated for takes the same.
       parameters:
         - {$ref: "#/components/parameters/SetName"}
         - name: group

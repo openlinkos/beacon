@@ -133,7 +133,7 @@ func addConfigTools(s *mcp.Server, c *configdb.Service) {
 
 	registerTool(s, &mcp.Tool{Name: "set_target_machine", Title: "Set a response machine for a target group", OutputSchema: object,
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), IdempotentHint: true, OpenWorldHint: t(false)},
-		Description: "Set or clear an HTTP target group's response machine. Pass the configuration version and group index from get_config, and the machine name and registration from list_machines. The probes and labels stay in force. Requires config:write, machines:write and SSH access to the previous and new machines, if any."},
+		Description: "Set or clear an HTTP target group's response machine. Pass the configuration version and group index from get_config, and the machine name and registration from list_machines. The probes and labels stay in force. Requires config:write, machines:write, access to all machines and SSH access to the previous and new machines, if any."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in targetMachineIn) (*mcp.CallToolResult, store.ConfigChange, error) {
 			p, err := needPrincipal(ctx, "config:write")
 			if err != nil {

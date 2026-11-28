@@ -957,7 +957,8 @@ type Machine struct {
 // MachineName is what a machine may be called: its host name, as probe locations are.
 var MachineName = subjectRe
 
-// PutMachine adds or replaces a machine.
+// PutMachine adds or replaces a machine as given, for fixtures: unlike RegisterMachine it does not refuse
+// another machine's second record.
 func (s *Store) PutMachine(m Machine) error {
 	return s.db.Update(func(tx kv.Tx) error {
 		return s.startMachineHistory(tx, &m, "registered", "")

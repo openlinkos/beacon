@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e0a2a6e5
+sourceHash: sha256-9c8405c6
 ---
 
 # REST API
@@ -134,9 +134,9 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | --- | --- | --- |
 | `GET /api/v1/ssh` | `status:read` 或 `machines:ssh` | SSH 通道的状态（是否暂停）、它的主机密钥，以及机器信任的 CA 公钥 |
 | `POST /api/v1/ssh/pause` | `machines:write` | 关掉所有 Agent 在机器上的会话，并拒绝新会话 |
-| `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器 |
+| `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器。只有人能恢复通道；Agent 或令牌的凭据得到 `ssh.resume_forbidden`（主机上的 `beacon ssh resume` 也能恢复） |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
-| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置。这一条和下面每一种修改机器的操作都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（改成 `root` 只能由主机上的 `beacon`），否则为 `machine.forbidden`（[修改机器](permissions.md#changing-machines)） |
+| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置。这一条和下面每一种修改机器的操作都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（改成 `root` 只能由主机上的 `beacon`），新机器的 `user` 不是 `beacon` 时也一样；Beacon 自己主机上的地址（回环、链路本地、`localhost`）需要主机上的 `beacon`，否则为 `machine.forbidden`。在另一台机器的地址上、或用它的主机密钥添加，返回 `machine.alias`（[修改机器](permissions.md#changing-machines)） |
 | `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。可用 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `GET /api/v1/machines/{name}/history` | `status:read` 或 `machines:ssh` | 查看当前设置版本和变更历史。用 `before`（不含该版本）及 `limit`（默认 30，最多 100）翻页 |
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
@@ -215,7 +215,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `GET /api/v1/config/history/{version}` | `status:read` 或 `config:write` | 一次修改，带每一项改前和改后的值 |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | 以一次新修改的方式撤销某次修改；之后的修改动过其中某一项时返回 `config.conflict` |
 
-通过 `GET /api/v1/config/targets` 一并读取版本和分组顺序。路径中的分组编号从零开始。JSON 请求体传 `if_version`，再传 `machine: {"name":"origin-1","registration":"…"}` 或 `clear: true`。机器名称和登记值取自 `GET /api/v1/machines`。调用方需要拥有原有及新选机器的 SSH 权限。可在请求体中附上 `note`。
+通过 `GET /api/v1/config/targets` 一并读取版本和分组顺序。路径中的分组编号从零开始。JSON 请求体传 `if_version`，再传 `machine: {"name":"origin-1","registration":"…"}` 或 `clear: true`。机器名称和登记值取自 `GET /api/v1/machines`。调用方需要能访问全部机器，并拥有原有及新选机器的 SSH 权限。可在请求体中附上 `note`。
 
 ## 状态页与维护 {#status-pages-and-maintenance}
 
@@ -355,6 +355,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `ssh.search_unavailable` | 503 | 登记机器缺少文件搜索所需的标准 shell 工具 |
 | `ssh.recording_limit` | 413 | 会话录像达到 16 MiB 上限，Beacon 停止了这次操作 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |
+| `ssh.resume_forbidden` | 403 | 只有人，或主机上的 `beacon ssh resume`，才能恢复 SSH 通道 |
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
 | `machine.version_not_found` | 404 | 该机器设置版本无法访问 |
@@ -362,6 +363,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `machine.unreachable` | 502 | Beacon 连不上这台机器 |
 | `machine.disconnected` | 502 | 机器在 NAT 后面，它的连接器没有连上 |
 | `machine.exists` | 409 | 已有同名机器；要替换请明确指定 |
+| `machine.alias` | 409 | 另一台机器已用这个地址或主机密钥：一台机器只有一条记录 |
 | `machine.changed` | 409 | 机器设置已有变化。读取当前版本后重试 |
 | `file.not_found` | 404 | 没有这个文件 |
 | `file.not_regular` | 400 | 这个路径不是普通文件 |

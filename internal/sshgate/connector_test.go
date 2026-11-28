@@ -24,7 +24,7 @@ func authorized(k ssh.Signer) string {
 // accepts forwarded-tcpip channels), handing every connection Beacon opens to the test machine's sshd.
 func (e *env) connectOut(t *testing.T, machine string, key ssh.Signer) *ssh.Client {
 	t.Helper()
-	return e.connectOutTo(t, machine, key, e.tg.serve)
+	return e.connectOutTo(t, machine, key, e.nat.serve)
 }
 
 func (e *env) connectOutTo(t *testing.T, machine string, key ssh.Signer, serve func(net.Conn)) *ssh.Client {
@@ -54,9 +54,9 @@ func (e *env) connectOutTo(t *testing.T, machine string, key ssh.Signer, serve f
 func TestConnectorKeepsFastExecReply(t *testing.T) {
 	e := setup(t)
 	ck := signer(t)
-	e.addConnector(t, "nat-box", ck, authorized(e.tg.hostKey))
+	e.addConnector(t, "nat-box", ck, authorized(e.nat.hostKey))
 	e.connectOutTo(t, "nat-box", ck, func(nc net.Conn) {
-		sc, chans, reqs, err := ssh.NewServerConn(nc, e.tg.cfg)
+		sc, chans, reqs, err := ssh.NewServerConn(nc, e.nat.cfg)
 		if err != nil {
 			return
 		}
@@ -157,10 +157,10 @@ func TestConnectorLearnsHostKey(t *testing.T) {
 	cl := e.connectOut(t, "nat-box", ck)
 	waitFor(t, "the host key to be learned", func() bool { return strings.Contains(e.bot.all(), "pinned the host key of machine nat-box") })
 	m, _ := e.st.Machine("nat-box")
-	if m.HostKey != authorized(e.tg.hostKey) {
+	if m.HostKey != authorized(e.nat.hostKey) {
 		t.Errorf("learned %q, want the machine's host key", m.HostKey)
 	}
-	if a := e.st.AuditLog(5); len(a) == 0 || a[0].Action != "machine_host_key" || a[0].Target != "nat-box" || a[0].Detail != ssh.FingerprintSHA256(e.tg.hostKey.PublicKey()) {
+	if a := e.st.AuditLog(5); len(a) == 0 || a[0].Action != "machine_host_key" || a[0].Target != "nat-box" || a[0].Detail != ssh.FingerprintSHA256(e.nat.hostKey.PublicKey()) {
 		t.Errorf("audit %+v", a)
 	}
 	l, _ := e.g.List(Actor{Name: "claude-code", Key: "token:claude-code"}, "")
@@ -183,8 +183,8 @@ func TestConnectorLearnsHostKey(t *testing.T) {
 		t.Fatal("no connector after the second connection")
 	}
 	// a host key can be given rather than learned, and replace keeps the key
-	a2, err := e.g.Add(ctx, Actor{Name: "root", Via: "cli"}, MachineInput{Name: "nat-box", Address: "connector", Replace: true, HostKey: authorized(e.tg.hostKey)})
-	if err != nil || a2.Connector.HostKeyPending || a2.Machine.HostKey != ssh.FingerprintSHA256(e.tg.hostKey.PublicKey()) {
+	a2, err := e.g.Add(ctx, Actor{Name: "root", Via: "cli"}, MachineInput{Name: "nat-box", Address: "connector", Replace: true, HostKey: authorized(e.nat.hostKey)})
+	if err != nil || a2.Connector.HostKeyPending || a2.Machine.HostKey != ssh.FingerprintSHA256(e.nat.hostKey.PublicKey()) {
 		t.Errorf("replace with a host key: %+v %v", a2, err)
 	}
 	if m, _ := e.st.Machine("nat-box"); m.ConnectorFingerprint != ssh.FingerprintSHA256(ck.PublicKey()) {
@@ -204,7 +204,7 @@ func TestConnectorRefusals(t *testing.T) {
 	ctx := context.Background()
 	root := Actor{Name: "root", Via: "cli"}
 	ck := signer(t)
-	e.addConnector(t, "nat-box", ck, authorized(e.tg.hostKey))
+	e.addConnector(t, "nat-box", ck, authorized(e.nat.hostKey))
 
 	// a connector connection carries no channels
 	cl := e.connectOut(t, "nat-box", ck)
@@ -305,11 +305,13 @@ func TestConnectorSessions(t *testing.T) {
 	if _, _, code := e.run(t, "box", "true"); code != 0 {
 		t.Errorf("box: exit %d", code)
 	}
-	e.tg.mu.Lock()
-	sources := strings.Join(e.tg.sources, ";")
-	e.tg.mu.Unlock()
-	if !strings.Contains(sources, "127.0.0.0/8,127.0.0.1/32,::1/128") || !strings.HasSuffix(sources, ";127.0.0.0/8") {
-		t.Errorf("certificate sources %q", sources)
+	sources := func(tg *target) string {
+		tg.mu.Lock()
+		defer tg.mu.Unlock()
+		return strings.Join(tg.sources, ";")
+	}
+	if nat, box := sources(e.nat), sources(e.tg); !strings.Contains(nat, "127.0.0.0/8,127.0.0.1/32,::1/128") || box != "127.0.0.0/8" {
+		t.Errorf("certificate sources %q and %q", nat, box)
 	}
 	// an interactive shell
 	if _, err := exec.LookPath("bash"); err == nil {

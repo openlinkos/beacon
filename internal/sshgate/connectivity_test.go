@@ -78,6 +78,8 @@ func TestMachineSSHCheckDirect(t *testing.T) {
 			if err := e.st.PutMachine(machine); err != nil {
 				t.Fatal(err)
 			}
+			// one machine, one record: the next case's machine pins the same host key
+			t.Cleanup(func() { _ = e.st.DeleteMachine(machine.Name) })
 			result, err := e.g.CheckSSH(t.Context(), who, machine.Name, "")
 			if err != nil || result.Status != tt.state || result.Route != "direct" || result.Machine != tt.name ||
 				result.CheckedAt.IsZero() || result.ID == "" {
@@ -104,13 +106,13 @@ func TestMachineSSHCheckNAT(t *testing.T) {
 	e := setup(t)
 	who := Actor{Name: "claude-code", Via: "mcp", Key: "token:claude-code"}
 	connectorKey := signer(t)
-	e.addConnector(t, "nat-box", connectorKey, authorized(e.tg.hostKey))
+	e.addConnector(t, "nat-box", connectorKey, authorized(e.nat.hostKey))
 	out, err := e.g.CheckSSH(t.Context(), who, "nat-box", "")
 	if err != nil || out.Status != SSHCheckDisconnected || out.Route != "connector" {
 		t.Fatalf("offline connector: %+v, %v", out, err)
 	}
 	channels := &atomic.Int64{}
-	cl := e.connectOutTo(t, "nat-box", connectorKey, readinessSSHD(e.tg.hostKey, e.g.d.CA.PublicKey(), channels))
+	cl := e.connectOutTo(t, "nat-box", connectorKey, readinessSSHD(e.nat.hostKey, e.g.d.CA.PublicKey(), channels))
 	out, err = e.g.CheckSSH(t.Context(), who, "nat-box", "")
 	if err != nil || out.Status != SSHCheckReady || out.Route != "connector" || channels.Load() != 0 {
 		t.Fatalf("connected machine: %+v, %v, downstream channels %d", out, err, channels.Load())
@@ -123,7 +125,7 @@ func TestMachineSSHCheckStopsAtDeadlineWithoutClosingConnector(t *testing.T) {
 	e := setup(t)
 	who := Actor{Name: "claude-code", Via: "api", Key: "token:claude-code"}
 	connectorKey := signer(t)
-	e.addConnector(t, "nat-box", connectorKey, authorized(e.tg.hostKey))
+	e.addConnector(t, "nat-box", connectorKey, authorized(e.nat.hostKey))
 	cl, err := e.client(t, "nat-box", connectorKey)
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +205,7 @@ func TestMachineSSHCheckAdmissionAndRevocation(t *testing.T) {
 	if dials.Load() != 0 {
 		t.Fatal("a refused check reached the upstream machine")
 	}
-	if err := e.g.SetPaused(t.Context(), who, false); err != nil {
+	if err := e.g.SetPaused(t.Context(), Actor{Name: "cli:root", Via: "cli"}, false); err != nil { // a person or the command line resumes
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)

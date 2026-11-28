@@ -130,9 +130,9 @@ The caller's machine selection also limits session records in the alert evidence
 | --- | --- | --- |
 | `GET /api/v1/ssh` | `status:read` or `machines:ssh` | The SSH channel's state (paused or not), its host key, and the certificate authority's key that machines trust |
 | `POST /api/v1/ssh/pause` | `machines:write` | Close every agent's session on machines and refuse new ones |
-| `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
+| `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again. Only a person resumes the channel; an agent's or a token's credential gets `ssh.resume_forbidden` (`beacon ssh resume` on the host resumes it too) |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
-| `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs. This and every other change of a machine below takes access to all machines; a critical machine, or the `critical` flag, takes an owner, and `user` a person (`root` only `beacon` on the host): `machine.forbidden` otherwise ([Changing machines](permissions.md#changing-machines)) |
+| `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs. This and every other change of a machine below takes access to all machines; a critical machine, or the `critical` flag, takes an owner, and `user` a person (`root` only `beacon` on the host), as does a new machine's `user` other than `beacon`; an address on Beacon's own host (loopback, link-local, `localhost`) takes `beacon` on the host: `machine.forbidden` otherwise. A machine at another machine's address or with its host key is refused with `machine.alias` ([Changing machines](permissions.md#changing-machines)) |
 | `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. Set `if_version` to refuse stale edits. The host key and the address stay |
 | `GET /api/v1/machines/{name}/history` | `status:read` or `machines:ssh` | Read the current settings version and older revisions. Page with `before` (exclusive) and `limit` (default 30, maximum 100) |
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
@@ -211,7 +211,7 @@ What Beacon monitors, each item in the shape of its file ([Monitor a service](..
 | `GET /api/v1/config/history/{version}` | `status:read` or `config:write` | One change, with every item's value before and after |
 | `POST /api/v1/config/history/{version}/revert` | `config:write` | Undo one change as a new change; `config.conflict` when a later change touched one of its items |
 
-Read the version and group order from `GET /api/v1/config/targets`. Send the zero-based group index with a JSON body containing `if_version` and either `machine: {"name":"origin-1","registration":"…"}` or `clear: true`. Copy the name and registration from `GET /api/v1/machines`. The caller needs SSH access to the previous and selected machines, when present. Include an optional `note` in the body.
+Read the version and group order from `GET /api/v1/config/targets`. Send the zero-based group index with a JSON body containing `if_version` and either `machine: {"name":"origin-1","registration":"…"}` or `clear: true`. Copy the name and registration from `GET /api/v1/machines`. The caller needs access to all machines, and SSH access to the previous and selected machines, when present. Include an optional `note` in the body.
 
 ## Status pages and maintenance
 
@@ -351,6 +351,7 @@ Each sends with a token of its own:
 | `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
 | `ssh.recording_limit` | 413 | The session's recording reached its 16 MiB limit, and Beacon stopped the operation |
 | `ssh.paused` | 409 | Agents' access to machines is paused |
+| `ssh.resume_forbidden` | 403 | Only a person, or `beacon ssh resume` on the host, resumes the SSH channel |
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
 | `machine.version_not_found` | 404 | That machine settings revision is unavailable |
@@ -358,6 +359,7 @@ Each sends with a token of its own:
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |
 | `machine.disconnected` | 502 | The machine is behind NAT and its connector is not connected |
 | `machine.exists` | 409 | A machine with this name exists; replace it explicitly |
+| `machine.alias` | 409 | Another machine has this address or host key: one machine has one record |
 | `machine.changed` | 409 | The machine settings changed after you opened them. Read the current version and retry |
 | `file.not_found` | 404 | No such file |
 | `file.not_regular` | 400 | The path is not a regular file |

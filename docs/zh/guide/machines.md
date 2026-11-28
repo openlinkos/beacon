@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-d0b02a51
+sourceHash: sha256-02d7992e
 ---
 
 # 给 Agent 一台机器
@@ -91,11 +91,13 @@ sourceHash: sha256-d0b02a51
 
 其他选项和命令：
 
-- `-user` 指定 `beacon` 以外的账户。之后只有人或主机上的 `beacon` 能改它，改成 `root` 只有主机上的 `beacon` 能做。
-- `-critical` 把机器标记为关键机器。能访问全部机器的凭据，不点名就到不了关键机器；owner 能到。只有 owner 或主机上的 `beacon` 能标记关键机器，或修改、移除关键机器。
+- `-user` 指定 `beacon` 以外的账户。只有人或主机上的 `beacon` 能用别的账户添加机器，或之后改它，改成 `root` 只有主机上的 `beacon` 能做。
+- `-critical` 把机器标记为关键机器。能访问全部机器的凭据，不点名就到不了关键机器；owner 能到。只有 owner 或主机上的 `beacon` 能标记关键机器，或修改、移除关键机器。机器成为关键机器之前就点名了它的凭据，最迟 30 天后到期（[机器访问](../reference/permissions.md#machine-access)）。
 - `machine list` 列出所有机器。
 - `machine add … -replace` 在重装系统后重新固定主机密钥。
-- `machine remove NAME` 移除一台机器，它的会话记录仍然保留。
+- `machine remove NAME` 移除一台机器，它的会话记录仍然保留。在机器上也删掉 `/etc/ssh/beacon_ca.pub` 和 `Match User` 那一段，这样谁也不能重新添加它再访问它。
+
+一台机器只有一条记录：不论谁来添加，Beacon 都拒绝在另一台机器的地址上、或用它的主机密钥添加机器（`machine.alias`）。从另一台机器的镜像克隆出来的机器，在生成自己的主机密钥之前（`rm /etc/ssh/ssh_host_*; ssh-keygen -A`，再重新加载 sshd），和那台机器共用主机密钥。Beacon 自己主机上的机器，即回环或链路本地地址、`localhost` 上的机器，只能在主机上用 `beacon machine add` 添加。Beacon 启动时，会在日志里列出在开始拒绝之前就被记录了两次的机器；把不该有的那条记录移除。
 
 持有 `machines:write` 并能访问全部机器的人，在控制台的 **Machines** 页做同样的事：点名机器的凭据不能添加、修改或移除任何机器（[修改机器](../reference/permissions.md#changing-machines)）。**Add a machine** 填写名字、地址（`host` 或 `host:port`，或 NAT 后面）、账户（不填则是 `beacon`）、是否关键、备注；NAT 后面的机器还要填它连出来用的密钥，主机密钥可选。成功后页面只显示一次机器上要做的配置，和命令打印的是同一段。机器页面可以改备注、是否关键和账户，重新固定主机密钥（并显示旧指纹和新指纹），NAT 后面的机器还可以更换连出来用的密钥。**Remove the machine** 要求把机器名完整输入一遍。机器被忘掉，打开的连接器会关掉，会话记录仍然保留。
 
@@ -163,7 +165,7 @@ shell 的命令和退出状态按输出里的 shell 集成标记切分。shell �
 
 ## 暂停，或停下某一个 Agent {#pause-or-stop-one-agent}
 
-`beacon ssh pause` 立刻关闭所有正在进行的会话，并拒绝新的会话，直到 `beacon ssh resume`。`ssh status` 显示当前状态。
+`beacon ssh pause` 立刻关闭所有正在进行的会话，并拒绝新的会话，直到 `beacon ssh resume`。`ssh status` 显示当前状态。有 `machines:write` 的都能暂停通道；只有人，或主机上的 `beacon ssh resume`，才能恢复。
 
 只想停下某一个 Agent，就在它的页面上吊销凭据或删除它，或者执行 `beacon token revoke NAME`。它在机器上打开着的一切立即关闭。还有哪些开关有同样的效果，见[停下 Agent，暂停一切](stop.md)。
 

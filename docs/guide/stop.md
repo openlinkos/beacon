@@ -31,7 +31,7 @@ Beacon also checks every minute for credentials that expired meanwhile. So a tok
 
 ## Pause the whole channel {#pause-the-whole-channel}
 
-Pause the SSH channel to stop access for people and agents at once. It closes open client sessions and refuses new ones until it is resumed. The command line, the console's **Machines** page, the API and MCP can all pause or resume it.
+Pause the SSH channel to stop access for people and agents at once. It closes open client sessions and refuses new ones until it is resumed. The command line, the console's **Machines** page, the API and MCP can all pause it. Only a person (on the console) or `beacon ssh resume` on the host resumes it: an agent or a token that asks is refused with `ssh.resume_forbidden`, so an agent cannot undo the brake.
 
 ```bash
 docker exec beacon beacon ssh pause     # or: ssh resume
@@ -45,7 +45,7 @@ While the channel is paused:
 - the MCP tools and the API are refused with the same words;
 - monitoring is not touched: the probes keep reporting, and alerts keep arriving.
 
-A pause is recorded in the audit log. The API route is `POST /api/v1/ssh/pause` and `/resume`, and the MCP tool is `pause_ssh`. Both need `machines:write`, and both echo to the alert chat, so a paused channel does not go unnoticed.
+A pause is recorded in the audit log. The API route is `POST /api/v1/ssh/pause` and `/resume`, and the MCP tools are `pause_ssh` and `resume_ssh`. Both need `machines:write`, resuming a person as well, and both echo to the alert chat, so a paused channel does not go unnoticed.
 
 The pause is the brake for the whole fleet. The switches above stop one agent without stopping the others.
 

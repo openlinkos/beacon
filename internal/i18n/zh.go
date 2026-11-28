@@ -1023,7 +1023,11 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"the probes could not be read":                     "读不到探测结果",
 	"until %s":                                         "到 %s 为止",
 	// machines added, changed and removed from the console
-	"A machine with this name exists already.": "已有同名的机器。",
+	"A machine with this name exists already.":                                                 "已有同名的机器。",
+	"Machine %s is critical: these credentials name it and keep it until %s at the latest: %s": "机器 %[1]s 已标为关键机器：以下凭据点名了它，最迟到 %[2]s 为止仍能访问：%[3]s",
+	"Another machine has this address or host key, so nothing was added. One machine has one record; a machine cloned from another's image needs host keys of its own.": "另一台机器已用这个地址或主机密钥，所以没有添加。一台机器只有一条记录；从别的机器的镜像克隆出来的机器要有自己的主机密钥。",
+	"You may not make this change to machines. A critical machine takes an owner; root, or an address on Beacon's own host, takes beacon machine on the host.":          "你不能对机器做这项修改。关键机器需要所有者；root 账号或 Beacon 所在主机上的地址，需要在主机上用 beacon machine。",
+	"Only a person, or beacon ssh resume on the host, resumes SSH access.":                                                                                              "只有人，或在主机上执行 beacon ssh resume，才能恢复 SSH 访问。",
 	"Add a machine": "添加机器",
 	"Beacon connects to the machine and pins the host key it sees now.": "Beacon 连接这台机器，并固定它此刻看到的主机密钥。",
 	"Beacon dials it":             "由 Beacon 拨入",

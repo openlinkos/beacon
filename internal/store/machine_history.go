@@ -122,9 +122,12 @@ func (s *Store) startMachineHistory(tx kv.Tx, m *Machine, action, via string) er
 }
 
 // RegisterMachine atomically starts a new history when a machine is enrolled or explicitly replaced.
-// previous is the registration as read before any host key discovery, or nil for a new machine.
+// previous is the registration as read before any host key discovery, or nil for a new machine. A machine
+// that would be another's second record is refused (ErrMachineAlias, machine_alias.go). A machine
+// critical now that was not gives the credentials that name it an end (critical_names.go).
 func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machine, error) {
-	err := s.db.Update(func(tx kv.Tx) error {
+	tokens := false
+	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		old, err := machineIn(tx, m.Name)
 		switch {
 		case err != nil && !errors.Is(err, ErrNotFound):
@@ -134,8 +137,21 @@ func (s *Store) RegisterMachine(m Machine, previous *Machine, via string) (Machi
 		case previous != nil && (err != nil || old != *previous):
 			return ErrConflict
 		}
-		return s.startMachineHistory(tx, &m, "registered", via)
+		if err := checkAlias(tx, m); err != nil {
+			return err
+		}
+		if err := s.startMachineHistory(tx, &m, "registered", via); err != nil {
+			return err
+		}
+		if !m.Critical || previous != nil && old.Critical {
+			return nil
+		}
+		tokens, err = s.endCriticalNames(tx, raw, m.Name, s.now(), m.AddedBy, via)
+		return err
 	})
+	if err == nil && tokens {
+		err = s.RefreshTokens()
+	}
 	return m, err
 }
 
@@ -157,7 +173,8 @@ func recordMachineRevision(tx kv.Tx, m *Machine, rev MachineRevision) error {
 }
 
 // UpdateMachineIdentity mutates the current registration in a write transaction. A caller can
-// install connector or host keys alongside metadata updates without writing a stale machine back.
+// install connector or host keys alongside metadata updates without writing a stale machine back. A
+// change that makes the machine another's second record is refused (ErrMachineAlias).
 func (s *Store) UpdateMachineIdentity(name string, same func(Machine) bool, change func(*Machine)) (Machine, error) {
 	var m Machine
 	err := s.db.Update(func(tx kv.Tx) error {
@@ -170,6 +187,9 @@ func (s *Store) UpdateMachineIdentity(name string, same func(Machine) bool, chan
 			return ErrConflict
 		}
 		change(&m)
+		if err := checkAlias(tx, m); err != nil {
+			return err
+		}
 		return writeMachine(tx, m)
 	})
 	return m, err
@@ -206,9 +226,11 @@ func (s *Store) MachineMetadataHistory(name string, before int64, limit int) (Ma
 // PatchMachineMetadata applies an edit or copies an older snapshot under the expected version. The
 // returned before and after, and the new revision, describe the same atomic update. check, if given,
 // decides in the same transaction whether the change from before to after may be made; its error is
-// returned and nothing is written.
+// returned and nothing is written. A machine marked critical gives the credentials that name it an end
+// (critical_names.go), in the same transaction.
 func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, restore int64, actor, via string, check func(before, after Machine) error) (Machine, Machine, error) {
 	var before, after Machine
+	tokens := false
 	err := s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		var err error
 		before, err = machineIn(tx, name)
@@ -259,8 +281,17 @@ func (s *Store) PatchMachineMetadata(name string, patch MachineMetadataUpdate, r
 			return err
 		}
 		event := machineMetadataAudit(before, after, rev)
-		return s.audit.AppendTx(raw, &event)
+		if err := s.audit.AppendTx(raw, &event); err != nil {
+			return err
+		}
+		if after.Critical && !before.Critical { // the names of it given while it was not take an end
+			tokens, err = s.endCriticalNames(tx, raw, name, rev.At, actor, via)
+		}
+		return err
 	})
+	if err == nil && tokens {
+		err = s.RefreshTokens()
+	}
 	return before, after, err
 }
 

@@ -179,7 +179,8 @@ type env struct {
 	g        *Gate
 	st       *store.Store
 	tg       *target
-	addr     string // the channel's SSH listener
+	nat      *target // the sshd connector machines forward: a machine of its own, apart from box
+	addr     string  // the channel's SSH listener
 	agentKey ssh.Signer
 	bot      *posted
 	dir      string
@@ -203,7 +204,7 @@ func setup(t *testing.T, scopes ...string) *env {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ca := signer(t)
-	e := &env{st: st, tg: newTarget(t, ca.PublicKey()), agentKey: signer(t), bot: &posted{}, dir: t.TempDir()}
+	e := &env{st: st, tg: newTarget(t, ca.PublicKey()), nat: newTarget(t, ca.PublicKey()), agentKey: signer(t), bot: &posted{}, dir: t.TempDir()}
 	g, err := New(Deps{Store: st, HostKey: signer(t), CA: ca, Dir: e.dir, Keep: 24 * time.Hour, Bot: e.bot, Lang: i18n.EN})
 	if err != nil {
 		t.Fatal(err)
@@ -611,14 +612,15 @@ func TestAdd(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	who := Actor{Name: "root", Via: "cli"}
-	a, err := e.g.Add(ctx, who, MachineInput{Name: "edge-1", Address: e.tg.addr})
+	edge := newTarget(t, e.g.d.CA.PublicKey())
+	a, err := e.g.Add(ctx, who, MachineInput{Name: "edge-1", Address: edge.addr})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Machine.HostKey != ssh.FingerprintSHA256(e.tg.hostKey.PublicKey()) || a.Machine.User != "beacon" || !strings.HasPrefix(a.TrustedUserCAKey, "ssh-ed25519 ") {
+	if a.Machine.HostKey != ssh.FingerprintSHA256(edge.hostKey.PublicKey()) || a.Machine.User != "beacon" || !strings.HasPrefix(a.TrustedUserCAKey, "ssh-ed25519 ") {
 		t.Errorf("added %+v", a)
 	}
-	if _, err := e.g.Add(ctx, who, MachineInput{Name: "edge-1", Address: e.tg.addr}); !errors.Is(err, ErrExists) {
+	if _, err := e.g.Add(ctx, who, MachineInput{Name: "edge-1", Address: edge.addr}); !errors.Is(err, ErrExists) {
 		t.Errorf("added twice: %v", err)
 	}
 	if _, _, code := e.run(t, "edge-1", "true"); code != 0 {
