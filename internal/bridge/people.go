@@ -599,9 +599,9 @@ func (b *Bridge) UpdateAgent(ctx context.Context, who Actor, name string, up Age
 	if up.Preset != nil && *up.Preset != "" {
 		preset = *up.Preset
 	}
-	machines := a.MachineAccess
+	machines := a.Live(b.now()) // a named machine whose access has ended is not kept, nor counted as new
 	if up.Machines != nil {
-		machines = b.agentAccess(*up.Machines, a.MachineAccess, up.Forever)
+		machines = b.agentAccess(*up.Machines, a.Live(b.now()), up.Forever)
 	}
 	scopes := a.Scopes
 	if preset == store.PresetCustom {

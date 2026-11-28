@@ -148,7 +148,7 @@ func (b *Bridge) SetCriticalMachines(ctx context.Context, who Actor, username st
 	if !ok {
 		return UserView{}, fmt.Errorf("%w: no account %q", store.ErrNotFound, username)
 	}
-	named = store.KeepEnds(named, current.CriticalAccess())
+	named = store.KeepEnds(named, current.CriticalAccess().Live(b.now()))
 	before, after, err := b.d.Store.SetCriticalMachines(username, named)
 	switch {
 	case errors.Is(err, store.ErrNotFound):

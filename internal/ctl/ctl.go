@@ -101,7 +101,7 @@ func machineAccess(s Service, in []string, before store.MachineAccess) (store.Ma
 		return store.MachineAccess{}, err
 	}
 	critical := s.CriticalMachines()
-	return store.WithCriticalEnds(access, before, func(m string) bool { return critical[m] }, forever, now), nil
+	return store.WithCriticalEnds(access, before.Live(now), func(m string) bool { return critical[m] }, forever, now), nil
 }
 
 // DrillKey is where the drill's end is stored.
