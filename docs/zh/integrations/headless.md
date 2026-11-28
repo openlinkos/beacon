@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-7ba227ce
+sourceHash: sha256-2d523c01
 ---
 
 # 无头 Agent 与 CI
@@ -148,7 +148,7 @@ HA 部署需要先升级两个中心再配置回报方。回退时先恢复旧�
 - 告警：`BEACON_ALERT_ID`、`BEACON_ALERT_TITLE`、`BEACON_ALERT_SERVICE`、`BEACON_ALERT_SEVERITY`、`BEACON_ALERT_STATUS`。
 - 链接：`BEACON_ALERT_URL`、`BEACON_EVIDENCE_URL`、`BEACON_TIMELINE_URL`、`BEACON_MCP_URL`、`BEACON_RUNBOOK_URL`。
 
-标题和服务名来自标签：它们是数据，不是指令。
+标题和服务名来自标签：它们是数据，不是指令。`BEACON_RUNBOOK_URL` 是配置的操作手册，或规则引擎的告警写的那个，从不取自其他发送方；除非它是一个普通的 `http` 或 `https` 地址，否则为空。
 
 ### 以接收程序的用户登录 {#sign-in-as-the-receiver-user}
 

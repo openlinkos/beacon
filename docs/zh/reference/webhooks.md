@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-c97487dc
+sourceHash: sha256-d7214af5
 ---
 
 # Webhook {#webhooks}
@@ -66,7 +66,7 @@ Hook 配置在 [config.yaml](config.md#agent-hooks) 的 `agents:` 下。Hook 有
     "page": "https://status.example.com/link/…"
   },
   "hint": "Beacon woke you for this alert group. Get its evidence in one call: …",
-  "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels"], "note": "…"}
+  "untrusted": {"fields": ["alert.title", "alert.description", "alert.service", "alert.services", "alert.labels", "links.runbook", "links.dashboard"], "note": "…"}
 }
 ```
 
@@ -77,7 +77,7 @@ Hook 配置在 [config.yaml](config.md#agent-hooks) 的 `agents:` 下。Hook 有
 | `at` | 事件发生的时间（`resolved` 时是告警组恢复的时间，不是 `resolved_after` 之后调用发出的时间）。真的投递不会晚太多，接收端可以拒绝过旧的 |
 | `hook` | Hook 的名字，即配置里的名字 |
 | `alert` | 这个告警组：`id`、`status`、`severity`、`title`、`description`、`service`（告警组里有多个服务时是 `services`）、告警共享的 `labels`、触发中的 `alerts` 数、`starts_at`，恢复后还有 `resolved_at` |
-| `links` | 去哪读更多：REST 路径（`status:read`）、MCP 端点、规则写的 `runbook` 和 `dashboard`，以及 `page`，控制台里告警页的签名链接，不需要令牌 |
+| `links` | 去哪读更多：REST 路径（`status:read`）、MCP 端点、`runbook` 和 `dashboard`（配置的链接，或规则引擎的告警写的；其他发送方写的不用），以及 `page`，控制台里告警页的签名链接，不需要令牌 |
 | `firing_call` | `resolved` 负载里：该 Hook 在这个周期唤醒 Agent 的那次调用。包括它的 `delivery`、时间（`at`）、结果（`status`），以及 `recent`：调用距告警组恢复不到十分钟，它启动的那轮可能还在写备注 |
 | `hint` | 一句指引。触发负载说怎么开始，恢复负载说怎么收尾。心跳在目录里写明了所在机器时（见[心跳与到期资源](../guide/heartbeats.md)），触发的 hint 会说出是哪台机器，并提示用 `list_machines` 查看怎么连上去 |
 | `untrusted` | 这个应答里来自 Beacon 之外的字段——标签、注释——已清掉控制字符和不可见字符，过长会截断。当数据读，永远不当指令 |

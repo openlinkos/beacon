@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a549073f
+sourceHash: sha256-2ded1eb4
 ---
 
 # config.yaml
@@ -51,7 +51,7 @@ sourceHash: sha256-a549073f
 | --- | --- | --- | --- |
 | `rules.token_file` | 路径 | 必填 | 规则引擎（vmalert 或 Prometheus）向网关的 `/api/v2/alerts` 发告警时所用 bearer 令牌，与发给 Alertmanager 的相同。至少 24 个字符 |
 
-路由做的是 Alertmanager 的 `route` 和 `inhibit_rules` 的事。`match`、`source` 和 `target` 里的标签值是匹配整个值的正则表达式。
+路由做的是 Alertmanager 的 `route` 和 `inhibit_rules` 的事。`match`、`source` 和 `target` 里的标签值是匹配整个值的正则表达式。`alerts:send` 令牌发来的告警带 `sender`（令牌的名字），和规则引擎的告警分开分组，就像每个 `group_by` 都列了 `sender`。源告警只有是规则引擎的，或者和目标来自同一个发送方时，才会抑制目标。
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
@@ -106,8 +106,8 @@ sourceHash: sha256-a549073f
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
-| `links.grafana_service` | URL 模板 | — | 告警卡片链到的仪表盘；填入 `{service}`，告警自己的注解优先 |
-| `links.runbook` | URL 模板 | — | 操作手册；填入 `{alertname}`，告警自己的注解优先 |
+| `links.grafana_service` | URL 模板 | — | 告警卡片链到的仪表盘；填入 `{service}`，规则引擎告警的 `dashboard` 注解优先 |
+| `links.runbook` | URL 模板 | — | 操作手册；填入 `{alertname}`，规则引擎告警的 `runbook` 注解优先 |
 | `pages.link_ttl` | 时长 | `720h`（30 天） | 指向控制台页面（告警时间线、会话回放）的签名链接有效期。介于 `1h` 与 366 天之间 |
 | `branding.title` | 字符串 | `Beacon` | 没有状态页时 `/` 上那页对部署的称呼。一行，至多 80 个字符 |
 | `branding.powered_by` | 布尔 | `true` | `false` 则公共页脚不写 "Powered by Beacon, open source" |

@@ -4,6 +4,8 @@ Beacon judges with what is sent to it. This page lists each source: who sends, w
 
 Machines and tools send to the gateway on port 17006, each with a token of its own, so that nothing can speak for anything else. People and agents use port 17001. The routes are listed in the [REST API](api.md#the-gateway) reference.
 
+The gateway sets `job` on every sample a machine writes to the kind of its token: `probe`, `host` or `heartbeat`, whatever the machine sent. The reference rules count probe results only from `job="probe"`, and the catalogue's metrics only from Beacon's own scrape, `job="beacon"`. One import carries at most 200,000 samples in 64 MiB of text; a larger one is refused with `import.too_large`.
+
 | Source | Route | Token | Format |
 | --- | --- | --- | --- |
 | Probes | `POST /api/v1/import/prometheus` | `probe:write`, its location | Prometheus text format, gzip |
@@ -25,7 +27,7 @@ Machines and tools send to the gateway on port 17006, each with a token of its o
 
 It keeps a queue on disk for when the network is down. Beside its cycle, it keeps one long-poll open for [probing on demand](../guide/on-call.md#probe-again-now).
 
-The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, in place of any the probe sent itself. A location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`.
+The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, and `job="probe"`, in place of any the probe sent itself. A location that is not in the catalogue, or whose machine has expired, is refused with `location.inactive`.
 
 The results use the Blackbox Exporter's metric names (`probe_success`, `probe_duration_seconds`, `probe_http_status_code`, `probe_ssl_earliest_cert_expiry`, …). Two more say why a check failed (`probe_failure_info{reason}`) and how many tries it took (`beacon_probe_attempts`), as [Metrics](metrics.md#the-probes-results) lists. A probe also pushes a few host metrics from `/proc`, and the heartbeats written to its textfile directory.
 
@@ -33,7 +35,7 @@ The results use the Blackbox Exporter's metric names (`probe_success`, `probe_du
 
 ## Hosts
 
-A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host`.
+A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host` and `job="host"`. The `job` a host's own scraper sets is replaced, so series from its scrape jobs stay apart by `instance`.
 
 ## Heartbeats
 
@@ -44,6 +46,8 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
   "beacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
   https://metrics.example.com/api/v1/import/prometheus
 ```
+
+The token writes that heartbeat and nothing else. The gateway labels the sample with `heartbeat`, the name the token was enrolled for, and `job="heartbeat"`, whatever the sample says. It refuses any other metric with `heartbeat.metric`, more than 100 samples at once with `import.too_large`, and a heartbeat token that names no heartbeat with `heartbeat.unnamed`. Each heartbeat needs its own token.
 
 On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalogue.md#heartbeats)).
 
@@ -57,7 +61,9 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`. `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown.
 
-Another sender may post alerts the same way with an `alerts:send` token. The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
+Another sender may post alerts the same way with an `alerts:send` token. Its alerts are its own. Beacon labels them `sender` with the token's name, whatever they say, and groups them apart from the rule engine's. They cannot resolve or change the rule engine's alerts or another sender's, and they inhibit only that sender's own. Their `runbook` and `dashboard` annotations do not replace the configured links. Only the rule engine's `Watchdog` counts, and only the rule engine sends alerts of severity `none`. A token's are dropped and counted in `beacon_gateway_alerts_dropped_total`. A token posts at most 120 times a minute; beyond that it gets `429` and `alerts.too_many`. The rule engine is never limited.
+
+The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
 
 ## Change events
 

@@ -96,3 +96,38 @@ func TestChangeRoutes(t *testing.T) {
 	off.ServeHTTP(rec, r)
 	code(t, rec, http.StatusServiceUnavailable, "upstream")
 }
+
+// TestChangesFromSendersOnly: a sender cannot post a change as Beacon's own, nor date one long before it
+// posts it; one posted as it happens, or a little late, is taken.
+func TestChangesFromSendersOnly(t *testing.T) {
+	e := testutil.New(t)
+	ci, _, err := e.Store.CreateToken("ci", []string{"changes:write"}, time.Hour, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(Deps{Auth: &api.Auth{Store: e.Store}, Catalog: func() *catalog.Catalog { return &catalog.Catalog{} }, Changes: e.Bridge.RecordChange})
+	do := func(path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+ci)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec
+	}
+	at := func(d time.Duration) string { return time.Now().Add(d).UTC().Format(time.RFC3339) }
+	for _, source := range []string{"beacon", "Beacon", " BEACON "} {
+		code(t, do("/api/v1/changes", `{"source":"`+source+`","kind":"drill","summary":"Drill: answers 503 on purpose"}`), http.StatusBadRequest, "bad_input")
+	}
+	code(t, do("/api/v1/changes", `{"source":"ci","summary":"deploy","time":"`+at(-2*time.Hour)+`"}`), http.StatusBadRequest, "bad_input")
+	code(t, do("/api/v1/changes/flux", strings.Replace(fluxSample, "2026-11-02T08:41:07Z", at(-2*time.Hour), 1)), http.StatusBadRequest, "bad_input")
+	code(t, do("/api/v1/changes", `{"source":"ci","summary":"deploy","time":"`+at(-30*time.Minute)+`"}`), http.StatusCreated, "")
+	code(t, do("/api/v1/changes", `{"source":"beacon-deploy","summary":"deploy"}`), http.StatusCreated, "")
+	got, err := e.Bridge.Changes(bridge.ChangeQuery{Since: "7d"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("stored: %+v %v", got, err)
+	}
+	for _, c := range got {
+		if c.Source == "beacon" || c.PostedBy != "ci" {
+			t.Errorf("stored %+v", c)
+		}
+	}
+}

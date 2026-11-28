@@ -1,15 +1,18 @@
 # Things that run out: resources in the catalogue (machines, domains, tokens: beacon_resource_expiry_timestamp_seconds),
 # certificates seen by the probes (probe_ssl_earliest_cert_expiry), and heartbeats of scheduled jobs
 # (beacon_heartbeat_max_age_seconds from the catalogue, beacon_heartbeat_last_success_timestamp_seconds from the jobs).
+# What the catalogue says counts only from Beacon's own scrape (job="beacon"), and a heartbeat's success only
+# from what the gateway labelled as a heartbeat's, a probe's or a host's (job, which the gateway sets to the kind
+# of token; a heartbeat token writes only its own heartbeat), so no machine can postpone an expiry or a heartbeat.
 groups:
   - name: expiry
     interval: 5m
     rules:
       - alert: ResourceExpiring
         expr: |
-          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) < 30 * 86400
+          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds{job="beacon"}) - time()) < 30 * 86400
           and
-          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) >= 7 * 86400
+          (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds{job="beacon"}) - time()) >= 7 * 86400
         labels:
           severity: warning
           service: "{{ $labels.resource }}"
@@ -20,7 +23,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
 
       - alert: ResourceExpiring
-        expr: (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds) - time()) < 7 * 86400
+        expr: (max by (resource, kind) (beacon_resource_expiry_timestamp_seconds{job="beacon"}) - time()) < 7 * 86400
         labels:
           severity: critical
           service: "{{ $labels.resource }}"
@@ -59,14 +62,14 @@ groups:
       # A heartbeat may arrive as a steady series (the probe agent's textfile directory) or as one pushed sample,
       # so the last value within 31 days counts, not the current one.
       - record: beacon:heartbeat_last_success
-        expr: max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds[31d]))
+        expr: max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{job=~"heartbeat|probe|host"}[31d]))
 
       # at the heartbeat's own severity, from the catalogue
       - alert: HeartbeatStale
         expr: |
           (time() - beacon:heartbeat_last_success)
           > on (heartbeat) group_left (severity)
-          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds)
+          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds{job="beacon"})
         labels:
           service: "{{ $labels.heartbeat }}"
           failure_domain: "{{ $labels.heartbeat }}"
@@ -78,7 +81,7 @@ groups:
       # listed in the catalogue but never reported: a new heartbeat gets a day to succeed once
       - alert: HeartbeatMissing
         expr: |
-          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds)
+          max by (heartbeat, severity) (beacon_heartbeat_max_age_seconds{job="beacon"})
           unless on (heartbeat) beacon:heartbeat_last_success
         for: 1d
         labels:

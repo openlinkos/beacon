@@ -28,7 +28,7 @@ Neither is probed: Beacon watches their dates. This page follows [Monitor a serv
    restic backup … && beacon-heartbeat nas-backup
    ```
 
-   A job elsewhere pushes one sample with a token of its own. Make the token on the centre with `beacon enroll heartbeat nas-backup`:
+   A job elsewhere pushes one sample with a token of its own, which reports this heartbeat and nothing else. Make the token on the centre with `beacon enroll heartbeat nas-backup`:
 
    ```bash
    curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \

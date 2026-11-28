@@ -89,11 +89,11 @@ func (b *Bridge) agentLines(g *store.Group) []string {
 		}
 		switch c.Status {
 		case "ok":
-			out = append(out, b.t("Alert delivered to hook %s at %s", c.Hook, b.clock(c.Done)))
+			out = append(out, b.t("Alert delivered to hook %s at %s", mdEscape(c.Hook), b.clock(c.Done)))
 		case "failed":
-			out = append(out, b.t("Delivery to hook %s failed", c.Hook))
+			out = append(out, b.t("Delivery to hook %s failed", mdEscape(c.Hook)))
 		default:
-			out = append(out, b.t("Delivery to hook %s pending", c.Hook))
+			out = append(out, b.t("Delivery to hook %s pending", mdEscape(c.Hook)))
 		}
 	}
 	return out

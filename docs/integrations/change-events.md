@@ -19,16 +19,16 @@ docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 
 
 | Field | Meaning |
 | --- | --- |
-| `source` | Required: the sender, such as `github-actions` or `deploy-script` |
+| `source` | Required: the sender, such as `github-actions` or `deploy-script`; not `beacon`, which is Beacon's own |
 | `kind` | `deploy`, `config`, `rollback` or another word; `change` by default |
 | `summary` | Required: what changed |
 | `service`, `machine` | What it concerns, as the alerts' `service` label and the machines' names say it |
 | `url`, `revision` | Where to read more; the commit or version |
-| `time` | RFC 3339; now by default; at most an hour ahead, and no older than changes are kept |
+| `time` | RFC 3339; now by default; at most an hour ahead of Beacon's clock or behind it. Post change events as they happen |
 
 Unknown fields are refused, so a typo does not go unnoticed. Beacon keeps the token's name with each change.
 
-Beacon records two kinds of its own, with the source `beacon`:
+Beacon records two kinds of its own, with the source `beacon`, which no sender may use:
 
 - `deploy`, when it starts on a version other than the one it last ran;
 - `drill`, on the service `drill`, when a [drill](../guide/drills.md) starts (its summary says when it ends by itself) or is ended early.

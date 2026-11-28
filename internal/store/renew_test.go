@@ -97,7 +97,7 @@ func TestRenewTokenRefusesMachines(t *testing.T) {
 	for _, tc := range []struct {
 		name, subject string
 		scopes        []string
-	}{{"probe-edge-1", "edge-1", []string{"probe:write"}}, {"host-worker", "worker", []string{"host:write"}}, {"heartbeat-nas", "", []string{"heartbeat:write"}}} {
+	}{{"probe-edge-1", "edge-1", []string{"probe:write"}}, {"host-worker", "worker", []string{"host:write"}}, {"heartbeat-nas", "nas", []string{"heartbeat:write"}}} {
 		if _, tok, err := s.CreateSubjectToken(tc.name, tc.subject, tc.scopes, time.Hour, "cli:root"); err != nil || tok.Renewable() {
 			t.Fatalf("%s: %+v %v", tc.name, tok, err)
 		}

@@ -12,6 +12,7 @@
 package gateway
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,16 +38,17 @@ import (
 	"github.com/openlinkos/beacon/internal/targets"
 )
 
-// Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the
-// rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope. Auth checks
-// the tokens; the gateway counts failed attempts on its own (api.Auth.Separate), apart from the API's.
+// Deps are what the gateway needs. Alerts takes posted alerts (the router), with the name of the
+// alerts:send token that posted them, or "" for the rule engine's; RulesToken is the bearer the rule
+// engine sends, accepted for posting alerts besides tokens with the alerts:send scope. Auth checks the
+// tokens; the gateway counts failed attempts on its own (api.Auth.Separate), apart from the API's.
 type Deps struct {
 	Auth           *api.Auth
 	Catalog        func() *catalog.Catalog
 	Targets        func() *targets.Set
 	Modules        func() []byte // the probe module file, handed to probes as is
 	VM             *url.URL
-	Alerts         func([]router.Postable) error
+	Alerts         func(sender string, in []router.Postable) error
 	Changes        ChangeSink // takes change events (changes.go); nil refuses them
 	RulesToken     string
 	Metrics        *metrics.Metrics
@@ -78,6 +81,7 @@ type gateway struct {
 	lastWrite map[string]time.Time // by location or host
 
 	changeRate limiter // change events per token (limit.go)
+	alertRate  limiter // alert posts per alerts:send token (limit.go)
 }
 
 // Handler builds the gateway's router.
@@ -101,7 +105,7 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/agent", g.with("agent", []string{"probe:write"}, g.agent))
 	mux.Handle("POST /api/v1/import/prometheus", g.with("import", []string{"probe:write", "host:write", "heartbeat:write"}, g.importText))
 	for _, p := range readPaths {
-		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
+		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read(p)))
 	}
 	mux.HandleFunc("POST /api/v2/alerts", g.rulesAlerts)
 	mux.Handle("POST /api/v1/changes", g.with("changes", []string{"changes:write"}, g.change))
@@ -117,18 +121,25 @@ func Handler(d Deps) http.Handler {
 	return mux
 }
 
-// proxy forwards to base, keeping the path and the query that the handler set, and never the token.
+// proxy forwards to base, keeping the path and the query that the handler set, and never the token. The
+// path is the handler's alone: not the request's own spelling of it (RawPath).
 func proxy(base *url.URL) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme, r.Out.URL.Host = base.Scheme, base.Host
 			r.Out.URL.Path = strings.TrimSuffix(base.Path, "/") + r.In.URL.Path
+			r.Out.URL.RawPath = ""
 			r.Out.URL.RawQuery = r.In.URL.RawQuery
 			r.Out.Host = base.Host
 			r.Out.Header.Del("Authorization")
 			r.Out.Header.Del("Cookie")
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			var refused *importError // the import's own text broke its limits on the way (imports.go)
+			if errors.As(err, &refused) {
+				fail(w, http.StatusBadRequest, refused.code, refused.msg)
+				return
+			}
 			fail(w, http.StatusBadGateway, "upstream", "the backend did not answer")
 		},
 	}
@@ -200,7 +211,9 @@ func serve(w http.ResponseWriter, r *http.Request, t store.Token, scopes []strin
 	fail(w, http.StatusForbidden, "auth.scope", "the token lacks the scope "+strings.Join(scopes, " or "))
 }
 
-// labels are the labels the gateway puts on what the token writes, or a reason it may not write.
+// labels are the labels the gateway puts on what the token writes, or a reason it may not write. job
+// is the kind of token, probe or host (heartbeat in importText), whatever the machine says, so that
+// the rules can tell a probe's results from what anything else writes.
 func (g *gateway) labels(t store.Token) ([][2]string, string) {
 	if t.Has("probe:write") {
 		cat := g.Catalog()
@@ -211,9 +224,9 @@ func (g *gateway) labels(t store.Token) ([][2]string, string) {
 		case !cat.Expected(l, g.Now()):
 			return nil, "the machine of location " + t.Subject + " has expired"
 		}
-		return [][2]string{{"location", l.ID}, {"region", l.Region}, {"network", l.Network}, {"host", l.ID}}, ""
+		return [][2]string{{"location", l.ID}, {"region", l.Region}, {"network", l.Network}, {"host", l.ID}, {"job", "probe"}}, ""
 	}
-	return [][2]string{{"host", t.Subject}}, ""
+	return [][2]string{{"host", t.Subject}, {"job", "host"}}, ""
 }
 
 func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
@@ -282,7 +295,9 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 }
 
 // importText takes samples in the Prometheus text format (what beacon-probe pushes, and heartbeats),
-// labelled like remote write: a probe's with its location, a host's with its name, a heartbeat's as such.
+// labelled like remote write: a probe's with its location, a host's with its name. A heartbeat token
+// writes only its heartbeat's sample, labelled with the heartbeat it was enrolled for. The text is
+// bounded on its way (imports.go).
 func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.refuseStandby(w) {
 		return
@@ -297,17 +312,47 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 		for _, l := range labels {
 			q.Add("extra_label", l[0]+"="+l[1])
 		}
+		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples})
+		if refused(w, err) {
+			return
+		}
+		r.Body = io.NopCloser(body)
 		g.mu.Lock()
 		g.lastWrite[t.Subject] = g.Now()
 		g.mu.Unlock()
 	} else {
-		q.Add("extra_label", "source=heartbeat")
-		if t.Subject != "" {
-			q.Add("extra_label", "sender="+t.Subject)
+		if t.Subject == "" {
+			fail(w, http.StatusForbidden, "heartbeat.unnamed", "this heartbeat token names no heartbeat; enrol the heartbeat with beacon enroll heartbeat NAME and send with its token")
+			return
+		}
+		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, only: heartbeatMetric})
+		if refused(w, err) {
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		for _, l := range [][2]string{{"job", "heartbeat"}, {"heartbeat", t.Subject}, {"source", "heartbeat"}, {"sender", t.Subject}} {
+			q.Add("extra_label", l[0]+"="+l[1])
 		}
 	}
+	r.ContentLength = -1 // decompressed, of a length not known in advance
+	r.Header.Del("Content-Length")
+	r.Header.Del("Content-Encoding")
 	r.URL.Path, r.URL.RawQuery = "/api/v1/import/prometheus", q.Encode()
 	g.vm.ServeHTTP(w, r)
+}
+
+// refused answers an import's error, if there is one, and reports whether it did.
+func refused(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	var ie *importError
+	if errors.As(err, &ie) {
+		fail(w, http.StatusBadRequest, ie.code, ie.msg)
+	} else {
+		fail(w, http.StatusBadRequest, "bad_input", "the body could not be read: "+err.Error())
+	}
+	return true
 }
 
 func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token) {
@@ -320,7 +365,32 @@ func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token)
 	_, _ = w.Write(g.Modules())
 }
 
-func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { g.vm.ServeHTTP(w, r) }
+// readName is what a read route's wildcard takes: a label name, or a status page's name. Nothing that
+// could spell out a path of its own: no slashes, backslashes, percent signs or dot segments.
+var readName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]{0,255}$`)
+
+// read passes a query to VictoriaMetrics on the path of the route that matched (pattern), rebuilt from
+// it, so that a request reaches no other route there whatever its path spells out.
+func (g *gateway) read(pattern string) handler {
+	_, path, _ := strings.Cut(pattern, " ")
+	return func(w http.ResponseWriter, r *http.Request, _ store.Token) {
+		out := path
+		for _, name := range []string{"name", "what"} {
+			wildcard := "{" + name + "}"
+			if !strings.Contains(out, wildcard) {
+				continue
+			}
+			v := r.PathValue(name)
+			if !readName.MatchString(v) {
+				fail(w, http.StatusBadRequest, "bad_input", "a "+name+" in the path is a plain name: letters, digits, underscores, dots, colons and dashes")
+				return
+			}
+			out = strings.Replace(out, wildcard, v, 1)
+		}
+		r.URL.Path, r.URL.RawPath = out, ""
+		g.vm.ServeHTTP(w, r)
+	}
+}
 
 // rulesAlerts takes alerts from the rule engine (its own bearer token) or from anyone with alerts:send.
 // The rule engine's token is checked under the same lockout as every token, and a wrong one counts.
@@ -359,11 +429,24 @@ func (g *gateway) isRulesToken(secret string) bool {
 	return g.RulesToken != "" && subtle.ConstantTimeCompare(h[:], g.rulesHash[:]) == 1
 }
 
-func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
-	g.ingestAlerts(w, r, false)
+// alerts takes alerts from a token with alerts:send. They are the token's own: the router labels them
+// with its name (router.SenderLabel) and keeps them apart from the rule engine's; the Watchdog and alerts
+// of severity none, which only the rule engine sends, are dropped and counted; and the token posts at
+// most alertLimit times a minute (limit.go).
+func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.alertsLimited(w, t) {
+		return
+	}
+	g.ingest(w, r, t.Name, false)
 }
 
+// ingestAlerts takes the rule engine's alerts.
 func (g *gateway) ingestAlerts(w http.ResponseWriter, r *http.Request, trustedExerciseRule bool) {
+	g.ingest(w, r, "", trustedExerciseRule)
+}
+
+// ingest takes the alerts sender posted ("" for the rule engine).
+func (g *gateway) ingest(w http.ResponseWriter, r *http.Request, sender string, trustedExerciseRule bool) {
 	if g.refuseStandby(w) {
 		return
 	}
@@ -381,7 +464,19 @@ func (g *gateway) ingestAlerts(w http.ResponseWriter, r *http.Request, trustedEx
 			delete(alert.Annotations, exercise.ActiveAtAnnotation)
 		}
 	}
-	if err := g.Alerts(in); err != nil {
+	if sender != "" {
+		kept := in[:0]
+		for _, alert := range in {
+			if !router.Reserved(alert.Labels) {
+				kept = append(kept, alert)
+			} else if g.Metrics != nil {
+				g.Metrics.Inc("beacon_gateway_alerts_dropped_total", "Alerts dropped because only the rule engine sends the Watchdog and alerts of severity none",
+					metrics.Labels("token", sender))
+			}
+		}
+		in = kept
+	}
+	if err := g.Alerts(sender, in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", err.Error())
 		return
 	}

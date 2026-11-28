@@ -13,6 +13,14 @@ const (
 	changeWindow = time.Minute
 )
 
+// Alert posts from tokens with alerts:send are limited the same way: alertLimit posts in an alertWindow,
+// those beyond refused with 429 and alerts.too_many. A rule engine posts once per rule group and
+// evaluation; the rule engine's own posts, with the rules token, are never limited.
+const (
+	alertLimit  = 120
+	alertWindow = time.Minute
+)
+
 // limiter counts requests by key in fixed windows.
 type limiter struct {
 	mu      sync.Mutex

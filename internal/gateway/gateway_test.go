@@ -55,6 +55,7 @@ type env struct {
 	st      *store.Store
 	vm      *seen
 	posted  []router.Postable
+	senders []string // who posted each request of alerts: an alerts:send token's name, "" for the rule engine
 	m       *metrics.Metrics
 	board   *probenow.Board
 	probe   string // cdn-pre-us1
@@ -113,9 +114,13 @@ resources:
 	t.Cleanup(func() { _ = st.Close() })
 	e := &env{st: st, vm: &seen{}, m: metrics.New("test")}
 	vmURL, _ := url.Parse(e.vm.server(t).URL + "/prefix")
-	var alerts func([]router.Postable) error
+	var alerts func(string, []router.Postable) error
 	if withAM {
-		alerts = func(ps []router.Postable) error { e.posted = append(e.posted, ps...); return nil }
+		alerts = func(sender string, ps []router.Postable) error {
+			e.senders = append(e.senders, sender)
+			e.posted = append(e.posted, ps...)
+			return nil
+		}
 	}
 	mk := func(name, subject string, scopes ...string) string {
 		s, _, err := st.CreateSubjectToken(name, subject, scopes, time.Hour, "test")
@@ -173,7 +178,7 @@ func TestProbeWriteIsLabelledByTheGateway(t *testing.T) {
 		t.Fatalf("forwarded %s %q", r.URL.Path, body)
 	}
 	got := r.URL.Query()["extra_label"]
-	want := []string{"location=cdn-pre-us1", "region=overseas", "network=CN2 GIA", "host=cdn-pre-us1"}
+	want := []string{"location=cdn-pre-us1", "region=overseas", "network=CN2 GIA", "host=cdn-pre-us1", "job=probe"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("extra_label = %v", got)
 	}
@@ -205,7 +210,7 @@ func TestHostWrite(t *testing.T) {
 	e := newEnv(t, false)
 	code(t, e.do("POST", "/api/v1/write", e.host, "x"), http.StatusNoContent, "")
 	r, _ := e.vm.last()
-	if got := r.URL.Query()["extra_label"]; len(got) != 1 || got[0] != "host=worker-us" {
+	if got := r.URL.Query()["extra_label"]; strings.Join(got, "|") != "host=worker-us|job=host" {
 		t.Fatalf("extra_label = %v", got)
 	}
 	code(t, e.do("GET", "/api/v1/targets", e.host, ""), http.StatusForbidden, "auth.scope")
@@ -245,7 +250,7 @@ func TestHeartbeatReadAndAlerts(t *testing.T) {
 	e := newEnv(t, false)
 	code(t, e.do("POST", "/api/v1/import/prometheus", e.beat, "beacon_heartbeat_last_success_timestamp_seconds{name=\"x\"} 1"), http.StatusNoContent, "")
 	r, _ := e.vm.last()
-	if r.URL.Path != "/prefix/api/v1/import/prometheus" || strings.Join(r.URL.Query()["extra_label"], ",") != "source=heartbeat,sender=nas" {
+	if r.URL.Path != "/prefix/api/v1/import/prometheus" || strings.Join(r.URL.Query()["extra_label"], ",") != "job=heartbeat,heartbeat=nas,source=heartbeat,sender=nas" {
 		t.Fatalf("heartbeat forwarded as %s?%s", r.URL.Path, r.URL.RawQuery)
 	}
 	code(t, e.do("GET", "/api/v1/query?query=up", e.reader, ""), http.StatusNoContent, "")
@@ -321,7 +326,7 @@ func TestProbeImportAndModules(t *testing.T) {
 	code(t, e.do("POST", "/api/v1/import/prometheus?extra_label=location=evil", e.probe, "probe_success 1 1793436000000"), http.StatusNoContent, "")
 	r, body := e.vm.last()
 	if r.URL.Path != "/prefix/api/v1/import/prometheus" || body != "probe_success 1 1793436000000" ||
-		strings.Join(r.URL.Query()["extra_label"], "|") != "location=cdn-pre-us1|region=overseas|network=CN2 GIA|host=cdn-pre-us1" {
+		strings.Join(r.URL.Query()["extra_label"], "|") != "location=cdn-pre-us1|region=overseas|network=CN2 GIA|host=cdn-pre-us1|job=probe" {
 		t.Fatalf("imported as %s?%s %q", r.URL.Path, r.URL.RawQuery, body)
 	}
 	code(t, e.do("POST", "/api/v1/import/prometheus", e.expired, "x 1"), http.StatusForbidden, "location.inactive")

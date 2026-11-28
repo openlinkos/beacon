@@ -47,7 +47,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | --- | --- | --- | --- |
 | `rules.token_file` | path | required | The bearer token the rule engine (vmalert or Prometheus) authenticates with when it posts alerts to the gateway's `/api/v2/alerts`, as it would to Alertmanager. At least 24 characters |
 
-Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in `match`, `source` and `target` are regular expressions over the whole value.
+Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in `match`, `source` and `target` are regular expressions over the whole value. Alerts from an `alerts:send` token carry `sender`, the token's name, and are grouped apart from the rule engine's, as if every `group_by` listed `sender`. A source alert inhibits only when it is the rule engine's, or comes from the same sender as the target.
 
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
@@ -102,8 +102,8 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
-| `links.grafana_service` | URL template | — | The dashboard an alert's card links to; `{service}` is filled in, and the alert's own annotation wins |
-| `links.runbook` | URL template | — | The runbook; `{alertname}` is filled in, and the alert's own annotation wins |
+| `links.grafana_service` | URL template | — | The dashboard an alert's card links to; `{service}` is filled in, and the `dashboard` annotation of the rule engine's alert wins |
+| `links.runbook` | URL template | — | The runbook; `{alertname}` is filled in, and the `runbook` annotation of the rule engine's alert wins |
 | `pages.link_ttl` | duration | `720h` (30 days) | How long the signed links to the console's pages (an alert's timeline, a session's replay) are valid. Between `1h` and 366 days |
 | `branding.title` | string | `Beacon` | The deployment's name on the page at `/` when there is no status page. One line, at most 80 characters |
 | `branding.powered_by` | bool | `true` | `false` leaves "Powered by Beacon, open source" out of the public pages' footer |

@@ -376,9 +376,10 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window, access 
 			"probes.results[].module", "probes.results[].reason", "probes.results[].reasons", "probes.error",
 			"heartbeats[].description", "heartbeats[].error",
 			"designated_machines[].service",
-			"related[].title", "related[].service", "related[].why", "changes[].summary", "changes[].service", "changes[].object",
+			"related[].title", "related[].service", "related[].why", "changes[].source", "changes[].kind", "changes[].summary", "changes[].service", "changes[].object", "changes[].url",
 			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
-			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command"),
+			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command",
+			"links.runbook", "links.dashboard"),
 		Probes: b.probeEvidence(ctx, g, w), Heartbeats: b.heartbeats(ctx, g, w), Related: b.related(g),
 		Changes: b.changesAround(g, w, machines), Done: done, Links: b.links(g),
 		LinkedMachines: explicit, MonitorMachines: designated,
@@ -464,6 +465,7 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	}
 	ctx, cancel := context.WithTimeout(ctx, evidenceTimeout)
 	defer cancel()
+	sel = `job="probe",` + sel // what probe locations wrote, as the gateway labels it, and nothing else
 	span := w.To.Sub(w.From)
 	step := max(30*time.Second, (span / 240).Round(time.Second))
 	qSuccess := "probe_success{" + sel + "}"

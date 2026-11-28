@@ -160,8 +160,16 @@ func Fingerprint(labels map[string]string) string {
 // MaxAlerts is the most alerts one request may carry.
 const MaxAlerts = 5000
 
-// Ingest takes posted alerts.
-func (r *Router) Ingest(in []Postable) error {
+// SenderLabel names who posted an alert other than the rule engine: the name of its alerts:send token.
+// The router sets it on such an alert, whatever the alert said, and takes it off the rule engine's,
+// so that one sender's alerts are never another's: a sender cannot resolve, re-annotate or inhibit the
+// rule engine's alerts or another sender's, and its alerts are grouped apart.
+const SenderLabel = "sender"
+
+// Ingest takes posted alerts: the rule engine's when sender is "", otherwise those of the alerts:send
+// token called sender. The Watchdog and alerts of severity none are the rule engine's alone; a sender's
+// are dropped.
+func (r *Router) Ingest(sender string, in []Postable) error {
 	if len(in) > MaxAlerts {
 		return fmt.Errorf("at most %d alerts per request", MaxAlerts)
 	}
@@ -172,6 +180,17 @@ func (r *Router) Ingest(in []Postable) error {
 		if len(p.Labels) == 0 || p.Labels["alertname"] == "" {
 			continue
 		}
+		labels := maps.Clone(p.Labels)
+		delete(labels, SenderLabel)
+		if sender != "" {
+			if Reserved(labels) {
+				r.log.Warn("alert dropped: only the rule engine sends the Watchdog and alerts of severity none",
+					"sender", sender, "alertname", labels["alertname"])
+				continue
+			}
+			labels[SenderLabel] = sender
+		}
+		p.Labels = labels
 		if p.Labels["alertname"] == "Watchdog" {
 			watchdog = watchdog || p.EndsAt.IsZero() || p.EndsAt.After(now)
 			continue
@@ -202,6 +221,12 @@ func (r *Router) Ingest(in []Postable) error {
 		r.sink.Watchdog()
 	}
 	return nil
+}
+
+// Reserved reports whether an alert is one only the rule engine may send: the Watchdog, which proves the
+// rules pipeline works, or an alert of severity none, which is never shown.
+func Reserved(labels map[string]string) bool {
+	return labels["alertname"] == "Watchdog" || labels["severity"] == "none"
 }
 
 // Restore takes the groups the bridge had firing before a restart.
@@ -251,6 +276,9 @@ func (r *Router) groupOf(labels map[string]string) (string, map[string]string, t
 			break
 		}
 	}
+	if !slices.Contains(by, SenderLabel) { // a sender's alerts are grouped apart; the rule engine's carry none
+		by = append(slices.Clone(by), SenderLabel)
+	}
 	gl := map[string]string{}
 	parts := make([]string, 0, len(by))
 	for _, k := range slices.Sorted(slices.Values(by)) {
@@ -267,6 +295,8 @@ func (r *Router) groupOf(labels map[string]string) (string, map[string]string, t
 }
 
 // muted reports whether a firing alert is inhibited by another firing alert or matched by an active silence.
+// An alert inhibits only when it is the rule engine's or comes from the same sender as the alert it would
+// mute: muting is the deployment's own rules' business, and a sender may mute only what it sent itself.
 func (r *Router) muted(a *alert, firing []*alert, silences []store.SilenceRecord) bool {
 	for _, s := range silences {
 		if silenceMatches(s, a.labels) {
@@ -279,6 +309,9 @@ func (r *Router) muted(a *alert, firing []*alert, silences []store.SilenceRecord
 		}
 		for _, src := range firing {
 			if src.fp == a.fp || !in.Source.match(src.labels) {
+				continue
+			}
+			if s := src.labels[SenderLabel]; s != "" && s != a.labels[SenderLabel] {
 				continue
 			}
 			same := true

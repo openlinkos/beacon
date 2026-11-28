@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b78ea1fc
+sourceHash: sha256-8a96f950
 ---
 
 # 心跳与到期资源
@@ -32,7 +32,7 @@ sourceHash: sha256-b78ea1fc
    restic backup … && beacon-heartbeat nas-backup
    ```
 
-   其他机器上的任务用专属令牌推送一条数据。令牌在中心上用 `beacon enroll heartbeat nas-backup` 生成：
+   其他机器上的任务用专属令牌推送一条数据，这个令牌只能报告这一个心跳。令牌在中心上用 `beacon enroll heartbeat nas-backup` 生成：
 
    ```bash
    curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \

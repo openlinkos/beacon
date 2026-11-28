@@ -273,8 +273,11 @@ func TestSubjectTokens(t *testing.T) {
 	if got, ok := s.VerifyToken(secret); !ok || got.Subject != "cdn-pre-us1" || !got.Has("probe:write") || got.Has("status:read") {
 		t.Fatalf("VerifyToken: %+v %v", got, ok)
 	}
-	// a heartbeat token may name its sender, or not
-	if _, _, err := s.CreateToken("nas-backup", []string{"heartbeat:write"}, time.Hour, ""); err != nil {
-		t.Fatal(err)
+	// a heartbeat token names the heartbeat it reports, the only one it may write
+	if _, _, err := s.CreateToken("nas-backup", []string{"heartbeat:write"}, time.Hour, ""); err == nil || !strings.Contains(err.Error(), "needs a subject") {
+		t.Fatalf("a heartbeat token without its heartbeat: %v", err)
+	}
+	if _, tok, err := s.CreateSubjectToken("heartbeat-nas-backup", "nas-backup", []string{"heartbeat:write"}, time.Hour, ""); err != nil || tok.Subject != "nas-backup" {
+		t.Fatalf("a heartbeat token: %+v %v", tok, err)
 	}
 }

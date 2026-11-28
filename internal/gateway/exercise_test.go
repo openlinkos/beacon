@@ -156,7 +156,7 @@ func TestOnlyTheDedicatedRulesCredentialMayCarryTheExerciseAnchor(t *testing.T) 
 	alert := `[{"labels":{"alertname":"ServiceDown"},"annotations":{"beacon_rule_active_at":"946684980000","summary":"fixture"}}]`
 	for _, enabled := range []bool{false, true} {
 		var got []router.Postable
-		deps := Deps{Auth: &api.Auth{Store: e.Store}, RulesToken: "fixture-rules-secret", Alerts: func(in []router.Postable) error {
+		deps := Deps{Auth: &api.Auth{Store: e.Store}, RulesToken: "fixture-rules-secret", Alerts: func(_ string, in []router.Postable) error {
 			got = in
 			return nil
 		}}

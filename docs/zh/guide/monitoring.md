@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0d7f2faf
+sourceHash: sha256-ec9115e2
 ---
 
 # 检测一个服务
@@ -43,7 +43,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 
 你会看到新的版本号和这一项，修改也会回显到告警群。
 
-网关给检测点写入的所有数据打上目录里的 `location`、`region`、`network` 和 `host` 标签。检测点自己报的一概不用。
+网关给检测点写入的所有数据打上目录里的 `location`、`region`、`network` 和 `host` 标签，以及 `job="probe"`。检测点自己报的一概不用。
 
 - `region`（`overseas` 或 `mainland`）让规则分得清线路问题和故障。
 - `name` 是公开的，显示在[状态页](status-pages.md)上。所以按地点和网络命名，不写厂商。

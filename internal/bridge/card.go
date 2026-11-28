@@ -12,6 +12,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -75,15 +76,16 @@ func (b *Bridge) services(g *store.Group) []string {
 	return out
 }
 
-// link fills a URL template's {service} and {alertname}.
+// link fills a URL template's {service} and {alertname}. The rule engine's runbook and dashboard
+// annotations replace the configured runbook and dashboard; another sender's do not.
 func (b *Bridge) link(tmpl string, g *store.Group) string {
 	if tmpl == "" {
 		return ""
 	}
-	if v := g.Annotations["runbook"]; v != "" && tmpl == b.d.Config.Links.Runbook {
+	if v := g.Annotations["runbook"]; v != "" && tmpl == b.d.Config.Links.Runbook && fromRuleEngine(g) {
 		return v
 	}
-	if v := g.Annotations["dashboard"]; v != "" && tmpl == b.d.Config.Links.GrafanaService {
+	if v := g.Annotations["dashboard"]; v != "" && tmpl == b.d.Config.Links.GrafanaService && fromRuleEngine(g) {
 		return v
 	}
 	name := g.Common["alertname"]
@@ -91,6 +93,20 @@ func (b *Bridge) link(tmpl string, g *store.Group) string {
 		name = g.Labels["alertname"]
 	}
 	return strings.NewReplacer("{service}", b.service(g), "{alertname}", name).Replace(tmpl)
+}
+
+// fromRuleEngine reports whether g holds only the rule engine's alerts: none of them, nor the group,
+// names a sender (the router labels every other sender's alerts with it).
+func fromRuleEngine(g *store.Group) bool {
+	if g.Labels[router.SenderLabel] != "" || g.Common[router.SenderLabel] != "" {
+		return false
+	}
+	for _, a := range g.Alerts {
+		if a.Labels[router.SenderLabel] != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Bridge) clock(t time.Time) string { return t.In(b.d.Config.Location).Format("01-02 15:04") }
@@ -141,7 +157,7 @@ func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
-	rows, err := b.d.VM.Query(ctx, fmt.Sprintf(`max by (location) (max_over_time(probe_success{service="%s"}[3m]))`, svc))
+	rows, err := b.d.VM.Query(ctx, fmt.Sprintf(`max by (location) (max_over_time(probe_success{job="probe",service="%s"}[3m]))`, svc))
 	if err != nil || len(rows) == 0 {
 		return ""
 	}
@@ -152,7 +168,7 @@ func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 		if r.Value < 1 {
 			mark = "❌"
 		}
-		parts = append(parts, mark+" "+r.Labels["location"])
+		parts = append(parts, mark+" "+mdEscape(clean(r.Labels["location"], maxShort, false)))
 	}
 	return strings.Join(parts, "  ")
 }
@@ -190,15 +206,21 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 		tags = []map[string]any{feishu.Tag(b.t("Resolved"), "green")}
 	}
 
+	// Everything quoted into the card's markdown is text from outside Beacon or from people: escaped, it
+	// mentions nobody and links nowhere (mdEscape).
 	var md []string
 	if d := g.Annotations["description"]; d != "" {
-		md = append(md, d)
+		md = append(md, mdEscape(clean(d, maxLong, true)))
 	}
 	if svc := b.service(g); svc != "" {
-		md = append(md, b.t("**Service**: %s", svc))
+		md = append(md, b.t("**Service**: %s", mdEscape(cleanLine(svc))))
 	} else if svcs := b.services(g); len(svcs) > 0 {
 		const show = 10
-		list := strings.Join(svcs[:min(len(svcs), show)], ", ")
+		shown := make([]string, 0, show)
+		for _, s := range svcs[:min(len(svcs), show)] {
+			shown = append(shown, mdEscape(cleanLine(s)))
+		}
+		list := strings.Join(shown, ", ")
 		if len(svcs) > show {
 			list = b.t("%s and %d more", list, len(svcs)-show)
 		}
@@ -221,20 +243,21 @@ func (b *Bridge) cardWithSessions(ctx context.Context, g *store.Group, sessions 
 
 	var state []string
 	if g.Ack != nil {
+		by := mdEscape(cleanLine(g.Ack.By))
 		if g.Ack.StopsEscalation() {
-			state = append(state, b.t("Acknowledged by %s at %s via %s", g.Ack.By, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
+			state = append(state, b.t("Acknowledged by %s at %s via %s", by, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
 		} else {
-			state = append(state, b.t("Agent acknowledgement from %s at %s via %s", g.Ack.By, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
+			state = append(state, b.t("Agent acknowledgement from %s at %s via %s", by, b.clock(g.Ack.At), b.viaName(g.Ack.Via)))
 		}
 		if g.Ack.Note != "" {
-			state = append(state, b.t("Note: %s", g.Ack.Note))
+			state = append(state, b.t("Note: %s", mdEscape(clean(g.Ack.Note, maxLine, false))))
 		}
 	}
 	switch {
 	case g.Silence.Pauses(now):
-		state = append(state, b.t("Silenced until %s by %s", b.clock(g.Silence.Until), g.Silence.By))
+		state = append(state, b.t("Silenced until %s by %s", b.clock(g.Silence.Until), mdEscape(cleanLine(g.Silence.By))))
 	case g.Silence != nil && now.Before(g.Silence.Until):
-		state = append(state, b.t("Silenced by agent %s until %s; people are still notified", g.Silence.By, b.clock(g.Silence.Until)))
+		state = append(state, b.t("Silenced by agent %s until %s; people are still notified", mdEscape(cleanLine(g.Silence.By)), b.clock(g.Silence.Until)))
 	}
 	if !g.Buzzed.IsZero() {
 		state = append(state, b.t("Buzzed in Feishu at %s", b.clock(g.Buzzed)))
@@ -302,18 +325,19 @@ func currentCardAction(g *store.Group, a feishu.Action) bool {
 	return a.MessageID != ""
 }
 
-// plainBody is the alert in a few lines of text (Pushover, Bark, the group bot).
+// plainBody is the alert in a few lines of text (Pushover, Bark, the group bot). What it quotes cannot
+// mention anyone in the chat (chatSafe).
 func (b *Bridge) plainBody(g *store.Group) string {
 	var lines []string
 	if d := g.Annotations["description"]; d != "" {
-		lines = append(lines, d)
+		lines = append(lines, chatSafe(clean(d, maxLong, true)))
 	}
 	lines = append(lines, b.t("Since %s (%s)", b.clock(g.StartsAt), b.dur(b.now().Sub(g.StartsAt))))
 	return strings.Join(lines, "\n")
 }
 
 func (b *Bridge) plainFiring(g *store.Group) string {
-	lines := []string{b.t("Firing (%s): %s", b.severityName(g.Severity), cleanLine(b.title(g)))}
+	lines := []string{b.t("Firing (%s): %s", b.severityName(g.Severity), chatSafe(cleanLine(b.title(g))))}
 	if u := b.notificationPage(g); u != "" {
 		lines = append(lines, u)
 	}
@@ -325,7 +349,7 @@ func (b *Bridge) plainFiring(g *store.Group) string {
 }
 
 func (b *Bridge) plainResolved(g *store.Group) string {
-	text := b.t("Resolved: %s, after %s", cleanLine(b.title(g)), b.dur(g.ResolvedAt.Sub(g.StartsAt)))
+	text := b.t("Resolved: %s, after %s", chatSafe(cleanLine(b.title(g))), b.dur(g.ResolvedAt.Sub(g.StartsAt)))
 	if u := b.notificationPage(g); u != "" {
 		text += "\n" + u
 	}

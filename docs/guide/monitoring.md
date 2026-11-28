@@ -39,7 +39,7 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 
 You will see the new version and the item, and the change is echoed to the alert chat.
 
-The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue. These take the place of anything the probe says about itself.
+The gateway labels everything a probe writes with `location`, `region`, `network` and `host` from the catalogue, and `job="probe"`. These take the place of anything the probe says about itself.
 
 - `region` (`overseas` or `mainland`) lets the rules tell a path problem from an outage.
 - `name` is public, shown on the [status pages](status-pages.md). Name locations by place and network, never by vendor.

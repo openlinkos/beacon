@@ -78,7 +78,7 @@ In the reference deployment, Caddy serves 17001 as `https://status.example.com` 
 
 From a service breaking to people and agents hearing of it, with the reference rules and the default settings:
 
-1. **Probes push.** Every minute, `beacon-probe agent` probes the targets the gateway handed it. It pushes the samples in the Prometheus text format, and keeps a queue on disk for when the network is down. Its token names its location. The gateway labels everything it writes with the location, region, network and host from the catalogue. So a probe cannot speak for another, and a location whose machine has expired cannot write at all (`location.inactive`).
+1. **Probes push.** Every minute, `beacon-probe agent` probes the targets the gateway handed it. It pushes the samples in the Prometheus text format, and keeps a queue on disk for when the network is down. Its token names its location. The gateway labels everything it writes with the location, region, network and host from the catalogue, and with `job="probe"`, the kind of its token. So a probe cannot speak for another, a host or a heartbeat cannot pass for a probe, and a location whose machine has expired cannot write at all (`location.inactive`).
 2. **Rules decide.** vmalert evaluates the rules every 30 seconds.
    - A location counts as failing a service once it has failed it for 3 minutes.
    - The service is down when at least two locations fail it, and they are at least half of those reporting.

@@ -205,8 +205,14 @@ type GroupBot struct {
 	now     func() time.Time
 }
 
-// Send posts text, adding the keyword when the text lacks it.
+// noMentions keeps a plain message from mentioning anyone (<at user_id="all">), whatever it quotes:
+// angle brackets become single angle quotation marks.
+var noMentions = strings.NewReplacer("<", string(rune(0x2039)), ">", string(rune(0x203A)))
+
+// Send posts text, adding the keyword when the text lacks it. The text mentions nobody: what it quotes
+// (an alert's title, a command run on a machine) comes from outside Beacon.
 func (g *GroupBot) Send(ctx context.Context, text string) error {
+	text = noMentions.Replace(text)
 	if g.Keyword != "" && !strings.Contains(text, g.Keyword) {
 		text = "[" + g.Keyword + "] " + text
 	}

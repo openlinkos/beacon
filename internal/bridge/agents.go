@@ -165,7 +165,8 @@ func (b *Bridge) hookBody(g *store.Group, h config.Agent, c store.AgentCall) []b
 		v = dispatch{Ref: h.Ref, Inputs: inputs}
 	} else {
 		p := HookPayload{Delivery: c.Delivery, Event: c.Event, At: c.At, Hook: h.Name, Alert: b.brief(g), Links: b.links(g),
-			Hint: hintFiring + b.heartbeatHint(g), Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels")}
+			Hint: hintFiring + b.heartbeatHint(g), Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
+				"links.runbook", "links.dashboard")}
 		if c.Event == "resolved" {
 			p.Hint, p.FiringCall = hintResolved, firingCall(g, h.Name, c.At)
 			if p.FiringCall != nil && p.FiringCall.Recent {

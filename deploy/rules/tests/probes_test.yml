@@ -124,6 +124,38 @@ tests:
               description: plain.example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
 
+  # The gateway sets job to the kind of token that wrote a sample: what a host or a heartbeat token writes in a
+  # probe's name is not a probe's result, so it neither outvotes the locations nor raises an outage of its own.
+  - name: results written by anything but a probe location do not count
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="probe",service="plain.example.com",location="edge-1",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="probe",service="plain.example.com",location="edge-2",region="overseas"}'
+        values: '1x5 0x20'
+      - series: 'probe_success{job="host",host="worker-1",service="plain.example.com",location="edge-3",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="host",host="worker-1",service="plain.example.com",location="edge-4",region="overseas"}'
+        values: '1x25'
+      - series: 'probe_success{job="heartbeat",heartbeat="nas-backup",service="plain.example.com",location="cn-1",region="mainland"}'
+        values: '1x25'
+      - series: 'probe_success{job="host",host="worker-1",service="quiet.example.com",location="edge-1",region="overseas"}'
+        values: '0x25'
+      - series: 'probe_success{job="host",host="worker-1",service="quiet.example.com",location="edge-2",region="overseas"}'
+        values: '0x25'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              service: plain.example.com
+              severity: critical
+            exp_annotations:
+              summary: plain.example.com is down
+              beacon_rule_active_at: ""
+              description: plain.example.com has failed for 3 minutes from at least half of the probe locations that report it (and at least two). The card lists each location's result and why it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ServiceDown.md
+
   - name: fewer than half failing is a partial outage, a warning
     interval: 1m
     input_series:
@@ -234,6 +266,32 @@ tests:
       - eval_time: 4m
         alertname: ProbeLocationDown
         exp_alerts: []
+      - eval_time: 6m
+        alertname: ProbeLocationDown
+        exp_alerts:
+          - exp_labels:
+              location: edge-3
+              region: overseas
+              network: CN2 GIA
+              severity: warning
+              service: probe-edge-3
+              failure_domain: probe-edge-3
+            exp_annotations:
+              summary: Probe location edge-3 has sent no results for 10 minutes
+              description: "No probe results from edge-3 (CN2 GIA). The machine, its beacon-probe or its path to the gateway is down; the agent queues results on disk and fills the gap when it is back."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ProbeLocationDown.md
+
+  # Only Beacon's own scrape says which locations should report, and only a location's own results keep it up.
+  - name: a location is expected by the catalogue and kept up by its own results only
+    interval: 1m
+    input_series:
+      - series: 'beacon_expected_location{job="beacon",location="edge-3",region="overseas",network="CN2 GIA"}'
+        values: '1x15'
+      - series: 'probe_success{job="host",host="worker-1",service="example.com",location="edge-3",region="overseas"}'
+        values: '1x15'
+      - series: 'beacon_expected_location{job="probe",host="edge-1",location="ghost",region="overseas",network="BGP"}'
+        values: '1x15'
+    alert_rule_test:
       - eval_time: 6m
         alertname: ProbeLocationDown
         exp_alerts:
