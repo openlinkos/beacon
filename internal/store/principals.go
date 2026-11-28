@@ -808,8 +808,13 @@ func (s *Store) TokenPrincipal(t Token) (Principal, bool) {
 	ok := false
 	now := s.now()
 	if t.Agent == "" {
+		p = Principal{Token: t.Name, Scopes: slices.Clone(t.Scopes), Subject: t.Subject, Expires: t.Expires}
+		if !slices.ContainsFunc(t.Scopes, func(sc string) bool { return slices.Contains(PeopleScopes, sc) }) {
+			// a machine's or a service's token, on the gateway's hot path: it never reaches a machine
+			return resolved(p, nil, now, NamedAccess()), true
+		}
 		_ = s.db.View(func(tx kv.Tx) error {
-			p = resolved(Principal{Token: t.Name, Scopes: slices.Clone(t.Scopes), Subject: t.Subject, Expires: t.Expires}, criticalIn(tx), now, t.MachineAccess)
+			p = resolved(p, criticalIn(tx), now, t.MachineAccess)
 			return nil
 		})
 		return p, true
