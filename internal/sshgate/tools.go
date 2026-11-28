@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -50,7 +51,9 @@ func (f writerFunc) Write(p []byte) (int, error) {
 // execute runs command on the machine as one recorded session and returns its transcript. Label is what
 // the record calls it (the command itself, or "read /etc/hosts" for a file tool). A command still
 // running at the timeout is sent SIGKILL and abandoned; its transcript has no exit status. So is one whose
-// recording reaches its cap, which returns an error saying so, with the session filed as far as it went.
+// access ends while it runs (the pause switch, a revocation, the machine changed, this instance lost the
+// channel), and one whose recording reaches its cap; both return an error saying so, with the session
+// filed as far as it went.
 func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, label, command string, stdin []byte,
 	timeout time.Duration) (Transcript, bool, error) {
 	if err := g.requireLeader(); err != nil {
@@ -59,10 +62,21 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 	conn := newID(g.now())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	untrack := g.track(cancel, who, m.Name)
+	var ended atomic.Bool // closed by the channel: access ended, or the recording is full
+	stop := func() { ended.Store(true); cancel() }
+	untrack := g.track(stop, who, m.Name, &m)
 	defer untrack()
+	// Read access again now that it is tracked: a pause or a revocation that came after the caller's
+	// check closes it from here on, and one that came before is seen here. An edit's write, a call of
+	// its own, is checked again this way after its read.
+	if err := g.stillCheck(who, m); err != nil {
+		return Transcript{}, false, err
+	}
 	cl, err := g.dial(ctx, m, who, conn)
 	if err != nil {
+		if ended.Load() {
+			return Transcript{}, false, g.endedError(who, m)
+		}
 		return Transcript{}, false, err
 	}
 	defer func() { _ = cl.Close() }()
@@ -71,7 +85,7 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		return Transcript{}, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	s := g.newSession(who, m, conn+"-1")
-	s.stop = cancel
+	s.stop = stop
 	if err := s.start(kind, label); err != nil {
 		_ = sess.Close()
 		return Transcript{}, false, err
@@ -80,6 +94,14 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 	sess.Stderr = writerFunc(func(p []byte) error { return s.recorded(s.output(p, true)) })
 	if stdin != nil {
 		sess.Stdin = recordedReader{bytes.NewReader(stdin), s.input}
+	}
+	if ctx.Err() != nil { // closed before it could start: nothing runs
+		_ = sess.Close()
+		s.finish(nil, false)
+		if ended.Load() {
+			return Transcript{}, false, g.endedError(who, m)
+		}
+		return Transcript{}, false, ctx.Err()
 	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(command) }()
@@ -108,10 +130,20 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 	case t.Stopped == store.StoppedRecordingLimit:
 		return t, false, fmt.Errorf("%w (%d MiB) in session %s; limit what the command prints (head, tail, grep) or copy large files with scp or rsync",
 			ErrRecordingLimit, maxRecording>>20, t.ID)
+	case ended.Load():
+		return t, false, g.endedError(who, m)
 	case !timedOut && exit == nil:
 		return t, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	return t, timedOut, nil
+}
+
+// endedError says why the channel closed work that who had open on m.
+func (g *Gate) endedError(who Actor, m store.Machine) error {
+	if err := g.stillCheck(who, m); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: access to %s ended while the call ran", ErrForbidden, m.Name)
 }
 
 // cut shortens a tool's output, keeping its start and its end.

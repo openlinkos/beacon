@@ -227,7 +227,7 @@ func setup(t *testing.T, scopes ...string) *env {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	e.addr = ln.Addr().String()
-	go func() { _ = g.Serve(ln) }()
+	go func() { _ = g.Serve(context.Background(), ln) }()
 	// Registered last, so it runs before the recordings' TempDir is removed: a session finishing as
 	// its connection closes during the test's own cleanup may still be writing its cast, and removing
 	// the directory under it fails ("directory not empty").

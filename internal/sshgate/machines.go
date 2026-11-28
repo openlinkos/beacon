@@ -198,6 +198,9 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	if err != nil {
 		return Added{}, err
 	}
+	if exists { // what was open on the machine it replaces closes
+		g.Recheck()
+	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
 	t, _ := g.principal(who)
@@ -283,6 +286,7 @@ func (g *Gate) applyMachineMetadata(ctx context.Context, who Actor, name string,
 		return MachineView{}, machineVersionError(name, err)
 	}
 	if before.MetadataVersion != m.MetadataVersion {
+		g.Recheck() // another account, say: what was open as the old one closes
 		if restore > 0 {
 			g.post(ctx, i18n.T(g.d.Lang, "%s restored machine %s to settings from version %d", who.Name, m.Name, restore))
 		} else {
@@ -293,7 +297,8 @@ func (g *Gate) applyMachineMetadata(ctx context.Context, who Actor, name string,
 	return g.view(m, t), nil
 }
 
-// Remove forgets a machine; its sessions stay on record. A connector machine's connection is closed.
+// Remove forgets a machine; its sessions stay on record. What is open on it closes, and a connector
+// machine's connection too.
 func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 	if g == nil {
 		return ErrDisabled
@@ -305,6 +310,7 @@ func (g *Gate) Remove(ctx context.Context, who Actor, name string) error {
 		return err
 	}
 	g.connectors.close(name)
+	g.Recheck()
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_remove", Target: name})
 	g.post(ctx, i18n.T(g.d.Lang, "%s removed machine %s", who.Name, name))
 	return nil

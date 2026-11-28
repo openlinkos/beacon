@@ -594,7 +594,7 @@ func serve(args []string, stderr io.Writer) int {
 				<-lctx.Done()
 				_ = ln.Close()
 			}()
-			if err := gate.Serve(ln); err != nil && lctx.Err() == nil {
+			if err := gate.Serve(lctx, ln); err != nil && lctx.Err() == nil {
 				errc <- err
 			}
 		})

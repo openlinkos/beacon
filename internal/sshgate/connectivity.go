@@ -71,7 +71,7 @@ func (g *Gate) CheckSSH(ctx context.Context, who Actor, machine, registration st
 
 	ctx, cancel := context.WithTimeout(ctx, sshCheckTimeout)
 	defer cancel()
-	untrack := g.track(cancel, who, m.Name)
+	untrack := g.track(cancel, who, m.Name, &m)
 	defer untrack()
 	// Re-read after tracking so that a pause or revocation concurrent with admission cannot
 	// let the check start on the stale grant.
@@ -106,13 +106,15 @@ func (g *Gate) CheckSSH(ctx context.Context, who Actor, machine, registration st
 	return result, nil
 }
 
+// stillCheck reports why who may no longer work on m as it was when the work began; nil while it may.
+// The pause switch, the credential, the machine's access and its identity are read afresh, and this
+// instance must still hold the channel.
 func (g *Gate) stillCheck(who Actor, m store.Machine) error {
 	current, err := g.machineFor(who, m.Name)
 	if err != nil {
 		return err
 	}
-	if current.Registration() != m.Registration() || current.User != m.User ||
-		current.HostKey != m.HostKey || current.ConnectorFingerprint != m.ConnectorFingerprint {
+	if !sameMachine(m, current) {
 		return ErrMachineChanged
 	}
 	return g.requireLeader()
