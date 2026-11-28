@@ -14,6 +14,9 @@ tests:
         values: '1x30'
       - series: 'beacon_location_in_rotation{job="beacon",location="node-3",rotation="cdn.example.com",role="standby"}'
         values: '0x4 1x25'
+      # what node-1's own probe writes in Beacon's name does not keep it in the rotation
+      - series: 'beacon_location_in_rotation{job="probe",host="node-1",location="node-1",rotation="cdn.example.com",role="primary"}'
+        values: '1x30'
     alert_rule_test:
       - eval_time: 15m
         alertname: CDNNodeOutOfRotation

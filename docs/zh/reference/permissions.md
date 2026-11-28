@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-aff8024c
+sourceHash: sha256-096e8087
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -61,7 +61,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `alerts:report` | 独立令牌或 owner 的自定义 Agent | 为 `agents[].reporter` 指定给该身份的投递回报执行情况 |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |
-| `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本 |
+| `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本；需要主体，只能写它自己的心跳 |
 | `metrics:read` | 机器或专家的令牌 | 经网关查询指标 |
 | `alerts:send` | 机器或专家的令牌 | 像规则引擎那样发告警 |
 | `changes:write` | 机器或专家的令牌 | 发送变更事件 |
@@ -72,7 +72,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 
 ## 机器 {#machines}
 
-`probe:write` 和 `host:write` 需要**主体**：令牌以之写入的检测点或主机。网关给它写入的一切打上主体标签，取代发送方对自己的任何描述。所以一个检测点冒充不了另一个。机器已到期（目录里的 `vps` 过了日期）的令牌不能再写入。
+`probe:write`、`host:write` 和 `heartbeat:write` 需要**主体**：令牌以之写入的检测点、主机或心跳。网关给它写入的一切打上主体标签，并把 `job` 设成令牌的种类（`probe`、`host`、`heartbeat`），取代发送方对自己的任何描述。所以一个检测点冒充不了另一个，主机冒充不了检测点，心跳令牌只能写它自己的心跳。机器已到期（目录里的 `vps` 过了日期）的令牌不能再写入。
 
 Agent 或令牌在 SSH 通道上可达的机器，是各自的一份列表。空列表表示全部。OAuth 登录的列表与 Agent 的取交集，只到达两者都允许的机器。
 

@@ -12,8 +12,10 @@
 package gateway
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -120,7 +122,12 @@ func proxy(base *url.URL) *httputil.ReverseProxy {
 			r.Out.Header.Del("Authorization")
 			r.Out.Header.Del("Cookie")
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			var refused *importError // the import's own text broke its limits on the way (imports.go)
+			if errors.As(err, &refused) {
+				fail(w, http.StatusBadRequest, refused.code, refused.msg)
+				return
+			}
 			fail(w, http.StatusBadGateway, "upstream", "the backend did not answer")
 		},
 	}
@@ -179,7 +186,9 @@ func (g *gateway) with(route string, scopes []string, h handler) http.Handler {
 	})
 }
 
-// labels are the labels the gateway puts on what the token writes, or a reason it may not write.
+// labels are the labels the gateway puts on what the token writes, or a reason it may not write. job
+// is the kind of token, probe or host (heartbeat in importText), whatever the machine says, so that
+// the rules can tell a probe's results from what anything else writes.
 func (g *gateway) labels(t store.Token) ([][2]string, string) {
 	if t.Has("probe:write") {
 		cat := g.Catalog()
@@ -190,9 +199,9 @@ func (g *gateway) labels(t store.Token) ([][2]string, string) {
 		case !cat.Expected(l, g.Now()):
 			return nil, "the machine of location " + t.Subject + " has expired"
 		}
-		return [][2]string{{"location", l.ID}, {"region", l.Region}, {"network", l.Network}, {"host", l.ID}}, ""
+		return [][2]string{{"location", l.ID}, {"region", l.Region}, {"network", l.Network}, {"host", l.ID}, {"job", "probe"}}, ""
 	}
-	return [][2]string{{"host", t.Subject}}, ""
+	return [][2]string{{"host", t.Subject}, {"job", "host"}}, ""
 }
 
 func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
@@ -261,7 +270,9 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 }
 
 // importText takes samples in the Prometheus text format (what beacon-probe pushes, and heartbeats),
-// labelled like remote write: a probe's with its location, a host's with its name, a heartbeat's as such.
+// labelled like remote write: a probe's with its location, a host's with its name. A heartbeat token
+// writes only its heartbeat's sample, labelled with the heartbeat it was enrolled for. The text is
+// bounded on its way (imports.go).
 func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.refuseStandby(w) {
 		return
@@ -276,17 +287,47 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 		for _, l := range labels {
 			q.Add("extra_label", l[0]+"="+l[1])
 		}
+		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples})
+		if refused(w, err) {
+			return
+		}
+		r.Body = io.NopCloser(body)
 		g.mu.Lock()
 		g.lastWrite[t.Subject] = g.Now()
 		g.mu.Unlock()
 	} else {
-		q.Add("extra_label", "source=heartbeat")
-		if t.Subject != "" {
-			q.Add("extra_label", "sender="+t.Subject)
+		if t.Subject == "" {
+			fail(w, http.StatusForbidden, "heartbeat.unnamed", "this heartbeat token names no heartbeat; enrol the heartbeat with beacon enroll heartbeat NAME and send with its token")
+			return
+		}
+		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, only: heartbeatMetric})
+		if refused(w, err) {
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		for _, l := range [][2]string{{"job", "heartbeat"}, {"heartbeat", t.Subject}, {"source", "heartbeat"}, {"sender", t.Subject}} {
+			q.Add("extra_label", l[0]+"="+l[1])
 		}
 	}
+	r.ContentLength = -1 // decompressed, of a length not known in advance
+	r.Header.Del("Content-Length")
+	r.Header.Del("Content-Encoding")
 	r.URL.Path, r.URL.RawQuery = "/api/v1/import/prometheus", q.Encode()
 	g.vm.ServeHTTP(w, r)
+}
+
+// refused answers an import's error, if there is one, and reports whether it did.
+func refused(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	var ie *importError
+	if errors.As(err, &ie) {
+		fail(w, http.StatusBadRequest, ie.code, ie.msg)
+	} else {
+		fail(w, http.StatusBadRequest, "bad_input", "the body could not be read: "+err.Error())
+	}
+	return true
 }
 
 func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token) {

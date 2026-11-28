@@ -60,7 +60,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `incidents:write` | Reserved for incidents written by hand on the status pages; no route takes it yet (incidents come from alert groups) |
 | `probe:write` | A probe location: pushing results, fetching its targets, modules and settings, probing on demand. Writes only as its own location |
 | `host:write` | A host: pushing its metrics. Writes only as its own host |
-| `heartbeat:write` | Pushing heartbeats |
+| `heartbeat:write` | A heartbeat: pushing its sample. Writes only its own heartbeat |
 | `metrics:read` | Metric queries through the gateway |
 | `alerts:send` | Posting alerts as the rule engine does |
 | `changes:write` | Posting change events |
@@ -284,7 +284,7 @@ Each sends with a token of its own:
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `beacon-probe` pushes), and heartbeats |
+| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `beacon-probe` pushes), and heartbeats, labelled with the token's subject and kind (`job`); at most 200,000 samples an import |
 | `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
 | `GET /api/v1/targets` | `probe:write` | The targets this probe's location checks |
 | `GET /api/v1/modules` | `probe:write` | The probe module file, byte for byte |
@@ -383,6 +383,9 @@ Each sends with a token of its own:
 | `probe.not_recorded` | 503 | Beacon could not save the incident check and its audit entry |
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
+| `import.too_large` | 400 | Gateway: the import carries more samples or text than one import may (200,000 samples and 64 MiB; a heartbeat's 100 samples and 64 KiB) |
+| `heartbeat.metric` | 400 | Gateway: a heartbeat token sent a metric other than `beacon_heartbeat_last_success_timestamp_seconds` |
+| `heartbeat.unnamed` | 403 | Gateway: the heartbeat token names no heartbeat; enrol it with `beacon enroll heartbeat <name>` |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |
 | `exercise.invalid_receipt` | 400 | Gateway: the drill receipt is invalid or expired for this probe and target |
 | `exercise.not_current` | 409 | Gateway: the drill changed while recording the observation or reached its observation limit |

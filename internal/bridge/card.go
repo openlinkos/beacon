@@ -141,7 +141,7 @@ func (b *Bridge) locations(ctx context.Context, g *store.Group) string {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
-	rows, err := b.d.VM.Query(ctx, fmt.Sprintf(`max by (location) (max_over_time(probe_success{service="%s"}[3m]))`, svc))
+	rows, err := b.d.VM.Query(ctx, fmt.Sprintf(`max by (location) (max_over_time(probe_success{job="probe",service="%s"}[3m]))`, svc))
 	if err != nil || len(rows) == 0 {
 		return ""
 	}

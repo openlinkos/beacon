@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-72628486
+sourceHash: sha256-4590b29e
 ---
 
 # 指标与告警规则 {#metrics-and-alert-rules}
@@ -15,6 +15,8 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 - **检测点推送**检测结果和各位置的主机指标到网关，网关按目录打标签（[数据来源](sources.md#probes)）。
 - **中心导出**自己的状态，在 `/metrics`、17001 端口，只应答直连。VictoriaMetrics 每分钟抓取一次，连同 vmalert 和 VictoriaMetrics 自己，按 `deploy/metrics/scrape.yml` 的配置。
 - **检测程序随每次推送**报告它自己，所以每个位置的队列和推送错误按位置可见。
+
+`job` 标明一个样本属于哪一种。抓取时它是抓取任务的名字（`beacon`、`vmalert`、`victoriametrics`）。机器经网关写入的一切，网关都把它设成机器令牌的种类：`probe`、`host` 或 `heartbeat`。参考规则按它选取，所以机器的样本冒充不了中心的，主机或心跳的样本也冒充不了检测点的。
 
 ## 中心自己的指标 {#the-centres-own-metrics}
 
@@ -49,9 +51,9 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 
 检测结果沿用 Blackbox Exporter 的指标名，为谁写的规则都能用：`probe_success`、`probe_duration_seconds`、`probe_http_status_code`、`probe_ssl_earliest_cert_expiry`。另有两个：`probe_failure_info{reason}` 说明失败原因，`beacon_probe_attempts` 说明试了几次。
 
-网关给每个结果打上目录里的 `location`、`region`、`network` 和 `host` 标签。目标自己的标签（`service`、`severity`、`failure_domain`、`module`）直达规则和卡片。
+网关给每个结果打上目录里的 `location`、`region`、`network` 和 `host` 标签，以及 `job="probe"`。目标自己的标签（`service`、`severity`、`failure_domain`、`module`）直达规则和卡片。
 
-主机以 `node_*` 指标上报，读自 `/proc`：`node_cpu_seconds_total`、`node_memory_*_bytes`、`node_disk_*_total`、`node_network_*_total`、`node_time_seconds`。心跳是一个样本：`beacon_heartbeat_last_success_timestamp_seconds{heartbeat}`。
+主机以 `node_*` 指标上报，读自 `/proc`：`node_cpu_seconds_total`、`node_memory_*_bytes`、`node_disk_*_total`、`node_network_*_total`、`node_time_seconds`。检测点的主机指标带 `job="probe"`，主机的带 `job="host"`。心跳是一个样本：`beacon_heartbeat_last_success_timestamp_seconds{heartbeat}`；用它自己的令牌推送时带 `job="heartbeat"`，写进检测点或主机的 textfile 目录时带那台机器的 job。
 
 ## 检测程序自己 {#the-probe-agent-about-itself}
 
@@ -66,6 +68,8 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 ## 告警规则 {#the-alert-rules}
 
 参考规则是四个文件，每组说明自己看哪个指标。`deploy/rules/probes.yml` 里的记录规则（`beacon:` 系列）承载中间步骤，告警建立在它们之上。在那里，一个位置持续失败 3 分钟才算失败，一个服务一天的可用率是 `avg_over_time(beacon:service_up[1d])`。
+
+每条规则都按 `job` 选取输入：检测结果取 `job="probe"`，目录的指标和网关自己的计数取 `job="beacon"`，检测程序的队列取 `job=~"probe|host"`，心跳的成功取 `job=~"heartbeat|probe|host"`。所以中心要按 `deploy/metrics/scrape.yml` 里的抓取任务名来抓取。
 
 ### 服务可用性 {#service-availability}
 

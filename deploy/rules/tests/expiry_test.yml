@@ -63,7 +63,7 @@ tests:
     interval: 10m
     input_series:
       # reported once, at the start (one pushed sample)
-      - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}'
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{job="heartbeat",heartbeat="nas-backup",source="heartbeat",sender="nas-backup"}'
         values: '946684800'
       - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="nas-backup",severity="warning"}'
         values: '3600x20'
@@ -87,7 +87,7 @@ tests:
   - name: a heartbeat that names its machine alerts as before, the machine label aggregated away
     interval: 10m
     input_series:
-      - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="drill-1"}'
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{job="probe",heartbeat="drill-1",location="edge-1",region="overseas",network="BGP",host="edge-1"}'
         values: '946684800'
       - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="db-1"}'
         values: '3600x20'
@@ -106,4 +106,57 @@ tests:
             exp_annotations:
               summary: drill-1 has not succeeded for 2h 0m 0s
               description: The job behind heartbeat drill-1 did not report success within its max_age. Check whether it ran, and whether it failed.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md
+
+  # The gateway sets job to the kind of token that wrote a sample; the catalogue's metrics come from Beacon's
+  # own scrape (job="beacon"). No machine can move an expiry date or invent a resource.
+  - name: a resource's expiry counts only from the catalogue
+    interval: 5m
+    input_series:
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="beacon",resource="edge-3",kind="vps"}'
+        values: '946944000x5'   # in 3 days
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="heartbeat",heartbeat="nas-backup",resource="edge-3",kind="vps"}'
+        values: '9999999999x5'
+      - series: 'beacon_resource_expiry_timestamp_seconds{job="probe",host="edge-1",resource="ghost.example.com",kind="domain"}'
+        values: '946944000x5'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ResourceExpiring
+        exp_alerts:
+          - exp_labels:
+              resource: edge-3
+              kind: vps
+              severity: critical
+              service: edge-3
+              failure_domain: edge-3
+            exp_annotations:
+              summary: vps edge-3 expires in 2d 23h 50m 0s
+              description: Renew edge-3, or let it lapse on purpose; then put the new date in the catalogue (catalog/resources.yaml, or through the API) so that this alert ends.
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
+
+  # A heartbeat's success counts when the gateway labelled it a heartbeat's, a probe's or a host's; a sample that
+  # did not come through the gateway, or an expectation that is not the catalogue's, changes nothing.
+  - name: a heartbeat counts only from the gateway and its expectation only from the catalogue
+    interval: 10m
+    input_series:
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{job="heartbeat",heartbeat="nas-backup",source="heartbeat",sender="nas-backup"}'
+        values: '946684800'
+      - series: 'beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}'
+        values: '946684800+600x20'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="nas-backup",severity="warning"}'
+        values: '3600x20'
+      - series: 'beacon_heartbeat_max_age_seconds{job="probe",host="edge-1",heartbeat="nas-backup",severity="info"}'
+        values: '1000000000x20'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: HeartbeatStale
+        exp_alerts:
+          - exp_labels:
+              heartbeat: nas-backup
+              severity: warning
+              service: nas-backup
+              failure_domain: nas-backup
+            exp_annotations:
+              summary: nas-backup has not succeeded for 2h 0m 0s
+              description: The job behind heartbeat nas-backup did not report success within its max_age. Check whether it ran, and whether it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md

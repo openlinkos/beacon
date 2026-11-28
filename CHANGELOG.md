@@ -4,6 +4,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Label everything a machine writes through the gateway with `job` set to the kind of its token (`probe`, `host` or `heartbeat`), and bound one import to 200,000 samples in 64 MiB of text (`import.too_large`). A probe location's host and agent metrics now carry `job="probe"`, and a host's `job="host"`.
+- Hold a heartbeat token to its own heartbeat: the gateway labels its sample with the heartbeat it was enrolled for and refuses other metrics (`heartbeat.metric`). A heartbeat token must name its heartbeat (`beacon enroll heartbeat <name>`); one that names none can no longer write (`heartbeat.unnamed`).
+- Make the reference rules, the evidence and the cards count probe results only from probe locations, and the catalogue's metrics (expected locations, heartbeats' maximum ages, resource expiry, DNS rotations) only from Beacon's own scrape (`job="beacon"`). Deployments with their own copy of the rules should take these changes and keep the scrape job names of `deploy/metrics/scrape.yml`. A heartbeat that last reported before the upgrade counts again from its next report.
+
 ## 0.3.0
 
 ### rc.50 (2026-11-27)

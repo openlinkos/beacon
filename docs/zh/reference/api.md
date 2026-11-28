@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ff1c836a
+sourceHash: sha256-75b11439
 ---
 
 # REST API
@@ -64,7 +64,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `incidents:write` | 留给在状态页上手写事件；目前还没有接口用到（事件来自告警组） |
 | `probe:write` | 检测点：推送结果，获取它的检测目标、检测模块和设置，按需重测。只能以它自己的检测点身份写入 |
 | `host:write` | 主机：推送它的指标。只能以它自己的主机身份写入 |
-| `heartbeat:write` | 推送心跳 |
+| `heartbeat:write` | 心跳：推送它的样本。只能写它自己的心跳 |
 | `metrics:read` | 通过网关查询指标 |
 | `alerts:send` | 像规则引擎一样发送告警 |
 | `changes:write` | 发送变更事件 |
@@ -288,7 +288,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | Prometheus 文本格式的样本（`beacon-probe` 推送的就是这种），以及心跳 |
+| `POST /api/v1/import/prometheus` | `probe:write`、`host:write`、`heartbeat:write` | Prometheus 文本格式的样本（`beacon-probe` 推送的就是这种），以及心跳；打上令牌的主体和种类（`job`）标签，一次导入最多 200,000 个样本 |
 | `POST /api/v1/write` | `probe:write`、`host:write` | Prometheus remote write |
 | `GET /api/v1/targets` | `probe:write` | 这个检测点要检测的目标 |
 | `GET /api/v1/modules` | `probe:write` | 检测模块文件，逐字节原样返回 |
@@ -387,6 +387,9 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `probe.not_recorded` | 503 | Beacon 无法保存故障复测及其审计条目 |
 | `location.inactive` | 403 | 网关：检测点不在目录里，或者它的机器已经到期 |
 | `changes.too_many` | 429 | 网关：这个令牌这一分钟发了超过 60 个变更事件 |
+| `import.too_large` | 400 | 网关：这次导入的样本或文本超过一次导入的上限（200,000 个样本、64 MiB；心跳为 100 个样本、64 KiB） |
+| `heartbeat.metric` | 400 | 网关：心跳令牌发了 `beacon_heartbeat_last_success_timestamp_seconds` 以外的指标 |
+| `heartbeat.unnamed` | 403 | 网关：心跳令牌没有登记心跳名字；用 `beacon enroll heartbeat <name>` 登记 |
 | `request.not_found` | 404 | 网关：没有这个检测请求，或者它已经过期 |
 | `exercise.invalid_receipt` | 400 | 网关：演练响应凭据对此检测点或目标无效，或已经过期 |
 | `exercise.not_current` | 409 | 网关：记录观测结果时演练已切换，或已达到观测记录上限 |

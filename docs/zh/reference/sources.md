@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-9fea92c6
+sourceHash: sha256-f71cf306
 ---
 
 # 数据来源
@@ -7,6 +7,8 @@ sourceHash: sha256-9fea92c6
 Beacon 依据别人发给它的东西做判断。这一页列出每个来源：谁发、发到哪里、用什么令牌、什么格式。
 
 机器和工具发到 17006 端口的网关，各用各的令牌，谁也冒充不了别人。人和 Agent 用 17001 端口。这些路径列在 [REST API](api.md#the-gateway) 参考里。
+
+机器写入的每个样本，网关都把 `job` 设成它令牌的种类：`probe`、`host` 或 `heartbeat`，不管机器自己发的是什么。参考规则只从 `job="probe"` 取检测结果，只从 Beacon 自己的抓取（`job="beacon"`）取目录的指标。一次导入最多 200,000 个样本、64 MiB 文本；更大的会被拒绝，返回 `import.too_large`。
 
 | 来源 | 路径 | 令牌 | 格式 |
 | --- | --- | --- | --- |
@@ -29,7 +31,7 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 断网时，结果先存进磁盘队列。在周期之外，它还挂着一个长轮询，用于[按需检测](../guide/on-call.md#probe-again-now)。
 
-网关按目录给检测点写入的一切打上 `location`、`region`、`network` 和 `host` 标签，取代检测点自己带来的同名标签。不在目录里、或机器已经到期的检测点会被拒绝，返回 `location.inactive`。
+网关按目录给检测点写入的一切打上 `location`、`region`、`network` 和 `host` 标签，再加上 `job="probe"`，取代检测点自己带来的同名标签。不在目录里、或机器已经到期的检测点会被拒绝，返回 `location.inactive`。
 
 结果沿用 Blackbox Exporter 的指标名（`probe_success`、`probe_duration_seconds`、`probe_http_status_code`、`probe_ssl_earliest_cert_expiry` 等）。另有两个指标，分别说明失败原因（`probe_failure_info{reason}`）和试了几次（`beacon_probe_attempts`），见[指标](metrics.md#the-probes-results)。检测点还会推送少量来自 `/proc` 的主机指标，以及写进它 textfile 目录的心跳。
 
@@ -37,7 +39,7 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 ## 主机 {#hosts}
 
-不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签。
+不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签和 `job="host"`。
 
 ## 心跳 {#heartbeats}
 
@@ -48,6 +50,8 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
   "beacon_heartbeat_last_success_timestamp_seconds{heartbeat=\"nas-backup\"} $(date +%s)" \
   https://metrics.example.com/api/v1/import/prometheus
 ```
+
+这个令牌只能写这一个心跳。网关给样本打上 `heartbeat` 标签（即令牌登记时的名字）和 `job="heartbeat"`，不管样本里写的是什么。其他指标会被拒绝，返回 `heartbeat.metric`；一次超过 100 个样本返回 `import.too_large`；没有登记心跳名字的心跳令牌返回 `heartbeat.unnamed`。每个心跳各用一个令牌。
 
 在装了检测程序的机器上，任务改为把同样一行写进检测程序的 textfile 目录。心跳本身、它的 `max_age` 和级别写在目录里（[心跳](catalogue.md#heartbeats)）。
 

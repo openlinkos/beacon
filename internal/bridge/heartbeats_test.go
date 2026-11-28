@@ -121,7 +121,7 @@ func TestHeartbeatEvidence(t *testing.T) {
 		t.Errorf("heartbeat: %+v", h)
 	}
 	if !slices.ContainsFunc(v.queries, func(q string) bool {
-		return q == `max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{heartbeat="drill-develop-cn"}[31d]))`
+		return q == `max by (heartbeat) (last_over_time(beacon_heartbeat_last_success_timestamp_seconds{job=~"heartbeat|probe|host",heartbeat="drill-develop-cn"}[31d]))`
 	}) {
 		t.Errorf("queries: %q", v.queries)
 	}

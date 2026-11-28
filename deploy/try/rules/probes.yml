@@ -47,7 +47,7 @@ groups:
       # The location itself: nothing from it for 2 minutes and it is down (the reference waits 10).
       - alert: ProbeLocationDown
         expr: |
-          max by (location, region, network) (beacon_expected_location == 1)
+          max by (location, region, network) (beacon_expected_location{job="beacon"} == 1)
           unless on (location)
           count by (location) (count_over_time(probe_success{job="probe"}[2m]))
         for: 30s

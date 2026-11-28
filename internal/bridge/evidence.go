@@ -464,6 +464,7 @@ func (b *Bridge) Probes(ctx context.Context, svcs []string, w Window, limit int)
 	}
 	ctx, cancel := context.WithTimeout(ctx, evidenceTimeout)
 	defer cancel()
+	sel = `job="probe",` + sel // what probe locations wrote, as the gateway labels it, and nothing else
 	span := w.To.Sub(w.From)
 	step := max(30*time.Second, (span / 240).Round(time.Second))
 	qSuccess := "probe_success{" + sel + "}"

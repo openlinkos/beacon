@@ -57,7 +57,7 @@ People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine
 | `alerts:report` | standalone token or custom agent of an owner | Reporting execution for the deliveries assigned to this reporter in `agents[].reporter` |
 | `probe:write` | a machine's token, from `beacon enroll probe <location>` | Pushing results, fetching targets and settings; needs a subject, writes only as its own location |
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
-| `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success |
+| `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success; needs a subject, writes only its own heartbeat |
 | `metrics:read` | a machine's or an expert's token | Metric queries through the gateway |
 | `alerts:send` | a machine's or an expert's token | Posting alerts as the rule engine does |
 | `changes:write` | a machine's or an expert's token | Posting change events |
@@ -68,7 +68,7 @@ A token of its own carries its scopes by name, fixed when it was made. An agent'
 
 ## Machines
 
-`probe:write` and `host:write` need a **subject**: the location or host the token writes as. The gateway labels everything they write with it, in place of anything the sender says about itself. So a probe cannot speak for another. A token whose machine has expired (a `vps` in the catalogue past its date) can no longer write.
+`probe:write`, `host:write` and `heartbeat:write` need a **subject**: the location, host or heartbeat the token writes as. The gateway labels everything they write with it, and with `job` set to the kind of token (`probe`, `host`, `heartbeat`), in place of anything the sender says about itself. So a probe cannot speak for another, a host cannot pass for a probe, and a heartbeat token writes only its own heartbeat. A token whose machine has expired (a `vps` in the catalogue past its date) can no longer write.
 
 The machines an agent or a token may reach on the SSH channel are a list of their own. An empty list means all of them. An OAuth sign-in's list is intersected with the agent's, so it reaches only what both allow.
 

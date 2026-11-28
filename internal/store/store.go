@@ -194,7 +194,7 @@ type Silence struct {
 func (g *Group) Firing() bool { return g.Status == "firing" }
 
 // Token is an API token. Only the SHA-256 of the secret is kept. Subject is who a machine token speaks
-// for: the probe location of a probe:write token, the host of a host:write token, the sender of a
+// for: the probe location of a probe:write token, the host of a host:write token, the heartbeat of a
 // heartbeat:write token.
 //
 // SSHKeys are the public keys its holder signs in to the SSH channel with, and Machines the machines it
@@ -592,8 +592,9 @@ var Scopes = []string{"status:read", "alerts:write", "incidents:write", "mainten
 	"machines:ssh", "machines:write", "sessions:read", "config:write", "accounts:write", "secrets:use", "alerts:report",
 	"probe:write", "host:write", "heartbeat:write", "metrics:read", "alerts:send", "changes:write"}
 
-// SubjectScopes need a subject: the gateway labels everything written with it.
-var SubjectScopes = []string{"probe:write", "host:write"}
+// SubjectScopes need a subject: the gateway labels everything written with it, and a heartbeat token
+// writes only its own heartbeat.
+var SubjectScopes = []string{"probe:write", "host:write", "heartbeat:write"}
 
 var (
 	tokenNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -640,7 +641,7 @@ func (s *Store) CreateSubjectToken(name, subject string, scopes []string, ttl ti
 			return "", Token{}, fmt.Errorf("unknown scope %q; scopes are %s", sc, strings.Join(Scopes, ", "))
 		}
 		if slices.Contains(SubjectScopes, sc) && subject == "" {
-			return "", Token{}, fmt.Errorf("scope %s needs a subject (the location or host the token writes as)", sc)
+			return "", Token{}, fmt.Errorf("scope %s needs a subject (the location, host or heartbeat the token writes as; beacon enroll makes such tokens)", sc)
 		}
 	}
 	if subject != "" && !subjectRe.MatchString(subject) {
