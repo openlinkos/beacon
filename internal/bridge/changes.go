@@ -83,6 +83,33 @@ type ChangeQuery struct {
 	Limit                           int
 }
 
+// ChangeList is change events as REST and MCP list them, with the fields that hold the senders' text.
+type ChangeList struct {
+	Changes   []store.Change `json:"changes"`
+	Untrusted Untrusted      `json:"untrusted"`
+}
+
+// changeFields are the fields of a change event whose text comes from its sender.
+var changeFields = []string{"source", "kind", "service", "machine", "summary", "url", "revision", "object", "severity"}
+
+// untrustedChanges names the sender's fields of the change events under prefix (changes[]).
+func untrustedChanges(prefix string) []string {
+	out := make([]string, len(changeFields))
+	for i, f := range changeFields {
+		out[i] = prefix + "." + f
+	}
+	return out
+}
+
+// ListChanges lists change events as Changes does, marking the fields that hold the senders' text.
+func (b *Bridge) ListChanges(q ChangeQuery) (ChangeList, error) {
+	cs, err := b.Changes(q)
+	if cs == nil {
+		cs = []store.Change{}
+	}
+	return ChangeList{Changes: cs, Untrusted: untrusted(untrustedChanges("changes[]")...)}, err
+}
+
 // Changes lists change events, the newest first.
 func (b *Bridge) Changes(q ChangeQuery) ([]store.Change, error) {
 	from, err := b.since(q.Since, 24*time.Hour)

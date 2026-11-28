@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-b9c1cd7d
+sourceHash: sha256-37667ced
 ---
 
 # REST API
@@ -100,7 +100,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `POST /api/v1/alerts/{id}/notes` | `alerts:write` | 留一条备注，`text` 最多 2000 字符，正在触发和已恢复的告警组都可以。备注不算认领 |
 | `GET /api/v1/agent-hooks/{name}/first-drill` | `alerts:report` | 检查分配给当前回报方的钩子。返回已加载配置中的 `signed_webhook`、`matches_drill`、`drill_only` 和 `critical_chat`，期间不发送通知或唤醒 |
 | `PUT /api/v1/alerts/{id}/agent-runs/{delivery}` | `alerts:report` | 记录这次钩子投递对应的程序状态和退出码。重复提交相同回报时保留原记录时间。告警组再次触发后，新的回报仍可更新原故障中保留的投递记录，审计目标为该故障摘要的 ID |
-| `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000 |
+| `GET /api/v1/changes` | `status:read` | 变更事件，新的在前，可以按 `service`、`machine`、`source` 和 `since`（`2h`、`7d` 或一个时间；默认最近一天）筛选，`limit` 最多 1000。`untrusted` 列出存放发送方文字的字段 |
 | `POST /api/v1/probe-now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，并拿到每个检测点的结果：`alert_id`、`target`（可以带 `module`）或 `service`；`wait` 秒数，默认 45，最多 90 |
 
 验证一次故障时，将 `alert_id` 与 `expected_episode` 一起传入。使用该次告警的 `episode`，或证据、时间线、签名唤醒消息中的 `alert.episode`。如果检查写入前该告警组已进入新一轮故障，Beacon 返回 `409 incident.changed`。请先读取当前故障证据，再决定是否重测。省略此字段时，仍按告警组 ID 选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障时间线。故障复测按每个告警条目的已知标签匹配当前目标，包括故障域。有条目没有匹配的有效目标时，返回 `probe.no_targets`。

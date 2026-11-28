@@ -377,7 +377,7 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window, access 
 			"heartbeats[].description", "heartbeats[].error",
 			"designated_machines[].service",
 			"related[].title", "related[].service", "related[].why", "changes[].source", "changes[].kind", "changes[].summary", "changes[].service", "changes[].object", "changes[].url",
-			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
+			"changes[].revision", "changes[].severity", "changes[].machine", "done.ack.note", "done.silences[].comment", "done.notes[].text",
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command",
 			"links.runbook", "links.dashboard"),
 		Probes: b.probeEvidence(ctx, g, w), Heartbeats: b.heartbeats(ctx, g, w), Related: b.related(g),

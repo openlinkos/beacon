@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a8304658
+sourceHash: sha256-e6129fba
 ---
 
 # MCP 工具
@@ -116,7 +116,7 @@ Beacon 将所有操作归入六个标准运维域——`incidents`、`monitoring
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `check_drill_hook` | `alerts:report` | 检查分配给当前回报方的钩子 `name` 的生效设置，包括签名、是否匹配 `drill` 的严重告警、是否限于该服务，以及配置的严重告警群聊渠道。期间不发送通知或唤醒 |
 | `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
-| `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
+| `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000）。`untrusted` 列出存放发送方文字的字段 |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
 用 `probe_now` 验证某次故障时，传入 `alert_id`，并将 `expected_episode` 设为 `list_alerts` 返回的 `episode`，或 `get_evidence`、`get_timeline`、签名唤醒消息中的 `alert.episode`。故障被下一轮替代时，工具返回以 `incident.changed` 开头的错误。请先读取当前故障证据，再决定是否重测。省略 `expected_episode` 时，仍选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障验证。故障复测按每个告警条目的已知标签（含故障域）匹配目标。任何条目在有效检测点都没有匹配目标时，工具会返回错误。

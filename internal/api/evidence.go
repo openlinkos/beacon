@@ -85,10 +85,10 @@ func (s *Server) listChanges(w http.ResponseWriter, r *http.Request, _ bridge.Ac
 		}
 		in.Limit = n
 	}
-	cs, err := s.Bridge.Changes(in)
+	cs, err := s.Bridge.ListChanges(in)
 	if err != nil {
 		s.opError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changes": cs})
+	writeJSON(w, http.StatusOK, cs)
 }

@@ -1574,6 +1574,7 @@ paths:
                 type: object
                 properties:
                   changes: {type: array, items: {$ref: "#/components/schemas/Change"}}
+                  untrusted: {$ref: "#/components/schemas/Untrusted"}
         default: {$ref: "#/components/responses/Error"}
   /silences:
     get:
