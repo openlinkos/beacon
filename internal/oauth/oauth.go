@@ -293,11 +293,31 @@ func (s *Server) client(r *http.Request) netip.Addr {
 	return netip.Addr{}
 }
 
-// allowRegister counts a registration from the request's address: registerLimit in registerWindow.
+// registrant is what registrations are counted by: an IPv4 address, or the /64 an IPv6 address is in,
+// the block one host usually holds.
+func registrant(ip netip.Addr) netip.Addr {
+	ip = ip.Unmap()
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.Addr()
+		}
+	}
+	return ip
+}
+
+// allowRegister counts a registration from the request's address (registrant): registerLimit in
+// registerWindow.
 func (s *Server) allowRegister(r *http.Request) bool {
-	ip := s.client(r)
+	ip := registrant(s.client(r))
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.regs) > 10000 { // forget the windows that are over first, and all of them only if that is not enough
+		for k, w := range s.regs {
+			if s.now().Sub(w.start) >= registerWindow {
+				delete(s.regs, k)
+			}
+		}
+	}
 	if s.regs == nil || len(s.regs) > 10000 {
 		s.regs = map[netip.Addr]*window{}
 	}

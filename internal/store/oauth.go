@@ -111,7 +111,8 @@ func decodeKey(tx kv.Tx, bucket []byte, key []byte, v any) bool {
 // ---- clients
 
 // RegisterClient stores a client registration and gives it an ID. Registrations never used for longer
-// than ClientUnused are forgotten on the way; ErrTooMany when MaxClients are kept.
+// than ClientUnused are forgotten on the way. When MaxClients are kept, the oldest one never used makes
+// room; ErrTooMany when every one kept has been used.
 func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 	id, err := randomID(18)
 	if err != nil {
@@ -131,8 +132,24 @@ func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 		for _, k := range old {
 			_ = tx.Delete(bucketClients, k)
 		}
-		if tx.Count(bucketClients) >= MaxClients {
-			return ErrTooMany
+		// Full: the oldest registration never used to sign in makes room, so that registering in bulk
+		// cannot shut other clients out. Only a table of registrations that have all signed in is full.
+		for tx.Count(bucketClients) >= MaxClients {
+			var oldest []byte
+			var at time.Time
+			tx.Range(bucketClients, kv.Range{}, func(k, v []byte) bool {
+				var x OAuthClient
+				if json.Unmarshal(v, &x) == nil && x.Used.IsZero() && (oldest == nil || x.Created.Before(at)) {
+					oldest, at = append([]byte(nil), k...), x.Created
+				}
+				return true
+			})
+			if oldest == nil {
+				return ErrTooMany
+			}
+			if err := tx.Delete(bucketClients, oldest); err != nil {
+				return err
+			}
 		}
 		v, _ := json.Marshal(c)
 		return tx.Put(bucketClients, []byte(c.ID), v)
