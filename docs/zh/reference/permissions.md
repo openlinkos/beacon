@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-096e8087
+sourceHash: sha256-0f80493e
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -63,7 +63,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `host:write` | 机器的令牌，来自 `beacon enroll host <name>` | 推送主机指标；需要主体，只以自己的主机身份写入 |
 | `heartbeat:write` | 机器的令牌，来自 `beacon enroll heartbeat <name>` | 每次成功推送一个样本；需要主体，只能写它自己的心跳 |
 | `metrics:read` | 机器或专家的令牌 | 经网关查询指标 |
-| `alerts:send` | 机器或专家的令牌 | 像规则引擎那样发告警 |
+| `alerts:send` | 机器或专家的令牌 | 像规则引擎那样发它自己的告警，打上令牌的名字 |
 | `changes:write` | 机器或专家的令牌 | 发送变更事件 |
 
 独立的令牌按名字带 scope，创建时就定死。Agent 的凭据则跟着 Agent 走。无论它出示哪个令牌或 OAuth 登录，能做的都是 Agent 所要的（预设或自定义清单）与其所有者角色此刻都允许的。

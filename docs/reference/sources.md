@@ -61,7 +61,9 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`. `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown.
 
-Another sender may post alerts the same way with an `alerts:send` token. The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
+Another sender may post alerts the same way with an `alerts:send` token. Its alerts are its own. Beacon labels them `sender` with the token's name, whatever they say, and groups them apart from the rule engine's. They cannot resolve or change the rule engine's alerts or another sender's, and they inhibit only that sender's own. Only the rule engine's `Watchdog` counts, and only the rule engine sends alerts of severity `none`. A token's are dropped and counted in `beacon_gateway_alerts_dropped_total`. A token posts at most 120 times a minute; beyond that it gets `429` and `alerts.too_many`. The rule engine is never limited.
+
+The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
 
 ## Change events
 

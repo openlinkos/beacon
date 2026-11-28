@@ -59,7 +59,7 @@ People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine
 | `host:write` | a machine's token, from `beacon enroll host <name>` | Pushing host metrics; needs a subject, writes only as its own host |
 | `heartbeat:write` | a machine's token, from `beacon enroll heartbeat <name>` | Pushing one sample per success; needs a subject, writes only its own heartbeat |
 | `metrics:read` | a machine's or an expert's token | Metric queries through the gateway |
-| `alerts:send` | a machine's or an expert's token | Posting alerts as the rule engine does |
+| `alerts:send` | a machine's or an expert's token | Posting alerts of its own, as the rule engine does, labelled with the token's name |
 | `changes:write` | a machine's or an expert's token | Posting change events |
 
 A token of its own carries its scopes by name, fixed when it was made. An agent's credentials follow the agent instead. Whichever of its tokens or OAuth sign-ins it presents, it may do what the agent asks for, its preset or its custom list, and what its owner's role allows now.

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4590b29e
+sourceHash: sha256-d7835734
 ---
 
 # 指标与告警规则 {#metrics-and-alert-rules}
@@ -33,6 +33,8 @@ Beacon 判断所依据的一切都是 VictoriaMetrics 里的指标，每条告�
 | `beacon_feishu_api_calls` | | 本月飞书应用 API 调用，对着预算 |
 | `beacon_gateway_requests_total` | `route`、`code` | 指标网关的请求，按路径和状态码 |
 | `beacon_gateway_changes_limited_total` | | 因令牌每分钟发送超过 60 个而被拒的变更事件 |
+| `beacon_gateway_alerts_limited_total` | `token` | 因 `alerts:send` 令牌每分钟发送超过 120 次而被拒的告警请求 |
+| `beacon_gateway_alerts_dropped_total` | `token` | 因只有规则引擎能发 Watchdog 和级别为 `none` 的告警，而从 `alerts:send` 令牌丢弃的告警 |
 | `beacon_probe_now_requests_open` | | 等检测点应答的按需检测请求 |
 | `beacon_probe_now_requests_total` | | Agent 发起的按需检测请求 |
 | `beacon_probe_now_answers_total` | `location` | 检测点对按需检测请求的应答 |

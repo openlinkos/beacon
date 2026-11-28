@@ -55,6 +55,7 @@ type env struct {
 	st      *store.Store
 	vm      *seen
 	posted  []router.Postable
+	senders []string // who posted each request of alerts: an alerts:send token's name, "" for the rule engine
 	m       *metrics.Metrics
 	board   *probenow.Board
 	probe   string // cdn-pre-us1
@@ -112,9 +113,13 @@ resources:
 	t.Cleanup(func() { _ = st.Close() })
 	e := &env{st: st, vm: &seen{}, m: metrics.New("test")}
 	vmURL, _ := url.Parse(e.vm.server(t).URL + "/prefix")
-	var alerts func([]router.Postable) error
+	var alerts func(string, []router.Postable) error
 	if withAM {
-		alerts = func(ps []router.Postable) error { e.posted = append(e.posted, ps...); return nil }
+		alerts = func(sender string, ps []router.Postable) error {
+			e.senders = append(e.senders, sender)
+			e.posted = append(e.posted, ps...)
+			return nil
+		}
 	}
 	mk := func(name, subject string, scopes ...string) string {
 		s, _, err := st.CreateSubjectToken(name, subject, scopes, time.Hour, "test")

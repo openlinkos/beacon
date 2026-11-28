@@ -36,15 +36,16 @@ import (
 	"github.com/openlinkos/beacon/internal/targets"
 )
 
-// Deps are what the gateway needs. Alerts takes posted alerts (the router); RulesToken is the bearer the
-// rule engine sends, accepted for posting alerts besides tokens with the alerts:send scope.
+// Deps are what the gateway needs. Alerts takes posted alerts (the router), with the name of the
+// alerts:send token that posted them, or "" for the rule engine's; RulesToken is the bearer the rule
+// engine sends, accepted for posting alerts besides tokens with the alerts:send scope.
 type Deps struct {
 	Auth           *api.Auth
 	Catalog        func() *catalog.Catalog
 	Targets        func() *targets.Set
 	Modules        func() []byte // the probe module file, handed to probes as is
 	VM             *url.URL
-	Alerts         func([]router.Postable) error
+	Alerts         func(sender string, in []router.Postable) error
 	Changes        ChangeSink // takes change events (changes.go); nil refuses them
 	RulesToken     string
 	Metrics        *metrics.Metrics
@@ -76,6 +77,7 @@ type gateway struct {
 	lastWrite map[string]time.Time // by location or host
 
 	changeRate limiter // change events per token (limit.go)
+	alertRate  limiter // alert posts per alerts:send token (limit.go)
 }
 
 // Handler builds the gateway's router.
@@ -354,11 +356,24 @@ func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
 	g.with("alerts", []string{"alerts:send"}, g.alerts).ServeHTTP(w, r)
 }
 
-func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, _ store.Token) {
-	g.ingestAlerts(w, r, false)
+// alerts takes alerts from a token with alerts:send. They are the token's own: the router labels them
+// with its name (router.SenderLabel) and keeps them apart from the rule engine's; the Watchdog and alerts
+// of severity none, which only the rule engine sends, are dropped and counted; and the token posts at
+// most alertLimit times a minute (limit.go).
+func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, t store.Token) {
+	if g.alertsLimited(w, t) {
+		return
+	}
+	g.ingest(w, r, t.Name, false)
 }
 
+// ingestAlerts takes the rule engine's alerts.
 func (g *gateway) ingestAlerts(w http.ResponseWriter, r *http.Request, trustedExerciseRule bool) {
+	g.ingest(w, r, "", trustedExerciseRule)
+}
+
+// ingest takes the alerts sender posted ("" for the rule engine).
+func (g *gateway) ingest(w http.ResponseWriter, r *http.Request, sender string, trustedExerciseRule bool) {
 	if g.refuseStandby(w) {
 		return
 	}
@@ -376,7 +391,19 @@ func (g *gateway) ingestAlerts(w http.ResponseWriter, r *http.Request, trustedEx
 			delete(alert.Annotations, exercise.ActiveAtAnnotation)
 		}
 	}
-	if err := g.Alerts(in); err != nil {
+	if sender != "" {
+		kept := in[:0]
+		for _, alert := range in {
+			if !router.Reserved(alert.Labels) {
+				kept = append(kept, alert)
+			} else if g.Metrics != nil {
+				g.Metrics.Inc("beacon_gateway_alerts_dropped_total", "Alerts dropped because only the rule engine sends the Watchdog and alerts of severity none",
+					metrics.Labels("token", sender))
+			}
+		}
+		in = kept
+	}
+	if err := g.Alerts(sender, in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", err.Error())
 		return
 	}

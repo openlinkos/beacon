@@ -75,7 +75,7 @@ func TestServiceOutageDesignatedMachine(t *testing.T) {
 	rt := router.New(router.Config{GroupBy: []string{"alertname", "service"}}, e.st, e.srv.Bridge, func() time.Time { return e.now }, nil)
 	post := func(labels map[string]string, starts, ends time.Time) {
 		t.Helper()
-		if err := rt.Ingest([]router.Postable{{Labels: labels, StartsAt: starts, EndsAt: ends}}); err != nil {
+		if err := rt.Ingest("", []router.Postable{{Labels: labels, StartsAt: starts, EndsAt: ends}}); err != nil {
 			t.Fatal(err)
 		}
 		rt.Flush(ctx)

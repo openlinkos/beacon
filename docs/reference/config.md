@@ -47,7 +47,7 @@ Durations are written as Go writes them: `30s`, `5m`, `4h`, `720h`.
 | --- | --- | --- | --- |
 | `rules.token_file` | path | required | The bearer token the rule engine (vmalert or Prometheus) authenticates with when it posts alerts to the gateway's `/api/v2/alerts`, as it would to Alertmanager. At least 24 characters |
 
-Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in `match`, `source` and `target` are regular expressions over the whole value.
+Routing is what Alertmanager's `route` and `inhibit_rules` did. Label values in `match`, `source` and `target` are regular expressions over the whole value. Alerts from an `alerts:send` token carry `sender`, the token's name, and are grouped apart from the rule engine's, as if every `group_by` listed `sender`. A source alert inhibits only when it is the rule engine's, or comes from the same sender as the target.
 
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |

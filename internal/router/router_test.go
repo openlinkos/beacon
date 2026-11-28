@@ -69,11 +69,11 @@ func (e *env) fire(labels ...map[string]string) {
 	for _, l := range labels {
 		ps = append(ps, Postable{Labels: l, Annotations: map[string]string{"summary": l["service"] + " is down"}, StartsAt: e.now, EndsAt: e.now.Add(4 * time.Minute)})
 	}
-	_ = e.r.Ingest(ps)
+	_ = e.r.Ingest("", ps)
 }
 
 func (e *env) resolve(labels map[string]string) {
-	_ = e.r.Ingest([]Postable{{Labels: labels, StartsAt: e.now.Add(-time.Hour), EndsAt: e.now.Add(-time.Second)}})
+	_ = e.r.Ingest("", []Postable{{Labels: labels, StartsAt: e.now.Add(-time.Hour), EndsAt: e.now.Add(-time.Second)}})
 }
 
 func down(svc string) map[string]string {
@@ -263,7 +263,7 @@ func TestSilencedGroupStaysQuietAndResolvesAfterwards(t *testing.T) {
 func TestResolveTimeoutAndRestore(t *testing.T) {
 	e := newEnv(t, base)
 	// an alert without endsAt lasts resolve_timeout
-	_ = e.r.Ingest([]Postable{{Labels: down("git")}})
+	_ = e.r.Ingest("", []Postable{{Labels: down("git")}})
 	e.tick(31 * time.Second)
 	e.s.take()
 	e.tick(5 * time.Minute)
@@ -294,7 +294,7 @@ func TestResolveTimeoutAndRestore(t *testing.T) {
 
 func TestWatchdogAndFailures(t *testing.T) {
 	e := newEnv(t, base)
-	_ = e.r.Ingest([]Postable{{Labels: map[string]string{"alertname": "Watchdog", "severity": "none"}, EndsAt: e.now.Add(time.Minute)}})
+	_ = e.r.Ingest("", []Postable{{Labels: map[string]string{"alertname": "Watchdog", "severity": "none"}, EndsAt: e.now.Add(time.Minute)}})
 	if e.s.watchdog != 1 || len(e.r.alerts) != 0 {
 		t.Fatalf("watchdog %d, alerts %d", e.s.watchdog, len(e.r.alerts))
 	}
@@ -311,7 +311,7 @@ func TestWatchdogAndFailures(t *testing.T) {
 	if hooks := e.s.take(); len(hooks) != 1 || hooks[0].Status != "firing" {
 		t.Fatalf("retried: %+v", hooks)
 	}
-	if err := e.r.Ingest(make([]Postable, MaxAlerts+1)); err == nil {
+	if err := e.r.Ingest("", make([]Postable, MaxAlerts+1)); err == nil {
 		t.Error("too many alerts accepted")
 	}
 }

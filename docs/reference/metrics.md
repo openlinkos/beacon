@@ -29,6 +29,8 @@ On `/metrics` (job `beacon` in the reference scrape configuration):
 | `beacon_feishu_api_calls` | | Feishu app API calls this month, against the budget |
 | `beacon_gateway_requests_total` | `route`, `code` | Requests to the metrics gateway by route and status |
 | `beacon_gateway_changes_limited_total` | | Change events refused because the token posted more than 60 in a minute |
+| `beacon_gateway_alerts_limited_total` | `token` | Alert posts refused because the `alerts:send` token posted more than 120 times in a minute |
+| `beacon_gateway_alerts_dropped_total` | `token` | Alerts dropped from an `alerts:send` token because only the rule engine sends the Watchdog and alerts of severity `none` |
 | `beacon_probe_now_requests_open` | | Probe-on-demand requests waiting for locations to answer |
 | `beacon_probe_now_requests_total` | | Probe-on-demand requests made by agents |
 | `beacon_probe_now_answers_total` | `location` | Answers from locations to a probe-on-demand request |

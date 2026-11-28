@@ -62,7 +62,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `host:write` | A host: pushing its metrics. Writes only as its own host |
 | `heartbeat:write` | A heartbeat: pushing its sample. Writes only its own heartbeat |
 | `metrics:read` | Metric queries through the gateway |
-| `alerts:send` | Posting alerts as the rule engine does |
+| `alerts:send` | Posting alerts of its own, as the rule engine does: labelled with the token's name, at most 120 posts a minute |
 | `changes:write` | Posting change events |
 
 People get their scopes from their role. An agent gets them from its preset, within its owner's role, or from a custom list an owner set. Only machines' tokens, and experts' tokens, are made with scopes by name. Which role and which preset give which scopes is in [Roles, presets and scopes](permissions.md).
@@ -292,7 +292,7 @@ Each sends with a token of its own:
 | `GET /api/v1/agent/requests` | `probe:write` | Probing on demand: a long-poll (`?wait=25s`, at most 55 seconds) for targets to probe now |
 | `POST /api/v1/agent/requests/{id}` | `probe:write` | What the probe found for a request |
 | `POST /api/v1/agent/exercise-observations` | `probe:write` | The enrolled probe submits the receipt from a deliberate response at its assigned built-in drill target |
-| `POST /api/v2/alerts` | the rules token, or `alerts:send` | Alerts, in Alertmanager's API v2 form |
+| `POST /api/v2/alerts` | the rules token, or `alerts:send` | Alerts, in Alertmanager's API v2 form. An `alerts:send` token's are labelled `sender` with its name, at most 120 posts a minute |
 | `POST /api/v1/changes` | `changes:write` | A change event: a deployment, a configuration change. At most 60 a minute per token |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux's notification-controller events, from its `generic` provider |
 | `GET /api/v1/query`, `query_range`, `series`, `labels`, `label/{name}/values`, `metadata`, `status/{what}`, `export`, `rules`, `alerts` | `metrics:read` | Queries passed to VictoriaMetrics and vmalert, without the token |
@@ -383,6 +383,7 @@ Each sends with a token of its own:
 | `probe.not_recorded` | 503 | Beacon could not save the incident check and its audit entry |
 | `location.inactive` | 403 | Gateway: the probe's location is not in the catalogue, or its machine has expired |
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
+| `alerts.too_many` | 429 | Gateway: the `alerts:send` token posted alerts more than 120 times this minute |
 | `import.too_large` | 400 | Gateway: the import carries more samples or text than one import may (200,000 samples and 64 MiB; a heartbeat's 100 samples and 64 KiB) |
 | `heartbeat.metric` | 400 | Gateway: a heartbeat token sent a metric other than `beacon_heartbeat_last_success_timestamp_seconds` |
 | `heartbeat.unnamed` | 403 | Gateway: the heartbeat token names no heartbeat; enrol it with `beacon enroll heartbeat <name>` |

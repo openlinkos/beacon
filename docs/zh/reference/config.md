@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a549073f
+sourceHash: sha256-fdb5def0
 ---
 
 # config.yaml
@@ -51,7 +51,7 @@ sourceHash: sha256-a549073f
 | --- | --- | --- | --- |
 | `rules.token_file` | 路径 | 必填 | 规则引擎（vmalert 或 Prometheus）向网关的 `/api/v2/alerts` 发告警时所用 bearer 令牌，与发给 Alertmanager 的相同。至少 24 个字符 |
 
-路由做的是 Alertmanager 的 `route` 和 `inhibit_rules` 的事。`match`、`source` 和 `target` 里的标签值是匹配整个值的正则表达式。
+路由做的是 Alertmanager 的 `route` 和 `inhibit_rules` 的事。`match`、`source` 和 `target` 里的标签值是匹配整个值的正则表达式。`alerts:send` 令牌发来的告警带 `sender`（令牌的名字），和规则引擎的告警分开分组，就像每个 `group_by` 都列了 `sender`。源告警只有是规则引擎的，或者和目标来自同一个发送方时，才会抑制目标。
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
