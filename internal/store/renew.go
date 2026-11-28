@@ -69,7 +69,8 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var t Token
-	var old string
+	var old, before string
+	var beforeUntil time.Time
 	err = s.db.Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketTokens, []byte(name))
 		if v == nil {
@@ -91,6 +92,14 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 		if t.Lifetime <= 0 {
 			t.Lifetime = t.Expires.Sub(t.Created)
 		}
+		// the secret the last renewal replaced stops counting as issued RetiredFor after it stopped
+		// working; the one replaced now does so RetiredFor after OldUntil (retired.go)
+		if t.OldHash != "" && now.Before(t.OldUntil.Add(RetiredFor)) {
+			if err := retire(tx, now, t.OldUntil.Add(RetiredFor), t.OldHash); err != nil {
+				return err
+			}
+			before, beforeUntil = t.OldHash, t.OldUntil.Add(RetiredFor)
+		}
 		old = t.Hash
 		t.OldHash, t.OldUntil = old, now.Add(RenewGrace)
 		t.Hash, t.Expires, t.Renewed = hashToken(secret), now.Add(t.Lifetime), now
@@ -107,6 +116,9 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 	delete(s.tokens, old)
 	s.tokens[t.Hash] = t
 	s.mu.Unlock()
+	if before != "" {
+		s.noteRetired(beforeUntil, before)
+	}
 	return secret, t, nil
 }
 

@@ -33,6 +33,10 @@ const (
 	AccessTTL = time.Hour
 	// ClientUnused is how long a client registration is kept if it is never used to sign in.
 	ClientUnused = 24 * time.Hour
+	// ClientFresh is how long a registration never used to sign in is kept from making room for new
+	// ones: after it was made, and after a person last opened its consent page, so that a burst of
+	// registrations cannot end a sign-in under way.
+	ClientFresh = 10 * time.Minute
 	// MaxClients bounds the registrations kept.
 	MaxClients = 1000
 	// keepSpent is how many replaced refresh tokens a grant remembers.
@@ -51,6 +55,7 @@ var (
 
 // OAuthClient is a client that registered itself (RFC 7591): a public client, with the redirect URIs it
 // may use. Used is when it was first used to sign in; one never used is forgotten after ClientUnused.
+// Asked is when a signed-in person last opened its consent page.
 type OAuthClient struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
@@ -58,6 +63,13 @@ type OAuthClient struct {
 	URI          string    `json:"uri,omitempty"`
 	Created      time.Time `json:"created"`
 	Used         time.Time `json:"used,omitzero"`
+	Asked        time.Time `json:"asked,omitzero"`
+}
+
+// evictable reports whether the registration may make room for a new one at now: it was never used
+// to sign in, and neither it nor its consent page is newer than ClientFresh.
+func (c OAuthClient) evictable(now time.Time) bool {
+	return c.Used.IsZero() && now.Sub(c.Created) >= ClientFresh && now.Sub(c.Asked) >= ClientFresh
 }
 
 // Grant is what a person allowed an OAuth client to do as one of their agents: Agent, until Expires, with
@@ -112,7 +124,8 @@ func decodeKey(tx kv.Tx, bucket []byte, key []byte, v any) bool {
 
 // RegisterClient stores a client registration and gives it an ID. Registrations never used for longer
 // than ClientUnused are forgotten on the way. When MaxClients are kept, the oldest one never used makes
-// room; ErrTooMany when every one kept has been used.
+// room, but not one made or asked for within ClientFresh, whose sign-in may be under way; ErrTooMany when
+// no registration kept may go.
 func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 	id, err := randomID(18)
 	if err != nil {
@@ -133,13 +146,14 @@ func (s *Store) RegisterClient(c OAuthClient) (OAuthClient, error) {
 			_ = tx.Delete(bucketClients, k)
 		}
 		// Full: the oldest registration never used to sign in makes room, so that registering in bulk
-		// cannot shut other clients out. Only a table of registrations that have all signed in is full.
+		// cannot shut other clients out; one whose sign-in may be under way stays. Only a table of
+		// registrations that have signed in, or are signing in, is full.
 		for tx.Count(bucketClients) >= MaxClients {
 			var oldest []byte
 			var at time.Time
 			tx.Range(bucketClients, kv.Range{}, func(k, v []byte) bool {
 				var x OAuthClient
-				if json.Unmarshal(v, &x) == nil && x.Used.IsZero() && (oldest == nil || x.Created.Before(at)) {
+				if json.Unmarshal(v, &x) == nil && x.evictable(now) && (oldest == nil || x.Created.Before(at)) {
 					oldest, at = append([]byte(nil), k...), x.Created
 				}
 				return true
@@ -174,6 +188,21 @@ func (s *Store) OAuthClient(id string) (OAuthClient, bool) {
 		return OAuthClient{}, false
 	}
 	return c, ok
+}
+
+// AskClient records that a signed-in person opened the consent page of a registered client, so that
+// the registration does not make room for others while they answer (ClientFresh). Only a registration
+// never used to sign in needs it.
+func (s *Store) AskClient(id string) {
+	_ = s.db.Update(func(tx kv.Tx) error {
+		var c OAuthClient
+		if !decodeKey(tx, bucketClients, []byte(id), &c) || !c.Used.IsZero() {
+			return nil
+		}
+		c.Asked = s.now().UTC()
+		v, _ := json.Marshal(c)
+		return tx.Put(bucketClients, []byte(id), v)
+	})
 }
 
 // UseClient records that a registered client was used to sign in, so that it is kept.

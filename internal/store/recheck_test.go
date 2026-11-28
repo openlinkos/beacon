@@ -56,8 +56,9 @@ func TestStandbyRechecksCachedTokens(t *testing.T) {
 	if p, ok := s.Authenticate(changed); !ok || p.Has("alerts:write") {
 		t.Errorf("a standby's principal: %+v %v", p, ok)
 	}
-	if s.Issued(revoked) {
-		t.Error("a revoked token counts as issued")
+	// refused, though its holder's retries are not guesses for a while (retired.go)
+	if !s.Issued(revoked) {
+		t.Error("a just revoked token's retries count as guesses")
 	}
 
 	// a renewal on the other instance: the new secret is not in this cache yet, the old one still

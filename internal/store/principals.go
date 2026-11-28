@@ -278,15 +278,19 @@ func (s *Store) UpdateAgent(name string, change func(*Agent) error) (Agent, erro
 // its OAuth grants and their access tokens. What it did stays on record.
 func (s *Store) DeleteAgent(name string) error {
 	s.tokenMu.Lock()
-	var names []string
+	var names, hashes []string
+	now := s.now()
+	until := now.Add(RetiredFor)
 	err := s.db.Update(func(tx kv.Tx) error {
 		if tx.Get(bucketAgents, []byte(name)) == nil {
 			return ErrNotFound
 		}
+		names, hashes = nil, nil
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
 			if json.Unmarshal(v, &t) == nil && t.Agent == name {
 				names = append(names, t.Name)
+				hashes = append(hashes, retiredHashes(t, now)...)
 			}
 			return true
 		})
@@ -294,6 +298,9 @@ func (s *Store) DeleteAgent(name string) error {
 			if err := tx.Delete(bucketTokens, []byte(n)); err != nil {
 				return err
 			}
+		}
+		if err := retire(tx, now, until, hashes...); err != nil { // its harness may still send them (retired.go)
+			return err
 		}
 		if err := deleteGrants(tx, func(g Grant) bool { return g.Agent == name }); err != nil {
 			return err
@@ -308,6 +315,7 @@ func (s *Store) DeleteAgent(name string) error {
 			}
 		}
 		s.mu.Unlock()
+		s.noteRetired(until, hashes...)
 	}
 	s.tokenMu.Unlock()
 	if err != nil {

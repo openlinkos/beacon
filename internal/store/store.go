@@ -49,7 +49,8 @@ var (
 var Buckets = [][]byte{bucketGroups, bucketTokens, bucketMeta, bucketSilences, bucketMachines,
 	bucketSessions, bucketAccounts, bucketLinks, bucketAgents, bucketClients, bucketGrants,
 	bucketAccess, bucketChanges, bucketConfig, bucketConfigChanges, bucketConsole,
-	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketOutcomeDeliveries, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations}
+	bucketIncidents, bucketMaintenance, bucketMachineRevisions, bucketOutcomes, bucketOutcomeDeliveries, bucketConsoleTargets, bucketSlackNotices, bucketPageLinkGenerations,
+	bucketRetired}
 
 // ErrLocked means another process holds the database (the service is running).
 var ErrLocked = errors.New("another process has the database open")
@@ -264,10 +265,11 @@ type Store struct {
 	now     func() time.Time
 	dialect events.Dialect
 
-	mu      sync.RWMutex     // the token cache
-	tokenMu sync.Mutex       // token mutations versus RefreshTokens; VerifyToken does not take it
-	tokens  map[string]Token // by hash
-	recheck func() bool      // read a cached token again before accepting it (recheck.go)
+	mu      sync.RWMutex         // the token cache
+	tokenMu sync.Mutex           // token mutations versus RefreshTokens; VerifyToken does not take it
+	tokens  map[string]Token     // by hash
+	retired map[string]time.Time // hashes of revoked and replaced secrets, until when (retired.go)
+	recheck func() bool          // read a cached token again before accepting it (recheck.go)
 
 	auditFailed atomic.Pointer[func(AuditEntry, error)] // audit_failure.go
 }
@@ -371,7 +373,7 @@ func openBackend(o Options, ro bool) (*Store, kv.SQL, error) {
 	default:
 		return nil, nil, fmt.Errorf("storage driver %q: sqlite or postgres", o.Driver)
 	}
-	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}, dialect: dialect}
+	s := &Store{db: db, now: time.Now, tokens: map[string]Token{}, retired: map[string]time.Time{}, dialect: dialect}
 	var write *sql.DB
 	if !ro {
 		write = db.WriteHandle()
@@ -404,6 +406,7 @@ func (s *Store) load(db kv.SQL, _ Options) error {
 			}
 			return true
 		})
+		s.retired = readRetired(tx)
 		return nil
 	})
 }
@@ -436,6 +439,7 @@ func (s *Store) RefreshTokens() error {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	tokens := map[string]Token{}
+	var retired map[string]time.Time
 	err := s.db.View(func(tx kv.Tx) error {
 		tx.Range(bucketTokens, kv.Range{}, func(_, v []byte) bool {
 			var t Token
@@ -447,13 +451,14 @@ func (s *Store) RefreshTokens() error {
 			}
 			return true
 		})
+		retired = readRetired(tx)
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.tokens = tokens
+	s.tokens, s.retired = tokens, retired
 	s.mu.Unlock()
 	return nil
 }
@@ -698,6 +703,9 @@ func (s *Store) RevokeToken(name string) error {
 	s.tokenMu.Lock()
 	defer s.tokenMu.Unlock()
 	var hash string
+	var gone []string
+	now := s.now()
+	until := now.Add(RetiredFor)
 	err := s.db.Update(func(tx kv.Tx) error {
 		v := tx.Get(bucketTokens, []byte(name))
 		if v == nil {
@@ -707,8 +715,11 @@ func (s *Store) RevokeToken(name string) error {
 		if err := json.Unmarshal(v, &t); err != nil {
 			return err
 		}
-		hash = t.Hash
+		hash, gone = t.Hash, retiredHashes(t, now)
 		if err := tx.Delete(bucketTokens, []byte(name)); err != nil {
+			return err
+		}
+		if err := retire(tx, now, until, gone...); err != nil { // its holder may still send it (retired.go)
 			return err
 		}
 		// the invitations and reset links it made go with it, so that a later token of the same name
@@ -724,6 +735,7 @@ func (s *Store) RevokeToken(name string) error {
 	s.mu.Lock()
 	delete(s.tokens, hash)
 	s.mu.Unlock()
+	s.noteRetired(until, gone...)
 	return nil
 }
 
