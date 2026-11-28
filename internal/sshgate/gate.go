@@ -530,8 +530,17 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	}
 	defer release()
 	rc := &readConn{Conn: nc}
-	_ = nc.SetDeadline(g.now().Add(handshakeTimeout))
-	sc, chans, reqs, err := ssh.NewServerConn(rc, cfg)
+	// The client has firstAuth to get as far as asking to sign in, which takes a few round trips; then
+	// the rest of signIn in all, time enough to type a key's passphrase.
+	start := g.now()
+	firstAuth, signIn := g.adm.deadlines()
+	_ = nc.SetDeadline(start.Add(firstAuth))
+	conf := *cfg
+	conf.BannerCallback = func(ssh.ConnMetadata) string { // called at the client's first request to sign in
+		_ = nc.SetDeadline(start.Add(signIn))
+		return ""
+	}
+	sc, chans, reqs, err := ssh.NewServerConn(rc, &conf)
 	release()
 	if err != nil {
 		if failedHandshake(rc, err) {

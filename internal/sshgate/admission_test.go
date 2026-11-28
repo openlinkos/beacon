@@ -258,6 +258,42 @@ func TestFailedHandshakesCount(t *testing.T) {
 	}
 }
 
+// TestIdleConnectionsLoseTheirSlotBeforeSignIn: a connection that never asks to sign in gives its slot back
+// at the first deadline and counts as a failure; one that asks has the whole time to sign in, as for a
+// key's passphrase.
+func TestIdleConnectionsLoseTheirSlotBeforeSignIn(t *testing.T) {
+	e := setup(t)
+	e.g.adm.mu.Lock()
+	e.g.adm.firstAuth, e.g.adm.signIn = 300*time.Millisecond, 10*time.Second
+	e.g.adm.mu.Unlock()
+	c, ok := banner(t, e.addr)
+	if !ok {
+		t.Fatal("no banner")
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.Copy(io.Discard, c); err != nil {
+		t.Fatalf("an idle connection was kept past its first deadline: %v", err)
+	}
+	waitFor(t, "the slot", func() bool {
+		e.g.adm.mu.Lock()
+		defer e.g.adm.mu.Unlock()
+		w := e.g.adm.fails[addressKey("127.0.0.1")]
+		return e.g.adm.pending == 0 && w != nil && w.n == 1
+	})
+
+	slow := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
+		time.Sleep(time.Second) // a passphrase being typed
+		return []ssh.Signer{e.agentKey}, nil
+	})
+	cl, err := ssh.Dial("tcp", e.addr, &ssh.ClientConfig{User: "box", Auth: []ssh.AuthMethod{slow},
+		HostKeyCallback: ssh.FixedHostKey(e.g.d.HostKey.PublicKey()), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("a client that asked to sign in in time was cut short: %v", err)
+	}
+	_ = cl.Close()
+}
+
 // TestRefusedKeySignInIsAudited: a key whose credential may not sign in is on record once its holder has
 // signed with it, with the limits of every refused connection; offering the public key alone is not.
 func TestRefusedKeySignInIsAudited(t *testing.T) {

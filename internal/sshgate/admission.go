@@ -15,14 +15,22 @@ import (
 )
 
 // What the SSH port lets in before anyone has signed in. Every connection holds a slot until its handshake
-// ends, at most handshakeTimeout; an address (an IPv6 address's /64) whose handshakes failed maxFails times
-// in failWindow is turned away until the window ends.
+// ends: at most firstAuthTimeout until the client first asks to sign in, which a client does within a few
+// round trips, and at most handshakeTimeout in all, time for a person to type a key's passphrase. So a
+// connection that only holds its slot gives it back after firstAuthTimeout, and counts as a failure. An
+// address (an IPv6 address's /64) whose handshakes failed maxFails times in failWindow is turned away until
+// the window ends.
+//
+// The limits count by the address the connection comes from: the SSH port takes agents' connections
+// directly, never through a proxy, so no address speaks for many clients (trusted_proxies are the HTTP
+// side's; ssh.source_addresses are Beacon's own addresses towards the machines).
 const (
 	maxFails                = 20
 	failWindow              = 10 * time.Minute
 	maxFailAddresses        = 10000 // addresses the failure table keeps; the oldest goes first
 	maxHandshakes           = 64    // connections still in their handshake, at once
 	maxHandshakesPerAddress = 10
+	firstAuthTimeout        = 10 * time.Second
 	handshakeTimeout        = 30 * time.Second
 )
 
@@ -51,6 +59,15 @@ type admission struct {
 	burstStart time.Time
 	burst      int
 	dropped    int // left out of the audit log this burst, of refusals not remembered
+
+	firstAuth, signIn time.Duration // firstAuthTimeout and handshakeTimeout, shorter in tests
+}
+
+// deadlines are how long a connection has until it first asks to sign in, and to sign in.
+func (a *admission) deadlines() (firstAuth, signIn time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.firstAuth, a.signIn
 }
 
 // refusal is when a refused identity, machine and reason was last audited and last seen, and how many like
@@ -61,7 +78,8 @@ type refusal struct {
 }
 
 func newAdmission() *admission {
-	return &admission{fails: map[string]*window{}, pendingBy: map[string]int{}, refused: map[string]*refusal{}}
+	return &admission{fails: map[string]*window{}, pendingBy: map[string]int{}, refused: map[string]*refusal{},
+		firstAuth: firstAuthTimeout, signIn: handshakeTimeout}
 }
 
 // addressKey is what the port's limits count by: an IPv4 address, or the /64 of an IPv6 address, which one
