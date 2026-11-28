@@ -134,17 +134,17 @@ func TestUsernameLockoutSparesOtherAddresses(t *testing.T) {
 	e, a := lockoutAuth(t)
 	people(t, e)
 	const right = "correct horse battery"
-	attacker, own, second := from("198.51.100.40"), from("203.0.113.40"), from("2001:db8:40::1")
+	wrong, own, second := from("198.51.100.40"), from("203.0.113.40"), from("2001:db8:40::1")
 	for i := range maxUserFails {
-		if _, err := a.SignIn(attacker, "alice", fmt.Sprintf("wrong %d", i)); !errors.Is(err, store.ErrBadCredentials) {
+		if _, err := a.SignIn(wrong, "alice", fmt.Sprintf("wrong %d", i)); !errors.Is(err, store.ErrBadCredentials) {
 			t.Fatalf("wrong password %d: %v", i, err)
 		}
 	}
-	if _, err := a.SignIn(attacker, "alice", right); !errors.Is(err, ErrBlocked) {
+	if _, err := a.SignIn(wrong, "alice", right); !errors.Is(err, ErrBlocked) {
 		t.Errorf("the address that got the username wrong: %v", err)
 	}
-	if _, blocked := a.UserBlockedFor(attacker, "alice"); !blocked {
-		t.Error("UserBlockedFor does not name the lockout for the attacking address")
+	if _, blocked := a.UserBlockedFor(wrong, "alice"); !blocked {
+		t.Error("UserBlockedFor does not name the lockout for the address that got it wrong")
 	}
 	if _, blocked := a.UserBlockedFor(own, "Alice"); blocked {
 		t.Error("UserBlockedFor names a lockout for an address that never got it wrong")

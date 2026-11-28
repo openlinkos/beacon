@@ -41,7 +41,7 @@ func TestAuditNamesThePeer(t *testing.T) {
 		me = u.Username
 	}
 	for i, tc := range []struct{ claim, want string }{
-		{claim: "mallory", want: "cli:" + me + " (claims mallory)"},
+		{claim: "someone-else", want: "cli:" + me + " (claims someone-else)"},
 		{claim: me, want: "cli:" + me},
 		{claim: "", want: "cli:" + me},
 	} {
