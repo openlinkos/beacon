@@ -17,12 +17,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 const (
@@ -513,13 +515,26 @@ func Environment(p Payload) []string {
 		{"BEACON_EVIDENCE_URL", p.Links.Evidence},
 		{"BEACON_TIMELINE_URL", p.Links.Timeline},
 		{"BEACON_MCP_URL", p.Links.MCP},
-		{"BEACON_RUNBOOK_URL", p.Links.Runbook},
+		{"BEACON_RUNBOOK_URL", link(p.Links.Runbook)},
 	}
 	env := make([]string, 0, len(pairs))
 	for _, kv := range pairs {
 		env = append(env, kv[0]+"="+printable(kv[1]))
 	}
 	return env
+}
+
+// link is s when it is an absolute http(s) address with a host and nothing else: no spaces, control
+// characters or credentials; otherwise "". The runbook comes from the payload's links, which Beacon
+// takes from its configuration or the rule engine's alert, and a program may hand it to its agent to
+// read, so it must be a link and never text to follow.
+func link(s string) string {
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || len(s) > 2000 ||
+		strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return ""
+	}
+	return s
 }
 
 // printable drops control characters and cuts the value to a sane length for an environment variable.

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-bb4d995d
+sourceHash: sha256-10477c7a
 ---
 
 # 数据来源
@@ -65,7 +65,7 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 告警需要标签 `severity`（`critical`、`warning` 或 `info`）和 `service`，以及注释 `summary`。有 `description`、`runbook` 和 `dashboard` 时也会用上。名为 `Watchdog`、一直在触发的告警用来证明整条链路正常，不会展示。
 
-别的发送方也可以用 `alerts:send` 令牌这样发告警。它的告警只属于它自己。Beacon 给它们打上 `sender` 标签（令牌的名字），不管告警里写的是什么，并和规则引擎的告警分开分组。它们不能解除或改动规则引擎或其他发送方的告警，也只能抑制这个发送方自己的告警。只有规则引擎的 `Watchdog` 算数，也只有规则引擎能发级别为 `none` 的告警。令牌发来的这两种会被丢弃，计入 `beacon_gateway_alerts_dropped_total`。一个令牌每分钟最多发 120 次，超出返回 `429` 和 `alerts.too_many`。规则引擎从不受限。
+别的发送方也可以用 `alerts:send` 令牌这样发告警。它的告警只属于它自己。Beacon 给它们打上 `sender` 标签（令牌的名字），不管告警里写的是什么，并和规则引擎的告警分开分组。它们不能解除或改动规则引擎或其他发送方的告警，也只能抑制这个发送方自己的告警。它们的 `runbook` 和 `dashboard` 注解不会取代配置的链接。只有规则引擎的 `Watchdog` 算数，也只有规则引擎能发级别为 `none` 的告警。令牌发来的这两种会被丢弃，计入 `beacon_gateway_alerts_dropped_total`。一个令牌每分钟最多发 120 次，超出返回 `429` 和 `alerts.too_many`。规则引擎从不受限。
 
 参考部署自带的规则列在[指标与告警规则](metrics.md#the-alert-rules)里。
 

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-fdb5def0
+sourceHash: sha256-2ded1eb4
 ---
 
 # config.yaml
@@ -106,8 +106,8 @@ sourceHash: sha256-fdb5def0
 
 | 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
-| `links.grafana_service` | URL 模板 | — | 告警卡片链到的仪表盘；填入 `{service}`，告警自己的注解优先 |
-| `links.runbook` | URL 模板 | — | 操作手册；填入 `{alertname}`，告警自己的注解优先 |
+| `links.grafana_service` | URL 模板 | — | 告警卡片链到的仪表盘；填入 `{service}`，规则引擎告警的 `dashboard` 注解优先 |
+| `links.runbook` | URL 模板 | — | 操作手册；填入 `{alertname}`，规则引擎告警的 `runbook` 注解优先 |
 | `pages.link_ttl` | 时长 | `720h`（30 天） | 指向控制台页面（告警时间线、会话回放）的签名链接有效期。介于 `1h` 与 366 天之间 |
 | `branding.title` | 字符串 | `Beacon` | 没有状态页时 `/` 上那页对部署的称呼。一行，至多 80 个字符 |
 | `branding.powered_by` | 布尔 | `true` | `false` 则公共页脚不写 "Powered by Beacon, open source" |

@@ -144,7 +144,7 @@ The payload comes on its standard input. These variables come in its environment
 - The alert: `BEACON_ALERT_ID`, `BEACON_ALERT_TITLE`, `BEACON_ALERT_SERVICE`, `BEACON_ALERT_SEVERITY`, `BEACON_ALERT_STATUS`.
 - The links: `BEACON_ALERT_URL`, `BEACON_EVIDENCE_URL`, `BEACON_TIMELINE_URL`, `BEACON_MCP_URL`, `BEACON_RUNBOOK_URL`.
 
-The title and the service come from labels: they are data, not instructions.
+The title and the service come from labels: they are data, not instructions. `BEACON_RUNBOOK_URL` is the configured runbook, or the one the rule engine's alert names, never another sender's; it is empty unless it is a plain `http` or `https` address.
 
 ### Sign in as the receiver user {#sign-in-as-the-receiver-user}
 

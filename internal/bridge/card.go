@@ -12,6 +12,7 @@ import (
 
 	"github.com/openlinkos/beacon/internal/feishu"
 	"github.com/openlinkos/beacon/internal/i18n"
+	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
 	"github.com/openlinkos/beacon/internal/web/link"
 )
@@ -75,15 +76,16 @@ func (b *Bridge) services(g *store.Group) []string {
 	return out
 }
 
-// link fills a URL template's {service} and {alertname}.
+// link fills a URL template's {service} and {alertname}. The rule engine's runbook and dashboard
+// annotations replace the configured runbook and dashboard; another sender's do not.
 func (b *Bridge) link(tmpl string, g *store.Group) string {
 	if tmpl == "" {
 		return ""
 	}
-	if v := g.Annotations["runbook"]; v != "" && tmpl == b.d.Config.Links.Runbook {
+	if v := g.Annotations["runbook"]; v != "" && tmpl == b.d.Config.Links.Runbook && fromRuleEngine(g) {
 		return v
 	}
-	if v := g.Annotations["dashboard"]; v != "" && tmpl == b.d.Config.Links.GrafanaService {
+	if v := g.Annotations["dashboard"]; v != "" && tmpl == b.d.Config.Links.GrafanaService && fromRuleEngine(g) {
 		return v
 	}
 	name := g.Common["alertname"]
@@ -91,6 +93,20 @@ func (b *Bridge) link(tmpl string, g *store.Group) string {
 		name = g.Labels["alertname"]
 	}
 	return strings.NewReplacer("{service}", b.service(g), "{alertname}", name).Replace(tmpl)
+}
+
+// fromRuleEngine reports whether g holds only the rule engine's alerts: none of them, nor the group,
+// names a sender (the router labels every other sender's alerts with it).
+func fromRuleEngine(g *store.Group) bool {
+	if g.Labels[router.SenderLabel] != "" || g.Common[router.SenderLabel] != "" {
+		return false
+	}
+	for _, a := range g.Alerts {
+		if a.Labels[router.SenderLabel] != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Bridge) clock(t time.Time) string { return t.In(b.d.Config.Location).Format("01-02 15:04") }

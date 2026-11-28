@@ -102,8 +102,8 @@ The channel is on when `ssh.ca_key_file` is set ([Give agents a machine](../guid
 
 | Key | Type | Default | What it is |
 | --- | --- | --- | --- |
-| `links.grafana_service` | URL template | — | The dashboard an alert's card links to; `{service}` is filled in, and the alert's own annotation wins |
-| `links.runbook` | URL template | — | The runbook; `{alertname}` is filled in, and the alert's own annotation wins |
+| `links.grafana_service` | URL template | — | The dashboard an alert's card links to; `{service}` is filled in, and the `dashboard` annotation of the rule engine's alert wins |
+| `links.runbook` | URL template | — | The runbook; `{alertname}` is filled in, and the `runbook` annotation of the rule engine's alert wins |
 | `pages.link_ttl` | duration | `720h` (30 days) | How long the signed links to the console's pages (an alert's timeline, a session's replay) are valid. Between `1h` and 366 days |
 | `branding.title` | string | `Beacon` | The deployment's name on the page at `/` when there is no status page. One line, at most 80 characters |
 | `branding.powered_by` | bool | `true` | `false` leaves "Powered by Beacon, open source" out of the public pages' footer |
