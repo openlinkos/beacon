@@ -158,7 +158,8 @@ The agent's ssh fails, or a tool such as `run_command` returns an error. The cha
 | `beacon: the machine's connector is not connected; …` (`machine.disconnected`) | A machine behind NAT is not connected to the channel | On the machine, `systemctl status beacon-connector`; `beacon machine list` shows `disconnected` |
 | `beacon: the SSH channel is not configured` (`ssh.disabled`) | `ssh.ca_key_file` is not set | [Turn it on](../guide/machines.md#turn-it-on) |
 | `beacon: machine settings changed; reload the current version and try again` (`machine.changed`) | The machine was enrolled again, or its account or keys changed, since the connection opened | Connect again; with a multiplexed connection (`ControlMaster`), close the master first (`ssh -O exit`) |
-| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)` (`ssh.recording_limit`) | The session's input and output reached the recording's 16 MiB limit | Copy large files with `scp` or `rsync`; keep long output short with `head`, `tail` or `grep` |
+| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)` (`ssh.recording_limit`) | The session's input and output reached the recording's 16 MiB limit, counted as the bytes that passed | Copy larger files with `scp` or `sftp`, whose SFTP sessions the limit does not cover; keep long output short with `head`, `tail` or `grep` |
+| `beacon: the session's recording could not be written, and Beacon closed it` (`ssh.evidence_unavailable`) | Writing the recording failed while the session ran: the disk is full, or the recordings directory cannot be written | Free space under `data_dir/recordings/` or fix its permissions; Beacon's log names the session and the error |
 
 Two more cases:
 

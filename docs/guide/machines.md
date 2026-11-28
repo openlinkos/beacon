@@ -147,7 +147,11 @@ Beacon keeps a session record for commands, shells, transfers, forwarded ports a
 
 Sessions are kept for `ssh.keep` (180 days), then deleted.
 
-A session's recording holds at most 16 MiB. Nothing passes unrecorded: when the next input or output would not fit, Beacon closes the session and tells the agent why on stderr. The recording ends with a marker, and the session is marked as stopped at the limit. A tool call stopped this way returns `ssh.recording_limit`. Copy large files with `scp` or `rsync`, and keep long output short with `head`, `tail` or `grep`.
+A session's recording holds at most 16 MiB of input and output, counted as the bytes that passed. Binary data takes more room in the file, since the recording escapes it, but at most six times as much. Nothing passes unrecorded: when the next input or output would not fit, Beacon closes the session and tells the agent why on stderr. The recording ends with a marker, and the session is marked as stopped at the limit. A tool call stopped this way returns `ssh.recording_limit`.
+
+The limit covers everything a session carries as a command: `rsync`, `scp -O`, `tar` over `ssh` and `git push` included. Copy larger files with `scp` or `sftp`. They use SFTP, whose sessions keep metadata rather than the bytes, so the limit does not apply. Keep long output short with `head`, `tail` or `grep`.
+
+A recording that cannot be written also closes its session, at once. The agent is told why on stderr, and the session is marked as stopped because its recording failed (`recording_failed`). A tool call stopped this way returns `ssh.evidence_unavailable`. A session never goes on without its recording.
 
 A shell's commands and exit statuses are split by the shell-integration marks in its output. Any program the shell runs can print such marks, so the list is a guide, labelled as such (`commands_advisory`). The recording keeps what was typed and the output as the machine sent it, marks included.
 
@@ -202,7 +206,7 @@ What the channel guarantees here is in the [security model](../self-hosting/secu
 
 2. **Read the session back.** Open `/console/sessions`, or ask for `list_sessions`. The session has a recording and shows `person / agent` as the actor. If alert chat is configured, it also gets a replay link for a signed-in reader.
 
-When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it. The audit log records the refusal as `ssh_refused`, with the machine and the reason, once a minute for the same identity, machine and reason.
+When the channel refuses, it says why. [The agent cannot reach a machine](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine) lists every message and what to do about it. The audit log records the refusal as `ssh_refused`, with the machine and the reason, once a minute for the same identity, machine and reason. A sign-in with a registered key whose holder may not sign in now is recorded the same way, its reason beginning `key sign-in:`.
 
 ## Next
 

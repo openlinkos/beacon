@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-86ca9ed8
+sourceHash: sha256-fe60b992
 ---
 
 # 常见问题
@@ -162,7 +162,8 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
 | `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |
 | `beacon: machine settings changed; reload the current version and try again`（`machine.changed`） | 连接打开以后，机器被重新添加，或者它的账号、密钥变了 | 重新连接；用多路复用连接（`ControlMaster`）时，先关掉主连接（`ssh -O exit`） |
-| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)`（`ssh.recording_limit`） | 会话的输入和输出达到录像的 16 MiB 上限 | 大文件用 `scp` 或 `rsync` 复制；长输出用 `head`、`tail` 或 `grep` 截短 |
+| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)`（`ssh.recording_limit`） | 会话的输入和输出达到录像的 16 MiB 上限，按实际经过的字节计 | 更大的文件用 `scp` 或 `sftp` 复制，这个上限不管 SFTP 会话；长输出用 `head`、`tail` 或 `grep` 截短 |
+| `beacon: the session's recording could not be written, and Beacon closed it`（`ssh.evidence_unavailable`） | 会话进行中写录像失败：磁盘满了，或者录像目录不可写 | 腾出 `data_dir/recordings/` 的空间或修正它的权限；Beacon 的日志里有会话和错误 |
 
 还有两种情况：
 
