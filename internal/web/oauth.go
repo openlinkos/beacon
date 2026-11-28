@@ -150,6 +150,9 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		s.oauthProblem(w, r, v, q, problem)
 		return
 	}
+	if !q.Document() { // its sign-in is under way: the registration is kept while the person answers
+		s.Store.AskClient(q.ClientID)
+	}
 	s.consentForm(w, r, v, q, http.StatusOK, s.consentDefaults(v, q))
 }
 

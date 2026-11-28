@@ -21,6 +21,10 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Offer on the consent page, by default, only an agent made for that client. Show where the client's description comes from, and warn when the answer goes to a website.
 - Make room for a new client registration when the table is full by forgetting the oldest one never used, and count registrations per IPv6 /64.
 - Count only secrets Beacon did not issue as failed attempts: a valid credential refused for its scope, or because its owner is disabled, no longer locks its address out. During a lockout, a credential that already worked from that address is still checked, while others wait unread. IPv6 clients are counted by their /64, and a full table of failures makes room without forgetting the addresses it is locking out.
+- Do not count a token that was revoked, replaced, renewed or has expired in the last 7 days as a failed attempt, so a machine still sending its old token after `beacon enroll … -rotate` cannot lock its new token out of the same address. Such a token is still refused.
+- Let an OAuth client refresh during a lockout of its address with the refresh token Beacon last gave it there, and keep using the access token it gets. Codes and other refresh tokens still wait.
+- Slow down sign-ins to a locked username from every address but those the person signed in from in the last 7 days: each further wrong password makes the next attempt wait longer, from a second up to a minute, so guessing from many addresses is no faster than from one.
+- Keep a client registration made, or whose consent page was opened, in the last 10 minutes when a full table makes room for a new one, and keep the per-address registration counts when their table is full by forgetting the oldest.
 - Keep a separate failure count for the metrics gateway, so failures on the API never stop monitoring data and the reverse.
 - Lock a username only for the addresses that got its password wrong. The person can still sign in from an address that has not.
 - Check the rule engine's token under the gateway's lockout, count wrong guesses at it, and compare it in constant time.
