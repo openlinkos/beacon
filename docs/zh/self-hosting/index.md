@@ -52,6 +52,8 @@ Beacon 是自托管的，有三种运行形态，层层递进。本页比较这�
 
 Beacon 自己的三个监听地址都可以在 `config.yaml` 里改：`listen`、`gateway.listen` 和 `ssh.listen`（见[配置](configuration.md)）。compose 文件决定其中哪些离开这台机器。
 
+Beacon 只在 Caddy 发来请求时才从 `X-Forwarded-For` 取客户端地址。compose 网络的子网固定为 `172.30.17.0/24`，Caddy 的地址固定为 `172.30.17.10`，`config.yaml` 里的 `trusted_proxies` 只写这一个地址。别的容器、这台机器上的进程，都不能冒充别的客户端的地址。这个子网在机器上已被占用时，同时改 `compose.yaml` 和 `trusted_proxies`。
+
 检测点不开任何端口。Agent 工作的机器需要让中心连到它的 SSH 端口；在 NAT 后面，则由它向外连接。
 
 ## 接下来去哪里 {#where-to-go-from-here}

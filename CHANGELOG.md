@@ -14,6 +14,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Check whether a caller may manage agents before looking up an agent's name, so the answer for another person's agent and for a name no agent has is the same. A key someone else holds is refused as already registered, without naming the holder. Revoking a token the caller may not revoke here answers like a token that does not exist (`token.not_found`).
 - Name the command line in the audit log by the operating system user that connected to the admin socket, keeping a different name sent by the command only as a claim beside it.
 - Report every audit entry that cannot be written: log it at ERROR and count it in `beacon_audit_write_failures_total`. Withdraw and refuse a new agent, agent token, SSH key or command-line token whose audit entry cannot be written (`audit.not_recorded`, 503).
+- Trust `X-Forwarded-For` in the reference deployment from Caddy alone: the compose network gets the fixed subnet `172.30.17.0/24`, Caddy the address `172.30.17.10`, and `trusted_proxies` names only that address. **Operators of the reference deployment**: take the new `compose.yaml` and `config.yaml` line together; the first `install.sh` run recreates the network, stopping the containers briefly.
 
 ## 0.3.0
 

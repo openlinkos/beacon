@@ -35,6 +35,10 @@ To go back:
 
 The older version then has everything up to the upgrade, and nothing after.
 
+### To a compose file with a fixed subnet {#to-a-compose-file-with-a-fixed-subnet}
+
+The reference `compose.yaml` gives its network a fixed subnet, so that Caddy keeps the one address Beacon trusts for `X-Forwarded-For`. The first run of `install.sh` with that file finds the older network without it and recreates it. The four containers stop for that moment, and the volumes stay. Take the new `config.yaml` line `trusted_proxies: [172.30.17.10]` with it; a centre still trusting `172.16.0.0/12` trusts every container on the network.
+
 ## Pick a version
 
 - The [changelog](../changelog.md) says what each release changes. The [releases page](https://github.com/openlinkos/beacon/releases) lists the tags. Pre-releases carry `-rc.N`.

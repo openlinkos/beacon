@@ -48,6 +48,8 @@ These are the ports the reference deployment opens on the centre.
 
 All three of Beacon's own addresses can be changed in `config.yaml`: `listen`, `gateway.listen` and `ssh.listen` ([Configuration](configuration.md)). The compose file decides which of them leave the machine at all.
 
+Beacon takes a client's address from `X-Forwarded-For` only when Caddy sends it. The compose network has the fixed subnet `172.30.17.0/24`, Caddy has the fixed address `172.30.17.10`, and `trusted_proxies` in `config.yaml` names that address alone. No other container, and no process on the machine, can claim another client's address. If the subnet is already taken on the machine, change it in `compose.yaml` and `trusted_proxies` together.
+
 A probe location opens no ports. A machine agents work on needs its SSH port reachable from the centre, or an outgoing connection if it is behind NAT.
 
 ## Where to go from here

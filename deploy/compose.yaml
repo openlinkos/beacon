@@ -18,6 +18,14 @@ x-logging: &logging
 networks:
   beacon:
     name: beacon
+    # A fixed subnet gives Caddy a fixed address, the only one Beacon takes X-Forwarded-For from
+    # (trusted_proxies in config.yaml). The other containers get addresses from ip_range. If the subnet
+    # is taken on this host, change it here and in config.yaml together.
+    ipam:
+      config:
+        - subnet: 172.30.17.0/24
+          gateway: 172.30.17.1
+          ip_range: 172.30.17.128/25
 
 volumes:
   beacon-data:
@@ -133,7 +141,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    networks: [beacon]
+    networks:
+      beacon:
+        ipv4_address: 172.30.17.10 # trusted_proxies in config.yaml
     mem_limit: 128m
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2019/config/]

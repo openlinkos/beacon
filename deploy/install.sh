@@ -104,6 +104,19 @@ docker compose run --rm --no-deps -T beacon check-config -config /etc/beacon/con
 # config.yaml or a secret changed since the last run, Beacon is restarted to read it.
 sum=$(cat config.yaml secrets/* 2>/dev/null | cksum)
 last=$(cat .install-state 2>/dev/null || true)
+# The compose network has a fixed subnet, so that Caddy keeps the one address Beacon trusts. A network an
+# earlier version made without it is replaced: the containers stop for that moment.
+want=$(docker compose config | sed -n 's/^[ -]*subnet: *//p' | head -n 1)
+have=$(docker network inspect beacon -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true)
+if [ -n "$want" ] && [ -n "$have" ]; then
+  case " $have " in
+  *" $want "*) ;;
+  *)
+    say "The compose network predates its fixed subnet ($want): recreating it"
+    docker compose down --remove-orphans
+    ;;
+  esac
+fi
 docker compose up -d --remove-orphans --quiet-pull
 if [ -n "$last" ] && [ "$sum" != "$last" ]; then
   say "config.yaml or a secret changed: restarting Beacon"

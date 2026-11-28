@@ -57,7 +57,8 @@ catalog_dir: /etc/beacon/catalog            # probe locations, heartbeats, expir
 # invitation and reset links, the alerts' pages) and the issuer MCP clients sign in with (docs/guide/people.md).
 public_url: https://status.example.com
 # The reverse proxy in front (its address as the service sees it), so the API sees real client addresses.
-trusted_proxies: [172.16.0.0/12]
+# Name the proxy's own address, not its network: whoever else shares the network could claim any address.
+trusted_proxies: [172.30.17.10]
 language: zh                                # language of cards and chat messages: zh or en
 timezone: Asia/Shanghai                     # times on cards
 
