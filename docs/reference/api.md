@@ -295,7 +295,7 @@ Each sends with a token of its own:
 | `POST /api/v2/alerts` | the rules token, or `alerts:send` | Alerts, in Alertmanager's API v2 form. An `alerts:send` token's are labelled `sender` with its name, at most 120 posts a minute |
 | `POST /api/v1/changes` | `changes:write` | A change event: a deployment, a configuration change. At most 60 a minute per token |
 | `POST /api/v1/changes/flux` | `changes:write` | Flux's notification-controller events, from its `generic` provider |
-| `GET /api/v1/query`, `query_range`, `series`, `labels`, `label/{name}/values`, `metadata`, `status/{what}`, `export`, `rules`, `alerts` | `metrics:read` | Queries passed to VictoriaMetrics and vmalert, without the token |
+| `GET /api/v1/query`, `query_range`, `series`, `labels`, `label/{name}/values`, `metadata`, `status/{what}`, `export`, `rules`, `alerts` | `metrics:read` | Queries passed to VictoriaMetrics and vmalert, without the token, on the path of the route itself. A `{name}` or `{what}` that is not a plain name (letters, digits, `_`, `.`, `:`, `-`) is refused with `bad_input` |
 
 ## Other routes on port 17001
 

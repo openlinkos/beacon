@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,7 +98,7 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("GET /api/v1/agent", g.with("agent", []string{"probe:write"}, g.agent))
 	mux.Handle("POST /api/v1/import/prometheus", g.with("import", []string{"probe:write", "host:write", "heartbeat:write"}, g.importText))
 	for _, p := range readPaths {
-		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read))
+		mux.Handle(p, g.with("read", []string{"metrics:read"}, g.read(p)))
 	}
 	mux.HandleFunc("POST /api/v2/alerts", g.rulesAlerts)
 	mux.Handle("POST /api/v1/changes", g.with("changes", []string{"changes:write"}, g.change))
@@ -113,12 +114,14 @@ func Handler(d Deps) http.Handler {
 	return mux
 }
 
-// proxy forwards to base, keeping the path and the query that the handler set, and never the token.
+// proxy forwards to base, keeping the path and the query that the handler set, and never the token. The
+// path is the handler's alone: not the request's own spelling of it (RawPath).
 func proxy(base *url.URL) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme, r.Out.URL.Host = base.Scheme, base.Host
 			r.Out.URL.Path = strings.TrimSuffix(base.Path, "/") + r.In.URL.Path
+			r.Out.URL.RawPath = ""
 			r.Out.URL.RawQuery = r.In.URL.RawQuery
 			r.Out.Host = base.Host
 			r.Out.Header.Del("Authorization")
@@ -342,7 +345,32 @@ func (g *gateway) modules(w http.ResponseWriter, _ *http.Request, _ store.Token)
 	_, _ = w.Write(g.Modules())
 }
 
-func (g *gateway) read(w http.ResponseWriter, r *http.Request, _ store.Token) { g.vm.ServeHTTP(w, r) }
+// readName is what a read route's wildcard takes: a label name, or a status page's name. Nothing that
+// could spell out a path of its own: no slashes, backslashes, percent signs or dot segments.
+var readName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]{0,255}$`)
+
+// read passes a query to VictoriaMetrics on the path of the route that matched (pattern), rebuilt from
+// it, so that a request reaches no other route there whatever its path spells out.
+func (g *gateway) read(pattern string) handler {
+	_, path, _ := strings.Cut(pattern, " ")
+	return func(w http.ResponseWriter, r *http.Request, _ store.Token) {
+		out := path
+		for _, name := range []string{"name", "what"} {
+			wildcard := "{" + name + "}"
+			if !strings.Contains(out, wildcard) {
+				continue
+			}
+			v := r.PathValue(name)
+			if !readName.MatchString(v) {
+				fail(w, http.StatusBadRequest, "bad_input", "a "+name+" in the path is a plain name: letters, digits, underscores, dots, colons and dashes")
+				return
+			}
+			out = strings.Replace(out, wildcard, v, 1)
+		}
+		r.URL.Path, r.URL.RawPath = out, ""
+		g.vm.ServeHTTP(w, r)
+	}
+}
 
 // rulesAlerts takes alerts from the rule engine (its own bearer token) or from anyone with alerts:send.
 func (g *gateway) rulesAlerts(w http.ResponseWriter, r *http.Request) {
