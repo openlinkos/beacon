@@ -58,6 +58,7 @@
     </div>
     <output class="ol-hint" role="status" data-count="{{.L.SelectionCount}}" data-empty="{{.L.PickMachines}}">{{.SelectionSummary}}</output>
   </div>{{else}}<p class="ol-hint">{{.L.NoMachineOptions}}</p>{{end}}
+  {{if .Critical}}<p class="ol-hint">{{.Critical}}. {{.L.CriticalKept}}</p>{{end}}
 </fieldset>{{end}}
 
 {{define "agent-preset"}}<div class="ol-field"><label class="ol-label" for="agent-preset">{{.L.Preset}}</label><select class="ol-select" id="agent-preset" name="preset" aria-describedby="agent-preset-preview">{{range .Presets}}<option value="{{.Value}}"{{if .Selected}} selected{{end}} data-scopes="{{.Help}}">{{.Label}}</option>{{end}}</select><output class="ol-hint ol-break" id="agent-preset-preview" role="status"></output></div>{{end}}

@@ -194,7 +194,7 @@ type agentLabels struct {
 	Agent, Owner, Preset, Scopes, Machines, Credentials, Keys, Created, Name, NameHint, Expires, Create, Tokens, Grants,
 	Client, LastUsed, Revoke, NewToken, AddKey, Key, KeyHint, Comment, Remove, Delete, DeleteHint, Save, Settings, SSHConfig, OAuth, OAuthHelp,
 	Headless, HeadlessHelp, Hooks, None, Renewed, All, NoAgents, NoTokens, NoGrants, NoKeys, Fingerprint, Added, Until, Allowed,
-	CustomScopes, CustomScopesHint, AccessRange, AllCurrentAndFuture, SelectedMachines, NoMachineOptions, PickMachines, SelectionCount string
+	CustomScopes, CustomScopesHint, AccessRange, AllCurrentAndFuture, SelectedMachines, NoMachineOptions, PickMachines, SelectionCount, CriticalKept string
 }
 
 func (s *Server) agentLabels() agentLabels {
@@ -216,9 +216,10 @@ func (s *Server) agentLabels() agentLabels {
 		Fingerprint: s.t("Fingerprint"), Added: s.t("Added"), Until: s.t("Expires"), Allowed: s.t("Allowed"),
 		CustomScopes:     s.t("Custom scopes"),
 		CustomScopesHint: s.t("Choose permissions within the owner's role and your own access."),
-		AccessRange:      s.t("Machine access"), AllCurrentAndFuture: s.t("All current and future machines"),
+		AccessRange:      s.t("Machine access"), AllCurrentAndFuture: s.t("All machines that are not critical, including ones added later"),
 		SelectedMachines: s.t("Selected machines"), NoMachineOptions: s.t("There are no machines available to select."),
 		PickMachines: s.t("Select at least one machine."), SelectionCount: s.t("%s machines selected", "{count}"),
+		CriticalKept: s.t("Critical machines it names stay as they are; beacon agent machines on the host changes them."),
 	}
 }
 
