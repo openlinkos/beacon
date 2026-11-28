@@ -126,13 +126,14 @@ func (b *Bridge) since(s string, def time.Duration) (time.Time, error) {
 }
 
 // Beacon's own changes, a drill and Beacon itself starting on another version, go in as change events
-// too, so that the evidence of an alert they cause says so; ownSource is the source they carry.
-const ownSource = "beacon"
+// too, so that the evidence of an alert they cause says so; OwnSource is the source they carry, which no
+// sender may use (the gateway refuses it).
+const OwnSource = "beacon"
 
 // RecordDrill records a drill that by started, failing the drill service until until, or ended (until is
 // zero). The summary says when a drill ends by itself, since an agent working the alert cannot end it.
 func (b *Bridge) RecordDrill(ctx context.Context, until time.Time, by string) error {
-	c := store.Change{Source: ownSource, Kind: "drill", Service: "drill", Object: "/drill/healthz",
+	c := store.Change{Source: OwnSource, Kind: "drill", Service: "drill", Object: "/drill/healthz",
 		Summary: "Drill ended: /drill/healthz answers 200 again."}
 	if !until.IsZero() {
 		c.Summary = "Drill: /drill/healthz answers 503 on purpose until " + until.UTC().Format(time.RFC3339) +
@@ -149,10 +150,10 @@ func (b *Bridge) RecordStart(ctx context.Context, version string) error {
 	if err != nil || prev == version {
 		return err
 	}
-	c := store.Change{Source: ownSource, Kind: "deploy", Revision: version, Summary: "Beacon " + version + " started."}
+	c := store.Change{Source: OwnSource, Kind: "deploy", Revision: version, Summary: "Beacon " + version + " started."}
 	if prev != "" {
 		c.Summary = "Beacon " + version + " started, after " + prev + "."
 	}
-	_, err = b.RecordChange(ctx, c, ownSource)
+	_, err = b.RecordChange(ctx, c, OwnSource)
 	return err
 }

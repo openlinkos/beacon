@@ -97,9 +97,29 @@ func fluxChangeOf(ev fluxEvent, service, machine string) store.Change {
 	return c
 }
 
+// changeBehind is how far before Beacon's clock a sender may date a change. Change events are posted as
+// they happen; one dated long before would rewrite what came before an alert.
+const changeBehind = time.Hour
+
+// fromSender is why a sender's change cannot be taken, or "": the source of Beacon's own changes is not a
+// sender's to use, and a change is dated at most changeBehind ago.
+func (g *gateway) fromSender(c store.Change) string {
+	switch {
+	case strings.EqualFold(strings.TrimSpace(c.Source), bridge.OwnSource):
+		return "source " + bridge.OwnSource + " is for Beacon's own changes; name the sender, such as github-actions or deploy-script"
+	case !c.Time.IsZero() && c.Time.Before(g.Now().Add(-changeBehind)):
+		return "time is more than an hour before Beacon's clock; post change events as they happen"
+	}
+	return ""
+}
+
 func (g *gateway) record(w http.ResponseWriter, r *http.Request, t store.Token, c store.Change) {
 	if g.Changes == nil {
 		fail(w, http.StatusServiceUnavailable, "upstream", "change events are not taken here")
+		return
+	}
+	if why := g.fromSender(c); why != "" {
+		fail(w, http.StatusBadRequest, "bad_input", why)
 		return
 	}
 	out, err := g.Changes(r.Context(), c, t.Name)

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-32c790e0
+sourceHash: sha256-8f64c7ea
 ---
 
 # 部署与 Flux
@@ -23,16 +23,16 @@ docker exec beacon beacon token create ci-deploy -scopes changes:write -expires 
 
 | 字段 | 含义 |
 | --- | --- |
-| `source` | 必填：发送方，比如 `github-actions` 或 `deploy-script` |
+| `source` | 必填：发送方，比如 `github-actions` 或 `deploy-script`；不能是 `beacon`，那是 Beacon 自己的 |
 | `kind` | `deploy`、`config`、`rollback` 或其他词；默认 `change` |
 | `summary` | 必填：改了什么 |
 | `service`、`machine` | 和什么有关，写法与告警的 `service` 标签、机器名一致 |
 | `url`、`revision` | 详情链接；提交号或版本号 |
-| `time` | RFC 3339；默认为当前时间；最多比现在晚一小时，也不能早于变更的保留期限 |
+| `time` | RFC 3339；默认为当前时间；比 Beacon 的时钟最多晚一小时，也最多早一小时。变更发生时就发送 |
 
 不认识的字段会被拒绝，拼错了不会悄悄被忽略。Beacon 会把令牌的名字和每个变更一起记下。
 
-Beacon 自己也记两类变更，来源都是 `beacon`：
+Beacon 自己也记两类变更，来源都是 `beacon`，发送方不能使用这个来源：
 
 - `deploy`：启动时的版本与上次运行的不同；
 - `drill`，服务是 `drill`：[演练](../guide/drills.md)开始（摘要写明它到点自己结束的时间）或被提前结束。

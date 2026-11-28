@@ -376,7 +376,7 @@ func (b *Bridge) evidence(ctx context.Context, g *store.Group, w Window, access 
 			"probes.results[].module", "probes.results[].reason", "probes.results[].reasons", "probes.error",
 			"heartbeats[].description", "heartbeats[].error",
 			"designated_machines[].service",
-			"related[].title", "related[].service", "related[].why", "changes[].summary", "changes[].service", "changes[].object",
+			"related[].title", "related[].service", "related[].why", "changes[].source", "changes[].kind", "changes[].summary", "changes[].service", "changes[].object", "changes[].url",
 			"changes[].revision", "changes[].severity", "done.ack.note", "done.silences[].comment", "done.notes[].text",
 			"done.agents[].error", "done.sessions[].command", "done.sessions[].shell_commands[].command",
 			"links.runbook", "links.dashboard"),

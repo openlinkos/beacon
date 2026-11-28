@@ -146,6 +146,6 @@ func (b *Bridge) timeline(ctx context.Context, g *store.Group, w Window, access 
 	sort.SliceStable(ev, func(i, j int) bool { return ev[i].At.Before(ev[j].At) })
 	return Timeline{Alert: b.brief(g), Window: w, Heartbeats: hbs, Events: ev,
 		Untrusted: untrusted("alert.title", "alert.description", "alert.service", "alert.services", "alert.labels",
-			"heartbeats[].description", "heartbeats[].error", "events[].text", "events[].service",
+			"heartbeats[].description", "heartbeats[].error", "events[].by", "events[].type", "events[].text", "events[].service", "events[].url",
 			"events[].probes[].instance", "events[].probes[].module", "events[].probes[].reason")}
 }
