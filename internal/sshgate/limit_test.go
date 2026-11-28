@@ -3,12 +3,15 @@ package sshgate
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -73,8 +76,8 @@ func TestRecordingLimitClosesTheSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) > maxRecording {
-		t.Errorf("the recording is %d bytes", len(b))
+	if n := castData(t, b); n > maxRecording {
+		t.Errorf("the recording holds %d bytes of what passed", n)
 	}
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if last := lines[len(lines)-1]; !strings.Contains(last, `"m","beacon: the recording reached its limit`) {
@@ -168,5 +171,102 @@ func TestRecordingKeepsShellMarks(t *testing.T) {
 	}
 	if saved, err := e.g.Session(tr.ID); err != nil || !saved.CommandsAdvisory {
 		t.Fatalf("read back: %+v %v", saved, err)
+	}
+}
+
+// castData is how many bytes of input and output a recording holds, as they passed (for text; binary
+// data the JSON could not keep byte for byte counts as it reads back).
+func castData(t *testing.T, b []byte) int {
+	t.Helper()
+	n := 0
+	for i, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if i == 0 {
+			continue
+		}
+		var ev []any
+		if err := json.Unmarshal([]byte(line), &ev); err != nil || len(ev) != 3 {
+			t.Fatalf("event %d: %q: %v", i, line, err)
+		}
+		if code, _ := ev[1].(string); code == "i" || code == "o" {
+			data, _ := ev[2].(string)
+			n += len(data)
+		}
+	}
+	return n
+}
+
+// TestRecordingCountsDataAsItPassed: the cap counts an event's data as it passed, not as JSON escapes it,
+// so binary data takes as much of it as it did on the wire; the file stays within six times the cap.
+func TestRecordingCountsDataAsItPassed(t *testing.T) {
+	var file bytes.Buffer
+	r, err := newRecorder(nopCloser{&file}, 80, 24, "cat", "test", time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := string(bytes.Repeat([]byte{1}, 32<<10)) // six bytes each in the file: \u0001
+	sent := 0
+	for sent+len(chunk) <= 8<<20 {
+		if !r.event("i", chunk) {
+			t.Fatalf("the recording was full after %d bytes of input", sent)
+		}
+		sent += len(chunk)
+	}
+	if r.used > int64(sent)+int64(sent/len(chunk))*64 {
+		t.Fatalf("%d bytes passed cost %d of the cap", sent, r.used)
+	}
+	if file.Len() < 5*sent {
+		t.Fatalf("the file is %d bytes for %d bytes of control characters", file.Len(), sent)
+	}
+	for r.event("o", chunk) {
+	}
+	if !r.truncated() || r.used > maxRecording || int64(file.Len()) > 6*r.used {
+		t.Fatalf("full %v at %d of the cap, file %d bytes", r.truncated(), r.used, file.Len())
+	}
+	line, cost := eventLine(0.5, "o", "<a&b>\n")
+	if string(line) != "[0.5,\"o\",\"<a&b>\\n\"]\n" || cost != int64(len(line))-9+6 {
+		t.Fatalf("event %q costs %d", line, cost)
+	}
+}
+
+type nopCloser struct{ io.Writer }
+
+func (nopCloser) Close() error { return nil }
+
+// TestRecordingTakesABinaryUpload: a binary upload of half the cap passes whole, although JSON escapes it
+// to more than the cap in the file.
+func TestRecordingTakesABinaryUpload(t *testing.T) {
+	needShell(t)
+	e := setup(t)
+	data := make([]byte, maxRecording/2)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatal(err)
+	}
+	cl, err := e.client(t, "box", e.agentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cl.Close() }()
+	s, err := cl.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr syncBuffer
+	s.Stdout, s.Stderr, s.Stdin = &stdout, &stderr, bytes.NewReader(data)
+	if err := s.Run("wc -c"); err != nil {
+		t.Fatalf("the upload was stopped: %v (%s)", err, stderr.String())
+	}
+	if got := strings.TrimSpace(stdout.String()); got != strconv.Itoa(len(data)) {
+		t.Fatalf("the machine took %s bytes of %d", got, len(data))
+	}
+	recs := waitSessions(t, e.st, 1)
+	if r := recs[0]; r.Stopped != "" || r.RecordingState != store.EvidenceComplete || r.BytesIn != int64(len(data)) {
+		t.Fatalf("record %+v", r)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dir, filepath.FromSlash(recs[0].Recording)+".cast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) <= maxRecording {
+		t.Fatalf("the upload took only %d bytes of the file: not the binary it was meant to be", len(b))
 	}
 }

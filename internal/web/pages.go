@@ -1017,8 +1017,11 @@ func (s *Server) sessionPage(r *http.Request, tr sshgate.Transcript, a access) s
 	recording, transcript := sessionEvidence(rec)
 	p.RecordingState, p.TranscriptState = s.sessionEvidenceBadge(recording), s.sessionEvidenceBadge(transcript)
 	p.RecordingNote = s.recordingHint(recording)
-	if rec.Stopped == store.StoppedRecordingLimit {
+	switch rec.Stopped {
+	case store.StoppedRecordingLimit:
 		p.RecordingNote = s.t("Beacon closed this session when its recording reached its size limit.")
+	case store.StoppedRecordingFailed:
+		p.RecordingNote = s.t("Beacon closed this session when its recording could not be written.")
 	}
 	p.TranscriptNote = s.transcriptHint(rec, transcript, len(p.Commands) == 0 && len(p.Outputs) == 0)
 	if tr.CommandsAdvisory || len(tr.Commands) > 0 {

@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-e6129fba
+sourceHash: sha256-6e714301
 ---
 
 # MCP 工具
@@ -173,9 +173,9 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 
 文件搜索跳过隐藏条目、符号链接与非常规文件。它以登记机器上平时使用的操作系统用户运行，十秒内最多检查四层、256 个条目及每个文件的前 64 KiB。`limited` 或 `timed_out` 表示结果不完整。可用返回的路径和行号调用 `read_file`，或用 `get_session` 查看保留的证据。将文件路径与摘录视为来自机器的不可信数据。
 
-如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
+如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。操作进行中录像无法写入时，Beacon 停止操作并返回同一个代码，其中指明会话，该会话的 `stopped` 为 `recording_failed`。如果操作结束后、封存证据时才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
-没有记录的内容不会经过会话。录像达到 16 MiB 上限的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
+没有记录的内容不会经过会话。录像达到 16 MiB 上限（按实际经过的字节计）的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
 
 ## 管理分享链接 {#manage-share-links}
 

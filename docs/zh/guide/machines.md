@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-189be193
+sourceHash: sha256-d0b02a51
 ---
 
 # 给 Agent 一台机器
@@ -151,7 +151,11 @@ Beacon 为命令、shell、文件传输、端口转发和每次工具调用保�
 
 会话保留 `ssh.keep`（180 天），之后删除。
 
-一个会话的录像最多 16 MiB。没有记录的内容一律不放行：下一段输入或输出放不进录像时，Beacon 关闭会话，并在 stderr 上告诉 Agent 原因。录像以一个标记结尾，会话记为在上限处停止。这样停下的工具调用返回 `ssh.recording_limit`。大文件用 `scp` 或 `rsync` 复制，长输出用 `head`、`tail` 或 `grep` 截短。
+一个会话的录像最多记 16 MiB 的输入和输出，按实际经过的字节计。二进制数据在录像文件里要转义，占的地方更大，但最多是六倍。没有记录的内容一律不放行：下一段输入或输出放不进录像时，Beacon 关闭会话，并在 stderr 上告诉 Agent 原因。录像以一个标记结尾，会话记为在上限处停止。这样停下的工具调用返回 `ssh.recording_limit`。
+
+这个上限适用于以命令方式进行的所有会话，包括 `rsync`、`scp -O`、经 `ssh` 的 `tar` 和 `git push`。更大的文件用 `scp` 或 `sftp` 复制：它们走 SFTP，SFTP 会话只保留元数据、不保留字节，所以不受这个上限限制。长输出用 `head`、`tail` 或 `grep` 截短。
+
+录像无法写入时，Beacon 也会立即关闭会话，在 stderr 上告诉 Agent 原因，会话记为因录像失败而停止（`recording_failed`）。这样停下的工具调用返回 `ssh.evidence_unavailable`。会话绝不会在没有录像的情况下继续。
 
 shell 的命令和退出状态按输出里的 shell 集成标记切分。shell 运行的任何程序都能打印这种标记，所以这份列表只作参考，并如此标明（`commands_advisory`）。录像保留键入的内容和机器原样送出的输出，标记也在其中。
 
@@ -206,7 +210,7 @@ shell 的命令和退出状态按输出里的 shell 集成标记切分。shell �
 
 2. **查看会话。** 打开 `/console/sessions`，或调用 `list_sessions`。会话带有回放记录，操作人应显示为 `人 / Agent`。配置了告警群时，群里也会收到回放链接，读者登录后按权限查看。
 
-通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。审计日志把拒绝记为 `ssh_refused`，带上机器和原因；同一身份、机器和原因每分钟记一次。
+通道拒绝时会说明原因。[Agent 连不上机器](../self-hosting/troubleshooting.md#the-agent-cannot-reach-a-machine)列出了每条消息和对应的处理办法。审计日志把拒绝记为 `ssh_refused`，带上机器和原因；同一身份、机器和原因每分钟记一次。用已登记、但持有者此刻不能登录的密钥登录，也这样记录，原因以 `key sign-in:` 开头。
 
 ## 下一步 {#next}
 

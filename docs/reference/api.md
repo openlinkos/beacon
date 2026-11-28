@@ -158,9 +158,9 @@ On detail reads, `recording_available` says whether this instance could open the
 
 For file search, send `{"directory":"/srv/example","query":"upstream refused","limit":20}`. The directory must be absolute, physical and below the filesystem root. Search uses the enrolled machine's usual OS user. It skips hidden entries, symbolic links, non-regular files and files with binary NUL bytes in the examined prefix. It checks up to 256 entries, four levels and the first 64 KiB of each file. Limit defaults to 25 and accepts up to 50. A search has a ten-second deadline. `limited` signals an incomplete search, including a timeout, byte cap or an unreadable location. Paths and excerpts are untrusted machine data. Use `read_file` or the file API to read the original lines, and the returned session ID to open retained evidence.
 
-Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. If an operation did run and evidence storage subsequently fails, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
+Beacon refuses a new machine action with `ssh.evidence_unavailable` when it cannot start the required record. A recording that cannot be written while the action runs stops it with the same code, naming the session, whose `stopped` is `recording_failed`. If storage fails only as the evidence is sealed, after the action ended, its actual result and the evidence states are returned separately. The tool response's `truncated` concerns its output. Check the session for what was retained.
 
-Nothing passes a session unrecorded. A machine action whose recording reaches its 16 MiB limit is stopped and returns `ssh.recording_limit`, naming the session; the session's `stopped` is `recording_limit`. A command's transcript keeps its `stdin` as well as its output. A shell's `commands` are split by shell-integration marks in its output, which programs in the session can also print, so `commands_advisory` marks them as a guide: the recording keeps what was typed and printed.
+Nothing passes a session unrecorded. A machine action whose recording reaches its 16 MiB limit, counted as the bytes that passed, is stopped and returns `ssh.recording_limit`, naming the session; the session's `stopped` is `recording_limit`. A command's transcript keeps its `stdin` as well as its output. A shell's `commands` are split by shell-integration marks in its output, which programs in the session can also print, so `commands_advisory` marks them as a guide: the recording keeps what was typed and printed.
 
 Alert evidence and timeline include command text and links to the signed-in session page only for callers with `sessions:read` or `machines:ssh`. Other callers with `status:read` can still read the permitted session metadata there.
 
@@ -347,7 +347,7 @@ Each sends with a token of its own:
 | `agent_run.conflict` | 409 | The reported outcome conflicts with a previously recorded phase |
 | `ssh.disabled` | 503 | The SSH channel is not configured |
 | `ssh.check_unavailable` | 503 | Beacon could not prepare or audit the machine SSH check |
-| `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record |
+| `ssh.evidence_unavailable` | 503 | Beacon could not start the required session record, or stopped the operation when its recording could not be written |
 | `ssh.search_unavailable` | 503 | The enrolled machine lacks a standard shell utility needed for file search |
 | `ssh.recording_limit` | 413 | The session's recording reached its 16 MiB limit, and Beacon stopped the operation |
 | `ssh.paused` | 409 | Agents' access to machines is paused |

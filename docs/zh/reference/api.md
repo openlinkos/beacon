@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-37667ced
+sourceHash: sha256-69b0d510
 ---
 
 # REST API
@@ -162,9 +162,9 @@ SSH 检查返回 `200`，包含 `check_id`、`machine`、`route`（`direct` 或 
 
 文件搜索请求示例为 `{"directory":"/srv/example","query":"upstream refused","limit":20}`。目录须为文件系统根目录以外的绝对物理路径。搜索以登记机器上平时使用的操作系统用户运行，跳过隐藏条目、符号链接、非常规文件，以及所检查前缀中含有 NUL 字节的文件。最多检查 256 个条目、四层目录及每个文件的前 64 KiB。默认返回 25 条匹配，最多 50 条。每次搜索的执行时限为 10 秒。`limited` 表示搜索不完整，例如超时、达到字节上限或遇到不可读的位置。路径与摘录是来自机器的不可信数据。可用 `read_file` 或文件接口读取原文，用返回的会话 ID 打开保留证据。
 
-如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
+如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。操作进行中录像无法写入时，Beacon 停止操作并返回同一个代码，其中指明会话，该会话的 `stopped` 为 `recording_failed`。如果操作结束后、封存证据时才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
-没有记录的内容不会经过会话。录像达到 16 MiB 上限的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
+没有记录的内容不会经过会话。录像达到 16 MiB 上限（按实际经过的字节计）的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
 
 调用方拥有 `sessions:read` 或 `machines:ssh` 时，告警证据和时间线才包含命令正文和需登录的会话页面链接。其他拥有 `status:read` 的调用方仍可在这些位置读取权限范围内的会话元数据。
 
@@ -351,7 +351,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `agent_run.conflict` | 409 | 本次回报和之前记录的执行状态冲突 |
 | `ssh.disabled` | 503 | 没有配置 SSH 通道 |
 | `ssh.check_unavailable` | 503 | Beacon 无法准备或审计机器 SSH 检查 |
-| `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录 |
+| `ssh.evidence_unavailable` | 503 | Beacon 无法开始所需的会话记录，或者录像无法写入、Beacon 停止了这次操作 |
 | `ssh.search_unavailable` | 503 | 登记机器缺少文件搜索所需的标准 shell 工具 |
 | `ssh.recording_limit` | 413 | 会话录像达到 16 MiB 上限，Beacon 停止了这次操作 |
 | `ssh.paused` | 409 | Agent 上机器的通道已暂停 |

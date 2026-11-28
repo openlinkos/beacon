@@ -144,22 +144,68 @@ func (g *Gate) registerConnectorMetrics(m *metrics.Metrics) {
 
 // publicKey authenticates a person, agent, token or machine by its key. A connector key only signs
 // in as its machine. The other identities can open sessions on allowed machines.
+//
+// A key whose credential may not sign in (it lacks machines:ssh, or it is revoked, expired or its owner
+// disabled) is marked refused here and refused by verifiedKey, once the client has signed with it: only
+// then is the refusal audited, so that offering someone's public key alone puts nothing on record.
 func (g *Gate) publicKey(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
 	fp := ssh.FingerprintSHA256(k)
 	if p, ok := g.d.Store.PrincipalBySSHKey(fp); ok {
 		if !p.Has("machines:ssh") {
-			return nil, errors.New("unknown key")
+			return refusedKey(p.Name(), p.Key(), fp, refusedNoSSH), nil
 		}
 		return &ssh.Permissions{Extensions: map[string]string{"principal": p.Key(), "name": p.Name(), "cred": "key:" + fp}}, nil
 	}
-	if g.d.Store.KeyHolder(fp) != "" { // an inactive principal's key is still theirs
-		return nil, errors.New("unknown key")
+	if holder := g.d.Store.KeyHolder(fp); holder != "" { // an inactive principal's key is still theirs
+		return refusedKey(g.holderName(holder), holder, fp, refusedInactive), nil
 	}
 	if m, ok := g.d.Store.MachineByConnectorKey(fp); ok && m.Name == cm.User() {
 		return &ssh.Permissions{Extensions: map[string]string{"connector": m.Name, "connector_key": fp}}, nil
 	}
 	return nil, errors.New("unknown key")
 }
+
+// Why a key's credential may not sign in, as the audit log says it.
+const (
+	refusedNoSSH    = "key sign-in: no machines:ssh"
+	refusedInactive = "key sign-in: credential inactive"
+)
+
+// refusedKey marks the sign-in of a known key whose credential may not sign in.
+func refusedKey(name, principal, fp, why string) *ssh.Permissions {
+	return &ssh.Permissions{Extensions: map[string]string{"refused": why, "name": name, "principal": principal, "cred": "key:" + fp}}
+}
+
+// holderName is how the audit log names a key's holder (store.Store.KeyHolder): an agent with its owner,
+// as for a live agent, a person or a token by name.
+func (g *Gate) holderName(holder string) string {
+	kind, name, _ := strings.Cut(holder, " ")
+	if kind == "agent" {
+		if a, ok := g.d.Store.Agent(name); ok && a.Owner != "" {
+			return a.Owner + " / " + name
+		}
+	}
+	return name
+}
+
+// verifiedKey runs once the client has signed with a key publicKey took: a refused one is audited, with
+// the limits of every refused connection (refuseAudit), and refused.
+func (g *Gate) verifiedKey(cm ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
+	if p == nil {
+		return nil, errors.New("unknown key")
+	}
+	if why := p.Extensions["refused"]; why != "" {
+		who := Actor{Name: p.Extensions["name"], Via: "ssh", Key: p.Extensions["principal"], Cred: p.Extensions["cred"]}
+		g.refuseAudit(who, cm.User(), errKeyRefused{why})
+		return nil, errors.New("unknown key")
+	}
+	return p, nil
+}
+
+// errKeyRefused is a refused key sign-in, with the reason the audit log gives.
+type errKeyRefused struct{ why string }
+
+func (e errKeyRefused) Error() string { return e.why }
 
 // serveConnector handles a machine's connection out to the channel until it ends.
 func (g *Gate) serveConnector(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request, name string) {

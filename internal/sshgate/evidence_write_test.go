@@ -170,7 +170,6 @@ func TestSSHFinalisationPreservesRemoteResultAndIndependentArtifacts(t *testing.
 		transcript store.EvidenceState
 	}{
 		{"healthy", evidenceFaultFiles{}, store.EvidenceComplete, store.EvidenceComplete},
-		{"mid-session short write", evidenceFaultFiles{castWrite: 2, shortWrite: true}, store.EvidenceUnavailable, store.EvidenceComplete},
 		{"recording close", evidenceFaultFiles{failClose: true}, store.EvidenceUnavailable, store.EvidenceComplete},
 		{"sidecar", evidenceFaultFiles{failSidecar: true}, store.EvidenceComplete, store.EvidenceUnavailable},
 	} {
@@ -200,6 +199,80 @@ func TestSSHFinalisationPreservesRemoteResultAndIndependentArtifacts(t *testing.
 	}
 }
 
+// TestSSHRecordingFailureMidSessionStopsATool: a recording whose file fails while a tool's command runs
+// takes nothing more, so what the machine sends next does not reach the agent: the call is stopped and
+// says so, naming the session, and the session is marked as closed for it.
+func TestSSHRecordingFailureMidSessionStopsATool(t *testing.T) {
+	needShell(t)
+	for _, tc := range []struct {
+		name  string
+		fault evidenceFaultFiles
+	}{
+		{"failed write", evidenceFaultFiles{castWrite: 2}},
+		{"short write", evidenceFaultFiles{castWrite: 2, shortWrite: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := setup(t)
+			tc.fault.Dir = e.dir
+			e.g.d.Files = tc.fault
+			run, err := e.g.Run(context.Background(), toolActor, "box", RunInput{Command: "printf un%s recorded; exit 7"})
+			if !errors.Is(err, ErrRecordingFailed) || run.Stdout != "" {
+				t.Fatalf("the call went on without its recording: %+v, %v", run, err)
+			}
+			recs := waitSessions(t, e.st, 1)
+			r := recs[0]
+			if r.Stopped != store.StoppedRecordingFailed || r.RecordingState != store.EvidenceUnavailable || r.Ended.IsZero() {
+				t.Fatalf("record %+v", r)
+			}
+			if !strings.Contains(err.Error(), r.ID) {
+				t.Errorf("the error does not name the session: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(e.dir, r.Recording+".cast")); err == nil {
+				t.Fatal("a failed recording was published")
+			}
+			if b, err := os.ReadFile(filepath.Join(e.dir, r.Recording+".json")); err == nil && bytes.Contains(b, []byte("unrecorded")) {
+				t.Fatal("the transcript holds output the recording did not take")
+			}
+		})
+	}
+}
+
+// TestSSHRecordingFailureMidSessionClosesTheConnection: over the agent's own ssh, input that the recording
+// could not take does not reach the machine; the session is closed and the agent told why.
+func TestSSHRecordingFailureMidSessionClosesTheConnection(t *testing.T) {
+	needShell(t)
+	e := setup(t)
+	e.g.d.Files = evidenceFaultFiles{DirFiles: DirFiles{Dir: e.dir}, castWrite: 2}
+	marker := filepath.Join(e.tg.home, "unrecorded-input")
+	cl, err := e.client(t, "box", e.agentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cl.Close() }()
+	s, err := cl.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr syncBuffer
+	s.Stdout, s.Stderr = io.Discard, &stderr
+	s.Stdin = strings.NewReader("touch " + quote(marker) + "\n")
+	err = s.Run("sh")
+	var ee *ssh.ExitError
+	if err == nil || errors.As(err, &ee) && ee.ExitStatus() == 0 {
+		t.Fatalf("the session went on without its recording: %v", err)
+	}
+	if !strings.Contains(stderr.String(), ErrRecordingFailed.Error()) {
+		t.Errorf("the agent was not told why: %q", stderr.String())
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("input the recording did not take reached the machine: %v", err)
+	}
+	recs := waitSessions(t, e.st, 1)
+	if recs[0].Stopped != store.StoppedRecordingFailed || recs[0].RecordingState != store.EvidenceUnavailable {
+		t.Fatalf("record %+v", recs[0])
+	}
+}
+
 func TestSSHEvidenceDistinguishesCastAndTranscriptCaps(t *testing.T) {
 	for _, cap := range []string{"cast", "text"} {
 		t.Run(cap, func(t *testing.T) {
@@ -212,7 +285,7 @@ func TestSSHEvidenceDistinguishesCastAndTranscriptCaps(t *testing.T) {
 			}
 			wantCast, wantText := store.EvidenceComplete, store.EvidenceComplete
 			if cap == "cast" {
-				s.cast.written = maxRecording
+				s.cast.used = maxRecording
 				s.output([]byte("the transcript can retain this"), false)
 				wantCast = store.EvidenceTruncated
 			} else {

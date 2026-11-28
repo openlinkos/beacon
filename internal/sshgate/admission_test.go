@@ -3,7 +3,9 @@ package sshgate
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/openlinkos/beacon/internal/metrics"
 	"github.com/openlinkos/beacon/internal/store"
@@ -252,6 +256,92 @@ func TestFailedHandshakesCount(t *testing.T) {
 		_ = c.Close()
 		t.Fatal("a blocked address was answered")
 	}
+}
+
+// TestIdleConnectionsLoseTheirSlotBeforeSignIn: a connection that never asks to sign in gives its slot back
+// at the first deadline and counts as a failure; one that asks has the whole time to sign in, as for a
+// key's passphrase.
+func TestIdleConnectionsLoseTheirSlotBeforeSignIn(t *testing.T) {
+	e := setup(t)
+	e.g.adm.mu.Lock()
+	e.g.adm.firstAuth, e.g.adm.signIn = 300*time.Millisecond, 10*time.Second
+	e.g.adm.mu.Unlock()
+	c, ok := banner(t, e.addr)
+	if !ok {
+		t.Fatal("no banner")
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.Copy(io.Discard, c); err != nil {
+		t.Fatalf("an idle connection was kept past its first deadline: %v", err)
+	}
+	waitFor(t, "the slot", func() bool {
+		e.g.adm.mu.Lock()
+		defer e.g.adm.mu.Unlock()
+		w := e.g.adm.fails[addressKey("127.0.0.1")]
+		return e.g.adm.pending == 0 && w != nil && w.n == 1
+	})
+
+	slow := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
+		time.Sleep(time.Second) // a passphrase being typed
+		return []ssh.Signer{e.agentKey}, nil
+	})
+	cl, err := ssh.Dial("tcp", e.addr, &ssh.ClientConfig{User: "box", Auth: []ssh.AuthMethod{slow},
+		HostKeyCallback: ssh.FixedHostKey(e.g.d.HostKey.PublicKey()), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("a client that asked to sign in in time was cut short: %v", err)
+	}
+	_ = cl.Close()
+}
+
+// TestRefusedKeySignInIsAudited: a key whose credential may not sign in is on record once its holder has
+// signed with it, with the limits of every refused connection; offering the public key alone is not.
+func TestRefusedKeySignInIsAudited(t *testing.T) {
+	e := setup(t)
+	if _, _, err := e.st.CreateToken("dashboards", []string{"status:read"}, 24*time.Hour, "test"); err != nil {
+		t.Fatal(err)
+	}
+	readOnly := signer(t)
+	e.giveKey(t, "dashboards", readOnly)
+	for range 2 {
+		if cl, err := e.client(t, "box", readOnly); err == nil {
+			_ = cl.Close()
+			t.Fatal("a key without machines:ssh signed in")
+		}
+	}
+	waitFor(t, "the audit entry", func() bool { return audited(e.st, "ssh_refused", "box", refusedNoSSH) })
+
+	e.st.SetClock(func() time.Time { return time.Now().Add(48 * time.Hour) }) // past the token's expiry
+	if cl, err := e.client(t, "box", e.agentKey); err == nil {
+		_ = cl.Close()
+		t.Fatal("an expired token's key signed in")
+	}
+	waitFor(t, "the audit entry", func() bool { return audited(e.st, "ssh_refused", "box", refusedInactive) })
+	n := countAudit(e.st, "ssh_refused")
+
+	if cl, err := e.client(t, "box", unsigned{e.agentKey}); err == nil { // the public key, without the private one
+		_ = cl.Close()
+		t.Fatal("a key that never signed signed in")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := countAudit(e.st, "ssh_refused"); got != n {
+		t.Fatalf("offering a public key alone was audited: %d entries, then %d", n, got)
+	}
+	for _, a := range e.st.AuditLog(100) {
+		if a.Action == "ssh_refused" && strings.Contains(a.Detail, refusedNoSSH) && a.Actor != "dashboards" {
+			t.Errorf("audited as %q", a.Actor)
+		}
+	}
+	if got := countAudit(e.st, "ssh_refused"); got != 2 {
+		t.Fatalf("%d refusals audited, want one per credential and reason", got)
+	}
+}
+
+// unsigned offers a key it cannot sign with, as a client holding only someone's public key.
+type unsigned struct{ ssh.Signer }
+
+func (unsigned) Sign(io.Reader, []byte) (*ssh.Signature, error) {
+	return nil, errors.New("no private key")
 }
 
 // TestFailureTableEvictsTheOldest: a full table of failures makes room by its oldest entry, so an address
