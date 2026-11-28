@@ -27,7 +27,7 @@ func amSilence(id, comment, service string, ends time.Time) alertmanager.Silence
 
 func TestSilencesPage(t *testing.T) {
 	e := newEnv(t, i18n.EN)
-	ctx, who := context.Background(), bridge.Actor{Name: "alice", Via: "api"}
+	ctx, who := context.Background(), bridge.Actor{Name: "alice", Via: "console", Key: "user:alice"}
 	soon, err := e.b.ScheduleMaintenance(ctx, who, bridge.MaintenanceInput{Services: []string{"git-example-com"}, StartsAt: e.now.Add(time.Hour),
 		EndsAt: e.now.Add(2 * time.Hour), Title: "Database upgrade " + hostile})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestSilencesPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := e.signedIn("operator", "status:read", "alerts:write", "maintenance:write")
+	w := e.invite(e.owner(), "operator", "operator") // a person's silence mutes what it matches
 	if a := w.post(link.AlertPath(e.id)+"/silence", incidentForm(t, w.get(link.AlertPath(e.id)), url.Values{"duration": {"1h"}, "comment": {"deploying"}})); a.code != http.StatusSeeOther {
 		t.Fatalf("silencing: %d", a.code)
 	}
@@ -150,7 +150,7 @@ func TestOverviewAttention(t *testing.T) {
 		t.Errorf("counted the unclaimed alert as acknowledged: %d", got)
 	}
 	// someone took the alert on: it stays, after what nobody has
-	if _, err := e.b.Ack(context.Background(), e.id, bridge.Actor{Name: "alice", Via: "api"}, ""); err != nil {
+	if _, err := e.b.Ack(context.Background(), e.id, bridge.Actor{Name: "alice", Via: "console", Key: "user:alice"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if page := b.get("/console").body; !strings.Contains(page, "Acknowledged") {
@@ -176,7 +176,7 @@ func TestOverviewAttention(t *testing.T) {
 func TestOverviewMaintenanceEntryForEachRole(t *testing.T) {
 	e := newEnv(t, i18n.EN)
 	owner := e.owner()
-	_, err := e.b.ScheduleMaintenance(context.Background(), bridge.Actor{Name: "alice", Via: "api"}, bridge.MaintenanceInput{
+	_, err := e.b.ScheduleMaintenance(context.Background(), bridge.Actor{Name: "alice", Via: "console", Key: "user:alice"}, bridge.MaintenanceInput{
 		Services: []string{"git-example-com"}, StartsAt: e.now.Add(time.Hour), EndsAt: e.now.Add(2 * time.Hour), Title: "Database upgrade",
 	})
 	if err != nil {

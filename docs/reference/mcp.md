@@ -97,7 +97,7 @@ Reusable operational playbooks exposed via MCP `prompts/list` and `prompts/get`:
 | `list_silences` | `status:read` | Silences active or pending, ending soonest first |
 | `list_audit` | `status:read` | The latest writes with who made them and through what, newest first (`limit`, 1 to 200, 50 by default) |
 | `ack_alert` | `alerts:write` | Acknowledge a firing group (`id`, `note`): escalation to phones stops for `ack_ttl` (4 hours by default). Say what is being done in the note |
-| `silence_alert` | `alerts:write` | Silence a firing group (`id`, `duration` of at most 24 hours, a required `comment`); it also acknowledges the group. An agent's silence is recorded but people are still notified |
+| `silence_alert` | `alerts:write` | Silence a firing group (`id`, `duration` of at most 24 hours, a required `comment`); it also acknowledges the group. An agent's or a token's silence is recorded but people are still notified |
 | `expire_silence` | `alerts:write` | End a silence now (`silence_id`), so the alerts it covered notify again |
 
 ## Working an alert
@@ -206,7 +206,7 @@ The public status pages are made from the alert groups and the maintenance windo
 | --- | --- | --- |
 | `get_status_page` | `status:read` | A status page as its public JSON has it (`name`, `language`): the overall state, each component's state now and over 90 days, the incidents (active, then the last 30 days) with their public updates, the maintenance windows |
 | `list_maintenance` | `status:read` | The maintenance windows, the latest to start first, ended ones kept for 91 days: services, when, title, who planned them, their silences |
-| `schedule_maintenance` | `maintenance:write` | Plan a window (`services`, `starts_at`, `ends_at`, `title`, `description`): the pages announce it, and the services' alerts are silenced for it. At most 7 days, starting within 90, never in the past. An agent's window silences as an agent's silence does: people are still paged, and the pages still show an outage |
+| `schedule_maintenance` | `maintenance:write` | Plan a window (`services`, `starts_at`, `ends_at`, `title`, `description`): the pages announce it, and the services' alerts are silenced for it. At most 7 days, starting within 90, never in the past. An agent's or a token's window silences as an agent's silence does: people are still paged, and the pages still show an outage |
 | `end_maintenance` | `maintenance:write` | End a window now, or call it off before it begins (`id`): its silences end and the pages say so |
 
 ## People and SSH keys

@@ -20,9 +20,9 @@ import (
 // kept as long as the pages' history (silences are forgotten a week after they end). A silence made
 // some other way whose comment begins with "maintenance:" is shown on the pages too, while it lasts.
 //
-// A window an agent schedules is an agent's, as its silence is (createSilence): its silences are recorded
-// and mute nothing, so people are still paged for what breaks, and the status pages announce it without
-// letting it cover an outage (ByAgent). Only a person's window stops paging.
+// A window an agent or a token schedules is an agent's, as its silence is (createSilence): its silences
+// are recorded and mute nothing, so people are still paged for what breaks, and the status pages announce
+// it without letting it cover an outage (ByAgent). Only a person's window stops paging.
 
 // MaintenancePrefix begins the comment of every silence that is a maintenance window.
 const MaintenancePrefix = "maintenance:"
@@ -101,7 +101,7 @@ func (b *Bridge) ScheduleMaintenance(ctx context.Context, who Actor, in Maintena
 	}
 	m := store.Maintenance{ID: "m-" + hex.EncodeToString(raw), Title: next.Title, Description: next.Description,
 		Services: next.Services, StartsAt: next.StartsAt, EndsAt: next.EndsAt,
-		CreatedBy: who.Name, Via: who.Via, Created: now, ByAgent: actorKind(who) == "agent"}
+		CreatedBy: who.Name, Via: who.Via, Created: now, ByAgent: !pausesPeople(who)}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	undo := func() {

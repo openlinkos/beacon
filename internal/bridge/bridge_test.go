@@ -711,13 +711,19 @@ func TestAPIOperations(t *testing.T) {
 		t.Error("the silence should be cleared from the group")
 	}
 	s := e.b.Summarize()
-	if s.Firing["critical"] != 1 || s.Acknowledged != 1 || s.FeishuCalls == 0 {
+	if s.Firing["critical"] != 1 || s.Acknowledged != 0 || s.FeishuCalls == 0 { // a token's acknowledgement pauses nobody
+		t.Errorf("summary: %+v", s)
+	}
+	if _, err := e.b.Ack(ctx, id, Actor{Name: "alice", Via: "console", Key: "user:alice"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if s = e.b.Summarize(); s.Acknowledged != 1 {
 		t.Errorf("summary: %+v", s)
 	}
 	if gs := e.b.Groups(true); len(gs) != 1 || gs[0].Runbook == "" || gs[0].Service != "git-example-com" {
 		t.Errorf("groups: %+v", gs)
 	}
-	if len(e.b.Audit(10)) != 2 {
+	if len(e.b.Audit(10)) != 3 {
 		t.Errorf("audit: %+v", e.b.Audit(10))
 	}
 }

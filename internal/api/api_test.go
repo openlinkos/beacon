@@ -145,14 +145,15 @@ func TestOperations(t *testing.T) {
 	if code, _ := c.do("POST", "/api/v1/silences", write, `{"alert":"`+id+`","duration":"1h","comment":"x","extra":1}`); code != 400 {
 		t.Errorf("unknown fields are refused: %d", code)
 	}
+	// a token's silence is an agent's: recorded, muting nothing
 	code, out = c.do("POST", "/api/v1/silences", write, `{"alert":"`+id+`","duration":"1h","comment":"harbor upgrade"}`)
-	if code != 201 || out["silence"] == nil || len(e.AM.Created) != 1 {
+	if code != 201 || out["silence"] == nil || len(e.AM.Created) != 0 || len(e.AM.Agents) != 1 {
 		t.Fatalf("silence: %d %v", code, out)
 	}
 	if code, _ := c.do("GET", "/api/v1/silences", read, ""); code != 200 {
 		t.Errorf("silences: %d", code)
 	}
-	if code, _ := c.do("DELETE", "/api/v1/silences/sil-1", write, ""); code != 204 || len(e.AM.Expired) != 1 {
+	if code, _ := c.do("DELETE", "/api/v1/silences/agent-sil-1", write, ""); code != 204 || len(e.AM.Expired) != 1 {
 		t.Errorf("expire: %d", code)
 	}
 	code, out = c.do("GET", "/api/v1/audit?limit=10", read, "")

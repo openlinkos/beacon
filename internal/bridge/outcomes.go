@@ -54,17 +54,23 @@ func (b *Bridge) outcomeCutoff(now time.Time) time.Time {
 	return now.Add(-keep)
 }
 
-// actorKind classifies identified principals. Standalone credentials do not identify a human or agent.
+// actorKind classifies an actor: a person (signed in with an account, an on-call person on a card or on
+// the phone, or the host's command line), an agent, or unattributed (a standalone token, which identifies
+// neither). Only a person's acknowledgements, silences and maintenance windows pause notifications to
+// people (store.PausesPeople).
 func actorKind(who Actor) string {
 	prefix, _, _ := strings.Cut(who.Key, ":")
 	switch {
 	case prefix == "agent":
 		return "agent"
-	case prefix == "user", who.Via == "feishu", who.Via == "pushover":
+	case prefix == "user", who.Key == "" && (who.Via == "feishu" || who.Via == "pushover" || who.Via == "cli"):
 		return "person"
 	}
 	return "unattributed"
 }
+
+// pausesPeople reports whether what who does pauses notifications to people (store.PausesPeople).
+func pausesPeople(who Actor) bool { return actorKind(who) == "person" }
 
 // recordParticipation keeps the latest recorded alert action per kind of actor.
 func recordParticipation(g *store.Group, who Actor, action string, now time.Time) {

@@ -467,7 +467,7 @@ func TestHistory(t *testing.T) {
 func TestMaintenance(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	who := bridge.Actor{Name: "claude-oncall", Via: "mcp"}
+	who := bridge.Actor{Name: "alice", Via: "console", Key: "user:alice"} // a person's window covers the work
 	in := bridge.MaintenanceInput{Services: []string{"api.example.com"}, StartsAt: e.now.Add(time.Hour), EndsAt: e.now.Add(3 * time.Hour),
 		Title: "Database upgrade", Description: "The API answers read-only."}
 	m, err := e.b.ScheduleMaintenance(ctx, who, in)
@@ -540,9 +540,9 @@ func TestMaintenance(t *testing.T) {
 	}
 }
 
-// TestAgentMaintenanceHidesNothing: a window an agent schedules is an agent's: its silences mute nothing,
-// so people are still paged, and the pages announce it without covering an outage meanwhile. A silence
-// an agent made is no window at all.
+// TestAgentMaintenanceHidesNothing: a window an agent or a token schedules is an agent's: its silences
+// mute nothing, so people are still paged, and the pages announce it without covering an outage
+// meanwhile. A silence an agent made is no window at all.
 func TestAgentMaintenanceHidesNothing(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -554,6 +554,20 @@ func TestAgentMaintenanceHidesNothing(t *testing.T) {
 	}
 	if !m.ByAgent || len(e.am.Created) != 0 || len(e.am.Agents) != 1 || e.am.Agents[0]["service"] != "api.example.com" {
 		t.Fatalf("an agent's window: %+v, muting %v, agents' %v", m, e.am.Created, e.am.Agents)
+	}
+	// so is a window a token schedules, the console's sign-in with a token included
+	for _, token := range []bridge.Actor{{Name: "maint-bot", Via: "api", Key: "token:maint-bot"}, {Name: "maint-bot", Via: "console", Key: "token:maint-bot"}} {
+		w, err := e.b.ScheduleMaintenance(ctx, token, bridge.MaintenanceInput{Services: []string{"ghcr.example.com"},
+			StartsAt: e.now.Add(24 * time.Hour), EndsAt: e.now.Add(25 * time.Hour), Title: "Mirror move"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !w.ByAgent || len(e.am.Created) != 0 {
+			t.Fatalf("a token's window via %s: %+v, muting %v", token.Via, w, e.am.Created)
+		}
+		if _, err := e.b.EndMaintenance(ctx, w.ID, token); err != nil {
+			t.Fatal(err)
+		}
 	}
 	p := e.page("public", "")
 	if c := component(t, p, "api"); c.Status != Maintenance || len(p.Maintenance) != 1 || p.Maintenance[0].Status != "active" {

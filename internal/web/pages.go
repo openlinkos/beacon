@@ -647,7 +647,7 @@ func (s *Server) events(tl bridge.Timeline, a access, l labels, selectedProbe st
 			row.Text, row.Detail = s.t("Acknowledged by %s via %s", e.By, s.via(e.Via)), e.Text
 			if e.Via == "pushover" {
 				row.Text = s.t("Pushover reported a device acknowledgement")
-			} else if e.Type == "agent" {
+			} else if !store.PausesPeople(e.Type) { // an agent's or a token's: people are still notified
 				row.Text = s.t("Agent acknowledgement from %s via %s", e.By, s.via(e.Via))
 			}
 		case "note":

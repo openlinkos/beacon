@@ -37,11 +37,12 @@ import (
 	"github.com/openlinkos/beacon/internal/web/link"
 )
 
-// fakeAM is Alertmanager: it numbers the silences it makes (sil-1, sil-2, …), lists those a test gives
-// it, and keeps the ids of those ended.
+// fakeAM is the router: it numbers the silences it makes (sil-1, sil-2, …) and those it only records
+// for agents and tokens (agent-sil-1, …), lists those a test gives it, and keeps the ids of those ended.
 type fakeAM struct {
 	mu       sync.Mutex
 	made     int
+	agents   int
 	silences []alertmanager.Silence
 	expired  []string
 }
@@ -51,6 +52,13 @@ func (a *fakeAM) CreateSilence(context.Context, map[string]string, time.Time, ti
 	defer a.mu.Unlock()
 	a.made++
 	return "sil-" + strconv.Itoa(a.made), nil
+}
+
+func (a *fakeAM) CreateAgentSilence(context.Context, map[string]string, time.Time, time.Time, string, string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.agents++
+	return "agent-sil-" + strconv.Itoa(a.agents), nil
 }
 
 func (a *fakeAM) ExpireSilence(_ context.Context, id string) error {

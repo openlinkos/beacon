@@ -80,7 +80,7 @@ An agent may use a scope when its preset or its custom list gives it, and its ow
 | `GET /api/v1/alerts/{id}` | `status:read` | One group: labels, runbook and dashboard, acknowledgement, silence, escalation, notes, the agents woken, and `page`, the signed link to its page in the console |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | Acknowledge a firing group, with an optional `note`: escalation to phones stops for `ack_ttl` (4 hours by default) |
 | `GET /api/v1/silences` | `status:read` | Silences active or pending, ending soonest first |
-| `POST /api/v1/silences` | `alerts:write` | Silence a firing group: `alert`, `duration` (at most 24 hours) and a required `comment`. Also acknowledges it. An agent's silence is recorded but people are still notified |
+| `POST /api/v1/silences` | `alerts:write` | Silence a firing group: `alert`, `duration` (at most 24 hours) and a required `comment`. Also acknowledges it. An agent's or a token's silence is recorded but people are still notified |
 | `DELETE /api/v1/silences/{id}` | `alerts:write` | End a silence now; the alerts it covered notify again |
 | `GET /api/v1/audit` | `status:read` | The latest writes, newest first, with who made them and through what (`limit`, 100 by default, at most 1000) |
 

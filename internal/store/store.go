@@ -171,9 +171,16 @@ type Ack struct {
 	Kind string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
 }
 
-// StopsEscalation reports whether the acknowledgement pauses notifications to people.
-// Standalone and older unclassified acknowledgements retain their original behaviour.
-func (a *Ack) StopsEscalation() bool { return a != nil && a.Kind != "agent" }
+// StopsEscalation reports whether the acknowledgement pauses notifications to people: only a person's
+// does (PausesPeople).
+func (a *Ack) StopsEscalation() bool { return a != nil && PausesPeople(a.Kind) }
+
+// PausesPeople reports whether an acknowledgement, silence or maintenance window made by an actor of this
+// kind pauses notifications to people. Only a person's does: one made in the console with an account, by
+// an on-call person on a card or on the phone, or on the host's command line. An agent's does not, and
+// neither does any token's: both are recorded and shown, and people are still notified. An older record
+// that names no kind keeps the behaviour it had.
+func PausesPeople(kind string) bool { return kind == "person" || kind == "" }
 
 // Notification records a provider submission outcome, independently of human acknowledgement.
 type Notification struct {
@@ -193,10 +200,10 @@ type Silence struct {
 	Kind  string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
 }
 
-// Pauses reports whether the silence holds at now and pauses notifications to people. An agent's
-// silence never does, as an agent's acknowledgement does not.
+// Pauses reports whether the silence holds at now and pauses notifications to people. Only a person's
+// silence does (PausesPeople), as only a person's acknowledgement does.
 func (s *Silence) Pauses(now time.Time) bool {
-	return s != nil && s.Kind != "agent" && now.Before(s.Until)
+	return s != nil && PausesPeople(s.Kind) && now.Before(s.Until)
 }
 
 // Firing reports whether the group is firing.
@@ -895,8 +902,8 @@ type SilenceRecord struct {
 	EndsAt    time.Time `json:"endsAt"`
 	CreatedBy string    `json:"createdBy"`
 	Comment   string    `json:"comment"`
-	// ByAgent marks an agent's silence: it is kept and listed, but it mutes nothing, so that people
-	// are still notified of what it matches.
+	// ByAgent marks a silence that is not a person's (an agent's or a token's, PausesPeople): it is kept
+	// and listed, but it mutes nothing, so that people are still notified of what it matches.
 	ByAgent bool `json:"byAgent,omitempty"`
 }
 

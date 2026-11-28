@@ -31,7 +31,7 @@ func TestPlanMaintenance(t *testing.T) {
 	if a := reader.post("/console/maintenance", nil); a.code != http.StatusForbidden {
 		t.Fatalf("on-call reader scheduling: %d", a.code)
 	}
-	w := e.signedIn("operator", "status:read", "maintenance:write")
+	w := e.invite(e.owner(), "operator", "operator") // a person's window mutes what it covers
 	if a := w.get("/console/maintenance/new?service=api.example.com"); a.code != http.StatusOK ||
 		!strings.Contains(a.body, `name="service" value="api.example.com" checked`) {
 		t.Fatalf("service is not selected bringing the form up from its monitor page: %d", a.code)

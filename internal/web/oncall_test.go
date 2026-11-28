@@ -178,7 +178,7 @@ func TestAlertResponseKeepsNotificationAndOwnershipSeparate(t *testing.T) {
 		strings.Contains(response, hostile) {
 		t.Fatal("the current handover does not expose its full text safely")
 	}
-	if _, err := e.b.Silence(context.Background(), e.id, time.Hour, bridge.Actor{Name: "duty", Via: "console"}, "known outage"); err != nil {
+	if _, err := e.b.Silence(context.Background(), e.id, time.Hour, bridge.Actor{Name: "duty", Via: "console", Key: "user:duty"}, "known outage"); err != nil {
 		t.Fatal(err)
 	}
 	response = alertResponse(t, viewer.get(path))
