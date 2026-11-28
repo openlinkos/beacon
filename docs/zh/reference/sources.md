@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-10477c7a
+sourceHash: sha256-00cc9fb3
 ---
 
 # 数据来源
@@ -39,7 +39,7 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 ## 主机 {#hosts}
 
-不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签和 `job="host"`。
+不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签和 `job="host"`。主机自己的抓取程序设的 `job` 会被替换，所以它各个抓取任务的序列靠 `instance` 区分。
 
 ## 心跳 {#heartbeats}
 

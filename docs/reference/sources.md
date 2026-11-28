@@ -35,7 +35,7 @@ The results use the Blackbox Exporter's metric names (`probe_success`, `probe_du
 
 ## Hosts
 
-A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host` and `job="host"`.
+A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host` and `job="host"`. The `job` a host's own scraper sets is replaced, so series from its scrape jobs stay apart by `instance`.
 
 ## Heartbeats
 
