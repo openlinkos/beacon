@@ -564,12 +564,10 @@ func (b *Bridge) Reset(ctx context.Context, code, password string, revokeTokens 
 	}
 	var revoked []string
 	if revokeTokens {
-		for _, ag := range b.d.Store.Agents(a.Username) {
-			for _, t := range b.d.Store.AgentTokens(ag.Name) {
-				if b.d.Store.RevokeToken(t.Name) == nil {
-					b.d.Store.DeleteConsoleSessions(t.Name)
-					revoked = append(revoked, t.Name)
-				}
+		for _, t := range b.PersonTokens(a.Username) {
+			if b.d.Store.RevokeToken(t.Name) == nil {
+				b.d.Store.DeleteConsoleSessions(t.Name)
+				revoked = append(revoked, t.Name)
 			}
 		}
 	}
@@ -585,11 +583,17 @@ func (b *Bridge) Reset(ctx context.Context, code, password string, revokeTokens 
 	return a, nil
 }
 
-// PersonTokens lists the static tokens of a person's agents: what a new password leaves working.
+// PersonTokens lists the static tokens of a person's agents that have not expired: what a new password
+// leaves working.
 func (b *Bridge) PersonTokens(username string) []store.Token {
 	var out []store.Token
+	now := b.now()
 	for _, ag := range b.d.Store.Agents(username) {
-		out = append(out, b.d.Store.AgentTokens(ag.Name)...)
+		for _, t := range b.d.Store.AgentTokens(ag.Name) {
+			if now.Before(t.Expires) {
+				out = append(out, t)
+			}
+		}
 	}
 	return out
 }
