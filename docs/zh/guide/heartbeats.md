@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-8a96f950
+sourceHash: sha256-8df92789
 ---
 
 # 心跳与到期资源
@@ -31,6 +31,8 @@ sourceHash: sha256-8a96f950
    ```bash
    restic backup … && beacon-heartbeat nas-backup
    ```
+
+   只有目录为这个心跳写明了检测程序所在的机器，这个样本才算数：把检测点的位置或主机的名字写进 `machine`（第 3 步）。检测点或主机为别的机器、或为没写机器的心跳发来的样本，网关会丢弃。
 
    其他机器上的任务用专属令牌推送一条数据，这个令牌只能报告这一个心跳。令牌在中心上用 `beacon enroll heartbeat nas-backup` 生成：
 
@@ -86,6 +88,7 @@ beacon_heartbeat_last_success_timestamp_seconds{heartbeat="nas-backup"}
 不工作时：
 
 - **心跳从来没报过。** 任务没有以 `beacon-heartbeat` 结尾，或者推送用错了令牌。
+- **检测程序报的心跳从来没到。** 心跳没写机器，或者写的是别的机器。把 `machine` 设成检测程序所在的位置或主机；中心上的 `beacon_gateway_samples_dropped_total{reason="heartbeat"}` 记着丢弃了多少。
 - **修改被 `config.invalid` 拒绝。** 通常是通道里没有那台机器：[修改被 config.conflict 或 config.invalid 拒绝](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid)。
 - **告警压根没来。** 见[告警一直没有来](../self-hosting/troubleshooting.md#an-alert-never-arrives)。
 

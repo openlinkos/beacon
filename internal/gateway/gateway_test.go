@@ -67,6 +67,7 @@ type env struct {
 	flux    string
 	human   string
 	auth    *api.Auth // the Auth the gateway was given, which the API shares
+	deps    Deps      // what the gateway was built with
 }
 
 func newEnv(t *testing.T, withAM bool) *env {
@@ -88,6 +89,10 @@ locations:
 resources:
   - {name: cdn-pre-us1, kind: vps, expires: 2027-04-02}
   - {name: cdn-pre-cn1, kind: vps, expires: 2026-11-02}
+heartbeats:
+  - {name: edge-backup, max_age: 1h, severity: warning, machine: cdn-pre-us1}
+  - {name: worker-backup, max_age: 1h, severity: warning, machine: worker-us}
+  - {name: nas, max_age: 1h, severity: warning}
 `,
 		filepath.Join(tg, "all-web.yaml"):          "- targets: [https://linkos.org/]\n  labels: {module: http_head, service: linkos.org}\n",
 		filepath.Join(tg, "mainland-only.yaml"):    "- targets: [https://cn.example/]\n  labels: {module: http_head, service: cn}\n",
@@ -141,9 +146,10 @@ resources:
 	e.board = probenow.New(probenow.Deps{Catalog: func() *catalog.Catalog { return c }, Targets: func() *targets.Set { return set },
 		Metrics: e.m, Now: func() time.Time { return now }})
 	e.auth = &api.Auth{Store: st, Now: func() time.Time { return now }}
-	e.h = Handler(Deps{Auth: e.auth, Catalog: func() *catalog.Catalog { return c },
+	e.deps = Deps{Auth: e.auth, Catalog: func() *catalog.Catalog { return c },
 		Targets: func() *targets.Set { return set }, Modules: func() []byte { return []byte("modules: {}\n") }, VM: vmURL, Alerts: alerts, RulesToken: "rules-0123456789abcdef0123456789",
-		Metrics: e.m, Now: func() time.Time { return now }, Requests: e.board})
+		Metrics: e.m, Now: func() time.Time { return now }, Requests: e.board}
+	e.h = Handler(e.deps)
 	return e
 }
 
@@ -171,11 +177,12 @@ func code(t *testing.T, rec *httptest.ResponseRecorder, want int, errCode string
 func TestProbeWriteIsLabelledByTheGateway(t *testing.T) {
 	e := newEnv(t, false)
 	// the probe tries to pass its own extra_label: the gateway drops the client's query entirely
-	rec := e.do("POST", "/api/v1/write?extra_label=location=evil", e.probe, "snappy-bytes")
+	body := writeRequest([]string{"__name__", "probe_success", "location", "evil"})
+	rec := e.do("POST", "/api/v1/write?extra_label=location=evil", e.probe, body)
 	code(t, rec, http.StatusNoContent, "")
-	r, body := e.vm.last()
-	if r.URL.Path != "/prefix/api/v1/write" || body != "snappy-bytes" {
-		t.Fatalf("forwarded %s %q", r.URL.Path, body)
+	r, fwd := e.vm.last()
+	if r.URL.Path != "/prefix/api/v1/write" || fwd != body {
+		t.Fatalf("forwarded %s %q", r.URL.Path, fwd)
 	}
 	got := r.URL.Query()["extra_label"]
 	want := []string{"location=cdn-pre-us1", "region=overseas", "network=CN2 GIA", "host=cdn-pre-us1", "job=probe"}
@@ -208,7 +215,7 @@ func TestExpiredMachineCannotWrite(t *testing.T) {
 
 func TestHostWrite(t *testing.T) {
 	e := newEnv(t, false)
-	code(t, e.do("POST", "/api/v1/write", e.host, "x"), http.StatusNoContent, "")
+	code(t, e.do("POST", "/api/v1/write", e.host, writeRequest([]string{"__name__", "up"})), http.StatusNoContent, "")
 	r, _ := e.vm.last()
 	if got := r.URL.Query()["extra_label"]; strings.Join(got, "|") != "host=worker-us|job=host" {
 		t.Fatalf("extra_label = %v", got)

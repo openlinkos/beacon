@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-a9995411
+sourceHash: sha256-7ce83b03
 ---
 
 # 目录文件格式 {#the-catalogue}
@@ -67,7 +67,7 @@ heartbeats:
 | `max_age` | 时长 | 至少 `1m`；成功过多久还不上报就触发 `HeartbeatStale` |
 | `severity` | `critical`、`warning` 或 `info` | 告警的级别 |
 | `description` | 字符串 | 自由文本 |
-| `machine` | 字符串 | 可选；机器名，小写字母、数字和连字符。写入（API、MCP）会拒绝 SSH 通道没有的机器，除非心跳本来就叫这台；导入和回退接受，附一条警告 |
+| `machine` | 字符串 | 可选；机器名，小写字母、数字和连字符。写入（API、MCP）会拒绝 SSH 通道没有的机器，除非心跳本来就叫这台；导入和回退接受，附一条警告。只有这里是检测点的位置 id 或主机的名字时，那个检测点或主机才能写这个心跳；没有写 `machine` 的心跳只能由它自己的心跳令牌写入 |
 
 任务怎么上报成功、心跳怎么变成 Agent 能着手的东西，见[心跳与到期资源](../guide/heartbeats.md)。
 

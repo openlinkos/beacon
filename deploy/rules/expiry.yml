@@ -3,7 +3,8 @@
 # (beacon_heartbeat_max_age_seconds from the catalogue, beacon_heartbeat_last_success_timestamp_seconds from the jobs).
 # What the catalogue says counts only from Beacon's own scrape (job="beacon"), and a heartbeat's success only
 # from what the gateway labelled as a heartbeat's, a probe's or a host's (job, which the gateway sets to the kind
-# of token; a heartbeat token writes only its own heartbeat), so no machine can postpone an expiry or a heartbeat.
+# of token; a heartbeat token writes only its own heartbeat, and a probe or a host only the heartbeats the
+# catalogue gives its machine), so no machine can postpone an expiry or another's heartbeat.
 groups:
   - name: expiry
     interval: 5m
@@ -33,13 +34,15 @@ groups:
           description: "Renew {{ $labels.resource }}, or let it lapse on purpose; then put the new date in the catalogue (catalog/resources.yaml, or through the API) so that this alert ends."
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/ResourceExpiring.md
 
-      # The earliest expiry any location sees, so that one certificate is reported once, not once per location.
+      # Reported once for a certificate, not once per location, and only when two locations agree: of the earliest
+      # expiry each location sees, the second earliest (bottomk 2, then max), so that no one location raises it
+      # alone. A service that only one location checks has that location's.
       # Let's Encrypt renews 30 days ahead: 14 days left means renewal has failed twice over.
       - alert: CertificateExpiring
         expr: |
-          (min by (service, failure_domain) (probe_ssl_earliest_cert_expiry{job="probe"}) - time()) < 14 * 86400
+          (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) < 14 * 86400
           and
-          (min by (service, failure_domain) (probe_ssl_earliest_cert_expiry{job="probe"}) - time()) >= 7 * 86400
+          (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) >= 7 * 86400
         labels:
           severity: warning
         annotations:
@@ -48,7 +51,7 @@ groups:
           runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
 
       - alert: CertificateExpiring
-        expr: (min by (service, failure_domain) (probe_ssl_earliest_cert_expiry{job="probe"}) - time()) < 7 * 86400
+        expr: (max by (service, failure_domain) (bottomk by (service, failure_domain) (2, min by (service, failure_domain, location) (probe_ssl_earliest_cert_expiry{job="probe"}))) - time()) < 7 * 86400
         labels:
           severity: critical
         annotations:

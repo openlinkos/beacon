@@ -59,6 +59,62 @@ tests:
               description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
 
+  # One location alone does not raise a certificate's alert: of the earliest expiry each location sees, the
+  # second earliest counts. A service only one location checks has that location's.
+  - name: a certificate expiring needs two locations to agree
+    interval: 5m
+    input_series:
+      # app: one location sees 3 days, the other 60 days: nothing
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",failure_domain="origin-1",location="edge-1",instance="https://app.example.com/"}'
+        values: '946944000x5'   # in 3 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="app.example.com",failure_domain="origin-1",location="cn-1",instance="https://app.example.com/"}'
+        values: '951868800x5'   # in 60 days
+      # api: two of three locations see 5 days: critical, at what they agree on
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="edge-1",instance="https://api.example.com/"}'
+        values: '947116800x5'   # in 5 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="cn-1",instance="https://api.example.com/"}'
+        values: '947116800x5'
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="api.example.com",failure_domain="origin-2",location="de-1",instance="https://api.example.com/"}'
+        values: '951868800x5'
+      # www: one location sees 3 days on one of its targets, the other 10 days: a warning, at 10 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="www.example.com",failure_domain="origin-3",location="edge-1",instance="https://www.example.com/"}'
+        values: '946944000x5'   # in 3 days
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="www.example.com",failure_domain="origin-3",location="edge-1",instance="https://www.example.com/a"}'
+        values: '951868800x5'
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="www.example.com",failure_domain="origin-3",location="cn-1",instance="https://www.example.com/"}'
+        values: '947548800x5'   # in 10 days
+      # solo: checked from one location only, which sees 5 days: critical
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe",service="solo.example.com",failure_domain="origin-4",location="edge-1",instance="https://solo.example.com/"}'
+        values: '947116800x5'   # in 5 days
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CertificateExpiring
+        exp_alerts:
+          - exp_labels:
+              service: api.example.com
+              failure_domain: origin-2
+              severity: critical
+            exp_annotations:
+              summary: The certificate of api.example.com expires in 4d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
+          - exp_labels:
+              service: www.example.com
+              failure_domain: origin-3
+              severity: warning
+            exp_annotations:
+              summary: The certificate of www.example.com expires in 9d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
+          - exp_labels:
+              service: solo.example.com
+              failure_domain: origin-4
+              severity: critical
+            exp_annotations:
+              summary: The certificate of solo.example.com expires in 4d 23h 50m 0s
+              description: "Automatic renewal has not happened (Let's Encrypt renews 30 days ahead). Check whatever issues the certificate: the reverse proxy, cert-manager, the CDN."
+              runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/CertificateExpiring.md
+
   - name: a heartbeat older than its max age is stale
     interval: 10m
     input_series:
@@ -84,12 +140,13 @@ tests:
               description: The job behind heartbeat nas-backup did not report success within its max_age. Check whether it ran, and whether it failed.
               runbook: https://github.com/openlinkos/beacon/blob/main/deploy/runbooks/HeartbeatStale.md
 
+  # The gateway passes a probe's or a host's heartbeat only when the catalogue names that machine for it.
   - name: a heartbeat that names its machine alerts as before, the machine label aggregated away
     interval: 10m
     input_series:
       - series: 'beacon_heartbeat_last_success_timestamp_seconds{job="probe",heartbeat="drill-1",location="edge-1",region="overseas",network="BGP",host="edge-1"}'
         values: '946684800'
-      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="db-1"}'
+      - series: 'beacon_heartbeat_max_age_seconds{job="beacon",heartbeat="drill-1",severity="critical",machine="edge-1"}'
         values: '3600x20'
     alert_rule_test:
       - eval_time: 50m

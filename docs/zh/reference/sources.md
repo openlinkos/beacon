@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-076c9ad9
+sourceHash: sha256-baa61cbc
 ---
 
 # 数据来源
@@ -8,7 +8,7 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 机器和工具发到 17006 端口的网关，各用各的令牌，谁也冒充不了别人。人和 Agent 用 17001 端口。这些路径列在 [REST API](api.md#the-gateway) 参考里。
 
-机器写入的每个样本，网关都把 `job` 设成它令牌的种类：`probe`、`host` 或 `heartbeat`，不管机器自己发的是什么。参考规则只从 `job="probe"` 取检测结果，只从 Beacon 自己的抓取（`job="beacon"`）取目录的指标。一次导入最多 200,000 个样本、64 MiB 文本；更大的会被拒绝，返回 `import.too_large`。
+机器写入的每个样本，网关都把 `job` 设成它令牌的种类：`probe`、`host` 或 `heartbeat`，不管机器自己发的是什么。参考规则只从 `job="probe"` 取检测结果，只从 Beacon 自己的抓取（`job="beacon"`）取目录的指标。一次导入最多 200,000 个样本、64 MiB 文本；更大的会被拒绝，返回 `import.too_large`。网关在 VictoriaMetrics 之前先读每个样本；[网关放行什么](#what-the-gateway-passes)说明它丢弃哪些。
 
 | 来源 | 路径 | 令牌 | 格式 |
 | --- | --- | --- | --- |
@@ -41,6 +41,8 @@ Beacon 依据别人发给它的东西做判断。这一页列出每个来源：�
 
 不做检测点的机器以主机身份上报，令牌来自 `beacon enroll host <名字>`：文本格式发到 `POST /api/v1/import/prometheus`，或 Prometheus remote write 发到 `POST /api/v1/write`。网关给它写入的数据打上 `host` 标签和 `job="host"`。主机自己的抓取程序设的 `job` 会被替换，所以它各个抓取任务的序列靠 `instance` 区分。
 
+remote write 用的是 Prometheus 的协议第 1 版，snappy 压缩，Prometheus 和 vmagent 就是这样发的。网关读每个请求（解压后最多 32 MiB），把它放行的序列重新写一遍再转发。VictoriaMetrics 自己的协议（zstd）会被拒绝，返回 `write.encoding`（415），vmagent 收到后会改回 Prometheus 的协议。
+
 ## 心跳 {#heartbeats}
 
 必须至少每隔 `max_age` 报告一次成功的任务（备份、定时任务）在成功时推送一个样本，令牌来自 `beacon enroll heartbeat <名字>`：
@@ -53,7 +55,19 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
 
 这个令牌只能写这一个心跳。网关给样本打上 `heartbeat` 标签（即令牌登记时的名字）和 `job="heartbeat"`，不管样本里写的是什么。其他指标会被拒绝，返回 `heartbeat.metric`；一次超过 100 个样本返回 `import.too_large`；没有登记心跳名字的心跳令牌返回 `heartbeat.unnamed`。每个心跳各用一个令牌。
 
-在装了检测程序的机器上，任务改为把同样一行写进检测程序的 textfile 目录。心跳本身、它的 `max_age` 和级别写在目录里（[心跳](catalogue.md#heartbeats)）。
+在装了检测程序的机器上，任务改为把同样一行写进检测程序的 textfile 目录。这个样本只对目录分给这台机器的心跳算数：心跳的 `machine` 是这个检测点的位置，或者主机令牌登记时的名字。没有写 `machine` 的心跳只能由它自己的心跳令牌写入。心跳本身、它的 `max_age` 和级别写在目录里（[心跳](catalogue.md#heartbeats)）。
+
+检测程序只从 textfile 目录发送它自己的行：检测结果（`probe_…`）和心跳以外的 Beacon 指标（`beacon_…`）只由检测程序自己报告，目录里的这些行会被略过。
+
+## 网关放行什么 {#what-the-gateway-passes}
+
+检测点、主机和心跳发来的每个样本，网关都在 VictoriaMetrics 之前先读一遍，只放行说得清楚自己是什么的：
+
+- **普通的文本格式。** 一行是 `name{label="value",…} value [timestamp]`，指标名写在大括号前面，标签名不加引号。VictoriaMetrics 还认大括号里带引号的指标名，以及代替前面指标名的 `__name__` 标签；网关两种都不放行。超过 64 KiB 的行不算样本。
+- **每个标签只写一次。** 同一个标签写了两次的样本或 remote write 序列不放行。
+- **心跳归它的机器。** 检测点或主机只能为目录里 `machine` 是这个检测点位置或这台主机的心跳写 `beacon_heartbeat_last_success_timestamp_seconds`。
+
+检测点或主机发来的、不放行的样本被丢弃，导入的其余部分照常写入，`beacon_gateway_samples_dropped_total` 按机器（`subject`）和原因（`reason`：`syntax`、`name_label`、`labels` 或 `heartbeat`）计数。每种情况第一次出现时写日志。心跳令牌的导入里有这样的行，整个导入被拒绝：别的指标或 `__name__` 标签返回 `heartbeat.metric`，其余返回 `bad_input`。
 
 ## 规则引擎 {#the-rule-engine}
 

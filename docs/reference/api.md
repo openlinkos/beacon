@@ -289,8 +289,8 @@ Each sends with a token of its own:
 
 | Route | Scope | What |
 | --- | --- | --- |
-| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `beacon-probe` pushes), and heartbeats, labelled with the token's subject and kind (`job`); at most 200,000 samples an import |
-| `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write |
+| `POST /api/v1/import/prometheus` | `probe:write`, `host:write`, `heartbeat:write` | Samples in the Prometheus text format (what `beacon-probe` pushes), and heartbeats, labelled with the token's subject and kind (`job`); at most 200,000 samples an import. Lines the gateway does not pass are dropped ([Sources](sources.md#what-the-gateway-passes)) |
+| `POST /api/v1/write` | `probe:write`, `host:write` | Prometheus remote write, version 1, compressed with snappy; at most 32 MiB decompressed |
 | `GET /api/v1/targets` | `probe:write` | The targets this probe's location checks |
 | `GET /api/v1/modules` | `probe:write` | The probe module file, byte for byte |
 | `GET /api/v1/agent` | `probe:write` | The location's settings: its id, probe timeout and retries |
@@ -394,7 +394,8 @@ Each sends with a token of its own:
 | `changes.too_many` | 429 | Gateway: the token posted more than 60 change events this minute |
 | `alerts.too_many` | 429 | Gateway: the `alerts:send` token posted alerts more than 120 times this minute |
 | `import.too_large` | 400 | Gateway: the import carries more samples or text than one import may (200,000 samples and 64 MiB; a heartbeat's 100 samples and 64 KiB) |
-| `heartbeat.metric` | 400 | Gateway: a heartbeat token sent a metric other than `beacon_heartbeat_last_success_timestamp_seconds` |
+| `heartbeat.metric` | 400 | Gateway: a heartbeat token sent a metric other than `beacon_heartbeat_last_success_timestamp_seconds`, or named its metric with a `__name__` label |
+| `write.encoding` | 415 | Gateway: remote write compressed other than with snappy, such as VictoriaMetrics' own protocol; vmagent goes back to Prometheus' on this answer |
 | `heartbeat.unnamed` | 403 | Gateway: the heartbeat token names no heartbeat; enrol it with `beacon enroll heartbeat <name>` |
 | `request.not_found` | 404 | Gateway: the probing request is unknown or has expired |
 | `exercise.invalid_receipt` | 400 | Gateway: the drill receipt is invalid or expired for this probe and target |
