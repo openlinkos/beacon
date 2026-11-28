@@ -1358,4 +1358,8 @@ var zh = map[string]string{ //nolint:gosec // G101: translations, some of which 
 	"Workflow":              "推荐流程",
 	"Public home":           "公开首页",
 	"Back to home":          "返回首页",
+
+	// an agent's silence, which leaves people notified
+	"Silenced by agent %s until %s; people are still notified": "Agent %s 静默到 %s，仍会通知值班的人",
+	"Agent's silence: people are still notified":               "Agent 的静默：仍会通知人",
 }

@@ -113,7 +113,7 @@ Delivery of the alert itself never waits for the hook.
 
 ## Take over an alert
 
-Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. An acknowledgement by an identified Agent leaves that escalation in effect. An explicit silence still pauses it.
+Read the alert page's response panel for the hook and notification results. A hook can accept an alert even if the Agent cannot start or has left no work to review. The configured human escalation continues while nobody has acknowledged the alert as a person. An acknowledgement by an identified Agent leaves that escalation in effect, and so does an Agent's silence. A silence by a person still pauses it. An Agent's silence is recorded and shown on the card and the alert page, but it mutes no alert and does not cancel a Pushover emergency. A person can silence the alert or end the Agent's silence.
 
 An earlier Pushover emergency can repeat while cancellation is pending. The response panel shows when Pushover confirms cancellation or when the retry window expires. Beacon requests cancellation for the original [emergency receipt](https://pushover.net/api/receipts). A separate emergency on a later incident has its own receipt. An older receipt with an unverified provider route appears as unconfirmed.
 

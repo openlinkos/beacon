@@ -370,10 +370,12 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 	} else if al.Status == "firing" {
 		p.Ownership = s.t("Awaiting human acknowledgement")
 	}
-	silenced := g.Silence != nil && now.Before(g.Silence.Until)
+	silenced := g.Silence.Pauses(now)
 	switch {
 	case silenced:
 		p.Escalation = s.t("Silenced until %s by %s", s.clock(g.Silence.Until), g.Silence.By)
+	case g.Silence != nil && now.Before(g.Silence.Until):
+		p.Escalation = s.t("Silenced by agent %s until %s; people are still notified", g.Silence.By, s.clock(g.Silence.Until))
 	case g.Status == "firing" && deviceAcknowledged(g.Ack):
 		p.Escalation = s.t("The device acknowledgement pauses new escalations.")
 	case g.Status == "firing" && g.Ack.StopsEscalation():
@@ -465,7 +467,7 @@ func (s *Server) alertPage(r *http.Request, ev bridge.Evidence, tl bridge.Timeli
 		if s.Bridge.CanProbeNow() {
 			p.Actions.Probe = base + "/probe-now"
 		}
-		if silenced {
+		if g.Silence != nil && now.Before(g.Silence.Until) { // a person may end an agent's silence too
 			p.Actions.Unsilence, p.Actions.Back = consolePath("/silences/")+url.PathEscape(g.Silence.ID)+"/expire", link.IncidentPath(al.ID, p.Actions.ReturnEpisode)
 		}
 		if al.Status == "firing" {

@@ -22,7 +22,15 @@ import (
 type AM struct {
 	mu      sync.Mutex
 	Created []map[string]string
+	Agents  []map[string]string // agents' silences, which mute nothing
 	Expired []string
+}
+
+func (a *AM) CreateAgentSilence(_ context.Context, l map[string]string, _, _ time.Time, _, _ string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Agents = append(a.Agents, l)
+	return fmt.Sprintf("agent-sil-%d", len(a.Agents)), nil
 }
 
 func (a *AM) CreateSilence(_ context.Context, l map[string]string, _, _ time.Time, _, _ string) (string, error) {

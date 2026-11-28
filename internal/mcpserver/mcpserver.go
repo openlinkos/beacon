@@ -412,7 +412,7 @@ func New(b *bridge.Bridge, g SSH, opts ...Option) *mcp.Server {
 
 	registerTool(s, &mcp.Tool{Name: "silence_alert", Title: "Silence an alert",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Silence a firing alert group for a while (at most 24h) with a required comment. Notifications for every alert in the group stop until it ends; it also acknowledges the group."},
+		Description: "Silence a firing alert group for a while (at most 24h) with a required comment; it also acknowledges the group. A person's silence stops notifications for every alert in the group until it ends. An agent's silence is recorded and shown, but people are still notified, as after an agent's acknowledgement."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in silenceIn) (*mcp.CallToolResult, bridge.GroupView, error) {
 			who, err := need(ctx, "alerts:write")
 			if err != nil {

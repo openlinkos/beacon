@@ -97,7 +97,7 @@ Reusable operational playbooks exposed via MCP `prompts/list` and `prompts/get`:
 | `list_silences` | `status:read` | Silences active or pending, ending soonest first |
 | `list_audit` | `status:read` | The latest writes with who made them and through what, newest first (`limit`, 1 to 200, 50 by default) |
 | `ack_alert` | `alerts:write` | Acknowledge a firing group (`id`, `note`): escalation to phones stops for `ack_ttl` (4 hours by default). Say what is being done in the note |
-| `silence_alert` | `alerts:write` | Silence a firing group (`id`, `duration` of at most 24 hours, a required `comment`); it also acknowledges the group |
+| `silence_alert` | `alerts:write` | Silence a firing group (`id`, `duration` of at most 24 hours, a required `comment`); it also acknowledges the group. An agent's silence is recorded but people are still notified |
 | `expire_silence` | `alerts:write` | End a silence now (`silence_id`), so the alerts it covered notify again |
 
 ## Working an alert

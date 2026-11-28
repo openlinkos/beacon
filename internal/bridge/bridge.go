@@ -47,6 +47,12 @@ type Silencer interface {
 	Silences(ctx context.Context) ([]alertmanager.Silence, error)
 }
 
+// AgentSilencer is a Silencer that keeps agents' silences apart: recorded and listed, muting nothing.
+// An agent cannot silence through a Silencer without it.
+type AgentSilencer interface {
+	CreateAgentSilence(ctx context.Context, labels map[string]string, start, end time.Time, createdBy, comment string) (string, error)
+}
+
 // Pusher is Pushover's emergency priority.
 type Pusher interface {
 	Send(ctx context.Context, m notify.Emergency) (string, error)
@@ -587,7 +593,7 @@ func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, w
 		labels = map[string]string{"alertname": g.Common["alertname"]}
 	}
 	now := b.now()
-	id, err := b.d.AM.CreateSilence(ctx, labels, now, now.Add(d), who.Name, comment)
+	id, err := b.createSilence(ctx, labels, now, now.Add(d), who, comment)
 	if err != nil {
 		return err
 	}
@@ -595,10 +601,29 @@ func (b *Bridge) silence(ctx context.Context, g *store.Group, d time.Duration, w
 	return nil
 }
 
+// createSilence makes a silence in the router: a person's mutes what it matches, an agent's is only
+// recorded, so that people are still notified.
+func (b *Bridge) createSilence(ctx context.Context, labels map[string]string, start, end time.Time, who Actor, comment string) (string, error) {
+	if actorKind(who) != "agent" {
+		return b.d.AM.CreateSilence(ctx, labels, start, end, who.Name, comment)
+	}
+	as, ok := b.d.AM.(AgentSilencer)
+	if !ok {
+		return "", fmt.Errorf("%w: an agent's silence cannot be recorded here; acknowledge the alert instead", ErrBadInput)
+	}
+	return as.CreateAgentSilence(ctx, labels, start, end, who.Name, comment)
+}
+
+// markSilence marks a group silenced. A person's silence pauses escalation and cancels a pending
+// Pushover emergency; an agent's does neither, as its acknowledgement does not.
 func (b *Bridge) markSilence(g *store.Group, silence store.Silence, who Actor) {
+	silence.Kind = actorKind(who)
 	g.Silence = &silence
 	if g.Ack == nil {
 		b.ack(g, who, "")
+	}
+	if silence.Kind == "agent" {
+		return
 	}
 	b.queuePushoverCancellation(g)
 	if !g.Ack.StopsEscalation() {
@@ -641,7 +666,7 @@ func (b *Bridge) tick(ctx context.Context, upkeep bool) {
 		}
 		changed := false
 		pol := b.d.Config.Policy(g.Severity)
-		silenced := g.Silence != nil && g.Silence.Until.After(now)
+		silenced := g.Silence.Pauses(now)
 		if g.Ack != nil && now.Sub(g.Ack.At) > ttl && !silenced {
 			resume := g.Ack.StopsEscalation()
 			rememberAck(&g, *g.Ack)
@@ -1214,7 +1239,7 @@ func (b *Bridge) SilenceLabels(ctx context.Context, labels map[string]string, d 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.now()
-	id, err := b.d.AM.CreateSilence(ctx, labels, now, now.Add(d), who.Name, comment)
+	id, err := b.createSilence(ctx, labels, now, now.Add(d), who, comment)
 	if err != nil {
 		return alertmanager.Silence{}, err
 	}

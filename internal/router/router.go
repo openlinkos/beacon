@@ -498,10 +498,11 @@ func (r *Router) Firing() int {
 
 // ---- Silences (the bridge's Silencer)
 
+// activeSilences are the silences that mute at now; an agent's never does.
 func (r *Router) activeSilences(now time.Time) []store.SilenceRecord {
 	var out []store.SilenceRecord
 	for _, s := range r.store.SilenceRecords() {
-		if !now.Before(s.StartsAt) && now.Before(s.EndsAt) {
+		if !s.ByAgent && !now.Before(s.StartsAt) && now.Before(s.EndsAt) {
 			out = append(out, s)
 		}
 	}
@@ -509,7 +510,17 @@ func (r *Router) activeSilences(now time.Time) []store.SilenceRecord {
 }
 
 // CreateSilence silences alerts whose labels equal all of labels, from start to end.
-func (r *Router) CreateSilence(_ context.Context, labels map[string]string, start, end time.Time, createdBy, comment string) (string, error) {
+func (r *Router) CreateSilence(ctx context.Context, labels map[string]string, start, end time.Time, createdBy, comment string) (string, error) {
+	return r.createSilence(ctx, labels, start, end, createdBy, comment, false)
+}
+
+// CreateAgentSilence records an agent's silence. It is listed and can be ended like any other, but it
+// mutes nothing: what it matches still reaches people.
+func (r *Router) CreateAgentSilence(ctx context.Context, labels map[string]string, start, end time.Time, createdBy, comment string) (string, error) {
+	return r.createSilence(ctx, labels, start, end, createdBy, comment, true)
+}
+
+func (r *Router) createSilence(_ context.Context, labels map[string]string, start, end time.Time, createdBy, comment string, byAgent bool) (string, error) {
 	if len(labels) == 0 {
 		return "", errors.New("a silence needs at least one label")
 	}
@@ -525,7 +536,7 @@ func (r *Router) CreateSilence(_ context.Context, labels map[string]string, star
 		return "", err
 	}
 	id := hex.EncodeToString(raw)
-	err := r.store.PutSilence(store.SilenceRecord{ID: id, Matchers: ms, StartsAt: start, EndsAt: end, CreatedBy: createdBy, Comment: comment})
+	err := r.store.PutSilence(store.SilenceRecord{ID: id, Matchers: ms, StartsAt: start, EndsAt: end, CreatedBy: createdBy, Comment: comment, ByAgent: byAgent})
 	return id, err
 }
 

@@ -1576,7 +1576,7 @@ paths:
     post:
       tags: [Incidents]
       summary: Silence a firing alert group
-      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group."
+      description: "Scope: alerts:write. At most 24 hours; a comment is required. Also acknowledges the group. An agent's silence is recorded but mutes nothing, so people are still notified."
       requestBody:
         required: true
         content:

@@ -124,7 +124,7 @@ Enrolling or explicitly replacing a machine starts a new history. Restoring sett
 `/console/silences` shows what keeps alerts from paging people:
 
 - **The maintenance windows.** Those in progress and planned come first, then the last 20 that ended. Each shows its services, its times and who planned it.
-- **The silences** in force or to come, as Alertmanager holds them. Each shows what it matches, its comment, who made it, when it ends and the alert it silences.
+- **The silences** in force or to come, as Alertmanager holds them. Each shows what it matches, its comment, who made it, when it ends and the alert it silences. An agent's silence is marked as such: it is recorded but still lets people be notified.
 
 What each role may do:
 

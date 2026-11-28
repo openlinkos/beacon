@@ -84,7 +84,7 @@ Agent 要用一个作用域，得它的预设或自定义清单给了它，它�
 | `GET /api/v1/alerts/{id}` | `status:read` | 一个告警组：标签、处理手册和面板、认领、静默、升级、备注、唤醒过的 Agent，以及 `page`，即它在控制台里那一页的签名链接 |
 | `POST /api/v1/alerts/{id}/ack` | `alerts:write` | 认领一个正在触发的告警组，可以带 `note`：升级到手机暂停 `ack_ttl` 这么久（默认 4 小时） |
 | `GET /api/v1/silences` | `status:read` | 生效中和待生效的静默，最先结束的在前 |
-| `POST /api/v1/silences` | `alerts:write` | 静默一个正在触发的告警组：`alert`、`duration`（最长 24 小时）和必填的 `comment`。同时认领它 |
+| `POST /api/v1/silences` | `alerts:write` | 静默一个正在触发的告警组：`alert`、`duration`（最长 24 小时）和必填的 `comment`。同时认领它。Agent 的静默会被记录，但仍会通知人 |
 | `DELETE /api/v1/silences/{id}` | `alerts:write` | 立即结束一个静默；它覆盖的告警重新开始通知 |
 | `GET /api/v1/audit` | `status:read` | 最近的写操作，新的在前，带操作者和途径（`limit`，默认 100，最多 1000） |
 

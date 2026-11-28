@@ -246,7 +246,7 @@ func (s *Server) attention(v *viewer, f overviewFigures, sh serviceHealth) []att
 	alerting := map[string]bool{}
 	for _, g := range s.Bridge.Groups(true) {
 		alerting[g.Service] = true
-		silenced := g.Silence != nil && s.now().Before(g.Silence.Until)
+		silenced := g.Silence.Pauses(s.now()) // an agent's silence leaves the alert to a person
 		owned := claimed(g.Ack)
 		item := attentionItem{Icon: "triangle-alert", Tone: tone(g.Severity), Title: g.Title, Href: link.AlertPath(g.ID), Sub: g.Service,
 			Badge: s.severity(g.Severity), BadgeTone: tone(g.Severity), When: s.ago(g.StartsAt),

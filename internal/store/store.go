@@ -183,11 +183,18 @@ type Notification struct {
 	DeviceAcknowledgedAt time.Time `json:"device_acknowledged_at,omitzero"`
 }
 
-// Silence is the silence created for a group.
+// Silence is the silence created for a group. Kind is who made it, as for an acknowledgement.
 type Silence struct {
 	ID    string    `json:"id"`
 	By    string    `json:"by"`
 	Until time.Time `json:"until"`
+	Kind  string    `json:"kind,omitempty"` // person, agent or unattributed; absent on older records
+}
+
+// Pauses reports whether the silence holds at now and pauses notifications to people. An agent's
+// silence never does, as an agent's acknowledgement does not.
+func (s *Silence) Pauses(now time.Time) bool {
+	return s != nil && s.Kind != "agent" && now.Before(s.Until)
 }
 
 // Firing reports whether the group is firing.
@@ -813,6 +820,9 @@ type SilenceRecord struct {
 	EndsAt    time.Time `json:"endsAt"`
 	CreatedBy string    `json:"createdBy"`
 	Comment   string    `json:"comment"`
+	// ByAgent marks an agent's silence: it is kept and listed, but it mutes nothing, so that people
+	// are still notified of what it matches.
+	ByAgent bool `json:"byAgent,omitempty"`
 }
 
 // keepSilences is how long an ended silence stays listed.
