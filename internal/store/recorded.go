@@ -101,6 +101,40 @@ func (s *Store) CreateSubjectTokenRecorded(name, subject string, scopes []string
 	return s.createToken(name, subject, scopes, ttl, by, replace, record)
 }
 
+// JoinRecorded is Join, writing what record gives for the new account in the same transaction: should
+// the record fail, no account is made and the link still works.
+func (s *Store) JoinRecorded(code, username, displayName, password string, record func(Account) []AuditEntry) (Account, error) {
+	return s.join(code, username, displayName, password, record)
+}
+
+// RenewTokenRecorded is RenewToken, writing what record gives for the renewed token in the same
+// transaction: should the record fail, the token keeps the secret it had.
+func (s *Store) RenewTokenRecorded(name string, record func(Token) []AuditEntry) (string, Token, error) {
+	return s.renewToken(name, record)
+}
+
+// CreateAgentRecorded is CreateAgent for an agent that holds keys for the SSH channel from the start,
+// each under AddAgentSSHKey's rule, writing what record gives for it in the same transaction.
+func (s *Store) CreateAgentRecorded(a Agent, keys []SSHKey, record func(Agent) []AuditEntry) (Agent, error) {
+	return s.createAgent(a, keys, record)
+}
+
+// CreateAgentTokenRecorded is CreateAgentToken, writing what record gives for the new token in the same
+// transaction.
+func (s *Store) CreateAgentTokenRecorded(agent string, ttl time.Duration, by string, record func(Token) []AuditEntry) (string, Token, error) {
+	return s.createAgentToken(agent, ttl, by, record)
+}
+
+// AddAccountSSHKeyRecorded is AddAccountSSHKey, writing what record gives in the same transaction.
+func (s *Store) AddAccountSSHKeyRecorded(username string, k SSHKey, record Record[Account]) error {
+	return s.addAccountSSHKey(username, k, record)
+}
+
+// AddAgentSSHKeyRecorded is AddAgentSSHKey, writing what record gives in the same transaction.
+func (s *Store) AddAgentSSHKeyRecorded(agent string, k SSHKey, record Record[Agent]) (Agent, error) {
+	return s.addAgentSSHKey(agent, k, record)
+}
+
 // grantedAccess reports whether after reaches a machine before did not, or reaches one for longer.
 func grantedAccess(before, after MachineAccess, critical func(string) bool, now time.Time) bool {
 	return !after.Live(now).Within(before.Live(now), critical)

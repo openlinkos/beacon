@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,10 @@ func (t Token) RenewableAt() time.Time {
 // The token is read from the database inside the write, so a revoke that landed on another instance
 // of a pair is not written back from a stale cache.
 func (s *Store) RenewToken(name string) (string, Token, error) {
+	return s.renewToken(name, nil)
+}
+
+func (s *Store) renewToken(name string, record func(Token) []AuditEntry) (string, Token, error) {
 	secret, err := newSecret()
 	if err != nil {
 		return "", Token{}, err
@@ -71,7 +76,8 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 	var t Token
 	var old, before string
 	var beforeUntil time.Time
-	err = s.db.Update(func(tx kv.Tx) error {
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
+		before, beforeUntil = "", time.Time{}
 		v := tx.Get(bucketTokens, []byte(name))
 		if v == nil {
 			return ErrNotFound
@@ -107,7 +113,13 @@ func (s *Store) RenewToken(name string) (string, Token, error) {
 		if err != nil {
 			return err
 		}
-		return tx.Put(bucketTokens, []byte(name), b)
+		if err := tx.Put(bucketTokens, []byte(name), b); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(t))
+		}
+		return nil
 	})
 	if err != nil {
 		return "", Token{}, err

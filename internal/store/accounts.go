@@ -838,6 +838,10 @@ func (s *Store) withdrawLink(id string, kinds ...string) (AccountLink, error) {
 // Join creates an account with a setup or invitation link, which it uses up: the first owner with the
 // setup link (only while there is no account), or someone with the role an invitation names.
 func (s *Store) Join(code, username, displayName, password string) (Account, error) {
+	return s.join(code, username, displayName, password, nil)
+}
+
+func (s *Store) join(code, username, displayName, password string, record func(Account) []AuditEntry) (Account, error) {
 	if err := ValidUsername(username); err != nil {
 		return Account{}, err
 	}
@@ -854,7 +858,7 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	}
 	now := s.now().UTC()
 	var a Account
-	err = s.db.Update(func(tx kv.Tx) error {
+	err = s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		l, ok := getLink(tx, code)
 		if !ok || (l.Kind != LinkSetup && l.Kind != LinkInvite) {
 			return ErrBadLink
@@ -881,7 +885,13 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 		if err := putAccount(tx, a); err != nil {
 			return err
 		}
-		return tx.Delete(bucketLinks, []byte(l.Hash))
+		if err := tx.Delete(bucketLinks, []byte(l.Hash)); err != nil {
+			return err
+		}
+		if record != nil {
+			return s.appendRecords(raw, record(a))
+		}
+		return nil
 	})
 	if err != nil {
 		return Account{}, err

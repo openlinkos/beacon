@@ -113,17 +113,22 @@ func (b *Bridge) Whoami(p store.Principal, via string) (TokenView, error) {
 
 // RenewToken gives the caller's token a new secret that expires its lifetime from now; the old secret
 // keeps working for store.RenewGrace. At most once every store.RenewEvery; never for an enrolled
-// machine's token or an OAuth access token. Audited and echoed to the chat, as every write is.
+// machine's token or an OAuth access token. Echoed to the chat, as every write is, and renewed only with
+// its audit entry (ErrUnrecorded otherwise: the token keeps the secret it had).
 func (b *Bridge) RenewToken(ctx context.Context, p store.Principal, via string) (Renewed, error) {
 	if p.Grant != "" || p.Token == "" {
 		return Renewed{}, ErrOAuthNotRenewable
 	}
-	secret, t, err := b.d.Store.RenewToken(p.Token)
-	if err != nil {
+	secret, t, err := b.d.Store.RenewTokenRecorded(p.Token, func(t store.Token) []store.AuditEntry {
+		return []store.AuditEntry{{Actor: p.Name(), Via: via, Action: "token_renew", Target: t.Name,
+			Detail: "expires " + t.Expires.UTC().Format(time.DateOnly) + "; the old secret works until " + t.OldUntil.UTC().Format(time.RFC3339)}}
+	})
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return Renewed{}, unrecorded("token_renew", p.Token)
+	case err != nil:
 		return Renewed{}, err
 	}
-	_ = b.d.Store.Audit(store.AuditEntry{Actor: p.Name(), Via: via, Action: "token_renew", Target: t.Name,
-		Detail: "expires " + t.Expires.UTC().Format(time.DateOnly) + "; the old secret works until " + t.OldUntil.UTC().Format(time.RFC3339)})
 	b.echo(ctx, b.t("Token %s renewed itself; expires %s", t.Name, t.Expires.In(b.d.Config.Location).Format(time.DateOnly)))
 	p.Expires = t.Expires
 	return Renewed{Token: b.credentialView(p, t, via), Secret: secret, OldValidUntil: t.OldUntil}, nil

@@ -336,7 +336,7 @@ Each sends with a token of its own:
 | `share.not_found` | 404 | No alert group or SSH session with this ID |
 | `share.unavailable` | 503 | Beacon cannot create or revoke a signed link right now |
 | `audit.unavailable` | 500 | The audit log cannot be read |
-| `audit.not_recorded` | 503 | A change that gives access (an agent, a token, an SSH key, an invitation, a reset link, a raised role, an enabled account, a wider agent) was undone or not made because its audit entry could not be written. Retry once storage is available |
+| `audit.not_recorded` | 503 | A change that gives access (an account, an agent, a token or its renewal, an SSH key, an invitation, a reset link, a raised role, an enabled account, a wider agent) was not made because its audit entry could not be written. Retry once storage is available |
 | `incident.not_found` | 404 | No incident outcome with that ID is retained |
 | `incident.unavailable` | 500 | Incident outcomes cannot be read |
 | `incident.changed` | 409 | The incident being verified is no longer the current episode of its alert group |

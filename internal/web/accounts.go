@@ -130,6 +130,8 @@ func (s *Server) accountProblem(kind string, err error) string {
 		return s.t("The current password is wrong.")
 	case errors.Is(err, store.ErrLastOwner):
 		return s.t("Beacon would be left without an owner; make someone else owner first.")
+	case errors.Is(err, bridge.ErrUnrecorded):
+		return s.t("The audit log cannot be written now, so nothing was changed; try again once it can.")
 	}
 	return s.t("That did not work; the log says why.")
 }

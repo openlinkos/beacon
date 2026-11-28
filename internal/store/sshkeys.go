@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,7 +100,11 @@ func checkSSHKeyOwner(tx kv.Tx, fp, owner string) error {
 
 // AddAccountSSHKey registers a person's public key while the account has SSH access.
 func (s *Store) AddAccountSSHKey(username string, k SSHKey) error {
-	return s.db.Update(func(tx kv.Tx) error {
+	return s.addAccountSSHKey(username, k, nil)
+}
+
+func (s *Store) addAccountSSHKey(username string, k SSHKey, record Record[Account]) error {
+	return s.db.UpdateBoth(func(tx kv.Tx, raw *sql.Tx) error {
 		a, ok := getAccount(tx, username)
 		if !ok {
 			return ErrNotFound
@@ -110,14 +115,20 @@ func (s *Store) AddAccountSSHKey(username string, k SSHKey) error {
 		if err := checkSSHKeyOwner(tx, k.Fingerprint, "user "+username); err != nil {
 			return err
 		}
-		if hasSSHKey(a.SSHKeys, k.Fingerprint) {
-			return nil
+		before := a
+		if !hasSSHKey(a.SSHKeys, k.Fingerprint) {
+			if len(a.SSHKeys) >= MaxSSHKeys {
+				return fmt.Errorf("an account holds at most %d keys; remove one first", MaxSSHKeys)
+			}
+			a.SSHKeys = append(slices.Clip(a.SSHKeys), k)
+			if err := putAccount(tx, a); err != nil {
+				return err
+			}
 		}
-		if len(a.SSHKeys) >= MaxSSHKeys {
-			return fmt.Errorf("an account holds at most %d keys; remove one first", MaxSSHKeys)
+		if record != nil {
+			return s.appendRecords(raw, record(before, a))
 		}
-		a.SSHKeys = append(a.SSHKeys, k)
-		return putAccount(tx, a)
+		return nil
 	})
 }
 

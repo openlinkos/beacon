@@ -14,7 +14,8 @@ import (
 )
 
 // TestGrantsNeedTheirRecord checks that, while audit entries cannot be written, a change that gives
-// access is undone and refused, every failure is reported, and taking access away still works.
+// access (an agent, its token, a key, a renewal) is not made and is refused, every failure is reported,
+// and taking access away still works.
 func TestGrantsNeedTheirRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.db")
 	st, err := store.Open(path)
@@ -27,6 +28,7 @@ func TestGrantsNeedTheirRecord(t *testing.T) {
 	c := serveTestAPI(t, e)
 	agent := people(t, e)
 	admin := e.Token(t, "owner-script", "status:read", "sessions:read", "accounts:write")
+	renewing := e.Token(t, "renewing", "status:read")
 	var mu sync.Mutex
 	var failed []string
 	st.OnAuditFailure(func(e store.AuditEntry, _ error) { mu.Lock(); failed = append(failed, e.Action); mu.Unlock() })
@@ -60,6 +62,13 @@ func TestGrantsNeedTheirRecord(t *testing.T) {
 	}
 	if a, _ := e.Store.Agent("codex"); len(a.SSHKeys) != 0 {
 		t.Errorf("the key stayed: %+v", a.SSHKeys)
+	}
+	code, out = c.do("POST", "/api/v1/token/renew", renewing, "")
+	if code != 503 || out["code"] != "audit.not_recorded" {
+		t.Errorf("a renewal without its record: %d %v", code, out)
+	}
+	if code, _ := c.do("GET", "/api/v1/token", renewing, ""); code != 200 {
+		t.Errorf("the token lost its secret: %d", code)
 	}
 
 	// taking access away does not wait for the record

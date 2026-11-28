@@ -588,18 +588,27 @@ func (b *Bridge) SetupLink(via string) (LinkView, error) {
 	return linkView(l, b.consoleURL("/setup", code)), nil
 }
 
-// Join creates an account with a setup link or an invitation.
+// joinAction is the audit action of joining as a: setup for the first owner, user_join for the others.
+func joinAction(a store.Account) string {
+	if a.CreatedBy == "setup" {
+		return "setup"
+	}
+	return "user_join"
+}
+
+// Join creates an account with a setup link or an invitation. The account is made with its audit entry,
+// or not at all (ErrUnrecorded), and the link then still works.
 func (b *Bridge) Join(ctx context.Context, code, username, displayName, password string) (store.Account, error) {
-	a, err := b.d.Store.Join(code, username, displayName, password)
-	if err != nil {
+	a, err := b.d.Store.JoinRecorded(code, username, displayName, password, func(a store.Account) []store.AuditEntry {
+		return []store.AuditEntry{{Time: b.now(), Actor: a.Username, Via: "console", Action: joinAction(a), Target: a.Username, Detail: a.Role}}
+	})
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return store.Account{}, unrecorded("user_join", username)
+	case err != nil:
 		return store.Account{}, err
 	}
-	action := "user_join"
-	if a.CreatedBy == "setup" {
-		action = "setup"
-	}
-	_ = b.d.Store.Audit(store.AuditEntry{Time: b.now(), Actor: a.Username, Via: "console", Action: action, Target: a.Username, Detail: a.Role})
-	if action == "setup" {
+	if joinAction(a) == "setup" {
 		b.echo(ctx, b.t("%s set Beacon up and is its first owner", a.Username))
 	} else {
 		b.echo(ctx, b.t("%s joined Beacon as %s, invited by %s", a.Username, b.roleName(a.Role), a.CreatedBy))
@@ -769,28 +778,22 @@ func (b *Bridge) CreateAgent(ctx context.Context, who Actor, in AgentInput) (Age
 		if _, ok := b.d.Store.MachineByConnectorKey(k.Fingerprint); ok {
 			return AgentCreated{}, fmt.Errorf("%w: the key %s is already registered; use a key of the agent's own", ErrBadInput, k.Fingerprint)
 		}
+		k.Added = b.now().UTC()
 		keys = append(keys, k)
 	}
-	a, err := b.d.Store.CreateAgent(store.Agent{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Scopes: in.Scopes, MachineAccess: in.Machines, CreatedBy: who.Name})
+	// the agent, its keys and its record are one write: a key taken meanwhile, or a record that cannot
+	// be written, leaves no agent half made
+	a, err := b.d.Store.CreateAgentRecorded(store.Agent{Name: in.Name, Owner: in.Owner, Preset: in.Preset, Scopes: in.Scopes, MachineAccess: in.Machines, CreatedBy: who.Name}, keys,
+		func(a store.Agent) []store.AuditEntry {
+			return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_create", Target: a.Name, Detail: a.Owner + " " + a.Preset + " " + a.String()}}
+		})
 	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return AgentCreated{}, unrecorded("agent_create", in.Name)
 	case errors.Is(err, store.ErrExists):
 		return AgentCreated{}, err
 	case err != nil:
 		return AgentCreated{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
-	}
-	for _, k := range keys {
-		k.Added = b.now().UTC()
-		with, err := b.d.Store.AddAgentSSHKey(a.Name, k)
-		if err != nil { // taken meanwhile: no agent half made
-			_ = b.d.Store.DeleteAgent(a.Name)
-			return AgentCreated{}, err
-		}
-		a = with
-	}
-	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_create", Target: a.Name,
-		Detail: a.Owner + " " + a.Preset + " " + a.String()}); err != nil {
-		_ = b.d.Store.DeleteAgent(a.Name) // not made without its record
-		return AgentCreated{}, err
 	}
 	b.echo(ctx, b.t("%s made agent %s for %s (%s) via %s", who.Name, a.Name, a.Owner, b.presetName(a.Preset), b.viaName(who.Via)))
 	out := AgentCreated{Agent: b.agentView(a)}
@@ -921,14 +924,16 @@ func (b *Bridge) NewAgentToken(ctx context.Context, who Actor, name string, ttl 
 }
 
 func (b *Bridge) issueAgentToken(ctx context.Context, who Actor, a store.Agent, ttl time.Duration) (AgentCreated, error) {
-	secret, t, err := b.d.Store.CreateAgentToken(a.Name, ttl, who.Name)
-	if err != nil {
+	// the token and its record are one write: it is not issued without its record
+	secret, t, err := b.d.Store.CreateAgentTokenRecorded(a.Name, ttl, who.Name, func(t store.Token) []store.AuditEntry {
+		return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_token", Target: t.Name,
+			Detail: a.Name + " expires " + t.Expires.UTC().Format(time.DateOnly)}}
+	})
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return AgentCreated{}, unrecorded("agent_token", a.Name)
+	case err != nil:
 		return AgentCreated{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
-	}
-	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "agent_token", Target: t.Name,
-		Detail: a.Name + " expires " + t.Expires.UTC().Format(time.DateOnly)}); err != nil {
-		_ = b.d.Store.RevokeToken(t.Name) // not issued without its record
-		return AgentCreated{}, err
 	}
 	b.echo(ctx, b.t("%s gave agent %s a token, expires %s, via %s", who.Name, a.Name, t.Expires.In(b.d.Config.Location).Format(time.DateOnly), b.viaName(who.Via)))
 	tv := AgentTokenView{Name: t.Name, Created: t.Created, Expires: t.Expires, Lifetime: store.FormatTTL(t.Lifetime)}
@@ -1062,21 +1067,26 @@ func (b *Bridge) OAuthAgent(ctx context.Context, who Actor, clientID, clientName
 		if !machines.Within(a.Live(b.now()), func(m string) bool { return critical[m] }) {
 			return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: agent %s reaches %s; allow that or less, or change the agent first", ErrBadInput, name, a.Live(b.now()).Summary())
 		}
-	default:
-		a, err = b.d.Store.CreateAgent(store.Agent{Name: name, Owner: p.User, Preset: preset, MachineAccess: machines, Client: clientID, CreatedBy: who.Name})
 	}
-	if err != nil {
-		if errors.Is(err, store.ErrExists) {
-			return store.Agent{}, store.MachineAccess{}, err
-		}
+	// Allowing is recorded before any code is issued, and a new agent is made in the same write as the
+	// record: without it, there is neither the agent nor a sign-in.
+	allow := store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "oauth_allow", Target: name,
+		Detail: clientName + " " + preset + " " + machines.String() + " until " + until.UTC().Format(time.DateOnly)}
+	if exists {
+		err = b.recordGrant(allow)
+	} else {
+		a, err = b.d.Store.CreateAgentRecorded(store.Agent{Name: name, Owner: p.User, Preset: preset, MachineAccess: machines, Client: clientID, CreatedBy: who.Name}, nil,
+			func(store.Agent) []store.AuditEntry { return []store.AuditEntry{allow} })
+	}
+	switch {
+	case errors.Is(err, ErrUnrecorded):
+		return store.Agent{}, store.MachineAccess{}, err
+	case errors.Is(err, store.ErrUnrecorded):
+		return store.Agent{}, store.MachineAccess{}, unrecorded("oauth_allow", name)
+	case errors.Is(err, store.ErrExists):
+		return store.Agent{}, store.MachineAccess{}, err
+	case err != nil:
 		return store.Agent{}, store.MachineAccess{}, fmt.Errorf("%w: %v", ErrBadInput, err) //nolint:errorlint // one wrapped error is enough
-	}
-	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "oauth_allow", Target: a.Name,
-		Detail: clientName + " " + preset + " " + machines.String() + " until " + until.UTC().Format(time.DateOnly)}); err != nil {
-		if !exists {
-			_ = b.d.Store.DeleteAgent(a.Name) // not made without its record
-		}
-		return store.Agent{}, store.MachineAccess{}, err // and no sign-in either: no code is issued
 	}
 	b.echo(ctx, b.t("%s allowed %s to use Beacon as agent %s (%s) until %s", who.Name, clean(clientName, maxShort, false), a.Name, b.presetName(preset), until.In(b.d.Config.Location).Format(time.DateOnly)))
 	return a, machines, nil
@@ -1210,63 +1220,33 @@ func (b *Bridge) AddSSHKey(ctx context.Context, who Actor, agent, line, comment 
 	if p, ok := b.caller(who); ok && p.Agent != "" && p.Agent == owner.agent.Name && who.Cred != "" {
 		k.Via = who.Cred // an agent's own key lives as long as the credential it added it with
 	}
-	had := b.ownerHasKey(owner, k.Fingerprint)
+	// the key and its record are one write: it is not added without its record
 	var holder string
+	entry := func(holder string) []store.AuditEntry {
+		return []store.AuditEntry{{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "ssh_key_add", Target: holder, Detail: k.Fingerprint + " " + k.Comment}}
+	}
 	switch {
 	case owner.account != nil:
 		holder = owner.account.Username
-		err = b.d.Store.AddAccountSSHKey(holder, k)
+		err = b.d.Store.AddAccountSSHKeyRecorded(holder, k, func(_, _ store.Account) []store.AuditEntry { return entry(holder) })
 		if errors.Is(err, store.ErrDisabled) {
 			err = ErrForbidden
 		}
 	case owner.token != "":
 		holder = owner.token
-		_, err = b.d.Store.AddTokenSSHKey(holder, k)
+		_, err = b.d.Store.AddTokenSSHKeyRecorded(holder, k, func(_, _ store.Token) []store.AuditEntry { return entry(holder) })
 	default:
 		holder = owner.agent.Owner + " / " + owner.agent.Name
-		_, err = b.d.Store.AddAgentSSHKey(owner.agent.Name, k)
+		_, err = b.d.Store.AddAgentSSHKeyRecorded(owner.agent.Name, k, func(_, _ store.Agent) []store.AuditEntry { return entry(holder) })
 	}
-	if err != nil {
-		return SSHKeyView{}, err
-	}
-	if err := b.recordGrant(store.AuditEntry{Time: b.now(), Actor: who.Name, Via: who.Via, Action: "ssh_key_add", Target: holder, Detail: k.Fingerprint + " " + k.Comment}); err != nil {
-		if !had { // not added without its record
-			b.dropKey(owner, k.Fingerprint)
-		}
+	switch {
+	case errors.Is(err, store.ErrUnrecorded):
+		return SSHKeyView{}, unrecorded("ssh_key_add", holder)
+	case err != nil:
 		return SSHKeyView{}, err
 	}
 	b.echo(ctx, b.t("%s added SSH key %s to %s via %s", who.Name, k.Fingerprint, holder, b.viaName(who.Via)))
 	return SSHKeyView(k), nil
-}
-
-// ownerHasKey reports whether the key's owner holds the key with this fingerprint already.
-func (b *Bridge) ownerHasKey(owner sshKeyOwner, fp string) bool {
-	has := func(keys []store.SSHKey) bool {
-		return slices.ContainsFunc(keys, func(k store.SSHKey) bool { return k.Fingerprint == fp })
-	}
-	switch {
-	case owner.account != nil:
-		a, ok := b.d.Store.Account(owner.account.Username)
-		return ok && has(a.SSHKeys)
-	case owner.token != "":
-		t, ok := b.token(owner.token)
-		return ok && has(t.SSHKeys)
-	default:
-		a, ok := b.d.Store.Agent(owner.agent.Name)
-		return ok && has(a.SSHKeys)
-	}
-}
-
-// dropKey takes a key just added from its owner again.
-func (b *Bridge) dropKey(owner sshKeyOwner, fp string) {
-	switch {
-	case owner.account != nil:
-		_ = b.d.Store.RemoveAccountSSHKey(owner.account.Username, fp)
-	case owner.token != "":
-		_, _ = b.d.Store.RemoveTokenSSHKey(owner.token, fp)
-	default:
-		_, _ = b.d.Store.RemoveAgentSSHKey(owner.agent.Name, fp)
-	}
 }
 
 // RemoveSSHKey takes a key, by its fingerprint, from an agent or from the caller.

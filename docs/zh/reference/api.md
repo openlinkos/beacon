@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-ad13ddc7
+sourceHash: sha256-21491c9e
 ---
 
 # REST API
@@ -340,7 +340,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `share.not_found` | 404 | 找不到该告警组或 SSH 会话 |
 | `share.unavailable` | 503 | Beacon 暂时无法创建或撤销签名链接 |
 | `audit.unavailable` | 500 | 审计日志读不了 |
-| `audit.not_recorded` | 503 | 给出权限的改动（Agent、令牌、SSH 密钥、邀请、重设链接、提升角色、重新启用账号、放宽 Agent）因为审计条目写不进去而被撤回或没有做。存储恢复后重试 |
+| `audit.not_recorded` | 503 | 给出权限的改动（账号、Agent、令牌或令牌续期、SSH 密钥、邀请、重设链接、提升角色、重新启用账号、放宽 Agent）因为审计条目写不进去而没有做。存储恢复后重试 |
 | `incident.not_found` | 404 | 未保留此 ID 的故障摘要 |
 | `incident.unavailable` | 500 | 无法读取故障摘要 |
 | `incident.changed` | 409 | 正在验证的这次故障已被同一告警组的新一轮故障替代 |

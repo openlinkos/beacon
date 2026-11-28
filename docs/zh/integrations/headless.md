@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-2d523c01
+sourceHash: sha256-a61a821c
 ---
 
 # 无头 Agent 与 CI
@@ -241,7 +241,7 @@ sudo -u beacon-oncall -H env PATH="$oncall_path" codex login status
 - **没有竞争问题。** 续期后旧密钥还能用十分钟，客户端可以从容替换令牌文件，刚读过旧文件的进程也不受影响。
 - **每天最多一次。** 一个令牌每 24 小时最多续期一次（`token.too_soon`，`429`）。
 - **机器的令牌和 OAuth 不续期。** 登记过的机器（检测点、主机、心跳）的令牌从不自动续期，要用 `beacon enroll … -rotate` 替换（`token.not_renewable`，`403`）。OAuth 访问令牌也不续期，由它的客户端刷新。
-- **都有记录。** 每次续期都记入审计日志（`token_renew`），并回显到告警群（「令牌 claude-oncall 自行续期了，到期日 2027-01-31」）。`beacon token list` 显示每个令牌的有效期和上次续期时间。
+- **都有记录。** 每次续期都记入审计日志（`token_renew`），并回显到告警群（「令牌 claude-oncall 自行续期了，到期日 2027-01-31」）。审计日志写不进去时，令牌不会续期，原来的密钥照常有效（`audit.not_recorded`，`503`）：稍后再试。`beacon token list` 显示每个令牌的有效期和上次续期时间。
 - **SSH 登录靠密钥**，续期不影响它：令牌的身份不变，变的只有密钥和到期时间。
 
 ### 由 harness 续期 {#renew-from-a-harness}
