@@ -185,7 +185,10 @@ func failedHandshake(c *readConn, err error) bool {
 
 // refusalReason names why a connection was refused, in words of Beacon's own, never the client's.
 func refusalReason(err error) string {
+	var key errKeyRefused
 	switch {
+	case errors.As(err, &key):
+		return key.why
 	case errors.Is(err, ErrPaused):
 		return "paused"
 	case errors.Is(err, ErrStandby):
