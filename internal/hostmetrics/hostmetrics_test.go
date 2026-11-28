@@ -100,3 +100,26 @@ func TestTextfile(t *testing.T) {
 		t.Fatalf("textfile %q", got)
 	}
 }
+
+// TestTextfileKeepsToItsOwn: a textfile holds heartbeats and metrics of its own, never a probe's results
+// or Beacon's own metrics, which the agent alone reports.
+func TestTextfileKeepsToItsOwn(t *testing.T) {
+	dir := t.TempDir()
+	body := `probe_success{service="git"} 1
+probe_ssl_earliest_cert_expiry 9999999999
+beacon_probe_attempts 1
+beacon_resource_expiry_timestamp_seconds{resource="example.com"} 9999999999
+beacon_heartbeat_last_success_timestamp_seconds_total 1
+beacon_heartbeat_last_success_timestamp_seconds 1793436000
+backup_last_size_bytes 1024
+probes_run_total 3
+`
+	if err := os.WriteFile(filepath.Join(dir, "x.prom"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := (&Collector{TextfileDir: dir}).Textfile()
+	want := []string{"beacon_heartbeat_last_success_timestamp_seconds 1793436000", "backup_last_size_bytes 1024", "probes_run_total 3"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("textfile %q, want %q", got, want)
+	}
+}

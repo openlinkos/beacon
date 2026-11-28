@@ -4,7 +4,7 @@ Beacon judges with what is sent to it. This page lists each source: who sends, w
 
 Machines and tools send to the gateway on port 17006, each with a token of its own, so that nothing can speak for anything else. People and agents use port 17001. The routes are listed in the [REST API](api.md#the-gateway) reference.
 
-The gateway sets `job` on every sample a machine writes to the kind of its token: `probe`, `host` or `heartbeat`, whatever the machine sent. The reference rules count probe results only from `job="probe"`, and the catalogue's metrics only from Beacon's own scrape, `job="beacon"`. One import carries at most 200,000 samples in 64 MiB of text; a larger one is refused with `import.too_large`.
+The gateway sets `job` on every sample a machine writes to the kind of its token: `probe`, `host` or `heartbeat`, whatever the machine sent. The reference rules count probe results only from `job="probe"`, and the catalogue's metrics only from Beacon's own scrape, `job="beacon"`. One import carries at most 200,000 samples in 64 MiB of text; a larger one is refused with `import.too_large`. The gateway reads every sample before VictoriaMetrics does; [What the gateway passes](#what-the-gateway-passes) says which it drops.
 
 | Source | Route | Token | Format |
 | --- | --- | --- | --- |
@@ -37,6 +37,8 @@ The results use the Blackbox Exporter's metric names (`probe_success`, `probe_du
 
 A machine that is not a probe location reports as a host, with a token from `beacon enroll host <name>`: the text format to `POST /api/v1/import/prometheus`, or Prometheus remote write to `POST /api/v1/write`. The gateway labels what it writes with `host` and `job="host"`. The `job` a host's own scraper sets is replaced, so series from its scrape jobs stay apart by `instance`.
 
+Remote write is Prometheus' protocol, version 1, compressed with snappy, as Prometheus and vmagent send it. The gateway reads each request, at most 32 MiB once decompressed, and passes on the series it lets through, written again. VictoriaMetrics' own protocol (zstd) is refused with `write.encoding` (415), on which vmagent goes back to Prometheus' protocol.
+
 ## Heartbeats
 
 A job that must report success at least every `max_age` (a backup, a scheduled task) pushes one sample when it succeeds, with a token from `beacon enroll heartbeat <name>`:
@@ -49,7 +51,19 @@ curl -fsS -H "Authorization: Bearer $TOKEN" --data-binary \
 
 The token writes that heartbeat and nothing else. The gateway labels the sample with `heartbeat`, the name the token was enrolled for, and `job="heartbeat"`, whatever the sample says. It refuses any other metric with `heartbeat.metric`, more than 100 samples at once with `import.too_large`, and a heartbeat token that names no heartbeat with `heartbeat.unnamed`. Each heartbeat needs its own token.
 
-On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalogue.md#heartbeats)).
+On a machine with the probe agent, the job writes the same line into the agent's textfile directory instead. That sample counts only for a heartbeat the catalogue gives that machine: its `machine` is the probe's location, or the name the host's token was enrolled for. A heartbeat that names no machine is written by its own heartbeat token alone. The heartbeat itself, its `max_age` and severity, is in the catalogue ([Heartbeats](catalogue.md#heartbeats)).
+
+The agent sends from the textfile directory only lines of its own: it leaves out probe results (`probe_…`) and Beacon's metrics (`beacon_…`) other than the heartbeat, which the agent alone reports.
+
+## What the gateway passes
+
+The gateway reads each sample a probe, a host or a heartbeat sends before VictoriaMetrics does, and passes it only when it says plainly what it is:
+
+- **The plain text format.** A line is `name{label="value",…} value [timestamp]`, with the metric's name before the braces and plain label names. VictoriaMetrics also reads a name quoted inside the braces, or a `__name__` label in place of the name before them; the gateway passes neither. A line longer than 64 KiB is not a sample.
+- **Each label once.** A sample or a remote-write series that gives a label twice is not passed.
+- **A heartbeat for its machine.** A probe or a host writes `beacon_heartbeat_last_success_timestamp_seconds` only for a heartbeat whose `machine` in the catalogue is that probe's location or that host.
+
+From a probe or a host, what is not passed is dropped, the rest of the import goes on, and `beacon_gateway_samples_dropped_total` counts it by machine (`subject`) and `reason`: `syntax`, `name_label`, `labels` or `heartbeat`. The first of each is logged. A heartbeat token's import with such a line is refused whole: `heartbeat.metric` for another metric or a `__name__` label, `bad_input` otherwise.
 
 ## The rule engine
 
@@ -61,7 +75,7 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 Alerts need the labels `severity` (`critical`, `warning` or `info`) and `service`, and the annotation `summary`. `description`, `runbook` and `dashboard` are used when present. An alert named `Watchdog`, always firing, proves the pipeline works and is never shown.
 
-Another sender may post alerts the same way with an `alerts:send` token. Its alerts are its own. Beacon labels them `sender` with the token's name, whatever they say, and groups them apart from the rule engine's. They cannot resolve or change the rule engine's alerts or another sender's, and they inhibit only that sender's own. Their `runbook` and `dashboard` annotations do not replace the configured links. Only the rule engine's `Watchdog` counts, and only the rule engine sends alerts of severity `none`. A token's are dropped and counted in `beacon_gateway_alerts_dropped_total`. A token posts at most 120 times a minute; beyond that it gets `429` and `alerts.too_many`. The rule engine is never limited.
+Another sender may post alerts the same way with an `alerts:send` token. Its alerts are its own. Beacon labels them `sender` with the token's name, whatever they say, and groups them apart from the rule engine's. They cannot resolve or change the rule engine's alerts or another sender's, and they inhibit only that sender's own. Their `runbook` and `dashboard` annotations do not replace the configured links. Only the rule engine's `Watchdog` counts, and only the rule engine sends alerts of severity `none`. A token's are dropped and counted in `beacon_gateway_alerts_dropped_total`. A token posts at most 120 times a minute; beyond that it gets `429` and `alerts.too_many`. One post passes at most 200 alerts; those beyond are dropped and counted in `beacon_gateway_alerts_capped_total`. A token holds at most 500 firing alerts in 50 groups at once, so that it cannot flood the chat, the phones and the agents' hooks: a new firing alert beyond either is dropped, counted in `beacon_router_alerts_capped_total` and logged once an hour, while the alerts it holds still change and resolve. The rule engine is never limited.
 
 The rules the reference deployment ships are listed in [Metrics and alert rules](metrics.md#the-alert-rules).
 

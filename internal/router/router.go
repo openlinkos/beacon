@@ -42,6 +42,9 @@ type Config struct {
 	ResolveTimeout time.Duration
 	Routes         []Route
 	Inhibit        []Inhibit
+	// Capped, when set, is told of each alert from an alerts:send token dropped because the token
+	// already holds as many firing alerts (reason "alerts") or groups ("groups") as a sender may.
+	Capped func(sender, reason string)
 }
 
 // Route can override grouping and the initial wait; the first matching route wins.
@@ -125,9 +128,10 @@ type Router struct {
 	now   func() time.Time
 	log   *slog.Logger
 
-	mu     sync.Mutex
-	alerts map[string]*alert
-	groups map[string]*group
+	mu       sync.Mutex
+	alerts   map[string]*alert
+	groups   map[string]*group
+	cappedAt map[string]time.Time // when a sender's capped alerts were last logged, by sender and reason
 }
 
 // New creates a router. now and log may be nil.
@@ -144,7 +148,8 @@ func New(cfg Config, st *store.Store, sink Sink, now func() time.Time, log *slog
 	if cfg.ResolveTimeout <= 0 {
 		cfg.ResolveTimeout = 5 * time.Minute
 	}
-	return &Router{cfg: cfg, store: st, sink: sink, now: now, log: log, alerts: map[string]*alert{}, groups: map[string]*group{}}
+	return &Router{cfg: cfg, store: st, sink: sink, now: now, log: log, alerts: map[string]*alert{}, groups: map[string]*group{},
+		cappedAt: map[string]time.Time{}}
 }
 
 // Fingerprint identifies an alert by its labels.
@@ -160,6 +165,16 @@ func Fingerprint(labels map[string]string) string {
 // MaxAlerts is the most alerts one request may carry.
 const MaxAlerts = 5000
 
+// A sender other than the rule engine (an alerts:send token) holds at most SenderAlerts firing alerts and
+// SenderGroups groups at once, so that one token cannot flood the chat, the phones and the agents' hooks
+// with groups of its own making. A new firing alert beyond either is dropped, counted (Config.Capped)
+// and logged at most once an hour for the sender; the alerts it already holds still change and resolve.
+// The rule engine's alerts are never capped.
+const (
+	SenderAlerts = 500
+	SenderGroups = 50
+)
+
 // SenderLabel names who posted an alert other than the rule engine: the name of its alerts:send token.
 // The router sets it on such an alert, whatever the alert said, and takes it off the rule engine's,
 // so that one sender's alerts are never another's: a sender cannot resolve, re-annotate or inhibit the
@@ -168,7 +183,8 @@ const SenderLabel = "sender"
 
 // Ingest takes posted alerts: the rule engine's when sender is "", otherwise those of the alerts:send
 // token called sender. The Watchdog and alerts of severity none are the rule engine's alone; a sender's
-// are dropped.
+// are dropped. A sender's alerts are held to SenderAlerts and SenderGroups, and its resolved alerts the
+// router does not know are passed over: there is nothing of its to resolve.
 func (r *Router) Ingest(sender string, in []Postable) error {
 	if len(in) > MaxAlerts {
 		return fmt.Errorf("at most %d alerts per request", MaxAlerts)
@@ -176,6 +192,7 @@ func (r *Router) Ingest(sender string, in []Postable) error {
 	now := r.now()
 	watchdog := false
 	r.mu.Lock()
+	alerts, groups := r.held(sender, now)
 	for _, p := range in {
 		if len(p.Labels) == 0 || p.Labels["alertname"] == "" {
 			continue
@@ -197,6 +214,26 @@ func (r *Router) Ingest(sender string, in []Postable) error {
 		}
 		fp := Fingerprint(p.Labels)
 		a := r.alerts[fp]
+		if sender != "" {
+			fires, held := p.EndsAt.IsZero() || p.EndsAt.After(now), a != nil && now.Before(a.endsAt)
+			switch {
+			case a == nil && !fires:
+				continue // resolves nothing the router holds
+			case fires && !held: // a new firing alert
+				key, _, _ := r.groupOf(p.Labels)
+				switch _, open := r.groups[key]; {
+				case alerts >= SenderAlerts:
+					r.capped(sender, "alerts", now)
+					continue
+				case !open && groups >= SenderGroups:
+					r.capped(sender, "groups", now)
+					continue
+				case !open:
+					groups++
+				}
+				alerts++
+			}
+		}
 		if a == nil {
 			a = &alert{fp: fp, startsAt: p.StartsAt}
 			r.alerts[fp] = a
@@ -221,6 +258,47 @@ func (r *Router) Ingest(sender string, in []Postable) error {
 		r.sink.Watchdog()
 	}
 	return nil
+}
+
+// held is how many firing alerts and groups sender holds ("" holds none: the rule engine is not capped);
+// r.mu is held.
+func (r *Router) held(sender string, now time.Time) (alerts, groups int) {
+	if sender == "" {
+		return 0, 0
+	}
+	for _, a := range r.alerts {
+		if a.labels[SenderLabel] == sender && now.Before(a.endsAt) {
+			alerts++
+		}
+	}
+	for _, g := range r.groups {
+		if g.labels[SenderLabel] == sender {
+			groups++
+		}
+	}
+	return alerts, groups
+}
+
+// capped counts an alert of sender dropped for reason and logs it, at most once an hour for each; r.mu
+// is held.
+func (r *Router) capped(sender, reason string, now time.Time) {
+	if r.cfg.Capped != nil {
+		r.cfg.Capped(sender, reason)
+	}
+	key := sender + "\x00" + reason
+	if at, ok := r.cappedAt[key]; ok && now.Sub(at) < time.Hour {
+		return
+	}
+	if len(r.cappedAt) > 1000 {
+		clear(r.cappedAt)
+	}
+	r.cappedAt[key] = now
+	limit := SenderAlerts
+	if reason == "groups" {
+		limit = SenderGroups
+	}
+	r.log.Warn("alerts dropped: the sender holds as many firing "+reason+" as a sender may", "sender", sender, "limit", limit,
+		"see", "beacon_router_alerts_capped_total")
 }
 
 // Reserved reports whether an alert is one only the rule engine may send: the Watchdog, which proves the

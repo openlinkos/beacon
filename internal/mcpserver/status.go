@@ -85,7 +85,7 @@ func addStatusTools(s *mcp.Server, b *bridge.Bridge, st *status.Service) {
 
 	registerTool(s, &mcp.Tool{Name: "schedule_maintenance", Title: "Plan a maintenance window",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Plan work on some services: the public status pages show it ahead of time and while it lasts, and the services' alerts are silenced for the window (at most 7 days, starting within 90). It cannot start in the past."},
+		Description: "Plan work on some services: the public status pages show it ahead of time and while it lasts, and the services' alerts are silenced for the window (at most 7 days, starting within 90). It cannot start in the past. A window an agent plans silences as an agent's silence does: recorded, muting nothing, so people are still paged, and the pages still show an outage during it."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in scheduleIn) (*mcp.CallToolResult, store.Maintenance, error) {
 			who, err := need(ctx, "maintenance:write")
 			if err != nil {

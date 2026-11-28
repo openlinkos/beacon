@@ -49,3 +49,35 @@ func TestRegistrationsCountPerNetwork(t *testing.T) {
 		t.Error("the limit outlived its window")
 	}
 }
+
+// TestRegistrationCountsSurviveAFlood checks that a flood of new addresses makes room in the table of
+// counts without forgetting an address that has reached its limit, and that the table stays bounded.
+func TestRegistrationCountsSurviveAFlood(t *testing.T) {
+	now := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	s := &Server{Auth: &api.Auth{IP: clientip.New([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, false)}, Now: func() time.Time { return now }}
+	from := func(addr string) bool {
+		r := httptest.NewRequest("POST", RegisterPath, nil)
+		r.RemoteAddr = "127.0.0.1:40000"
+		r.Header.Set("X-Forwarded-For", addr)
+		return s.allowRegister(r)
+	}
+	for range registerLimit {
+		from("192.0.2.20")
+	}
+	if from("192.0.2.20") {
+		t.Fatal("the address passed its limit")
+	}
+	for i := range maxRegistrants + 50 {
+		now = now.Add(time.Millisecond)
+		from(netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)}).String())
+	}
+	if from("192.0.2.20") {
+		t.Error("a flood of addresses made the table forget an address at its limit")
+	}
+	s.mu.Lock()
+	n := len(s.regs)
+	s.mu.Unlock()
+	if n > maxRegistrants {
+		t.Errorf("the table holds %d addresses", n)
+	}
+}

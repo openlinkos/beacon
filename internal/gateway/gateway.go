@@ -80,6 +80,9 @@ type gateway struct {
 	mu        sync.Mutex
 	lastWrite map[string]time.Time // by location or host
 
+	dropLogged sync.Map // machine and reason of dropped samples already logged (dropped)
+	capLogged  sync.Map // alerts:send tokens whose capped posts were logged (capPost)
+
 	changeRate limiter // change events per token (limit.go)
 	alertRate  limiter // alert posts per alerts:send token (limit.go)
 }
@@ -229,6 +232,44 @@ func (g *gateway) labels(t store.Token) ([][2]string, string) {
 	return [][2]string{{"host", t.Subject}, {"job", "host"}}, ""
 }
 
+// machineCheck is what a probe or a host may not write (imports.go): a heartbeat's sample, unless the
+// catalogue gives that heartbeat to the token's machine (its location, or its host). A heartbeat that
+// names no machine is written by its own heartbeat token alone.
+func (g *gateway) machineCheck(t store.Token) func(textSample) string {
+	mine := map[string]bool{}
+	for _, h := range g.Catalog().Heartbeats {
+		if h.Machine != "" && h.Machine == t.Subject {
+			mine[h.Name] = true
+		}
+	}
+	return func(s textSample) string {
+		if s.name != heartbeatMetric {
+			return ""
+		}
+		if v, _ := s.label("heartbeat"); mine[v] {
+			return ""
+		}
+		return dropHeartbeat
+	}
+}
+
+// dropped counts a sample a probe or a host sent that does not pass, by its machine and why, and logs
+// the first of each.
+func (g *gateway) dropped(t store.Token) func(reason string) {
+	return func(reason string) {
+		if g.Metrics != nil {
+			g.Metrics.Inc("beacon_gateway_samples_dropped_total", "Samples from probes and hosts the gateway dropped: not in the plain text format, naming their metric with __name__, giving a label twice, or a heartbeat the catalogue does not give the machine",
+				metrics.Labels("subject", t.Subject, "reason", reason))
+		}
+		if _, seen := g.dropLogged.LoadOrStore(t.Subject+"\x00"+reason, true); !seen && g.Log != nil {
+			g.Log.Warn("gateway dropping samples", "subject", t.Subject, "token", t.Name, "reason", reason,
+				"see", "beacon_gateway_samples_dropped_total; a heartbeat counts from a probe or a host only when the catalogue names that machine for it")
+		}
+	}
+}
+
+// write takes remote write from a probe or a host (remotewrite.go): read, checked as imports are, and
+// passed on as the gateway writes it again.
 func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.refuseStandby(w) {
 		return
@@ -238,6 +279,36 @@ func (g *gateway) write(w http.ResponseWriter, r *http.Request, t store.Token) {
 		fail(w, http.StatusForbidden, "location.inactive", why)
 		return
 	}
+	if enc := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))); enc != "" && enc != "snappy" {
+		fail(w, http.StatusUnsupportedMediaType, "write.encoding", "send remote write compressed with snappy, Prometheus' protocol, not with Content-Encoding "+strconv.Quote(enc))
+		return
+	}
+	compressed, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			fail(w, http.StatusBadRequest, "import.too_large", "the body is larger than "+strconv.FormatInt(tooLarge.Limit>>20, 10)+" MiB; send less at once")
+		} else {
+			fail(w, http.StatusBadRequest, "bad_input", "the body could not be read: "+err.Error())
+		}
+		return
+	}
+	var raw []byte // an empty body is an empty request
+	if len(compressed) > 0 {
+		raw, err = snappyDecode(compressed, maxWriteBytes)
+	}
+	if err == nil {
+		raw, err = filterWrite(raw, g.machineCheck(t), g.dropped(t))
+	}
+	if refused(w, err) {
+		return
+	}
+	body := snappyLiterals(raw)
+	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
+	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	r.Header.Set("Content-Encoding", "snappy")
+	r.Header.Set("Content-Type", "application/x-protobuf")
+	r.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 	q := url.Values{}
 	for _, l := range labels {
 		q.Add("extra_label", l[0]+"="+l[1])
@@ -295,9 +366,10 @@ func (g *gateway) targets(w http.ResponseWriter, _ *http.Request, t store.Token)
 }
 
 // importText takes samples in the Prometheus text format (what beacon-probe pushes, and heartbeats),
-// labelled like remote write: a probe's with its location, a host's with its name. A heartbeat token
-// writes only its heartbeat's sample, labelled with the heartbeat it was enrolled for. The text is
-// bounded on its way (imports.go).
+// labelled like remote write: a probe's with its location, a host's with its name. A probe or a host
+// writes a heartbeat's sample only for a heartbeat the catalogue gives its machine (machineCheck). A
+// heartbeat token writes only its heartbeat's sample, labelled with the heartbeat it was enrolled for.
+// The text is bounded and checked on its way (imports.go).
 func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.refuseStandby(w) {
 		return
@@ -312,7 +384,7 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 		for _, l := range labels {
 			q.Add("extra_label", l[0]+"="+l[1])
 		}
-		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples})
+		body, err := importBody(r, importLimits{bytes: maxImportBytes, samples: maxImportSamples, check: g.machineCheck(t), drop: g.dropped(t)})
 		if refused(w, err) {
 			return
 		}
@@ -325,7 +397,7 @@ func (g *gateway) importText(w http.ResponseWriter, r *http.Request, t store.Tok
 			fail(w, http.StatusForbidden, "heartbeat.unnamed", "this heartbeat token names no heartbeat; enrol the heartbeat with beacon enroll heartbeat NAME and send with its token")
 			return
 		}
-		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, only: heartbeatMetric})
+		b, err := readImport(r, importLimits{bytes: maxHeartbeatBytes, samples: maxHeartbeatSamples, check: heartbeatOnly, refuse: heartbeatRefusal})
 		if refused(w, err) {
 			return
 		}
@@ -432,7 +504,7 @@ func (g *gateway) isRulesToken(secret string) bool {
 // alerts takes alerts from a token with alerts:send. They are the token's own: the router labels them
 // with its name (router.SenderLabel) and keeps them apart from the rule engine's; the Watchdog and alerts
 // of severity none, which only the rule engine sends, are dropped and counted; and the token posts at
-// most alertLimit times a minute (limit.go).
+// most alertLimit times a minute, each post at most alertsPerPost alerts (limit.go).
 func (g *gateway) alerts(w http.ResponseWriter, r *http.Request, t store.Token) {
 	if g.alertsLimited(w, t) {
 		return
@@ -474,7 +546,7 @@ func (g *gateway) ingest(w http.ResponseWriter, r *http.Request, sender string, 
 					metrics.Labels("token", sender))
 			}
 		}
-		in = kept
+		in = g.capPost(sender, kept)
 	}
 	if err := g.Alerts(sender, in); err != nil {
 		fail(w, http.StatusBadRequest, "bad_input", err.Error())

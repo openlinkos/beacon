@@ -35,6 +35,8 @@ func (e *env) gzipImport(token, body string) *httptest.ResponseRecorder {
 // on remote write and on imports, so rules can tell a probe's results from a host's or a heartbeat's.
 func TestWritesNameTheirKind(t *testing.T) {
 	e := newEnv(t, false)
+	text := `probe_success{job="beacon"} 1`
+	rw := writeRequest([]string{"__name__", "probe_success", "job", "beacon"})
 	for _, tc := range []struct {
 		path, token, want string
 	}{
@@ -43,7 +45,11 @@ func TestWritesNameTheirKind(t *testing.T) {
 		{"/api/v1/write?extra_label=job=probe", e.host, "host=worker-us|job=host"},
 		{"/api/v1/import/prometheus?extra_label=job=probe", e.host, "host=worker-us|job=host"},
 	} {
-		code(t, e.do("POST", tc.path, tc.token, `probe_success{job="beacon"} 1`), http.StatusNoContent, "")
+		body := text
+		if strings.HasPrefix(tc.path, "/api/v1/write") {
+			body = rw
+		}
+		code(t, e.do("POST", tc.path, tc.token, body), http.StatusNoContent, "")
 		r, _ := e.vm.last()
 		if got := strings.Join(r.URL.Query()["extra_label"], "|"); got != tc.want {
 			t.Errorf("%s: extra_label %s, want %s", tc.path, got, tc.want)

@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/openlinkos/beacon/internal/metrics"
+	"github.com/openlinkos/beacon/internal/router"
 	"github.com/openlinkos/beacon/internal/store"
 )
 
@@ -21,4 +22,23 @@ func (g *gateway) alertsLimited(w http.ResponseWriter, t store.Token) bool {
 	fail(w, http.StatusTooManyRequests, "alerts.too_many", "this token posted alerts more than "+strconv.Itoa(alertLimit)+
 		" times in a minute; send them in fewer requests, or wait for the minute to pass")
 	return true
+}
+
+// capPost keeps the first alertsPerPost alerts of a post from the alerts:send token, counting and
+// logging (once for each token) those beyond.
+func (g *gateway) capPost(sender string, in []router.Postable) []router.Postable {
+	if len(in) <= alertsPerPost {
+		return in
+	}
+	if g.Metrics != nil {
+		for range len(in) - alertsPerPost {
+			g.Metrics.Inc("beacon_gateway_alerts_capped_total", "Alerts dropped from an alerts:send post beyond the first "+strconv.Itoa(alertsPerPost),
+				metrics.Labels("token", sender))
+		}
+	}
+	if _, seen := g.capLogged.LoadOrStore(sender, true); !seen && g.Log != nil {
+		g.Log.Warn("alerts dropped: a post from an alerts:send token carries more alerts than one post may", "token", sender,
+			"limit", alertsPerPost, "sent", len(in), "see", "beacon_gateway_alerts_capped_total")
+	}
+	return in[:alertsPerPost]
 }

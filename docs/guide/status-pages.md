@@ -143,7 +143,7 @@ The JSON, the feed and the badges are read by programs. They are in the first la
 
 A component's state now is the worst of:
 
-- **maintenance**, while a maintenance window covers one of its services;
+- **maintenance**, while a maintenance window covers one of its services; a window an agent planned does not hide an outage, which shows instead;
 - the **incidents** firing on its services: `ServiceDown` is an outage, the other alerts a partial outage;
 - the **probes' agreement** in the last minutes, by the reference rules' logic (`deploy/rules/probes.yml`).
 
@@ -217,7 +217,9 @@ A window lasts at most 7 days and starts within 90. A start in the past is now, 
 
 For each service, the window makes a silence for its length, with the comment `maintenance: <title>`. So what the work breaks pages nobody. Ending the window ends the silences.
 
-A silence made another way (`POST /api/v1/silences`, `beacon silence create`) is shown as maintenance too, if its comment begins with `maintenance:`. Planning and ending are recorded in the audit log and echoed to the alert chat.
+A window an agent plans is an agent's, as its silence is ([Take over an alert](on-call.md#take-over-an-alert)). Its silences are recorded and mute nothing, so people are still paged for what breaks. The pages announce it, and show its components in maintenance while they work, but an outage meanwhile shows as an outage and counts against availability. Only a person's window keeps alerts from paging and covers what happens during it. `GET /api/v1/maintenance` and `list_maintenance` mark an agent's window `by_agent`.
+
+A silence a person made another way (`POST /api/v1/silences`, `beacon silence create`) is shown as maintenance too, if its comment begins with `maintenance:`. An agent's silence is not. Planning and ending are recorded in the audit log and echoed to the alert chat.
 
 ## A host of its own
 

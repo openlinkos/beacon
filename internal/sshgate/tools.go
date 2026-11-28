@@ -85,7 +85,7 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 		return Transcript{}, false, fmt.Errorf("%w: %v", ErrUnreachable, err) //nolint:errorlint // one wrapped error is enough
 	}
 	s := g.newSession(who, m, conn+"-1")
-	s.stop = stop
+	s.stop = func(error) { stop() }
 	if err := s.start(kind, label); err != nil {
 		_ = sess.Close()
 		return Transcript{}, false, err
@@ -128,8 +128,10 @@ func (g *Gate) execute(ctx context.Context, who Actor, m store.Machine, kind, la
 	t := s.finish(exit, true)
 	switch {
 	case t.Stopped == store.StoppedRecordingLimit:
-		return t, false, fmt.Errorf("%w (%d MiB) in session %s; limit what the command prints (head, tail, grep) or copy large files with scp or rsync",
+		return t, false, fmt.Errorf("%w (%d MiB) in session %s; limit what the command prints (head, tail, grep), or copy larger files with scp or sftp",
 			ErrRecordingLimit, maxRecording>>20, t.ID)
+	case t.Stopped == store.StoppedRecordingFailed:
+		return t, false, fmt.Errorf("%w in session %s", ErrRecordingFailed, t.ID)
 	case ended.Load():
 		return t, false, g.endedError(who, m)
 	case !timedOut && exit == nil:

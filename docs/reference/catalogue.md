@@ -63,7 +63,7 @@ heartbeats:
 | `max_age` | duration | At least `1m`; how old a success may get before `HeartbeatStale` fires |
 | `severity` | `critical`, `warning` or `info` | The alert's level |
 | `description` | string | Free text |
-| `machine` | string | Optional; a machine's name, lower-case letters, digits and dashes. A put (API, MCP) refuses a machine the SSH channel does not have, unless the heartbeat named it already; an import and a revert take one, with a warning |
+| `machine` | string | Optional; a machine's name, lower-case letters, digits and dashes. A put (API, MCP) refuses a machine the SSH channel does not have, unless the heartbeat named it already; an import and a revert take one, with a warning. A probe or a host writes the heartbeat only when this is its location's id or its host's name; a heartbeat with no machine is written by its own heartbeat token alone |
 
 How a job reports success, and how the heartbeat becomes something an agent can act on, is in [Heartbeats and expiring resources](../guide/heartbeats.md).
 

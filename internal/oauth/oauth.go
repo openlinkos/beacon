@@ -55,6 +55,7 @@ const (
 	maxURL           = 2000
 	registerLimit    = 10
 	registerWindow   = 10 * time.Minute
+	maxRegistrants   = 10000 // addresses whose registrations are counted at once
 	maxPendingCodes  = 10000
 	documentationURL = "https://beacon.openlinkos.com/guide/people"
 )
@@ -306,28 +307,56 @@ func registrant(ip netip.Addr) netip.Addr {
 }
 
 // allowRegister counts a registration from the request's address (registrant): registerLimit in
-// registerWindow.
+// registerWindow. The table of counts holds at most maxRegistrants; a new address makes room as the
+// API's lockouts do (makeRoom), so that a flood of addresses cannot wipe out the counts that are holding
+// others back.
 func (s *Server) allowRegister(r *http.Request) bool {
 	ip := registrant(s.client(r))
+	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.regs) > 10000 { // forget the windows that are over first, and all of them only if that is not enough
-		for k, w := range s.regs {
-			if s.now().Sub(w.start) >= registerWindow {
-				delete(s.regs, k)
-			}
-		}
-	}
-	if s.regs == nil || len(s.regs) > 10000 {
+	if s.regs == nil {
 		s.regs = map[netip.Addr]*window{}
 	}
 	w := s.regs[ip]
-	if w == nil || s.now().Sub(w.start) >= registerWindow {
-		w = &window{start: s.now()}
+	if w == nil || now.Sub(w.start) >= registerWindow {
+		if w == nil && len(s.regs) >= maxRegistrants {
+			s.makeRoom(now)
+		}
+		w = &window{start: now}
 		s.regs[ip] = w
 	}
 	w.n++
 	return w.n <= registerLimit
+}
+
+// makeRoom forgets the windows that are over and, if that frees nothing, the oldest one that has not
+// reached the limit, or failing that the oldest of all. The caller holds mu.
+func (s *Server) makeRoom(now time.Time) {
+	var open, full netip.Addr
+	var openAt, fullAt time.Time
+	hasOpen, hasFull := false, false
+	for k, w := range s.regs {
+		switch {
+		case now.Sub(w.start) >= registerWindow:
+			delete(s.regs, k)
+		case w.n < registerLimit:
+			if !hasOpen || w.start.Before(openAt) {
+				open, openAt, hasOpen = k, w.start, true
+			}
+		default:
+			if !hasFull || w.start.Before(fullAt) {
+				full, fullAt, hasFull = k, w.start, true
+			}
+		}
+	}
+	switch {
+	case len(s.regs) < maxRegistrants:
+	case hasOpen:
+		delete(s.regs, open)
+	case hasFull:
+		delete(s.regs, full)
+	}
 }
 
 // register is RFC 7591 for public clients: redirect URIs on the loopback interface or https, the
@@ -669,17 +698,24 @@ func (s *Server) fail(r *http.Request) {
 }
 
 func (s *Server) token(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	formErr := r.ParseForm()
 	// too_many_requests is the OAuth error code (RFC 6749). The description and Retry-After are the
-	// REST lockout's, so a client reads one wait wherever it was refused.
+	// REST lockout's, so a client reads one wait wherever it was refused. A refresh token Beacon issued
+	// to a client at this address passes the lockout, as a token that worked from here does (api.Auth):
+	// every refresh replaces it, so it is remembered when issued (Remember).
 	if s.Auth != nil {
-		if d, blocked := s.Auth.BlockedFor(r); blocked {
+		presented := ""
+		if formErr == nil && r.PostForm.Get("grant_type") == "refresh_token" {
+			presented = r.PostForm.Get("refresh_token")
+		}
+		if d, blocked := s.Auth.BlockedForSecret(r, presented); blocked {
 			w.Header().Set("Retry-After", api.RetryAfter(d))
 			oauthError(w, http.StatusTooManyRequests, "too_many_requests", "too many failed attempts from this address; try again in "+api.WaitWords(d))
 			return
 		}
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-	if err := r.ParseForm(); err != nil {
+	if formErr != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "send the request as application/x-www-form-urlencoded")
 		return
 	}
@@ -702,7 +738,12 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func issued(w http.ResponseWriter, in store.Issued, now time.Time) {
+// issued answers a token request with what it got. The new access and refresh tokens count as having
+// worked from the client's address, so that a lockout there does not stop it (token).
+func (s *Server) issued(w http.ResponseWriter, r *http.Request, in store.Issued, now time.Time) {
+	if s.Auth != nil {
+		s.Auth.Remember(r, in.Access, in.Refresh)
+	}
 	out := map[string]any{"access_token": in.Access, "token_type": "Bearer", "expires_in": int(in.AccessExpires.Sub(now).Seconds()), "scope": in.Grant.Scope}
 	if in.Refresh != "" {
 		out["refresh_token"] = in.Refresh
@@ -769,7 +810,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, id string) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the agent this code was for is gone")
 		return
 	}
-	issued(w, in, now)
+	s.issued(w, r, in, now)
 }
 
 func pkce(verifier string) string {
@@ -793,7 +834,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request, id string) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the refresh token is unknown, expired or revoked; sign in again")
 		return
 	}
-	issued(w, in, s.now())
+	s.issued(w, r, in, s.now())
 }
 
 // revoke is RFC 7009: the answer is 200 whether or not the token was known, so that it tells nothing.

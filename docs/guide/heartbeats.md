@@ -28,6 +28,8 @@ Neither is probed: Beacon watches their dates. This page follows [Monitor a serv
    restic backup … && beacon-heartbeat nas-backup
    ```
 
+   This sample counts only when the catalogue names the agent's machine for the heartbeat: put the probe's location, or the host's name, in `machine` (step 3). The gateway drops a heartbeat that a probe or a host sends for another machine, or for none.
+
    A job elsewhere pushes one sample with a token of its own, which reports this heartbeat and nothing else. Make the token on the centre with `beacon enroll heartbeat nas-backup`:
 
    ```bash
@@ -82,6 +84,7 @@ To see the alert side work without waiting a night:
 When it does not work:
 
 - **A heartbeat never reports.** The job does not end with `beacon-heartbeat`, or it pushes with the wrong token.
+- **A heartbeat from the probe agent never reports.** The heartbeat names no machine, or another one. Set `machine` to the agent's location or host; `beacon_gateway_samples_dropped_total{reason="heartbeat"}` on the centre counts what was dropped.
 - **A change is refused with `config.invalid`.** It is usually a machine the channel does not have: [A change is refused with config.conflict or config.invalid](../self-hosting/troubleshooting.md#a-change-is-refused-with-configconflict-or-configinvalid).
 - **An alert never arrives at all.** See [An alert never arrives](../self-hosting/troubleshooting.md#an-alert-never-arrives).
 

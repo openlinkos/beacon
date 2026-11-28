@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-86ca9ed8
+sourceHash: sha256-e6a77b8b
 ---
 
 # 常见问题
@@ -162,7 +162,8 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
 | `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |
 | `beacon: machine settings changed; reload the current version and try again`（`machine.changed`） | 连接打开以后，机器被重新添加，或者它的账号、密钥变了 | 重新连接；用多路复用连接（`ControlMaster`）时，先关掉主连接（`ssh -O exit`） |
-| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)`（`ssh.recording_limit`） | 会话的输入和输出达到录像的 16 MiB 上限 | 大文件用 `scp` 或 `rsync` 复制；长输出用 `head`、`tail` 或 `grep` 截短 |
+| `beacon: the session reached its recording limit and Beacon closed it (16 MiB)`（`ssh.recording_limit`） | 会话的输入和输出达到录像的 16 MiB 上限，按实际经过的字节计 | 更大的文件用 `scp` 或 `sftp` 复制，这个上限不管 SFTP 会话；长输出用 `head`、`tail` 或 `grep` 截短 |
+| `beacon: the session's recording could not be written, and Beacon closed it`（`ssh.evidence_unavailable`） | 会话进行中写录像失败：磁盘满了，或者录像目录不可写 | 腾出 `data_dir/recordings/` 的空间或修正它的权限；Beacon 的日志里有会话和错误 |
 
 还有两种情况：
 
@@ -177,7 +178,7 @@ API 或 MCP 返回 401 或 403。或者 MCP 客户端说连不上，或者要求
 - **OAuth 客户端要求重新登录**。它的登录被吊销了，或者授权页面上允许的期限到了。从客户端重新登录（Claude Code 里用 `/mcp`，Codex 用 `codex mcp login beacon`）。
 - **令牌续期了，客户端手里还是旧的**。像 `claude mcp add --header` 这样把请求头写死的客户端，会一直用旧密钥。旧密钥在续期十分钟后失效：用新密钥重新添加一次。`contrib/oncall` 里的包装脚本则是每次连接都重新读取令牌文件。
 - **`auth.scope`**。接口或工具需要凭据没有的作用域。提示里写明了是哪个：独立令牌是 `the token lacks the … scope`，Agent 则还会说明它的预设在所有者角色范围内允许什么。在 Agent 页面上修改预设，或者请所有者给你一个允许这样做的角色（见[作用域](../reference/api.md#scopes)）。
-- **`auth.too_many_failures`**。同一个地址（IPv6 按 /64）10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住。常见于客户端拿着错误、过期或已撤销的令牌不停重试。同一地址上凭据已经在这里用成功过的客户端照常工作；在这个地址上没用过的凭据要等锁定结束。网关和 API、MCP、控制台分开计数。各处回答这次锁定的方式不同：
+- **`auth.too_many_failures`**。同一个地址（IPv6 按 /64）10 分钟内失败 20 次，这 10 分钟剩下的时间里都会被拦住。常见于客户端拿着打错的令牌、或者过期或撤销超过 7 天的令牌不停重试。同一地址上凭据已经在这里用成功过的客户端照常工作，OAuth 客户端用它在这里拿到的 refresh token 刷新也照常；在这个地址上没用过的凭据要等锁定结束。重启会忘掉哪些凭据在哪里用成功过。网关和 API、MCP、控制台分开计数。各处回答这次锁定的方式不同：
   - REST API 和网关回答 `auth.too_many_failures`。消息里写明还要等多久，响应带 `Retry-After`；
   - `POST /oauth/token` 回答 429 `too_many_requests`（OAuth 自己的错误码），`error_description` 里是同一段等待，响应同样带 `Retry-After`；
   - MCP 回答 401，因为它用的库没有 429。正文里写明要等多久，响应也带 `Retry-After`。
@@ -200,6 +201,7 @@ API 或 MCP 返回 401 或 403。或者 MCP 客户端说连不上，或者要求
 - `Wrong username or password.`（「用户名或密码不对。」）：两者有一个不对，提示对两种情况都一样。忘了密码，请所有者给一个重设链接（**成员**页面，或 `beacon user reset NAME`）。
 - `This account is disabled; an owner can enable it.`（「这个账号已停用；所有者可以重新启用。」）：所有者在**成员**页面上启用它，或者执行 `beacon user enable NAME`。
 - `Too many failed sign-ins; try again in N minutes.`（「登录失败的次数太多，请过 N 分钟再试。」）：这个用户名 10 分钟内密码错了 10 次，不论来自哪里，其中 3 次来自你的地址。没有输错过这个用户名的其他地址仍然可以登录，所以本人从自己的地址可以登录。N 是这 10 分钟里还剩下的分钟数，向上取整，至少 1 分钟（只剩 1 分钟时是 `a minute`，「请过 1 分钟再试。」）。
+- `Too many failed sign-ins; try again in a minute.`（「登录失败的次数太多，请过 1 分钟再试。」），而你的地址什么都没输错过：有人在别处不停猜这个用户名的密码。用户名被锁之后，每多一次密码错误，不论来自哪个地址，下一次从新地址来的尝试都要多等：先是 1 秒，每次翻倍，最多 1 分钟。这个人过去 7 天里登录成功过的地址不用等。最后一次密码错误过去 10 分钟后，等待结束。
 - `Too many failed sign-ins from here; try again in N minutes.`（「这里登录失败的次数太多，请过 N 分钟再试。」）：你的地址 10 分钟内失败了 20 次。N 的说法相同。一次性链接的表单（初始化、邀请、重设）也是这一句。
 - 一次又一次地提示 `The form has expired; try again.`（「表单已过期，请重试。」）：浏览器没有保存登录表单的 cookie。控制台的 cookie 带 `Secure`，必须通过 HTTPS（或 `localhost`）打开；用普通 HTTP 打开，这个表单永远不会成功。请通过 `public_url` 上的 TLS 代理访问。
 - 改用令牌登录时：`The token is unknown or has expired.`（「令牌不存在或已过期。」，令牌输错了、过期了或者被吊销了），或者 `Token NAME lacks status:read, which the console needs to show anything.`（「令牌 NAME 没有 status:read，控制台需要它才能显示内容。」，换一个带 `status:read` 的令牌）。

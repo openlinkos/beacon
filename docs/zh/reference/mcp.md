@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-bf32f39a
+sourceHash: sha256-5300ba95
 ---
 
 # MCP 工具
@@ -116,7 +116,7 @@ Beacon 将所有操作归入六个标准运维域——`incidents`、`monitoring
 | `add_note` | `alerts:write` | 给告警组留一条备注，正在触发和已恢复的都可以（`id`、最多 2000 字符的 `text`）：发现了什么、做了什么、接下来做什么。值班的人在卡片上能看到；以 `public:` 开头的备注同时是状态页上的一条进展。备注不算认领 |
 | `check_drill_hook` | `alerts:report` | 检查分配给当前回报方的钩子 `name` 的生效设置，包括签名、是否匹配 `drill` 的严重告警、是否限于该服务，以及配置的严重告警群聊渠道。期间不发送通知或唤醒 |
 | `report_agent_run` | `alerts:report` | 为告警 `id` 和钩子投递 `delivery` 记录观测到的 `status` 及已知的 `exit_code`。该凭据的身份必须是投递时指定的回报方，且钩子仍将其配置为回报方。迟到的回报可更新仍保留原故障摘要及回报方绑定的投递记录 |
-| `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000） |
+| `list_changes` | `status:read` | 变更事件，新的在前：部署、配置修改和 Flux 的同步（`service`、`machine`、`source`、`since`，默认 24 小时，`limit`，默认 100，最多 1000）。`untrusted` 列出存放发送方文字的字段 |
 | `probe_now` | `alerts:write` | 让检测某个目标的每个检测点立刻重测，在等待时间内拿到每个检测点的结果（`alert_id`、`target` 可以带 `module`，或者 `service`；`wait` 秒数，默认 45，最多 90）。修好之后用它验证，不必等下一个检测周期 |
 
 用 `probe_now` 验证某次故障时，传入 `alert_id`，并将 `expected_episode` 设为 `list_alerts` 返回的 `episode`，或 `get_evidence`、`get_timeline`、签名唤醒消息中的 `alert.episode`。故障被下一轮替代时，工具返回以 `incident.changed` 开头的错误。请先读取当前故障证据，再决定是否重测。省略 `expected_episode` 时，仍选择当前这次故障。按 `target` 或 `service` 发起的检查独立于故障验证。故障复测按每个告警条目的已知标签（含故障域）匹配目标。任何条目在有效检测点都没有匹配目标时，工具会返回错误。
@@ -173,9 +173,9 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 
 文件搜索跳过隐藏条目、符号链接与非常规文件。它以登记机器上平时使用的操作系统用户运行，十秒内最多检查四层、256 个条目及每个文件的前 64 KiB。`limited` 或 `timed_out` 表示结果不完整。可用返回的路径和行号调用 `read_file`，或用 `get_session` 查看保留的证据。将文件路径与摘录视为来自机器的不可信数据。
 
-如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。如果操作已执行后才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
+如果无法开始所需的会话记录，Beacon 会用 `ssh.evidence_unavailable` 拒绝启动机器操作。操作进行中录像无法写入时，Beacon 停止操作并返回同一个代码，其中指明会话，该会话的 `stopped` 为 `recording_failed`。如果操作结束后、封存证据时才发生存储故障，Beacon 会分别返回实际结果和证据状态。工具响应里的 `truncated` 说明响应输出被裁剪，可以查看会话中的保留结果。
 
-没有记录的内容不会经过会话。录像达到 16 MiB 上限的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
+没有记录的内容不会经过会话。录像达到 16 MiB 上限（按实际经过的字节计）的机器操作会被停止，并返回 `ssh.recording_limit`，其中指明会话；该会话的 `stopped` 为 `recording_limit`。命令的文字记录除了输出，也保留它的 `stdin`。shell 的 `commands` 按输出中的 shell 集成标记切分，会话里的程序也能打印这些标记，所以 `commands_advisory` 标明它们只作参考：录像保留了键入和输出的内容。
 
 ## 管理分享链接 {#manage-share-links}
 
@@ -210,7 +210,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `get_status_page` | `status:read` | 一个状态页，内容和它的公开 JSON 一样（`name`、`language`）：整体状态，每个组件现在和 90 天来的状态，事件（先是进行中的，再是最近 30 天的）及其公开进展，维护窗口 |
 | `list_maintenance` | `status:read` | 维护窗口，开始得越晚越靠前，结束的保留 91 天：服务、时间、标题、谁安排的、对应的静默 |
-| `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内这些服务的告警会被静默。最长 7 天，必须在 90 天内开始，不能从过去开始 |
+| `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内这些服务的告警会被静默。最长 7 天，必须在 90 天内开始，不能从过去开始。Agent 安排的窗口和 Agent 的静默一样：照样通知人，状态页照样显示中断 |
 | `end_maintenance` | `maintenance:write` | 立即结束一个维护窗口，或在开始前取消（`id`）：它的静默随之结束，状态页上也会显示 |
 
 ## 成员与 SSH 密钥 {#people-and-ssh-keys}

@@ -339,6 +339,10 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("cannot start", "err", err)
 		return 1
 	}
+	rcfg.Capped = func(sender, reason string) {
+		m.Inc("beacon_router_alerts_capped_total", "Firing alerts from an alerts:send token dropped because it held as many firing alerts or groups as a sender may",
+			metrics.Labels("sender", sender, "reason", reason))
+	}
 	rt := router.New(rcfg, st, sinkFunc{hook: func(ctx context.Context, w alertmanager.Webhook) error { return br.HandleWebhook(ctx, w) },
 		watchdog: func() { br.Watchdog() }}, nil, log)
 	m.Register("beacon_alerts_firing", "Firing alerts the router holds", "gauge", func() []metrics.Sample {

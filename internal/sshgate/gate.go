@@ -112,6 +112,7 @@ var (
 
 	ErrEvidenceUnavailable = errors.New("cannot start an SSH session while its evidence cannot be stored")
 	ErrRecordingLimit      = errors.New("the session reached its recording limit and Beacon closed it")
+	ErrRecordingFailed     = errors.New("the session's recording could not be written, and Beacon closed it")
 )
 
 // PauseKey is where the start of a pause is stored; zero when the channel runs.
@@ -487,11 +488,9 @@ func remoteIP(c net.Conn) string {
 // pause switch, revocation and the checks every minute that the instance holding the lease runs.
 func (g *Gate) Serve(ctx context.Context, ln net.Listener) error {
 	cfg := &ssh.ServerConfig{
-		PublicKeyCallback: g.publicKey,
-		VerifiedPublicKeyCallback: func(_ ssh.ConnMetadata, _ ssh.PublicKey, p *ssh.Permissions, _ string) (*ssh.Permissions, error) {
-			return p, nil
-		},
-		ServerVersion: "SSH-2.0-Beacon",
+		PublicKeyCallback:         g.publicKey,
+		VerifiedPublicKeyCallback: g.verifiedKey,
+		ServerVersion:             "SSH-2.0-Beacon",
 	}
 	cfg.AddHostKey(g.d.HostKey)
 	context.AfterFunc(ctx, func() {
@@ -531,13 +530,26 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	}
 	defer release()
 	rc := &readConn{Conn: nc}
-	_ = nc.SetDeadline(g.now().Add(handshakeTimeout))
-	sc, chans, reqs, err := ssh.NewServerConn(rc, cfg)
+	// The client has firstAuth to get as far as asking to sign in, which takes a few round trips; then
+	// the rest of signIn in all, time enough to type a key's passphrase.
+	start := g.now()
+	firstAuth, signIn := g.adm.deadlines()
+	_ = nc.SetDeadline(start.Add(firstAuth))
+	conf := *cfg
+	conf.BannerCallback = func(ssh.ConnMetadata) string { // called at the client's first request to sign in
+		_ = nc.SetDeadline(start.Add(signIn))
+		return ""
+	}
+	sc, chans, reqs, err := ssh.NewServerConn(rc, &conf)
 	release()
 	if err != nil {
 		if failedHandshake(rc, err) {
 			g.fail(addr)
 		}
+		return
+	}
+	if sc.Permissions.Extensions["refused"] != "" { // verifiedKey refuses these; never let one through
+		_ = sc.Close()
 		return
 	}
 	_ = nc.SetDeadline(time.Time{})

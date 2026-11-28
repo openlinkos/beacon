@@ -2,7 +2,7 @@
 
 ## What it means
 
-The earliest-expiring certificate any probe location sees for the service (`probe_ssl_earliest_cert_expiry`) runs out within 14 days (warning) or 7 days (critical). Automatic renewal has not happened: Let's Encrypt renews 30 days ahead, so 14 days left means it has failed more than once.
+The certificate the probe locations see for the service (`probe_ssl_earliest_cert_expiry`) runs out within 14 days (warning) or 7 days (critical), as at least two locations see it; a service only one location checks alerts on that one. A single location that sees an earlier expiry than the others raises nothing on its own: check what that location is served, a CDN node or a resolver answering differently. Automatic renewal has not happened: Let's Encrypt renews 30 days ahead, so 14 days left means it has failed more than once.
 
 ## What to check
 

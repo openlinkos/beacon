@@ -18,7 +18,7 @@ func TestGatewayCountsFailuresApart(t *testing.T) {
 	if !e.auth.Blocked(r) {
 		t.Fatal("the API's lockout did not take")
 	}
-	code(t, e.do("POST", "/api/v1/write", e.probe, "x"), http.StatusNoContent, "")
+	code(t, e.do("POST", "/api/v1/write", e.probe, ""), http.StatusNoContent, "")
 
 	e = newEnv(t, false)
 	for i := range 20 {
@@ -34,11 +34,11 @@ func TestGatewayCountsFailuresApart(t *testing.T) {
 // worked from it before, while a token new to it waits like an unknown one.
 func TestGatewayLockoutKeepsWorkingTokens(t *testing.T) {
 	e := newEnv(t, false)
-	code(t, e.do("POST", "/api/v1/write", e.probe, "x"), http.StatusNoContent, "")
+	code(t, e.do("POST", "/api/v1/write", e.probe, ""), http.StatusNoContent, "")
 	for i := range 20 {
 		code(t, e.do("POST", "/api/v1/write", fmt.Sprintf("lbt_nope%d", i), "x"), http.StatusUnauthorized, "auth.invalid")
 	}
-	code(t, e.do("POST", "/api/v1/write", e.probe, "x"), http.StatusNoContent, "")
+	code(t, e.do("POST", "/api/v1/write", e.probe, ""), http.StatusNoContent, "")
 	code(t, e.do("POST", "/api/v1/write", e.probe2, "x"), http.StatusTooManyRequests, "auth.too_many_failures")
 	code(t, e.do("POST", "/api/v1/write", "lbt_nope", "x"), http.StatusTooManyRequests, "auth.too_many_failures")
 }

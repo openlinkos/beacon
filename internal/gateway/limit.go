@@ -15,10 +15,13 @@ const (
 
 // Alert posts from tokens with alerts:send are limited the same way: alertLimit posts in an alertWindow,
 // those beyond refused with 429 and alerts.too_many. A rule engine posts once per rule group and
-// evaluation; the rule engine's own posts, with the rules token, are never limited.
+// evaluation. One post takes at most alertsPerPost alerts from such a token; the rest are dropped and
+// counted. The router holds a token to a number of firing alerts and groups too (router.SenderAlerts,
+// router.SenderGroups). The rule engine's own posts, with the rules token, are never limited.
 const (
-	alertLimit  = 120
-	alertWindow = time.Minute
+	alertLimit    = 120
+	alertWindow   = time.Minute
+	alertsPerPost = 200
 )
 
 // limiter counts requests by key in fixed windows.

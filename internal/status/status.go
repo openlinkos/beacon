@@ -298,14 +298,18 @@ func (s *Service) locations(now time.Time) []string {
 	return out
 }
 
-// now is a component's state now.
+// now is a component's state now: maintenance during a person's window; otherwise the worst of what the
+// incidents and the probes say, and maintenance during an agent's.
 func (s *Service) now(c *Component, incidents []Incident, windows []window, now time.Time) string {
+	state := NoData
 	for _, w := range windows {
 		if w.Status == "active" && slices.Contains(w.Components, c.Name) {
-			return Maintenance
+			if w.covers {
+				return Maintenance
+			}
+			state = Maintenance
 		}
 	}
-	state := NoData
 	for _, in := range incidents {
 		if in.Status == "active" && slices.Contains(in.Components, c.Name) {
 			state = worst(state, in.Impact)

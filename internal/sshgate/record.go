@@ -13,9 +13,13 @@ import (
 	"time"
 )
 
-// maxRecording caps one recording. Nothing passes unrecorded: the event that does not fit is neither
-// recorded nor passed on, and the session is closed, its recording ending with a marker that says so.
-// The last recordingReserve bytes are kept for that marker and the exit status.
+// maxRecording caps what one recording takes: the bytes that passed (input, output and the commands
+// marked), counted as they were sent, plus each event's few bytes of framing. The file is larger when
+// what passed is binary, since asciicast's JSON escapes it, by at most six times (a control byte becomes
+// \u00XX). Nothing passes unrecorded: the event that does not fit is neither recorded nor passed on, and
+// the session is closed, its recording ending with a marker that says so. The last recordingReserve
+// bytes are kept for that marker and the exit status. A recording whose file cannot be written closes
+// its session too, whatever is left of the cap.
 const (
 	maxRecording     = 16 << 20
 	recordingReserve = 1 << 10
@@ -25,13 +29,13 @@ const (
 // interval counted from the previous event. Codes: o output, i input, r resize, m marker (a command
 // starts), x exit status.
 type recorder struct {
-	mu      sync.Mutex
-	f       io.WriteCloser
-	last    time.Time
-	written int64
-	full    bool
-	err     error
-	now     func() time.Time
+	mu   sync.Mutex
+	f    io.WriteCloser
+	last time.Time
+	used int64 // of maxRecording: the header, then each event's data as it passed and its framing
+	full bool
+	err  error // the first write that failed; nothing more is recorded, so nothing more passes
+	now  func() time.Time
 }
 
 // newRecorder writes the asciicast to w, whose making and closing (a file under the recordings
@@ -39,8 +43,9 @@ type recorder struct {
 func newRecorder(w io.WriteCloser, cols, rows int, command, title string, now func() time.Time) (*recorder, error) {
 	hdr, _ := json.Marshal(map[string]any{"version": 3, "term": map[string]any{"cols": cols, "rows": rows, "type": "xterm-256color"},
 		"timestamp": now().Unix(), "command": command, "title": title})
+	hdr = append(hdr, '\n')
 	r := &recorder{f: w, last: now(), now: now}
-	r.write(append(hdr, '\n'), false)
+	r.write(hdr, int64(len(hdr)), false)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -74,11 +79,12 @@ func (r *recorder) close() error {
 	return r.err
 }
 
-// write adds b to the recording and reports false when it does not fit: the recording is full. Last
-// events may use the reserve. A recording that failed to write takes nothing more, and says so at close.
-func (r *recorder) write(b []byte, last bool) bool {
+// write adds b, which counts cost against the cap, and reports whether it was recorded: not when it
+// does not fit (the recording is full), when an earlier write failed or this one does, or once the
+// recording is closed. Last events may use the reserve.
+func (r *recorder) write(b []byte, cost int64, last bool) bool {
 	if r.err != nil || r.f == nil {
-		return true
+		return false
 	}
 	limit := int64(maxRecording - recordingReserve)
 	if last {
@@ -86,20 +92,24 @@ func (r *recorder) write(b []byte, last bool) bool {
 	} else if r.full {
 		return false
 	}
-	if r.written+int64(len(b)) > limit {
+	if r.used+cost > limit {
 		r.full = true
 		return false
 	}
 	n, err := r.f.Write(b)
-	r.written += int64(n)
+	r.used += cost
 	if err == nil && n != len(b) {
 		err = io.ErrShortWrite
 	}
-	r.err = err
+	if err != nil {
+		r.err = err
+		return false
+	}
 	return true
 }
 
-// event records one event and reports false when the recording is full: what it records must not pass.
+// event records one event and reports false when it was not recorded (the recording is full, or its
+// file failed): what it records must not pass.
 func (r *recorder) event(code, data string) bool {
 	return r.add(code, data, false)
 }
@@ -116,19 +126,43 @@ func (r *recorder) add(code, data string, last bool) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.err != nil || r.f == nil {
-		return true
-	}
-	if r.full && !last {
+	if r.err != nil || r.f == nil || r.full && !last {
 		return false
 	}
 	now := r.now()
-	b, _ := json.Marshal([]any{math.Round(now.Sub(r.last).Seconds()*1e6) / 1e6, code, data})
-	if !r.write(append(b, '\n'), last) {
+	b, cost := eventLine(math.Round(now.Sub(r.last).Seconds()*1e6)/1e6, code, data)
+	if !r.write(b, cost, last) {
 		return false
 	}
 	r.last = now
 	return true
+}
+
+// eventLine is one event's line of the recording, and what it costs of the cap: its framing, and its
+// data as it passed rather than as JSON escapes it.
+func eventLine(interval float64, code, data string) ([]byte, int64) {
+	var q bytes.Buffer
+	enc := json.NewEncoder(&q)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(data)
+	quoted := bytes.TrimSuffix(q.Bytes(), []byte{'\n'})
+	iv, _ := json.Marshal(interval)
+	cd, _ := json.Marshal(code)
+	line := make([]byte, 0, len(iv)+len(cd)+len(quoted)+5)
+	line = append(append(append(line, '['), iv...), ',')
+	line = append(append(append(line, cd...), ','), quoted...)
+	line = append(line, ']', '\n')
+	return line, int64(len(line)-len(quoted)) + int64(len(data))
+}
+
+// failure is why a write of the recording failed, or nil.
+func (r *recorder) failure() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.err
 }
 
 // truncated reports whether the recording reached its cap.

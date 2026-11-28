@@ -143,23 +143,28 @@ func updates(def catalog.StatusPage, rec store.Incident, in Incident, l i18n.Lan
 	return out
 }
 
-// window is a maintenance window on the page, with when it covers.
+// window is a maintenance window on the page, with when it covers. A person's window covers what happens
+// meanwhile (covers): the component shows maintenance, not an outage, and its minutes count for nothing.
+// An agent's is announced alone: what the probes and the alerts say still shows.
 type window struct {
 	Window
 	start, end time.Time
+	covers     bool
 }
 
 // windows are the maintenance windows on the page's components, as far back as the history reaches: the
 // active ones, then those to come (the soonest first), then those that ended (the latest first). They
-// are the windows planned through Beacon, and the silences whose comment begins with "maintenance:".
+// are the windows planned through Beacon, and the silences people made whose comment begins with
+// "maintenance:" (an agent's silence mutes nothing, and is no window).
 func (s *Service) windows(p *Page, now time.Time, source store.MaintenanceSnapshot) []window {
 	oldest := dayStart(now, s.d.Location, Days-1)
 	var out []window
-	add := func(id, title, desc string, comps []string, start, end time.Time) {
+	add := func(id, title, desc string, comps []string, start, end time.Time, covers bool) {
 		if len(comps) == 0 || end.Before(oldest) || !end.After(start) {
 			return
 		}
-		w := window{Window: Window{ID: id, Title: title, Description: desc, Components: comps, Starts: start.UTC(), Ends: end.UTC()}, start: start, end: end}
+		w := window{Window: Window{ID: id, Title: title, Description: desc, Components: comps, Starts: start.UTC(), Ends: end.UTC()},
+			start: start, end: end, covers: covers}
 		switch {
 		case now.Before(start):
 			w.Status = "scheduled"
@@ -176,12 +181,12 @@ func (s *Service) windows(p *Page, now time.Time, source store.MaintenanceSnapsh
 			planned[id] = true
 		}
 		if !m.Cancelled {
-			add(m.ID, m.Title, m.Description, componentsOf(p, m.Services), m.StartsAt, m.End())
+			add(m.ID, m.Title, m.Description, componentsOf(p, m.Services), m.StartsAt, m.End(), !m.ByAgent)
 		}
 	}
 	for _, sil := range source.Silences {
 		c := strings.TrimSpace(sil.Comment)
-		if planned[sil.ID] || len(c) < len(bridge.MaintenancePrefix) || !strings.EqualFold(c[:len(bridge.MaintenancePrefix)], bridge.MaintenancePrefix) {
+		if planned[sil.ID] || sil.ByAgent || len(c) < len(bridge.MaintenancePrefix) || !strings.EqualFold(c[:len(bridge.MaintenancePrefix)], bridge.MaintenancePrefix) {
 			continue
 		}
 		var comps []string
@@ -190,7 +195,7 @@ func (s *Service) windows(p *Page, now time.Time, source store.MaintenanceSnapsh
 				comps = append(comps, cm.Name)
 			}
 		}
-		add("s-"+sil.ID, strings.TrimSpace(c[len(bridge.MaintenancePrefix):]), "", comps, sil.StartsAt, sil.EndsAt)
+		add("s-"+sil.ID, strings.TrimSpace(c[len(bridge.MaintenancePrefix):]), "", comps, sil.StartsAt, sil.EndsAt, true)
 	}
 	order := map[string]int{"active": 0, "scheduled": 1, "completed": 2}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -227,6 +232,12 @@ func coversService(s store.SilenceRecord, svc string) bool {
 	return n > 0
 }
 
+// A minute of a maintenance window: announced (an agent's window), or covered (a person's).
+const (
+	announced byte = 1
+	covered   byte = 2
+)
+
 // days is a component's history, the oldest day first, and its availability over all of it.
 func (s *Service) days(c *Component, incidents []Incident, windows []window, now time.Time) ([]Day, *float64) {
 	loc := s.d.Location
@@ -239,7 +250,7 @@ func (s *Service) days(c *Component, incidents []Incident, windows []window, now
 			n = min(n, int(now.Sub(start)/time.Minute))
 		}
 		day := Day{Date: start.Format(time.DateOnly)}
-		maint := make([]bool, minutesPerDay)
+		maint := make([]byte, minutesPerDay) // announced, or covered by a person's window
 		inc := make([]byte, minutesPerDay)
 		cover := func(from, to time.Time, f func(i int)) {
 			lo := max(0, int(from.Sub(start)/time.Minute))
@@ -250,7 +261,11 @@ func (s *Service) days(c *Component, incidents []Incident, windows []window, now
 		}
 		for _, w := range windows {
 			if slices.Contains(w.Components, c.Name) && w.start.Before(end) && w.end.After(start) {
-				cover(w.start, w.end, func(i int) { maint[i] = true })
+				level := announced
+				if w.covers {
+					level = covered
+				}
+				cover(w.start, w.end, func(i int) { maint[i] = max(maint[i], level) })
 			}
 		}
 		for _, in := range incidents {
@@ -277,8 +292,10 @@ func (s *Service) days(c *Component, incidents []Incident, windows []window, now
 		var data, down, degraded, maintained int
 		var incDown, incDegraded bool
 		for i := range n {
-			if maint[i] {
+			if maint[i] != 0 {
 				maintained++
+			}
+			if maint[i] == covered {
 				continue
 			}
 			m := inc[i]

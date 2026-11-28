@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,13 @@ func TestEvidenceRoutes(t *testing.T) {
 	code, out = c.do("GET", "/api/v1/changes?service=hub-example-com&since=1h", read, "")
 	if changes, _ := out["changes"].([]any); code != 200 || len(changes) != 1 || changes[0].(map[string]any)["posted_by"] != "ci" {
 		t.Errorf("changes: %d %v", code, out)
+	}
+	// what the senders say is marked as such, as in the evidence
+	fields, _ := out["untrusted"].(map[string]any)["fields"].([]any)
+	for _, f := range []string{"changes[].source", "changes[].url", "changes[].summary", "changes[].machine"} {
+		if !slices.Contains(fields, any(f)) {
+			t.Errorf("changes: %s is not marked untrusted: %v", f, out["untrusted"])
+		}
 	}
 	for _, q := range []string{"since=soon", "limit=x", "limit=0"} {
 		if code, out := c.do("GET", "/api/v1/changes?"+q, read, ""); code != 400 || out["code"] != "bad_input" {

@@ -71,8 +71,9 @@ func TestEvidenceTools(t *testing.T) {
 	if res, text := call(t, read, "get_evidence", map[string]any{"id": "nope"}); !res.IsError || !strings.Contains(text, "no such alert group") {
 		t.Errorf("unknown group: %s", text)
 	}
-	if res, text := call(t, read, "list_changes", map[string]any{"source": "flux"}); res.IsError || !strings.Contains(text, `"posted_by":"flux"`) {
-		t.Errorf("list_changes: %s", text)
+	if res, text := call(t, read, "list_changes", map[string]any{"source": "flux"}); res.IsError || !strings.Contains(text, `"posted_by":"flux"`) ||
+		!strings.Contains(text, `"changes[].source"`) || !strings.Contains(text, `"changes[].url"`) {
+		t.Errorf("list_changes, with what the senders say marked untrusted: %s", text)
 	}
 	if res, text := call(t, read, "list_changes", map[string]any{"since": "soon"}); !res.IsError || !strings.Contains(text, "since is a duration") {
 		t.Errorf("a bad since: %s", text)

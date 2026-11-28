@@ -1,6 +1,7 @@
 package sshgate
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -46,13 +47,14 @@ type session struct {
 	cols, rows int
 	pty        bool
 
-	// stop closes the session when its recording is full; set before it starts.
-	stop func()
+	// stop closes the session when its recording is full or its file failed, and tells the agent why
+	// (ErrRecordingLimit or ErrRecordingFailed); set before it starts.
+	stop func(why error)
 
 	mu       sync.Mutex
 	started  bool
 	finished bool
-	stopped  bool // closed by Beacon: its recording reached the cap
+	stopped  string // closed by Beacon, and why: store.StoppedRecordingLimit or StoppedRecordingFailed
 	cast     *recorder
 	shell    *shellLog
 	stdin    strings.Builder
@@ -136,8 +138,8 @@ func (s *session) parts() (*recorder, *shellLog, string) {
 }
 
 // input takes what the agent sends: typed into a terminal, or a command's stdin. It reports whether p may
-// pass to the machine: not once the recording is full, which closes the session, so that nothing reaches
-// the machine unrecorded.
+// pass to the machine: not once the recording is full or cannot be written, which closes the session, so
+// that nothing reaches the machine unrecorded.
 func (s *session) input(p []byte) bool {
 	s.mu.Lock()
 	if s.finished {
@@ -160,7 +162,7 @@ func (s *session) input(p []byte) bool {
 	}
 	s.mu.Unlock()
 	if !ok {
-		s.reachedLimit()
+		s.halt()
 	}
 	return ok
 }
@@ -186,7 +188,7 @@ func (s *session) output(p []byte, stderr bool) ([]byte, bool) {
 		return p, true
 	}
 	if !cast.event("o", string(p)) {
-		s.reachedLimit()
+		s.halt()
 		return nil, false
 	}
 	s.out.Add(int64(len(p)))
@@ -203,29 +205,47 @@ func (s *session) output(p []byte, stderr bool) ([]byte, bool) {
 	return p, true
 }
 
+// errUnrecorded stops a copy whose next bytes were not recorded; the session says why (stopped).
+var errUnrecorded = errors.New("not recorded")
+
 // recorded turns output's verdict into an error for a copy that must stop.
 func (s *session) recorded(_ []byte, ok bool) error {
 	if !ok {
-		return ErrRecordingLimit
+		return errUnrecorded
 	}
 	return nil
 }
 
-// reachedLimit closes a session whose recording is full, once: the recording ends with a marker that says
-// so, and the record says Beacon stopped it.
-func (s *session) reachedLimit() {
+// halt closes a session whose recording took no more, once: because it is full, when the recording ends
+// with a marker that says so, or because its file could not be written. The record says Beacon stopped it,
+// and why.
+func (s *session) halt() {
 	s.mu.Lock()
-	if s.stopped || !s.cast.truncated() {
+	if s.stopped != "" {
 		s.mu.Unlock()
 		return
 	}
-	s.stopped = true
+	var why error
+	failure := s.cast.failure()
+	switch {
+	case failure != nil:
+		s.stopped, why = store.StoppedRecordingFailed, ErrRecordingFailed
+	case s.cast.truncated():
+		s.stopped, why = store.StoppedRecordingLimit, ErrRecordingLimit
+	default:
+		s.mu.Unlock()
+		return
+	}
 	cast, stop, id := s.cast, s.stop, s.rec.ID
 	s.mu.Unlock()
-	cast.final("m", fmt.Sprintf("beacon: the recording reached its limit of %d MiB; Beacon closed the session", maxRecording>>20))
-	s.g.d.Log.Warn("SSH session reached its recording limit; closed", "session", id, "limit_mib", maxRecording>>20)
+	if failure != nil {
+		s.g.d.Log.Error("SSH recording could not be written; closed the session", "session", id, "err", failure)
+	} else {
+		cast.final("m", fmt.Sprintf("beacon: the recording reached its limit of %d MiB; Beacon closed the session", maxRecording>>20))
+		s.g.d.Log.Warn("SSH session reached its recording limit; closed", "session", id, "limit_mib", maxRecording>>20)
+	}
 	if stop != nil {
-		stop()
+		stop(why)
 	}
 }
 
@@ -238,7 +258,7 @@ type recordedReader struct {
 func (t recordedReader) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 && !t.f(p[:n]) {
-		return 0, ErrRecordingLimit
+		return 0, errUnrecorded
 	}
 	return n, err
 }
@@ -262,9 +282,7 @@ func (s *session) finish(exit *int, reachedTarget bool) Transcript {
 	s.finished = true
 	rec, cast, shell, cut := s.rec, s.cast, s.shell, s.cut
 	raw, stderr, stdin := s.stdout.String(), s.stderr.String(), s.stdin.String()
-	if s.stopped {
-		rec.Stopped = store.StoppedRecordingLimit
-	}
+	rec.Stopped = s.stopped
 	s.mu.Unlock()
 
 	rec.Ended = s.g.now().UTC()
@@ -378,14 +396,19 @@ func (c *conn) session(nc ssh.NewChannel) {
 		return
 	}
 	s := c.g.newSession(c.who, c.machine, c.next())
-	// When the recording is full, stop ends the operation on the machine, then tells the agent why;
-	// stopping is held meanwhile, so that the end of the agent's output does not overtake the reason.
+	// When the recording is full or cannot be written, stop ends the operation on the machine, then tells
+	// the agent why; stopping is held meanwhile, so that the end of the agent's output does not overtake
+	// the reason.
 	var stopping sync.Mutex
-	s.stop = func() {
+	s.stop = func(why error) {
 		stopping.Lock()
 		defer stopping.Unlock()
 		_ = tch.Close()
-		_, _ = fmt.Fprintf(ach.Stderr(), "beacon: %v (%d MiB)\n", ErrRecordingLimit, maxRecording>>20)
+		if errors.Is(why, ErrRecordingLimit) {
+			_, _ = fmt.Fprintf(ach.Stderr(), "beacon: %v (%d MiB)\n", why, maxRecording>>20)
+		} else {
+			_, _ = fmt.Fprintf(ach.Stderr(), "beacon: %v\n", why)
+		}
 	}
 	// The target can close as soon as it accepts a short command. Keep that close behind
 	// the acknowledgement of any request already sent to it.
@@ -424,7 +447,7 @@ func (c *conn) session(nc ssh.NewChannel) {
 			case "window-change":
 				var p struct{ Cols, Rows, Wpx, Hpx uint32 }
 				if cast, _, _ := s.parts(); ssh.Unmarshal(payload, &p) == nil && !cast.event("r", fmt.Sprintf("%dx%d", p.Cols, p.Rows)) {
-					s.reachedLimit()
+					s.halt()
 					if r.WantReply {
 						_ = r.Reply(false, nil)
 					}

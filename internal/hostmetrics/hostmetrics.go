@@ -203,8 +203,23 @@ func (c *Collector) mounts() []Mount {
 
 var promLineRe = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [-+0-9.eEInfNa]+( -?[0-9]+)?$`)
 
+// HeartbeatMetric is the one metric of Beacon's own a textfile may hold.
+const HeartbeatMetric = "beacon_heartbeat_last_success_timestamp_seconds"
+
+// ownMetric reports whether a sample line names one of the probe's results (probe_…) or a metric of
+// Beacon's own (beacon_…) other than a heartbeat: those come from the agent alone, never from a textfile.
+func ownMetric(line string) bool {
+	name := line
+	if i := strings.IndexAny(line, "{ "); i >= 0 {
+		name = line[:i]
+	}
+	return strings.HasPrefix(name, "probe_") || strings.HasPrefix(name, "beacon_") && name != HeartbeatMetric
+}
+
 // Textfile returns the sample lines of the *.prom files in the textfile directory (comments and anything
-// that does not look like a sample are dropped, so one broken file cannot break the whole scrape).
+// that does not look like a sample are dropped, so one broken file cannot break the whole scrape). A
+// line naming a probe's result or a metric of Beacon's own other than a heartbeat is dropped too, so
+// that whatever can write the directory cannot make up what the agent itself reports.
 func (c *Collector) Textfile() []string {
 	if c.TextfileDir == "" {
 		return nil
@@ -217,7 +232,7 @@ func (c *Collector) Textfile() []string {
 			continue
 		}
 		for _, l := range lines(b) {
-			if promLineRe.MatchString(l) {
+			if promLineRe.MatchString(l) && !ownMetric(l) {
 				out = append(out, l)
 			}
 		}

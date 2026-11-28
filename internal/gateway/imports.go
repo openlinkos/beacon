@@ -12,21 +12,36 @@ import (
 )
 
 // Imports in the Prometheus text format are read on their way to VictoriaMetrics: decompressed, counted
-// and, for a heartbeat token, held to its one metric. What VictoriaMetrics gets is the plain text.
+// and checked line by line. What VictoriaMetrics gets is the plain text of the lines that passed.
 //
 // One import carries at most maxImportSamples samples in maxImportBytes of text (a probe's minute of
 // results is a few thousand); a heartbeat's at most maxHeartbeatSamples in maxHeartbeatBytes. Beyond
 // that the import is refused with 400 import.too_large: 400 so that a probe agent drops the batch, as it
 // does with other refusals it cannot fix, rather than queue it for ever.
+//
+// Every sample line must be in the plain form (textline.go), name its metric only before the braces and
+// give each label once. A probe's or a host's line that is not, or that its token may not write (a
+// heartbeat the catalogue does not give its machine), is dropped and counted, and the rest go on; a
+// heartbeat token's import is refused whole.
 const (
 	maxImportBytes      = 64 << 20
 	maxImportSamples    = 200_000
 	maxHeartbeatBytes   = 64 << 10
 	maxHeartbeatSamples = 100
-	maxImportLine       = 64 << 10 // the buffer lines are read through; longer lines pass in parts
+	maxImportLine       = 64 << 10 // no sample line is longer; a longer one is not a sample
 
-	// heartbeatMetric is the one metric a heartbeat token writes.
+	// heartbeatMetric is the one metric a heartbeat token writes, and the one a probe or a host writes
+	// only for the heartbeats of its machine.
 	heartbeatMetric = "beacon_heartbeat_last_success_timestamp_seconds"
+)
+
+// Why a sample does not pass.
+const (
+	dropSyntax    = "syntax"     // not in the plain form, or longer than any sample
+	dropNameLabel = "name_label" // names its metric with a __name__ label
+	dropLabels    = "labels"     // gives a label twice
+	dropHeartbeat = "heartbeat"  // a heartbeat the catalogue does not give the writer's machine
+	dropMetric    = "metric"     // a heartbeat token's metric other than its heartbeat's
 )
 
 // importError is why an import is refused, with its code; the proxy's error handler answers it as 400.
@@ -34,11 +49,16 @@ type importError struct{ code, msg string }
 
 func (e *importError) Error() string { return e.msg }
 
-// importLimits bound one import: its text, its samples, and the one metric it may carry ("" for any).
+// importLimits bound one import and say which lines pass.
 type importLimits struct {
 	bytes   int64
 	samples int
-	only    string
+	// check says why a well-formed sample may not pass, or "" when it may.
+	check func(textSample) string
+	// refuse, when set, refuses the whole import for a line that does not pass, with the error it makes
+	// of the reason; otherwise the line is dropped and drop, when set, is told why.
+	refuse func(reason string, s textSample, line []byte) *importError
+	drop   func(reason string)
 }
 
 // importBody is the request's text, decompressed, as a reader that fails with an *importError once the
@@ -56,16 +76,16 @@ func importBody(r *http.Request, lim importLimits) (io.Reader, error) {
 	default:
 		return nil, &importError{"bad_input", "send the text format as it is or gzipped, not with Content-Encoding " + strconv.Quote(enc)}
 	}
-	return &samples{src: bufio.NewReaderSize(src, maxImportLine), lim: lim, start: true}, nil
+	return &samples{src: bufio.NewReaderSize(src, maxImportLine), lim: lim}, nil
 }
 
-// samples passes text through line by line, counting what it passes and the samples in it.
+// samples passes text through line by line, counting what it reads and the samples in it.
 type samples struct {
 	src   *bufio.Reader
 	lim   importLimits
 	n     int64
 	count int
-	start bool   // the next byte starts a line
+	skip  bool   // within a line too long to be a sample, dropped
 	buf   []byte // read, not yet passed on
 	err   error
 }
@@ -85,8 +105,11 @@ func (s *samples) Read(p []byte) (int, error) {
 func (s *samples) fill() {
 	chunk, err := s.src.ReadSlice('\n')
 	var tooLarge *http.MaxBytesError
+	long := false
 	switch {
-	case err == nil, errors.Is(err, bufio.ErrBufferFull):
+	case err == nil:
+	case errors.Is(err, bufio.ErrBufferFull):
+		long = true
 	case errors.Is(err, io.EOF):
 		s.err = io.EOF
 	case errors.As(err, &tooLarge):
@@ -101,36 +124,97 @@ func (s *samples) fill() {
 		s.err = &importError{"import.too_large", "an import carries at most " + strconv.FormatInt(s.lim.bytes>>10, 10) + " KiB of text; send less at once"}
 		return
 	}
-	if s.start {
-		if e := s.line(chunk); e != nil {
-			s.err = e
-			return
-		}
+	if s.skip { // the rest of a long line
+		s.skip = long
+		return
 	}
-	s.start = chunk[len(chunk)-1] == '\n'
-	s.buf = chunk
+	if long {
+		s.skip = true
+		if e := s.reject(dropSyntax, textSample{}, chunk); e != nil {
+			s.err = e
+		}
+		return
+	}
+	out, e := s.line(chunk)
+	if e != nil {
+		s.err = e
+		return
+	}
+	s.buf = out
 }
 
-// line checks the start of a line: a comment, a blank line or a sample.
-func (s *samples) line(b []byte) error {
-	b = bytes.TrimLeft(b, " \t")
-	if len(bytes.TrimSpace(b)) == 0 || b[0] == '#' {
-		return nil
+// line is what passes of one line with its line break: a blank line or a comment as it is, a sample that
+// passes up to its end, nothing of one that does not; or the error that refuses the import.
+func (s *samples) line(chunk []byte) ([]byte, *importError) {
+	body := bytes.TrimSuffix(chunk, []byte("\n"))
+	body = bytes.TrimSuffix(body, []byte("\r"))
+	brk := chunk[len(body):]
+	t := bytes.TrimLeft(body, " \t")
+	if len(t) == 0 || t[0] == '#' {
+		return chunk, nil
 	}
 	if s.count++; s.count > s.lim.samples {
-		return &importError{"import.too_large", "an import carries at most " + strconv.Itoa(s.lim.samples) + " samples; send fewer at once"}
+		return nil, &importError{"import.too_large", "an import carries at most " + strconv.Itoa(s.lim.samples) + " samples; send fewer at once"}
 	}
-	if s.lim.only != "" {
-		name := b
-		if i := bytes.IndexAny(b, "{ \t\r\n"); i >= 0 {
-			name = b[:i]
-		}
-		if string(name) != s.lim.only {
-			return &importError{"heartbeat.metric", "a heartbeat token writes only " + s.lim.only + "; this import has " +
-				strconv.Quote(string(name[:min(len(name), 100)]))}
-		}
+	smp, ok := parseSample(t)
+	reason := ""
+	switch {
+	case !ok:
+		reason = dropSyntax
+	case hasLabel(smp, "__name__"):
+		reason = dropNameLabel
+	case smp.duplicate():
+		reason = dropLabels
+	case s.lim.check != nil:
+		reason = s.lim.check(smp)
+	}
+	if reason != "" {
+		return nil, s.reject(reason, smp, t)
+	}
+	if smp.end == len(t) {
+		return chunk[len(chunk)-len(t)-len(brk):], nil
+	}
+	out := make([]byte, 0, smp.end+len(brk)) // the sample without the comment after it
+	return append(append(out, t[:smp.end]...), brk...), nil
+}
+
+// reject drops a line that does not pass, or makes the error that refuses the import for it.
+func (s *samples) reject(reason string, smp textSample, line []byte) *importError {
+	if s.lim.refuse != nil {
+		return s.lim.refuse(reason, smp, line)
+	}
+	if s.lim.drop != nil {
+		s.lim.drop(reason)
 	}
 	return nil
+}
+
+func hasLabel(s textSample, name string) bool {
+	_, ok := s.label(name)
+	return ok
+}
+
+// heartbeatOnly is what a heartbeat token may not write: any metric but its heartbeat's.
+func heartbeatOnly(s textSample) string {
+	if s.name != heartbeatMetric {
+		return dropMetric
+	}
+	return ""
+}
+
+// heartbeatRefusal is why a heartbeat token's import is refused for a line that does not pass.
+func heartbeatRefusal(reason string, s textSample, line []byte) *importError {
+	switch reason {
+	case dropMetric:
+		return &importError{"heartbeat.metric", "a heartbeat token writes only " + heartbeatMetric + "; this import has " +
+			strconv.Quote(s.name[:min(len(s.name), 100)])}
+	case dropNameLabel:
+		return &importError{"heartbeat.metric", "a heartbeat token writes only " + heartbeatMetric + ", named before the braces and not with a __name__ label"}
+	case dropLabels:
+		return &importError{"bad_input", "a sample gives the same label twice"}
+	}
+	return &importError{"bad_input", "a line is not a sample of the Prometheus text format, name{label=\"value\"} value [timestamp]: " +
+		strconv.Quote(string(line[:min(len(line), 100)]))}
 }
 
 // readImport reads all of a small import (a heartbeat's) before anything is sent on, so that a refused
