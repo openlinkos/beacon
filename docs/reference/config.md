@@ -77,7 +77,8 @@ The machines' door ([REST API](api.md#the-gateway)):
 | `gateway.targets_dir` | path | `/etc/beacon/targets` | The probe target files (`all-*.yaml`, `<location>-*.yaml`), imported into the database at the first start and on SIGHUP |
 | `gateway.modules_file` | path | `modules.yml` in `gateway.targets_dir` | The probe modules, imported the same way |
 | `gateway.exercise_target` | HTTPS URL | empty | Collect verified responses from the built-in `/drill/healthz` target at `public_url`, when that exact target is assigned to a location. The centre and probe must both support the observation protocol. `beacon drill status` lists the locations whose deliberate responses were verified |
-| `victoriametrics.url` | URL | required with the gateway | Where the probes' results are: the gateway writes there, and cards show each location's result from it |
+| `victoriametrics.url` | URL | required with the gateway | Where the probes' results are: the gateway writes there, and cards show each location's result from it. No credentials in the URL |
+| `victoriametrics.username`, `victoriametrics.password_file` | text, path | none | The basic auth VictoriaMetrics asks for when it runs with `-httpAuth.username` and `-httpAuth.password`: Beacon sends them with every query and with what the gateway writes and reads there, in place of the caller's token. Both or neither. Give vmalert the same with its `-datasource`, `-remoteWrite` and `-remoteRead` `basicAuth` flags, so that nothing on the host or the compose network reads or changes the metrics without them |
 
 ## The SSH channel
 

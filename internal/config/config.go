@@ -49,6 +49,10 @@ type Config struct {
 	Routing         Routing `yaml:"routing"`
 	VictoriaMetrics struct {
 		URL string `yaml:"url"`
+		// Username and PasswordFile are the basic auth VictoriaMetrics asks for (its -httpAuth.*
+		// flags): Beacon sends them on every query and on what the gateway writes and reads there.
+		Username     string `yaml:"username"`
+		PasswordFile string `yaml:"password_file"`
 	} `yaml:"victoriametrics"`
 	// Gateway is the metrics gateway for machines (remote write, probe targets, heartbeats, reads,
 	// Flux's alerts); see the gateway package. An empty Listen turns it off.
@@ -289,6 +293,7 @@ type Secrets struct {
 	StorageDSN                string // the PostgreSQL connection string
 	S3AccessKeyID             string // recordings in S3-compatible storage
 	S3SecretAccessKey         string
+	VictoriaMetricsPassword   string // basic auth to VictoriaMetrics, with victoriametrics.username
 }
 
 // Duration is a time.Duration written as "10m" in YAML.
@@ -583,6 +588,15 @@ func (c *Config) validate() error {
 			bad("victoriametrics.url is required: the gateway writes there and the bridge reads from it")
 		}
 	}
+	if (c.VictoriaMetrics.Username == "") != (c.VictoriaMetrics.PasswordFile == "") {
+		bad("victoriametrics.username and victoriametrics.password_file go together: VictoriaMetrics' basic auth takes both")
+	}
+	if strings.ContainsAny(c.VictoriaMetrics.Username, ":\r\n") {
+		bad("victoriametrics.username may not contain a colon or a line break")
+	}
+	if u, err := url.Parse(c.VictoriaMetrics.URL); c.VictoriaMetrics.URL != "" && (err != nil || u.User != nil) {
+		bad("victoriametrics.url is an http(s) address without credentials; put them in victoriametrics.username and password_file")
+	}
 	if c.Rules.TokenFile == "" {
 		bad("rules.token_file is required: the rule engine authenticates its alerts with it")
 	}
@@ -732,6 +746,7 @@ func (c *Config) readSecrets() error {
 	s := &c.Secrets
 	read(&s.RulesToken, c.Rules.TokenFile, "rules.token_file")
 	read(&s.StorageDSN, c.Storage.DSNFile, "storage.dsn_file")
+	read(&s.VictoriaMetricsPassword, c.VictoriaMetrics.PasswordFile, "victoriametrics.password_file")
 	if c.SSH.Recordings == "s3" {
 		read(&s.S3AccessKeyID, c.SSH.RecordingsS3.AccessKeyIDFile, "ssh.recordings_s3.access_key_id_file")
 		read(&s.S3SecretAccessKey, c.SSH.RecordingsS3.SecretAccessKeyFile, "ssh.recordings_s3.secret_access_key_file")

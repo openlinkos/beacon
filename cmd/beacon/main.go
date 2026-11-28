@@ -368,12 +368,14 @@ func serve(args []string, stderr io.Writer) int {
 			drillProof = exercise.New(key)
 		}
 	}
+	// VictoriaMetrics' basic auth, when it asks for one, on every query and on what the gateway passes on
+	vmTransport := vm.BasicAuth(http.DefaultTransport, cfg.VictoriaMetrics.Username, sec.VictoriaMetricsPassword)
 	deps := bridge.Deps{
 		Config: cfg, Store: st, AM: rt,
 		Catalog: cdb.Catalog, MonitorMachine: cdb.MonitorMachineForScope, Metrics: m, Log: log, Pages: pages,
 	}
 	if cfg.VictoriaMetrics.URL != "" {
-		deps.VM = vm.New(cfg.VictoriaMetrics.URL, nil)
+		deps.VM = vm.New(cfg.VictoriaMetrics.URL, &http.Client{Timeout: 5 * time.Second, Transport: vmTransport})
 	}
 	if sec.FeishuAppID != "" {
 		deps.Feishu = feishu.New(sec.FeishuAppID, sec.FeishuAppSecret, cfg.Feishu.Domain, log, func() { br.CountFeishuCall() })
@@ -426,7 +428,7 @@ func serve(args []string, stderr io.Writer) int {
 	// the public status pages, from the catalogue's status_pages, the probes, the incidents and maintenance
 	sdeps := status.Deps{Config: cdb, Bridge: br, Store: st, PublicURL: cfg.PublicURL, Location: cfg.Location, Log: log}
 	if cfg.VictoriaMetrics.URL != "" {
-		sdeps.VM = vm.New(cfg.VictoriaMetrics.URL, &http.Client{Timeout: 30 * time.Second}) // a day of minutes per query
+		sdeps.VM = vm.New(cfg.VictoriaMetrics.URL, &http.Client{Timeout: 30 * time.Second, Transport: vmTransport}) // a day of minutes per query
 	}
 	pagesOut := status.New(sdeps)
 	var credentials *secrets.Service
@@ -596,7 +598,7 @@ func serve(args []string, stderr io.Writer) int {
 	if cfg.Gateway.Listen != "" {
 		vmURL, _ := url.Parse(cfg.VictoriaMetrics.URL)
 		gdeps := gateway.Deps{Auth: auth, Catalog: cdb.Catalog, Targets: cdb.Targets,
-			Modules: cdb.Modules, VM: vmURL, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
+			Modules: cdb.Modules, VM: vmURL, VMTransport: vmTransport, Alerts: rt.Ingest, Changes: br.RecordChange, RulesToken: sec.RulesToken,
 			Metrics: m, Log: log, Requests: board, Exercise: drillProof, ExerciseTarget: cfg.Gateway.ExerciseTarget}
 		if lease != nil {
 			gdeps.Leader = lease.Leader

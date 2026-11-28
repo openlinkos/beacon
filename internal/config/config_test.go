@@ -242,3 +242,25 @@ func TestGateway(t *testing.T) {
 		t.Fatalf("gateway: %+v %v", c.Gateway, err)
 	}
 }
+
+// TestVictoriaMetricsCredentials: VictoriaMetrics' basic auth is a username and a password file, both or
+// neither, and never credentials in the URL.
+func TestVictoriaMetricsCredentials(t *testing.T) {
+	d := t.TempDir()
+	am := "rules:\n  token_file: " + secret(t, d, "am", "0123456789abcdef0123456789") + "\n"
+	c, err := Parse([]byte(am + "victoriametrics:\n  url: http://vm:17005\n  username: beacon\n  password_file: " + secret(t, d, "vm", "s3cret") + "\n"))
+	if err != nil || c.VictoriaMetrics.Username != "beacon" || c.Secrets.VictoriaMetricsPassword != "s3cret" {
+		t.Fatalf("credentials: %+v %v", c.VictoriaMetrics, err)
+	}
+	for _, tc := range []struct{ yaml, want string }{
+		{"  url: http://vm:17005\n  username: beacon\n", "go together"},
+		{"  url: http://vm:17005\n  password_file: " + secret(t, d, "vm2", "x") + "\n", "go together"},
+		{"  url: http://beacon:s3cret@vm:17005\n", "without credentials"},
+		{"  url: http://vm:17005\n  username: be:acon\n  password_file: " + secret(t, d, "vm3", "x") + "\n", "colon"},
+		{"  url: http://vm:17005\n  username: beacon\n  password_file: " + filepath.Join(d, "missing") + "\n", "victoriametrics.password_file"},
+	} {
+		if _, err := Parse([]byte(am + "victoriametrics:\n" + tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v, want %q", tc.yaml, err, tc.want)
+		}
+	}
+}

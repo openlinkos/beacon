@@ -96,7 +96,7 @@ func TestHeartbeatTokenWritesItsOwnHeartbeat(t *testing.T) {
 func TestHeartbeatTokenNeedsItsHeartbeat(t *testing.T) {
 	vm := &seen{}
 	u, _ := url.Parse(vm.server(t).URL)
-	g := &gateway{Deps: Deps{Now: time.Now}, vm: proxy(u)}
+	g := &gateway{Deps: Deps{Now: time.Now}, vm: proxy(u, nil)}
 	r := httptest.NewRequest("POST", "/api/v1/import/prometheus", strings.NewReader("beacon_heartbeat_last_success_timestamp_seconds 1\n"))
 	rec := httptest.NewRecorder()
 	g.importText(rec, r, store.Token{Name: "heartbeat-legacy", Scopes: []string{"heartbeat:write"}})

@@ -43,11 +43,14 @@ import (
 // engine sends, accepted for posting alerts besides tokens with the alerts:send scope. Auth checks the
 // tokens; the gateway counts failed attempts on its own (api.Auth.Separate), apart from the API's.
 type Deps struct {
-	Auth           *api.Auth
-	Catalog        func() *catalog.Catalog
-	Targets        func() *targets.Set
-	Modules        func() []byte // the probe module file, handed to probes as is
-	VM             *url.URL
+	Auth    *api.Auth
+	Catalog func() *catalog.Catalog
+	Targets func() *targets.Set
+	Modules func() []byte // the probe module file, handed to probes as is
+	VM      *url.URL
+	// VMTransport carries what the gateway sends to VM, such as VictoriaMetrics' basic auth
+	// (vm.BasicAuth); nil is http.DefaultTransport.
+	VMTransport    http.RoundTripper
 	Alerts         func(sender string, in []router.Postable) error
 	Changes        ChangeSink // takes change events (changes.go); nil refuses them
 	RulesToken     string
@@ -97,7 +100,7 @@ func Handler(d Deps) http.Handler {
 	}
 	g := &gateway{Deps: d, lastWrite: map[string]time.Time{}}
 	g.rulesHash = sha256.Sum256([]byte(d.RulesToken))
-	g.vm = proxy(d.VM)
+	g.vm = proxy(d.VM, d.VMTransport)
 	if d.Metrics != nil {
 		d.Metrics.Register("beacon_gateway_last_write_timestamp_seconds", "When a probe location or host last wrote through the gateway", "gauge", g.lastWrites)
 	}
@@ -126,8 +129,9 @@ func Handler(d Deps) http.Handler {
 
 // proxy forwards to base, keeping the path and the query that the handler set, and never the token. The
 // path is the handler's alone: not the request's own spelling of it (RawPath).
-func proxy(base *url.URL) *httputil.ReverseProxy {
+func proxy(base *url.URL, transport http.RoundTripper) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
+		Transport: transport,
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme, r.Out.URL.Host = base.Scheme, base.Host
 			r.Out.URL.Path = strings.TrimSuffix(base.Path, "/") + r.In.URL.Path

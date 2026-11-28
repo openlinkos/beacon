@@ -4,6 +4,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Send VictoriaMetrics basic auth when it asks for it: `victoriametrics.username` and `victoriametrics.password_file`, on every query and on what the gateway writes and reads there. A `victoriametrics.url` with credentials in it is refused; put them in those two settings.
 - Bind each SSH connection to the machine as it was when it opened. Removing a machine, enrolling it again or changing its account, address or host key closes what is open on it, and a multiplexed connection opens no new session on the changed machine.
 - Check the pause switch, the credential and the machine again before every new SSH session and tool call, before an edit writes, and in the check every minute. A tool call closed this way reports why rather than a timeout.
 - Close every SSH session and tool call on an instance when it loses the HA lease.

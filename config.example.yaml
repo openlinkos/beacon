@@ -87,6 +87,10 @@ routing:
 # Where the probes' results are: the gateway writes there, cards show each location's result.
 victoriametrics:
   url: http://victoriametrics:8428
+  # When VictoriaMetrics runs with -httpAuth.username and -httpAuth.password (recommended: nothing else on
+  # the host or the network then reads or changes the metrics), the same credentials:
+  # username: beacon
+  # password_file: /etc/beacon/secrets/victoriametrics-password
 
 # The gateway for machines: probes and hosts write here with tokens from 'beacon enroll' and fetch
 # what to check, job hosts push heartbeats, the rule engine and Flux post alerts. The gateway labels

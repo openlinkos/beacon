@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-46340136
+sourceHash: sha256-9c8b10e7
 ---
 
 # config.yaml
@@ -81,7 +81,8 @@ sourceHash: sha256-46340136
 | `gateway.targets_dir` | 路径 | `/etc/beacon/targets` | 检测目标文件（`all-*.yaml`、`<location>-*.yaml`），首次启动和 SIGHUP 时导入数据库 |
 | `gateway.modules_file` | 路径 | `gateway.targets_dir` 下的 `modules.yml` | 检测模块，同样导入 |
 | `gateway.exercise_target` | HTTPS URL | 空 | 当检测点被分配了 `public_url` 上的内置 `/drill/healthz` 目标时，收集经过验证的演练响应。中心和检测点都需要支持此协议。`beacon drill status` 列出已核实收到主动故障响应的检测点 |
-| `victoriametrics.url` | URL | 开网关即必填 | 检测结果所在处：网关写入，卡片从这里取每个检测点的结果 |
+| `victoriametrics.url` | URL | 开网关即必填 | 检测结果所在处：网关写入，卡片从这里取每个检测点的结果。URL 里不放凭据 |
+| `victoriametrics.username`、`victoriametrics.password_file` | 文本、路径 | 无 | VictoriaMetrics 以 `-httpAuth.username`、`-httpAuth.password` 运行时要的 basic auth：Beacon 每次查询、网关每次往那里写和读都带上它，替换调用者的令牌。两项一起给或都不给。vmalert 的 `-datasource`、`-remoteWrite`、`-remoteRead` 的 `basicAuth` 参数给同一组，这样本机和 compose 网络里的进程没有它就读不了、改不了指标 |
 
 ## SSH 通道 {#the-ssh-channel}
 
