@@ -129,7 +129,10 @@ func (g *Gate) mayRegister(who Actor, in MachineInput, old store.Machine, exists
 // it dials; a key of another kind may be one no other record shows, of a machine recorded already.
 func (g *Gate) mayGiveHostKey(who Actor, key string) error {
 	k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
-	if err != nil || k.Type() == ssh.KeyAlgoED25519 || cli(who) {
+	if err != nil {
+		return fmt.Errorf("%w: host_key: %w", ErrBadInput, err)
+	}
+	if k.Type() == ssh.KeyAlgoED25519 || cli(who) {
 		return nil
 	}
 	if p, ok := g.principal(who); ok && p.Person() {
