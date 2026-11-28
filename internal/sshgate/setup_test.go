@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -11,8 +12,8 @@ import (
 // TestSetupTrustsTheCAForOneAccount: the machine setup Beacon prints trusts its certificate authority for
 // the machine's account alone, never for every account (root included).
 func TestSetupTrustsTheCAForOneAccount(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("no sh")
+	if _, err := exec.LookPath("sh"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("the setup lines are for a Unix shell") // and a Windows path in them reads as escapes there
 	}
 	conf := filepath.Join(t.TempDir(), "beacon.conf")
 	run := func(script string) string {
