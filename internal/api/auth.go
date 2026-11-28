@@ -28,9 +28,8 @@ import (
 // A username is locked after maxUserFails wrong passwords in failWindow, from anywhere. While it is, an
 // address that has itself got that username wrong maxUserAddrFails times is refused for it; an address
 // that has not, such as the person's own, may still sign in, and each wrong password from it counts.
-// Once it is locked, the username is also slowed down as a whole (backoff), so that guessing it from
-// many addresses gets no faster than from one; an address the person signed in from within goodFor is
-// not slowed down.
+// Wrong passwords from one address never hold another back for the username, so that someone guessing it
+// cannot keep the person out.
 type Auth struct {
 	Store *store.Store
 	IP    *clientip.Resolver
@@ -40,18 +39,7 @@ type Auth struct {
 	fails         windows[netip.Prefix]
 	userFails     windows[string]
 	userAddrFails windows[userAddr]
-	userBackoff   map[string]*backoff
-	good          seen[goodKey]  // secrets accepted from an address
-	userGood      seen[userAddr] // usernames signed in to from an address
-}
-
-// backoff slows down sign-ins to one username, from every address but those the person signed in from:
-// once the username is locked, each wrong password for it makes the next attempt wait longer, from
-// userBackoffStart doubling up to userBackoffMax. It ends failWindow after the last wrong password.
-type backoff struct {
-	n     int       // wrong passwords since it began
-	last  time.Time // the last of them
-	until time.Time // no attempt before this
+	good          seen[goodKey] // secrets accepted from an address
 }
 
 type window struct {
@@ -68,12 +56,8 @@ const (
 	// maxUserAddrFails is how many wrong passwords for a locked username one address may have made in
 	// failWindow before it is refused for that username.
 	maxUserAddrFails = 3
-	// goodFor is how long a secret accepted from an address still passes that address's lockout, and
-	// how long a person's sign-in from an address spares it the username's backoff.
+	// goodFor is how long a secret accepted from an address still passes that address's lockout.
 	goodFor = 7 * 24 * time.Hour
-	// userBackoffStart is the first wait of a locked username's backoff, and userBackoffMax the longest.
-	userBackoffStart = time.Second
-	userBackoffMax   = time.Minute
 	// maxEntries bounds each table the lockouts keep. When one is full, an entry whose window has ended
 	// makes room, else the oldest that has not locked anything out, and only then the oldest: so a
 	// flood of new addresses or names cannot wipe out the counts that are locking others.
@@ -373,77 +357,12 @@ func (a *Auth) Authenticate(r *http.Request, secret string) (store.Principal, bo
 }
 
 // UserBlockedFor is BlockedFor for one username's wrong passwords, as they apply to the request's
-// client: a locked username stays open to an address that has not got it wrong itself, once its
-// backoff allows the next attempt (at once from an address the person signed in from).
+// client: a locked username stays open to an address that has not got it wrong itself.
 func (a *Auth) UserBlockedFor(r *http.Request, username string) (time.Duration, bool) {
 	addr := addrKey(a.client(r))
-	username = normalUser(username)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	wait, locked := a.userLocked(username, addr)
-	if slow, slowed := a.slowed(username, addr, a.now()); slowed && slow > wait {
-		wait, locked = slow, true
-	}
-	return wait, locked
-}
-
-// slowed is how long the username's backoff keeps addr waiting, if it does. The caller holds mu.
-func (a *Auth) slowed(username string, addr netip.Prefix, now time.Time) (time.Duration, bool) {
-	b := a.userBackoff[username]
-	if b == nil || !now.Before(b.until) || a.userGood.recent(userAddr{user: username, addr: addr}, now) {
-		return 0, false
-	}
-	return b.until.Sub(now), true
-}
-
-// active is the username's backoff while it lasts. The caller holds mu.
-func (a *Auth) active(username string, now time.Time) *backoff {
-	b := a.userBackoff[username]
-	if b == nil || now.Sub(b.last) >= failWindow {
-		return nil
-	}
-	return b
-}
-
-// backoffDelay is the wait after the nth wrong password of a backoff.
-func backoffDelay(n int) time.Duration {
-	d := userBackoffStart
-	for i := 1; i < n && d < userBackoffMax; i++ {
-		d *= 2
-	}
-	return min(d, userBackoffMax)
-}
-
-// slowDown counts a wrong password for username in its backoff, which begins once the username is
-// locked. The caller holds mu.
-func (a *Auth) slowDown(username string, now time.Time) {
-	b := a.active(username, now)
-	if b == nil {
-		if _, locked := a.left(a.userFails.get(username), maxUserFails); !locked {
-			return
-		}
-		if a.userBackoff == nil {
-			a.userBackoff = map[string]*backoff{}
-		}
-		if len(a.userBackoff) >= maxEntries { // those that have ended go first, then the one idle longest
-			var idle string
-			var at time.Time
-			for u, x := range a.userBackoff {
-				if now.Sub(x.last) >= failWindow {
-					delete(a.userBackoff, u)
-				} else if idle == "" || x.last.Before(at) {
-					idle, at = u, x.last
-				}
-			}
-			if len(a.userBackoff) >= maxEntries {
-				delete(a.userBackoff, idle)
-			}
-		}
-		b = &backoff{}
-		a.userBackoff[username] = b
-	}
-	b.n++
-	b.last, b.until = now, now.Add(backoffDelay(b.n))
+	return a.userLocked(normalUser(username), addr)
 }
 
 // userLocked is how long username stays refused to addr. The caller holds mu.
@@ -469,41 +388,26 @@ func normalUser(username string) string {
 
 // SignIn checks a person's username and password, limited per address and per username:
 // ErrBlocked after too many failures, store.ErrBadCredentials for a wrong username or password.
-//
-// While the username's backoff lasts, an attempt from an address the person has not signed in from
-// takes its turn before the password is checked: the next such attempt waits as long again, so that
-// attempts sent at once do not all pass together.
 func (a *Auth) SignIn(r *http.Request, username, password string) (store.Account, error) {
 	username = normalUser(username)
 	addr := addrKey(a.client(r))
 	a.mu.Lock()
-	now := a.now()
 	_, blocked := a.left(a.fails.get(addr), maxFails)
 	if !blocked {
 		_, blocked = a.userLocked(username, addr)
-	}
-	if !blocked {
-		_, blocked = a.slowed(username, addr, now)
-	}
-	if b := a.active(username, now); !blocked && b != nil && !a.userGood.recent(userAddr{user: username, addr: addr}, now) {
-		b.until = now.Add(backoffDelay(b.n))
 	}
 	a.mu.Unlock()
 	if blocked {
 		return store.Account{}, ErrBlocked
 	}
 	acc, err := a.Store.SignIn(username, password)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	now = a.now()
-	switch {
-	case err == nil:
-		a.userGood.note(userAddr{user: username, addr: addr}, now)
-	case errors.Is(err, store.ErrBadCredentials):
+	if errors.Is(err, store.ErrBadCredentials) {
+		a.mu.Lock()
+		now := a.now()
 		a.fails.count(addr, now, maxFails)
 		a.userFails.count(username, now, maxUserFails)
 		a.userAddrFails.count(userAddr{user: username, addr: addr}, now, maxUserAddrFails)
-		a.slowDown(username, now)
+		a.mu.Unlock()
 	}
 	return acc, err
 }
