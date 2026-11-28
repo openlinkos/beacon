@@ -76,7 +76,7 @@ vmalert -notifier.url=http://beacon:17006 -notifier.bearerTokenFile=/etc/vmalert
 
 人在告警群的卡片上操作：带备注认领，或静默 1、4 或 24 小时。只有 `feishu.on_call` 里列出的人能操作。
 
-飞书经服务保持的长连接（`feishu.callback: websocket`）把卡片回调交给 Beacon。或者用 17001 端口的 `POST /hooks/feishu`（`feishu.callback: http`），并用应用的令牌校验。应用那一侧怎么配，见[配置飞书应用](../integrations/feishu.md)。
+飞书经服务保持的长连接（`feishu.callback: websocket`）把卡片回调交给 Beacon。或者用 17001 端口的 `POST /hooks/feishu`（`feishu.callback: http`），用应用的 Encrypt Key 加密并签名，每个回调只接受一次，且要在时间戳的 5 分钟以内。应用那一侧怎么配，见[配置飞书应用](../integrations/feishu.md)。
 
 在 Pushover 里确认的紧急通知，在 Beacon 里也算认领：Beacon 会跟踪这条通知的回执。
 

@@ -3,15 +3,51 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
+	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
+
 	"github.com/openlinkos/beacon/internal/feishu"
 )
+
+// sealedCallback is body as Feishu posts it with encryption on: encrypted with key and signed now.
+func sealedCallback(t *testing.T, body []byte, key string) *http.Request {
+	t.Helper()
+	k := sha256.Sum256([]byte(key))
+	block, err := aes.NewCipher(k[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for len(body)%aes.BlockSize != 0 {
+		body = append(body, ' ')
+	}
+	out := make([]byte, aes.BlockSize+len(body))
+	if _, err := rand.Read(out[:aes.BlockSize]); err != nil {
+		t.Fatal(err)
+	}
+	cipher.NewCBCEncrypter(block, out[:aes.BlockSize]).CryptBlocks(out[aes.BlockSize:], body)
+	sealed, _ := json.Marshal(map[string]string{"encrypt": base64.StdEncoding.EncodeToString(out)})
+	nonce := make([]byte, 8)
+	_, _ = rand.Read(nonce)
+	stamp, n := strconv.FormatInt(time.Now().Unix(), 10), base64.RawURLEncoding.EncodeToString(nonce)
+	req := httptest.NewRequest(http.MethodPost, "/feishu/callback", bytes.NewReader(sealed))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(larkevent.EventRequestTimestamp, stamp)
+	req.Header.Set(larkevent.EventRequestNonce, n)
+	req.Header.Set(larkevent.EventSignature, larkevent.Signature(stamp, n, key, string(sealed)))
+	return req
+}
 
 func cardActionValue(t *testing.T, card feishu.Card, name string) map[string]any {
 	t.Helper()
@@ -61,10 +97,9 @@ func feishuCardCallback(t *testing.T, b *Bridge, messageID string, value map[str
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/feishu/callback", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	const key = "fixture-encrypt-key"
 	w := httptest.NewRecorder()
-	feishu.HTTPHandler(token, "", b.HandleAction).ServeHTTP(w, req)
+	feishu.HTTPHandler(token, key, b.HandleAction).ServeHTTP(w, sealedCallback(t, body, key))
 	var out struct {
 		Toast struct{ Type, Content string }
 		Card  any

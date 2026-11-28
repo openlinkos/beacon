@@ -148,7 +148,7 @@ feishu:
   domain: feishu                            # feishu (open.feishu.cn) or lark (open.larksuite.com)
   callback: websocket                       # websocket: Feishu's long connection; http: POST /hooks/feishu
   # verification_token_file: …              # http callbacks only
-  # encrypt_key_file: …                     # http callbacks, when encryption is on
+  # encrypt_key_file: …                     # http callbacks only; they must be encrypted
   chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   on_call:                                  # only they may act on cards; they are buzzed on escalation
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}

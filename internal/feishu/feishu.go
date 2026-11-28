@@ -179,9 +179,21 @@ func dispatch(verificationToken, encryptKey string, h Handler) *dispatcher.Event
 		})
 }
 
-// HTTPHandler serves card callbacks that Feishu posts to a public URL (callback mode "http").
+// HTTPHandler serves card callbacks that Feishu posts to a public URL (callback mode "http"). They
+// must be encrypted and signed with the encrypt key, and fresh (see fresh); without a key, every
+// callback is refused.
 func HTTPHandler(verificationToken, encryptKey string, h Handler) http.HandlerFunc {
-	return httpserverext.NewEventHandlerFunc(dispatch(verificationToken, encryptKey, h), larkevent.WithLogLevel(larkcore.LogLevelWarn))
+	return httpHandler(verificationToken, encryptKey, h, time.Now)
+}
+
+func httpHandler(verificationToken, encryptKey string, h Handler, now func() time.Time) http.HandlerFunc {
+	if encryptKey == "" {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "Feishu HTTP callbacks need feishu.encrypt_key_file", http.StatusServiceUnavailable)
+		}
+	}
+	sdk := httpserverext.NewEventHandlerFunc(dispatch(verificationToken, encryptKey, h), larkevent.WithLogLevel(larkcore.LogLevelWarn))
+	return (&fresh{now: now, seen: map[string]time.Time{}}).wrap(sdk)
 }
 
 // Listener keeps the long connection over which Feishu delivers card callbacks (callback mode

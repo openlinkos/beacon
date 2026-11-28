@@ -147,7 +147,8 @@ func TestParseErrors(t *testing.T) {
 		"bad duration": "rules: {token_file: " + tok + "}\nack_ttl: soon\n",
 		"bad severity": "rules: {token_file: " + tok + "}\n" +
 			"feishu: {webhook_url_file: " + tok + "}\nescalation: {page: {channel: webhook}}\n",
-		"http callback without token": "rules: {token_file: " + tok + "}\nfeishu: {callback: http}\n",
+		"http callback without token":      "rules: {token_file: " + tok + "}\nfeishu: {callback: http}\n",
+		"http callback without encryption": "rules: {token_file: " + tok + "}\nfeishu: {callback: http, verification_token_file: " + tok + "}\n",
 	}
 	for name, y := range cases {
 		if _, err := Parse([]byte(y)); err == nil {

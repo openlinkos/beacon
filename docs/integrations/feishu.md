@@ -7,7 +7,7 @@ feishu:
   app_id_file: /etc/beacon/secrets/feishu-app-id
   app_secret_file: /etc/beacon/secrets/feishu-app-secret
   domain: feishu                       # or lark
-  callback: websocket                  # or http, with verification_token_file (and encrypt_key_file)
+  callback: websocket                  # or http, with verification_token_file and encrypt_key_file
   chat_id: oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   on_call:                             # only they may act on cards; they are buzzed
     - {open_id: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx, name: Alex}   # the name is shown on cards
@@ -72,7 +72,7 @@ Put the app ID and app secret in the two files named by `app_id_file` and `app_s
 Choose the callback mode in Beacon’s configuration before loading it:
 
 - **Long connection (recommended).** Use `callback: websocket`. Allow outbound access to the Feishu or Lark platform.
-- **HTTP.** Use `callback: http`. Write the app’s **Verification Token** to the file named by `verification_token_file`. If the app encrypts callbacks, write its **Encrypt Key** to the file named by `encrypt_key_file`. Set the corresponding file paths under `feishu:`. Feishu must be able to reach Beacon at `https://status.example.com/hooks/feishu` using your public host name.
+- **HTTP.** Use `callback: http`. Turn on encryption for the app’s callbacks. Write the app’s **Verification Token** to the file named by `verification_token_file` and its **Encrypt Key** to the file named by `encrypt_key_file`; `beacon check-config` refuses HTTP callbacks without the key. Set the corresponding file paths under `feishu:`. Beacon takes a callback only once, and only when its signed timestamp is within 5 minutes of the centre's clock, so keep the clock synchronised. Feishu must be able to reach Beacon at `https://status.example.com/hooks/feishu` using your public host name.
 
 In the reference deployment, apply the change as follows. `install.sh` sets the secret files to owner 65532 and mode 0400, validates the configuration, and restarts Beacon when its configuration or secrets have changed.
 

@@ -10,6 +10,7 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 - Check the rule engine's token under the gateway's lockout, count wrong guesses at it, and compare it in constant time.
 - On a standby of a primary/standby pair, read each token from the database before accepting it, so a revocation on the primary takes effect at once.
 - Keep notifying people after an agent's silence, as after an agent's acknowledgement. An agent's silence is recorded and shown, but it mutes no alert and does not cancel a Pushover emergency. A person's silence still pauses escalation.
+- Require `feishu.encrypt_key_file` for HTTP card callbacks, and take each signed callback once and only within 5 minutes of its timestamp. **Operators using `callback: http`**: turn on encryption for the app's callbacks and set the key before upgrading; `beacon check-config` refuses the configuration without it. The long connection is unchanged.
 
 ## 0.3.0
 

@@ -130,7 +130,7 @@ The self-built app (cards, button callbacks, buzz) and the group's custom bot ([
 | `feishu.domain` | `feishu` or `lark` | `feishu` | open.feishu.cn or open.larksuite.com |
 | `feishu.callback` | `websocket` or `http` | `websocket` | How the app's button callbacks arrive: Feishu's long connection, or POSTs to `/hooks/feishu` |
 | `feishu.verification_token_file` | path | — | The verification token, `http` callbacks only |
-| `feishu.encrypt_key_file` | path | — | The encrypt key, `http` callbacks with encryption on |
+| `feishu.encrypt_key_file` | path | — | The encrypt key; required for `http` callbacks, which must be encrypted |
 | `feishu.chat_id` | string | required with the app | The group the alert cards go to |
 | `feishu.on_call` | list | required with the app | The only people who may act on cards, and the ones buzzed on escalation |
 | `feishu.on_call.open_id` | string | — | A person's `ou_…` id |

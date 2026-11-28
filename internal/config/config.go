@@ -631,6 +631,9 @@ func (c *Config) validate() error {
 		if f.VerificationTokenFile == "" {
 			bad("feishu.callback http needs feishu.verification_token_file")
 		}
+		if f.EncryptKeyFile == "" { // only encrypted callbacks are signed
+			bad("feishu.callback http needs feishu.encrypt_key_file: turn on encryption for the app's callbacks and write its Encrypt Key there")
+		}
 	default:
 		bad("feishu.callback must be websocket or http, not %q", f.Callback)
 	}
