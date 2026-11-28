@@ -49,7 +49,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | Scope | 谁持有 | 允许什么 |
 | --- | --- | --- |
 | `status:read` | 每个角色、每个预设 | 读：告警、证据与时间线、变更、静默、审计、机器与会话、配置、状态页 |
-| `sessions:read` | 每个角色、每个预设 | 会话的记录文本与录像 |
+| `sessions:read` | 每个角色、每个预设 | 凭据能看到的会话的命令、记录文本与录像。`machines:ssh` 也能看到同样的内容，所以对已有 `machines:ssh` 的凭据，`sessions:read` 没有额外作用。两者都只限于凭据能到的机器 |
 | `alerts:write` | oncall 及以上 | 认领、静默、备注、按需检测 |
 | `machines:ssh` | oncall 及以上 | SSH 通道和它的工具，限凭据可达的机器 |
 | `maintenance:write` | operator 及以上 | 安排和结束维护窗口 |

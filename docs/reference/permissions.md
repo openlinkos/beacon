@@ -45,7 +45,7 @@ People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine
 | Scope | Who holds it | What it allows |
 | --- | --- | --- |
 | `status:read` | every role, every preset | Reading: alerts, evidence and timeline, changes, silences, audit, machines and sessions, configuration, status pages |
-| `sessions:read` | every role, every preset | Sessions' transcripts and recordings |
+| `sessions:read` | every role, every preset | Sessions' commands, transcripts and recordings, for the sessions the credential may see. `machines:ssh` shows the same, so `sessions:read` adds nothing to a credential that has `machines:ssh`. Both are held to the machines the credential reaches |
 | `alerts:write` | oncall and above | Acknowledging, silencing, notes, probing on demand |
 | `machines:ssh` | oncall and above | The SSH channel and its tools, on the machines the credential reaches |
 | `maintenance:write` | operator and above | Planning and ending maintenance windows |
