@@ -154,10 +154,10 @@ Agent 的 ssh 失败，或者 `run_command` 之类的工具返回错误。通道
 | `Permission denied (publickey)` | ssh 出示的密钥不属于任何此刻能用通道的 Agent 或令牌：从没登记过、Agent 没有还能用的凭据、它的预设不给 `machines:ssh`，或者它的所有者已停用 | 让 Agent 用 `add_ssh_key` 登记，或者在 Agent 页面上加上（**添加 SSH 密钥**）；再在 Agent 页面上确认它有能用的凭据，以及它的预设 |
 | `beacon: this agent may not reach the machine: the agent lacks the machines:ssh scope`（`machine.forbidden`） | Agent 的预设或所有者的角色不给 `machines:ssh` | 在 Agent 页面上把预设改为**值班**或**运维**（不能超出所有者的角色）；独立令牌则新建一个带这个作用域的 |
 | `beacon: no such machine called "edge-3"; machines this agent reaches: edge-1, edge-2`（`machine.not_found`） | 用户名不是任何一台机器的名字 | 看 `beacon machine list`；ssh 的用户名就是机器名 |
-| `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`（`machine.forbidden`） | Agent，或者它所用的 OAuth 登录，只限其他机器 | 在 Agent 页面上加上这台机器；OAuth 登录则从客户端重新登录并勾选它；独立令牌用 `beacon token machines NAME edge-1,edge-2`，或者 `all` |
+| `beacon: this agent may not reach the machine edge-2; machines this agent reaches: edge-1`（`machine.forbidden`） | Agent，或者它所用的 OAuth 登录，只限其他机器 | 在 Agent 页面上加上这台机器；OAuth 登录则从客户端重新登录并勾选它；独立令牌用 `beacon token machines NAME edge-1,edge-2`，或者 `all`。关键机器只有点名才能到，只有 owner 或主机上的 `beacon` 能点名（`beacon agent machines NAME all,edge-2`） |
 | `beacon: agents' access to machines is paused since …`（`ssh.paused`） | 有人暂停了通道 | 和暂停它的人确认后，执行 `beacon ssh resume` |
 | `beacon: the machine cannot be reached: edge-1: dial tcp …`（`machine.unreachable`） | Beacon 连不上机器的 SSH 端口 | 机器宕了，或者它的防火墙不让中心连进来 |
-| `… ssh: handshake failed: ssh: unable to authenticate …`（`machine.unreachable`） | 机器的 sshd 不接受 Beacon 的证书 | 执行 `machine add` 打印的那几行：`/etc/ssh/beacon_ca.pub`、`TrustedUserCAKeys`、`beacon` 账户、`systemctl reload ssh` |
+| `… ssh: handshake failed: ssh: unable to authenticate …`（`machine.unreachable`） | 机器的 sshd 不接受 Beacon 的证书 | 执行 `machine add` 打印的那几行：`/etc/ssh/beacon_ca.pub`、为机器账户写 `TrustedUserCAKeys` 的 `Match User` 段、`beacon` 账户、`systemctl reload ssh`。在 Beacon 里改过账户的机器，要为新账户写 `Match User` 那一行 |
 | `… ssh: handshake failed: ssh: host key mismatch`（`machine.unreachable`） | 机器的主机密钥和 Beacon 固定的不一样，比如重装过系统 | 先弄清楚为什么变了，再执行 `beacon machine add NAME HOST -replace` |
 | `beacon: the machine's connector is not connected; …`（`machine.disconnected`） | NAT 后面的机器没有连到通道上 | 在机器上看 `systemctl status beacon-connector`；`beacon machine list` 会显示 `disconnected` |
 | `beacon: the SSH channel is not configured`（`ssh.disabled`） | 没有设置 `ssh.ca_key_file` | 见[打开通道](../guide/machines.md#turn-it-on) |

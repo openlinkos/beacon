@@ -154,7 +154,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | `edit_file` | `machines:ssh` | 替换文本文件里一段完全一致的文本（`machine`、`path`、`old_string`、`new_string`、`replace_all`）。没设 `replace_all` 时，`old_string` 必须只出现一次；期间文件变过则拒绝，不会覆盖 |
 | `list_sessions` | `status:read` 或 `machines:ssh` | 通过 SSH 通道和工具产生的会话，新的在前（`machine`、`agent`、`limit`，默认 50）。Beacon 先按凭据的机器范围筛选，再应用条数限制。仅有 `status:read` 权限时返回会话元数据 |
 | `get_session` | `sessions:read` 或 `machines:ssh` | 查询可见会话（`id`），包括已保留的命令输出、可用的交互命令与退出状态或会话元数据。`page` 字段指向控制台登录入口 |
-| `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么 |
+| `add_machine` | `machines:write` | 添加一台机器并固定它的主机密钥（`name`、`address`、`user`、`critical`、`note`、`replace`）；NAT 后面的机器用 `address: connector`，带上 `connector_key`，可选 `host_key`。结果说明机器上需要做什么。这一个和其他修改机器的工具都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（[修改机器](permissions.md#changing-machines)） |
 | `update_machine` | `machines:write` | 修改机器的备注、是否关键和账户（`name`，以及可选的 `note`、`critical`、`user`）。不填的字段保持原样。可选的 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `machine_history` | `status:read` 或 `machines:ssh` | 读取 `name` 的设置历史。用 `before`（不含该版本）和 `limit` 翻页 |
 | `restore_machine` | `machines:write` | 恢复 `name` 的早期设置 `version`，并提供当前 `if_version`。将账户、关键机器标记和备注复制到新版本 |
@@ -219,8 +219,8 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
 | `list_agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、生效作用域与主机范围（管理员可按 `owner` 筛选） |
 | `get_agent` | 成员本人或管理员（禁止 Agent 调用） | 按 `name` 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
-| `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
-| `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器（`name`，以及可选的 `preset`、`scopes`、`machines`）。不填的字段保持原样。自定义 scope 的规则与 `create_agent` 相同。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许 |
+| `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machine_access`、`machines`、`expires`）。`machine_access` 是 `all` 或 `named`；它和 `machines` 都不给时 Agent 一台机器也到不了。只有人能给出 `all`，只有 owner 能点名关键机器。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |
+| `update_agent` | 任何凭据；由 bridge 决定 | 修改 Agent 的预设、自定义 scope 或机器访问（`name`，以及可选的 `preset`、`scopes`、`machine_access`、`machines`）。不填的字段保持原样；空的 `machines` 列表表示一台也不点名。自定义 scope 的规则与 `create_agent` 相同。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许 |
 | `add_ssh_key` | `machines:ssh` | 为 SSH 通道登记你自己的公钥（`key`，一行 `authorized_keys`；`comment`），这样你自己的 ssh、scp、sftp 和 rsync 就能到达你可访问的机器；之后 `list_machines` 会给出 `ssh_config` 片段。密钥属于你调用时所用的凭据（`via`）：那个令牌或 OAuth 登录有效时它才有效，随它一起移除。你所代表的人能看到，也会回显到告警群 |
 | `list_ssh_keys` | `machines:ssh` | 你的 SSH 密钥 |
 | `remove_ssh_key` | `machines:ssh` | 移除你的一个密钥（`fingerprint`）；凭它登录的连接会被关闭 |
@@ -244,7 +244,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `whoami` | 不限 | 你在 Beacon 眼里是谁：审计日志给你的名字（`alice / claude-code`）、你代表的人、你的预设以及它在那个人的角色范围内现在给你的作用域、你能到达的机器、你的 SSH 密钥，还有你的凭据：令牌（到期时间、有效期长度、能否续期以及何时可以续期），或者由客户端自己刷新的 OAuth 登录 |
 | `renew_token` | 不限 | 一个新的密钥，有效期从现在起重新算，名字、作用域、机器和 SSH 密钥都不变。只显示一次；旧密钥还能用十分钟。每天最多一次，登记的机器的令牌不能续期，OAuth 登录也不能，它由客户端刷新 |
-| `revoke_token` | `machines:write` | 吊销一个能上机器的令牌，或任何 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝。只针对一个 Agent 的暂停开关；机器和服务的令牌只能在中心上吊销 |
+| `revoke_token` | `machines:write` | 删除一个能上机器的令牌，或 Agent 的令牌：它在机器上打开着的一切立即关闭，之后的请求一律拒绝；Agent 保留它的其他凭据。需要能访问全部机器；独立令牌只能在调用者的 scope 和机器范围内删除，Agent 的令牌只能由这个 Agent 或人删除（[删除令牌](permissions.md#deleting-tokens)）。机器和服务的令牌只能在中心上吊销 |
 
 `whoami` 的 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。
 

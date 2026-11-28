@@ -59,7 +59,7 @@ The CA's private key lets whoever holds it into every machine that trusts it. Ke
 
    ```
    added edge-1 at edge-1.example.net as beacon; its host key is ssh-ed25519 AAAA…
-   On the machine, as root, if not done yet:
+   On the machine, as root, if not done yet (Beacon's certificates are trusted for beacon alone):
      echo 'ssh-ed25519 AAAA… beacon-ca' > /etc/ssh/beacon_ca.pub
      ...
    ```
@@ -68,10 +68,12 @@ The CA's private key lets whoever holds it into every machine that trusts it. Ke
 
    ```bash
    echo 'ssh-ed25519 AAAA… beacon-ca' > /etc/ssh/beacon_ca.pub   # the line machine add printed; beacon machine ca prints it again
-   echo 'TrustedUserCAKeys /etc/ssh/beacon_ca.pub' > /etc/ssh/sshd_config.d/beacon.conf
+   printf 'Match User beacon\n  TrustedUserCAKeys /etc/ssh/beacon_ca.pub\nMatch all\n' > /etc/ssh/sshd_config.d/beacon.conf
    id beacon >/dev/null 2>&1 || useradd -m -s /bin/bash -p '*' beacon   # the account Beacon's certificates name
    systemctl reload ssh
    ```
+
+   The `Match User` block trusts Beacon's certificate authority for that one account. Certificates for any other account, `root` included, are refused by the machine itself, whatever Beacon signs. A machine added with `-user` names that account here instead; after the account is changed in Beacon, run this line again with the new one.
 
 3. **Give the account only the rights its work needs.** What the account may do is the real boundary. For example, in `/etc/sudoers.d/beacon`:
 
@@ -81,17 +83,17 @@ The CA's private key lets whoever holds it into every machine that trusts it. Ke
 
 Check that `sshd_config` includes `/etc/ssh/sshd_config.d/*.conf`. Run `sshd -t` before reloading. The service is `ssh` on Debian and Ubuntu and `sshd` on distributions such as RHEL.
 
-If the machine's OpenSSH supports `PerSourcePenaltyExemptList` (introduced in 9.8), add `PerSourcePenaltyExemptList 203.0.113.7` to `beacon.conf`, using the centre's source address. All connections from Beacon arrive from that address. Validate and reload sshd after the change.
+If the machine's OpenSSH supports `PerSourcePenaltyExemptList` (introduced in 9.8), add `PerSourcePenaltyExemptList 203.0.113.7` at the top of `beacon.conf`, before the `Match` line, using the centre's source address. All connections from Beacon arrive from that address. Validate and reload sshd after the change.
 
 Other options and commands:
 
-- `-user` names another account than `beacon`.
-- `-critical` marks the machine as critical for whoever works on it.
+- `-user` names another account than `beacon`. Only a person or `beacon` on the host changes it later, and `root` only `beacon` on the host.
+- `-critical` marks the machine as critical. A credential with access to all machines does not reach a critical machine unless it names it; owners reach it. Only an owner or `beacon` on the host marks a machine critical, or changes or removes a critical one.
 - `machine list` shows every machine.
 - `machine add … -replace` pins a new host key after a reinstall.
 - `machine remove NAME` forgets a machine, and keeps its sessions on record.
 
-The console does the same for someone with `machines:write`, on **Machines**. **Add a machine** takes the name, the address (`host` or `host:port`, or behind NAT), the account (`beacon` when left out), whether it is critical, a note, and, for a machine behind NAT, the key it connects out with and an optional host key. The page then shows, once, what the machine needs: the same lines the command prints. A machine's page edits the note, the critical flag and the account, pins the host key again (and shows the old and new fingerprints), and, for one behind NAT, changes the key it connects out with. **Remove the machine** asks for the machine's name, typed in full. The machine is forgotten, an open connector closes, and its sessions stay on record.
+The console does the same for someone with `machines:write` and access to all machines, on **Machines**: a credential that names its machines adds, changes and removes none ([Changing machines](../reference/permissions.md#changing-machines)). **Add a machine** takes the name, the address (`host` or `host:port`, or behind NAT), the account (`beacon` when left out), whether it is critical, a note, and, for a machine behind NAT, the key it connects out with and an optional host key. The page then shows, once, what the machine needs: the same lines the command prints. A machine's page edits the note, the critical flag and the account, pins the host key again (and shows the old and new fingerprints), and, for one behind NAT, changes the key it connects out with. **Remove the machine** asks for the machine's name, typed in full. The machine is forgotten, an open connector closes, and its sessions stay on record.
 
 A machine Beacon cannot reach is added the other way round: [Machines behind NAT](#machines-behind-nat).
 
@@ -127,7 +129,7 @@ docker exec beacon beacon agent add claude-oncall -owner alice -preset oncall \
   -machines edge-1,edge-2 -ssh-key "ssh-ed25519 AAAA… agent@workstation"
 ```
 
-`-machines` limits the machines the agent reaches; without it, it reaches all. The same credentials work for the MCP tools and the REST API. A token of its own keeps its keys and machines on the token (`token ssh-key`, `token machines`).
+`-machines` names the machines the agent reaches, or says `all`: every machine that is not critical, including machines added later. Without it, the agent reaches none. A critical machine is reached only when named (`-machines all,ca-1`), only an owner or `beacon` on the host names one, and an agent's access to it ends after 30 days unless another end is given (`ca-1@72h`, `ca-1@never`). `beacon agent machines NAME …` changes it later. The same credentials work for the MCP tools and the REST API. A token of its own keeps its keys and machines on the token (`token ssh-key`, `token machines`). [Machine access](../reference/permissions.md#machine-access) has the rules.
 
 ## Let the agent connect
 
@@ -172,6 +174,8 @@ Some machines Beacon cannot reach: behind NAT, behind a firewall that lets conne
    You will see `added edge-9 as a connector machine (user beacon): it connects out to Beacon with ssh -R; …` and a script for the machine. The script sets up the CA and the `beacon` account as for any machine, then a `beacon-connector` user and a systemd unit with `Restart=always`.
 
    The machine's host key is pinned like any other's. Give it with `-host-key`, or let Beacon learn it at the first connection (the audit log and the chat say so).
+
+   Each machine connects out with a key of its own: Beacon refuses a key another machine has already. A machine cloned from an image carries its original's key, so make a new one on the clone. A connection carries its machine only while the machine has the key and the registration it signed in with. Adding the machine again, changing its key or making it a machine Beacon dials closes the connection, and the unit connects again.
 
 From then on everything is as for any other machine: `ssh`, `scp`, `rsync`, the tools, the recording, the pause switch.
 

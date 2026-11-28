@@ -15,7 +15,7 @@ Pick the switch by how much you want to stop:
 
 | Switch | How | What closes |
 | --- | --- | --- |
-| Revoke a token | **Revoke** on the agent's page, or `beacon token revoke NAME`. The console's **Tokens** page has it for any token that reaches machines | The token is refused from its next request on. What was opened with it (connections, forwarded ports, tool calls) closes at once, and the keys the agent registered with it go |
+| Revoke a token | **Revoke** on the agent's page, or `beacon token revoke NAME`. The console's **Tokens** page deletes a token that reaches machines, for a person with `machines:write` who holds everything the token holds ([Deleting tokens](../reference/permissions.md#deleting-tokens)) | The token is refused from its next request on. What was opened with it (connections, forwarded ports, tool calls) closes at once, and the keys the agent registered with it go |
 | Revoke an OAuth sign-in | **Revoke** on the agent's page, or the client logging out (`claude mcp logout beacon`) | The same, for what that sign-in opened. The client has to sign in again |
 | Remove an SSH key | `remove_ssh_key`, or the agent's page | The connections signed in with that key close |
 | Delete the agent | `beacon agent remove NAME`, or its page | Every credential of its (tokens, sign-ins, keys) and what they had open. What it did stays on record |

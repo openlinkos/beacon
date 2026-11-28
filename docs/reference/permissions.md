@@ -50,7 +50,7 @@ People's and agents' scopes cover the REST API, MCP and the SSH channel. Machine
 | `machines:ssh` | oncall and above | The SSH channel and its tools, on the machines the credential reaches |
 | `maintenance:write` | operator and above | Planning and ending maintenance windows |
 | `incidents:write` | operator and above | Reserved for incidents written by hand; no route takes it yet |
-| `machines:write` | operator and above | Adding, changing and removing machines, connector keys, pausing agents' access |
+| `machines:write` | operator and above | Adding, changing and removing machines and connector keys, with access to all machines; deleting tokens within the caller's own access; pausing agents' access |
 | `config:write` | owner | Changing what Beacon monitors: the catalogue, target sets, modules, status pages |
 | `accounts:write` | owner account or standalone administration token | Managing people and everyone's agents |
 | `secrets:use` | owner; custom agents only | Listing and using the team credentials explicitly granted to that agent |
@@ -70,8 +70,41 @@ A token of its own carries its scopes by name, fixed when it was made. An agent'
 
 `probe:write` and `host:write` need a **subject**: the location or host the token writes as. The gateway labels everything they write with it, in place of anything the sender says about itself. So a probe cannot speak for another. A token whose machine has expired (a `vps` in the catalogue past its date) can no longer write.
 
-The machines an agent or a token may reach on the SSH channel are a list of their own. An empty list means all of them. An OAuth sign-in's list is intersected with the agent's, so it reaches only what both allow.
+### Machine access {#machine-access}
+
+Every token of its own, agent and OAuth sign-in says which machines it reaches on the SSH channel. The choice is always explicit:
+
+| Machine access | Reaches |
+| --- | --- |
+| `all` | Every machine that is not critical, including machines added later, and the critical machines it names |
+| `named` | Only the machines it names |
+
+Nothing else reaches a machine. A credential given no machine access, an empty list or a value Beacon does not know reaches none. `beacon token create` and `beacon agent add` make a credential with no machines unless `-machines` names them or says `all`.
+
+A machine marked **critical** is reached only by a credential that names it: `all` alone never reaches one. A critical machine named for an agent's credential (an agent, a token of its own or an OAuth sign-in) is reached for 30 days unless whoever names it gives another end. The command line takes `name@72h`, `name@2026-12-31` or `name@never`. A person's own named machines do not end unless an end is given. Access stops at the end on the next request, and within a minute Beacon removes the name, records it in the audit log (`machine_access_end`) and closes what was open on it.
+
+People reach machines by their account. An owner reaches every machine, critical ones included. Anyone else reaches every machine that is not critical, and the critical machines an owner named on their account (`beacon user machines`). An agent never reaches more than its owner, and an OAuth sign-in never more than its agent. What each reaches is what every layer allows, read afresh on every request.
+
+Who may give machine access:
+
+- Only a person, within their role, or `beacon` on the host gives `all`. A token or an agent names machines, and only machines it reaches itself.
+- Only an owner or `beacon` on the host names a critical machine, for an agent, a token, an OAuth sign-in or a person. On the consent page critical machines are offered to owners alone, apart from the others and unticked, and ticking one takes a confirmation.
+- A change that gives nothing new (fewer machines, or an earlier end) is not held to the caller.
+
+### Changing machines {#changing-machines}
+
+Using a machine takes `machines:ssh` and access to it. Changing a machine takes `machines:write` and access to all machines, so a credential that names its machines changes none of them, its own included. This applies to adding a machine, adding it again with `replace`, editing it, restoring earlier settings, removing it and setting its connector key.
+
+Marking or unmarking a machine critical, and any change to a critical machine, takes an owner or `beacon machine` on the host. The account Beacon signs in to a machine with is changed only by a person or `beacon` on the host, and `root` only by `beacon` on the host. The machine itself trusts Beacon's certificate authority for that one account ([Add a machine](../guide/machines.md#add-a-machine)), so a change of the account in Beacon also needs that line run again on the machine.
+
+A target set's response machine (the `machine` of a group) is set, cleared or moved only with `machines:write` and SSH access to the machine before and after, whichever route changes it: the dedicated route, a put of the whole target set, a delete or a revert.
+
+### Deleting tokens {#deleting-tokens}
+
+`DELETE /api/v1/tokens/{name}`, `revoke_token` and the console's **Tokens** page delete a token that reaches machines, or an agent's token. They need `machines:write` and access to all machines. A token of its own is deleted only by a caller that holds every scope it holds and reaches every machine it reaches. An agent's token is deleted by the agent itself, a person, or an administrator who manages agents; never by another agent or token. Deleting ends that token at once; the agent keeps its other credentials. An agent's owner deletes its tokens on the agent's page without `machines:write`.
+
+Credentials from before machine access was explicit keep what they reached. On its first start an upgraded Beacon gives each token, agent and OAuth sign-in that named no machines `all`, with every machine critical then named. A list that named machines stays named. Each person who is not an owner gets the critical machines of then named on their account. Each change is in the audit log (`machine_access_migrate`).
 
 Tokens are `lbt_` and 52 more characters, and Beacon keeps only their SHA-256. A token expires between 1 hour and 2 years from its making. A revoked token stops working at once.
 
-Its holder renews it before it expires, at most once a day. Renewing gives a new secret with the same name, scopes, subject, machines and keys, and the old secret works for ten minutes more. An enrolled machine's token is replaced with `beacon enroll -rotate` instead.
+Its holder renews it before it expires, at most once a day. Renewing gives a new secret with the same name, scopes, subject, machine access and keys, and the old secret works for ten minutes more. An enrolled machine's token is replaced with `beacon enroll -rotate` instead.

@@ -56,7 +56,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `alerts:write` | 处理告警：认领、静默和结束静默、备注、按需重测 |
 | `alerts:report` | 为分配给该回报方的钩子投递记录执行结果，并检查首次演练配置 |
 | `machines:ssh` | 用 Agent 自己的密钥登录 SSH 通道，使用机器工具（执行、读、写、改），查看它能到达的机器和这些机器上的会话 |
-| `machines:write` | 添加、修改和删除机器、设置连接器密钥、暂停和恢复 Agent 上机器、吊销能上机器的令牌和 Agent 的令牌 |
+| `machines:write` | 添加、修改和删除机器、设置连接器密钥，删除能上机器的令牌和 Agent 的令牌（都需能访问全部机器）；暂停和恢复 Agent 上机器 |
 | `sessions:read` | 会话的文字记录和录像 |
 | `config:write` | 修改 Beacon 监控的内容（目录、检测目标集和检测模块）和状态页，也能读取 |
 | `accounts:write` | 管理成员账号和所有人的 Agent，供所有者账号或独立管理令牌使用 |
@@ -136,7 +136,7 @@ Beacon 一并提交故障复测结果和审计条目。存储写入失败时，�
 | `POST /api/v1/ssh/pause` | `machines:write` | 关掉所有 Agent 在机器上的会话，并拒绝新会话 |
 | `POST /api/v1/ssh/resume` | `machines:write` | 让 Agent 重新能上机器 |
 | `GET /api/v1/machines` | `status:read` 或 `machines:ssh` | 机器列表、调用者能否到达每台机器、连接器的状态（`connector`、`connected`、`connected_since`），以及给 Agent 自己的 ssh 用的一段 `ssh_config` 和一行 `known_hosts` |
-| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置 |
+| `POST /api/v1/machines` | `machines:write` | 添加一台机器并固定它的主机密钥；NAT 后面的机器用 `address: connector`，带上它连出来用的密钥。返回机器上需要做的设置。这一条和下面每一种修改机器的操作都需要能访问全部机器；关键机器或 `critical` 标记需要 owner，`user` 需要人（改成 `root` 只能由主机上的 `beacon`），否则为 `machine.forbidden`（[修改机器](permissions.md#changing-machines)） |
 | `PATCH /api/v1/machines/{name}` | `machines:write` | 修改机器的 `note`、`critical` 或 `user`。不填的字段保持原样。可用 `if_version` 防止覆盖较新的设置。主机密钥和地址不变 |
 | `GET /api/v1/machines/{name}/history` | `status:read` 或 `machines:ssh` | 查看当前设置版本和变更历史。用 `before`（不含该版本）及 `limit`（默认 30，最多 100）翻页 |
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | 将早期 `version` 的设置复制到新版本，并传入当前 `if_version`；不一致时返回 `409 machine.changed` |
@@ -243,8 +243,8 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | 移除一个，`?fingerprint=SHA256:…`；凭它登录的连接会被关闭 |
 | `GET /api/v1/agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、有效作用域与主机范围（管理员可用 `?owner=` 筛选） |
 | `GET /api/v1/agents/{name}` | 成员本人或管理员（禁止 Agent 调用） | 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
-| `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machines`、`expires`。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
-| `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes` 或 `machines`。不填的字段保持原样。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
+| `POST /api/v1/agents` | 任何凭据；由 bridge 决定 | 创建一个 Agent：`name`、`owner`、`preset`、`scopes`、`machine_access`（`all` 或 `named`）、`machines`、`expires`。没有 `machine_access` 和 `machines` 时 Agent 一台机器也到不了；只有人能给出 `all`，只有 owner 能点名关键机器（[机器访问](permissions.md#machine-access)）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会把令牌的密钥返回一次（名字已被占用时为 `agent.exists`） |
+| `PATCH /api/v1/agents/{name}` | 任何凭据；由 bridge 决定 | 修改 `preset`、`scopes`，或 `machine_access` 和 `machines`。不填的字段保持原样；空的 `machines` 列表表示一台也不点名，Agent 一台机器也到不了。自定义 scope 遵循同一条规则。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器；收窄 Agent 仍然允许。未知的名字，包括旧式令牌，是 `agent.not_found` |
 
 ## 团队凭据 {#team-credentials}
 
@@ -269,9 +269,9 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | 接口 | 作用域 | 做什么 |
 | --- | --- | --- |
 | `GET /api/v1/capabilities` | 不限 | 六大运维域的结构化能力目录，按调用方作用域与已启用子系统实时计算，并包含对应 MCP 工具、资源与提示词 |
-| `GET /api/v1/token` | 不限 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），用的什么凭据（`token`，或带 `client` 的 `oauth`），现在能做什么、机器、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否续期以及何时可以续期；从不返回密钥本身 |
+| `GET /api/v1/token` | 不限 | 调用者：是谁（`actor`、`user`、`agent`、`preset`），用的什么凭据（`token`，或带 `client` 的 `oauth`），现在能做什么、机器访问（`machine_access`：`all`、`named` 或 `none`，附 `machines`、`machine_until` 和 `machine_summary`；`machine_scope` 以 `all`、`listed` 或 `none` 说同一件事）、SSH 密钥指纹、到期时间、有效期长度、上次续期、能否续期以及何时可以续期；从不返回密钥本身 |
 | `POST /api/v1/token/renew` | 不限 | 一个新的密钥，只显示一次，有效期从现在起重新算；旧密钥还能用十分钟。每 24 小时最多一次；登记的机器的令牌不能续期，OAuth 访问令牌也不能，它由客户端刷新 |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | 吊销一个能上机器的令牌（`machines:ssh`），或任何 Agent 的令牌：只针对一个 Agent 的暂停开关，它用这个令牌在机器上打开着的会话立即关闭。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销（`token.not_revocable`） |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | 删除一个能上机器的令牌（`machines:ssh`），或 Agent 的令牌；它在机器上打开着的会话立即关闭，Agent 保留它的其他凭据。调用者需要能访问全部机器；独立令牌只能由持有它全部 scope 和机器的调用者删除，Agent 的令牌只能由这个 Agent 或人删除（`token.forbidden`，[删除令牌](permissions.md#deleting-tokens)）。检测点、主机、心跳、规则引擎、变更发送方和指标读取方的令牌只能在中心上吊销（`token.not_revocable`） |
 | `GET /api/v1/openapi.yaml` | 不需要 | OpenAPI 文档 |
 
 `machine_scope` 为 `all`、`listed` 或 `none`。为 `listed` 时，`machines` 给出实际生效的机器范围。OAuth 授权与 Agent 的机器范围没有交集时，返回 `none`。每项操作仍需要对应的作用域。
@@ -351,7 +351,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `ssh.standby` | 503 | 本实例是备机；工具在主机上跑 |
 | `machine.not_found` | 404 | 没有这个名字的机器 |
 | `machine.version_not_found` | 404 | 该机器设置版本无法访问 |
-| `machine.forbidden` | 403 | 调用者不能到达这台机器 |
+| `machine.forbidden` | 403 | 调用者不能到达这台机器，或不能对它做这项修改 |
 | `machine.unreachable` | 502 | Beacon 连不上这台机器 |
 | `machine.disconnected` | 502 | 机器在 NAT 后面，它的连接器没有连上 |
 | `machine.exists` | 409 | 已有同名机器；要替换请明确指定 |
@@ -375,6 +375,7 @@ Beacon 监控的内容，每一项都按它在文件里的格式读写（[检测
 | `token.not_renewable` | 403 | 这是登记的机器的令牌，用 `beacon enroll … -rotate` 换新；或者是 OAuth 访问令牌，由它的客户端刷新 |
 | `token.not_found` | 404 | 没有这个名字的令牌可以吊销 |
 | `token.not_revocable` | 403 | 这个令牌既不能上机器，也不属于任何 Agent；机器和服务的令牌要在中心上用 `beacon token revoke` 吊销 |
+| `token.forbidden` | 403 | 调用者不能删除这个令牌：调用者只点名了机器，或令牌持有调用者没有的 scope 或机器，或它属于别的 Agent |
 | `user.not_found` | 404 | 没有这个名字的成员 |
 | `user.last_owner` | 409 | 这样改会让 Beacon 没有启用的所有者；先让另一个人成为所有者 |
 | `key.not_found` | 404 | 调用者没有这个指纹的 SSH 密钥 |

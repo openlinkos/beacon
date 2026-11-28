@@ -4,6 +4,18 @@ User-facing changes, newest first. Versions follow [Semantic Versioning](https:/
 
 ## Unreleased
 
+- Make every credential's machine access explicit: `all` (every machine that is not critical, including machines added later) or the machines it names. A credential with no machine access, or an empty list, reaches no machine. `beacon token create` and `beacon agent add` give no machines unless `-machines` names them or says `all`, and REST and MCP agent changes take `machine_access` with `machines`.
+- Reach a critical machine only with a credential that names it. Owners reach every machine; other people reach the critical machines an owner names on their account (`beacon user machines`). An agent's access to a newly named critical machine ends after 30 days unless another end is given, and ended access is removed and audited. Only a person or the command line gives access to all machines, and only an owner or the command line names a critical machine.
+- Require `machines:write` with access to all machines to add, register again, change, restore or remove a machine or set its connector key. A critical machine and the critical flag need an owner or the command line; a machine's account needs a person or the command line, and `root` the command line.
+- Trust Beacon's certificate authority for the machine's account alone in the setup `machine add` prints and the docs describe (`Match User`).
+- Bind each connector connection to the key and registration it signed in with, and refuse a connector key another machine already has.
+- Require access to all machines, and every scope and machine the token holds, to delete a token through the API, MCP or the console; an agent's token is deleted by that agent or a person (`token.forbidden`).
+- Hold a put, delete or revert of a target set that changes a response machine to what the dedicated route requires.
+- Ask again on the consent page when no machine is ticked, and offer critical machines to owners only, apart and unticked, behind a confirmation.
+- Show each credential's machine access in the console, `beacon token list`, `beacon agent list`, `beacon user list`, whoami, the agent views and the capabilities.
+
+**Upgrade note.** On its first start, Beacon moves every token, agent and OAuth sign-in that named no machines to `all`, naming every machine marked critical at the time; lists that named machines stay as they were, and each person who is not an owner gets the critical machines of the time named on their account. Each change is logged and audited (`machine_access_migrate`). Review the credentials moved to `all` and their named critical machines, and narrow those that should reach less (`beacon token machines`, `beacon agent machines`, `beacon user machines`). Scripts that created agents or tokens without machines, or that sent an empty machine list to mean every machine, now give none. Then run the `Match User` line of the machine setup (the machines guide, Add a machine) on each machine, so that it trusts Beacon's certificates for its one account.
+
 ## 0.3.0
 
 ### rc.50 (2026-11-27)

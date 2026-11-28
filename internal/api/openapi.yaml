@@ -973,8 +973,11 @@ components:
         client: {type: string, description: "The OAuth client's name, for an access token"}
         scopes: {type: array, items: {type: string}}
         subject: {type: string, description: "The location or host a machine's token writes as"}
-        machines: {type: array, items: {type: string}, description: "The explicitly selected machines when machine_scope is listed"}
-        machine_scope: {type: string, enum: [all, listed, none], description: "The effective machine selection. Each operation also requires its own scope."}
+        machine_scope: {type: string, enum: [all, listed, none], description: "The effective machine selection, in the older words of machine_access. Each operation also requires its own scope."}
+        machine_access: {type: string, enum: [all, named, none, every], description: "all: every machine that is not critical, including machines added later, and the critical machines in machines; named: only the machines in machines; none: no machine; every: every machine, critical ones included (an owner's own)"}
+        machines: {type: array, items: {type: string}, description: "The machines named: with all, the critical machines it also reaches"}
+        machine_until: {type: object, additionalProperties: {type: string, format: date-time}, description: When the access to a named machine ends; a machine not listed does not end}
+        machine_summary: {type: string, description: The machine access in a sentence}
         ssh_keys: {type: array, items: {type: string}, description: Fingerprints of the keys it signs in to the SSH channel with}
         created: {type: string, format: date-time}
         expires: {type: string, format: date-time}
@@ -1002,6 +1005,10 @@ components:
         last_sign_in: {type: string, format: date-time}
         disabled: {type: boolean}
         agents: {type: array, items: {type: string}, description: The agents the person owns}
+        machine_access: {type: string, enum: [all, named, none, every], description: "all: every machine that is not critical, including machines added later, and the critical machines in machines; named: only the machines in machines; none: no machine; every: every machine, critical ones included (an owner's own)"}
+        machines: {type: array, items: {type: string}, description: "The machines named: with all, the critical machines it also reaches"}
+        machine_until: {type: object, additionalProperties: {type: string, format: date-time}, description: When the access to a named machine ends; a machine not listed does not end}
+        machine_summary: {type: string, description: The machine access in a sentence}
     Agent:
       type: object
       description: >
@@ -1014,7 +1021,10 @@ components:
         preset: {type: string, enum: [readonly, oncall, operator, custom]}
         wanted: {type: array, items: {type: string}}
         scopes: {type: array, items: {type: string}}
-        machines: {type: array, items: {type: string}, description: "The machines it reaches; absent: all"}
+        machine_access: {type: string, enum: [all, named, none, every], description: "all: every machine that is not critical, including machines added later, and the critical machines in machines; named: only the machines in machines; none: no machine; every: every machine, critical ones included (an owner's own)"}
+        machines: {type: array, items: {type: string}, description: "The machines named: with all, the critical machines it also reaches"}
+        machine_until: {type: object, additionalProperties: {type: string, format: date-time}, description: When the access to a named machine ends; a machine not listed does not end}
+        machine_summary: {type: string, description: The machine access in a sentence}
         ssh_keys: {type: array, items: {$ref: "#/components/schemas/SSHKey"}}
         tokens:
           type: array
@@ -1035,7 +1045,10 @@ components:
               client: {type: string}
               scope: {type: string}
               preset: {type: string}
+              machine_access: {type: string, enum: [all, named, none]}
               machines: {type: array, items: {type: string}}
+              machine_until: {type: object, additionalProperties: {type: string, format: date-time}}
+              machine_summary: {type: string}
               created: {type: string, format: date-time}
               last_used: {type: string, format: date-time}
               expires: {type: string, format: date-time}
@@ -1703,7 +1716,7 @@ paths:
     post:
       tags: [Machines & SSH]
       summary: Add a machine, pinning its host key
-      description: "Scope: machines:write. The machine then needs the returned key in its TrustedUserCAKeys file. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
+      description: "Scope: machines:write, with access to all machines; a critical machine needs an owner, and an account other than the one it had a person (root: beacon on the host), machine.forbidden otherwise. The machine then needs the returned key in its TrustedUserCAKeys file, within a Match User block for its account. A machine behind NAT is added with the address connector and the public key it connects out with; its host key is given, or learned when it first connects."
       requestBody:
         required: true
         content:
@@ -1745,7 +1758,7 @@ paths:
     patch:
       tags: [Machines & SSH]
       summary: Change a machine's note, whether it is critical, and the account on it
-      description: "Scope: machines:write. The host key and the address stay. A field left out stays as it is."
+      description: "Scope: machines:write, with access to all machines. A critical machine, or a change of the critical flag, needs an owner; a change of user a person, and root beacon on the host (machine.forbidden). The host key and the address stay. A field left out stays as it is."
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       requestBody:
@@ -2499,7 +2512,8 @@ paths:
                   type: array
                   items: {type: string}
                   description: "Custom only. The people's scopes, within the owner's role and within what the caller may do. At least one."
-                machines: {type: array, items: {type: string}, description: "Machines it may reach; none or absent: all"}
+                machine_access: {type: string, enum: [all, named], description: "all: every machine that is not critical, including machines added later; only a person gives it. named (or left out): only the machines listed"}
+                machines: {type: array, items: {type: string}, description: "The machines named; left out or empty, with machine_access named or left out, the agent reaches no machine. A critical machine is reached only when named, and only an owner names one"}
                 expires: {type: string, examples: ["90d", "12h"], description: "The first token's lifetime; absent: no token"}
       responses:
         "201":
@@ -2530,7 +2544,7 @@ paths:
         out stays. Custom scopes follow the same rule as making an agent: accounts:write, not an agent,
         within the owner's role and within what the caller may do. Sending a preset other than custom
         clears custom scopes. A caller never gives an agent a scope or a machine it does not hold itself;
-        narrowing an agent stays allowed. Empty machines means all machines. An unknown agent is agent.not_found
+        narrowing an agent stays allowed. An empty machines list names none, so the agent reaches no machine; only a person gives machine_access all, and only an owner names a critical machine. An unknown agent is agent.not_found
         (404), including a legacy token, which is not an agent and is not widened by this route.
         Audited (agent_update, with the preset and scopes before and after) and echoed to the alert chat.
       parameters:
@@ -2548,7 +2562,8 @@ paths:
                   type: array
                   items: {type: string}
                   description: "Custom only. Left out, the scopes stay. An empty list is refused."
-                machines: {type: array, items: {type: string}, description: "Left out, they stay; empty: all machines"}
+                machine_access: {type: string, enum: [all, named], description: "With machines left out too, the machine access stays"}
+                machines: {type: array, items: {type: string}, description: "The machines named; empty names none"}
       responses:
         "200":
           description: The agent

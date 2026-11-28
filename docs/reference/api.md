@@ -52,7 +52,7 @@ A credential carries one or more scopes. The first nine are for people and agent
 | `alerts:write` | Working an alert: acknowledging, silencing and ending silences, notes, probing on demand |
 | `alerts:report` | Record execution for deliveries and check first-drill configuration for hooks assigned to this reporter |
 | `machines:ssh` | The SSH channel with the agent's own keys, the machine tools (run, read, write, edit), the machines it reaches and their sessions |
-| `machines:write` | Adding, changing and removing machines, connector keys, pausing and resuming agents' access, revoking tokens that reach machines and agents' tokens |
+| `machines:write` | Adding, changing and removing machines and connector keys, and deleting tokens that reach machines and agents' tokens, with access to all machines; pausing and resuming agents' access |
 | `sessions:read` | Sessions' transcripts and recordings |
 | `config:write` | Changing what Beacon monitors (the catalogue, target sets and modules) and the status pages, and reading it |
 | `accounts:write` | Managing accounts and everyone's agents, for owner accounts and standalone administration tokens |
@@ -132,7 +132,7 @@ The caller's machine selection also limits session records in the alert evidence
 | `POST /api/v1/ssh/pause` | `machines:write` | Close every agent's session on machines and refuse new ones |
 | `POST /api/v1/ssh/resume` | `machines:write` | Let agents reach machines again |
 | `GET /api/v1/machines` | `status:read` or `machines:ssh` | The machines, whether the caller reaches each, connectors' state (`connector`, `connected`, `connected_since`), and an `ssh_config` block with a `known_hosts` line for the agent's own ssh |
-| `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs |
+| `POST /api/v1/machines` | `machines:write` | Add a machine, pinning its host key; `address: connector` for one behind NAT, with the key it connects out with. Returns what the machine needs. This and every other change of a machine below takes access to all machines; a critical machine, or the `critical` flag, takes an owner, and `user` a person (`root` only `beacon` on the host): `machine.forbidden` otherwise ([Changing machines](permissions.md#changing-machines)) |
 | `PATCH /api/v1/machines/{name}` | `machines:write` | Change a machine's `note`, `critical` flag or `user`. A field left out stays. Set `if_version` to refuse stale edits. The host key and the address stay |
 | `GET /api/v1/machines/{name}/history` | `status:read` or `machines:ssh` | Read the current settings version and older revisions. Page with `before` (exclusive) and `limit` (default 30, maximum 100) |
 | `POST /api/v1/machines/{name}/restore` | `machines:write` | Copy an earlier `version` into a new version. Supply the current `if_version`; a mismatch returns `409 machine.changed` |
@@ -239,8 +239,8 @@ Account and Agent administration requires an owner account, an independent token
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
 | `GET /api/v1/agents` | owner or person (never an agent) | List visible agents with owner, preset, effective scopes and machine access (`?owner=` for administrators) |
 | `GET /api/v1/agents/{name}` | owner or person (never an agent) | Read one agent's effective scopes, machine access, tokens, OAuth grants and SSH keys |
-| `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machines`, `expires`. Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
-| `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes` or `machines`. A field left out stays. Custom scopes follow the same rule. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed. An unknown name, including a legacy token, is `agent.not_found` |
+| `POST /api/v1/agents` | any credential; the bridge decides | Make an agent: `name`, `owner`, `preset`, `scopes`, `machine_access` (`all` or `named`), `machines`, `expires`. Without `machine_access` and `machines` the agent reaches no machine; only a person gives `all`, and only an owner names a critical machine ([Machine access](permissions.md#machine-access)). Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns the token's secret once (`agent.exists` when the name is taken) |
+| `PATCH /api/v1/agents/{name}` | any credential; the bridge decides | Change `preset`, `scopes`, or `machine_access` with `machines`. A field left out stays; an empty `machines` list names none, so the agent reaches no machine. Custom scopes follow the same rule. A caller never gives an agent a scope or a machine it does not hold itself; narrowing an agent stays allowed. An unknown name, including a legacy token, is `agent.not_found` |
 
 ## Team credentials {#team-credentials}
 
@@ -265,9 +265,9 @@ When the credential store is enabled, these operations let an agent use its [fix
 | Route | Scope | What |
 | --- | --- | --- |
 | `GET /api/v1/capabilities` | any | Structured capability catalogue across all six domains, evaluated for the caller's scopes and enabled server subsystems, including matching MCP tools, resources and prompts |
-| `GET /api/v1/token` | any | The caller: who it is (`actor`, `user`, `agent`, `preset`), its credential (`token`, or `oauth` with the `client`), what it may do now, machines, SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
+| `GET /api/v1/token` | any | The caller: who it is (`actor`, `user`, `agent`, `preset`), its credential (`token`, or `oauth` with the `client`), what it may do now, its machine access (`machine_access`: `all`, `named` or `none`, with `machines`, `machine_until` and `machine_summary`; `machine_scope` says the same as `all`, `listed` or `none`), SSH key fingerprints, expiry, lifetime, the last renewal, whether and when it may renew; never the secret |
 | `POST /api/v1/token/renew` | any | A new secret, shown once, expiring the token's lifetime from now; the old secret keeps working for ten minutes. At most once every 24 hours; never for an enrolled machine's token, nor for an OAuth access token, which its client refreshes |
-| `DELETE /api/v1/tokens/{name}` | `machines:write` | Revoke a token that reaches machines (`machines:ssh`), or any agent's: the pause switch for one agent, whose open sessions on machines made with it are closed at once. The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the centre only (`token.not_revocable`) |
+| `DELETE /api/v1/tokens/{name}` | `machines:write` | Delete a token that reaches machines (`machines:ssh`), or an agent's; what it has open on machines is closed at once, and an agent keeps its other credentials. The caller needs access to all machines; a token of its own is deleted only by a caller holding every scope and machine it holds, an agent's token only by that agent or a person (`token.forbidden`, [Deleting tokens](permissions.md#deleting-tokens)). The tokens of probes, hosts, heartbeats, the rule engine, change senders and metrics readers are revoked on the centre only (`token.not_revocable`) |
 | `GET /api/v1/openapi.yaml` | none | The OpenAPI document |
 
 `machine_scope` is `all`, `listed` or `none`. In `listed`, `machines` names the effective selection. `none` includes an OAuth grant and an agent whose selections have no machine in common. Each operation still requires its own scope.
@@ -347,7 +347,7 @@ Each sends with a token of its own:
 | `ssh.standby` | 503 | This instance is the standby; tools run on the primary |
 | `machine.not_found` | 404 | No machine with this name |
 | `machine.version_not_found` | 404 | That machine settings revision is unavailable |
-| `machine.forbidden` | 403 | The caller may not reach this machine |
+| `machine.forbidden` | 403 | The caller may not reach this machine, or may not make this change to it |
 | `machine.unreachable` | 502 | Beacon could not connect to the machine |
 | `machine.disconnected` | 502 | The machine is behind NAT and its connector is not connected |
 | `machine.exists` | 409 | A machine with this name exists; replace it explicitly |
@@ -371,6 +371,7 @@ Each sends with a token of its own:
 | `token.not_renewable` | 403 | An enrolled machine's token, which `beacon enroll … -rotate` replaces; or an OAuth access token, which its client refreshes |
 | `token.not_found` | 404 | No token of that name to revoke |
 | `token.not_revocable` | 403 | The token neither reaches machines nor is an agent's; machines' and services' tokens are revoked with `beacon token revoke` on the centre |
+| `token.forbidden` | 403 | The caller may not delete this token: it names its machines, or the token holds a scope or machine the caller does not, or it is another agent's |
 | `user.not_found` | 404 | No person of that name |
 | `user.last_owner` | 409 | The change would leave Beacon without an enabled owner; make someone else owner first |
 | `key.not_found` | 404 | The caller has no SSH key with that fingerprint |
