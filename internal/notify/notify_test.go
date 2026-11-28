@@ -82,6 +82,25 @@ func TestGroupBot(t *testing.T) {
 	}
 }
 
+// TestGroupBotMentionsNobody: whatever a message quotes (a command run on a machine, an alert's title),
+// the group bot's text cannot mention anyone.
+func TestGroupBotMentionsNobody(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+		_, _ = w.Write([]byte(`{"code":0}`))
+	}))
+	defer srv.Close()
+	g := &GroupBot{URL: srv.URL}
+	if err := g.Send(context.Background(), "claude ran `echo <at user_id=\"all\"></at>` <at id=all></at>"); err != nil {
+		t.Fatal(err)
+	}
+	if text := got["content"].(map[string]any)["text"].(string); strings.ContainsAny(text, "<>") || !strings.Contains(text, "at user_id") {
+		t.Errorf("text %q", text)
+	}
+}
+
 func TestBarkAndPing(t *testing.T) {
 	var path string
 	var body map[string]string

@@ -1072,11 +1072,13 @@ func (b *Bridge) Summarize() Summary {
 	return s
 }
 
+// echo tells the alert chat what someone did, in a plain message that mentions nobody whatever it
+// quotes: titles, notes, comments and names are text from outside Beacon or from people (chatSafe).
 func (b *Bridge) echo(ctx context.Context, text string) {
 	if b.d.Bot == nil {
 		return
 	}
-	if err := b.d.Bot.Send(ctx, text); err != nil {
+	if err := b.d.Bot.Send(ctx, chatSafe(text)); err != nil {
 		b.d.Log.Warn("echo to the alert chat failed", "err", err)
 	}
 }
