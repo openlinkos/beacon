@@ -615,7 +615,7 @@ components:
         credential: {type: string, description: Public key fingerprint or the ID of the credential used}
         via: {type: string, enum: [ssh, mcp, api]}
         machine: {type: string}
-        kind: {type: string, enum: [exec, shell, sftp, forward, file]}
+        kind: {type: string, enum: [exec, shell, sftp, subsystem, forward, file], description: "subsystem: any subsystem other than sftp, whose requested name is the command"}
         command: {type: string}
         started: {type: string, format: date-time}
         ended: {type: string, format: date-time}

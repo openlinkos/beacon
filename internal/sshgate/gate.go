@@ -69,21 +69,16 @@ type Gate struct {
 	d   Deps
 	key ssh.Signer // the throwaway key every certificate is issued for
 
-	mu    sync.Mutex
-	open  map[uint64]tracked // what is open on the channel: agent connections, tool calls
-	seq   atomic.Uint64
-	fails map[string]*window
-	echo  *echoer
+	mu   sync.Mutex
+	open map[uint64]tracked // what is open on the channel: agent connections, tool calls
+	seq  atomic.Uint64
+	adm  *admission // the SSH port's limits before sign-in, and the audit of refused connections
+	echo *echoer
 
 	connectors *connectorSet // machines behind NAT connected out to the channel (connector.go)
 
 	leaderMu sync.Mutex
 	leader   func() bool // nil means always leader (no HA)
-}
-
-type window struct {
-	n     int
-	start time.Time
 }
 
 // Actor is who uses the channel: Name as the audit log names it (a person, "person / agent", or a token's
@@ -122,11 +117,7 @@ var (
 // PauseKey is where the start of a pause is stored; zero when the channel runs.
 const PauseKey = "ssh_paused"
 
-const (
-	certValidity = 5 * time.Minute
-	maxFails     = 20
-	failWindow   = 10 * time.Minute
-)
+const certValidity = 5 * time.Minute
 
 // New creates the channel.
 func New(d Deps) (*Gate, error) {
@@ -147,7 +138,7 @@ func New(d Deps) (*Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, fails: map[string]*window{}, connectors: &connectorSet{by: map[string]*connector{}}, leader: d.Leader}
+	g := &Gate{d: d, key: k, open: map[uint64]tracked{}, adm: newAdmission(), connectors: &connectorSet{by: map[string]*connector{}}, leader: d.Leader}
 	g.echo = &echoer{g: g, pending: map[string]*batch{}}
 	if m := d.Metrics; m != nil {
 		g.registerConnectorMetrics(m)
@@ -481,27 +472,6 @@ func (g *Gate) dial(ctx context.Context, m store.Machine, who Actor, conn string
 
 // ---- the SSH listener for agents
 
-func (g *Gate) blocked(ip string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	w := g.fails[ip]
-	return w != nil && g.now().Sub(w.start) < failWindow && w.n >= maxFails
-}
-
-func (g *Gate) fail(ip string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	w := g.fails[ip]
-	if w == nil || g.now().Sub(w.start) >= failWindow {
-		w = &window{start: g.now()}
-		g.fails[ip] = w
-	}
-	w.n++
-	if len(g.fails) > 10000 {
-		g.fails = map[string]*window{ip: w}
-	}
-}
-
 func remoteIP(c net.Conn) string {
 	host, _, err := net.SplitHostPort(c.RemoteAddr().String())
 	if err != nil {
@@ -549,16 +519,24 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	if ctx.Err() != nil {
 		return
 	}
-	ip := remoteIP(nc)
-	if g.blocked(ip) {
+	addr := addressKey(remoteIP(nc))
+	if g.blocked(addr) {
+		g.turnedAway("blocked")
 		return
 	}
-	_ = nc.SetDeadline(g.now().Add(30 * time.Second))
-	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
+	release, ok := g.handshake(addr)
+	if !ok {
+		g.turnedAway("busy")
+		return
+	}
+	defer release()
+	rc := &readConn{Conn: nc}
+	_ = nc.SetDeadline(g.now().Add(handshakeTimeout))
+	sc, chans, reqs, err := ssh.NewServerConn(rc, cfg)
+	release()
 	if err != nil {
-		var ae *ssh.ServerAuthError
-		if errors.As(err, &ae) {
-			g.fail(ip)
+		if failedHandshake(rc, err) {
+			g.fail(addr)
 		}
 		return
 	}
@@ -579,6 +557,9 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	if merr == nil { // again, now that a pause or a revocation closes it: either may have come in between
 		merr = g.stillCheck(who, m)
 	}
+	if merr != nil {
+		g.refuseAudit(who, sc.User(), merr)
+	}
 
 	go func() {
 		for r := range reqs { // global requests: keepalives yes, remote forwarding never for agents (a token's key registers no forward)
@@ -591,7 +572,9 @@ func (g *Gate) serveConn(ctx context.Context, nc net.Conn, cfg *ssh.ServerConfig
 	defer c.close()
 	for ch := range chans {
 		if merr == nil { // each channel may still use the machine as it was when the connection opened
-			merr = g.stillCheck(who, m)
+			if merr = g.stillCheck(who, m); merr != nil {
+				g.refuseAudit(who, sc.User(), merr)
+			}
 		}
 		if merr != nil {
 			go refuse(ch, merr)

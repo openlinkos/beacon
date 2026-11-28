@@ -243,6 +243,15 @@ func (t recordedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// subsystemKind is the kind of session a subsystem request opens: sftp, or any other subsystem, whose
+// name, the client's, stays out of the kinds that the audit log, the metrics and the chat go by.
+func subsystemKind(name string) string {
+	if name == "sftp" {
+		return "sftp"
+	}
+	return "subsystem"
+}
+
 // finish files the session: the transcript next to the recording, the record, the audit log, the chat.
 func (s *session) finish(exit *int, reachedTarget bool) Transcript {
 	s.mu.Lock()
@@ -433,7 +442,7 @@ func (c *conn) session(nc ssh.NewChannel) {
 			case "subsystem":
 				var p struct{ Name string }
 				_ = ssh.Unmarshal(payload, &p)
-				startErr = s.start(p.Name, p.Name)
+				startErr = s.start(subsystemKind(p.Name), short(p.Name, 100))
 			}
 			if startErr != nil {
 				replyMu.Lock()

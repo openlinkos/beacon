@@ -1,6 +1,10 @@
 package bridge
 
-import "github.com/openlinkos/beacon/internal/store"
+import (
+	"strings"
+
+	"github.com/openlinkos/beacon/internal/store"
+)
 
 // FilterSessionAudit removes command previews when the reader has limited session access.
 // The audit records name the machine but carry no enrolment identifier. A machine-bound
@@ -10,8 +14,8 @@ func (b *Bridge) FilterSessionAudit(p store.Principal, entries []store.AuditEntr
 		return
 	}
 	for i := range entries {
-		switch entries[i].Action {
-		case "ssh_exec", "ssh_shell", "ssh_file", "ssh_sftp", "ssh_forward":
+		switch strings.TrimSuffix(entries[i].Action, "_refused") {
+		case "ssh_exec", "ssh_shell", "ssh_file", "ssh_sftp", "ssh_subsystem", "ssh_forward":
 			entries[i].Detail = ""
 		}
 	}

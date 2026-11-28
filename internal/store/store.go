@@ -944,7 +944,7 @@ type SessionRecord struct {
 	Credential string    `json:"credential,omitempty"` // public key fingerprint, token name or grant ID
 	Via        string    `json:"via"`                  // ssh, mcp or api
 	Machine    string    `json:"machine"`
-	Kind       string    `json:"kind"` // exec, shell, sftp, forward or file
+	Kind       string    `json:"kind"` // exec, shell, sftp, subsystem, forward or file
 	Command    string    `json:"command,omitempty"`
 	Started    time.Time `json:"started"`
 	Ended      time.Time `json:"ended,omitzero"`

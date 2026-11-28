@@ -105,6 +105,9 @@ func TestChannelsRefuseAChangedMachine(t *testing.T) {
 	if certs != 1 {
 		t.Fatalf("the machine saw %d certificates", certs)
 	}
+	if !audited(e.st, "ssh_refused", "box", "machine changed") {
+		t.Fatalf("the refusal was not audited: %+v", e.st.AuditLog(10))
+	}
 }
 
 // TestServingEndsWithItsContext: when the instance stops serving the channel (it lost the HA lease),

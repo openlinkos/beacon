@@ -176,6 +176,8 @@ func (s *Server) kind(kind string) string {
 		return s.t("interactive shell")
 	case "sftp":
 		return s.t("file transfer")
+	case "subsystem":
+		return s.t("SSH subsystem")
 	case "forward":
 		return s.t("forwarded port")
 	case "file":
