@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-95b74be4
+sourceHash: sha256-a8304658
 ---
 
 # MCP 工具
@@ -210,7 +210,7 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 | --- | --- | --- |
 | `get_status_page` | `status:read` | 一个状态页，内容和它的公开 JSON 一样（`name`、`language`）：整体状态，每个组件现在和 90 天来的状态，事件（先是进行中的，再是最近 30 天的）及其公开进展，维护窗口 |
 | `list_maintenance` | `status:read` | 维护窗口，开始得越晚越靠前，结束的保留 91 天：服务、时间、标题、谁安排的、对应的静默 |
-| `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内这些服务的告警会被静默。最长 7 天，必须在 90 天内开始，不能从过去开始 |
+| `schedule_maintenance` | `maintenance:write` | 安排一个维护窗口（`services`、`starts_at`、`ends_at`、`title`、`description`）：状态页提前公告，窗口内这些服务的告警会被静默。最长 7 天，必须在 90 天内开始，不能从过去开始。Agent 安排的窗口和 Agent 的静默一样：照样通知人，状态页照样显示中断 |
 | `end_maintenance` | `maintenance:write` | 立即结束一个维护窗口，或在开始前取消（`id`）：它的静默随之结束，状态页上也会显示 |
 
 ## 成员与 SSH 密钥 {#people-and-ssh-keys}

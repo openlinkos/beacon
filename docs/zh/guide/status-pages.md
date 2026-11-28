@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-36925577
+sourceHash: sha256-30ba32eb
 ---
 
 # 发布状态页
@@ -147,7 +147,7 @@ JSON、订阅源和徽章是给程序读的。除非 `?lang=` 另有指定，它
 
 组件当前的状态取以下几项里最坏的：
 
-- **维护**：维护窗口正覆盖它的某个服务；
+- **维护**：维护窗口正覆盖它的某个服务；Agent 安排的窗口不会掩盖中断，中断照样显示；
 - 其服务上**正在告警的事件**：`ServiceDown` 算中断，其余告警算部分中断；
 - 最近几分钟**检测点的一致判断**，按参考规则的逻辑（`deploy/rules/probes.yml`）。
 
@@ -221,7 +221,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 窗口会为每个服务建一条同样时长的静默，备注是 `maintenance: <标题>`。这样施工碰坏的东西不会吵醒任何人。窗口结束，静默也结束。
 
-用其他方式建的静默（`POST /api/v1/silences`、`beacon silence create`），只要备注以 `maintenance:` 开头，也会显示为维护。安排和结束都记入审计日志并回显到告警群。
+Agent 安排的窗口属于 Agent，和它的静默一样（[接手告警](on-call.md#take-over-an-alert)）。它的静默只记录、不屏蔽任何告警，施工碰坏的东西照样通知人。状态页照样公告它，施工期间组件显示为维护，但期间的中断照样显示为中断，也计入可用率。只有人安排的窗口才会让告警不通知人，并覆盖期间发生的事。`GET /api/v1/maintenance` 和 `list_maintenance` 给 Agent 的窗口标上 `by_agent`。
+
+人用其他方式建的静默（`POST /api/v1/silences`、`beacon silence create`），只要备注以 `maintenance:` 开头，也会显示为维护。Agent 的静默不会。安排和结束都记入审计日志并回显到告警群。
 
 ## 独立域名 {#a-host-of-its-own}
 

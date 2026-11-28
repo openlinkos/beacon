@@ -540,6 +540,66 @@ func TestMaintenance(t *testing.T) {
 	}
 }
 
+// TestAgentMaintenanceHidesNothing: a window an agent schedules is an agent's: its silences mute nothing,
+// so people are still paged, and the pages announce it without covering an outage meanwhile. A silence
+// an agent made is no window at all.
+func TestAgentMaintenanceHidesNothing(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	agent := bridge.Actor{Name: "alice / claude", Via: "mcp", Key: "agent:claude"}
+	m, err := e.b.ScheduleMaintenance(ctx, agent, bridge.MaintenanceInput{Services: []string{"api.example.com"},
+		EndsAt: e.now.Add(7 * 24 * time.Hour), Title: "Database upgrade"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.ByAgent || len(e.am.Created) != 0 || len(e.am.Agents) != 1 || e.am.Agents[0]["service"] != "api.example.com" {
+		t.Fatalf("an agent's window: %+v, muting %v, agents' %v", m, e.am.Created, e.am.Agents)
+	}
+	p := e.page("public", "")
+	if c := component(t, p, "api"); c.Status != Maintenance || len(p.Maintenance) != 1 || p.Maintenance[0].Status != "active" {
+		t.Fatalf("announced: %s %+v", c.Status, p.Maintenance)
+	}
+	e.now = e.now.Add(30 * time.Minute)
+	e.state["api.example.com"] = between(e.now.Add(-10*time.Minute), e.now, minDown)
+	p = e.page("public", "")
+	if c := component(t, p, "api"); c.Status != Down || c.History[Days-1].Status != Down || c.History[Days-1].DownMinutes == 0 {
+		t.Errorf("an outage during an agent's window: %s %+v", c.Status, c.History[Days-1])
+	}
+	if p.Status != Down {
+		t.Errorf("overall: %s %q", p.Status, p.Summary)
+	}
+
+	// an agent's silence whose comment begins with maintenance: is not a window
+	err = e.st.PutSilence(store.SilenceRecord{ID: "s1", Matchers: []store.Matcher{{Name: "service", Value: "docker.example.com", IsEqual: true}},
+		StartsAt: e.now.Add(-time.Minute), EndsAt: e.now.Add(time.Hour), CreatedBy: "alice / claude", Comment: "maintenance: mirror move", ByAgent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.state["docker.example.com"] = between(e.now.Add(-10*time.Minute), e.now, minDown)
+	p = e.page("public", "")
+	if c := component(t, p, "mirrors"); c.Status != Down {
+		t.Errorf("under an agent's silence: %s", c.Status)
+	}
+	for _, w := range p.Maintenance {
+		if w.ID == "s-s1" {
+			t.Errorf("an agent's silence shown as a window: %+v", w)
+		}
+	}
+
+	// a person's window still covers what the work breaks
+	person := bridge.Actor{Name: "alice", Via: "console", Key: "user:alice"}
+	if _, err := e.b.ScheduleMaintenance(ctx, person, bridge.MaintenanceInput{Services: []string{"api.example.com"},
+		EndsAt: e.now.Add(time.Hour), Title: "Failover"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.am.Created) != 1 {
+		t.Errorf("a person's window mutes: %v", e.am.Created)
+	}
+	if c := component(t, e.page("public", ""), "api"); c.Status != Maintenance {
+		t.Errorf("during a person's window: %s", c.Status)
+	}
+}
+
 func TestMaintenanceChecks(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

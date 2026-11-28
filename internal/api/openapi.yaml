@@ -921,6 +921,7 @@ components:
         silences: {type: array, items: {type: string}, description: "One per service, with the comment maintenance: <title>"}
         ended: {type: string, format: date-time, description: When it was ended early}
         cancelled: {type: boolean, description: Called off before it began}
+        by_agent: {type: boolean, description: "Scheduled by an agent: its silences mute nothing, so people are still paged, and the status pages announce it without covering what happens meanwhile"}
     Config:
       type: object
       description: The configuration, or one kind of it, with the version in force

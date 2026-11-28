@@ -135,6 +135,9 @@ type Maintenance struct {
 	Silences    []string  `json:"silences,omitempty"`
 	Ended       time.Time `json:"ended,omitzero"`
 	Cancelled   bool      `json:"cancelled,omitempty"`
+	// ByAgent marks a window an agent scheduled: its silences are an agent's, which mute nothing, and
+	// the status pages announce it without letting it cover what happens meanwhile.
+	ByAgent bool `json:"by_agent,omitempty"`
 }
 
 // End is when the window ends: when it was ended early, or as planned.
