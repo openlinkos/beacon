@@ -436,12 +436,12 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request) {
 		s.signInForm(w, r, http.StatusTooManyRequests, next, withToken, "", s.t("Too many failed sign-ins from here; try again in a few minutes."))
 		return
 	}
-	if d, blocked := s.Auth.BlockedFor(r); blocked {
-		s.signInForm(w, r, http.StatusTooManyRequests, next, withToken, "", s.lockedOutFromHere(d))
+	if withToken { // a token that worked from here before passes the address's lockout (api.Auth)
+		s.signInWithToken(w, r, next)
 		return
 	}
-	if withToken {
-		s.signInWithToken(w, r, next)
+	if d, blocked := s.Auth.BlockedFor(r); blocked {
+		s.signInForm(w, r, http.StatusTooManyRequests, next, false, "", s.lockedOutFromHere(d))
 		return
 	}
 	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
@@ -476,8 +476,12 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, a store.Ac
 
 func (s *Server) signInWithToken(w http.ResponseWriter, r *http.Request, next string) {
 	secret := strings.TrimSpace(r.PostForm.Get("token"))
-	t, ok := s.Auth.Verify(r, secret)
-	if !ok {
+	t, wait, err := s.Auth.CheckToken(r, secret)
+	if errors.Is(err, api.ErrBlocked) {
+		s.signInForm(w, r, http.StatusTooManyRequests, next, true, "", s.lockedOutFromHere(wait))
+		return
+	}
+	if err != nil {
 		s.signInForm(w, r, http.StatusUnauthorized, next, true, "", s.t("The token is unknown or has expired."))
 		return
 	}

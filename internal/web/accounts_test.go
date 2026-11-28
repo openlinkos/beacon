@@ -196,7 +196,7 @@ func TestSetupAndSignInWithPassword(t *testing.T) {
 		t.Error("no token form")
 	}
 
-	// a username's wrong passwords are limited, from anywhere: then even the right one waits
+	// a username's wrong passwords lock it for the address that made them: then even the right one waits
 	m := e.browser()
 	for range 10 {
 		m.signInAs("alice", "not her password")
