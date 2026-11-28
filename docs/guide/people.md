@@ -55,6 +55,8 @@ A link works once, and none works once Beacon has an account. From then on, peop
 
 **People** lists the invitations not yet used, and **Withdraw** ends one. The chat hears that someone was invited and that someone joined, never the link.
 
+An invitation or a reset link works only while whoever made it could still make it: an enabled owner, an unexpired token with the scopes for it, or the command line. Disabling or demoting the person, or revoking the token, withdraws the links they made. A link from an older Beacon, which does not record who made it, no longer works: make a new one.
+
 A username:
 
 - is 2 to 32 lower-case letters, digits, dots, dashes and underscores, starting with a letter or a digit;
@@ -67,8 +69,18 @@ The display name is only how the console shows the person.
 
 A password has at least 10 characters, is not the username, and is not one of the commonest passwords. There are no other rules. Beacon keeps only its argon2id hash, compared in constant time.
 
-- **To change your own**, open **Your account** in the menu at the foot of the console's sidebar. Give the current password with the new one. Your other sign-ins end.
-- **A forgotten password** is reset by an owner, with **Password reset link** on the **People** page, or on the centre with `beacon user reset bob`. That prints a link that is shown once, works once and lasts 30 minutes. With it the person chooses a new password, and every sign-in of theirs ends.
+- **To change your own**, open **Your account** in the menu at the foot of the console's sidebar. Give the current password with the new one.
+- **A forgotten password** is reset by an owner, with **Password reset link** on the **People** page, or on the centre with `beacon user reset bob`. That prints a link that is shown once, works once and lasts 30 minutes. With it the person chooses a new password.
+
+A new password, chosen either way, ends:
+
+- the person's other console sign-ins;
+- the OAuth sign-ins of the person's agents (Claude Code, Codex and the like sign in again), with what they have open on machines and the SSH keys they added;
+- the other reset links for the person.
+
+The tokens of the person's agents keep working. The reset page names them, and **Also revoke these tokens now** revokes them with the new password. Otherwise revoke them on the agent's page. A reset also withdraws the invitations and reset links the person made.
+
+**People** lists the reset links not yet used, and **Withdraw** ends one.
 
 ## Change a role, disable someone {#change-a-role-disable-someone}
 
@@ -80,7 +92,9 @@ docker exec beacon beacon user disable bob         # bob is disabled
 docker exec beacon beacon user enable bob          # bob is enabled
 ```
 
-A lower role limits the person's sign-ins and their agents at once. Disabling someone ends their sign-ins, stops their agents and closes what those agents have open on machines. Nobody disables themself on the console.
+A lower role limits the person's sign-ins and their agents at once. Disabling someone ends their sign-ins, stops their agents and closes what those agents have open on machines. Either withdraws the invitations and reset links the person made. Nobody disables themself on the console.
+
+A standalone token with `accounts:write` invites, resets and changes only people whose role's scopes it holds, and gives only such roles. A token with `accounts:write` alone reaches nobody. Owners and the command line are not limited ([Roles, presets and scopes](../reference/permissions.md#presets)).
 
 `beacon user list` shows everyone, with their role, status, last sign-in and agents. The invitations not yet used follow.
 
@@ -198,7 +212,7 @@ The token keeps its secret and its expiry, so whatever uses it goes on working. 
 
 The preset is the one with exactly the token's scopes, or custom when none matches. So a claim never widens what a token may do.
 
-- `-preset` chooses another preset.
+- `-preset` chooses a narrower preset. One that asks for a scope the token does not hold is refused.
 - `-agent` names an existing agent of the same person to add the token to. It is refused when that agent may do more than the token may now.
 
 Machines' tokens are never legacy and never claimed: those of probes, hosts, heartbeats, the rule engine, change senders and metrics readers.
@@ -219,7 +233,7 @@ The commands for people and agents:
 
 `ROLE` is `viewer`, `oncall`, `operator` or `owner`. A preset is `readonly`, `oncall`, `operator` or `custom`. Every subcommand and flag is in the command-line reference: [Command line](../reference/cli.md).
 
-The same operations are on the REST API under `/api/v1/users` and `/api/v1/agents` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write` for owner accounts and standalone administration tokens. An Agent credential can manage its own SSH keys within its SSH access. Changing roles, disabling people and password resets are not offered through MCP.
+The same operations are on the REST API under `/api/v1/users` and `/api/v1/agents` ([REST API](../reference/api.md#people-and-ssh-keys)), with `accounts:write` for owner accounts and standalone administration tokens. An Agent credential can manage its own SSH keys within its SSH access. Changing roles, disabling people and password resets are not offered through MCP. Listing and withdrawing pending links are: `list_users` and `withdraw_link`.
 
 ## Security {#security}
 

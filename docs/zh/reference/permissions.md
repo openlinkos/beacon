@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-aff8024c
+sourceHash: sha256-a8f6f161
 ---
 
 # 角色、预设与权限 {#roles-presets-and-scopes}
@@ -31,6 +31,10 @@ Agent 能做的永远不超过其所有者的角色。一个 scope，要**预设
 
 只有所有者账号、独立管理令牌和本机命令行可以管理成员账号。即使旧的自定义权限包含 `accounts:write`，Agent 身份也不能用它管理成员账号或 Agent 身份。
 
+独立令牌受限于其自身 scope 覆盖的角色。只有持有某个成员角色的全部 scope，它才能邀请、为此人生成重设密码链接或修改此人（角色、停用、显示名、联系方式）；只有持有某个角色的全部 scope，它才能授予这个角色。只有 `accounts:write` 的令牌谁都不能邀请、重设或修改；带值班成员 scope 和 `accounts:write` 的令牌能管到查看者和值班成员。只有持有所有者全部 scope 的令牌才能管到所有者。本机命令行不受此限，所有者账号本就持有全部 scope。撤回待用的链接只会收回访问，所以任何能管理成员账号的凭据都可以撤回。
+
+邀请链接和重设链接在打开时和使用时都会重新检查：只有生成它的人按上述规则仍然能生成它时，链接才有效。
+
 | 预设 | 它要的 scope | 谁的 Agent 拿到它 |
 | --- | --- | --- |
 | `readonly` | `status:read`、`sessions:read` | viewer 的 Agent 至多拿到它 |
@@ -56,7 +60,7 @@ OAuth 登录（Claude Code、Codex）还另外受限于这个人在授权页上�
 | `incidents:write` | operator 及以上 | 为手工写事件预留；还没有路径用它 |
 | `machines:write` | operator 及以上 | 增删改机器、连接器密钥、暂停 Agent 的访问 |
 | `config:write` | owner | 改 Beacon 监控什么：目录、目标集合、模块、状态页 |
-| `accounts:write` | 所有者账号或独立管理令牌 | 管理成员账号和所有人的 Agent |
+| `accounts:write` | 所有者账号或独立管理令牌 | 在凭据自身 scope 覆盖的角色内管理成员账号，以及管理所有人的 Agent |
 | `secrets:use` | owner；仅自定义 Agent | 列出和使用明确授权给该 Agent 的团队凭据 |
 | `alerts:report` | 独立令牌或 owner 的自定义 Agent | 为 `agents[].reporter` 指定给该身份的投递回报执行情况 |
 | `probe:write` | 机器的令牌，来自 `beacon enroll probe <location>` | 推送结果、取目标与设置；需要主体，只以自己的检测点身份写入 |

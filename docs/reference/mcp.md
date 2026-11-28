@@ -211,8 +211,9 @@ The public status pages are made from the alert groups and the maintenance windo
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used |
-| `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only |
+| `list_users` | `accounts:write` | The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents), the invitations not yet used and the password reset links not yet used, never with their codes |
+| `invite_user` | `accounts:write` | A one-time link, valid for 24 hours, with which a person joins with a `role` (and a `note` saying who it is for); hand it to that person only. The token must hold every scope of the role |
+| `withdraw_link` | `accounts:write` | Withdraw a pending invitation or password reset link by its `id`, as `list_users` gives it; it stops working at once |
 | `list_agents` | owner or person (never an agent) | List agents with their owner, preset, effective scopes and machine access (optional `owner` filter for administrators) |
 | `get_agent` | owner or person (never an agent) | Inspect one agent by `name`, including its effective scopes, machine access, tokens, OAuth grants and SSH keys |
 | `create_agent` | any credential; the bridge decides | Make an agent (`name`, `owner`, `preset`, `scopes`, `machines`, `expires`). Custom scopes need `accounts:write` from a person or a legacy token, never an agent, within the owner's role and within what the caller may do. A caller never gives an agent a scope or a machine it does not hold itself. `expires` (such as `90d`) returns a token, its secret shown once |

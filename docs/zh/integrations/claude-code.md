@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-0ddc5fab
+sourceHash: sha256-bd2ea9e7
 ---
 
 # Claude Code
@@ -19,12 +19,16 @@ Claude Code 通过浏览器、用 MCP 的 OAuth 登录 Beacon。添加 Beacon �
 
 浏览器会打开 Beacon 的授权页面「Claude Code 想以你的身份使用 Beacon」。没登录控制台的话，先登录。页面问四件事：
 
-- **Agent 名称**：`claude-code`，或者你已有的那个 Claude Code 的 Agent。以后用同一个名字会沿用这个 Agent。别人 Agent 的名字会被拒绝。所以别人已经有一个 `claude-code` 时，表单给出的是 `claude-code-alice`。
+- **Agent 名称**：你之前为这个客户端创建的 Agent，或以它命名的新名字，例如 `claude-code`。表单从不默认给出为别的客户端创建的、或手动创建的 Agent，即使它和客户端同名：你可以手动填写它的名字来沿用它。以后用同一个名字会沿用这个 Agent。别人 Agent 的名字会被拒绝。所以别人已经有一个 `claude-code` 时，表单给出的是 `claude-code-alice`；你自己有一个以别的方式创建的 `claude-code` 时，给出的是 `claude-code-2`。
 - **可以做什么**：你的角色范围内的预设。默认选最强的那个，或客户端申请的预设中最强的那个。沿用已有的 Agent 时，不会比这个 Agent 自己的预设更强。你可以选更弱的。
 - **机器**：全部，或只限你勾选的。沿用已有的 Agent 时，只能在它自己的机器里选。
 - **有效多久**：1 天、30 天或 90 天，默认 30 天。
 
 页面底部写着 Beacon 会把你送回哪里：你这台机器上 `localhost` 的一个端口，Claude Code 在那里等着。
+
+客户端的名称是它自己报的。所以页面顶部还写着 Beacon 另外知道的情况：描述这个客户端的元数据文档在哪个主机上（Claude Code 的是 `claude.ai`），或者这个客户端是什么时候自行注册的。授权结果要送到一个网站而不是你这台机器上的程序时，会有醒目的警告写出这个网站。只允许你自己刚刚发起登录的客户端。
+
+请求有问题时，Beacon 停在自己的页面上，什么也不会发给客户端。只有你已经允许过的客户端，才会在它的回调地址收到错误。
 
 - 点**允许**，Beacon 创建这个 Agent，或原样沿用你已有的那个。它把一个一次性授权码交给 Claude Code，Claude Code 用它换取令牌。之后 `/mcp` 里会显示 `beacon` 已连接。
 - 点**拒绝**，Claude Code 会知道你不同意。

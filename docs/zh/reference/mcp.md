@@ -1,5 +1,5 @@
 ---
-sourceHash: sha256-4ffd092c
+sourceHash: sha256-c9ed7050
 ---
 
 # MCP 工具
@@ -215,8 +215,9 @@ Beacon 监控的内容，按文件里的格式读写（[检测一个服务](../g
 
 | 工具 | 作用域 | 做什么 |
 | --- | --- | --- |
-| `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）和尚未使用的邀请 |
-| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人 |
+| `list_users` | `accounts:write` | 登录 Beacon 的成员（用户名、显示名、角色、最近登录、是否停用、他们的 Agent）、尚未使用的邀请和尚未使用的重设密码链接，都不带链接的 code |
+| `invite_user` | `accounts:write` | 一个一次性链接，24 小时内有效，一个人凭它以某个 `role` 加入（`note` 说明是给谁的）；只交给那个人。令牌必须持有这个角色的全部 scope |
+| `withdraw_link` | `accounts:write` | 按 `list_users` 给出的 `id` 撤回一条待用的邀请或重设密码链接；它立即失效 |
 | `list_agents` | 成员本人或管理员（禁止 Agent 调用） | 列出可见的 Agent 及其所有者、预设、生效作用域与主机范围（管理员可按 `owner` 筛选） |
 | `get_agent` | 成员本人或管理员（禁止 Agent 调用） | 按 `name` 查看单个 Agent 的有效作用域、主机范围、令牌、OAuth 授权与 SSH 密钥 |
 | `create_agent` | 任何凭据；由 bridge 决定 | 创建一个 Agent（`name`、`owner`、`preset`、`scopes`、`machines`、`expires`）。自定义 scope 需要人或旧式令牌持有 `accounts:write`，绝不是 Agent，且不超过所有者的角色和调用者自己能做的。调用者绝不会给 Agent 一个自己并不持有的 scope 或机器。`expires`（如 `90d`）会返回令牌，密钥只显示一次 |

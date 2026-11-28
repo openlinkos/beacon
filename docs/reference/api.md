@@ -228,12 +228,15 @@ The people who sign in to Beacon, for an owner's credential, and the caller's ow
 
 Account and Agent administration requires an owner account, an independent token with `accounts:write`, or the local administrator command line. An Agent credential cannot administer accounts or Agent identities, even when an older custom scope includes `accounts:write`. Agents with SSH access can manage their own SSH keys. Password resets have no MCP tool.
 
+A token invites, resets or changes only people whose role's scopes it holds, and gives only such roles; anything else is `auth.scope` ([Roles, presets and scopes](permissions.md#presets)).
+
 | Route | Scope | What |
 | --- | --- | --- |
-| `GET /api/v1/users` | `accounts:write` | The people (username, display name, role, last sign-in, whether disabled, their agents; never a password or its hash) and the invitations not yet used |
+| `GET /api/v1/users` | `accounts:write` | The people (username, display name, role, last sign-in, whether disabled, their agents; never a password or its hash), the invitations not yet used, and the password reset links not yet used (`reset_links`), never with their codes |
 | `POST /api/v1/users/invitations` | `accounts:write` | Invite someone with a `role` and a `note`: a one-time link, valid for 24 hours, in the answer only |
 | `PATCH /api/v1/users/{name}` | `accounts:write` | Change a person's `role`, `display_name` or `feishu_open_id` (a contact field, never used to sign in), or set `disabled`; it takes effect at once on their sessions and agents. Beacon always keeps an enabled owner (`user.last_owner`) |
-| `POST /api/v1/users/{name}/reset` | `accounts:write` | A one-time password reset link, valid for 30 minutes, in the answer only |
+| `POST /api/v1/users/{name}/reset` | `accounts:write` | A one-time password reset link, valid for 30 minutes, in the answer only. The new password ends the person's console sign-ins and their agents' OAuth sign-ins |
+| `DELETE /api/v1/users/links/{id}` | `accounts:write` | Withdraw a pending invitation or reset link by its `id` (`link.not_found` when none is pending) |
 | `GET /api/v1/ssh-keys` | `machines:ssh` | The caller's own SSH keys; an agent's are its agent's, whichever of its credentials asks, and a key the agent registered itself says through which (`via`: `token:NAME` or `grant:ID`) |
 | `POST /api/v1/ssh-keys` | `machines:ssh` | Register a public key: `key` (an `authorized_keys` line) and `comment`. An agent's key belongs to the credential it came with: it works while that token or OAuth sign-in does, and is removed with it. A key belongs to one agent or token, never to a machine's connector (`key.exists`) |
 | `DELETE /api/v1/ssh-keys` | `machines:ssh` | Remove one, `?fingerprint=SHA256:…`; connections signed in with it are closed |
@@ -373,6 +376,7 @@ Each sends with a token of its own:
 | `token.not_revocable` | 403 | The token neither reaches machines nor is an agent's; machines' and services' tokens are revoked with `beacon token revoke` on the centre |
 | `user.not_found` | 404 | No person of that name |
 | `user.last_owner` | 409 | The change would leave Beacon without an enabled owner; make someone else owner first |
+| `link.not_found` | 404 | No pending invitation or reset link with that ID |
 | `key.not_found` | 404 | The caller has no SSH key with that fingerprint |
 | `key.exists` | 409 | The key belongs to another agent or token, or is a machine's connector key |
 | `agent.not_found` | 404 | No agent with this name. A legacy token is not an agent, and this route does not widen it |
