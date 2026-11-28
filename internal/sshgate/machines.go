@@ -220,6 +220,9 @@ func (g *Gate) Add(ctx context.Context, who Actor, in MachineInput) (Added, erro
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: addr + " " + ssh.FingerprintSHA256(k)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, addr))
+	if m.Critical && (!exists || !old.Critical) {
+		g.postCriticalNames(ctx, m.Name)
+	}
 	t, _ := g.principal(who)
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey()}, nil
 }
@@ -304,15 +307,33 @@ func (g *Gate) applyMachineMetadata(ctx context.Context, who Actor, name string,
 		return MachineView{}, machineVersionError(name, err)
 	}
 	if before.MetadataVersion != m.MetadataVersion {
-		g.Recheck() // another account, say: what was open as the old one closes
+		g.Recheck() // another account, or the critical mark: what was open by whoever no longer reaches it closes
 		if restore > 0 {
 			g.post(ctx, i18n.T(g.d.Lang, "%s restored machine %s to settings from version %d", who.Name, m.Name, restore))
 		} else {
 			g.post(ctx, i18n.T(g.d.Lang, "%s changed machine %s", who.Name, m.Name))
 		}
+		if m.Critical && !before.Critical {
+			g.postCriticalNames(ctx, m.Name)
+		}
 	}
 	t, _ := g.principal(who)
 	return g.view(m, t), nil
+}
+
+// postCriticalNames tells the chat which credentials keep a machine just marked critical, and until
+// when at the latest (store.CriticalGrantTTL).
+func (g *Gate) postCriticalNames(ctx context.Context, machine string) {
+	named := g.d.Store.NamedOn(machine)
+	if len(named) == 0 {
+		return
+	}
+	var names []string
+	for _, c := range named {
+		names = append(names, c.Kind+":"+c.Name)
+	}
+	until := g.now().Add(store.CriticalGrantTTL).UTC().Format("2006-01-02")
+	g.post(ctx, i18n.T(g.d.Lang, "Machine %s is critical: these credentials name it and keep it until %s at the latest: %s", machine, until, strings.Join(names, ", ")))
 }
 
 // Remove forgets a machine; its sessions stay on record. What is open on it closes, and a connector

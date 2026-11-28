@@ -115,6 +115,34 @@ func TestResumeByPerson(t *testing.T) {
 	}
 }
 
+// TestCriticalMarkRechecks: marking a machine critical closes what credentials with all machines have open
+// on it, and the credentials that name it keep it, with an end, as the chat is told.
+func TestCriticalMarkRechecks(t *testing.T) {
+	needShell(t)
+	e := setup(t)
+	ctx := context.Background()
+	alice, _ := e.people(t)
+	deploy := e.token(t, "deploy", store.NamedAccess("box"))
+	key := signer(t)
+	e.giveKey(t, deploy.Name, key)
+
+	done := e.open(t, e.agentKey) // claude-code, with all machines
+	on := true
+	if _, err := e.g.Update(ctx, alice, "box", MachineUpdate{Critical: &on}); err != nil {
+		t.Fatal(err)
+	}
+	ended(t, done, "box marked critical")
+	if m, _ := e.st.Machine("box"); !m.Critical {
+		t.Fatal("box is not critical")
+	}
+	done = e.open(t, key) // deploy names box
+	e.g.Recheck()
+	alive(t, done, "a recheck of a credential that names box")
+	if got := e.bot.all(); !strings.Contains(got, "Machine box is critical") || !strings.Contains(got, "token:deploy") || strings.Contains(got, "token:claude-code") {
+		t.Errorf("echo %q", got)
+	}
+}
+
 func ecdsaKey(t *testing.T) string {
 	t.Helper()
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

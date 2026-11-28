@@ -537,6 +537,9 @@ func (g *Gate) addConnector(ctx context.Context, who Actor, in MachineInput) (Ad
 	}
 	_ = g.d.Store.Audit(store.AuditEntry{Actor: who.Name, Via: who.Via, Action: "machine_add", Target: m.Name, Detail: strings.TrimSpace(detail)})
 	g.post(ctx, i18n.T(g.d.Lang, "%s added machine %s (%s)", who.Name, m.Name, store.ConnectorAddress))
+	if m.Critical && (!exists || !old.Critical) {
+		g.postCriticalNames(ctx, m.Name)
+	}
 	t, _ := g.principal(who)
 	return Added{Machine: g.view(m, t), TrustedUserCAKey: g.CAPublicKey(), Connector: g.connectorSetup(m)}, nil
 }
