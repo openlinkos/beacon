@@ -54,7 +54,8 @@ Domains:
 4. Status & Maintenance (get_status_page, list_maintenance, schedule_maintenance, end_maintenance):
    Inspect public status pages and plan maintenance windows that announce publicly and silence alerts.
 5. Identity & Delegation (describe_capabilities, whoami, renew_token, revoke_token, list_agents,
-   get_agent, create_agent, update_agent, list_ssh_keys, add_ssh_key, remove_ssh_key, list_users, invite_user):
+   get_agent, create_agent, update_agent, list_ssh_keys, add_ssh_key, remove_ssh_key, list_users, invite_user,
+   withdraw_link):
    whoami reports your actor identity, preset, scopes and machine bounds; renew_token rotates static
    tokens (at most once a day). Signed in with OAuth, your client refreshes access automatically.
 6. Governance (list_audit, create_share_link, revoke_share_links, list_team_credentials, use_team_credential):

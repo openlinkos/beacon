@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -89,7 +90,7 @@ func TestKeyAndPeopleTools(t *testing.T) {
 	}
 
 	// an owner's credential (a token made on the host with accounts:write) lists people and invites
-	owner := connect(t, srv.URL, e.Token(t, "owner-script", "status:read", "accounts:write"))
+	owner := connect(t, srv.URL, e.Token(t, "owner-script", "status:read", "sessions:read", "alerts:write", "machines:ssh", "accounts:write"))
 	if _, text := call(t, owner, "list_users", nil); !strings.Contains(text, `"username":"alice"`) || strings.Contains(text, "argon2") {
 		t.Errorf("list_users: %s", text)
 	}
@@ -99,5 +100,39 @@ func TestKeyAndPeopleTools(t *testing.T) {
 	}
 	if res, _ := call(t, owner, "invite_user", map[string]any{"role": "emperor"}); !res.IsError {
 		t.Error("an invitation with an unknown role")
+	}
+	// within the roles its scopes cover: no owner's invitation from an on-call token
+	if res, text := call(t, owner, "invite_user", map[string]any{"role": "owner"}); !res.IsError || !strings.Contains(text, "which you do not hold") {
+		t.Errorf("an owner's invitation from a token without an owner's scopes: %s", text)
+	}
+
+	// pending links are listed without their codes, and withdrawn
+	if _, err := e.Bridge.ResetLink(context.Background(), bridge.Actor{Name: "cli:root", Via: "cli"}, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	_, text = call(t, owner, "list_users", nil)
+	var listed struct {
+		Invitations []bridge.LinkView `json:"invitations"`
+		ResetLinks  []bridge.LinkView `json:"reset_links"`
+	}
+	if err := json.NewDecoder(strings.NewReader(text)).Decode(&listed); err != nil || len(listed.Invitations) != 1 || len(listed.ResetLinks) != 1 ||
+		listed.ResetLinks[0].User != "alice" || strings.Contains(text, "code=") {
+		t.Fatalf("list_users with pending links: %v %s", err, text)
+	}
+	res, text = call(t, owner, "withdraw_link", map[string]any{"id": listed.ResetLinks[0].ID})
+	if res.IsError || !strings.Contains(text, `"kind":"reset"`) {
+		t.Fatalf("withdraw_link: %s", text)
+	}
+	if links := e.Store.ResetLinks(); len(links) != 0 {
+		t.Errorf("a withdrawn reset link is pending: %+v", links)
+	}
+	if res, _ := call(t, owner, "withdraw_link", map[string]any{"id": listed.ResetLinks[0].ID}); !res.IsError {
+		t.Error("a link withdrawn twice")
+	}
+	if !strings.Contains(strings.Join(e.Bot.Texts, "\n"), "owner-script withdrew a password reset link for alice via MCP") {
+		t.Errorf("chat: %v", e.Bot.Texts)
+	}
+	if res, _ := call(t, cs, "withdraw_link", map[string]any{"id": listed.Invitations[0].ID}); !res.IsError {
+		t.Error("an agent withdrew a link")
 	}
 }

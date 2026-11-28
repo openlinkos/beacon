@@ -30,6 +30,7 @@ func (s *Server) registerAccounts(at func(method, path string, h http.HandlerFun
 	at("GET", "/people", s.console("accounts:write", s.people))
 	at("POST", "/people/invite", s.action("accounts:write", s.invite))
 	at("POST", "/people/invitations/{id}/withdraw", s.action("accounts:write", s.withdraw))
+	at("POST", "/people/links/{id}/withdraw", s.action("accounts:write", s.withdrawLink))
 	at("POST", "/people/{name}/role", s.action("accounts:write", s.setRole))
 	at("POST", "/people/{name}/disable", s.action("accounts:write", s.setDisabled(true)))
 	at("POST", "/people/{name}/enable", s.action("accounts:write", s.setDisabled(false)))
@@ -114,6 +115,8 @@ func (s *Server) accountProblem(kind string, err error) string {
 		return s.t("That password is one of the commonest; choose another.")
 	case errors.Is(err, store.ErrExists):
 		return s.t("Someone has this username; choose another.")
+	case errors.Is(err, store.ErrLinkWithdrawn):
+		return s.t("This link no longer works: whoever made it may no longer make such a link. Ask an owner for a new one.")
 	case errors.Is(err, store.ErrLinkExpired):
 		if kind == store.LinkSetup {
 			return s.t("This link has expired. Run beacon setup to make a new one.")
@@ -134,7 +137,7 @@ func (s *Server) accountProblem(kind string, err error) string {
 // ---- setting up, joining, resetting
 
 type accountFormLabels struct {
-	Username, UsernameHint, DisplayName, DisplayHint, Password, PasswordHint, Again, Submit, SignIn string
+	Username, UsernameHint, DisplayName, DisplayHint, Password, PasswordHint, Again, Submit, SignIn, RevokeTokens string
 }
 
 type accountFormPage struct {
@@ -146,6 +149,10 @@ type accountFormPage struct {
 	Broken                          bool // the link does not work: nothing to fill in
 	AskUsername                     bool
 	SignInHref                      string
+	// Tokens, for a reset, are the tokens of the person's agents, which a new password leaves working
+	// unless the person ticks RevokeTokens; TokensNote names them.
+	Tokens     []string
+	TokensNote string
 }
 
 var accountFormTmpl = parse("accountform.html")
@@ -154,7 +161,7 @@ func (s *Server) accountFormLabels(kind string) accountFormLabels {
 	l := accountFormLabels{Username: s.t("Username"), UsernameHint: s.t("2 to 32 lower-case letters, digits, dots, dashes and underscores. It names you in the audit log and cannot change later."),
 		DisplayName: s.t("Display name"), DisplayHint: s.t("How the console shows you; your username when empty."),
 		Password: s.t("Password"), PasswordHint: s.t("At least 10 characters; not your username, not one of the commonest passwords."),
-		Again: s.t("Password again"), SignIn: s.t("Sign in")}
+		Again: s.t("Password again"), SignIn: s.t("Sign in"), RevokeTokens: s.t("Also revoke these tokens now")}
 	switch kind {
 	case store.LinkSetup:
 		l.Submit = s.t("Set Beacon up")
@@ -201,7 +208,13 @@ func (s *Server) accountForm(w http.ResponseWriter, r *http.Request, status int,
 	default:
 		p.Heading, p.Title = s.t("Choose a new password"), s.t("Choose a new password")+" – Beacon"
 		if !p.Broken {
-			p.Intro = s.t("For %s. Every sign-in of this account ends.", l.User)
+			p.Intro = s.t("For %s. Every console sign-in of this account ends, and so does every OAuth sign-in of its agents.", l.User)
+			for _, t := range s.Bridge.PersonTokens(l.User) {
+				p.Tokens = append(p.Tokens, t.Name)
+			}
+			if len(p.Tokens) > 0 {
+				p.TokensNote = s.t("These tokens of its agents keep working unless you revoke them: %s.", strings.Join(p.Tokens, ", "))
+			}
 		}
 	}
 	s.renderStatus(w, status, accountFormTmpl, p)
@@ -243,7 +256,7 @@ func (s *Server) accountFormPost(kind string) http.HandlerFunc {
 			err error
 		)
 		if kind == store.LinkReset {
-			a, err = s.Bridge.Reset(r.Context(), code, f.Get("password"))
+			a, err = s.Bridge.Reset(r.Context(), code, f.Get("password"), f.Get("revoke_tokens") == "1")
 		} else {
 			a, err = s.Bridge.Join(r.Context(), code, username, display, f.Get("password"))
 		}
@@ -288,7 +301,7 @@ func (s *Server) accountPage(w http.ResponseWriter, r *http.Request, v *viewer) 
 			p.Facts = append(p.Facts, kvLink{K: s.t("Last sign-in"), V: s.clock(a.LastSignIn)})
 		}
 		p.Facts = append(p.Facts, kvLink{K: s.t("Agents"), V: num(len(s.Store.Agents(a.Username))), Href: consolePath("/agents")})
-		p.Help = s.t("A new password ends every other sign-in of yours.")
+		p.Help = s.t("A new password ends your other console sign-ins and the OAuth sign-ins of your agents. Your agents' tokens keep working; revoke them on the Agents page.")
 		p.SSH = s.personalKeys(v)
 		if p.SSH != nil {
 			p.SSH.Return = s.incidentKeyReturn(v, r.URL.Query())
@@ -415,7 +428,7 @@ func passwordCode(err error) string {
 
 type peopleLabels struct {
 	Person, Role, LastSignIn, Agents, Status, Disabled, Enabled, Disable, Enable, Reset, Change, Invite, InviteHelp, Note, NoteHint, Send,
-	Pending, Expires, By, Withdraw, NoInvitations, Never, You string
+	Pending, Expires, By, Withdraw, NoInvitations, Never, You, ResetLinks, ResetFor, NoResetLinks string
 }
 
 type personRow struct {
@@ -427,11 +440,15 @@ type personRow struct {
 
 type invitationRow struct{ Role, Note, By, Expires, Withdraw string }
 
+// resetLinkRow is a password reset link not yet used: for whom, who made it, until when.
+type resetLinkRow struct{ User, By, Expires, Withdraw string }
+
 type peoplePage struct {
 	shell       `json:"-"`
 	L           peopleLabels
 	Rows        []personRow
 	Invitations []invitationRow
+	ResetLinks  []resetLinkRow
 	Roles       []option
 }
 
@@ -449,7 +466,8 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request, v *viewer) {
 		Change: s.t("Change"), Invite: s.t("Invite someone"), InviteHelp: s.t("A one-time link, valid for 24 hours, with which the person chooses their username and password. Send it to them only."),
 		Note: s.t("Note"), NoteHint: s.t("Who it is for, as the list of invitations shows it"), Send: s.t("Make the link"),
 		Pending: s.t("Invitations not yet used"), Expires: s.t("Expires"), By: s.t("By"), Withdraw: s.t("Withdraw"),
-		NoInvitations: s.t("No invitation is waiting."), Never: s.t("Never"), You: s.t("you")}}
+		NoInvitations: s.t("No invitation is waiting."), Never: s.t("Never"), You: s.t("you"),
+		ResetLinks: s.t("Password reset links not yet used"), ResetFor: s.t("For"), NoResetLinks: s.t("No password reset link is waiting.")}}
 	p.Count = num(len(users))
 	for _, u := range users {
 		path := consolePath("/people/") + url.PathEscape(u.Username)
@@ -465,6 +483,11 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request, v *viewer) {
 	for _, l := range invs {
 		p.Invitations = append(p.Invitations, invitationRow{Role: s.roleName(l.Role), Note: l.Note, By: l.CreatedBy, Expires: s.clock(l.Expires),
 			Withdraw: consolePath("/people/invitations/") + url.PathEscape(l.ID) + "/withdraw"})
+	}
+	resets, _ := s.Bridge.ResetLinks(v.actor())
+	for _, l := range resets {
+		p.ResetLinks = append(p.ResetLinks, resetLinkRow{User: l.User, By: l.CreatedBy, Expires: s.clock(l.Expires),
+			Withdraw: consolePath("/people/links/") + url.PathEscape(l.ID) + "/withdraw"})
 	}
 	s.render(w, peopleTmpl, p)
 }
@@ -501,6 +524,14 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request, v *viewer) {
 	back(w, r, consolePath("/people"), "done", "withdrawn")
 }
 
+func (s *Server) withdrawLink(w http.ResponseWriter, r *http.Request, v *viewer) {
+	if _, err := s.Bridge.WithdrawLink(r.Context(), v.actor(), r.PathValue("id")); err != nil {
+		s.failed(w, r, consolePath("/people"), "withdraw", err)
+		return
+	}
+	back(w, r, consolePath("/people"), "done", "link_withdrawn")
+}
+
 func (s *Server) setRole(w http.ResponseWriter, r *http.Request, v *viewer) {
 	role := r.PostForm.Get("role")
 	if _, err := s.Bridge.UpdateUser(r.Context(), v.actor(), r.PathValue("name"), bridge.UserChange{Role: &role}); err != nil {
@@ -535,8 +566,16 @@ func (s *Server) resetLink(w http.ResponseWriter, r *http.Request, v *viewer) {
 		s.failed(w, r, consolePath("/people"), "reset", err)
 		return
 	}
+	text := s.t("With this link %s chooses a new password, once, until %s. Their console sign-ins and the OAuth sign-ins of their agents end then.", l.User, s.clock(l.Expires))
+	var tokens []string
+	for _, t := range s.Bridge.PersonTokens(l.User) {
+		tokens = append(tokens, t.Name)
+	}
+	if len(tokens) > 0 {
+		text += " " + s.t("The tokens of their agents keep working unless they are revoked, on the Agents page or when the new password is chosen: %s.", strings.Join(tokens, ", "))
+	}
 	p := oncePage{shell: s.shellFor(r, v, "people", s.t("Password reset link"), crumb{Label: s.t("People"), Href: consolePath("/people")}), Value: l.URL,
-		Text:    s.t("With this link %s chooses a new password, once, until %s; every sign-in of theirs ends then.", l.User, s.clock(l.Expires)),
+		Text:    text,
 		Warning: s.t("The link is shown only now; Beacon keeps only a hash of it."), Back: s.t("Back to the people"), BackHref: consolePath("/people")}
 	s.renderStatus(w, http.StatusCreated, onceTmpl, p)
 }

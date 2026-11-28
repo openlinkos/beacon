@@ -11,14 +11,19 @@ import (
 )
 
 // People and the caller's SSH keys, as the REST routes under /api/v1/users and /api/v1/ssh-keys offer
-// them: list_users and invite_user for an owner's credential (accounts:write); list_ssh_keys,
-// add_ssh_key and remove_ssh_key for any credential with machines:ssh, on its own keys. Password resets
-// and role changes are not offered here: they are for people, on the console or the host.
+// them: list_users, invite_user and withdraw_link for an owner's credential (accounts:write);
+// list_ssh_keys, add_ssh_key and remove_ssh_key for any credential with machines:ssh, on its own keys.
+// Password resets and role changes are not offered here: they are for people, on the console or the
+// host. Withdrawing a pending link only takes access away, so it is.
 
 type (
 	usersOut struct {
 		Users       []bridge.UserView `json:"users"`
 		Invitations []bridge.LinkView `json:"invitations"`
+		ResetLinks  []bridge.LinkView `json:"reset_links"`
+	}
+	withdrawLinkIn struct {
+		ID string `json:"id" jsonschema:"the pending invitation's or password reset link's id, as list_users gives it"`
 	}
 	inviteIn struct {
 		Role string `json:"role" jsonschema:"what the person may do: viewer, oncall, operator or owner"`
@@ -65,25 +70,41 @@ type (
 
 func addPeopleTools(s *mcp.Server, b *bridge.Bridge) {
 	registerTool(s, &mcp.Tool{Name: "list_users", Title: "List people", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: t(false)},
-		Description: "The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents) and the invitations not yet used. Needs a standalone token with accounts:write."},
+		Description: "The people who sign in to Beacon (username, display name, role, last sign-in, whether disabled, their agents), and the invitations and password reset links not yet used (never their codes). Needs a standalone token with accounts:write."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mcp.CallToolResult, usersOut, error) {
 			who, err := need(ctx, "accounts:write")
 			if err != nil {
 				return nil, usersOut{}, err
 			}
 			users, invs, err := b.Users(who)
-			return nil, usersOut{Users: users, Invitations: invs}, err
+			if err != nil {
+				return nil, usersOut{}, err
+			}
+			resets, err := b.ResetLinks(who)
+			return nil, usersOut{Users: users, Invitations: invs, ResetLinks: resets}, err
 		})
 
 	registerTool(s, &mcp.Tool{Name: "invite_user", Title: "Invite a person",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(false), OpenWorldHint: t(false)},
-		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write. Recorded and echoed to the alert chat (without the link)."},
+		Description: "Make a one-time link, valid for 24 hours, with which a person joins Beacon with a role, choosing their username and password. Hand the link to that person only. Needs a standalone token with accounts:write and every scope the role gives; the link works only while the token still could make it. Recorded and echoed to the alert chat (without the link)."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in inviteIn) (*mcp.CallToolResult, bridge.LinkView, error) {
 			who, err := need(ctx, "accounts:write")
 			if err != nil {
 				return nil, bridge.LinkView{}, err
 			}
 			l, err := b.Invite(ctx, who, in.Role, in.Note)
+			return nil, l, err
+		})
+
+	registerTool(s, &mcp.Tool{Name: "withdraw_link", Title: "Withdraw a pending link",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: t(true), IdempotentHint: true, OpenWorldHint: t(false)},
+		Description: "Withdraw a pending invitation or password reset link by its id (list_users), so that it stops working at once. Needs a standalone token with accounts:write. Recorded and echoed to the alert chat."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in withdrawLinkIn) (*mcp.CallToolResult, bridge.LinkView, error) {
+			who, err := need(ctx, "accounts:write")
+			if err != nil {
+				return nil, bridge.LinkView{}, err
+			}
+			l, err := b.WithdrawLink(ctx, who, in.ID)
 			return nil, l, err
 		})
 

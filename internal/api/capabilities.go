@@ -245,8 +245,9 @@ var opDefs = []opDef{
 	{tool: "list_ssh_keys", rest: "GET /api/v1/ssh-keys", domain: DomainIdentity, access: "read", scopes: []string{"machines:ssh"}, summary: "List your registered public SSH keys for Beacon's SSH channel."},
 	{tool: "add_ssh_key", rest: "POST /api/v1/ssh-keys", domain: DomainIdentity, access: "write", scopes: []string{"machines:ssh"}, summary: "Register a public SSH key so native ssh, scp, sftp and rsync work through Beacon."},
 	{tool: "remove_ssh_key", rest: "DELETE /api/v1/ssh-keys", domain: DomainIdentity, access: "destructive", scopes: []string{"machines:ssh"}, summary: "Remove one of your SSH public keys by fingerprint and close matching sessions."},
-	{tool: "list_users", rest: "GET /api/v1/users", domain: DomainIdentity, access: "read", scopes: []string{"accounts:write"}, scopeMode: "standalone_admin", summary: "List Beacon accounts and pending invitations (standalone owner credential required)."},
-	{tool: "invite_user", rest: "POST /api/v1/users/invitations", domain: DomainIdentity, access: "write", scopes: []string{"accounts:write"}, scopeMode: "standalone_admin", summary: "Generate a one-time 24-hour invitation link for a new team member."},
+	{tool: "list_users", rest: "GET /api/v1/users", domain: DomainIdentity, access: "read", scopes: []string{"accounts:write"}, scopeMode: "standalone_admin", summary: "List Beacon accounts, pending invitations and pending password reset links (standalone owner credential required)."},
+	{tool: "invite_user", rest: "POST /api/v1/users/invitations", domain: DomainIdentity, access: "write", scopes: []string{"accounts:write"}, scopeMode: "standalone_admin", summary: "Generate a one-time 24-hour invitation link for a new team member, within the roles your scopes cover."},
+	{tool: "withdraw_link", rest: "DELETE /api/v1/users/links/{id}", domain: DomainIdentity, access: "destructive", scopes: []string{"accounts:write"}, scopeMode: "standalone_admin", summary: "Withdraw a pending invitation or password reset link so it stops working at once."},
 
 	// Governance: Audit, Share Links & Team Credentials
 	{tool: "list_audit", rest: "GET /api/v1/audit", domain: DomainGovernance, access: "read", scopes: []string{"status:read"}, summary: "Query the hash-chained audit log of recorded writes, filterable by actor, action and target."},

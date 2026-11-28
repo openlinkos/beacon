@@ -89,6 +89,9 @@ var (
 	// ErrLinkExpired names the one case ErrBadLink can prove: the link's time is up. It wraps ErrBadLink,
 	// so an expired link still counts as a bad one wherever that matters.
 	ErrLinkExpired = fmt.Errorf("the link has expired: %w", ErrBadLink)
+	// ErrLinkWithdrawn means whoever made the link may no longer make it: disabled, demoted, their token
+	// revoked, or the account it resets now has a role beyond theirs. It wraps ErrBadLink.
+	ErrLinkWithdrawn = fmt.Errorf("the link no longer works, as whoever made it may no longer make it: %w", ErrBadLink)
 	// ErrExists means the name is taken.
 	ErrExists = errors.New("the name is taken")
 	// ErrHasAccounts means Beacon has accounts already, so there is nothing to set up.
@@ -341,9 +344,15 @@ func (s *Store) UpdateAccount(username string, change func(*Account) error) (Acc
 			return err
 		}
 		a.Username, a.PasswordHash, a.Created, a.DisplayName = username, hash, created, dn
-		if (a.Role != "owner" || a.Disabled) && owners(tx, username) == 0 {
-			if prev, _ := getAccount(tx, username); prev.Role == "owner" && !prev.Disabled {
-				return ErrLastOwner
+		prev, _ := getAccount(tx, username)
+		if (a.Role != "owner" || a.Disabled) && owners(tx, username) == 0 && prev.Role == "owner" && !prev.Disabled {
+			return ErrLastOwner
+		}
+		// Disabled or demoted: the invitations and reset links they made go, whatever is left of their
+		// authority. A link made with the authority someone had no longer works once they lose it.
+		if a.Disabled && !prev.Disabled || slices.Index(Roles, a.Role) < slices.Index(Roles, prev.Role) {
+			if err := deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "user:"+username }); err != nil {
+				return err
 			}
 		}
 		out = a
@@ -398,7 +407,9 @@ func (s *Store) SignIn(username, password string) (Account, error) {
 }
 
 // SetPassword gives the account a new password (checked with CheckPassword) and ends its console
-// sessions but the one called keep (the session that changed it; "" ends them all).
+// sessions but the one called keep (the session that changed it; "" ends them all). It also ends the
+// OAuth sign-ins of the person's agents and deletes the reset links for the account (newPasswordEnds).
+// Their agents' tokens keep working.
 func (s *Store) SetPassword(username, password, keep string) error {
 	if err := CheckPassword(username, password); err != nil {
 		return err
@@ -413,6 +424,9 @@ func (s *Store) SetPassword(username, password, keep string) error {
 			return ErrNotFound
 		}
 		a.PasswordHash, a.PasswordChanged = hash, s.now().UTC()
+		if err := newPasswordEnds(tx, username); err != nil {
+			return err
+		}
 		return putAccount(tx, a)
 	})
 	if err != nil {
@@ -420,6 +434,24 @@ func (s *Store) SetPassword(username, password, keep string) error {
 	}
 	s.DeleteAccountSessions(username, keep)
 	return nil
+}
+
+// newPasswordEnds ends what a new password for username ends besides the console sessions: the OAuth
+// sign-ins of the person's agents (with their access tokens and the SSH keys added through them), and
+// the reset links for the account. The agents' own tokens stay: a person revokes those on purpose.
+func newPasswordEnds(tx kv.Tx, username string) error {
+	agents := map[string]bool{}
+	tx.Range(bucketAgents, kv.Range{}, func(_, v []byte) bool {
+		var a Agent
+		if json.Unmarshal(v, &a) == nil && a.Owner == username {
+			agents[a.Name] = true
+		}
+		return true
+	})
+	if err := deleteGrants(tx, func(g Grant) bool { return agents[g.Agent] }); err != nil {
+		return err
+	}
+	return deleteLinks(tx, func(l AccountLink) bool { return l.Kind == LinkReset && l.User == username })
 }
 
 // ChangePassword is SetPassword for a person who knows the current password.
@@ -454,6 +486,8 @@ const (
 
 // AccountLink is a one-time link: to set up the first account (setup), to join with a role (invite), or
 // to choose a new password (reset, for User). Only the SHA-256 of its code is kept; using it deletes it.
+// Maker is the principal that made an invitation or a reset link (LinkMaker.Key): the link works only
+// while that principal could still make it.
 type AccountLink struct {
 	Hash      string    `json:"hash"`
 	Kind      string    `json:"kind"`
@@ -462,11 +496,85 @@ type AccountLink struct {
 	User      string    `json:"user,omitempty"`
 	Created   time.Time `json:"created"`
 	CreatedBy string    `json:"created_by,omitempty"`
+	Maker     string    `json:"maker,omitempty"`
 	Expires   time.Time `json:"expires"`
 }
 
-// ID names a pending link without its code: the start of its hash, for withdrawing an invitation.
+// ID names a pending link without its code: the start of its hash, for withdrawing it.
 func (l AccountLink) ID() string { return l.Hash[:16] }
+
+// LinkCLI is the maker of a link made on the command line on the host, which may make any link.
+const LinkCLI = "cli"
+
+// LinkMaker is who makes an invitation or a reset link: Name as the audit log and the console name them,
+// and Key the principal (Principal.Key: user:NAME or token:NAME), or LinkCLI.
+type LinkMaker struct {
+	Name, Key string
+}
+
+// linkMakerMay reports whether whoever made l could make it now, read afresh in tx: ErrLinkWithdrawn
+// when not. The command line always could. A person must be enabled, and a token of its own must exist
+// and not have expired; either must hold accounts:write and every scope of the role the link gives, or
+// of the role the account it resets has now. A link that names no maker was made before Beacon recorded
+// makers, and is refused: who made it cannot be checked.
+func linkMakerMay(tx kv.Tx, l AccountLink, now time.Time) error {
+	if l.Kind == LinkSetup || l.Maker == LinkCLI {
+		return nil
+	}
+	var scopes []string
+	kind, name, _ := strings.Cut(l.Maker, ":")
+	switch kind {
+	case "user":
+		a, ok := getAccount(tx, name)
+		if !ok || a.Disabled {
+			return ErrLinkWithdrawn
+		}
+		scopes = RoleScopes(a.Role)
+	case "token":
+		var t Token
+		if name == "" || !decodeKey(tx, bucketTokens, []byte(name), &t) || t.Agent != "" || !now.Before(t.Expires) {
+			return ErrLinkWithdrawn
+		}
+		scopes = t.Scopes
+	default:
+		return ErrLinkWithdrawn
+	}
+	role := l.Role
+	if l.Kind == LinkReset {
+		a, ok := getAccount(tx, l.User)
+		if !ok {
+			return ErrBadLink
+		}
+		role = a.Role
+	}
+	if !slices.Contains(scopes, "accounts:write") {
+		return ErrLinkWithdrawn
+	}
+	for _, sc := range RoleScopes(role) {
+		if !slices.Contains(scopes, sc) {
+			return ErrLinkWithdrawn
+		}
+	}
+	return nil
+}
+
+// deleteLinks deletes the links that match.
+func deleteLinks(tx kv.Tx, match func(AccountLink) bool) error {
+	var keys [][]byte
+	tx.Range(bucketLinks, kv.Range{}, func(k, v []byte) bool {
+		var l AccountLink
+		if json.Unmarshal(v, &l) == nil && match(l) {
+			keys = append(keys, append([]byte(nil), k...))
+		}
+		return true
+	})
+	for _, k := range keys {
+		if err := tx.Delete(bucketLinks, k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func hashLink(code string) string {
 	sum := sha256.Sum256([]byte("link:" + code))
@@ -521,7 +629,10 @@ func (s *Store) CreateSetupLink() (string, AccountLink, error) {
 }
 
 // CreateInvitation makes a link with which someone joins with role.
-func (s *Store) CreateInvitation(role, note, by string) (string, AccountLink, error) {
+func (s *Store) CreateInvitation(role, note string, by LinkMaker) (string, AccountLink, error) {
+	if by.Key == "" {
+		return "", AccountLink{}, errors.New("a link names who made it")
+	}
 	if !ValidRole(role) {
 		return "", AccountLink{}, fmt.Errorf("unknown role %q; roles are %s", role, strings.Join(Roles, ", "))
 	}
@@ -529,12 +640,15 @@ func (s *Store) CreateInvitation(role, note, by string) (string, AccountLink, er
 	if utf8.RuneCountInString(note) > 200 || strings.ContainsFunc(note, unicode.IsControl) {
 		return "", AccountLink{}, errors.New("the note is at most 200 characters on one line")
 	}
-	return s.createLink(AccountLink{Kind: LinkInvite, Role: role, Note: note, CreatedBy: by}, InviteTTL, nil)
+	return s.createLink(AccountLink{Kind: LinkInvite, Role: role, Note: note, CreatedBy: by.Name, Maker: by.Key}, InviteTTL, nil)
 }
 
 // CreateResetLink makes a link with which username chooses a new password.
-func (s *Store) CreateResetLink(username, by string) (string, AccountLink, error) {
-	return s.createLink(AccountLink{Kind: LinkReset, User: username, CreatedBy: by}, ResetTTL, func(tx kv.Tx) error {
+func (s *Store) CreateResetLink(username string, by LinkMaker) (string, AccountLink, error) {
+	if by.Key == "" {
+		return "", AccountLink{}, errors.New("a link names who made it")
+	}
+	return s.createLink(AccountLink{Kind: LinkReset, User: username, CreatedBy: by.Name, Maker: by.Key}, ResetTTL, func(tx kv.Tx) error {
 		if _, ok := getAccount(tx, username); !ok {
 			return ErrNotFound
 		}
@@ -542,19 +656,27 @@ func (s *Store) CreateResetLink(username, by string) (string, AccountLink, error
 	})
 }
 
-// Link returns the link whose code this is, if it is of kind and has not been used or expired.
+// Link returns the link whose code this is, if it is of kind, has not been used or expired, and whoever
+// made it could make it now (ErrLinkWithdrawn otherwise).
 func (s *Store) Link(kind, code string) (AccountLink, error) {
 	var l AccountLink
 	found := false
+	now := s.now()
+	var maker error
 	_ = s.db.View(func(tx kv.Tx) error {
-		l, found = getLink(tx, code)
+		if l, found = getLink(tx, code); found {
+			maker = linkMakerMay(tx, l, now)
+		}
 		return nil
 	})
 	if !found || l.Kind != kind {
 		return AccountLink{}, ErrBadLink
 	}
-	if !s.now().Before(l.Expires) {
+	if !now.Before(l.Expires) {
 		return AccountLink{}, ErrLinkExpired
+	}
+	if maker != nil {
+		return AccountLink{}, maker
 	}
 	return l, nil
 }
@@ -568,14 +690,20 @@ func getLink(tx kv.Tx, code string) (AccountLink, bool) {
 	return l, v != nil && json.Unmarshal(v, &l) == nil
 }
 
-// Invitations lists the invitations not yet used or expired, the newest first.
-func (s *Store) Invitations() []AccountLink {
+// Invitations lists the invitations that still work: not used, not expired, and made by someone who
+// could make them now. The newest come first.
+func (s *Store) Invitations() []AccountLink { return s.pendingLinks(LinkInvite) }
+
+// ResetLinks lists the password reset links that still work, as Invitations does.
+func (s *Store) ResetLinks() []AccountLink { return s.pendingLinks(LinkReset) }
+
+func (s *Store) pendingLinks(kind string) []AccountLink {
 	var out []AccountLink
 	now := s.now()
 	_ = s.db.View(func(tx kv.Tx) error {
 		tx.Range(bucketLinks, kv.Range{}, func(_, v []byte) bool {
 			var l AccountLink
-			if json.Unmarshal(v, &l) == nil && l.Kind == LinkInvite && now.Before(l.Expires) {
+			if json.Unmarshal(v, &l) == nil && l.Kind == kind && now.Before(l.Expires) && linkMakerMay(tx, l, now) == nil {
 				out = append(out, l)
 			}
 			return true
@@ -588,6 +716,15 @@ func (s *Store) Invitations() []AccountLink {
 
 // WithdrawInvitation deletes the pending invitation with this ID (AccountLink.ID).
 func (s *Store) WithdrawInvitation(id string) (AccountLink, error) {
+	return s.withdrawLink(id, LinkInvite)
+}
+
+// WithdrawLink deletes the pending invitation or password reset link with this ID (AccountLink.ID).
+func (s *Store) WithdrawLink(id string) (AccountLink, error) {
+	return s.withdrawLink(id, LinkInvite, LinkReset)
+}
+
+func (s *Store) withdrawLink(id string, kinds ...string) (AccountLink, error) {
 	var gone AccountLink
 	err := s.db.Update(func(tx kv.Tx) error {
 		if len(id) != 16 {
@@ -596,7 +733,7 @@ func (s *Store) WithdrawInvitation(id string) (AccountLink, error) {
 		var key []byte
 		tx.Range(bucketLinks, kv.Range{}, func(k, v []byte) bool {
 			var l AccountLink
-			if json.Unmarshal(v, &l) == nil && l.Kind == LinkInvite && strings.HasPrefix(l.Hash, id) {
+			if json.Unmarshal(v, &l) == nil && slices.Contains(kinds, l.Kind) && strings.HasPrefix(l.Hash, id) {
 				key, gone = append([]byte(nil), k...), l
 			}
 			return true
@@ -636,6 +773,9 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 		if !now.Before(l.Expires) {
 			return ErrLinkExpired
 		}
+		if err := linkMakerMay(tx, l, now); err != nil {
+			return err
+		}
 		if l.Kind == LinkSetup {
 			if tx.Count(bucketAccounts) > 0 {
 				return ErrHasAccounts
@@ -660,8 +800,10 @@ func (s *Store) Join(code, username, displayName, password string) (Account, err
 	return a, nil
 }
 
-// Reset gives an account a new password with a reset link, which it uses up, and ends the account's
-// console sessions.
+// Reset gives an account a new password with a reset link, which it uses up, while whoever made the link
+// could still make it. It ends what SetPassword ends (the console sessions, the OAuth sign-ins of the
+// person's agents, the reset links for the account) and withdraws the invitations and reset links the
+// person made. Their agents' tokens keep working.
 func (s *Store) Reset(code, password string) (Account, error) {
 	l, err := s.Link(LinkReset, code)
 	if err != nil {
@@ -684,6 +826,9 @@ func (s *Store) Reset(code, password string) (Account, error) {
 		if !now.Before(cur.Expires) {
 			return ErrLinkExpired
 		}
+		if err := linkMakerMay(tx, cur, now); err != nil {
+			return err
+		}
 		acc, ok := getAccount(tx, cur.User)
 		if !ok {
 			return ErrBadLink
@@ -693,7 +838,13 @@ func (s *Store) Reset(code, password string) (Account, error) {
 		if err := putAccount(tx, acc); err != nil {
 			return err
 		}
-		return tx.Delete(bucketLinks, []byte(cur.Hash))
+		if err := tx.Delete(bucketLinks, []byte(cur.Hash)); err != nil {
+			return err
+		}
+		if err := newPasswordEnds(tx, acc.Username); err != nil {
+			return err
+		}
+		return deleteLinks(tx, func(l AccountLink) bool { return l.Maker == "user:"+acc.Username })
 	})
 	if err != nil {
 		return Account{}, err

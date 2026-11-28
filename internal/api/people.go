@@ -9,12 +9,13 @@ import (
 )
 
 // People and the caller's SSH keys. Managing accounts needs a standalone administration token with accounts:write: listing them,
-// inviting people, changing roles, disabling, making password reset links. Any credential with
+// inviting people, changing roles, disabling, making password reset links, withdrawing pending links.
+// Invitations, resets and changes reach only the roles whose scopes the caller holds. Any credential with
 // machines:ssh manages its own SSH keys: an agent's are its agent's, shown to its owner.
 
 func init() {
 	Routes = append(Routes, "GET /api/v1/users", "POST /api/v1/users/invitations", "PATCH /api/v1/users/{name}", "POST /api/v1/users/{name}/reset",
-		"GET /api/v1/ssh-keys", "POST /api/v1/ssh-keys", "DELETE /api/v1/ssh-keys")
+		"DELETE /api/v1/users/links/{id}", "GET /api/v1/ssh-keys", "POST /api/v1/ssh-keys", "DELETE /api/v1/ssh-keys")
 }
 
 func (s *Server) registerPeople(mux *http.ServeMux) {
@@ -22,6 +23,7 @@ func (s *Server) registerPeople(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/users/invitations", s.with("accounts:write", s.inviteUser))
 	mux.Handle("PATCH /api/v1/users/{name}", s.with("accounts:write", s.updateUser))
 	mux.Handle("POST /api/v1/users/{name}/reset", s.with("accounts:write", s.resetUser))
+	mux.Handle("DELETE /api/v1/users/links/{id}", s.with("accounts:write", s.withdrawLink))
 	mux.Handle("GET /api/v1/ssh-keys", s.with("machines:ssh", s.listKeys))
 	mux.Handle("POST /api/v1/ssh-keys", s.with("machines:ssh", s.addKey))
 	mux.Handle("DELETE /api/v1/ssh-keys", s.with("machines:ssh", s.removeKey))
@@ -53,7 +55,22 @@ func (s *Server) listUsers(w http.ResponseWriter, _ *http.Request, who bridge.Ac
 		s.peopleError(w, err, "user.not_found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users, "invitations": invs})
+	resets, err := s.Bridge.ResetLinks(who)
+	if err != nil {
+		s.peopleError(w, err, "user.not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users, "invitations": invs, "reset_links": resets})
+}
+
+// withdrawLink withdraws a pending invitation or password reset link by its ID.
+func (s *Server) withdrawLink(w http.ResponseWriter, r *http.Request, who bridge.Actor) {
+	l, err := s.Bridge.WithdrawLink(r.Context(), who, r.PathValue("id"))
+	if err != nil {
+		s.peopleError(w, err, "link.not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, l)
 }
 
 func (s *Server) inviteUser(w http.ResponseWriter, r *http.Request, who bridge.Actor) {

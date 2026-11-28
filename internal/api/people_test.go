@@ -55,7 +55,21 @@ func people(t *testing.T, e *testutil.Env) (agentToken string) {
 func TestPeopleRoutes(t *testing.T) {
 	e, c := setup(t)
 	agent := people(t, e)
-	owner := e.Token(t, "owner-script", "status:read", "accounts:write")
+	owner := e.Token(t, "owner-script", store.PeopleScopes...)
+	weak := e.Token(t, "accounts-script", "status:read", "accounts:write")
+
+	// a token is held to the roles within its own scopes: accounts:write alone invites, resets or
+	// changes nobody
+	for _, req := range []struct{ method, path, body string }{
+		{"POST", "/api/v1/users/invitations", `{"role": "viewer"}`},
+		{"POST", "/api/v1/users/bob/reset", ""},
+		{"PATCH", "/api/v1/users/bob", `{"display_name": "Bob"}`},
+		{"PATCH", "/api/v1/users/alice", `{"disabled": true}`},
+	} {
+		if code, out := c.do(req.method, req.path, weak, req.body); code != 403 || out["code"] != "auth.scope" || !strings.Contains(out["error"].(string), "which you do not hold") {
+			t.Errorf("%s %s with accounts:write alone: %d %v", req.method, req.path, code, out)
+		}
+	}
 
 	// accounts:write only: an agent never has it (its presets stop at operator)
 	if code, out := c.do("GET", "/api/v1/users", agent, ""); code != 403 || out["code"] != "auth.scope" || !strings.Contains(out["error"].(string), "bob / codex may not use the accounts:write scope") {
@@ -87,6 +101,25 @@ func TestPeopleRoutes(t *testing.T) {
 	}
 	if code, out := c.do("POST", "/api/v1/users/bob/reset", owner, ""); code != 201 || !strings.Contains(out["url"].(string), "/console/reset?code=") {
 		t.Errorf("reset: %d %v", code, out)
+	}
+	// the pending reset link is listed without its code, and withdrawn
+	code, out = c.do("GET", "/api/v1/users", owner, "")
+	resets, _ := out["reset_links"].([]any)
+	if code != 200 || len(resets) != 1 || strings.Contains(jsonText(out), "code=") {
+		t.Fatalf("pending reset links: %d %v", code, out)
+	}
+	id := resets[0].(map[string]any)["id"].(string)
+	if code, out := c.do("DELETE", "/api/v1/users/links/"+id, weak, ""); code != 200 || out["kind"] != "reset" || out["user"] != "bob" {
+		t.Errorf("withdraw: %d %v", code, out)
+	}
+	if code, out := c.do("DELETE", "/api/v1/users/links/"+id, owner, ""); code != 404 || out["code"] != "link.not_found" {
+		t.Errorf("withdraw twice: %d %v", code, out)
+	}
+	if code, out := c.do("DELETE", "/api/v1/users/links/"+id, agent, ""); code != 403 || out["code"] != "auth.scope" {
+		t.Errorf("an agent withdraws: %d %v", code, out)
+	}
+	if !hasEntry(e.Store.AuditLog(20), "accounts-script", "user_reset_withdraw", "bob") {
+		t.Errorf("audit: %+v", e.Store.AuditLog(20))
 	}
 	for _, s := range e.Bot.Texts {
 		if strings.Contains(s, "code=") {

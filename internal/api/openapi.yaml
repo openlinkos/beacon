@@ -60,7 +60,7 @@ components:
             session.not_found, session.recording_unavailable,
             config.not_found, config.invalid, config.conflict, status.not_found, maintenance.not_found, maintenance.ended,
             token.too_soon, token.not_renewable, token.not_found, token.not_revocable, machine.disconnected,
-            probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, key.not_found, key.exists,
+            probe.busy, probe.not_found, probe.unavailable, probe.not_recorded, user.not_found, user.last_owner, link.not_found, key.not_found, key.exists,
             agent.not_found, agent.exists,
             audit.unavailable, incident.not_found, incident.unavailable, incident.changed,
             credential.denied, credential.upstream, credential.unavailable, credential.anchor_pending,
@@ -2555,11 +2555,13 @@ paths:
   /users:
     get:
       tags: [Identity & Agents]
-      summary: The people who sign in to Beacon, and the invitations not yet used
-      description: "Scope: accounts:write, held by a standalone administration token."
+      summary: The people who sign in to Beacon, and the invitations and password reset links not yet used
+      description: >-
+        Scope: accounts:write, held by a standalone administration token. A pending link is listed only while
+        whoever made it could still make it; its code is never shown again.
       responses:
         "200":
-          description: The people and the invitations
+          description: The people and the pending links
           content:
             application/json:
               schema:
@@ -2567,15 +2569,34 @@ paths:
                 properties:
                   users: {type: array, items: {$ref: "#/components/schemas/User"}}
                   invitations: {type: array, items: {$ref: "#/components/schemas/Link"}}
+                  reset_links: {type: array, items: {$ref: "#/components/schemas/Link"}}
+        default: {$ref: "#/components/responses/Error"}
+  /users/links/{id}:
+    delete:
+      tags: [Identity & Agents]
+      summary: Withdraw a pending invitation or password reset link
+      description: >-
+        Scope: accounts:write, held by a standalone administration token. The link stops working at once
+        (link.not_found, 404, when no pending link has the ID). Audited (user_invite_withdraw,
+        user_reset_withdraw) and echoed to the alert chat. Also the MCP tool withdraw_link.
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}, description: "The link's ID, as GET /users lists it"}
+      responses:
+        "200":
+          description: The withdrawn link, without its code
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Link"}
         default: {$ref: "#/components/responses/Error"}
   /users/invitations:
     post:
       tags: [Identity & Agents]
       summary: Invite a person
       description: >-
-        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 24 hours, with which the person joins with the role,
+        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the role (auth.scope, 403, otherwise).
+        A one-time link, valid for 24 hours, with which the person joins with the role,
         choosing their username and password. The link is in the answer only; Beacon keeps a hash of its code.
-        Audited (user_invite) and echoed to the alert chat, without the link.
+        It works only while whoever made it could still make it. Audited (user_invite) and echoed to the alert chat, without the link.
       requestBody:
         required: true
         content:
@@ -2598,8 +2619,9 @@ paths:
       tags: [Identity & Agents]
       summary: Change a person's role, display name or contact, or disable or enable them
       description: >-
-        Scope: accounts:write, held by a standalone administration token. A lowered role or a disabled account limits the person's sessions and agents
-        at once (their SSH sessions that may no longer reach a machine are closed); Beacon always keeps an
+        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the person's role and of the role
+        it gives (auth.scope, 403, otherwise). A lowered role or a disabled account limits the person's sessions and agents
+        at once (their SSH sessions that may no longer reach a machine are closed) and withdraws the links they made; Beacon always keeps an
         enabled owner (user.last_owner, 409). Audited (user_role, user_disable, user_enable, user_update) and
         echoed to the alert chat.
       parameters:
@@ -2627,9 +2649,11 @@ paths:
       tags: [Identity & Agents]
       summary: Make a password reset link for a person
       description: >-
-        Scope: accounts:write, held by a standalone administration token. A one-time link, valid for 30 minutes, with which the person chooses a new
-        password; their sign-ins end then. Not offered over MCP. Audited (user_reset_link) and echoed to the
-        alert chat, without the link.
+        Scope: accounts:write, held by a standalone administration token, which must also hold every scope of the person's role (auth.scope, 403,
+        otherwise). A one-time link, valid for 30 minutes, with which the person chooses a new
+        password. Their console sign-ins and the OAuth sign-ins of their agents end then, with the other reset links for them, and the links
+        they made; their agents' tokens keep working unless they revoke them on the reset page. The link works only while whoever made it
+        could still make it. Not offered over MCP. Audited (user_reset_link) and echoed to the alert chat, without the link.
       parameters:
         - {name: name, in: path, required: true, schema: {type: string}}
       responses:

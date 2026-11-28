@@ -51,4 +51,21 @@
   </table></div>
   {{else}}{{template "empty" .L.NoInvitations}}{{end}}
 </section>
+
+<section class="ol-section">
+  <div class="ol-section-header"><h2 class="ol-section-title">{{.L.ResetLinks}}</h2></div>
+  {{if .ResetLinks}}
+  <div class="ol-table-wrap"><table class="ol-table ol-table-compact ol-table-stack">
+    <thead><tr><th>{{.L.ResetFor}}</th><th>{{.L.By}}</th><th>{{.L.Expires}}</th><th class="ol-actions"><span class="ol-sr-only">{{.L.Withdraw}}</span></th></tr></thead>
+    <tbody>
+    {{range .ResetLinks}}<tr>
+      <td><span class="ol-cell-title ol-mono">{{.User}}</span></td>
+      <td data-label="{{$.L.By}}">{{.By}}</td>
+      <td data-label="{{$.L.Expires}}">{{.Expires}}</td>
+      <td class="ol-actions"><form method="post" action="{{.Withdraw}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="ol-btn ol-btn-danger-soft ol-btn-sm">{{iconSm "x"}}{{$.L.Withdraw}}</button></form></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}{{template "empty" .L.NoResetLinks}}{{end}}
+</section>
 </div>{{end}}

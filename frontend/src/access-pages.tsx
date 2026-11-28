@@ -14,6 +14,7 @@ export type SignInData = {
 export type OneTimeForm = {
   L: Text; Heading: string; Action: string; Code: string; Form: string; Error: string
   Broken: boolean; AskUsername: boolean; Username: string; DisplayName: string; SignInHref: string
+  Intro: string; Note: string; Tokens: string[] | null; TokensNote: string
 }
 
 function AuthShell({ children }: { children: React.ReactNode }) {
@@ -88,6 +89,8 @@ export function AccountLinkForm({ data: p }: { data: OneTimeForm }) {
         <div className="auth-brand-inline"><BeaconMark /><span>Beacon</span></div>
         <h1>{p.Heading}</h1>
       </div>
+      {p.Intro && <p>{p.Intro}</p>}
+      {p.Note && <p><small>{p.Note}</small></p>}
       {p.Error && <p className="operation-error" role="alert">{p.Error}</p>}
       {p.Broken ? (
         <Link className="button primary" href={p.SignInHref}>{l.SignIn}</Link>
@@ -101,6 +104,12 @@ export function AccountLinkForm({ data: p }: { data: OneTimeForm }) {
           )}
           <Field label={l.Password}><input name="password" type="password" autoComplete="new-password" required minLength={10} maxLength={1024} /></Field>
           <Field label={l.Again}><input name="again" type="password" autoComplete="new-password" required minLength={10} maxLength={1024} /></Field>
+          {p.Tokens?.length ? (
+            <>
+              <p>{p.TokensNote}</p>
+              <label className="choice"><input type="checkbox" name="revoke_tokens" value="1" />{l.RevokeTokens}</label>
+            </>
+          ) : null}
         </Action>
       )}
     </AuthShell>
@@ -108,7 +117,7 @@ export function AccountLinkForm({ data: p }: { data: OneTimeForm }) {
 }
 
 export type AccountData = {
-  L: Text; Facts: Pair[]; Person: boolean
+  L: Text; Facts: Pair[]; Person: boolean; Help: string
   SSH: (Text & { CanAdd: boolean; Keys: { fingerprint: string; comment?: string }[] | null
     Return: { Ref: string; Machine: string; Registration: string }
   }) | null
@@ -141,6 +150,7 @@ export function Account({ data: p }: { data: AccountData }) {
       )}
       {p.Person && (
         <Section title={p.L.Change}>
+          {p.Help && <p>{p.Help}</p>}
           <Action action="/console/account/password" label={p.L.Save} primary>
             <Field label={p.L.Current}><input name="current" type="password" autoComplete="current-password" maxLength={1024} required /></Field>
             <Field label={p.L.New}><input name="password" type="password" autoComplete="new-password" minLength={10} maxLength={1024} required /></Field>
@@ -160,6 +170,7 @@ type Person = {
 export type PeopleData = {
   L: Text; Roles: Pick[]; Rows: Person[] | null
   Invitations: { Note: string; Role: string; Expires: string; By: string; Withdraw: string }[] | null
+  ResetLinks: { User: string; By: string; Expires: string; Withdraw: string }[] | null
 }
 
 export function People({ data: p }: { data: PeopleData }) {
@@ -192,6 +203,11 @@ export function People({ data: p }: { data: PeopleData }) {
         <Table columns={[l.Note, l.Role, l.By, l.Expires, l.Withdraw]} rows={(p.Invitations ?? []).map(row => [
           row.Note, row.Role, row.By, row.Expires, <Action compact action={row.Withdraw} label={l.Withdraw} />,
         ])} empty={l.NoInvitations} />
+      </Section>
+      <Section title={l.ResetLinks}>
+        <Table columns={[l.ResetFor, l.By, l.Expires, l.Withdraw]} rows={(p.ResetLinks ?? []).map(row => [
+          <code>{row.User}</code>, row.By, row.Expires, <Action compact action={row.Withdraw} label={l.Withdraw} />,
+        ])} empty={l.NoResetLinks} />
       </Section>
     </>
   )
